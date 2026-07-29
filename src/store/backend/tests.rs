@@ -1,3 +1,5 @@
+use futures::StreamExt as _;
+
 use super::*;
 use crate::link::memory;
 use crate::store::Memory;
@@ -346,5 +348,398 @@ fn kv_act_matches_local_hash() {
             let kv_hash = kv_root.as_ref().map(|node| node.hash());
             assert_eq!(local_hash, kv_hash, "diverged at insert {message:?}");
         }
+    });
+}
+
+/// The crash-point battery: every committed prefix reopens consistently.
+///
+/// For every committed transaction prefix of a real workload, reopening
+/// the store yields a consistent replica — the audit invariants hold
+/// after recovery and vacuum, the tree walks, and its state is one the
+/// live run actually published (prefix consistency lifted to the
+/// replica level).
+#[test]
+fn every_crash_prefix_reopens_consistently() {
+    pollster::block_on(async {
+        let store = Memory::recording();
+        let backend = KvBackend::<Memory, u64>::new(store.clone());
+        let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
+        let rumors = peer.into_rumors();
+
+        // A workload of sends and redactions; record every published
+        // (hash, contents) pair the live run exposed.
+        let mut published = std::collections::HashMap::new();
+        let snapshot = rumors.snapshot();
+        published.insert(snapshot.hash(), Vec::new());
+        for message in 0..12u64 {
+            rumors.send(message).await.expect("send");
+            let snapshot = rumors.snapshot();
+            published.insert(snapshot.hash(), contents(&rumors));
+        }
+        for index in [0usize, 3, 7] {
+            let (key, _, _) = crate::testing::collect(&rumors.snapshot())[index];
+            rumors.redact(key).await.expect("redact");
+            let snapshot = rumors.snapshot();
+            published.insert(snapshot.hash(), contents(&rumors));
+        }
+        drop(rumors);
+        backend.vacuum().await.expect("vacuum");
+
+        for prefix in 0..store.history_len() {
+            let crashed = store.reopen_at(prefix);
+            let reopened = match Peer::<u64, _, _>::open(crashed.clone()).await {
+                // Prefixes before the first flip hold no replica.
+                Err(OpenError::Empty) => continue,
+                other => other.expect("open at prefix"),
+            };
+            let reopened = reopened.into_rumors();
+            let snapshot = reopened.snapshot();
+            let expected = published.get(&snapshot.hash()).unwrap_or_else(|| {
+                panic!("prefix {prefix} reopened to a state the live run never published")
+            });
+            assert_eq!(
+                &contents(&reopened),
+                expected,
+                "prefix {prefix}: reopened contents match the published state"
+            );
+            // `open` built its own backend, whose release queue died with
+            // the dropped peer: recovery is the sanctioned sweep for
+            // registrations whose process is gone.
+            drop(reopened);
+            crate::store::refcount::recover(&crashed)
+                .await
+                .expect("recover");
+            KvBackend::<Memory, u64>::new(crashed.clone())
+                .vacuum()
+                .await
+                .expect("vacuum");
+            audit(&crashed);
+        }
+    });
+}
+
+/// The fault battery: an injected store failure aborts a commit cleanly.
+///
+/// A failure surfacing mid-commit leaves the published replica exactly
+/// at its pre-operation state, wakes no observer, reports through
+/// `StorageError` — and the store still audits clean after recovery,
+/// whichever transaction the fault hit.
+#[test]
+fn injected_faults_abort_commits_cleanly() {
+    // Sweep the fault across the first forty write transactions.
+    for nth in 0..40u64 {
+        pollster::block_on(async {
+            let store = Memory::new();
+            let backend = KvBackend::<Memory, u64>::new(store.clone());
+            let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
+            let rumors = peer.into_rumors();
+            let mut ticks = std::pin::pin!(rumors.changes());
+            // Drain any initial readiness so the loop observes exactly
+            // the ticks its own commits produce.
+            let _ = futures::poll!(ticks.as_mut().next());
+            let mut wakeups = 0usize;
+
+            store.inject_abort(nth);
+            let mut failed = None;
+            for message in 0..8u64 {
+                let before_hash = rumors.snapshot().hash();
+                let before_contents = contents(&rumors);
+                match rumors.send(message).await {
+                    Ok(()) => {
+                        wakeups += 1;
+                        assert!(
+                            futures::poll!(ticks.as_mut().next()).is_ready(),
+                            "a committed send ticks its observer"
+                        );
+                    }
+                    Err(crate::StorageError(_)) => {
+                        assert_eq!(
+                            rumors.snapshot().hash(),
+                            before_hash,
+                            "a failed send leaves the published tree unchanged"
+                        );
+                        assert_eq!(contents(&rumors), before_contents);
+                        assert!(
+                            futures::poll!(ticks.as_mut().next()).is_pending(),
+                            "a failed send wakes no observer"
+                        );
+                        failed = Some(message);
+                        break;
+                    }
+                }
+            }
+            let sent = wakeups;
+            if failed.is_none() {
+                // The fault landed in upkeep-only traffic or past the
+                // workload; the sends all committed.
+                assert_eq!(sent, 8);
+            }
+            // The pinned observer's borrow ends here; the fault window is
+            // over, so recovery and the audit run against the store's
+            // honest behavior.
+            drop(rumors);
+            store.clear_faults();
+            // The store heals: recovery + vacuum reach a clean audit.
+            let healed = KvBackend::<Memory, u64>::new(store.clone());
+            crate::store::refcount::recover(&store)
+                .await
+                .expect("recover");
+            healed.vacuum().await.expect("vacuum");
+            audit(&store);
+        });
+    }
+}
+
+/// The ambiguous-commit window resolves forward.
+///
+/// A commit whose acknowledgment is lost (the transaction applied, the
+/// caller saw an error) is superseded by the next successful commit,
+/// and the store never double-counts or leaks through the retried
+/// release traffic.
+#[test]
+fn ambiguous_commits_are_superseded_cleanly() {
+    for nth in 0..24u64 {
+        pollster::block_on(async {
+            let store = Memory::new();
+            let backend = KvBackend::<Memory, u64>::new(store.clone());
+            let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
+            let rumors = peer.into_rumors();
+
+            store.inject_commit_then_error(nth);
+            let mut observed = Vec::new();
+            for message in 0..8u64 {
+                // An Err here may or may not have committed: both are
+                // legal outcomes; later commits must supersede either way.
+                let _ = rumors.send(message).await;
+                observed.push(rumors.snapshot().hash());
+            }
+            store.clear_faults();
+            rumors
+                .send(99)
+                .await
+                .expect("the fault window is over; this commits");
+            let final_contents = contents(&rumors);
+            assert!(
+                final_contents.iter().any(|(_, value)| *value == 99),
+                "the post-fault commit landed"
+            );
+            drop(rumors);
+            backend.vacuum().await.expect("vacuum");
+            audit(&store);
+        });
+    }
+}
+
+/// The durable-identity shrink law: a donation is recorded before it ships.
+///
+/// Serving a bootstrap writes the post-donation identity record before
+/// the fork crosses the wire, so a crash at ANY committed prefix after
+/// the donation shipped reopens to a party disjoint from the
+/// bootstrapped peer's — the donated region is never resurrected.
+/// Disjointness is checked by `Party::join`, which refuses overlap;
+/// monotonicity (once disjoint, disjoint at every later prefix) is what
+/// pins "recorded before the wire, never rolled back".
+#[test]
+fn donation_is_recorded_before_it_ships() {
+    pollster::block_on(async {
+        let store = Memory::recording();
+        let backend = KvBackend::<Memory, u64>::new(store.clone());
+        let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
+        let rumors = peer.into_rumors();
+        for message in 0..8u64 {
+            rumors.send(message).await.expect("send");
+        }
+
+        // Serve a bootstrap: a fork of this identity leaves over the wire.
+        let (mut a, mut b) = memory();
+        let (served, joined) =
+            tokio::join!(rumors.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b),);
+        served.expect("serve");
+        let booted = joined.expect("bootstrap").expect("real join").into_rumors();
+        let donated = booted
+            .dangerously_alias_party()
+            .expect("the bootstrapped peer holds the donated fork");
+
+        // Reopen at every committed prefix and classify: does the stored
+        // identity overlap the donated fork?
+        let mut overlapping = Vec::new();
+        let mut disjoint = Vec::new();
+        for prefix in 0..store.history_len() {
+            let crashed = store.reopen_at(prefix);
+            let reopened = match Peer::<u64, _, _>::open(crashed).await {
+                Err(OpenError::Empty) => continue,
+                other => other.expect("open at prefix"),
+            };
+            let mut resumed = reopened
+                .into_rumors()
+                .dangerously_alias_party()
+                .expect("a reopened peer holds a party");
+            // `Party::join` is the disjointness oracle: the sum of two
+            // parties is defined exactly when they overlap nowhere.
+            match resumed.join(donated.dangerously_alias()) {
+                Ok(()) => disjoint.push(prefix),
+                Err(_) => overlapping.push(prefix),
+            }
+        }
+
+        // The donation shipped, so the final record must be disjoint; and
+        // once the shrink is recorded it is never rolled back.
+        let first_disjoint = *disjoint
+            .first()
+            .expect("the shrink write reached the store before the session ended");
+        assert!(
+            overlapping.iter().all(|&prefix| prefix < first_disjoint),
+            "a prefix after the shrink write resurrected the donated region: \
+             overlapping {overlapping:?}, disjoint {disjoint:?}"
+        );
+        assert!(
+            disjoint.contains(&(store.history_len() - 1)),
+            "the final state records the post-donation identity"
+        );
+        // The teeth: the shrink must be recorded in its own transaction
+        // STRICTLY BEFORE the session's closing install flip (the final
+        // transaction here). The flip also records the post-fork
+        // identity, but it runs after the party crossed the wire — a
+        // crash between the crossing and the flip resurrects the
+        // donation unless an earlier transaction recorded the shrink.
+        assert!(
+            first_disjoint < store.history_len() - 1,
+            "no transaction before the closing flip records the shrink:              the donation crossed the wire unrecorded"
+        );
+    });
+}
+
+/// The cancellation battery: dropped sends are full-or-nothing.
+///
+/// A send future dropped at every poll depth either committed in full
+/// or left no trace — never a prefix — the party is never lost, no
+/// observer wakes for an uncommitted state, and whatever the drop
+/// stranded reclaims through recovery and vacuum.
+#[test]
+fn sends_dropped_at_every_poll_depth_are_full_or_nothing() {
+    use std::future::Future as _;
+    use std::task::{Context, Poll};
+
+    // Depths past the future's natural completion just commit; the sweep
+    // covers every genuine suspension point along the way.
+    for depth in 0..12usize {
+        pollster::block_on(async {
+            let store = Memory::new();
+            let backend = KvBackend::<Memory, u64>::new(store.clone());
+            let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
+            let rumors = peer.into_rumors();
+            rumors.send(1).await.expect("baseline send");
+            let baseline_hash = rumors.snapshot().hash();
+            let baseline = contents(&rumors);
+
+            let mut ticks = std::pin::pin!(rumors.changes());
+            let _ = futures::poll!(ticks.as_mut().next());
+
+            // Poll the victim exactly `depth` times, then drop it.
+            let committed = {
+                let mut victim = Box::pin(rumors.send(2));
+                let waker = std::task::Waker::noop();
+                let mut context = Context::from_waker(waker);
+                let mut committed = false;
+                for _ in 0..depth {
+                    if let Poll::Ready(result) = victim.as_mut().poll(&mut context) {
+                        result.expect("a completed send committed");
+                        committed = true;
+                        break;
+                    }
+                }
+                committed
+            };
+
+            let after = rumors.snapshot();
+            if committed {
+                assert_eq!(
+                    after.len(),
+                    2,
+                    "depth {depth}: the completed send is visible"
+                );
+                assert!(
+                    futures::poll!(ticks.as_mut().next()).is_ready(),
+                    "depth {depth}: a committed send ticked its observer"
+                );
+            } else {
+                assert_eq!(
+                    after.hash(),
+                    baseline_hash,
+                    "depth {depth}: no partial commit"
+                );
+                assert_eq!(contents(&rumors), baseline);
+                assert!(
+                    futures::poll!(ticks.as_mut().next()).is_pending(),
+                    "depth {depth}: no observer woke for an uncommitted state"
+                );
+            }
+            // The party survived the drop: the next send commits.
+            rumors
+                .send(3)
+                .await
+                .expect("depth {depth}: the party survived");
+
+            drop(rumors);
+            crate::store::refcount::recover(&store)
+                .await
+                .expect("recover");
+            KvBackend::<Memory, u64>::new(store.clone())
+                .vacuum()
+                .await
+                .expect("vacuum");
+            audit(&store);
+        });
+    }
+}
+
+/// A retirement's cleared identity is recorded before the party ships.
+///
+/// Reopening at any committed prefix after the donation crossed the
+/// wire reports [`OpenError::Retired`] — a restarted retiree never
+/// resurrects what it donated. (The whole-party analog of the
+/// fork-donation shrink law above, sharing its transaction-ordering
+/// teeth: the clear must land strictly before the session's final
+/// transactions.)
+#[test]
+fn retirement_clears_the_record_before_it_ships() {
+    pollster::block_on(async {
+        let store = Memory::recording();
+        let backend = KvBackend::<Memory, u64>::new(store.clone());
+        let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
+        let rumors = peer.into_rumors();
+        rumors.send(7).await.expect("send");
+        let (mut a, mut b) = memory();
+        let (served, joined) =
+            tokio::join!(rumors.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b),);
+        served.expect("serve");
+        let sibling = joined.expect("bootstrap").expect("real join").into_rumors();
+        let retiree = rumors.try_into_peer().await.expect("sole handle");
+        let (mut a, mut b) = memory();
+        let (retired, absorbed) = tokio::join!(retiree.retire(&mut a), sibling.gossip(&mut b));
+        assert!(matches!(retired, crate::Retire::Retired));
+        absorbed.expect("absorb");
+
+        // Classify every committed prefix; once cleared, always cleared.
+        let mut cleared = Vec::new();
+        let mut holding = Vec::new();
+        for prefix in 0..store.history_len() {
+            let crashed = store.reopen_at(prefix);
+            match Peer::<u64, _, _>::open(crashed).await {
+                Err(OpenError::Empty) => continue,
+                Err(OpenError::Retired) => cleared.push(prefix),
+                Ok(_) => holding.push(prefix),
+                Err(other) => panic!("prefix {prefix}: unexpected open failure {other:?}"),
+            }
+        }
+        let first_cleared = *cleared
+            .first()
+            .expect("the retirement's clear reached the store");
+        assert!(
+            holding.iter().all(|&prefix| prefix < first_cleared),
+            "a prefix after the clear resurrected the retiree: \
+             holding {holding:?}, cleared {cleared:?}"
+        );
+        assert!(cleared.contains(&(store.history_len() - 1)));
     });
 }

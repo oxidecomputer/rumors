@@ -137,6 +137,17 @@ impl Memory {
         shared.faults.insert(at, WriteFault::Abort);
     }
 
+    /// Discards every scheduled fault that has not yet fired: the end of
+    /// a test's fault window, before its recovery and audit steps run
+    /// against the store's honest behavior.
+    pub fn clear_faults(&self) {
+        self.shared
+            .lock()
+            .expect("Memory lock poisoned")
+            .faults
+            .clear();
+    }
+
     /// Schedules the write transaction `nth` from now (0 = the next) to
     /// commit in full and then report [`MemoryError::Injected`] anyway.
     ///

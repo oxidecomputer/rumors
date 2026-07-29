@@ -681,6 +681,30 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
     /// Takes the link pre-erased ([`DynLinkParts`]): every generic caller funnels
     /// through here, so the protocol towers this drives instantiate once per
     /// payload type, not once per link instantiation.
+    /// Record the current (post-shrink) identity beside the stored tree
+    /// and wait out the store's durability policy: the storage half of a
+    /// donation, run before the party crosses the wire.
+    ///
+    /// Boxed so its locals — the identity clock above all — stay out of
+    /// [`gossip_inner`](Self::gossip_inner)'s layout, which every public
+    /// session future
+    /// carries (`tests/future_size.rs` pins the budget).
+    fn record_shrunk_identity(&self) -> BoxFuture<'static, Result<(), S::Error>> {
+        // The watch borrow stays outside the future: its guard is not
+        // `Send`, and everything the future needs is owned.
+        let (tree, clock) = {
+            let inner = self.inner.borrow();
+            let clock = inner.party.as_ref().map(|party| {
+                before::Clock::from_parts(party.dangerously_alias(), inner.tree.latest().clone())
+            });
+            (inner.tree.clone(), clock)
+        };
+        Box::pin(async move {
+            tree.record(clock).await?;
+            tree.barrier().await
+        })
+    }
+
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
@@ -831,7 +855,7 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
         // its record would let a restart re-mint coordinates some
         // counterparty already holds.
         if S::PERSISTS
-            && let Err(e) = prior_tree.barrier().await
+            && let Err(e) = Box::pin(prior_tree.barrier()).await
         {
             return (Intent::Remain, Err(Error::Storage(StorageError(e))));
         }
@@ -971,23 +995,10 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
             // re-joins the donation in memory via the guard; the record
             // then lags subset-ward until the next write — the sanctioned
             // direction ([`Store::record`] states both obligations).
-            if S::PERSISTS {
-                let (tree, clock) = {
-                    let inner = self.inner.borrow();
-                    let clock = inner.party.as_ref().map(|party| {
-                        before::Clock::from_parts(
-                            party.dangerously_alias(),
-                            inner.tree.latest().clone(),
-                        )
-                    });
-                    (inner.tree.clone(), clock)
-                };
-                if let Err(e) = tree.record(clock).await {
-                    return (Intent::Remain, Err(Error::Storage(StorageError(e))));
-                }
-                if let Err(e) = tree.barrier().await {
-                    return (Intent::Remain, Err(Error::Storage(StorageError(e))));
-                }
+            if S::PERSISTS
+                && let Err(e) = self.record_shrunk_identity().await
+            {
+                return (Intent::Remain, Err(Error::Storage(StorageError(e))));
             }
 
             // Now take it out of the guard, defusing drop-recovery: from here
@@ -1075,12 +1086,13 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
         // Persist before publishing: the backend's root-flip transaction
         // records the merged root and the identity clock atomically. The
         // in-memory backend's `commit` is a no-op.
-        if let Err(e) = built
-            .persist(
-                alias.map(|a| before::Clock::from_parts(a, built.latest().clone())),
-                self.network,
-            )
-            .await
+        // Boxed like every storage call on this path: the persist frame
+        // and the identity clock stay out of the session future's layout.
+        if let Err(e) = Box::pin(built.persist(
+            alias.map(|a| before::Clock::from_parts(a, built.latest().clone())),
+            self.network,
+        ))
+        .await
         {
             return (Intent::Remain, Err(Error::Storage(StorageError(e))));
         }

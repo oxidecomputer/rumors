@@ -2,7 +2,7 @@
 //!
 //! One decoded record per resident node, shared through a weak dedup map;
 //! thin height-typed views over it; custody riding inside every handle.
-//! The layers below ([`schema`](super::schema), [`refcount`](super::refcount))
+//! The layers below ([`schema`](super::schema), [`refcount`])
 //! own the rows; this module owns what a *handle* is.
 //!
 //! # Views and virtual levels
@@ -164,10 +164,12 @@ enum Provenance<K: Kv, T: Send + Sync + 'static> {
 enum Custody<K: Kv, T: Send + Sync + 'static> {
     /// This handle's own `(node, pin)` row.
     Registered(#[allow(dead_code)] Registration<K, T>),
-    /// An ancestor entry handle's registration: children fetched through
-    /// an exploded parent stay alive through the entry that reached them
-    /// (records are immutable, so every durable edge beneath a registered
-    /// entry persists while the registration does).
+    /// An ancestor entry handle's registration.
+    ///
+    /// Children fetched through an exploded parent stay alive through
+    /// the entry that reached them: records are immutable, so every
+    /// durable edge beneath a registered entry persists while the
+    /// registration does.
     Under(#[allow(dead_code)] Arc<Fetched<K, T>>),
 }
 
@@ -218,10 +220,12 @@ impl<T: Send + Sync + 'static> Body<T> {
         }
     }
 
-    /// The position-relative hash of the view that has consumed `offset`
-    /// span bytes: the leaf preimage over the remaining span, or the
-    /// branch preimage over the remaining span and the stored edges. The
-    /// offset-zero branch hash is the stored field.
+    /// The position-relative hash of the view that has consumed
+    /// `offset` span bytes.
+    ///
+    /// The leaf preimage over the remaining span, or the branch preimage
+    /// over the remaining span and the stored edges; the offset-zero
+    /// branch hash is the stored field.
     ///
     /// Preimages take the span in *path order* (shallowest byte first)
     /// while storage is shallowest-last, exactly as the in-memory node
@@ -492,6 +496,32 @@ impl<K: Kv, T: Send + Sync + 'static, H: Height> KvNode<K, T, H> {
     fn span_radix(&self) -> Option<u8> {
         let prefix = self.inner.body.prefix();
         (self.remaining() > 0).then(|| prefix[prefix.len() - 1 - self.offset])
+    }
+}
+
+#[cfg(test)]
+impl<K: Kv, T: Send + Sync + 'static + borsh::BorshDeserialize, H: Height> KvNode<K, T, H> {
+    /// The actual bytes this view keeps resident, measured for the
+    /// conformance suite's census: the view, the decoded record's fixed
+    /// part, and the record's heap (span, bounds encodings, edge table).
+    ///
+    /// Leaf payload bytes are deliberately excluded, mirroring
+    /// [`Backend::node_bytes`]'s account: custody happens at
+    /// [`Leaf::leaf`] and in-flight payload is priced by
+    /// `target_message_size`, so neither side of the pointwise comparison
+    /// counts it.
+    pub(crate) fn resident_bytes(&self) -> usize {
+        use crate::tree::backend::Node as _;
+        let heap = self.inner.body.prefix().len()
+            + self.ceiling().as_bytes().len()
+            + self.floor().as_bytes().len()
+            + match &self.inner.body {
+                Body::Leaf { .. } => 0,
+                Body::Branch { children, .. } => {
+                    children.len() * std::mem::size_of::<(u8, NodeId, Hash)>()
+                }
+            };
+        std::mem::size_of::<Self>() + std::mem::size_of::<Fetched<K, T>>() + heap
     }
 }
 
@@ -968,6 +998,45 @@ where
     /// clock.
     const PERSISTS: bool = true;
 
+    // The mutation seams keep their generic tower defaults but box the
+    // entry: the towers are `BoxFuture`-per-level internally, yet the
+    // entry frame's locals would otherwise inline into every public
+    // future that awaits a commit (`tests/future_size.rs` pins the
+    // budget).
+    fn act<F>(
+        self,
+        root: Option<Self::Node<crate::tree::typed::height::Root>>,
+        actions: Vec<(
+            crate::tree::typed::Path,
+            Version,
+            crate::tree::backend::Action<T>,
+        )>,
+        on_action: F,
+    ) -> impl Future<
+        Output = Result<Option<Self::Node<crate::tree::typed::height::Root>>, Self::Error>,
+    > + Send
+    where
+        F: FnMut(&Version) + Send,
+    {
+        Box::pin(
+            async move { crate::tree::traverse::store::act(&self, root, actions, on_action).await },
+        )
+    }
+
+    fn join(
+        self,
+        a: Option<Self::Node<crate::tree::typed::height::Root>>,
+        b: Option<Self::Node<crate::tree::typed::height::Root>>,
+        a_version: &Version,
+        b_version: &Version,
+    ) -> impl Future<
+        Output = Result<Option<Self::Node<crate::tree::typed::height::Root>>, Self::Error>,
+    > + Send {
+        Box::pin(async move {
+            crate::tree::traverse::store::join(&self, a, b, a_version, b_version).await
+        })
+    }
+
     fn same<H: Height>(a: &Self::Node<H>, b: &Self::Node<H>) -> bool {
         // One resident allocation per node (the dedup funnel), so shared
         // structure is shared `Fetched`s; the offset distinguishes views
@@ -1015,13 +1084,22 @@ where
         }
     }
 
-    async fn commit(
+    fn commit(
         &self,
         root: &Root<Self, T>,
         clock: Option<before::Clock>,
         network: Network,
-    ) -> Result<(), Self::Error> {
-        {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        // Boxed: the flip's locals must not inline into every public
+        // future that awaits a commit (`tests/future_size.rs`).
+        let this = self.clone();
+        let root: Root<Self, T> = Root {
+            ceiling: root.ceiling.clone(),
+            root: root.root.clone(),
+        };
+        Box::pin(async move {
+            let this = &this;
+            let root = &root;
             // Persist the root's record first (a no-op when it is already
             // stored); a crash between the two transactions leaves an
             // orphan the recovery sweep reclaims, never a flip naming an
@@ -1029,7 +1107,7 @@ where
             let (id, guard) = match &root.root {
                 None => (None, None),
                 Some(node) => {
-                    let (id, guard) = node.reified(self).await?;
+                    let (id, guard) = node.reified(this).await?;
                     (Some(id), guard)
                 }
             };
@@ -1039,7 +1117,7 @@ where
             // join.
             let identity =
                 clock.map(|clock| borsh::to_vec(&clock).expect("clock encoding is infallible"));
-            let flipped = self
+            let flipped = this
                 .write_upkeep(move |txn| {
                     refcount::flip_root(txn, network, id, ceiling.clone(), identity.clone())
                 })
@@ -1048,7 +1126,7 @@ where
             // registered through the flip that just linked it.
             drop(guard);
             flipped
-        }
+        })
     }
 
     fn record(
@@ -1057,7 +1135,12 @@ where
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         let identity =
             clock.map(|clock| borsh::to_vec(&clock).expect("clock encoding is infallible"));
-        self.write_upkeep(move |txn| refcount::record_identity(txn, identity.clone()))
+        let this = self.clone();
+        // Boxed for the same layout reason as `commit`.
+        Box::pin(async move {
+            this.write_upkeep(move |txn| refcount::record_identity(txn, identity.clone()))
+                .await
+        })
     }
 
     fn barrier(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {

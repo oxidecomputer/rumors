@@ -142,3 +142,63 @@ fn snapshot_get_future_fits_budget() {
          see gossip_future_fits_budget for rationale",
     );
 }
+
+/// The KV entries' budget: the same order of magnitude, headroom for the
+/// honest handle delta.
+///
+/// A persistent node handle is four pointers wide (record `Arc`, span
+/// offset, resident hash) against the in-memory backend's one, and a
+/// session future legitimately carries several tree values; the failure
+/// mode this file exists to catch — a protocol tower inlined into the
+/// public layout — lands in the tens of KiB either way.
+const KV_PUBLIC_FUTURE_BUDGET: usize = 2 * 1024;
+
+/// The persistent backend's public futures stay flat.
+///
+/// The generic towers behind `Store`'s seams are `BoxFuture`-per-level,
+/// so a `send`, a batch `commit`, a snapshot `get`, and a `gossip` on a
+/// KV-backed set must not inline the 32-level descent into the caller's
+/// layout.
+#[test]
+fn kv_backed_futures_fit_budget() {
+    use rumors::{KvBackend, Memory, NoBookmark};
+    let alice: Rumors<(), NoBookmark, KvBackend<Memory, ()>> =
+        Peer::seed_in(KvBackend::new(Memory::default()))
+            .sync_window_floor()
+            .into_rumors();
+
+    let send = alice.send(());
+    assert!(
+        size_of_val(&send) <= KV_PUBLIC_FUTURE_BUDGET,
+        "KV send future is {} bytes, exceeds budget {KV_PUBLIC_FUTURE_BUDGET}",
+        size_of_val(&send),
+    );
+    drop(send);
+
+    let batch = alice.batch().send(()).commit();
+    assert!(
+        size_of_val(&batch) <= KV_PUBLIC_FUTURE_BUDGET,
+        "KV batch-commit future is {} bytes, exceeds budget {KV_PUBLIC_FUTURE_BUDGET}",
+        size_of_val(&batch),
+    );
+    drop(batch);
+
+    let snapshot = alice.snapshot();
+    let key = rumors::Key::from([0u8; 32]);
+    let get = snapshot.get(&key);
+    assert!(
+        size_of_val(&get) <= KV_PUBLIC_FUTURE_BUDGET,
+        "KV snapshot-get future is {} bytes, exceeds budget {KV_PUBLIC_FUTURE_BUDGET}",
+        size_of_val(&get),
+    );
+    drop(get);
+
+    let (mut link, other) = rumors::link::memory();
+    drop(other);
+    let gossip = alice.gossip(&mut link);
+    assert!(
+        size_of_val(&gossip) <= KV_PUBLIC_FUTURE_BUDGET,
+        "KV gossip future is {} bytes, exceeds budget {KV_PUBLIC_FUTURE_BUDGET}",
+        size_of_val(&gossip),
+    );
+}

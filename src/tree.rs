@@ -62,7 +62,7 @@ use std::sync::Arc;
 
 pub(crate) mod backend;
 mod key;
-mod traverse;
+pub(crate) mod traverse;
 pub(crate) mod typed;
 
 use futures::Stream;
