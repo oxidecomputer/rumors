@@ -1051,7 +1051,12 @@ impl Accumulator {
     /// **Complexity**: amortized `O(1)` digit touches.
     pub fn sign_dominates_at(&mut self, floor: usize) -> (Ordering, bool) {
         let (index, partial) = self.fold_and_collapse();
-        let decided = partial.abs() >= SIGN_DECIDED && index >= floor + 2;
+        // Saturating: a floor within 2 of `usize::MAX` names an
+        // adjustment bound no held value can dominate, so the decision
+        // index must stay unsatisfiable rather than wrap to a tiny one
+        // (a wrapped `floor + 2` would certify domination over an
+        // astronomically wide adjustment from a 3-digit value).
+        let decided = partial.abs() >= SIGN_DECIDED && index >= floor.saturating_add(2);
         (partial.cmp(&0), decided)
     }
 
