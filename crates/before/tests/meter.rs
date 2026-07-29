@@ -569,6 +569,161 @@ fn ticks_counters(v: &Version, p: &Party, n: u64) -> (u64, u64, u64) {
     )
 }
 
+/// One `ticks(n)` run at an arbitrary-width count, on the operand's
+/// post-fill tree, with the exact `min_ticks` movement as the value
+/// leg.
+///
+/// One public tick is applied *outside* the metered body first: on the
+/// once-ticked tree the fill is the identity (fill is idempotent, and
+/// a grow opens no fillable structure), so the metered `ticks(n)` is
+/// the pure grow branch, where registering `n` events grows the
+/// minimum tick count by exactly `n` — the fill branch instead
+/// collapses owned structure and moves `min_ticks` by a
+/// shape-dependent amount, which the committed small-count
+/// differentials pin byte-for-byte against iterated ticks.
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
+fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Ticks) -> (u64, u64, u64) {
+    let mut v = v.clone();
+    v.tick(p);
+    let before_ticks = v.min_ticks();
+    meter::reset_scan_bits();
+    meter::reset_limb_ops();
+    suanpan::touch_meter::reset();
+    v.ticks(p, n.clone());
+    let counters = (
+        meter::scan_bits(),
+        meter::limb_ops(),
+        suanpan::touch_meter::touches(),
+    );
+    assert_eq!(
+        v.min_ticks(),
+        before_ticks + n.clone(),
+        "a grow-branch ticks(n) must grow the minimum tick count by exactly n"
+    );
+    counters
+}
+
+/// The wide-count pin's count width in bits (the second wide point
+/// doubles it): far past every machine integer, so the count's own
+/// arithmetic — the splice's site addition, the changed branch's
+/// decrement, the count-carrying gamma codes — runs at genuinely wide
+/// operands.
+///
+/// Both wide points sit *above* the crosses' site-value width
+/// ([`TICK_CROSS_SCALE`] bits), because the emitted stream's count
+/// dependence is piecewise-linear with a knee exactly there: below it
+/// the output carries the count in one gamma code (span `2·bits(n)`),
+/// above it the min-lift re-coding around the grown site carries the
+/// count's excess over the site again (span `4·bits(n) − 2·site`,
+/// measured exact on the mirror-wide cross: 24,750 → 57,518 scanned
+/// bits against the law's 24,766 → 57,534). Judging two points in one
+/// regime keeps the ratio band tight; a probe straddling the knee
+/// legitimately reads up to ×3 without any superlinearity.
+const TICKS_WIDE_COUNT_BITS: usize = 8_192;
+
+/// The count-attributable growth bound: doubling the count's width may
+/// at most double the count-attributable cost (×1.25 flatness slack on
+/// the ratio), plus a word of boundary slack per column.
+///
+/// `ticks(n)` claims `O(|v| + |p| + log n)`: the whole `n`-dependence
+/// is the count's own width — two count-carrying codes and word-linear
+/// arithmetic on the count — so the cost *above the word-count
+/// baseline* must scale linearly in `bits(n)`. An implementation
+/// superlinear in the count's width (a per-limb re-walk of the site
+/// value per count limb, a decimal detour) moves the second span by
+/// ×4 here and cannot hide in the baseline, which the committed
+/// three-family log band already pins at word counts.
+///
+/// [Measured 2026-07-29, dev profile, exact counters: scan spans
+/// 16,366 → 32,750 bits (×2.001) and limb spans 256 → 512 on dense
+/// and nested-wide; scan spans 24,750 → 57,518 (×2.32, the slope-4
+/// regime above the site-width knee) and limb spans 834 → 1,730 on
+/// mirror-wide; touch spans 0 → 0 everywhere — the count's arithmetic
+/// lives on `Base`, never the accumulator.]
+const TICKS_WIDE_GROWTH_NUM: u64 = 5;
+
+/// See [`TICKS_WIDE_GROWTH_NUM`]: the ratio denominator.
+const TICKS_WIDE_GROWTH_DEN: u64 = 2;
+
+/// The wide-count flatness pin: `ticks(n)` stays width-linear in the
+/// count far past every machine integer, on every tick-designated
+/// family.
+///
+/// Three points per family — the word-count baseline `n₀ = 512`, an
+/// 8,192-bit count, and its width doubling — judged as two spans: the
+/// count-attributable movement (each counter above its baseline) may
+/// at most double, ×1.25, when the width doubles. The scan span
+/// additionally carries a liveness floor of `2 · bits(n)` (the
+/// widened count-carrying code must be written), so a dead meter or a
+/// count that never reaches the splice cannot pass vacuously; the
+/// value leg inside the probe holds the `min_ticks` movement exactly
+/// equal to `n` at every point, so the wide registration is proven to
+/// have happened before any cost is judged.
+#[test]
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
+fn ticks_wide_count_flatness_holds_the_width_band() {
+    use dashu_int::UBig;
+    let wide = |bits: usize| -> before::Ticks {
+        (UBig::ONE << bits)
+            .to_string()
+            .parse()
+            .expect("a power of two renders as a count")
+    };
+    let n1 = wide(TICKS_WIDE_COUNT_BITS);
+    let n2 = wide(2 * TICKS_WIDE_COUNT_BITS);
+    let cases: Vec<(&str, Version, Party)> = vec![
+        (
+            "dense",
+            version_of(&meter::dense(DENSE_DEPTH)),
+            Party::seed(),
+        ),
+        (
+            "nested-wide",
+            version_of(&meter::bigroot(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
+            party_of(&meter::nested_full_id(TICK_CROSS_SCALE)),
+        ),
+        (
+            "mirror-wide",
+            version_of(&meter::wide_tail(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
+            party_of(&meter::nested_left_full_id(TICK_CROSS_SCALE)),
+        ),
+    ];
+    for (name, v, p) in &cases {
+        let base = ticks_counters_wide(v, p, &before::Ticks::from(TICKS_POINT_LO));
+        let at1 = ticks_counters_wide(v, p, &n1);
+        let at2 = ticks_counters_wide(v, p, &n2);
+        let spans = [
+            ("scan", base.0, at1.0, at2.0),
+            ("limb", base.1, at1.1, at2.1),
+            ("touch", base.2, at1.2, at2.2),
+        ];
+        for (col, c0, c1, c2) in spans {
+            let d1 = c1.saturating_sub(c0);
+            let d2 = c2.saturating_sub(c0);
+            eprintln!(
+                "MEASURED ticks_wide_count {name}/{col}: base={c0} w={c1} 2w={c2} \
+                 spans {d1} -> {d2}"
+            );
+            assert!(
+                d2 * TICKS_WIDE_GROWTH_DEN
+                    <= d1 * TICKS_WIDE_GROWTH_NUM + 64 * TICKS_WIDE_GROWTH_DEN,
+                "{name}/{col}: doubling the count's width from {TICKS_WIDE_COUNT_BITS} bits \
+                 grew the count-attributable cost {d1} -> {d2}, past the width-linear band"
+            );
+        }
+        // The scan span's liveness floor: one count-carrying gamma code
+        // widened from word scale to `bits(n)` writes at least
+        // `2·(bits(n) − 64)` fresh bits through the metered builder.
+        assert!(
+            at1.0.saturating_sub(base.0) >= 2 * (TICKS_WIDE_COUNT_BITS as u64 - 64),
+            "{name}: a {TICKS_WIDE_COUNT_BITS}-bit count moved the scan column by only \
+             {} bits — the widened count-carrying code is not being written through \
+             the metered builder",
+            at1.0.saturating_sub(base.0),
+        );
+    }
+}
+
 /// The flatness pin's two count points: three doublings apart, so the
 /// per-doubling gamma growth (2 bits per count-carrying code) is
 /// legible against the band.
