@@ -11,9 +11,9 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
-use tokio::io::DuplexStream;
+use tokio::io::{DuplexStream, duplex};
 use tokio::sync::mpsc;
 
 use crate::link::routed::{Addr, Dial, Listen};
@@ -81,7 +81,7 @@ impl MemoryNet {
     /// Lock the listener registry, riding through a poisoning panic:
     /// each critical section is a single map operation, so the map is
     /// never torn.
-    fn registry(&self) -> std::sync::MutexGuard<'_, HashMap<String, mpsc::Sender<DuplexStream>>> {
+    fn registry(&self) -> MutexGuard<'_, HashMap<String, mpsc::Sender<DuplexStream>>> {
         self.listeners
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -105,7 +105,7 @@ impl Dial for MemoryDial {
                 "nothing listens at this name",
             )
         })?;
-        let (dialed, accepted) = tokio::io::duplex(CONNECTION_CAPACITY);
+        let (dialed, accepted) = duplex(CONNECTION_CAPACITY);
         // A full or abandoned backlog refuses the dial outright; a
         // dial never waits on the listener's accept pace, mirroring
         // the routed adapter's requirement that opens not serialize

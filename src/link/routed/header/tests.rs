@@ -1,5 +1,5 @@
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use proptest::prelude::*;
 
@@ -16,7 +16,7 @@ fn parse(mut bytes: &[u8]) -> io::Result<Header<SocketAddr>> {
 /// quoted.
 #[test]
 fn stream_header_roundtrips() {
-    let token = Token::mint();
+    let token = Token::new();
     match parse(&stream_header(&token)).expect("a well-formed header parses") {
         Header::Stream { token: parsed } => assert_eq!(parsed, token),
         Header::Link { .. } => panic!("a STREAM header must parse as a stream"),
@@ -28,7 +28,7 @@ fn stream_header_roundtrips() {
 /// the name the dialer advertised.
 #[test]
 fn link_header_roundtrips() {
-    let token = Token::mint();
+    let token = Token::new();
     let advertised: SocketAddr = "127.0.0.1:7000".parse().expect("literal address");
     let bytes = link_header(&token, &advertised.encode());
     match parse(&bytes).expect("a well-formed header parses") {
@@ -48,7 +48,7 @@ fn link_header_roundtrips() {
 /// the first read, precisely.
 #[test]
 fn wrong_magic_is_rejected() {
-    let mut bytes = stream_header(&Token::mint()).to_vec();
+    let mut bytes = stream_header(&Token::new()).to_vec();
     bytes[0] = b'X';
     let error = parse(&bytes).expect_err("a foreign magic must not parse");
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
@@ -58,7 +58,7 @@ fn wrong_magic_is_rejected() {
 /// compatibility door, and this parser speaks exactly one.
 #[test]
 fn unknown_version_is_rejected() {
-    let mut bytes = stream_header(&Token::mint()).to_vec();
+    let mut bytes = stream_header(&Token::new()).to_vec();
     bytes[MAGIC.len()] = VERSION + 1;
     let error = parse(&bytes).expect_err("an unknown version must not parse");
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
@@ -68,7 +68,7 @@ fn unknown_version_is_rejected() {
 /// anything else is a peer speaking a wire this router does not.
 #[test]
 fn unknown_kind_is_rejected() {
-    let mut bytes = stream_header(&Token::mint()).to_vec();
+    let mut bytes = stream_header(&Token::new()).to_vec();
     bytes[MAGIC.len() + 1] = 9;
     let error = parse(&bytes).expect_err("an unknown kind must not parse");
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
@@ -79,7 +79,7 @@ fn unknown_kind_is_rejected() {
 /// malformed by construction.
 #[test]
 fn empty_advertised_name_is_rejected() {
-    let token = Token::mint();
+    let token = Token::new();
     let mut bytes = link_header(&token, &[0]);
     // Rewrite the length byte to zero and drop the placeholder name.
     bytes[PREFIX_LEN] = 0;
@@ -93,7 +93,7 @@ fn empty_advertised_name_is_rejected() {
 /// nothing.
 #[test]
 fn undecodable_advertised_name_is_rejected() {
-    let token = Token::mint();
+    let token = Token::new();
     let bytes = link_header(&token, b"not-a-socket-address");
     let error = parse(&bytes).expect_err("an undecodable name must not parse");
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
@@ -103,7 +103,7 @@ fn undecodable_advertised_name_is_rejected() {
 /// partial parse: the router's read is exact-length by construction.
 #[test]
 fn truncation_is_rejected() {
-    let token = Token::mint();
+    let token = Token::new();
     let advertised: SocketAddr = "[::1]:9".parse().expect("literal address");
     let full = link_header(&token, &advertised.encode());
     for len in 0..full.len() {
@@ -123,9 +123,9 @@ proptest! {
     fn socket_addr_roundtrips(ip in any::<[u8; 16]>(), v4 in any::<bool>(), port in any::<u16>()) {
         let addr = if v4 {
             let octets: [u8; 4] = ip[..4].try_into().expect("four bytes");
-            SocketAddr::new(std::net::IpAddr::from(octets), port)
+            SocketAddr::new(IpAddr::from(octets), port)
         } else {
-            SocketAddr::new(std::net::IpAddr::from(ip), port)
+            SocketAddr::new(IpAddr::from(ip), port)
         };
         let encoded = addr.encode();
         prop_assert_eq!(encoded.len(), SOCKET_ADDR_LEN);

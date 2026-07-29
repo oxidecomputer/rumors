@@ -1,9 +1,10 @@
 //! The endpoint: one process's routed-link identity.
 
+use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf, split};
 use tokio::sync::mpsc;
 
 use super::header::{self, Addr, Token};
@@ -158,7 +159,7 @@ impl<D: Dial> Endpoint<D> {
             config.pending_headers > 0,
             "pending headers must admit a connection"
         );
-        let table: Table<D::Conn> = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let table: Table<D::Conn> = Arc::new(Mutex::new(HashMap::new()));
         let (arrivals, incoming) = mpsc::channel(config.incoming_backlog);
         let endpoint = Endpoint {
             inner: Arc::new(Inner {
@@ -209,7 +210,7 @@ impl<D: Dial> Endpoint<D> {
             }
             Err(error) => return Err(LinkError::Io(error)),
         }
-        let (control_read, control_write) = tokio::io::split(conn);
+        let (control_read, control_write) = split(conn);
         Ok(Link::new(
             control_read,
             control_write,

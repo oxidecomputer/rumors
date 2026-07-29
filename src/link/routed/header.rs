@@ -29,6 +29,7 @@
 //! future shape (a reusable-lease kind, say) arrives as a new version
 //! or kind, never a mutation of these.
 
+use std::fmt;
 use std::io;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -87,13 +88,13 @@ pub struct Token([u8; TOKEN_LEN]);
 
 impl Token {
     /// Mint a fresh random token.
-    pub(super) fn mint() -> Self {
+    pub(super) fn new() -> Self {
         Token(rand::random())
     }
 }
 
-impl std::fmt::Debug for Token {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Token({})", hex::encode(self.0))
     }
 }
