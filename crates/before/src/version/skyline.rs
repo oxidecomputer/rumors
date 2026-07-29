@@ -31,6 +31,8 @@
 //!   the coding exists to enable.
 //! - [`masked`] decides the same comparisons over *projected* streams
 //!   (event × id overlays) without materializing any projection.
+//! - [`bounded`](mod@bounded) places one stream against a range's bound
+//!   streams in a single fused merge (`causally`'s placement kernel).
 //! - [`emit`] runs the same merge as join and meet, re-delta-coding
 //!   pointwise max/min into a canonical stream through the collapsing
 //!   output builder (the private `build` submodule, which the tick
@@ -145,6 +147,7 @@ use crate::Version;
 // name the streams this module's entry points exchange.
 pub use crate::codec::{Bits, BitsSlice};
 
+pub mod bounded;
 mod build;
 // The strict byte-level decode of one whole stream: consumed by this
 // module's `decode` entry, which only the meter surface and the tests
