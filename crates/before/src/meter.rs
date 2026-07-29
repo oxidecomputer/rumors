@@ -1984,11 +1984,12 @@ pub fn factor_digit(seed: u64, i: u64) -> u32 {
 }
 
 /// A dense pseudorandom magnitude of exactly `32·digits` bits: every
-/// base-2^32 digit nonzero from [`factor_digit`]'s stream `seed`, the
-/// top bit forced set (exact width), the top digit's bit 30 forced
-/// clear (never an all-ones digit), and bit 0 forced clear (so `+ 1`
-/// never carries past digit 0 — the gamma code of the value stays at
-/// its closed-form width).
+/// base-2^32 digit nonzero from [`factor_digit`]'s stream `seed`.
+///
+/// The top bit is forced set (exact width), the top digit's bit 30
+/// forced clear (never an all-ones digit), and bit 0 forced clear (so
+/// `+ 1` never carries past digit 0 — the gamma code of the value
+/// stays at its closed-form width).
 ///
 /// # Panics
 ///
