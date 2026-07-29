@@ -86,7 +86,7 @@ use suanpan::Accumulator;
 use crate::codec::BitsSlice;
 
 use super::query::IdLeafCursor;
-use super::sweep::{fold, LeafCursor, PlateauCursor, Side};
+use super::sweep::{fold, LeafCursor, OpenedPair, PlateauCursor, Side};
 
 /// The causal order of two projected skylines, `None` for concurrent.
 ///
@@ -182,11 +182,13 @@ impl<'a> Walk<'a> {
         b_bits: &'a BitsSlice,
         b_mask: Option<&'a BitsSlice>,
     ) -> Walk<'a> {
-        let (a, a_first) = LeafCursor::open(a_bits);
-        let (b, b_first) = LeafCursor::open(b_bits);
-        let mut diff = Accumulator::new();
-        diff.add_magnitude(&a_first);
-        diff.sub_magnitude(&b_first);
+        let OpenedPair {
+            a,
+            b,
+            diff,
+            a_first,
+            b_first,
+        } = OpenedPair::open(a_bits, b_bits);
         // Each height integrator exists only if the *other* side is
         // masked: no ownership case reads it otherwise, so feeding it
         // would be pure waste.

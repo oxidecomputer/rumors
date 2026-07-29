@@ -74,7 +74,7 @@ use suanpan::Accumulator;
 use crate::codec::{Base, Bits, BitsSlice};
 
 use super::build::SkylineBuilder;
-use super::sweep::{advance_diff, LeafCursor, PlateauCursor, Side, Step};
+use super::sweep::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
 use super::{gamma_code, zigzag_signed};
 
 /// The join (pointwise max) of the versions two skyline streams denote,
@@ -134,11 +134,13 @@ impl Op {
 
 /// Run the emission sweep.
 fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
-    let mut diff = Accumulator::new();
-    let (mut ca, a_first) = LeafCursor::open(a_bits);
-    let (mut cb, b_first) = LeafCursor::open(b_bits);
-    diff.add_magnitude(&a_first);
-    diff.sub_magnitude(&b_first);
+    let OpenedPair {
+        a: mut ca,
+        b: mut cb,
+        mut diff,
+        a_first,
+        b_first,
+    } = OpenedPair::open(a_bits, b_bits);
 
     // The first interval: the winning side's absolute height opens the
     // output. The inputs' combined length is the capacity *estimate*:

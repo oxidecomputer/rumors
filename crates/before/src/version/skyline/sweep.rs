@@ -7,9 +7,11 @@
 //! cursor's own crossing payload. The generic [`advance`] is the
 //! overlay-advance law over two such cursors, stated (and debug-asserted)
 //! once. [`LeafCursor`] is the skyline instance — its crossings are
-//! [`Step`]s — and [`Side`], [`fold`], and [`advance_diff`] are the
-//! pair-difference algebra every two-skyline walk folds those crossings
-//! with. The clients: this module's own comparison entry points, which
+//! [`Step`]s — and the pair-difference algebra every two-skyline walk
+//! shares lives beside it: [`OpenedPair`] seeds `D = height_a −
+//! height_b` from the two absolute opening heights, and [`Side`],
+//! [`fold`], and [`advance_diff`] orient every later crossing into it.
+//! The clients: this module's own comparison entry points, which
 //! fold heights and discard the steps; the join/meet emission
 //! ([`emit`](super::emit)), which re-codes them into an output stream;
 //! and the pair integrals ([`query`](super::query)'s distance and lag),
@@ -425,17 +427,64 @@ pub(super) fn advance_diff(
     })
 }
 
+/// A two-skyline overlay, opened: both cursors at their first leaves and
+/// the running difference `D = height_a − height_b` seeded with the two
+/// absolute opening heights.
+///
+/// The shared opening move of every two-skyline walk, stated once so the
+/// seeding's orientation — `a` positive, `b` negative, the orientation
+/// [`fold`] applies to every later crossing — has one home. The opening
+/// heights ride along for the clients that consume an absolute opening
+/// (the emission sweep's first output leaf, the masked walk's height
+/// integrators); the seeded difference already holds them, so the
+/// comparison sweep and the pair integrals drop them unread.
+pub(super) struct OpenedPair<'a> {
+    /// The left operand's cursor, at its first leaf.
+    pub(super) a: LeafCursor<'a>,
+    /// The right operand's cursor, at its first leaf.
+    pub(super) b: LeafCursor<'a>,
+    /// The running difference, seeded `a_first − b_first`.
+    pub(super) diff: Accumulator,
+    /// The left operand's absolute first height.
+    pub(super) a_first: Base,
+    /// The right operand's absolute first height.
+    pub(super) b_first: Base,
+}
+
+impl<'a> OpenedPair<'a> {
+    /// Open both streams at their first leaves and seed the difference.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either stream is not a canonical skyline encoding.
+    pub(super) fn open(a_bits: &'a BitsSlice, b_bits: &'a BitsSlice) -> OpenedPair<'a> {
+        let (a, a_first) = LeafCursor::open(a_bits);
+        let (b, b_first) = LeafCursor::open(b_bits);
+        let mut diff = Accumulator::new();
+        diff.add_magnitude(&a_first);
+        diff.sub_magnitude(&b_first);
+        OpenedPair {
+            a,
+            b,
+            diff,
+            a_first,
+            b_first,
+        }
+    }
+}
+
 /// Run the merge, returning the surviving directions `(a <= b, b <= a)`.
 ///
 /// The pair is truthful only for the question `mode` asks: an early exit
 /// leaves the direction the mode does not need wherever the folded
 /// prefix left it.
 fn sweep(a_bits: &BitsSlice, b_bits: &BitsSlice, mode: Mode) -> (bool, bool) {
-    let mut diff = Accumulator::new();
-    let (mut a, a_first) = LeafCursor::open(a_bits);
-    let (mut b, b_first) = LeafCursor::open(b_bits);
-    diff.add_magnitude(&a_first);
-    diff.sub_magnitude(&b_first);
+    let OpenedPair {
+        mut a,
+        mut b,
+        mut diff,
+        ..
+    } = OpenedPair::open(a_bits, b_bits);
     let (mut le, mut ge) = (true, true);
     loop {
         // One fold per elementary interval: the interval starting at the
