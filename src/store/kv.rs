@@ -44,11 +44,18 @@
 //!   route every effect through the transaction argument and tolerate
 //!   re-execution from scratch.
 //!
-//! Single-process ownership is *not* a clause of this trait: it is the
-//! persistent backend's own usage requirement (it caches, counts
-//! references, and recovers on the assumption that no other process
-//! touches the tables it owns). A `Kv` implementation shared with other
-//! tables and other processes is fine; the backend's tables are not.
+//! Exclusive ownership is *not* a clause of this trait: it is the
+//! persistent backend's own usage requirement, and it is stricter than
+//! "single process" — **at most one live backend may hold a store's
+//! tables, in-process handles included**. The backend caches, counts
+//! references, and recovers on the assumption that nothing else touches
+//! its tables: opening a second peer on a store another live peer is
+//! using sweeps the live peer's held registrations (recovery defines
+//! every held row as dead process state — the failure surfaces as a
+//! custody panic, a detector, not corruption), and seeding into an
+//! occupied store silently replaces the stored replica and identity at
+//! its first commit. A `Kv` implementation shared with other tables and
+//! other processes is fine; the backend's tables are not.
 //!
 //! # When not to implement this
 //!

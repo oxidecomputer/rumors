@@ -604,7 +604,8 @@ fn donation_is_recorded_before_it_ships() {
         // donation unless an earlier transaction recorded the shrink.
         assert!(
             first_disjoint < store.history_len() - 1,
-            "no transaction before the closing flip records the shrink:              the donation crossed the wire unrecorded"
+            "no transaction before the closing flip records the shrink: \
+             the donation crossed the wire unrecorded"
         );
     });
 }

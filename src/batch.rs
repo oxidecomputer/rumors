@@ -155,12 +155,16 @@ impl<'a, T: Send + Sync + 'static, S: Store<T>> Batch<'a, T, S> {
             .map_err(StorageError)?;
 
         // Phase 4 (publish): swap the built root in. This must follow the
-        // build with no intervening await, in the same poll: a future is
-        // only dropped between polls, so "built → published" is indivisible
-        // under cancellation. The lock guarantees the published root is
-        // still the one the build started from, making the swap a plain
-        // replacement — never a merge, so no walk on this path ever
-        // compares a tree against its own clone-derived build.
+        // *persist* with no intervening await, in the same poll: a future
+        // is only dropped between polls, so "persisted → published" is
+        // indivisible under cancellation. (A drop parked inside the persist
+        // itself leaves the store ahead of the published tree — benign: a
+        // store-ahead root never reaches the wire, since sessions snapshot
+        // the watch, and the next commit's flip supersedes it.) The lock
+        // guarantees the published root is still the one the build started
+        // from, making the swap a plain replacement — never a merge, so no
+        // walk on this path ever compares a tree against its own
+        // clone-derived build.
         inner.send_if_modified(move |inner| {
             debug_assert!(
                 inner.tree == base,

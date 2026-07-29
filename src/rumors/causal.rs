@@ -235,7 +235,9 @@ impl<T: Send + Sync + 'static, S: Store<T>> CausalMessages<T, S> {
         &self.checkpoint
     }
 
-    /// Advance to the next message in causal order, yielding it owned.
+    /// Advance to the next message in causal order, yielding it as an
+    /// owned `(Key, Arc<Version>, Arc<T>)` — the same items the
+    /// [`Stream`] impl yields as `Result`s.
     ///
     /// Awaits quietly while the set is unchanged; resolves `Ok(None)` once
     /// no further change is possible and the backlog has drained.

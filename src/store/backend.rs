@@ -49,7 +49,8 @@
 //! registration queues its release; every write transaction the backend
 //! runs piggybacks a bounded flush of that queue and a bounded reclamation
 //! step, and [`vacuum`](KvBackend::vacuum) drains both to empty. Recovery
-//! on open sweeps the whole held table: single-process ownership makes
+//! on open sweeps the whole held table: exclusive ownership — at most one
+//! live backend per store's tables, in-process handles included — makes
 //! every held row dead process state by definition.
 //!
 //! # Corruption
@@ -92,7 +93,7 @@ use super::schema::{CanonicalRoot, IdAllocator, NodeBody, NodeId, NodeRecord, Pi
 /// hand it to [`Peer::seed_in`](crate::Peer::seed_in),
 /// [`Bootstrap::backend`](crate::Bootstrap::backend), or — for a store that
 /// already holds a replica — [`Peer::open`](crate::Peer::open). The backend
-/// owns its tables outright (see [`Kv`] on single-process ownership) and
+/// owns its tables outright (see [`Kv`] on exclusive ownership) and
 /// delegates durability to the store: an acknowledged commit is as durable
 /// as the store's own commits are, and the crate awaits the store's
 /// [`sync`](Kv::sync) barrier wherever durability is load-bearing (before

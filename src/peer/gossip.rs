@@ -1045,12 +1045,16 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
         // lock is what makes the publish below a plain *swap* — every root
         // replacement and party shrink holds it, so the published root
         // cannot move between the clone and the swap — and the swap must
-        // follow the build with no intervening await, in the same poll (a
-        // future is only dropped between polls, so "built → published"
-        // stays indivisible under cancellation). Swapping rather than
-        // re-joining also means no walk on this path ever compares a tree
-        // against its own clone-derived build: the merge already happened
-        // off the watch, against the wire-materialized counterpart.
+        // follow the *persist* with no intervening await, in the same poll
+        // (a future is only dropped between polls, so "persisted →
+        // published" stays indivisible under cancellation; a drop parked
+        // inside the persist leaves the store ahead of the published tree,
+        // which is benign — sessions snapshot the watch, so a store-ahead
+        // root never reaches the wire, and the pre-transmit barrier covers
+        // every flip that ships). Swapping rather than re-joining also
+        // means no walk on this path ever compares a tree against its own
+        // clone-derived build: the merge already happened off the watch,
+        // against the wire-materialized counterpart.
         //
         // The reconciled tree's frontier is the converged version: what both
         // replicas hold the instant this commits, *before* the join below

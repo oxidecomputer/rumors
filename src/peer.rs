@@ -237,6 +237,12 @@ impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
     /// Call this exactly once per universe of cooperating peers, exactly
     /// as [`seed`](Peer::seed): the storage backend changes where this
     /// replica's tree lives, never the network's identity rules.
+    ///
+    /// The store must be exclusively this peer's: seeding into a store
+    /// that already holds a replica silently replaces the stored tree and
+    /// identity at the first commit — resume one with
+    /// [`open`](Peer::open) instead ([`Kv`](crate::Kv)'s docs state the
+    /// one-live-backend-per-store requirement).
     pub fn seed_in(store: S) -> Self {
         Self::seed_rng_in(&mut OsRng, store)
     }
@@ -276,6 +282,13 @@ where
     /// a clean shutdown are deliberately indistinguishable) and lets
     /// deferred reclamation drain, so an `open` after any interruption
     /// starts from a consistent store.
+    ///
+    /// For the same reason, the previous holder must actually be gone:
+    /// opening a store that another live peer is still using — another
+    /// process *or this one* — sweeps that peer's live registrations out
+    /// from under it ([`Kv`](crate::Kv)'s docs state the
+    /// one-live-backend-per-store requirement; the failure surfaces as a
+    /// custody panic in the displaced peer, a detector, not corruption).
     ///
     /// The peer resumes with default settings; select
     /// [`protocol`](Peer::protocol),

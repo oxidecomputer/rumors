@@ -114,6 +114,12 @@ impl<T: Send + Sync + 'static, S: Store<T>> Bootstrap<T, S> {
     /// backend exactly as [`Peer::seed_in`] would have. Selectable in any
     /// order with the session settings; selecting it again replaces the
     /// backend (the last selection wins).
+    ///
+    /// As with [`Peer::seed_in`], the store must be exclusively this
+    /// peer's: bootstrapping into a store that already holds a replica
+    /// silently replaces the stored tree and identity — resume one with
+    /// [`Peer::open`] instead ([`Kv`](crate::Kv)'s docs state the
+    /// one-live-backend-per-store requirement).
     pub fn backend<S2: Store<T>>(self, store: S2) -> Bootstrap<T, S2> {
         Bootstrap {
             protocol: self.protocol,
