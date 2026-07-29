@@ -64,6 +64,9 @@ const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("promo-rearm", 43),
     ("weight-comb", 43),
     ("freeze-parade", 43),
+    ("dense-suffix", 43),
+    ("plateau-puncture", 43),
+    ("lone-freeze", 43),
     ("concurrent-pair", 43),
     ("tooth-tail", 43),
     ("benign", 67),
@@ -229,6 +232,20 @@ const BAND_TO_FAMILY: &[(&str, &str)] = &[
         "ascend-plateau",
     ),
     ("skyline_cmp_tooth_tail_is_flat_per_unit", "tooth-tail"),
+    ("skyline_rank_dense_suffix_is_flat_per_unit", "dense-suffix"),
+    (
+        "skyline_distance_dense_suffix_is_flat_per_unit",
+        "dense-suffix",
+    ),
+    ("rank_plateau_puncture_is_flat_per_unit", "plateau-puncture"),
+    (
+        "skyline_rank_lone_freeze_late_is_flat_per_unit",
+        "lone-freeze",
+    ),
+    (
+        "skyline_rank_lone_freeze_tail_is_flat_per_unit",
+        "lone-freeze",
+    ),
     (
         "fold_version_stagger_arity_axis_is_flat_per_unit",
         "stagger",
@@ -252,14 +269,6 @@ const BAND_ONLY: &[(&str, &str)] = &[
         "prices the ticks count-width axis across the same three rostered families, not a shape of its own",
     ),
     (
-        "skyline_rank_lone_freeze_late_is_flat_per_unit",
-        "the lone-freeze spine is a kernel-seam probe of the integrator's first-freeze gate",
-    ),
-    (
-        "skyline_rank_lone_freeze_tail_is_flat_per_unit",
-        "as the lone-freeze late band's",
-    ),
-    (
         "party_fold_alias_rejection_count_is_flat_per_unit",
         "the aliased population probes the fold's hand-back seam; the board's fold rows price well-formed populations, and aliases arrive only through decode or dangerously_alias",
     ),
@@ -269,31 +278,23 @@ const BAND_ONLY: &[(&str, &str)] = &[
     ),
     (
         "skyline_rank_wide_tooth_freeze_band",
-        "wide_tooth_comb is a kernel-seam probe by the FAMILIES roster criterion",
+        "wide_tooth_comb is a kernel-seam probe measured through the internal skyline entries, which the board's public-operation rows cannot host",
     ),
     (
         "skyline_rank_jump_eviction_is_flat_per_unit",
-        "jump_comb is a kernel-seam probe; its whole-surface lift is the jump-pair family",
+        "jump_comb is a kernel-seam probe measured through the internal skyline entries; its whole-surface lift is the jump-pair family",
     ),
     (
         "masked_cmp_drift_cost_is_flat_per_unit",
-        "the mask-drift triple is a kernel-seam probe of the masked sweep",
+        "the mask-drift triple is an operand tuple correlated for the fused three-stream comparison alone, which the own_version_cmp row runs on every family; a tuple built for one row signature is a pairing probe, not a shape",
     ),
     (
         "masked_pair_cmp_drift_cost_is_flat_per_unit",
-        "the mask-drift quadruple is a kernel-seam probe of the fused four-stream sweep",
+        "the mask-drift quadruple is the three-stream tuple's four-stream twin, as the triple's",
     ),
     (
         "memo_chain_shared_control_is_flat_per_unit",
         "the memo_* shapes are kernel-seam probes by the FAMILIES roster criterion",
-    ),
-    (
-        "skyline_rank_dense_suffix_is_flat_per_unit",
-        "the ledger-settle witness family prices the settle's suffix-charging seam; its board promotion is a pending owner decision",
-    ),
-    (
-        "skyline_distance_dense_suffix_is_flat_per_unit",
-        "as the dense-suffix rank band's",
     ),
     (
         "meet_all_shade_is_flat_per_unit",
@@ -301,19 +302,15 @@ const BAND_ONLY: &[(&str, &str)] = &[
     ),
     (
         "rank_wide_arming_is_flat_per_unit",
-        "the wide-arming family prices the ledger settle's wide × dense aggregate-product seam; the board reads every rank row green and the family's board promotion is a pending owner decision, as the dense-suffix bands'",
-    ),
-    (
-        "rank_plateau_puncture_is_flat_per_unit",
-        "the plateau-puncture family prices the arming-free close-time settle and carries the answer-embedded Ω(M) witness leg; board promotion pending the same owner decision as the wide-arming band's",
+        "the wide-arming family prices the ledger settle's wide × dense aggregate-product seam, and its column is withheld on a live finding: given board rows it reads its five text-parse cells red at both acceptance scales — the parse's per-leaf delta accumulator re-walks the arming's dead high-water span once per trailing leaf, Θ(w·d) touches on Θ(w+d) text (the superlinearity pin beside the parse kernel, `parse_delta_accumulator_reads_superlinear_on_wide_arming`, carries the measured record) — so the column follows the parse cure, as the tooth-tail column followed the exact-top cure",
     ),
     (
         "pair_plateau_train_is_flat_per_unit",
-        "the plateau-puncture × arming-train pair is a settle-seam probe of the shared integrator through the public pair measures, not a shape of its own",
+        "the plateau-puncture × arming-train pair drives both settle sites through one co-sweep; a two-construction pairing names no single column (the plateau side is the plateau-puncture column; the trains' own disposition is the arming_trains entry)",
     ),
     (
         "arming_trains_is_flat_per_unit",
-        "the arming trains are settle-seam probes of the mass-balanced product tree by the FAMILIES roster criterion",
+        "the trains isolate the product tree's level ratio: a three-point fixed-width design in two sign schedules the board's single-knob two-scale fit cannot express; the multi-arming ledger settle itself is board-priced on the promo-rearm and dense-suffix columns",
     ),
 ];
 
