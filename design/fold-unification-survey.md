@@ -469,3 +469,41 @@ precisely not being folds; and the vocabulary is incomplete without its
 unfold companions and the already-owned n-ary counter. The
 boolean-vs-zigzag generic is right at the cursor seam and over-generic
 one seam higher — the suspicion was correct, aimed slightly low.
+
+## 8. Outcome (2026-07-29, amendment at the track's close)
+
+Phases A and B landed as surveyed (Phase A: `PlateauCursor`, the
+generic binary `advance`, traversal separated from algebra, with
+`sweep`, `emit`, and the pair integrals migrated; Phase B: projection,
+the masked walk, and the id difference onto the law, plus `OpenedPair`
+as the one home of the two-skyline opening move). The §4 table's rows 1
+and 2 are in the tree; row 3 landed as specified (arity kept, static
+dispatch, no `dyn`); row 6 remains open as the optional cleanup it was.
+
+**The §5 re-pin bill, as measured.** The zero-movement expectation held
+exactly where it was denominated — the deterministic meter boards: every
+limb, scan, touch, and segment reading held byte-identical at both
+scales of record through both phases, with zero verdict flips. Outside
+that denomination it did not hold: the fuzzfit fuel bands re-pinned at
+each phase (guest code layout from the recompile plus third-decimal
+walk-kernel constants; the `bands.rs` pin-of-record annotations carry
+the parent-measured decompositions), and Phase B moved the board's heap
+column deliberately — `OpenedPair` drops the unread opening-height
+buffers at the destructure instead of holding them to function end, so
+per-byte transient peaks moved *down* on the wide-opening families.
+That movement is accepted under the owner's identical-or-better ruling
+(2026-07-29, mid-flight in the implementing round), which supersedes
+this survey's byte-identity acceptance gate for deliberate, accounted
+improvements; regressions remain findings.
+
+**Phase C: measured at the boundary and dropped**, by this survey's own
+criterion. The merged id cursor is not smaller and clearer than the
+two: the residual duplication is ~12 mechanical lines of flip
+bookkeeping, while the cursors' descent policies genuinely differ —
+`query`'s settles eagerly inside its step (its plateaus are the stored
+regions), `diff`'s defers settlement so the covered-block scans can
+skip what the sweep never visits. A merge either wraps an eager adapter
+newtype around the settle-driven cursor or imports covered-block
+machinery into the altitude of `project` and the masked walk, and
+carries a nonzero re-pin bill either way — machinery and cost bought
+against twelve lines.
