@@ -3168,6 +3168,26 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   target does not — the owner ratifies the claim as landed or
   commissions the log's removal as its own item. Claims are stated
   exactly (never weaker than proven, the log never hidden).
+  \[AMENDED 2026-07-28 (fix round #102, from the round-#100
+  adversarial review): the `log a` denomination above was wrong —
+  the mass-balanced tree's depth is logarithmic in the total settle
+  mass (parked digits plus window density), never in the arming
+  count: exponentially spread entry masses chain one isolating
+  split per level (depth `a − 1` at masses `2^1..2^a`; committed as
+  `mass_midpoint_split_runs_linear_depth_on_exponential_masses` in
+  the query fold's suite). The settle mass is input-funded, so the
+  honest general form is `O(M(|v|) · log |v|)` — the public claim,
+  which was already stated correctly and TIGHT: `Θ(log |v|)`
+  armings with parked widths `4,000 · 2^i` words, each banked ahead
+  of a trailing window span `Θ(|v|)`, keep `Θ(log |v|)` tree
+  levels' products in the quasilinear tier at `Θ(M(|v|))` each,
+  fully funded \[analytically derived; a committed witness at that
+  scale needs 65 KiB+ packed operands\]. The internal `log a`/
+  `log n` spellings in the query module doc were re-denominated to
+  mass terms; the conditioned `O((n + D) log n)` claim on
+  `O(1)`-wide parked masses survives through the entropy bound
+  (heavy windows sit shallow: mass-weighted traffic stays under
+  total mass × log(entry count)).\]
 
   **Board and instruments:** fresh release renders at both scales
   read **1328 + 6 (1334 cells)**, the red set exactly the six

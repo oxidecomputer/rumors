@@ -150,7 +150,12 @@
 //!   sub-quadratic integer multiplication — so every arming-window
 //!   cross term of the debt rides exactly one product, and no entry is
 //!   re-read more times than its tree depth, which the mass balance
-//!   keeps logarithmic in the ledger's arming count `n`.
+//!   keeps logarithmic in the ledger's total settle mass (parked
+//!   digits plus window density) — not in the entry count alone:
+//!   exponentially spread masses chain one isolating split per level
+//!   (the committed split-depth witness in this module's tests),
+//!   still under the total-mass logarithm. Every unit of settle mass
+//!   is a digit the input funded, so the depth is at most `log |v|`.
 //!
 //! A freeze fires by the section-one relative trigger, with one
 //! pair-specific difference of denomination: the check runs once per
@@ -196,7 +201,7 @@
 //!   at least one bit for) — with every window's digits rewritten at
 //!   most once per tree level (each rewrite paid by the window's own
 //!   read, repeated a factor the mass balance keeps logarithmic in
-//!   the arming count).
+//!   the total settle mass, hence at most `log |v|`).
 //!
 //! A cheap code from one operand can *fire* a freeze, but the work the
 //! freeze performs is bounded by deposits from the codes that built the
@@ -212,8 +217,14 @@
 //! every committed board family, and the dense-suffix adversaries of
 //! the `skyline_flatness` dense-suffix bands (a gap spine whose turns
 //! puncture the trailing mass a full digit apart, over `Θ(p)` re-arm
-//! blocks) — therefore settle in `O((n + D) log n)` digit work, `D`
-//! the total window density, and measure flat per byte. The wide ×
+//! blocks) — therefore settle in `O((n + D) log n)` digit work over
+//! `n` armings, `D` the total window density, and measure flat per
+//! byte. The `log n` is conditioned on exactly that `O(1)`-wide
+//! premise, and it holds through the entropy bound, not through any
+//! per-entry depth cap: a leaf of mass `m` sits at depth
+//! `O(log(total/m))`, so heavy windows sit shallow and the
+//! mass-weighted traffic stays under the total mass times the
+//! entry-count logarithm however unevenly the window masses spread. The wide ×
 //! dense settle products themselves — one arming as wide as the input
 //! ahead of a trailing mass as dense (the wide-arming family), and
 //! the close-time `P · segment` settle the same shape reaches with
@@ -232,7 +243,14 @@
 //! 4,000-word operand sides (quarter-megabyte parked sums); past
 //! that its quasilinear tier's per-level costs stop telescoping and
 //! the settle pays at most one extra tree-depth factor,
-//! `O(M(|v|) · log n)`. The floor is matched by a reduction from
+//! `O(M(|v|) · log |v|)` — and the log factor is tight there
+//! [derived; a committed witness at this scale would need 65 KiB+
+//! packed operands]: `Θ(log |v|)` armings whose parked widths grow
+//! as `4,000 · 2^i` words, each banked ahead of a trailing window
+//! span `Θ(|v|)`, keep `Θ(log |v|)` tree levels' products in the
+//! quasilinear tier at `Θ(M(|v|))` each, fully funded — the public
+//! worst case cannot tighten without a deeper mechanism change.
+//! The floor is matched by a reduction from
 //! arbitrary integer multiplication: the same answer-embedding shape
 //! carries *arbitrary* factors — the puncture-product construction
 //! stores `Θ(bits(x) + bits(y))` bits and its exact rank numerator
@@ -826,7 +844,9 @@ impl WindowMass {
     ///
     /// The product-tree merge: a mass's digits are rewritten once per
     /// tree level they survive, which is what bounds every window's
-    /// digits to `O(log n)` rewrites across the whole settle.
+    /// digits to one rewrite per tree level — a depth the mass
+    /// balance keeps logarithmic in the total settle mass, hence at
+    /// most `log |v|` — across the whole settle.
     fn absorb(&mut self, other: WindowMass) {
         self.combine(other.digits.into_iter());
     }
