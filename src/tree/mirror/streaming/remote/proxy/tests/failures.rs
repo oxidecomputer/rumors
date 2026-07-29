@@ -234,7 +234,12 @@ proptest! {
 
         if should_inject {
             let error = endpoint_error(&outcome, fail_left)?;
-            prop_assert!(has_expected_surface(error, operation));
+            prop_assert!(
+                has_expected_surface(error, operation),
+                "fault on {:?} surfaced as {:?}",
+                operation,
+                error
+            );
             prop_assert_eq!(injected(error), Some(expected_fault));
             // The unfaulted counterparty either fails on the cut it
             // observes or had already completed; a completion must be the

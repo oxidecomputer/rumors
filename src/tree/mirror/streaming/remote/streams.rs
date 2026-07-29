@@ -467,8 +467,21 @@ pub struct ErrorRoute {
 
 impl ErrorRoute {
     /// Publish the first incoming-stream error without blocking its reporter.
+    ///
+    /// A report that loses the one-slot race is dropped as cascade — with
+    /// one exception: a [`StreamError::SupplyClosed`] carrying the claimed
+    /// supply deposit puts the deposit *back* before dropping, so the causal
+    /// transport error is never lost to the race. The terminal recovers it
+    /// from the slot (or from the queued report that did win).
     fn report(&self, error: StreamError) {
-        let _ = self.send.try_send(error);
+        if let Err(unsent) = self.send.try_send(error)
+            && let StreamError::SupplyClosed {
+                source: Some(source),
+                ..
+            } = unsent.into_inner()
+        {
+            self.supply_failed(source);
+        }
     }
 
     /// Deposit the supply's transport failure for a later reporter.
@@ -515,6 +528,26 @@ impl FirstStreamError {
             .lock()
             .expect("supply failure lock")
             .take()
+    }
+
+    /// Recover a queued [`StreamError::SupplyClosed`] the terminal's biased
+    /// poll order never received, re-attaching the deposited cause if the
+    /// winning report was the one that lost its claim to the race.
+    ///
+    /// When the protocol arm resolves first with a symptom of the dead
+    /// supply (a write to a peer that already tore down), the causal report
+    /// can be sitting unreceived in the route. Any *other* queued error is
+    /// discarded here: it lost to the protocol error by the terminal's
+    /// deliberate poll order, exactly as if the select had resolved the
+    /// protocol arm alone.
+    pub fn queued_supply_closed(&mut self) -> Option<StreamError> {
+        while let Ok(error) = self.receive.try_recv() {
+            if let StreamError::SupplyClosed { origin, source } = error {
+                let source = source.or_else(|| self.take_supply_failure());
+                return Some(StreamError::SupplyClosed { origin, source });
+            }
+        }
+        None
     }
 }
 
@@ -631,7 +664,8 @@ impl<A: Acceptor> AcceptDriver<A> {
     /// I/O detail is deposited in the error route before the driver parks;
     /// the first `SupplyClosed` reporter claims it as its `source`, so the
     /// causal transport error survives the deferral (a second stream
-    /// failing on the same supply reports without it).
+    /// failing on the same supply reports without it, and a claim whose
+    /// report loses the one-slot race is re-deposited rather than lost).
     pub async fn run(mut self) -> AcceptError {
         loop {
             match self.accept_one().await {

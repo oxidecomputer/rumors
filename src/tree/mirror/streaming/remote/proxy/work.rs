@@ -167,8 +167,11 @@ where
     /// protocol error found beside it is the dead transport's symptom
     /// (writes to a peer that already tore down, decodes of severed
     /// streams). The terminal then reports the supply failure as the
-    /// session's cause, at direction granularity, unless a stream that
-    /// provably needed the supply already claimed it.
+    /// session's cause: a queued [`StreamError::SupplyClosed`] from the
+    /// stream that provably needed the supply (which the biased order may
+    /// have left unreceived), or the deposit still in its slot, at
+    /// direction granularity. The deposit cannot be lost between the two —
+    /// a report that loses the one-slot race puts its claimed source back.
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
@@ -196,12 +199,20 @@ where
         };
         match outcome {
             Ok(output) => Ok((output, control_read, control_write)),
-            Err(error) => match errors.take_supply_failure() {
-                Some(source) => Err(Error::Stream(StreamError::SupplyClosed {
-                    origin: Origin::direction(remote),
-                    source: Some(source),
-                })),
-                None => Err(error),
+            // The causal supply failure outranks its own symptoms wherever
+            // it ended up: a queued `SupplyClosed` report the biased poll
+            // never received (stream granularity), else the deposit still
+            // in its slot (direction granularity), else the protocol error
+            // really is the cause.
+            Err(error) => match errors.queued_supply_closed() {
+                Some(supply) => Err(Error::Stream(supply)),
+                None => match errors.take_supply_failure() {
+                    Some(source) => Err(Error::Stream(StreamError::SupplyClosed {
+                        origin: Origin::direction(remote),
+                        source: Some(source),
+                    })),
+                    None => Err(error),
+                },
             },
         }
     }
