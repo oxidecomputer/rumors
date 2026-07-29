@@ -101,6 +101,35 @@ $k$-bit carry: work per tooth proportional to $k$, unbounded relative
 to the tooth's own code. Widen the window and the teeth widen past it
 again.
 
+#figure(
+  attack(
+    [wide-tooth comb$(t, w, k)$],
+    [any settled/pending split — the two-zone repair],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1),
+         (0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1)),
+        w: 200pt, unit: 16pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [the boundary comb with a width dial: teeth of
+         $plus.minus 2^w$ astride the $2^k$ cliff, $w$ chosen past
+         whatever window the design fixed]),
+    ),
+    [every tooth punches through the pending window into the
+     normalized prefix: a full $k$-bit carry per
+     $approx 2w$-bit code, at any fixed window width.],
+    cure: [no normalized region anywhere (@redundant): with every
+      digit lazy there is no boundary to widen past, and a
+      $plus.minus 2^w$ tooth costs $O(w\/32)$ touches — its own
+      limbs.],
+  ),
+  kind: image,
+  caption: [The wide-tooth comb attack card: the parameter that
+    kills every windowed repair, forcing the zone to be
+    everything.],
+) <fig-attack-widetooth>
+
 The lesson generalizes and is worth stating as a principle:
 
 #block(inset: (x: 1.5em), [
@@ -336,6 +365,41 @@ write. With the top settled at the surviving digit, each read is
 one touch; with a high-water top, each read re-walks the spike's
 $g$ dead digits — $Theta(m dot g)$ on a $Theta(m + g)$-bit pair,
 the cost the spike's own code paid exactly once.
+
+#figure(
+  attack(
+    [cancelled spike$(g, m)$],
+    [exact-top maintenance under repeated sign reads],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([operand $a$], codestrip((
+        ([1], 16pt, "p"), ([spike $2^(32g) + 1$], 76pt, "w"),
+        ([1], 16pt, "p"), ([1], 16pt, "p"), ([$dots.c$], 14pt, "x"),
+        ([1], 16pt, "p"), ([0], 16pt, "p"),
+      ))),
+      oprow([operand $b$], codestrip((
+        ([2], 16pt, "p"), ([spike $2^(32g) + 2$], 76pt, "w"),
+        ([2], 16pt, "p"), ([2], 16pt, "p"), ([$dots.c$], 14pt, "x"),
+        ([2], 16pt, "p"), ([0], 16pt, "p"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [same shape, same boundaries: the spikes cancel inside
+         $D$ at one boundary, then $Theta(m)$ boundaries of sign
+         reads follow with no intervening write]),
+    ),
+    [under a high-water top, every one of the $Theta(m)$ sign reads
+     re-walks the spike's $g$ dead digits: $Theta(m dot g)$ on a
+     $Theta(m + g)$-bit pair.],
+    cure: [the settled top: the cancelling write's own collapse
+      lowers the top to the surviving digit, so each remaining
+      read is one touch — the spike's width is paid exactly once,
+      by its own code.],
+  ),
+  kind: image,
+  caption: [The cancelled spike attack card: a pair whose one
+    cancellation leaves a tall dead buffer over thousands of
+    reads.],
+) <fig-attack-spike>
+
 The charge is honest exactly when the write can pay it, and an
 unscaled write can: a delta of $w$ magnitude bits places its own
 digits no higher than lane $w\/32 + 1$, a span its application
@@ -346,6 +410,34 @@ top-raising a sweep can buy is therefore $O$(its input bits), sign
 queries amortize against
 the same writes, and requirement 3 holds on every
 interleaving of reads with unscaled writes.
+
+#figure(
+  attack(
+    [cancelling chain$(t, k)$],
+    [the sign read, through cancelling prefixes],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 2), (0.125, 0), (0.125, 2), (0.125, 0),
+         (0.125, 2), (0.125, 0), (0.125, 2), (0.125, 0)),
+        w: 200pt, unit: 16pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$t$ drops from a $2^k$ peak to $1$ (drawn as 2 and 0):
+         after each wide drop the held value is tiny but spelled
+         by a high digit cancelled by a trail of negatives]),
+    ),
+    [every sign read after a drop must descend the whole cancelling
+     prefix — no fixed number of top digits decides — and a design
+     that re-reads it per query pays the prefix once per read.],
+    cure: [the collapsing fold (@sign): the descent zeroes what it
+      scanned and deposits the exact partial at the floor, so each
+      lane is read once per write that raised the top — here, once
+      per drop, funded by the drop's own wide code.],
+  ),
+  kind: image,
+  caption: [The cancelling chain attack card: wide writes that
+    leave whispers, aimed at repeated sign reads.],
+) <fig-attack-cancelling>
 
 The _scaled_ write of requirement 2 is the stated exception, and it
 carries a discipline. A delta scaled by $2^s$ lands its $ell$ words
