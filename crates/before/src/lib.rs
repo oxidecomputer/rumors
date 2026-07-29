@@ -755,6 +755,13 @@ pub mod oracle;
 #[cfg(any(test, feature = "meter"))]
 pub mod meter;
 
+/// The public operation surface as data: the roster of rows the test-only
+/// triangle suite enforces totality over. Public under the `meter` feature
+/// (with the other instrument-facing data) so external instrument crates
+/// can bind their coverage tables to the same roster.
+#[cfg(any(test, feature = "meter"))]
+pub mod surface;
+
 /// The algebraic and representational laws of the public API, as named
 /// predicates. Public under the `laws` feature so the fuzz workspace can
 /// drive the same collection the in-tree proptests assert.
