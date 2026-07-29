@@ -672,10 +672,14 @@ pub(super) enum FamilyKind {
     /// value's own width; a high-water bound re-walks the spike's `g`
     /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the
     /// `skyline_flatness` tooth-tail band carries both readings).
-    /// Every overlay boundary is shared by both operands, so the pair
-    /// also realizes the aligned-pair minimum the comparison rows'
-    /// touch floor is derived from ([`touch_pair_fold`](super::floors::touch_pair_fold)): ~one fold
-    /// per boundary against two stored deltas.
+    /// Every overlay boundary is shared by both operands and almost
+    /// every stored delta is zero, so the pair is also the touch
+    /// floor's honest-less-work witness
+    /// ([`touch_pair_fold`](super::floors::touch_pair_fold)): a
+    /// conforming sweep is forced to fold only the three nonzero
+    /// deltas per operand, and the measured per-boundary sign-read
+    /// traffic sits far above that floor as implementation, never
+    /// mandate.
     ToothTail,
     /// The fixed-seed organic control population.
     Benign,

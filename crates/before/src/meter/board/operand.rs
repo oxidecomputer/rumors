@@ -7,46 +7,20 @@ use crate::{Clock, Party, Version};
 
 use super::ceilings::MACHINE_WORD_MAGNITUDE_BITS;
 
-/// The stored delta codes of a version's packed stream: every leaf's
-/// payload code after the first (the absolute root height).
-///
-/// The overlay of any two-operand walk steps at least once per stored
-/// delta of the larger operand, so the count is the pair walks' touch
-/// boundary denomination. Iterative over the packed form, outside any
-/// measurement.
-pub(super) fn stored_deltas(v: &Version) -> u64 {
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
-    let mut pos = 0usize;
-    let mut pending = 1usize;
-    let mut leaves = 0u64;
-    while pending > 0 {
-        pending -= 1;
-        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
-        pos += 1;
-        if internal {
-            pending += 2;
-            continue;
-        }
-        let (_, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
-        pos = next;
-        leaves += 1;
-    }
-    leaves.saturating_sub(1)
-}
-
 /// The *nonzero* stored delta codes of a version's packed stream: every
 /// leaf payload code after the first (the absolute root height) whose
 /// delta is nonzero.
 ///
-/// The single-operand delta-folding kernels (validate, the query folds,
-/// the tick walk, the text parse) land each of these in a running
-/// accumulator, so the count is the touch column's
-/// deterministic-liveness floor. A zero delta is decoded but folds
-/// nothing — an accumulator add of zero is a no-op — so a floor that
-/// counted every delta would demand touch work no conforming fold does
-/// (a plateau-heavy stream legitimately reads near zero). Iterative
-/// over the packed form, outside any measurement.
+/// The delta-folding kernels — single-operand (validate, the query
+/// folds, the tick walk, the text parse) and the pair walks alike —
+/// land each of these in a running accumulator, so the count is the
+/// touch column's deterministic-liveness floor (the pair walks take the
+/// max over their two operands: a shared boundary lands both codes in
+/// one fold). A zero delta is decoded but folds nothing — an
+/// accumulator add of zero is a no-op — so a floor that counted every
+/// delta would demand touch work no conforming fold does (a
+/// plateau-heavy stream legitimately reads near zero). Iterative over
+/// the packed form, outside any measurement.
 pub(super) fn stored_nonzero_deltas(v: &Version) -> u64 {
     let all = codec::bytes_as_bits(v.as_bytes());
     let bits = &all[..v.encoded_bits()];
