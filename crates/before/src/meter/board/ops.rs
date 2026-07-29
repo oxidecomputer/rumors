@@ -42,7 +42,7 @@ use super::floors::{
 };
 use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_clock, radix_units_party,
-    radix_units_version, stored_bases, stored_deltas, version_output_bytes,
+    radix_units_version, stored_bases, stored_nonzero_deltas, version_output_bytes,
 };
 
 /// One board row: a public operation and how to instantiate it per family.
@@ -363,7 +363,7 @@ pub(super) fn ops() -> Vec<Op> {
                     limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_deltas(&v)),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::new(n, floors, move || (v.rank(), v)))
             },
@@ -494,7 +494,7 @@ pub(super) fn ops() -> Vec<Op> {
                     limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_deltas(&v)),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 let cell = Cell::new(n, floors, move || (v.min_ticks(), v));
                 // The ascending cliff defeats reign batching, so this
@@ -750,7 +750,7 @@ pub(super) fn ops() -> Vec<Op> {
                     limb: limb_wide(mandatory_limbs_version(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(packed),
-                    touch: touch_delta_fold(stored_deltas(&v)),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::text(
                     s.len(),
@@ -1186,7 +1186,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // Small clock × adversarial received version.
                 if let Some((v, n)) = f.version() {
                     let mut clock = Clock::seed();
-                    let touch = touch_delta_fold(stored_deltas(&v));
+                    let touch = touch_delta_fold(stored_nonzero_deltas(&v));
                     return Some(Cell::new(n + 2, walk_floors(n, touch), move || {
                         clock.recv(&v);
                         (clock, v)
@@ -1197,7 +1197,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let mut clock = Clock::from_parts(a, Version::new());
                 let msg = Version::try_from(1u64).expect("a one-tick version is valid");
-                let touch = touch_delta_fold(stored_deltas(&msg));
+                let touch = touch_delta_fold(stored_nonzero_deltas(&msg));
                 Some(Cell::new(n + 2, walk_floors(n, touch), move || {
                     clock.recv(&msg);
                     (clock, msg)
@@ -1305,7 +1305,7 @@ pub(super) fn ops() -> Vec<Op> {
                     limb: limb_wide(mandatory_limbs_version(clock.version())),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(packed),
-                    touch: touch_delta_fold(stored_deltas(clock.version())),
+                    touch: touch_delta_fold(stored_nonzero_deltas(clock.version())),
                 };
                 Some(Cell::text(
                     s.len(),

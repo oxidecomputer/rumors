@@ -38,9 +38,11 @@
 //! - **Touch** floors are deterministic-liveness declarations, like the
 //!   fork rows' heap floor, at three derivations. The single-operand
 //!   delta-folding kernels (the query rank folds, the tick walk, the
-//!   text parse) land every stored delta of their one stream in the
-//!   running accumulator, at least one digit touch per stored delta
-//!   code — the same one-per-delta floor the envelope suite's flatness
+//!   text parse) land every *nonzero* stored delta of their one stream
+//!   in the running accumulator, at least one digit touch per nonzero
+//!   delta code — a zero delta decodes but folds nothing, so a
+//!   plateau-heavy stream legitimately reads near zero — the same
+//!   one-per-nonzero-delta floor the envelope suite's flatness
 //!   pins commit. The pair walks (the comparison sweep and the merge
 //!   emitters and pair queries riding it) fold per *overlay boundary*:
 //!   a boundary both operands step lands both step codes in one fold
@@ -67,7 +69,8 @@
 //!   fold), comparisons over concurrent operands (one witness divergence
 //!   per direction decides, so no fold count is forced), operand pairs
 //!   equal byte for byte (canonical identity answers them before any
-//!   sweep), and operands whose streams store no delta codes.
+//!   sweep), and operands whose streams store no fold-forcing delta
+//!   codes.
 //! - **Heap** floors bind on the codec and text rows, whose results must
 //!   materialize at least their packed bytes; everywhere else allocation is
 //!   not semantically forced (and the heap meter reads the process
@@ -113,7 +116,7 @@ use super::ceilings::{
     SCAN_FLOOR_BITS_PER_INPUT_BYTE, SCAN_TOUCH_FLOOR_BITS, TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE,
 };
 use super::currency::{Floors, Liveness};
-use super::operand::{mandatory_limbs_stream, stored_deltas};
+use super::operand::{mandatory_limbs_stream, stored_deltas, stored_nonzero_deltas};
 
 /// Scan floor: the operation must examine its packed operands in full.
 pub(super) const WHY_SCAN_EXAMINES: &str =
@@ -189,11 +192,12 @@ pub(super) const NA_HEAP_IN_PLACE: &str =
 const WHY_SCAN_TICK_WALK: &str = "the paired fill walk examines every topology bit and payload \
      code of both operands at least once: 8 bits per input byte, with the measured tick-walk \
      constants 2–5× above";
-/// Touch floor (deterministic-liveness): the kernel folds every stored
-/// delta code through the metered accumulator.
-const WHY_TOUCH_DELTA_FOLD: &str = "deterministic-liveness: the kernel folds each stored delta \
-     code of its version operands through the metered accumulator today, at least one digit \
-     touch per delta; digit state moving to an unmetered representation lowers this floor \
+/// Touch floor (deterministic-liveness): the kernel folds every
+/// *nonzero* stored delta code through the metered accumulator.
+const WHY_TOUCH_DELTA_FOLD: &str = "deterministic-liveness: the kernel folds each nonzero \
+     stored delta code of its version operands through the metered accumulator today, at least \
+     one digit touch per nonzero delta (a zero delta folds nothing: an accumulator add of zero \
+     is a no-op); digit state moving to an unmetered representation lowers this floor \
      deliberately";
 /// Touch floor (deterministic-liveness): a pair walk folds per overlay
 /// boundary, and the overlay steps at least as often as the larger
@@ -241,9 +245,9 @@ pub(super) const NA_TOUCH_RANK_ARITHMETIC: &str =
 pub(super) const NA_TOUCH_RENDER_SUMMARIES: &str = "the renderer derives its printed bases from \
      delta-sized relative summaries without a running accumulator: no digit state is in the \
      contract (the parse direction carries the floor)";
-/// Touch NA: the operand streams store no delta codes to fold.
+/// Touch NA: the operand streams store no delta codes that force a fold.
 const NA_TOUCH_NO_DELTAS: &str =
-    "the operand streams store no delta codes: there is no fold to meter";
+    "the operand streams store no fold-forcing delta codes: there is no fold to meter";
 /// Touch floor (deterministic-liveness): the validator folds wide stored
 /// codes through the accumulator digit by digit.
 const WHY_TOUCH_WIDE_STREAM: &str = "deterministic-liveness: the validator's running height \
@@ -389,9 +393,12 @@ pub(super) fn text_rejection_floors(limb: Liveness, touch: Liveness) -> Floors {
     }
 }
 
-/// A delta-fold touch floor over `deltas` stored delta codes, or NA when
-/// the operand streams store none: the single-operand kernels' premise
-/// (every stored delta of the one stream is folded individually).
+/// A delta-fold touch floor over `deltas` *nonzero* stored delta codes
+/// (pass [`stored_nonzero_deltas`]), or NA when the operand streams
+/// store none: the single-operand kernels' premise (every nonzero
+/// stored delta of the one stream is folded individually; zero deltas
+/// fold nothing, so a count that included them would demand touch work
+/// no conforming fold does).
 pub(super) fn touch_delta_fold(deltas: u64) -> Liveness {
     if deltas == 0 {
         na(NA_TOUCH_NO_DELTAS)
@@ -663,6 +670,6 @@ pub(super) fn tick_walk_floors(version: &Version, packed_bytes: usize) -> Floors
             min: (packed_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
             why: WHY_SCAN_TICK_WALK,
         },
-        touch: touch_delta_fold(stored_deltas(version)),
+        touch: touch_delta_fold(stored_nonzero_deltas(version)),
     }
 }
