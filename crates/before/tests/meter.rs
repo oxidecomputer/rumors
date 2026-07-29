@@ -5205,6 +5205,12 @@ mod query_env {
     pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_840, 148_994); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097 -> 133_121 (2026-07-24, metered trailing_zeros), 458_763, 198_659
     pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_915,        0,     7_805,    48_647,     8_008, 4_707, 4_804); // 2_460 -> 2_540 (2026-07-24, dashu-int backend) -> 3_132 (2026-07-28, the zero-run ledger's map nodes plus the anchored-segment fold's integrator, measured at the cure-round merge), 0, 6_244 -> 6_277 (2026-07-24, metered trailing_zeros), 38_917, 6_406
     pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     4_505,        0,    29_552, 2_996_319,    27_187, 17_755, 16_311); // 2_740 -> 2_820 (2026-07-24, dashu-int backend) -> 3_604 (2026-07-28, the zero-run ledger's map nodes plus the anchored-segment fold's integrator, measured at the cure-round merge), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864 -> 21_749 (2026-07-28, certificate skips replace the accumulator's zero-run walks)
+    // The practical-regime gauge (2026-07-29, round #87): `Version::rank`
+    // on one concurrent-pair operand — word-scale heights over organic
+    // forks, no freeze, no arming. The row pins the benign path's
+    // constants so the adversarial machinery's price on common inputs is
+    // a committed number, not a vibe.
+    pub const RANK_CONCURRENT: QueryEnvelope              = query_envelope(        85,        0,    15_362,    81_933,    16_219, 9_216, 9_731); // 68, 0, 12_289, 65_546, 12_975 (2026-07-29, the row's pin of record at round #87's base)
     pub const TICKS_DENSE: QueryEnvelope                 = query_envelope(    58_815,        0,   312_525,   468_809,   156_281, 187_515, 93_768); // 47_052 -> 47_084 (pre-existing drift, measured at the ledger cure's base) -> 47_180 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 250_020, 375_047, 125_025 (2026-07-27: the tick row's readings plus the count's gamma codes)
     pub const TICKS_NESTED_WIDE: QueryEnvelope           = query_envelope(    14_107,        0,    30_350,   150_071,    46_135, 18_210, 27_681); // 11_286 -> 11_350 (pre-existing drift, measured at the ledger cure's base) -> 11_542 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 24_280, 120_057, 36_908 (2026-07-27: the fill branch pays its documented second walk - scan ~2x the tick row's one walk)
     pub const TICKS_MIRROR_WIDE: QueryEnvelope           = query_envelope(    39_506,        0,    50_725,   230_045,   152_575, 30_435, 91_545); // 31_605 -> 31_701 (pre-existing drift, measured at the ledger cure's base) -> 31_989 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 40_580, 184_036, 122_060 (2026-07-27: second-walk fill branch, as the nested-wide row)
@@ -5582,6 +5588,31 @@ fn version_lag_jump_pair_envelope() {
         move || {
             let r = a.lag(&b);
             (r, a, b)
+        },
+    );
+}
+
+/// `Version::rank` on one concurrent-pair operand stays within its
+/// envelope — the practical-regime constant gauge.
+///
+/// Word-scale heights over organically forked parties: the regime the
+/// overwhelming share of real inputs lives in (every event count fits a
+/// machine word, nothing freezes, the promotion ledger never arms). The
+/// adversarial rank rows above price the machinery's worst shapes; this
+/// row pins what a benign input pays for that machinery's existence, so
+/// a change that cheapens the adversarial path by charging the common
+/// one cannot read as an improvement.
+#[test]
+fn version_rank_concurrent_envelope() {
+    let (v, _) = meter::concurrent_pair(CONCURRENT_PAIR_LEAVES);
+    let input_bytes = v.encode().len();
+    query_metered(
+        "version_rank_concurrent",
+        input_bytes,
+        &query_env::RANK_CONCURRENT,
+        move || {
+            let r = v.rank();
+            (r, v)
         },
     );
 }
