@@ -57,7 +57,9 @@
 
 use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
+use std::ops::{Bound, RangeBounds};
 
+use crate::causally::{self, Bounded};
 use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 
 /// A named law: the name a failure reports, and the predicate that must
@@ -412,7 +414,10 @@ fn ranked_linearly_extends_causality(a: &Version, b: &Version) -> bool {
 /// Laws over a triple of versions.
 ///
 /// Associativity, the least/greatest bound laws, both distributive laws,
-/// transitivity (constructed and incidental), and the triangle inequality.
+/// transitivity (constructed and incidental), the triangle inequality,
+/// and the [`causally`] placement laws: the six-way [`Bounded`] verdict
+/// as a pure function of the two causal comparisons, and its per-kind
+/// coarsening to `placement_of`/`contains`.
 pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("merge_associative", merge_associative),
     ("meet_associative", meet_associative),
@@ -423,6 +428,14 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("order_transitive_constructed", order_transitive_constructed),
     ("order_transitive_incidental", order_transitive_incidental),
     ("distance_triangle_inequality", distance_triangle_inequality),
+    (
+        "bounded_matches_bound_relations",
+        bounded_matches_bound_relations,
+    ),
+    (
+        "bounded_coarsens_to_placement",
+        bounded_coarsens_to_placement,
+    ),
 ];
 
 /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
@@ -488,6 +501,117 @@ fn order_transitive_incidental(a: &Version, b: &Version, c: &Version) -> bool {
 /// lives on a *distributive* lattice.
 fn distance_triangle_inequality(a: &Version, b: &Version, c: &Version) -> bool {
     a.distance(c) <= a.distance(b) + b.distance(c)
+}
+
+/// The bound pairs the placement laws quantify over, from a version pair.
+///
+/// The pair as given, plus the constructed always-validating pair
+/// (`meet <= join`) and the coincident pair (`meet == meet`, reaching the
+/// `start == end` corner on every call).
+fn placement_bound_pairs(s: &Version, e: &Version) -> [(Version, Version); 3] {
+    let (meet, join) = (s & e, s | e);
+    [
+        (s.clone(), e.clone()),
+        (meet.clone(), join),
+        (meet.clone(), meet),
+    ]
+}
+
+/// Every range the gate admits over one bound pair: each start kind
+/// (none, excluded, included) alone and refined by each end kind
+/// (included, excluded), skipping the compositions validation rejects.
+fn each_admitted_range<'a>(s: &'a Version, e: &'a Version) -> Vec<causally::Range<'a>> {
+    let mut out = Vec::new();
+    for start in [causally::all(), causally::since(s), causally::not_before(s)] {
+        out.push(start);
+        out.extend(start.known_at(e));
+        out.extend(start.before(e));
+    }
+    out
+}
+
+/// [`Bounded`], transcribed from the two raw causal comparisons.
+///
+/// The start relation places `Before`/`AtStart` (start first — the
+/// coincident-bounds canonicalization), and everything past or concurrent
+/// to the start falls through to the end relation.
+fn bounded_from_relations(range: &causally::Range<'_>, v: &Version) -> Bounded {
+    if let Bound::Included(start) | Bound::Excluded(start) = range.start_bound() {
+        match v.partial_cmp(start) {
+            Some(Ordering::Less) => return Bounded::Before,
+            Some(Ordering::Equal) => return Bounded::AtStart,
+            Some(Ordering::Greater) | None => {}
+        }
+    }
+    match range.end_bound() {
+        Bound::Unbounded => Bounded::Between,
+        Bound::Included(end) | Bound::Excluded(end) => match v.partial_cmp(end) {
+            Some(Ordering::Less) => Bounded::Between,
+            Some(Ordering::Equal) => Bounded::AtEnd,
+            Some(Ordering::Greater) => Bounded::After,
+            None => Bounded::Concurrent,
+        },
+    }
+}
+
+/// `bounded` is exactly the two causal comparisons against the bound
+/// versions, composed start-first.
+///
+/// Checked for every admitted bound-kind combination over the raw,
+/// constructed-ordered, and coincident bound pairs, probing each operand
+/// and the pairs' meet (which reaches the at-bound and `start == end`
+/// corners on every call).
+fn bounded_matches_bound_relations(a: &Version, b: &Version, c: &Version) -> bool {
+    let meet = b & c;
+    for (s, e) in &placement_bound_pairs(b, c) {
+        for range in each_admitted_range(s, e) {
+            for probe in [a, b, c, &meet] {
+                if range.bounded(probe) != bounded_from_relations(&range, probe) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// `placement_of` is `bounded` coarsened by each bound's inclusivity,
+/// and `contains` is the coarsening's `Equal` arm.
+///
+/// `Before` is subtracted, `Between` contained, `After`/`Concurrent`
+/// beyond the end, and the at-bound verdicts split on their bound's kind
+/// (`AtStart`: subtracted by an excluded start, kept by an included one;
+/// `AtEnd`: kept by an included end, beyond an excluded one; neither is
+/// reachable from an unbounded side).
+fn bounded_coarsens_to_placement(a: &Version, b: &Version, c: &Version) -> bool {
+    let meet = b & c;
+    for (s, e) in &placement_bound_pairs(b, c) {
+        for range in each_admitted_range(s, e) {
+            for probe in [a, b, c, &meet] {
+                let coarse = match range.bounded(probe) {
+                    Bounded::Before => Ordering::Less,
+                    Bounded::AtStart => match range.start_bound() {
+                        Bound::Excluded(_) => Ordering::Less,
+                        Bound::Included(_) => Ordering::Equal,
+                        Bound::Unbounded => return false,
+                    },
+                    Bounded::Between => Ordering::Equal,
+                    Bounded::AtEnd => match range.end_bound() {
+                        Bound::Included(_) => Ordering::Equal,
+                        Bound::Excluded(_) => Ordering::Greater,
+                        Bound::Unbounded => return false,
+                    },
+                    Bounded::After | Bounded::Concurrent => Ordering::Greater,
+                };
+                if coarse != range.placement_of(probe)
+                    || range.contains(probe) != (coarse == Ordering::Equal)
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 // ───────────────────────────── Party: one value ─────────────────────────────

@@ -245,6 +245,102 @@ fn admitted_boundary_compositions_have_exact_membership() {
     }
 }
 
+/// Every [`Bounded`] verdict on a constructed witness, for every bound
+/// kind it is reachable under.
+///
+/// An alice-chain `a1 < a2 < a3 < a4` against ranges over `[a1, a3]`
+/// places each chain version and the concurrent `b1`:
+/// `Before`/`AtStart`/`Between`/`AtEnd`/`After` on the line and
+/// `Concurrent` off it — and the verdicts are identical under every
+/// bound-kind combination, because bound kinds move only the coarsening.
+#[test]
+fn bounded_places_every_witness() {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let a1 = alice.tick().clone();
+    let a2 = alice.tick().clone();
+    let a3 = alice.tick().clone();
+    let a4 = alice.tick().clone();
+    let b1 = bob.tick().clone();
+    let genesis = Version::new();
+
+    for range in [
+        since(&a1).known_at(&a3).unwrap(),
+        since(&a1).before(&a3).unwrap(),
+        not_before(&a1).known_at(&a3).unwrap(),
+        not_before(&a1).before(&a3).unwrap(),
+    ] {
+        assert_eq!(range.bounded(&genesis), Bounded::Before);
+        assert_eq!(range.bounded(&a1), Bounded::AtStart);
+        assert_eq!(range.bounded(&a2), Bounded::Between);
+        assert_eq!(range.bounded(&a3), Bounded::AtEnd);
+        assert_eq!(range.bounded(&a4), Bounded::After);
+        assert_eq!(range.bounded(&b1), Bounded::Concurrent);
+    }
+}
+
+/// A version concurrent to the start bound but within the end bound is
+/// `Between`, never `Concurrent` — start bounds keep concurrent versions,
+/// so `Concurrent` is exclusively an end-bound verdict.
+#[test]
+fn concurrent_to_start_within_end_is_between() {
+    let (low, _, side) = fixtures();
+    let end = &low | &side; // dominates both, so `side` is within it
+    for range in [
+        since(&low).known_at(&end).unwrap(),
+        not_before(&low).known_at(&end).unwrap(),
+    ] {
+        assert!(low.concurrent(&side));
+        assert_eq!(range.bounded(&side), Bounded::Between);
+    }
+}
+
+/// An unbounded side makes its verdicts unreachable: with no end bound
+/// everything past the start is `Between` (including versions concurrent
+/// to the start), and with no start bound nothing is `Before` or
+/// `AtStart`.
+#[test]
+fn unbounded_sides_make_their_verdicts_unreachable() {
+    let (low, high, side) = fixtures();
+    let genesis = Version::new();
+
+    for range in [since(&low), not_before(&low)] {
+        assert_eq!(range.bounded(&high), Bounded::Between);
+        assert_eq!(range.bounded(&side), Bounded::Between);
+    }
+
+    for range in [known_at(&low), before(&low)] {
+        assert_eq!(range.bounded(&genesis), Bounded::Between);
+        assert_eq!(range.bounded(&high), Bounded::After);
+        assert_eq!(range.bounded(&side), Bounded::Concurrent);
+    }
+
+    for version in [&genesis, &low, &high, &side] {
+        assert_eq!(all().bounded(version), Bounded::Between);
+    }
+}
+
+/// The coincident-bounds corner is canonicalized to `AtStart`.
+///
+/// On a validated `start == end` range, a version equal to both bounds
+/// reports `AtStart`, and the coarsening stays sound for both admissible
+/// kind pairs (`Less` under the excluded start that subtracts the shared
+/// bound, `Equal` under the included one that keeps it).
+#[test]
+fn coincident_bounds_canonicalize_to_at_start() {
+    let (low, _, _) = fixtures();
+
+    let subtracting = since(&low).known_at(&low).unwrap();
+    assert_eq!(subtracting.bounded(&low), Bounded::AtStart);
+    assert_eq!(subtracting.placement_of(&low), Ordering::Less);
+    assert!(!subtracting.contains(&low));
+
+    let keeping = not_before(&low).known_at(&low).unwrap();
+    assert_eq!(keeping.bounded(&low), Bounded::AtStart);
+    assert_eq!(keeping.placement_of(&low), Ordering::Equal);
+    assert!(keeping.contains(&low));
+}
+
 /// `a <= b` under the impl causal order (`None` means concurrent, so not
 /// ordered).
 fn le(a: &Version, b: &Version) -> bool {

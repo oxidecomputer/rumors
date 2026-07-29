@@ -32,13 +32,30 @@
 //! offers [`contains`](Range::contains) as the authoritative membership
 //! predicate.
 //!
+//! # Placement
+//!
+//! Every membership question a range answers is a coarsening of one
+//! *placement*: where a version sits relative to the range.
+//! [`Range::bounded`] answers it at full resolution — the six [`Bounded`]
+//! verdicts, an ordered line `Before, AtStart, Between, AtEnd, After` with
+//! `Concurrent` off the axis beside the end — and
+//! [`placement_of`](Range::placement_of) folds those six down to its
+//! trichotomy by each bound's inclusivity, with
+//! [`contains`](Range::contains) as the trichotomy's `Equal` arm. The
+//! region verdicts read the range semantics above (in particular, a
+//! version *concurrent to the start but within the end* is `Between`:
+//! start bounds keep concurrent versions); the at-bound verdicts report
+//! raw equality to a bound's version, leaving whether the range keeps
+//! that version to the coarsening. [`Bounded`]'s variant docs carry the
+//! exact case analysis, including the coincident-bounds corner.
+//!
 //! # Complexity
 //!
 //! Every constructor in this module is `O(1)` time and space: a [`Range`]
 //! stores two borrows. Pairing a start with an end validates with at most
-//! one causal comparison, and the membership predicates —
-//! [`contains`](Range::contains) and
-//! [`placement_of`](Range::placement_of) — make at most two; each
+//! one causal comparison, and the placement family —
+//! [`bounded`](Range::bounded), [`contains`](Range::contains), and
+//! [`placement_of`](Range::placement_of) — makes at most two; each
 //! comparison is `O(|a| + |b|)` in the operands' packed sizes (see
 //! [`Version`]).
 //!
@@ -337,6 +354,122 @@ impl<'a> Range<'a> {
             Ordering::Greater
         }
     }
+
+    /// Places `version` against this range at full resolution: the
+    /// six-way [`Bounded`] verdict.
+    ///
+    /// The verdict is a pure function of the two causal comparisons
+    /// against the bound versions — bound *kinds* never move it (they
+    /// decide only how [`placement_of`](Self::placement_of) coarsens an
+    /// at-bound verdict), and an unbounded side makes its verdicts
+    /// unreachable: no start bound rules out [`Before`](Bounded::Before)
+    /// and [`AtStart`](Bounded::AtStart); no end bound rules out
+    /// [`AtEnd`](Bounded::AtEnd), [`After`](Bounded::After), and
+    /// [`Concurrent`](Bounded::Concurrent). The `bounded_matches_bound_relations`
+    /// law in [`laws`](crate::laws) pins the verdict to the two
+    /// comparisons, and `bounded_coarsens_to_placement` pins the
+    /// coarsening.
+    ///
+    /// ```
+    /// use before::{Clock, causally::{self, Bounded}};
+    ///
+    /// let mut alice = Clock::seed();
+    /// let mut bob = alice.fork();
+    /// let a1 = alice.tick().clone();
+    /// let b1 = bob.tick().clone(); // concurrent to everything of alice's
+    /// let a2 = alice.tick().clone();
+    /// let a3 = alice.tick().clone();
+    ///
+    /// let range = causally::delta(&a1, &a3).unwrap();
+    /// assert_eq!(range.bounded(&a1), Bounded::AtStart);
+    /// assert_eq!(range.bounded(&a2), Bounded::Between);
+    /// assert_eq!(range.bounded(&a3), Bounded::AtEnd);
+    /// // Concurrent to the start but within the end: contained, so
+    /// // `Between` — never `Concurrent`, which is an end-bound verdict.
+    /// let top = &a3 | &b1;
+    /// let wide = causally::delta(&a1, &top).unwrap();
+    /// assert_eq!(wide.bounded(&b1), Bounded::Between);
+    /// ```
+    pub fn bounded(&self, version: &Version) -> Bounded {
+        if let Bound::Included(start) | Bound::Excluded(start) = self.start {
+            match version.partial_cmp(start) {
+                Some(Ordering::Less) => return Bounded::Before,
+                Some(Ordering::Equal) => return Bounded::AtStart,
+                Some(Ordering::Greater) | None => {}
+            }
+        }
+        match self.end {
+            Bound::Unbounded => Bounded::Between,
+            Bound::Included(end) | Bound::Excluded(end) => match version.partial_cmp(end) {
+                Some(Ordering::Less) => Bounded::Between,
+                Some(Ordering::Equal) => Bounded::AtEnd,
+                Some(Ordering::Greater) => Bounded::After,
+                None => Bounded::Concurrent,
+            },
+        }
+    }
+}
+
+/// Where a version sits relative to a [`Range`]: the full-resolution
+/// placement behind [`placement_of`](Range::placement_of)'s trichotomy.
+///
+/// The variants read as an ordered line — `Before, AtStart, Between,
+/// AtEnd, After` — with [`Concurrent`](Self::Concurrent) off the axis
+/// beside the end. The region variants (`Before`, `Between`, `After`,
+/// `Concurrent`) follow the range semantics (a difference of causal
+/// down-sets; see the [module docs](self)); the at-bound variants
+/// (`AtStart`, `AtEnd`) report *raw equality* to a bound's version,
+/// deliberately independent of the bound's kind: whether the range keeps
+/// or subtracts a version sitting exactly at a bound is the bound's
+/// inclusivity question, answered in the coarsening to
+/// [`placement_of`](Range::placement_of), never baked into the variant.
+/// (An `AtStart` that meant subtracted-or-kept would collapse into
+/// `Before` or `Between` and add nothing.)
+///
+/// The one misreading to rule out: `Concurrent` is an **end-bound**
+/// verdict. A version *concurrent to the start bound but within the end
+/// bound* is [`Between`](Self::Between) — start bounds subtract only
+/// their causal past, so versions concurrent to a start are kept, the
+/// module's deliberate keep-concurrent-versions behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Bounded {
+    /// Strictly inside the start bound's causal past: `v < start`.
+    ///
+    /// Subtracted under either start kind.
+    Before,
+    /// Exactly the start bound's version: `v == start`.
+    ///
+    /// Subtracted by [`since`], kept by [`not_before`] — the coarsening
+    /// to [`placement_of`](Range::placement_of) decides which.
+    ///
+    /// When the two bounds coincide (a validated range permits
+    /// `start == end`), a version equal to both is at the start *and* the
+    /// end; it reports `AtStart`, never [`AtEnd`](Self::AtEnd). The start
+    /// bound speaks first — subtraction precedes containment, mirroring
+    /// the order [`placement_of`](Range::placement_of) checks its bounds —
+    /// and the precedence is load-bearing: under an excluded start with an
+    /// included end (`since(x).known_at(x)`, a validated composition), the
+    /// shared bound is subtracted, which only `AtStart`'s coarsening
+    /// (`Less` under an excluded start) reports; `AtEnd` would coarsen to
+    /// `Equal` there and misplace it.
+    AtStart,
+    /// Contained, at neither bound: past the start (dominating it or
+    /// concurrent to it — or no start bound at all) and within the end.
+    Between,
+    /// Exactly the end bound's version: `v == end`.
+    ///
+    /// Kept by [`known_at`], dropped by [`before`] — the coarsening
+    /// decides which.
+    AtEnd,
+    /// Beyond the end bound in its causal future: `end < v`.
+    After,
+    /// Beyond the end bound by incomparability: `v` and the end bound are
+    /// concurrent, so the end cannot contain `v`.
+    ///
+    /// Specifically an end-bound verdict: a version concurrent to the
+    /// *start* bound but within the end is [`Between`](Self::Between),
+    /// not `Concurrent`.
+    Concurrent,
 }
 
 impl RangeBounds<Version> for Range<'_> {

@@ -909,6 +909,10 @@ pub(crate) const CLAIMS: &[Claim] = &[
         "causally::Range::placement_of",
         Cells::Board(&[("causally_contains", Class::Linear)]),
     ),
+    causally(
+        "causally::Range::bounded",
+        Cells::Board(&[("causally_contains", Class::Linear)]),
+    ),
     // ─────────────────────── operator/trait families ───────────────────────
     Claim {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
