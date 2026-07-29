@@ -25,7 +25,7 @@ use std::cmp::Ordering;
 use futures::future::{self, BoxFuture, FutureExt};
 
 use crate::{
-    Version,
+    Version, causally,
     tree::{
         mirror::streaming::{Backend, Leaf, Node, materialized::children_of, stats::Recorder},
         typed::{
@@ -39,13 +39,10 @@ use crate::{
 /// counterparty at that version either has everything under it or deleted
 /// it — either way, nothing under it needs to travel.
 ///
-/// A concurrent ceiling compares as `None` and is *not* known: it carries
-/// history the counterparty has never seen.
+/// A concurrent ceiling is beyond the known-at range and is *not* known:
+/// it carries history the counterparty has never seen.
 pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Version) -> bool {
-    matches!(
-        node.ceiling().partial_cmp(version),
-        Some(Ordering::Less | Ordering::Equal)
-    )
+    causally::known_at(version).contains(node.ceiling())
 }
 
 enum Knowledge {
@@ -56,17 +53,21 @@ enum Knowledge {
 
 /// Classify a subtree from its memoized version bounds without descending.
 fn knowledge<T: Send + Sync + 'static>(node: &impl Node<T>, known: &Version) -> Knowledge {
-    // Fast path, checked first because the meet is cheaper and can
-    // early-terminate in `partial_cmp`: a floor concurrent with or greater than
-    // `known` means the whole subtree is unknown.
-    match node.floor().partial_cmp(known) {
-        None | Some(Ordering::Greater) => Knowledge::Unknown,
-        // Slower path, checked second: version comparison here can't
-        // early-terminate.
-        _ if node.ceiling() <= known => Knowledge::Known,
-        // If neither is true, we have to descend.
-        _ => Knowledge::Mixed,
+    let known_at = causally::known_at(known);
+    // Fast path, checked first because the meet is cheaper and its verdict
+    // can early-terminate (a floor concurrent to `known` is decided at the
+    // first opposing interval): a floor beyond the known range means the
+    // whole subtree is unknown.
+    if known_at.placement_of(node.floor()) == Ordering::Greater {
+        return Knowledge::Unknown;
     }
+    // Slower path, checked second: confirming containment reads the whole
+    // streams.
+    if known_at.contains(node.ceiling()) {
+        return Knowledge::Known;
+    }
+    // If neither is true, we have to descend.
+    Knowledge::Mixed
 }
 
 /// Prune one subtree to what a counterparty at `known` is missing, honoring
@@ -171,7 +172,7 @@ impl Unknown for Z {
         T: Send + Sync + 'static,
     {
         // A leaf is known iff its ceiling is causally at or before `known`;
-        // a concurrent ceiling compares as `None`, so those survive.
+        // a concurrent ceiling is beyond the known-at range, so those survive.
         let verdict = Some(node).filter(|node| !self::known(node, known));
         if verdict.is_none() {
             stats.shed(1);

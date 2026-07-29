@@ -12,7 +12,7 @@
 
 use std::cmp::Ordering;
 
-use crate::Version;
+use crate::{Version, causally};
 
 use super::typed::*;
 use height::{Height, S, Z};
@@ -39,34 +39,33 @@ where
         // If the node doesn't exist, we can't return information about it
         let node = node?;
 
-        // There are two fast paths here:
+        // Both fast paths place a node bound against the counterparty's
+        // known-at range (everything causally contained in `known`):
         //
-        // 1. floor concurrent with or > known
-        // 2. ceiling <= known
+        // 1. floor beyond the range (concurrent with or > known)
+        // 2. ceiling within the range (<= known)
         //
         // We check them in this order because it's expected that the first
         // comparison is *cheaper* (the meet of random versions is likely to be
         // small because it's the greatest-common-ancestor) and because it's
         // more likely to happen *higher* in the tree, *and* because it's the
         // only one of the two comparisons which can early-terminate during the
-        // `partial_cmp` (because the `None` verdict can bail early in version
-        // comparison). This gives a measurable, if small win in benchmarks, by
-        // skipping the second comparison more of the time.
+        // placement (a floor concurrent to `known` is decided at the first
+        // opposing interval). This gives a measurable, if small win in
+        // benchmarks, by skipping the second comparison more of the time.
+        let known_at = causally::known_at(known);
 
-        // If the node's floor is concurrent with or greater than the known
-        // version vector, it's definitely unknown (and so are all its children,
-        // since they are always in the causal future or present of their
-        // parent's floor), so return the node unchanged:
-        match node.floor().partial_cmp(known) {
-            None | Some(Ordering::Greater) => return Some(node),
-            _ => {}
+        // If the node's floor is beyond the known range, the whole subtree is
+        // definitely unknown (children are always in the causal future or
+        // present of their parent's floor), so return the node unchanged:
+        if known_at.placement_of(node.floor()) == Ordering::Greater {
+            return Some(node);
         }
 
-        // If the node's ceiling is causally prior to or at the known version
-        // vector, it's already known (and so are all its children, since they
-        // are always in the causal past or present of their parent's ceiling),
-        // so don't return anything at all:
-        if node.ceiling() <= known {
+        // If the node's ceiling is within the known range, the whole subtree
+        // is already known (children are always in the causal past or present
+        // of their parent's ceiling), so don't return anything at all:
+        if known_at.contains(node.ceiling()) {
             return None;
         }
 
@@ -91,9 +90,9 @@ impl Unknown for Z {
         // If the node doesn't exist, we can't return information about it
         let node = node?;
 
-        // If the node is causally prior or at the known version vector, it's
-        // already known, so don't return anything
-        if node.ceiling() <= known {
+        // If the leaf's version is within the counterparty's known-at range,
+        // it's already known, so don't return anything
+        if causally::known_at(known).contains(node.ceiling()) {
             return None;
         }
 
