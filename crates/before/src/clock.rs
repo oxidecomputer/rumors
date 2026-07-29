@@ -333,16 +333,16 @@ impl Clock {
     /// assert_eq!(a.version(), b.version());
     /// ```
     pub fn sync(&mut self, other: &mut Clock) -> Result<&Version, Overlap> {
-        // Merge both parties into self, then re-split: self keeps one half,
-        // other the other. `join` is the overlap check — on failure it hands
-        // the party back and leaves `self` unchanged, so we restore `other`
-        // and report the overlap.
-        let theirs = core::mem::replace(&mut other.party, Party::anonymous());
-        if let Err(theirs) = self.party.join(theirs) {
-            other.party = theirs;
+        // One fused walk over the two parties emits both re-split halves
+        // directly — byte-identical to joining them and forking the union
+        // (the `sync_is_join_then_fork` law pins the equality) — and is
+        // also the overlap check: on overlap it emits nothing and neither
+        // clock moves.
+        let Some((keep, give)) = self.party.sum_split(&other.party) else {
             return Err(Overlap);
-        }
-        other.party = self.party.fork();
+        };
+        self.party = keep;
+        other.party = give;
 
         // Both histories become the join of the two.
         self.version |= &other.version;

@@ -492,6 +492,71 @@ proptest! {
 }
 
 proptest! {
+    /// The fused `sum_split` equals its composition — `sum`, then `split`
+    /// of the union — arm for arm on arbitrary id pairs: byte-identical
+    /// halves where the pair is disjoint, `None` exactly where `sum`
+    /// refuses (overlap), and the empty-operand identities included.
+    ///
+    /// This is the total oracle for the fusion (canonical uniqueness makes
+    /// byte equality the whole contract); the arbitrary pairs reach the
+    /// overlap arm and the union-collapse seam (both branch children
+    /// full) that seed-derived populations never produce.
+    #[test]
+    fn sum_split_is_sum_then_split(
+        oa in arb_oracle_party(),
+        ob in arb_oracle_party(),
+    ) {
+        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
+        let fused = IdReader::root(ia.as_bits()).sum_split(IdReader::root(ib.as_bits()));
+        let composed = IdReader::root(ia.as_bits())
+            .sum(IdReader::root(ib.as_bits()))
+            .map(|union| IdReader::root(&union).split());
+        prop_assert_eq!(fused, composed);
+    }
+}
+
+proptest! {
+    /// Complexity. `sum_split` is at most `O(n + m)`: on a deep disjoint
+    /// pair (the halves of a forked spine — an interleaved pair, so the
+    /// delegated merge dominates) its steps grow at most linearly with
+    /// shape size. (No lower bound is asserted: a pair whose regions do
+    /// not interleave is resolved by splices in sublinear steps.)
+    #[test]
+    fn sum_split_is_at_most_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
+        let measure = |s: usize| {
+            let mut keep = shape_party(shape, s);
+            let give = keep.fork(); // a deep disjoint pair; this build is not measured
+            steps_of(|| {
+                IdReader::root(keep.as_bits()).sum_split(IdReader::root(give.as_bits()));
+            })
+        };
+        assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
+}
+
+/// The branch-collapse seam of `sum_split`, deterministically: summing the
+/// two halves of the seed makes both union children full, so the built
+/// union collapses to the seed's terminal and `split` lands in its
+/// terminal arm — the fused walk, which never builds the union, must emit
+/// those exact bytes from its branch arm. `(1, 0) + (0, 1)` re-splits to
+/// `((1, 0), (0, 1))`.
+#[test]
+fn sum_split_collapsed_union_matches_terminal_split() {
+    let mut keep = Party::seed();
+    let give = keep.fork();
+    let fused = IdReader::root(keep.as_bits())
+        .sum_split(IdReader::root(give.as_bits()))
+        .expect("the seed's halves are disjoint");
+    let union = IdReader::root(keep.as_bits())
+        .sum(IdReader::root(give.as_bits()))
+        .expect("the seed's halves are disjoint");
+    let composed = IdReader::root(&union).split();
+    assert_eq!(fused, composed);
+    assert_eq!(Party::from_bits(fused.0), keep, "the keep half is (1, 0)");
+    assert_eq!(Party::from_bits(fused.1), give, "the give half is (0, 1)");
+}
+
+proptest! {
     /// `without` on arbitrary id pairs — typically *unrelated* and frequently
     /// *overlapping* — agrees with the oracle's `without`, mapping the oracle's
     /// empty result to `None`.

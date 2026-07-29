@@ -30,14 +30,14 @@ use super::family::{
 use super::floors::{
     clock_overlap_floors, comparison_floors, heap_fork_child, heap_materializes,
     id_rejection_floors, limb_stream, limb_wide, masked_cmp_floors, na, rejection_floors,
-    scan_examines, scan_touch, seg_ceiling_only, text_rejection_floors, tick_walk_floors,
-    touch_delta_fold, touch_fold_first_merges, touch_pair_fold, touch_wide_stream, walk_floors,
-    NA_HEAP_IN_PLACE, NA_LIMB_DEPENDENCY, NA_LIMB_ID_TREE, NA_LIMB_NARROW, NA_LIMB_NOT_FORCED,
-    NA_LIMB_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_SEED_PARTY,
-    NA_TOUCH_GROW, NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PROJECTION,
-    NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_REJECTION, NA_TOUCH_RENDER_SUMMARIES, NA_TOUCH_SEED_RAISE,
-    WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM, WHY_SCAN_EXAMINES,
-    WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
+    scan_examines, scan_touch, seg_ceiling_only, sync_floors, text_rejection_floors,
+    tick_walk_floors, touch_delta_fold, touch_fold_first_merges, touch_pair_fold,
+    touch_wide_stream, walk_floors, NA_HEAP_IN_PLACE, NA_LIMB_DEPENDENCY, NA_LIMB_ID_TREE,
+    NA_LIMB_NARROW, NA_LIMB_NOT_FORCED, NA_LIMB_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES,
+    NA_SCAN_NO_STREAM, NA_SCAN_SEED_PARTY, NA_TOUCH_GROW, NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED,
+    NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_REJECTION, NA_TOUCH_RENDER_SUMMARIES,
+    NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM,
+    WHY_SCAN_EXAMINES, WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
 };
 use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_clock, radix_units_party,
@@ -1201,8 +1201,12 @@ pub(super) fn ops() -> Vec<Op> {
             group: OpGroup::Clock,
             prepare: |f| {
                 let (mut a, mut b, n) = f.clock_pair()?;
-                let touch = touch_pair_fold(a.version(), b.version());
-                Some(Cell::new(n, walk_floors(n, touch), move || {
+                // Not the shared full-examination premise: the fused
+                // sync's party leg splices subtrees owned by one side
+                // alone without reading them, so its floors derive from
+                // the version join alone (`sync_floors`).
+                let floors = sync_floors(a.version(), b.version());
+                Some(Cell::new(n, floors, move || {
                     let synced = a.sync(&mut b).is_ok();
                     (synced, a, b)
                 }))
