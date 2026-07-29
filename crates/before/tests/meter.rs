@@ -4886,17 +4886,29 @@ mod accum_streams {
     /// Slack denominator: ceilings and flatness bounds are measured ×5/4.
     const SLACK_DEN: u64 = 4;
 
-    /// One accumulator stream measurement: the linearity denominator
-    /// (delta count, coded bytes where deltas widen, or sign reads where
-    /// reads dominate) and the digit touches counted over the stream body
-    /// (setup excluded).
+    /// One accumulator stream measurement over the stream body (setup
+    /// excluded).
+    ///
+    /// Carries the linearity denominator (delta count, coded bytes
+    /// where deltas widen, or sign reads where reads dominate), the
+    /// operations the body performed, and the digit touches counted.
     struct Run {
         denominator: u64,
+        /// Accumulator calls in the stream body (deltas plus sign
+        /// reads): the touch counter's liveness floor, one touch per
+        /// call.
+        ///
+        /// Every nonzero delta deposits into at least one digit, and
+        /// every sign fold reads at least one — the floor is the
+        /// mechanism's minimum possible work, not the typical work.
+        ops: u64,
         touches: u64,
     }
 
-    /// Assert a two-scale stream family stays under its pinned per-unit
-    /// ceiling at both scales and flat (×1.25) across the doubling.
+    /// Assert a two-scale stream family's touch counter is alive (at
+    /// least one touch per operation performed), stays under its pinned
+    /// per-unit ceiling at both scales, and flat (×1.25) across the
+    /// doubling.
     fn assert_flat(name: &str, small: &Run, large: &Run, ceiling_milli_per_unit: u64) {
         for run in [small, large] {
             eprintln!(
@@ -4904,6 +4916,14 @@ mod accum_streams {
                 run.denominator,
                 run.touches,
                 run.touches * 1000 / run.denominator,
+            );
+            assert!(
+                run.touches >= run.ops,
+                "accum_{name}: {} touches under {} operations: a deposit or \
+                 sign fold stopped counting, so every ceiling above would \
+                 hold vacuously",
+                run.touches,
+                run.ops,
             );
             assert!(
                 u128::from(run.touches) * 1000
@@ -4942,6 +4962,7 @@ mod accum_streams {
         }
         Run {
             denominator: 2 * n as u64,
+            ops: 4 * n as u64,
             touches: touch_meter::touches(),
         }
     }
@@ -4961,6 +4982,7 @@ mod accum_streams {
         }
         Run {
             denominator: 2 * n as u64,
+            ops: 4 * n as u64,
             touches: touch_meter::touches(),
         }
     }
@@ -4984,6 +5006,7 @@ mod accum_streams {
         }
         Run {
             denominator: (2 * n as u64) * (2 * u64::from(k) + 3) / 8,
+            ops: 4 * n as u64,
             touches: touch_meter::touches(),
         }
     }
@@ -5015,6 +5038,7 @@ mod accum_streams {
         }
         Run {
             denominator: 2 * n as u64,
+            ops: 4 * n as u64,
             touches: touch_meter::touches(),
         }
     }
