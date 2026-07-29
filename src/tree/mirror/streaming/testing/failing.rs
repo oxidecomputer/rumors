@@ -168,6 +168,10 @@ where
         self.0.message()
     }
 
+    fn version(&self) -> &std::sync::Arc<Version> {
+        self.0.version()
+    }
+
     // Custody passes straight through: fault injection targets the
     // traversal operations, not construction.
     async fn leaf(

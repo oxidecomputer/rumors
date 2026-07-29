@@ -407,7 +407,7 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
     let mut causal = handle.causal_messages();
     let mut plain_seen: BTreeSet<Key> = BTreeSet::new();
     let mut causal_seen: BTreeSet<Key> = BTreeSet::new();
-    let mut causal_delivered: Vec<Version> = Vec::new();
+    let mut causal_delivered: Vec<std::sync::Arc<Version>> = Vec::new();
 
     loop {
         // Settle *before* draining: after the writers finish, one more full
@@ -433,7 +433,7 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
             #[allow(clippy::neg_cmp_op_on_partial_ord)]
             for earlier in &causal_delivered {
                 assert!(
-                    !(version < earlier),
+                    !(version < *earlier),
                     "causal inversion: {version:?} delivered after {earlier:?}, \
                      which causally depends on it"
                 );

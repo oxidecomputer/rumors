@@ -1,5 +1,14 @@
 //! Executor-agnostic test support shared across protocol and API suites.
 
+use std::ops::RangeBounds;
+use std::sync::Arc;
+use std::vec::IntoIter;
+
+use futures::TryStreamExt as _;
+
+use crate::tree::backend::Store;
+use crate::{Key, Snapshot, Version};
+
 mod memnet;
 mod transport;
 
@@ -24,10 +33,9 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
 /// The in-memory backend's stream items are all immediately ready and its
 /// error is uninhabited, so suites can compare snapshot contents without
 /// carrying an executor. Order is the stream's own (unspecified).
-pub fn collect<T: Send + Sync + 'static, S: crate::tree::backend::Store<T>>(
-    snapshot: &crate::Snapshot<T, S>,
-) -> Vec<(crate::Key, crate::Version, std::sync::Arc<T>)> {
-    use futures::TryStreamExt;
+pub fn collect<T: Send + Sync + 'static, S: Store<T>>(
+    snapshot: &Snapshot<T, S>,
+) -> Vec<(Key, Arc<Version>, Arc<T>)> {
     pollster::block_on(snapshot.iter().try_collect()).expect("the backend answered every item")
 }
 
@@ -35,13 +43,11 @@ pub fn collect<T: Send + Sync + 'static, S: crate::tree::backend::Store<T>>(
 /// iterator, synchronously, at the end of a method chain.
 pub trait SnapshotCollect<T> {
     /// Drain into `Vec` and hand back its iterator; see [`collect`].
-    fn collected(&self) -> std::vec::IntoIter<(crate::Key, crate::Version, std::sync::Arc<T>)>;
+    fn collected(&self) -> IntoIter<(Key, Arc<Version>, Arc<T>)>;
 }
 
-impl<T: Send + Sync + 'static, S: crate::tree::backend::Store<T>> SnapshotCollect<T>
-    for crate::Snapshot<T, S>
-{
-    fn collected(&self) -> std::vec::IntoIter<(crate::Key, crate::Version, std::sync::Arc<T>)> {
+impl<T: Send + Sync + 'static, S: Store<T>> SnapshotCollect<T> for Snapshot<T, S> {
+    fn collected(&self) -> IntoIter<(Key, Arc<Version>, Arc<T>)> {
         collect(self).into_iter()
     }
 }
@@ -51,15 +57,10 @@ impl<T: Send + Sync + 'static, S: crate::tree::backend::Store<T>> SnapshotCollec
 ///
 /// The range-filtered sibling of [`collect`], with
 /// [`Snapshot::range`](crate::Snapshot::range)'s bound semantics.
-pub fn collect_range<
-    T: Send + Sync + 'static,
-    S: crate::tree::backend::Store<T>,
-    R: std::ops::RangeBounds<crate::Version>,
->(
-    snapshot: &crate::Snapshot<T, S>,
+pub fn collect_range<T: Send + Sync + 'static, S: Store<T>, R: RangeBounds<Version>>(
+    snapshot: &Snapshot<T, S>,
     range: R,
-) -> Vec<(crate::Key, crate::Version, std::sync::Arc<T>)> {
-    use futures::TryStreamExt;
+) -> Vec<(Key, Arc<Version>, Arc<T>)> {
     pollster::block_on(snapshot.range(range).try_collect())
         .expect("the backend answered every item")
 }
@@ -278,10 +279,7 @@ pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -
 use std::{
     future::Future,
     pin::pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll, Wake, Waker},
 };
 

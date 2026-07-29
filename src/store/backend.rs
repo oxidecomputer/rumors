@@ -209,7 +209,9 @@ impl<K: Kv, T: Send + Sync + 'static> Drop for Registration<K, T> {
 enum Body<T> {
     Leaf {
         prefix: Vec<u8>,
-        version: Version,
+        /// Interned at decode: every yield across the read surfaces is a
+        /// refcount bump, mirroring the in-memory leaf's interned version.
+        version: Arc<Version>,
         message: Message<T>,
     },
     Branch {
@@ -280,7 +282,7 @@ impl<T: Send + Sync + 'static> Body<T> {
                 payload,
             } => Body::Leaf {
                 prefix,
-                version,
+                version: Arc::new(version),
                 message: Message::from_bytes(Bytes::from(payload)).expect("corrupt leaf payload"),
             },
             NodeBody::Branch {
@@ -312,7 +314,7 @@ impl<T: Send + Sync + 'static> Body<T> {
                 message,
             } => NodeBody::Leaf {
                 prefix: prefix.clone(),
-                version: version.clone(),
+                version: (**version).clone(),
                 payload: message.bytes().to_vec(),
             },
             Body::Branch {
@@ -592,6 +594,13 @@ where
         }
     }
 
+    fn version(&self) -> &Arc<Version> {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => version,
+            Body::Branch { .. } => unreachable!("height-zero view over a branch record"),
+        }
+    }
+
     fn leaf(
         version: Version,
         message: Message<T>,
@@ -606,7 +615,7 @@ where
             Arc::new(Fetched {
                 body: Body::Leaf {
                     prefix: Vec::new(),
-                    version,
+                    version: Arc::new(version),
                     message,
                 },
                 provenance: Provenance::Pending {

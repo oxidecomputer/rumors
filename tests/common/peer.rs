@@ -67,7 +67,8 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
         for (key, version, message) in
             rumors::testing::collect_range(&snapshot, causally::since(&self.checkpoint))
         {
-            self.observations.push((key, version, (*message).clone()));
+            self.observations
+                .push((key, (*version).clone(), (*message).clone()));
             new += 1;
         }
         self.checkpoint |= snapshot.latest();

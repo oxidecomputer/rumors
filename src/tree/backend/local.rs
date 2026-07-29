@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 use std::mem;
 use std::pin::pin;
+use std::sync::Arc;
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt, future, stream};
@@ -59,6 +60,10 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
 impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {
     fn message(&self) -> &Message<T> {
         self.message()
+    }
+
+    fn version(&self) -> &Arc<Version> {
+        self.version_interned()
     }
 
     // Custody is free: the handle owns the payload and the tree it will

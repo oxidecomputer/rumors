@@ -24,7 +24,7 @@ fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<(Key, Version)> {
     }
     rumors::testing::collect_range(&peer.snapshot(), causally::since(&pre))
         .into_iter()
-        .map(|(k, v, _)| (k, v))
+        .map(|(k, v, _)| (k, (*v).clone()))
         .collect()
 }
 

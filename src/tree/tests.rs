@@ -1052,7 +1052,7 @@ proptest! {
         for (key, version, value) in &forward {
             prop_assert_eq!(
                 tree.get_now(key),
-                Some((version.clone(), value.clone())),
+                Some((Arc::new(version.clone()), value.clone())),
                 "get resolves every iterated key",
             );
         }

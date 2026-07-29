@@ -16,6 +16,7 @@ use crate::{
     Version, causally,
     message::Message,
     tree::{
+        backend::Store,
         mirror::streaming::{
             Backend, BoxNodeStream, Leaf, Local, Node, NodeStream, convert::Convert,
         },
@@ -250,6 +251,10 @@ where
         self.inner.message()
     }
 
+    fn version(&self) -> &std::sync::Arc<Version> {
+        self.inner.version()
+    }
+
     async fn leaf(version: Version, message: Message<T>) -> Result<Self, Infallible> {
         // Eager persistence at the conversion boundary: the payload is
         // written to the store here, so the resident row keeps only the
@@ -379,7 +384,7 @@ where
     }
 }
 
-impl<T> crate::tree::backend::Store<T> for Materializing
+impl<T> Store<T> for Materializing
 where
     T: Send + Sync + 'static,
 {

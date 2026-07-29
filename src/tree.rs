@@ -269,14 +269,19 @@ impl<T: Send + Sync + 'static, S: Store<T>> Tree<T, S> {
     }
 
     /// Looks up a single live message by its [`Key`], returning its
-    /// version and shared payload.
-    pub async fn get(&self, key: &Key) -> Result<Option<(Version, Arc<T>)>, S::Error> {
+    /// interned version handle and shared payload.
+    pub async fn get(&self, key: &Key) -> Result<Option<(Arc<Version>, Arc<T>)>, S::Error> {
         Ok(self
             .backend
             .clone()
             .get(self.root.root.clone(), typed::Path::from(*key))
             .await?
-            .map(|leaf| (leaf.span().join().clone(), leaf.message().as_arc().clone())))
+            .map(|leaf| {
+                (
+                    Arc::clone(backend::Leaf::version(&leaf)),
+                    leaf.message().as_arc().clone(),
+                )
+            }))
     }
 
     /// Streams the live leaves whose versions fall within `bounds`, in
@@ -591,7 +596,7 @@ impl<T: Send + Sync + 'static> Tree<T, Local> {
 
     /// [`get`](Self::get) driven to completion synchronously, unwrapping
     /// the in-memory backend's uninhabited error.
-    pub fn get_now(&self, key: &Key) -> Option<(Version, Arc<T>)> {
+    pub fn get_now(&self, key: &Key) -> Option<(Arc<Version>, Arc<T>)> {
         use futures::FutureExt as _;
         self.get(key)
             .now_or_never()

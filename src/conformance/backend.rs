@@ -231,6 +231,10 @@ where
         self.inner().message()
     }
 
+    fn version(&self) -> &std::sync::Arc<Version> {
+        self.inner().version()
+    }
+
     async fn leaf(
         version: Version,
         message: Message<T>,
