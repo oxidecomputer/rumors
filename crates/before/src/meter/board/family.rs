@@ -12,9 +12,14 @@
 //! `harmonic`, `freeze-pos` (the many-freezes spine, one query-fold
 //! freeze per block), `promo-rearm` (the many-armings spine, one
 //! query-fold promotion per block), `weight-comb` (the many-jumps
-//! spine, one accumulator-top jump and settle per block pair), and
+//! spine, one accumulator-top jump and settle per block pair),
 //! `freeze-parade` (the deep-segment freeze spine, one scaled segment
-//! read per block) — carry a version; the diverted id-spine pair carries a
+//! read per block), `plateau-puncture` (the answer-embedded product:
+//! the exact rank is
+//! one wide × dense multiplication), and `lone-freeze` (the
+//! first-freeze gate straddle, a never-freezing plateau prefix and a
+//! frozen tail on one knob) — carry a version; the diverted id-spine
+//! pair carries a
 //! disjoint party pair; the eleven cross shapes (`comb-scatter` and the
 //! ten tick-walk crosses) carry a version, a mounted party pair, and a
 //! clock; the two version-pair shapes — `jump-pair` (wide
@@ -23,7 +28,9 @@
 //! pair of their own construction, so
 //! their comparison rows run the pairing the shape was built around
 //! rather than the ticked counterpart, and `tooth-tail` (the
-//! boundary-aligned exact-`top` pair) carries its generator pair the same
+//! boundary-aligned exact-`top` pair) and `dense-suffix` (the
+//! many-armings re-arm spine over its unit mate) carry their generator
+//! pairs the same
 //! way; the three fold populations —
 //! `scatter`, `weave`, and `stagger` — carry fold operands alone, so
 //! exactly the three
@@ -35,7 +42,7 @@
 //! shapes — the designated adversarial × adversarial pairing.
 //!
 //! The recurring carrier classes, named here because no single
-//! declaration spells them out: the 19
+//! declaration spells them out: the 27
 //! version-carrying shapes (all but `id-pair` and the three fold
 //! populations) run every version row; the party-pair carriers
 //! (`id-pair`, `comb-scatter`, the ten tick crosses, `benign`) run the
@@ -381,6 +388,51 @@ const CONCURRENT_BASE_LEAVES: usize = 1_024;
 /// [`TOOTH_TAIL_SPIKE_DIVISOR`], the committed flatness band's ratio.
 const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 
+/// Dense-suffix blocks (and gap digits: one knob drives both, the
+/// `DS(p, p)` diagonal) at scale 1.0 (packed version ~122 KiB, the
+/// blocks' wide climb codes dominating).
+///
+/// The scale of the `skyline_flatness` dense-suffix bands' small run:
+/// the committed per-arming suffix walk reads ×1.96 per-byte growth
+/// across that regime's doubling (the query fold's committed
+/// tripwire), so the board's default pair straddles what the family
+/// exists to catch. The base is a multiple of 32 deliberately: the
+/// family's rank exponent is linear in the knob, and `rank_sum` lands
+/// its small summands at bit remainder `exp mod 32` (an honest
+/// amortized-O(1) constant that flips with the remainder — the
+/// freeze-position base's derivation carries the mechanism); `32 | s`
+/// keeps any integer-linear exponent's remainder fixed across the
+/// level doubling, so the exponent leg compares like against like.
+const DENSE_SUFFIX_BASE_BLOCKS: usize = 512;
+
+/// Plateau-puncture digits (plateau digits and turn count together:
+/// the `PP(w, d)` diagonal at `w = d`) at scale 1.0 (packed version
+/// ~21 KiB).
+///
+/// The scale of the `skyline_flatness` plateau-puncture band's small
+/// run: the committed schoolbook settle reads ×1.90 per-byte growth
+/// across that regime's doubling (the query fold's committed
+/// tripwire), so the board's default pair straddles what the family
+/// exists to catch. A multiple of 32 for the same `rank_sum`
+/// remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`]; the build arm
+/// floors the knob at the generator's minimum width (the plunge must
+/// trip the freeze allowance past a unit code), which binds only
+/// under extreme scale-down.
+const PLATEAU_PUNCTURE_BASE_DIGITS: usize = 512;
+
+/// Lone-freeze oscillation pairs per axis (the `LF(s, s)` diagonal:
+/// one knob drives the never-freezing plateau prefix and the frozen
+/// tail together) at scale 1.0 (packed version ~2.6 KiB).
+///
+/// The scale of the `skyline_flatness` lone-freeze bands' small runs
+/// (each band isolates one axis at the generator minimum; the board
+/// column scales both, so a regression on either side reads on the
+/// doubling). A multiple of 32 for the same `rank_sum` remainder
+/// alignment as [`DENSE_SUFFIX_BASE_BLOCKS`], kept even at every
+/// scale by the build arm (the generator counts whole oscillation
+/// pairs).
+const LONE_FREEZE_BASE_PAIRS: usize = 2_048;
+
 /// Boundaries per spike digit in the tooth-tail bundle.
 ///
 /// The committed flatness band's `g = m/64` ratio, so the board prices
@@ -660,6 +712,67 @@ pub(super) enum FamilyKind {
     /// every one of the `n − 1` overlay boundaries, join and meet alike
     /// — the pairing the ticked counterpart cannot reach.
     ConcurrentPair,
+    /// The dense-suffix pair `dense_suffix(p, p)` against its unit
+    /// mate `dense_suffix_mate(p, p)`: the many-armings ×
+    /// dense-trailing-mass sentinel.
+    ///
+    /// A gap spine holds the trailing interval mass at `Θ(p)` balanced
+    /// digits, then `p` re-arm blocks each park a wide drift and
+    /// promote it at O(1) stored codes — `Θ(p)` ledger armings all
+    /// owing their debt across the same `Θ(p)`-dense trailing mass, so
+    /// a settle that walks the suffix once per arming (or re-reads a
+    /// promoted prefix once per window) goes quadratic here while the
+    /// mass-balanced product tree charges every arming-window cross
+    /// term inside one aggregate product and reads flat. The committed
+    /// tripwire beside the kernel
+    /// (`suffix_walk_settle_reads_superlinear_on_dense_suffix`, the
+    /// query fold's test suite) keeps the per-arming walk failing on
+    /// this family. The mate is the same topology at unit bases, and
+    /// the wide operand dominates it pointwise, so the pair rows run
+    /// the co-sweep whose freezes and promotions fire on drift only
+    /// the wide operand deposited (the `skyline_flatness` dense-suffix
+    /// rank and distance bands carry the enforcement). Designed
+    /// against the linear-functional query rows.
+    DenseSuffix,
+    /// The plateau-puncture family `plateau_puncture(s, s)`: the
+    /// answer-embedded-product sentinel, and the floor under every
+    /// settle.
+    ///
+    /// Every turn leaf sits on one incompressible pseudorandom plateau
+    /// `x` of `Θ(s)` digits and the turn positions spell a jittered
+    /// punctured mass `y` of `Θ(s)` isolated digits, so the exact rank
+    /// embeds the integer product `2·x·y + 1` — bought with `Θ(s)`
+    /// input bits, both factors' content beyond the settle's own
+    /// balanced-digit compaction. No promotion ever fires; the cost is
+    /// the close-time settle, one wide × dense multiplication run
+    /// inside the backend at its bound `M(|v|)` — and because the same
+    /// constructor embeds the product of arbitrary factors, any fold
+    /// that answers exactly multiplies arbitrary input-funded
+    /// integers, so `Ω(M(|v|))` floors every settle. The committed
+    /// kernel
+    /// (`schoolbook_settle_reads_superlinear_on_plateau_puncture`, the
+    /// query fold's test suite) keeps the per-digit charge failing on
+    /// this family (the `skyline_flatness` plateau-puncture band
+    /// carries the enforcement). Designed against the
+    /// linear-functional query rows.
+    PlateauPuncture,
+    /// The lone-freeze spine `lone_freeze(s, s)`: the first-freeze
+    /// gate straddle, both sides on one knob.
+    ///
+    /// `s` unit-oscillation pairs ride a wide plateau strictly before
+    /// the sweep's one freeze-firing drop, and `s` more run behind it
+    /// with the gate open and a ten-digit drift parked — so any
+    /// per-interval deposit toward the settle machinery made before
+    /// drift exists to settle scales with the prefix, and a segment
+    /// feed or close read that is not amortized O(1) per interval
+    /// scales with the tail, while the family's funded wide codes stay
+    /// O(1). Exactly one freeze and no promotion ever fires, so the
+    /// column also prices the settle's smallest nonempty
+    /// configuration. The `skyline_flatness` lone-freeze bands isolate
+    /// each axis at the generator minimum and carry the enforcement;
+    /// the column scales both together. Designed against the
+    /// linear-functional query rows.
+    LoneFreeze,
     /// The tooth-tail pair `tooth_tail(g, m)`: the boundary-aligned
     /// exact-`top` population.
     ///
@@ -705,7 +818,7 @@ pub(super) enum FamilyKind {
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
 /// `alt_spine`, and the `memo_*` shapes do.
-pub(super) const FAMILIES: [FamilyKind; 28] = [
+pub(super) const FAMILIES: [FamilyKind; 31] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -731,6 +844,9 @@ pub(super) const FAMILIES: [FamilyKind; 28] = [
     FamilyKind::PromoRearm,
     FamilyKind::WeightComb,
     FamilyKind::FreezeParade,
+    FamilyKind::DenseSuffix,
+    FamilyKind::PlateauPuncture,
+    FamilyKind::LoneFreeze,
     FamilyKind::ConcurrentPair,
     FamilyKind::ToothTail,
     FamilyKind::Benign,
@@ -1045,6 +1161,45 @@ impl FamilyData {
                     .version()
                     .encode(),
             ),
+            FamilyKind::DenseSuffix => {
+                // One knob drives the block count and the gap-digit
+                // count (the bands' DS(p, p) diagonal); the mate is the
+                // same topology at unit bases, the pair the distance
+                // band prices.
+                let p = size(DENSE_SUFFIX_BASE_BLOCKS);
+                let mut data = Self::event(
+                    kind,
+                    "dense-suffix",
+                    meter::dense_suffix(p, p).version().encode(),
+                );
+                data.version2 = Some(meter::dense_suffix_mate(p, p).version().encode());
+                data
+            }
+            FamilyKind::PlateauPuncture => {
+                // One knob drives the plateau width and the turn count
+                // (the band's PP(s, s) diagonal), floored at the
+                // generator's minimum width; the floor binds only under
+                // extreme scale-down (the base constant's rustdoc).
+                let s = size(PLATEAU_PUNCTURE_BASE_DIGITS).max(10);
+                Self::event(
+                    kind,
+                    "plateau-puncture",
+                    meter::plateau_puncture(s, s).version().encode(),
+                )
+            }
+            FamilyKind::LoneFreeze => {
+                // One knob drives the plateau prefix and the frozen
+                // tail (the bands isolate each axis; the column scales
+                // both), kept even at every scale — the generator
+                // counts whole oscillation pairs, and MIN_SIZE_PARAM
+                // keeps the masked value at least 4.
+                let s = size(LONE_FREEZE_BASE_PAIRS) & !1;
+                Self::event(
+                    kind,
+                    "lone-freeze",
+                    meter::lone_freeze(s, s).version().encode(),
+                )
+            }
             FamilyKind::ConcurrentPair => {
                 let n = size(CONCURRENT_BASE_LEAVES).next_power_of_two();
                 let (v, w) = meter::concurrent_pair(n);
