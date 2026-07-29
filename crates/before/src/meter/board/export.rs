@@ -1,6 +1,16 @@
 //! The bench export: the board's cells exposed for wall-clock
-//! benchmarking, so the time leg rides the same two axes as the
-//! deterministic product, cell for cell.
+//! benchmarking.
+//!
+//! The wall-time mirror rides the same axes: the bench suite's
+//! criterion IDs are exactly the board's op × family cell names
+//! ([`bench_cells`] is the board's own table), so board coverage is
+//! bench coverage cell for cell, with no second enumeration. Wall
+//! benching pays criterion's warmup and sampling per cell, so the judge
+//! cadence times the rule-derived pinned subset (each shape's
+//! designed-stress pairings, the organic control, and the
+//! declared-model riders) while `BOARD_BENCH_MODE=full` times the whole
+//! product for final verdicts — the subset is a rule over the product,
+//! never a hand-maintained cell list.
 
 use std::any::Any;
 use std::rc::Rc;
@@ -16,7 +26,7 @@ use super::ops::{designed, ops};
 /// [`BenchCell::family`], so a board cell names the bench that times it and
 /// a criterion filter selects a cell. The bench judge (`tools/benchjudge`)
 /// reads those same IDs out of criterion's saved estimates to run the time
-/// leg the module doc describes.
+/// leg the board module doc describes.
 pub struct BenchCell {
     /// The board row's operation name: the bench group ID.
     pub op: &'static str,

@@ -1,6 +1,86 @@
 //! One prepared cell: the measured body, the operand bytes it charges
 //! against, its denomination rule, and its committed liveness
 //! declarations.
+//!
+//! # Denomination
+//!
+//! Most cells charge cost against packed input bytes alone; the board
+//! module doc's Denomination section states the default and the rule
+//! that a mandatory-output cell is judged against total I/O bytes
+//! `n_io`, its output side read back from the actual result. The
+//! re-denominated classes and their derivations:
+//!
+//! - **Text rows** (`Display` and `FromStr` for all three types): `n_io` is
+//!   packed input + text output (`Display`) or text input + packed output
+//!   (`FromStr`). Their heap and segment columns are judged per `n_io` byte
+//!   at the unchanged ceilings. Their **limb column** is judged on two legs
+//!   that exclude different converters. The *exponent* leg — against `n_io`,
+//!   like every exponent — is what excludes quadratic conversion: any
+//!   schoolbook converter's limb work is `Θ(digits × limbs)`, quadratic in
+//!   the value bits however wide its chunks, and reads ~2 there \[measured\].
+//!   The *constant* leg — against the radix-work denominator
+//!   `R = n_io + Σᵢ (digitsᵢ × limbsᵢ +
+//!   TEXT_PIPELINE_LIMB_OPS_PER_VALUE)` over the event values the text
+//!   spells (the honest text cost law: schoolbook conversion plus the
+//!   delta⇄absolute pipeline's measured per-value arithmetic), at the
+//!   ceiling [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`](super::ceilings::MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT) — is what excludes a
+//!   wasteful constant: a digit-by-digit schoolbook probe scores ~1 limb
+//!   per `R` unit, over κ, while the honest kernels' worst family reads
+//!   0.59 \[measured — the test suite's tripwires\]. Only a converter
+//!   whose recorded limb work is near-linear in `n_io` with a
+//!   pipeline-class constant reads green.
+//! - **Flat-denominator exponents** (the comb-scatter shape): the shape
+//!   deliberately scales tooth *count* at a fixed 1000-bit tooth
+//!   magnitude, so its packed bytes are intercept-dominated — the one
+//!   wide leading code plus unit delta codes per tooth — and grow only
+//!   ~x1.2 while every slot's value content (and every operation's honest
+//!   per-tooth work) doubles per level. A two-point power-law fit against
+//!   an intercept-dominated denominator manufactures exponents out of
+//!   exactly linear marginal work (log 2 / log 1.2 = 4), so the shape's
+//!   input-denominated cells fit their *exponents* against the bundle's
+//!   value content (the event side's summed leaf-height bits plus the id
+//!   side's packed bytes — the honest scaling axis),
+//!   disclosed per row as `expd[content ...]`. Constants and floors stay
+//!   per packed byte, the harder reading; I/O-denominated cells keep
+//!   `n_io`, whose output side already scales. The tripwire pair below
+//!   pins both directions: the packed fit reads a manufactured exponent
+//!   on measured flat per-tooth work, and a genuinely quadratic-in-teeth
+//!   probe still reads red against the content denominator.
+//! - **Output-dominated projection** (`own_version_to_version` and
+//!   `clock_own_version_to_version` on the comb × scattered-party cross and the
+//!   plateau-comb crosses — reveal-comb, reveal-hifloor, pure-comb):
+//!   `n_io` is packed input + packed output. These crosses exist because
+//!   the id keeps a wide magnitude per owned site — the scattered party a
+//!   wide magnitude per kept tooth (`Θ(e·k)` mandatory output bits), the
+//!   plateau ids a re-materialized `2^b`-scale code per kept site
+//!   (`Θ(k·b)` output on a `Θ(k + b)` input) — and a packed output cannot
+//!   be padded, so `n_io` is the honest denominator on all columns at the
+//!   unchanged ceilings, with the projection sweep measured
+//!   O(`n_io`)-tight on every one (exponents ≈ 1.0 against `n_io`, scan
+//!   at the walk's usual 8 bits per `n_io` byte).
+//!
+//! The **output-honesty assertion** closes the pad-the-output door on the
+//! text side: any text stream entering a denominator must satisfy
+//! `text_bytes ≤` [`TEXT_BYTES_PER_RADIX_UNIT`] `× radix units` of the
+//! values it spells, checked against the actual bytes.
+//!
+//! **Do not re-denominate** (these stay input-denominated): both binary
+//! codec directions (the coding is canonical 1:1, so input bytes are the
+//! honest bound); every scalar, comparison, and query row (word-sized or
+//! borrowed results); and the packed-output mutator rows (`join`, `meet`,
+//! `tick`, `fork`, `recv`, `sync`, `without`, and every
+//! projection cell outside the output-domination cross) — their input denomination rests on output
+//! coding ≤ inputs + O(1) per overlay boundary, which is pinned for
+//! join/meet as the 1-Lipschitz proptest in
+//! [`tier2`](crate::meter::tier2)'s test suite rather than assumed.
+//!
+//! **Rank operands** (`rank_pair_ops`, `rank_sum`) have no packed encoding
+//! to charge against; their denominator of record is the operands' **value
+//! content** `bits(num) + exp` in bytes. That content is wire-bounded:
+//! every public construction path (the `rank`/`distance`/`lag` folds)
+//! emits a rank whose numerator width and exponent are each linear in the
+//! packed bits the fold read, so a ceiling per content byte is a ceiling
+//! per wire byte up to the fold's own constant.
 
 use std::any::Any;
 
@@ -16,13 +96,13 @@ use super::currency::Floors;
 pub(super) struct Cell {
     /// The packed (or, on `FromStr` rows, text) operand bytes.
     pub(super) input_bytes: usize,
-    /// How the meters are denominated (the module doc's criterion).
+    /// How the meters are denominated (the board module doc's criterion).
     pub(super) denom: Denom,
     /// The cell's liveness declarations, one per floored column.
     pub(super) floors: Floors,
     /// The fold rows' operand count at this scale: `Some` on the two
     /// n-ary fold rows only, where it drives the declared `FoldLog`
-    /// model (the declared-models section above).
+    /// model (the `ceilings` module's declared-models section).
     pub(super) fold_arity: Option<u64>,
     /// The party fold's declared search allowance at this scale, in
     /// scan bits ([`INDEX_PROBE_SCAN_BITS`](super::ceilings::INDEX_PROBE_SCAN_BITS)'s derivation).
@@ -63,7 +143,7 @@ pub(super) struct Cell {
     pub(super) body: Box<dyn FnOnce() -> Box<dyn Any>>,
 }
 
-/// A cell's denomination rule (see the module doc's list of which rows get
+/// A cell's denomination rule (the module doc above lists which rows get
 /// which).
 pub(super) enum Denom {
     /// Input bytes alone: the default, and the only rule most rows may use.
@@ -124,7 +204,8 @@ impl Cell {
     }
 
     /// Declare this cell's readings judged under the fold rows' `FoldLog`
-    /// model at operand count `arity` (the declared-models section).
+    /// model at operand count `arity` (the `ceilings` module's
+    /// declared-models section).
     pub(super) fn with_fold_arity(mut self, arity: u64) -> Cell {
         self.fold_arity = Some(arity);
         self
@@ -138,14 +219,16 @@ impl Cell {
     }
 
     /// Declare this cell's heap judged against the ratified
-    /// capacity-chain model (the declared-models section).
+    /// capacity-chain model (the `ceilings` module's declared-models
+    /// section).
     pub(super) fn with_capacity_model(mut self) -> Cell {
         self.capacity_model = true;
         self
     }
 
     /// Declare this cell's heap constant judged against a family-stated
-    /// flat ceiling (the declared-models section); the exponent leg
+    /// flat ceiling (the `ceilings` module's declared-models section); the
+    /// exponent leg
     /// stays at the global bound.
     pub(super) fn with_declared_heap(mut self, bytes_per_denom_byte: f64) -> Cell {
         self.declared_heap = Some(bytes_per_denom_byte);
@@ -153,7 +236,8 @@ impl Cell {
     }
 
     /// Declare this cell's limb column judged against a family-stated
-    /// model (the declared-models section): `exponent` replaces the
+    /// model (the `ceilings` module's declared-models section):
+    /// `exponent` replaces the
     /// global exponent bound, `per_radix_unit` the text ceiling κ.
     pub(super) fn with_declared_limb(mut self, exponent: f64, per_radix_unit: f64) -> Cell {
         self.declared_limb = Some((exponent, per_radix_unit));

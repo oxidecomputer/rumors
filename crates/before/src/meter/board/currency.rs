@@ -112,8 +112,9 @@ impl<T> ByCurrency<T> {
 /// counter must read if the meter is watching the work, or the reason no
 /// floor can bind.
 ///
-/// Every cell carries one per currency (see [`Floors`]); the board module
-/// doc's Liveness floors section records the derivation conventions.
+/// Every cell carries one per currency (see [`Floors`]); the derivation
+/// conventions live with the floor constructors, in the board's `floors`
+/// module.
 #[derive(Clone, Copy, Debug)]
 pub enum Liveness {
     /// The counter must read at least `min`; `why` is the semantic

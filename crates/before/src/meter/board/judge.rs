@@ -247,7 +247,8 @@ pub(super) fn evaluate(
             }
         }
         // A family-stated limb model replaces both limb legs on the
-        // cells that declare one (the declared-models section): the
+        // cells that declare one (the ceilings module's declared-models
+        // section): the
         // stated constant in place of the global (or text) ceiling,
         // the stated exponent below in place of the global bound.
         if c == Currency::Limb {

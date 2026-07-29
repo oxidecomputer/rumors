@@ -148,7 +148,8 @@ pub(super) fn designed(kind: FamilyKind, group: OpGroup) -> bool {
 }
 
 /// The operation table: every public operation with a meaningful packed
-/// operand (the module doc lists the rest).
+/// operand ([`BOARD_NOT_APPLICABLE`](super::coverage::BOARD_NOT_APPLICABLE)
+/// and the `coverage` module doc list the rest).
 #[allow(clippy::too_many_lines)]
 pub(super) fn ops() -> Vec<Op> {
     vec![
@@ -375,7 +376,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // the spine families that maximize the mismatch plus the
                 // benign control. Ranks are built at family construction,
                 // outside measurement; the denominator is the pair's value
-                // content (the module doc's rank denomination).
+                // content (the `cell` module doc's rank denomination).
                 let (a, b) = f.rank_pair.clone()?;
                 let n = (a.content_bits() + b.content_bits()).div_ceil(8) as usize;
                 let floors = Floors {
@@ -410,7 +411,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // order, and under a fold that re-normalizes per element it
                 // is the order that makes every later add a full-width
                 // operation. The denominator is the summands' total value
-                // content (the module doc's rank denomination).
+                // content (the `cell` module doc's rank denomination).
                 let (a, _) = f.rank_pair.clone()?;
                 let (_, k) = f.version()?;
                 let ones: Vec<Rank> = (0..k)
@@ -572,7 +573,8 @@ pub(super) fn ops() -> Vec<Op> {
                         move || ((&v / &p).to_version(), v, p),
                     );
                     // The comb-scatter cross's builder runs the ratified
-                    // capacity chain (the declared-models section); the
+                    // capacity chain (the ceilings module's declared-models
+                    // section); the
                     // plateau-comb crosses stay flat-judged and green.
                     return Some(if matches!(f.kind, FamilyKind::CombScatter) {
                         cell.with_capacity_model()
@@ -582,7 +584,7 @@ pub(super) fn ops() -> Vec<Op> {
                 }
                 // A cross shape without output domination materializes its
                 // event side through its id side, input-denominated (the
-                // module doc's do-not-re-denominate list).
+                // `cell` module doc's do-not-re-denominate list).
                 if let Some((v, p, n)) = f.cross() {
                     return Some(Cell::new(
                         n,
@@ -1211,7 +1213,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // `.to_version()`. Adversarial × adversarial with
                 // mandatory dominating output: a clock holding the cross's
                 // event side whose party is its id side, I/O-denominated
-                // (the module doc's output-domination cross).
+                // (the `cell` module doc's output-domination cross).
                 if f.output_dominated {
                     let (v_bytes, p_bytes) = f.cross.as_ref()?;
                     let n = v_bytes.len() + p_bytes.len();
@@ -1337,7 +1339,7 @@ pub(super) fn ops() -> Vec<Op> {
                 }))
             },
         },
-        // ── the rejection surface (the module doc's rejection section) ─
+        // ── the rejection surface (the `defect` module doc) ────────────
         Op {
             name: "version_decode_truncated",
             group: OpGroup::Version,

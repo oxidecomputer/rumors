@@ -1,9 +1,156 @@
 //! The shape axis: every input family and the operand bundle it builds.
 //!
-//! The roster is [`FAMILIES`]; each shape's genre rides its [`FamilyKind`]
-//! variant doc, and the bundle post-pass in [`FamilyData::build`] derives
-//! uniformly every slot a shape does not natively fill, so a shape reaches
-//! every operation its bundle supplies without naming any.
+//! Every shape comes from the [`meter`] generators; the
+//! roster is [`FAMILIES`], and the bundle post-pass in
+//! [`FamilyData::build`] derives uniformly every slot a shape does not
+//! natively fill, so a shape reaches every operation its bundle supplies
+//! (the board module doc's product section) without naming any.
+//!
+//! The carriers: the event shapes —
+//! the dense spine, `bigroot`, `hugeleaf`, the boundary comb (`cliff`, at
+//! `k = n` so its value content grows quadratically in its packed input),
+//! `harmonic`, `freeze-pos` (the many-freezes spine, one query-fold
+//! freeze per block), `promo-rearm` (the many-armings spine, one
+//! query-fold promotion per block), `weight-comb` (the many-jumps
+//! spine, one accumulator-top jump and settle per block pair), and
+//! `freeze-parade` (the deep-segment freeze spine, one scaled segment
+//! read per block) — carry a version; the diverted id-spine pair carries a
+//! disjoint party pair; the eleven cross shapes (`comb-scatter` and the
+//! ten tick-walk crosses) carry a version, a mounted party pair, and a
+//! clock; the two version-pair shapes — `jump-pair` (wide
+//! height-difference crests over a dense-position spine) and
+//! `concurrent-pair` (the switch-density population) — carry a version
+//! pair of their own construction, so
+//! their comparison rows run the pairing the shape was built around
+//! rather than the ticked counterpart, and `tooth-tail` (the
+//! boundary-aligned exact-`top` pair) carries its generator pair the same
+//! way; the three fold populations —
+//! `scatter`, `weave`, and `stagger` — carry fold operands alone, so
+//! exactly the three
+//! fold rows run on them; `benign` — a fixed-seed pseudo-random population of forked,
+//! ticked clocks, the control row that keeps the ceilings honest on
+//! organic inputs — carries everything. Where an operation needs a
+//! `Party` and a `Version`, the board crosses adversarial party × small
+//! version, small party × adversarial version, and — on the cross
+//! shapes — the designated adversarial × adversarial pairing.
+//!
+//! The recurring carrier classes, named here because no single
+//! declaration spells them out: the 19
+//! version-carrying shapes (all but `id-pair` and the three fold
+//! populations) run every version row; the party-pair carriers
+//! (`id-pair`, `comb-scatter`, the ten tick crosses, `benign`) run the
+//! party rows; every clock-carrying shape (the version carriers plus
+//! `id-pair`) runs the clock rows; the projection rows add the
+//! output-domination cross; and the three fold populations (`scatter`,
+//! `weave`, `stagger`) plus the `benign` control carry fold operands,
+//! so exactly the fold rows run on them.
+//!
+//! This list is deliberately narrower than the generator surface: a shape
+//! earns a board column only as a whole-surface adversary, while
+//! kernel-seam probes live in the envelope suite alone. The criterion and
+//! the add-a-shape touch list sit on the `FAMILIES` roster below.
+//!
+//! Ten shapes carry a genre note beyond their variant docs:
+//!
+//! - `freeze-pos`, built against the linear-functional rows: `Θ(s)`
+//!   query-fold freezes at ever-deeper stream positions where every
+//!   comb fires O(1). The committed known-bad kernel (the query fold's
+//!   adequacy tripwire) reads ×1.50 per byte across this family's
+//!   doubling, so a green `version_rank × freeze-pos` cell is a live
+//!   verdict, not decoration.
+//!
+//! - `promo-rearm`, built against the linear-functional rows: `Θ(s)`
+//!   query-fold promotions at O(1) stored codes each, over a consumed
+//!   mass whose written span the spine keeps growing — the coverage
+//!   hole freeze-pos left, its parked drift being monotone (no
+//!   committed family promoted at all). The committed known-bad kernel
+//!   (the query fold's span-promotion tripwire) reads ×1.74 per byte
+//!   across this family's doubling, so a green
+//!   `version_rank × promo-rearm` cell is a live verdict, not
+//!   decoration — and the class-binding seal that holds `Linear`
+//!   claims against exponent-mechanism reds is live for the promotion
+//!   mechanism exactly because this column exists.
+//!
+//! - `weight-comb` and `freeze-parade`, the accumulator skip-mechanism
+//!   families (the zero-run certificate ledger's and the write
+//!   watermark's, respectively): each is a public-API stream that
+//!   stays flat only through its mechanism, and each mechanism's
+//!   absence reads ~×2 per byte across the family's doubling (the
+//!   committed probe-build measurements in the `skyline_flatness` band
+//!   ceilings, `tests/meter.rs` — the enforcement stays there; the
+//!   columns exist so the dashboard is never structurally blind to the
+//!   genre, every cell a live verdict over the mechanism that holds it
+//!   flat).
+//!
+//! - `tooth-tail`, the third skip mechanism's family (exact-`top`
+//!   maintenance): the boundary-aligned pair whose cancelled spike
+//!   leaves `Θ(m)` post-cancellation sign reads over a `g`-digit dead
+//!   buffer — flat with the settled top, `Θ(m·g)` with a high-water
+//!   bound (the `skyline_flatness` tooth-tail band carries both
+//!   readings; enforcement stays there). The pair is also the
+//!   committed demonstration behind the comparison rows' per-boundary
+//!   touch floor: same-shape operands share every overlay boundary,
+//!   so the fused sweep honestly folds ~once per boundary against two
+//!   stored deltas, and its parse rows are the board's densest
+//!   node-per-text-byte streams (the family-declared parse heap
+//!   ceiling at [`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`](super::ceilings::TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE) carries
+//!   the derivation).
+//!
+//! - `comb-scatter`: the projection cross (boundary-comb version ×
+//!   scattered party) whose mandatory output dominates its input — the
+//!   case the small-operand crosses cannot exhibit; its two projection
+//!   cells are the board's only I/O-denominated non-text cells.
+//! - `harmonic` (`meter::harmonic`, a 1-leaf at every depth), built
+//!   against the linear-functional rows (`rank`/`distance`/`lag`/
+//!   `min_ticks`) and the rank rows (`rank_pair_ops`, `rank_sum`): its
+//!   rank's numerator is as
+//!   wide as the depth already walked at every level, so a fold that
+//!   re-shifts its accumulated numerator per level reads limb exponent ~2
+//!   here while `dense` (a one-bit numerator) stays the linear control.
+//!   The query kernels' rank fold telescopes through height deltas, and
+//!   `version_rank × harmonic` reads the control's linear signature
+//!   \[measured — limb exponent 1.00, constant within 2% of `dense`, both
+//!   scales\]: the column is the tripwire that goes red under the
+//!   re-shifting genre.
+//! - `scatter`, whose bundle carries fold operands alone, for the three
+//!   fold rows (`version_join_all`, `version_meet_all`,
+//!   `party_join_all`; all also keep a `benign` control cell, folding the
+//!   organic population in construction order): balanced-forked
+//!   single-tick operands ordered evens before odds, so a sequential
+//!   fold's accumulator holds every other leaf and never coalesces — the
+//!   shape that reads exponent ~2 under a left fold. Both rows run the
+//!   balanced binary-counter reduction (every input passes through
+//!   O(log n) joins), and what the cells show is its log factor — on the
+//!   version fold's limb and scan columns, and on the party fold's scan
+//!   column alone (its walk allocates nothing, recurses nothing, and does
+//!   no arithmetic, so scan is the only deterministic meter that sees
+//!   it): exponents ~1.1 and constants that grow with scale, marginally
+//!   over the amortized-linear bounds at some scales \[measured — both
+//!   scales\]. The `benign` controls read the same
+//!   signature as `scatter`, so the readings priced by the declared fold
+//!   model are the reduction's own n·log n cost, not the adversarial
+//!   ordering's.
+//! - `weave`, the correlated fold population (the leaves of one balanced
+//!   fork expansion dealt round-robin among 16 group parties,
+//!   one tick each), also fold-rows-only: every operand pair is
+//!   both-present at the whole shared upper skeleton while each operand
+//!   alone is an organic region set, so the per-node fold costs that
+//!   scale with the *other* operand — the overlap test against the
+//!   accumulator above all — dominate at fixed arity. Scatter's
+//!   single-leaf operands cannot reach the genre and benign reaches it
+//!   only diluted.
+//! - `stagger`, the reduction-loading fold population, also
+//!   fold-rows-only: `n` operands of `m` unit teeth each, every
+//!   operand's teeth in the gaps of every other's, fed in
+//!   bit-reversed order so each binary-counter merge pairs operand
+//!   groups whose slots diverge at the top address bit — every
+//!   internal merge, at every level, swells to near the sum of its
+//!   inputs' sizes, the declared `O(D log k)` model's intermediate-
+//!   swell worst case with no coalescing until the last level.
+//!   Scatter scales arity at single-leaf operands and weave scales
+//!   operand size at fixed arity; this population is the joint axis
+//!   \[measured — scan 8.6 bits/B per reduction level, constant
+//!   across `n` and `m` doublings alike, under the declared 12\].
 
 use crate::codec;
 use crate::meter;
@@ -540,13 +687,13 @@ pub(super) enum FamilyKind {
 /// [`designed`](super::ops::designed) match arms are compiler-forced from here.
 /// What the compiler cannot force, in the order it is otherwise found by
 /// luck: the shape's base-size constant (the block above, with its
-/// derivation doc), the module doc's `# Families` prose and any
-/// cardinality it carries, the cell-count pin and its derivation comment
+/// derivation doc), the module doc's family prose and any cardinality
+/// it carries, the cell-count pin and its derivation comment
 /// (`tests/amp_board_smoke.rs`), the envelope rows in `tests/meter.rs`
-/// (the enforced record), the ceiling-calibration witnesses (the pinned
-/// ceilings section's header comment), and — only if a cell needs a
+/// (the enforced record), the ceiling-calibration witnesses (the
+/// `ceilings` module's header comment), and — only if a cell needs a
 /// declared model or turns up red — the declaration site (the
-/// declared-models section), the red-triage buffer
+/// `ceilings` module's declared-models section), the red-triage buffer
 /// ([`BOARD_EXPECTED_REDS`](super::coverage::BOARD_EXPECTED_REDS), with a live task), the rider list
 /// ([`BOARD_DECLARED_BENCH_RIDERS`](super::export::BOARD_DECLARED_BENCH_RIDERS)), and the judge roster with its
 /// membership pin (`tools/benchjudge-expected.json`,
@@ -620,15 +767,15 @@ pub(super) struct FamilyData {
     pub(super) cross: Option<(Vec<u8>, Vec<u8>)>,
     /// Whether the cross's mandatory projection output dominates its
     /// input (the comb-scatter and plateau-comb shapes): the projection
-    /// rows I/O-denominate exactly these cells (the module doc's
-    /// Denomination section).
+    /// rows I/O-denominate exactly these cells (the `cell` module doc's
+    /// output-domination cross).
     pub(super) output_dominated: bool,
     /// The bundle's value content in bytes, `Some` only on the
     /// flat-denominator shape (comb-scatter).
     ///
     /// The denominator every input-denominated cell's *exponent* is
     /// fitted against; constants and floors stay per packed byte (the
-    /// module doc's Denomination section derives the split).
+    /// `cell` module doc derives the split).
     pub(super) content_bytes: Option<usize>,
     /// The packed fold operands (versions, parties), consumed by the two
     /// fold rows alone: the scatter, weave, and stagger populations'
