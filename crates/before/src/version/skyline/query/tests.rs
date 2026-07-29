@@ -24,9 +24,9 @@ use proptest::prelude::*;
 
 use crate::meter::{
     alt_spine, arming_train, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair,
-    dense, dense_suffix, dense_suffix_mate, freeze_position, harmonic, hugeleaf, jump_comb,
-    jump_pair, plateau_puncture, promotion_rearm, promotion_rearm_mate, wide_arming,
-    wide_tooth_comb, Packed,
+    dense, dense_factor, dense_suffix, dense_suffix_mate, factor_digit, freeze_position, harmonic,
+    hugeleaf, jump_comb, jump_pair, plateau_puncture, promotion_rearm, promotion_rearm_mate,
+    puncture_product, wide_arming, wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
@@ -451,6 +451,60 @@ proptest! {
         let p = crate::testing::bridge::from_oracle_party(&oi);
         assert_projection(&v, &p);
     }
+
+    /// The exact rank embeds the product of two arbitrary integers:
+    /// `rank(V(x, y)) = (2·x·y + 1) / 2^bits(2y)` for every positive
+    /// `x` and `y`, through the public fold.
+    ///
+    /// The `Ω(M(·))` floor's evidence of record — a reduction from
+    /// arbitrary integer multiplication, not a bet on one committed
+    /// shape: `V(x, y)` stores `Θ(bits(x) + bits(y))` bits, and its
+    /// exact rank's numerator carries the full product (one
+    /// subtraction and one shift recover `x·y`), so any fold that
+    /// answers this family exactly multiplies two arbitrary
+    /// input-funded factors at linear overhead. The independent
+    /// witness is the backend's own multiplication, computed here
+    /// outside any fold. The pair measures inherit the floor through
+    /// their valuation identities — against the empty version,
+    /// distance and lag both collapse to the rank — asserted here on
+    /// the public entry points.
+    #[test]
+    fn arbitrary_factors_embed_their_product_in_exact_rank(
+        x_bytes in proptest::collection::vec(any::<u8>(), 1..64),
+        y_bytes in proptest::collection::vec(any::<u8>(), 1..64),
+    ) {
+        use dashu_int::ops::BitTest;
+        use suanpan::UBig;
+        let nonzero = |bytes: &[u8]| {
+            let v = UBig::from_le_bytes(bytes);
+            if v == UBig::ZERO { UBig::ONE } else { v }
+        };
+        let (x, y) = (nonzero(&x_bytes), nonzero(&y_bytes));
+        let v = puncture_product(&x, &y).version();
+        let wire = v.encode();
+        prop_assert_eq!(
+            &Version::decode(&wire[..]).expect("a stored version's wire bytes decode"),
+            &v,
+            "the constructor's output must be canonical"
+        );
+        let numerator = ((&x * &y) << 1usize) + 1u8;
+        prop_assert_eq!(
+            v.rank().to_string(),
+            format!("{}/2^{}", numerator, y.bit_len() + 1),
+            "the exact rank must embed the arbitrary product"
+        );
+        let empty = Version::new();
+        prop_assert_eq!(
+            v.distance(&empty),
+            v.rank(),
+            "distance to the empty version is the rank"
+        );
+        prop_assert_eq!(
+            empty.lag(&v),
+            v.rank(),
+            "the empty version lags by the rank"
+        );
+    }
 }
 
 /// The cluster seam splits exactly at gaps wider than the limit: runs
@@ -641,6 +695,127 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
         let straddle: Vec<(u64, i64)> =
             vec![(0, (1i64 << 31) - 1), (gap_limit + 2, -((1i64 << 31) - 1))];
         assert_matches(&factor, &straddle, false, "cancellation across a split");
+    }
+}
+
+/// Dense committed factors drive one settle product through the
+/// public rank at each backend multiplication-tier boundary, exact
+/// against the recursive oracle and the closed form.
+///
+/// The gap the seam-level differentials leave open: the tier-boundary
+/// charge test above holds the charge kernel value-exact at every
+/// dispatch boundary, but only a `charge_digits`-level operand ever
+/// reached the upper tiers — no public fold drove an incompressible
+/// factor through a settle product there. Here the puncture-product
+/// family does it end to end: the plateau `x` is dense pseudorandom
+/// at exactly 24, 25, 96, and 97 dashu words (the simple/Karatsuba
+/// and Karatsuba/Toom-3 boundaries of dashu-int 0.5.0's THRESHOLD
+/// constants, dispatched on the product's smaller side), the mass `y`
+/// spans 16 digits past the factor with every digit populated —
+/// fully dense at 24/25, four pseudorandom bits per digit at 96/97
+/// (the packed construction pays one plateau code per mass bit, so
+/// popcount is the test's whole budget; per-digit population is what
+/// the product's carry chains see) — so the close-time settle's one
+/// product meets the boundary width with dense content on both
+/// sides. Value legs per width: the recursive tree oracle and the
+/// closed form `(2·x·y + 1) / 2^bits(2y)` through an independent
+/// backend multiplication.
+///
+/// The Toom-3/NTT boundary (4,000/4,001 words) rides the same
+/// construction with the mass thinned to one jittered turn every 400
+/// digits: a per-digit-populated NTT-scale mass would build a packed
+/// operand in the hundreds of megabits, and the recursive oracle's
+/// fold over the ~256,000-leaf tree is likewise out of test budget —
+/// the punctured trailing run still densifies to one cluster image
+/// spanning the full smaller-side width the backend dispatches on
+/// (gaps of ~399 digits sit far inside the factor-width gap limit),
+/// the factor side stays fully dense, and the value leg is the
+/// closed form alone.
+#[test]
+fn dense_factors_agree_through_the_public_fold_at_tier_boundaries() {
+    // The recursive oracle and its bridge are test-only plain
+    // recursion on tree depth, and the dense masses here run the
+    // spine thousands of levels deep — the production folds are
+    // stack-safe (`crate::recurse::descend!`), so the headroom is for
+    // the witnesses, not the code under test.
+    let body = std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(dense_factor_tier_legs)
+        .expect("the fat-stack witness thread spawns");
+    if let Err(panic) = body.join() {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+/// The tier legs of
+/// [`dense_factors_agree_through_the_public_fold_at_tier_boundaries`],
+/// on the fat-stack thread the recursive oracle needs at these
+/// depths.
+fn dense_factor_tier_legs() {
+    use dashu_int::ops::BitTest;
+    use suanpan::UBig;
+
+    /// One puncture-product leg: the public rank against the closed
+    /// form, and (where the tree fits the budget) the recursive
+    /// oracle.
+    fn assert_leg(x: &UBig, y: &UBig, oracle: bool, label: &str) {
+        let v = puncture_product(x, y).version();
+        let numerator = ((x * y) << 1usize) + 1u8;
+        assert_eq!(
+            v.rank().to_string(),
+            format!("{}/2^{}", numerator, y.bit_len() + 1),
+            "the closed form must hold at the {label} boundary"
+        );
+        if oracle {
+            assert_eq!(
+                v.rank(),
+                to_oracle_version(&v).rank(),
+                "the tree-fold oracle must agree at the {label} boundary"
+            );
+        }
+    }
+
+    /// A mass with every base-2^32 digit populated by `bits`-many
+    /// pseudorandom bit choices (collisions allowed, so one to
+    /// `bits` live bits per digit).
+    fn spread_mass(seed: u64, digits: usize, bits: u64) -> UBig {
+        let mut y = UBig::ZERO;
+        for digit in 0..digits {
+            for b in 0..bits {
+                let j = u64::from(factor_digit(seed, digit as u64 * bits + b)) % 32;
+                y |= UBig::ONE << (32 * digit + j as usize);
+            }
+        }
+        y
+    }
+
+    for (words, dense_mass) in [(24usize, true), (25, true), (96, false), (97, false)] {
+        let x = dense_factor(0x5449_4552 ^ words as u64, 2 * words);
+        let mass_seed = 0x4D41_5353 ^ words as u64;
+        let y = if dense_mass {
+            dense_factor(mass_seed, 2 * words + 16)
+        } else {
+            spread_mass(mass_seed, 2 * words + 16, 4)
+        };
+        assert_leg(&x, &y, true, &format!("{words}-word"));
+    }
+    for words in [4_000usize, 4_001] {
+        let x = dense_factor(0x4E54_5400 ^ words as u64, 2 * words);
+        let span = 2 * words + 16;
+        let mut y = UBig::ZERO;
+        let mut digit = 0usize;
+        let mut turn = 0u64;
+        while digit < span {
+            let jitter = u64::from(factor_digit(0x4A49_5454, turn)) % 32;
+            y |= UBig::ONE << (32 * digit + jitter as usize);
+            digit += 400;
+            turn += 1;
+        }
+        // The top turn sits at the span's last digit, so the settle
+        // product's mass side strictly out-spans the factor and the
+        // backend dispatches on the factor's word count exactly.
+        y |= UBig::ONE << (32 * (span - 1) + 31);
+        assert_leg(&x, &y, false, &format!("{words}-word"));
     }
 }
 
@@ -1989,14 +2164,14 @@ mod adequacy {
     ///
     /// The arming-free site: no promotion ever fires, so the whole
     /// excess is the close-time `P · segment` product paid one digit
-    /// at a time. The floor 1.42 sits midway between linear and the
-    /// measured growth, while the shipped kernel's
+    /// at a time. The floor 1.32 sits midway between linear and the
+    /// lower measured currency, while the shipped kernel's
     /// `answer_embedded_product` band holds the same family at x1.25.
     ///
     /// [measured 2026-07-28, dev profile, exact counters: touches
-    /// 154,100 -> 566,188 and limb ops 165,566 -> 589,122 across
-    /// PP(500, 500) -> PP(1,000, 1,000), packed 14,188B -> 28,376B:
-    /// per-byte growth x1.84 touch and x1.78 limb.]
+    /// 485,517 -> 1,848,277 and limb ops 198,320 -> 653,131 across
+    /// PP(500, 500) -> PP(1,000, 1,000), packed 20,376B -> 40,751B:
+    /// per-byte growth x1.90 touch and x1.65 limb.]
     #[test]
     fn schoolbook_settle_reads_superlinear_on_plateau_puncture() {
         let (small_bytes, small_touches, small_limbs) = schoolbook_run(plateau_puncture(500, 500));
@@ -2012,7 +2187,7 @@ mod adequacy {
         ] {
             assert!(
                 u128::from(large) * u128::from(small_bytes) * 100
-                    >= u128::from(small) * u128::from(large_bytes) * 142,
+                    >= u128::from(small) * u128::from(large_bytes) * 132,
                 "the schoolbook close-time settle reads flat ({name}) on the \
                  plateau-puncture family ({small}/{small_bytes}B -> \
                  {large}/{large_bytes}B): the family no longer catches the \

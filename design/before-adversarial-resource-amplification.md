@@ -3072,7 +3072,39 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   (`schoolbook_settle_reads_superlinear_on_wide_arming` ×1.89/B
   touch, `..._on_plateau_puncture` ×1.84/B, both value-exact
   against the shipped folds — the adequacy ratchet's
-  committed-and-failing form). Flip table: `ledger_wide_arming_pin
+  committed-and-failing form). \[AMENDED 2026-07-28 (fix round
+  #102, from the round-#100 adversarial review): the floor evidence
+  as landed was wrong-graded. The plateau `H = 2^(32w)` funded
+  width, not content — the parked factor `H − 1` is an all-ones run
+  the settle's own balanced compaction spells in two terms, and the
+  strided mass `M = Σ 2^(33i−1)` is a geometric series — so the
+  named witness's numerator was computable in `O(|v|)` by shifts,
+  an increment, and (for the mass structure) one short division: no
+  multiplication mandated. Cured by re-shaping the family:
+  `plateau_puncture` is now the committed instance of the general
+  `puncture_product(x, y)` embedding, whose exact rank numerator is
+  `2·x·y + 1` for arbitrary positive factors — the floor evidence
+  of record is the reduction from arbitrary integer multiplication
+  (`arbitrary_factors_embed_their_product_in_exact_rank`, the query
+  fold's suite), not a bet on one shape — with `x` dense
+  pseudorandom (the parked plunge compacts to 65 balanced terms at
+  the embedding pin's scale, against 2 for a power-of-two plateau)
+  and `y` jitter-strided (exactly `d` isolated compaction-immune
+  digits at non-uniform strides, so no geometric closed form
+  telescopes it). `mul_bound_embedding_is_alive` re-pointed from
+  factor widths to factor content; the review's shift-only witness
+  retired with the cure. Re-measured rows on the re-shaped family:
+  `answer_embedded_product` band 48,420 → 96,847 touches / 72,883 →
+  145,758 limb on 20,376 B → 40,751 B packed (flat ×1.00/B,
+  ceilings ×1.25), its schoolbook kernel red at ×1.90/B touch and
+  ×1.65/B limb (floor 1.32), `pair_plateau_train` 406,244 → 815,755
+  touches (×1.02/B, ceilings ×1.25). New deterministic leg: a
+  public-fold differential drives dense incompressible factors
+  through the close-time settle product at every backend tier
+  boundary (24/25, 96/97, 4,000/4,001 words — oracle-differential
+  through the Toom-3 entry, closed-form at the NTT boundary, where
+  a per-digit-populated mass would cost a packed build in the
+  hundreds of megabits).\] Flip table: `ledger_wide_arming_pin
   → ledger_wide_arming` flatness band (measured-×1.25 two-scale
   ceilings, per-byte ×1.25 flatness, liveness floor, min_ticks
   leg); `answer_embedded_product` red pin → flatness band (same

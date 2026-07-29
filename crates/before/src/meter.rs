@@ -1901,52 +1901,56 @@ pub fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
     (build(1), build(2))
 }
 
-/// The plateau-puncture family `PP(w, d)`: the 33-stride gap spine with
-/// every turn leaf on one plateau `2^(32w)`, all bases 0, over a bottom
-/// 1 leaf and the trailing 0-leaves.
+/// The puncture-product embedding `V(x, y)`: a gap spine whose turn
+/// leaves all sit on the plateau `x` and whose turn positions spell
+/// the mass `2y`, over a bottom 1 leaf and the trailing 0-leaves.
 ///
-/// The answer-embedded-product family: the exact rank *is* a wide ×
-/// dense integer product whose factors the input funds separately. All
-/// `d` turn leaves sit at `H = 2^(32w)` — one wide absolute code for
-/// the first, zero deltas for the rest — and their interval masses
-/// `M = Σᵢ₌₁ᵈ 2^(33i − 1)` stay a full base-2^32 digit apart (the
-/// stride constant's derivation), so `rank(PP(w, d))`'s numerator is
-/// exactly `H · M + 1` at scale `2^(33d)`: `Θ(w)` digits times `Θ(d)`
-/// incompressible digits, bought with one `64w + 1`-bit code plus
-/// `Θ(d)` topology bits. No settle can telescope it — the complement
-/// sits at height 0, reached by one funded plunge, so the product is
-/// the answer, not an accounting artifact. The stored skyline operand
-/// is `Θ(w + d)` bits (the packed construction below spells the
-/// plateau per turn, but the deltas the version stores collapse to
-/// one climb and one plunge). The fold's cost on this family is the
-/// close-time settle `P · segment` — parked `−(H − 1)` against the
-/// punctured trailing mass — with no promotion ever firing: the
-/// arming-free instance of the width × density residual.
-/// `min_ticks(PP(w, d)) = d · 2^(32w) + 1` is the closed-form
-/// semantic leg. Exactly `d(64w + 132) + 4` bits. Normal form: every
-/// node's base is 0 and every subtree reaches a trailing 0-leaf, and
-/// the only sibling leaf pair is the bottom `(1, 0)`.
+/// The arbitrary-product reduction behind the `Ω(M(·))` floor: the
+/// exact rank of `V(x, y)` is `(2·x·y + 1) / 2^L` with
+/// `L = bits(2y)`, for *any* positive integers `x` and `y` — one
+/// spine level per bit of `2y`, turning (its plateau leaf leads the
+/// descent, at interval mass `2^(L − 1 − ℓ)` for level `ℓ`) exactly
+/// where the mass bit is set and leaning (a trailing 0-leaf)
+/// elsewhere, so the turns' interval masses sum to exactly `2y` and
+/// the rank integral is `x · 2y` plus the bottom leaf's unit. The
+/// stored version is `Θ(bits(x) + bits(y))` bits — the deltas
+/// collapse to one climb and one plunge, and each mass bit rides one
+/// or two topology bits — so a fold that answers its rank exactly
+/// computes the arbitrary product `x · y` (one subtraction and one
+/// shift recover it from the numerator) at linear overhead: no exact
+/// fold beats one integer multiplication of input-funded factors.
+/// Doubling the mass keeps the last level a lean, which roots every
+/// subtree's minimum at 0 whatever `y`'s low bit is. Normal form:
+/// every node's base is 0 and every subtree reaches a trailing
+/// 0-leaf, and the only sibling leaf pair is the bottom `(1, 0)`.
+///
+/// The packed construction spells the plateau once per turn, so the
+/// *packed* size is `Θ(popcount(y) · bits(x) + bits(y))` even though
+/// the stored version is `Θ(bits(x) + bits(y))`.
 ///
 /// # Panics
 ///
-/// Panics if `w < 10` (the plunge must trip the freeze allowance past
-/// a unit code) or `d == 0`.
-pub fn plateau_puncture(w: usize, d: usize) -> Packed {
+/// Panics if `x` or `y` is zero.
+pub fn puncture_product(x: &suanpan::UBig, y: &suanpan::UBig) -> Packed {
+    use dashu_int::ops::BitTest;
     assert!(
-        w >= 10,
-        "the plateau must out-span the freeze allowance past a unit code"
+        *x != suanpan::UBig::ZERO,
+        "the plateau factor must be positive"
     );
     assert!(
-        d >= 1,
-        "the plateau-puncture family needs at least one turn"
+        *y != suanpan::UBig::ZERO,
+        "the mass factor must be positive"
     );
-    let plateau = pow2(32 * w);
-    let mut bits = Bits::with_capacity(d * (64 * w + 132) + 4);
+    let mass = y.clone() << 1usize;
+    let levels = mass.bit_len();
+    let turns = (0..levels).filter(|&b| mass.bit(b)).count();
+    let plateau = Base::from(x.clone());
+    let mut bits = Bits::with_capacity(4 * levels + turns * 2 * (x.bit_len() + 1) + 8);
     let mut trailing = 0usize;
-    for level in 0..DENSE_SUFFIX_DIGIT_STRIDE * d {
+    for level in 0..levels {
         bits.push(true); // spine node flag
         codec::encode_int(&mut bits, &Base::ZERO);
-        if level % DENSE_SUFFIX_DIGIT_STRIDE == 0 {
+        if mass.bit(levels - 1 - level) {
             ev_leaf_wide(&mut bits, &plateau); // the turn: on the plateau
         } else {
             trailing += 1; // the lean: its 0-leaf trails the subtree
@@ -1957,6 +1961,138 @@ pub fn plateau_puncture(w: usize, d: usize) -> Packed {
         ev_leaf(&mut bits, 0);
     }
     Packed::from_bits(bits)
+}
+
+/// Digit `i` of the deterministic pseudorandom content stream `seed`:
+/// the SplitMix64 finalizer over `seed ⊕ i`, truncated to one
+/// base-2^32 digit, zero remapped so every digit is live.
+///
+/// The committed incompressible-factor families draw their content
+/// here, so the digits are reproducible, structureless (no runs, no
+/// arithmetic progression for the balanced signed-digit compaction or
+/// a closed-form shortcut to grip), and independent across seeds.
+pub fn factor_digit(seed: u64, i: u64) -> u32 {
+    let mut z = seed ^ i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    let digit = ((z ^ (z >> 31)) >> 16) as u32;
+    if digit == 0 {
+        0x9E37_79B9
+    } else {
+        digit
+    }
+}
+
+/// A dense pseudorandom magnitude of exactly `32·digits` bits: every
+/// base-2^32 digit nonzero from [`factor_digit`]'s stream `seed`, the
+/// top bit forced set (exact width), the top digit's bit 30 forced
+/// clear (never an all-ones digit), and bit 0 forced clear (so `+ 1`
+/// never carries past digit 0 — the gamma code of the value stays at
+/// its closed-form width).
+///
+/// # Panics
+///
+/// Panics if `digits == 0`.
+pub fn dense_factor(seed: u64, digits: usize) -> suanpan::UBig {
+    assert!(digits >= 1, "a dense factor needs at least one digit");
+    let mut bytes = vec![0u8; 4 * digits];
+    for i in 0..digits {
+        let mut digit = factor_digit(seed, i as u64);
+        if i == 0 {
+            digit = (digit & !1) | 2;
+        }
+        if i == digits - 1 {
+            digit = (digit | 0x8000_0000) & !0x4000_0000;
+        }
+        bytes[4 * i..4 * i + 4].copy_from_slice(&digit.to_le_bytes());
+    }
+    suanpan::UBig::from_le_bytes(&bytes)
+}
+
+/// Content-stream seed for the plateau-puncture plateau factor.
+const PLATEAU_PUNCTURE_X_SEED: u64 = 0x5054_5058; // "PTPX"
+
+/// Content-stream seed for the plateau-puncture turn-position jitter.
+const PLATEAU_PUNCTURE_J_SEED: u64 = 0x5054_504A; // "PTPJ"
+
+/// The committed factors of the plateau-puncture family `PP(w, d)`:
+/// the incompressible plateau `x` and the jittered punctured mass `y`
+/// whose product the family's exact rank embeds.
+///
+/// - `x = dense_factor(w)`: exactly `32w` bits of pseudorandom digit
+///   content, so neither `x` nor the plunge the fold parks (`x − 1`,
+///   which differs only inside digit 0) compacts below `Θ(w)`
+///   balanced signed digits.
+/// - `y = Σᵢ₌₁ᵈ 2^(66(i−1) + 33 + jᵢ)`: `d` isolated bits at
+///   pseudorandom jitters `jᵢ ∈ 0..32` (`j_d = 31` fixed, so the
+///   width is the closed form `66d − 1` bits), successive bits
+///   `35..=97` positions apart — always more than a full base-2^32
+///   digit, so the balanced compaction can never merge two of them
+///   and the mass's spelling is exactly `d` terms — and never an
+///   arithmetic progression, so no geometric-series closed form
+///   telescopes the product the way it would for a fixed stride.
+///
+/// # Panics
+///
+/// Panics if `w == 0` or `d == 0`.
+pub fn plateau_puncture_factors(w: usize, d: usize) -> (suanpan::UBig, suanpan::UBig) {
+    assert!(w >= 1, "the plateau needs at least one digit");
+    assert!(
+        d >= 1,
+        "the plateau-puncture family needs at least one turn"
+    );
+    let x = dense_factor(PLATEAU_PUNCTURE_X_SEED, w);
+    let mut y = suanpan::UBig::ZERO;
+    for i in 1..=d {
+        let jitter = if i == d {
+            31
+        } else {
+            u64::from(factor_digit(PLATEAU_PUNCTURE_J_SEED, i as u64)) % 32
+        };
+        y += suanpan::UBig::ONE
+            << usize::try_from(66 * (i as u64 - 1) + 33 + jitter)
+                .expect("turn positions fit usize");
+    }
+    (x, y)
+}
+
+/// The plateau-puncture family `PP(w, d)`: the committed
+/// incompressible instance of [`puncture_product`] — `V(x, y)` at the
+/// [`plateau_puncture_factors`] content.
+///
+/// The answer-embedded-product family: the exact rank is
+/// `(2·x·y + 1) / 2^(66d)` — a `Θ(w)`-digit × `Θ(d)`-term integer
+/// product whose factors the input funds separately (`64w` bits of
+/// plateau code, `Θ(d)` topology bits), with both factors'
+/// *content* incompressible under the settle's own balanced
+/// signed-digit compaction (the factors' doc carries the two
+/// arguments). No settle can telescope it — the complement sits at
+/// height 0, reached by one funded plunge, so the product is the
+/// answer, not an accounting artifact; [`puncture_product`] is the
+/// same embedding over arbitrary factors, which is what makes the
+/// floor a reduction from arbitrary integer multiplication rather
+/// than a bet on one shape. The stored skyline operand is
+/// `Θ(w + d)` bits (the packed construction spells the plateau per
+/// turn, but the deltas the version stores collapse to one climb
+/// and one plunge). The fold's cost on this family is the
+/// close-time settle `P · segment` — parked `−(x − 1)` against the
+/// punctured trailing mass — with no promotion ever firing: the
+/// arming-free instance of the width × density residual.
+/// `min_ticks(PP(w, d)) = d · x + 1` is the closed-form semantic
+/// leg. Exactly `d(64w + 262) + 4` bits. Normal form:
+/// [`puncture_product`]'s.
+///
+/// # Panics
+///
+/// Panics if `w < 10` (the plunge must trip the freeze allowance past
+/// a unit code) or `d == 0`.
+pub fn plateau_puncture(w: usize, d: usize) -> Packed {
+    assert!(
+        w >= 10,
+        "the plateau must out-span the freeze allowance past a unit code"
+    );
+    let (x, y) = plateau_puncture_factors(w, d);
+    puncture_product(&x, &y)
 }
 
 /// The arming-train family `AT(n, w, g, alternate)`: `n` re-arm blocks

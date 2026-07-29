@@ -10,8 +10,8 @@ use super::{
     alt_spine, arming_train, bigroot, bitlen, cancelling_chain, cliff_comb, cliff_fan,
     concurrent_pair, dense, dense_suffix, dense_suffix_mate, freeze_parade, freeze_position,
     harmonic, hugeleaf, id_spine, jump_comb, jump_pair, mask_drift_quadruple, mask_drift_triple,
-    plateau_puncture, promotion_rearm, promotion_rearm_mate, scattered_id, tooth_tail, weight_comb,
-    wide_arming, wide_tooth_comb, Packed,
+    plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate,
+    scattered_id, tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -792,21 +792,27 @@ fn wide_arming_decodes_canonically_at_predicted_length() {
 }
 
 /// `plateau_puncture(w, d)` is canonical normal form at exactly
-/// `d(64w + 132) + 4` bits.
+/// `d(64w + 262) + 4` bits.
 ///
-/// Its `min_ticks` is exactly the stored-base sum `d · 2^(32w) + 1`
+/// The length derivation: `66d` spine levels at 2 bits, `d` turn
+/// leaves at `64w` bits each (the plateau's exact `32w`-bit width,
+/// bit 0 clear, keeps its gamma code at `2 · 32w` with the leaf
+/// flag), the bottom 1 leaf at 4 bits, and `65d` trailing 0-leaves at
+/// 2 bits. Its `min_ticks` is exactly the stored-base sum `d · x + 1`
 /// (the turn leaves all on the plateau plus the bottom 1), and its
 /// exact rank realizes the answer-embedded product the family exists
-/// for: `rank · 2^(33d) = 2^(32w) · Σᵢ₌₁ᵈ 2^(33i − 1) + 1`, checked
-/// here through the public fold at hand-checkable sizes (the
+/// for: `rank · 2^(66d) = 2 · x · y + 1` over the committed factors,
+/// checked here through the public fold at hand-checkable sizes (the
 /// `answer_embedded_product` pin in `tests/meter.rs` measures the cost
 /// at meter scale; the query fold's differential suite pins the value
-/// against the oracle).
+/// against the oracle, and its proptest pins the same embedding over
+/// arbitrary factors).
 #[test]
 fn plateau_puncture_decodes_canonically_at_predicted_length() {
     for (w, d) in [(10usize, 1usize), (12, 5), (40, 40)] {
-        check_version(&plateau_puncture(w, d), d * (64 * w + 132) + 4);
-        let expected = UBig::from(d as u64) * (UBig::ONE << (32 * w)) + 1u8;
+        check_version(&plateau_puncture(w, d), d * (64 * w + 262) + 4);
+        let (x, y) = plateau_puncture_factors(w, d);
+        let expected = UBig::from(d as u64) * &x + 1u8;
         let ticks: crate::Ticks = expected
             .to_string()
             .parse()
@@ -817,14 +823,12 @@ fn plateau_puncture_decodes_canonically_at_predicted_length() {
             "the stored-base sum is the family's minimum tick count"
         );
         // The answer-embedded product, through the public fold: the
-        // rank is exactly (H · M + 1) / 2^(33d), and the numerator is
+        // rank is exactly (2xy + 1) / 2^(66d), and the numerator is
         // odd, so the rendered rational is already in lowest terms.
-        let h = UBig::ONE << (32 * w);
-        let m: UBig = (1..=d).map(|i| UBig::ONE << (33 * i - 1)).sum();
-        let numerator = &h * &m + 1u8;
+        let numerator = ((&x * &y) << 1usize) + 1u8;
         assert_eq!(
             plateau_puncture(w, d).version().rank().to_string(),
-            format!("{numerator}/2^{}", 33 * d),
+            format!("{numerator}/2^{}", 66 * d),
             "the exact rank is the plateau times the punctured turn mass"
         );
     }

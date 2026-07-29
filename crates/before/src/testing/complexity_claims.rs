@@ -37,9 +37,10 @@
 //!   shape, the n-ary fold's log factor on the scatter population, and
 //!   the `MulBound` claims' answer-embedded product (the
 //!   plateau-puncture rank equals a wide × dense closed form whose
-//!   factors both scale with the input) live in this suite. A cure
-//!   landing flips the pin red, forcing roster and rustdoc to move in
-//!   the same change.
+//!   factors scale with the input *and* stay incompressible under the
+//!   settle's own compaction) live in this suite. A cure landing flips
+//!   the pin red, forcing roster and rustdoc to move in the same
+//!   change.
 //!
 //! Totality rides the triangle surface: every name in
 //! [`triangle::extract_public_fns`] and [`triangle::FAMILY_SURFACE`] has
@@ -541,8 +542,9 @@ pub(crate) const CLAIMS: &[Claim] = &[
         // per byte in the fold's own traffic) with the schoolbook
         // kernel committed and failing beside them (the query fold's
         // test suite). Ω(M(|v|)) is mandatory because the
-        // plateau-puncture answer embeds the product — its band's
-        // exact-rank leg is the witness; the O(|v| log |v|) leg is
+        // puncture-product family embeds arbitrary integer products
+        // in exact answers — the committed reduction proptest and
+        // the band's exact-rank leg witness it; the O(|v| log |v|) leg is
         // the dense-suffix/promo-rearm flatness bands' reading on
         // every O(1)-wide-parked family. Neither witness family is a
         // board family — the board reads every committed rank row

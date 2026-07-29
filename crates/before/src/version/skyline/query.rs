@@ -232,10 +232,15 @@
 //! 4,000-word operand sides (quarter-megabyte parked sums); past
 //! that its quasilinear tier's per-level costs stop telescoping and
 //! the settle pays at most one extra tree-depth factor,
-//! `O(M(|v|) · log n)`. The floor is matched: the plateau-puncture
-//! answer *embeds* a funded wide × dense product, so `Ω(M(|v|))`
-//! digit work is mandatory there for any fold that answers exactly —
-//! no settle goes below the multiplication bound. The public
+//! `O(M(|v|) · log n)`. The floor is matched by a reduction from
+//! arbitrary integer multiplication: the same answer-embedding shape
+//! carries *arbitrary* factors — the puncture-product construction
+//! stores `Θ(bits(x) + bits(y))` bits and its exact rank numerator
+//! is `2·x·y + 1` (the committed proptest constructs it for
+//! arbitrary positive factors) — so a fold that answers exactly
+//! multiplies two input-funded integers at linear overhead, and
+//! `Ω(M(|v|))` digit work is mandatory for any fold that answers
+//! exactly: no settle goes below the multiplication bound. The public
 //! `# Complexity` sections (`rank`, `distance`, `lag` — one shared
 //! integrator) state the resulting three-part claim; the
 //! `ledger_wide_arming` and `answer_embedded_product` bands

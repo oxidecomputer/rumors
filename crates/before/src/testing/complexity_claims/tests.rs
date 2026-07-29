@@ -361,36 +361,107 @@ fn fold_log_factor_is_alive() {
     );
 }
 
-/// The `MulBound` claims' answer-embedded product is alive.
+/// The `MulBound` claims' answer-embedded product is alive — in
+/// factor *content*, not width alone.
 ///
-/// The plateau-puncture rank equals the closed form `H · M + 1` at
-/// scale `2^(33d)`, with both factors' widths scaling linearly in the
-/// family parameters — the value structure behind the `Ω(M(|v|))`
-/// floor the class carries: the exact answer is a wide × dense integer
-/// product whose factors the input funds separately, so no fold that
-/// answers exactly goes below one multiplication. A representation
-/// change that stops the answer embedding the product reads red here,
-/// and the rustdoc, the roster class, and this pin move in one change;
-/// the cost legs (flat traffic, schoolbook red) live in the witness
-/// tests the name-binding test above pins.
+/// The plateau-puncture rank equals the closed form `2·x·y + 1` at
+/// scale `2^(66d)` over the family's committed factors, computed here
+/// through an independent backend multiplication — the value
+/// structure behind the `Ω(M(|v|))` floor the class carries: the
+/// exact answer is a wide × dense integer product whose factors the
+/// input funds separately (the arbitrary-factor reduction is the
+/// query fold's `arbitrary_factors_embed_their_product_in_exact_rank`
+/// proptest; this pin holds the committed measured instance). Width
+/// scaling alone does not make the instance hard — a power-of-two
+/// plateau's parked factor is an all-ones run the settle's own
+/// balanced-digit spelling compacts to two signed digits, and a
+/// fixed-stride mass telescopes as a geometric series — so the pin
+/// guards the factors' content: the parked plunge `x − 1` must stay
+/// `Θ(w)` terms under that same compaction, and the mass's `d` digits
+/// must stay isolated by more than a full digit (compaction-immune)
+/// at non-uniform jitter. A representation or content change that
+/// weakens the embedding reads red here, and the rustdoc, the roster
+/// class, and this pin move in one change; the cost legs (flat
+/// traffic, schoolbook red) live in the witness tests the
+/// name-binding test above pins.
 #[cfg(feature = "meter")]
 #[test]
 fn mul_bound_embedding_is_alive() {
     use dashu_int::ops::BitTest;
     use dashu_int::UBig;
+
+    /// The count of nonzero balanced signed digits the settle's own
+    /// compaction (`mul_into`'s recentering, replicated) spells a
+    /// magnitude into.
+    fn balanced_terms(value: &UBig) -> usize {
+        let bytes = value.to_le_bytes();
+        let digits = bytes
+            .chunks(4)
+            .map(|c| {
+                let mut d = [0u8; 4];
+                d[..c.len()].copy_from_slice(c);
+                u64::from(u32::from_le_bytes(d))
+            })
+            .collect::<Vec<u64>>();
+        let mut terms = 0usize;
+        let mut carry = 0u64;
+        for digit in digits {
+            let t = digit + carry;
+            if t > 1 << 31 {
+                if (1u64 << 32) != t {
+                    terms += 1;
+                }
+                carry = 1;
+            } else {
+                if t != 0 {
+                    terms += 1;
+                }
+                carry = 0;
+            }
+        }
+        terms + usize::from(carry == 1)
+    }
+
     let (w, d) = (64usize, 48usize);
     let v = crate::meter::plateau_puncture(w, d).version();
-    let h = UBig::ONE << (32 * w);
-    let m: UBig = (1..=d).map(|i| UBig::ONE << (33 * i - 1)).sum();
+    let (x, y) = crate::meter::plateau_puncture_factors(w, d);
     assert_eq!(
-        (h.bit_len(), m.bit_len()),
-        (32 * w + 1, 33 * d),
+        (x.bit_len(), y.bit_len()),
+        (32 * w, 66 * d - 1),
         "both factors must scale with the family parameters: a degenerate \
          factor would make the embedded product one-sided"
     );
+    // The parked factor's content: its 64 digits compact to 65
+    // balanced terms — the recentering splits high digits into a
+    // negative arm and a carry (measured at this content; a plateau
+    // of 2^(32w) would read 2).
+    assert_eq!(
+        balanced_terms(&(&x - 1u8)),
+        65,
+        "the parked plunge x − 1 must stay incompressible under the \
+         settle's own balanced-digit compaction"
+    );
+    // The mass's content: exactly d isolated bits, pairwise more than
+    // a full base-2^32 digit apart (compaction-immune), and not an
+    // arithmetic progression (no geometric-series closed form).
+    let positions: Vec<usize> = (0..y.bit_len()).filter(|&b| y.bit(b)).collect();
+    assert_eq!(positions.len(), d, "the mass spells one bit per turn");
+    assert!(
+        positions.windows(2).all(|p| p[1] - p[0] > 32),
+        "every mass gap must exceed a full digit: the compaction could \
+         merge closer terms"
+    );
+    let strides: std::collections::BTreeSet<usize> =
+        positions.windows(2).map(|p| p[1] - p[0]).collect();
+    assert!(
+        strides.len() > 1,
+        "a fixed-stride mass is a geometric series: x·y telescopes to \
+         shifts and one short division, and the instance stops witnessing \
+         the floor"
+    );
     assert_eq!(
         v.rank().to_string(),
-        format!("{}/2^{}", &h * &m + 1u8, 33 * d),
+        format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d),
         "the plateau-puncture rank must be the plateau times the punctured \
          turn mass: the answer no longer embeds the product, so the MulBound \
          class and the Ω(M(·)) floor lost their witness"
@@ -534,49 +605,6 @@ fn a_witnessless_superlinear_counter_claim_is_flagged_as_decoration() {
         "the seal's reverse leg did not flag a SuperlinearCounter claim on an \
          operation with no standing exponent red; if {op} regained an exponent \
          red, pick a cured operation for the fixture"
-    );
-}
-
-/// The `Ω(M(·))` floor's committed witness family embeds no hard
-/// product: the plateau-puncture numerator is one shift and one
-/// increment away from the turn mass.
-///
-/// The plateau is `H = 2^(32w)`, so the parked factor `H − 1` is an
-/// all-ones run the settle's own balanced-digit spelling compacts to
-/// two signed digits.
-///
-/// A witness for review, not a ratification. This test computes the
-/// exact rank of `PP(w, d)` with **no multiplication anywhere in its
-/// own arithmetic** — `(M << 32w) + 1` — and matches the shipped fold
-/// exactly. A fold that compacts its *factor* side the way
-/// `charge_digits` already compacts its digits side answers this
-/// family in `O(|v|)` digit work, so the family cannot mandate
-/// `Ω(M(|v|))` for "any fold that answers exactly": the input funds
-/// the factor's *width* but not its *content* (~zero entropy in
-/// `H − 1` beyond the width itself). The neighbouring
-/// [`mul_bound_embedding_is_alive`] pin guards both factors'
-/// `bit_len` — width, which this degenerate factor satisfies — so the
-/// pin blesses a family on which the floor is beatable. The floor
-/// clause needs a plateau whose climb carries dense content (varied
-/// funded increments summing to an incompressible `H'`), making the
-/// numerator a genuine two-sided multiplication instance; when such a
-/// family lands, re-point the embedding pin at it and retire this
-/// witness with the change.
-#[test]
-fn plateau_puncture_numerator_is_computable_by_shift_alone() {
-    use dashu_int::UBig;
-    let (w, d) = (64usize, 48usize);
-    let v = crate::meter::plateau_puncture(w, d).version();
-    // The turn mass, then the numerator by shift and increment only:
-    // no product is formed anywhere in this test.
-    let m: UBig = (1..=d).map(|i| UBig::ONE << (33 * i - 1)).sum();
-    let numerator = (m << (32 * w)) + 1u8;
-    assert_eq!(
-        v.rank().to_string(),
-        format!("{numerator}/2^{}", 33 * d),
-        "the plateau-puncture rank is its turn mass shifted by the plateau's \
-         width, plus one: if this stops holding, the family changed and this \
-         witness (and the floor claim it disputes) must be re-derived"
     );
 }
 
