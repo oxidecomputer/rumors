@@ -287,20 +287,38 @@ pub(super) fn row(out: &mut dyn Write, op: &str, c: &CurrencyWorst) -> io::Resul
     writeln!(out, "{lead}  worst {worst:<42}{tail}", worst = fmt_worst(c))
 }
 
-/// Run one board sweep at `scale` and render the worst-case map table to
-/// `out`, one row per operation × mapped currency, in board row order.
+/// Run one board sweep at `scale` in this process and render the
+/// worst-case map table to `out`, one row per operation × mapped
+/// currency, in board row order.
 ///
 /// `label` names the scale in the header (the scales of record are
 /// [`WORST_MAP_SCALES`]; a smoke run may pass its own). The fold is a
 /// pure consumer of the board's own judged cells: no reading, family, or
 /// ceiling is recomputed here.
 ///
+/// This is the serial reference path;
+/// [`worst_map_sharded`](super::shard::worst_map_sharded) renders the
+/// same table from process-sharded sweeps.
+///
 /// # Panics
 ///
 /// Panics if `scale` is not strictly positive.
 pub fn worst_map(label: &str, scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<()> {
-    let results = sweep(scale, heap);
-    let map = fold(&results);
+    render_map(label, scale, &sweep(scale, heap), out)
+}
+
+/// Fold one whole sweep's judged cells and render the worst-case map
+/// table to `out`.
+///
+/// `results` must be a whole board's cells in board row order —
+/// [`sweep`]'s output, or a shard merge's reconstruction of it.
+pub(super) fn render_map(
+    label: &str,
+    scale: f64,
+    results: &[CellResult],
+    out: &mut dyn Write,
+) -> io::Result<()> {
+    let map = fold(results);
     writeln!(
         out,
         "worst-case map at the {label} scale (x{scale}): the worst instrumented shape per \
@@ -605,6 +623,23 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
 /// `limb-meter` and `scan-meter` features), or if the pin table itself is
 /// malformed (duplicate or unknown scale/operation keys).
 pub fn check_worst_map(heap: &HeapMeter, out: &mut dyn Write) -> io::Result<bool> {
+    check_with(&mut |scale| Ok(sweep(scale, heap)), out)
+}
+
+/// The pin comparison over a caller-supplied sweep.
+///
+/// `sweeps` yields one whole board's judged cells per scale of record:
+/// the in-process serial sweep under [`check_worst_map`], a
+/// process-sharded merge under
+/// [`check_worst_map_sharded`](super::shard::check_worst_map_sharded).
+///
+/// # Panics
+///
+/// As [`check_worst_map`].
+pub(super) fn check_with(
+    sweeps: &mut dyn FnMut(f64) -> io::Result<Vec<CellResult>>,
+    out: &mut dyn Write,
+) -> io::Result<bool> {
     let mut seen = BTreeSet::new();
     for (scale, op, _) in WORST_RANKINGS {
         assert!(
@@ -618,7 +653,7 @@ pub fn check_worst_map(heap: &HeapMeter, out: &mut dyn Write) -> io::Result<bool
     }
     let mut clean = true;
     for (label, scale) in WORST_MAP_SCALES {
-        let results = sweep(scale, heap);
+        let results = sweeps(scale)?;
         let map = fold(&results);
         let mut live_ops = BTreeSet::new();
         for op in &map {
