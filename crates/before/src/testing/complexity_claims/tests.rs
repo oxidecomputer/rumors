@@ -10,7 +10,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{doc_index, Cells, Claim, Class, RedStance, CLAIMS, NON_OPERATIONS};
+use super::{doc_index, Cells, Claim, Class, DocIndex, RedStance, CLAIMS, NON_OPERATIONS};
 use crate::meter::board::{self, BenchMode};
 use crate::testing::triangle;
 
@@ -172,36 +172,9 @@ fn classes_satisfy_their_contracts() {
         .collect();
     let mut judge_claimed: BTreeSet<String> = BTreeSet::new();
     let mut problems: Vec<String> = Vec::new();
+    let index = doc_index();
     for claim in CLAIMS {
-        let pinned: Vec<&str> = claim
-            .checks
-            .iter()
-            .flat_map(|check| check.tokens.iter().copied())
-            .collect();
-        let cited: Vec<Class> = match &claim.cells {
-            Cells::Board(cells) => cells.iter().map(|(_, class)| *class).collect(),
-            Cells::Uncelled(_) => Vec::new(),
-        };
-        for class in Class::ALL.iter().copied() {
-            let contract = class.contract();
-            let Some(token) = contract.token else {
-                continue;
-            };
-            if cited.contains(&class) {
-                if !pinned.iter().any(|t| t.contains(token)) {
-                    problems.push(format!(
-                        "{}: cites a {class:?} cell but pins no token containing `{token}`",
-                        claim.op
-                    ));
-                }
-            } else if contract.token_exclusive && pinned.iter().any(|t| t.contains(token)) {
-                problems.push(format!(
-                    "{}: pins a token containing `{token}` without citing a {class:?} cell: \
-                     the token is that class's alone",
-                    claim.op
-                ));
-            }
-        }
+        problems.extend(token_problems(claim, &index));
         let Cells::Board(cells) = &claim.cells else {
             continue;
         };
@@ -576,6 +549,71 @@ fn stance_contradiction(
     }
 }
 
+/// One claim's token legs against the class contracts: the citing
+/// direction over the roster's pinned tokens, the exclusive direction
+/// over both the pinned tokens and the live `# Complexity` section
+/// text at every check site.
+///
+/// The section text is the exclusive leg's ground truth — the pinned
+/// list is the producer's own declaration, so a claim re-cited under
+/// a weaker class with its pinned tokens trimmed would pass a
+/// pinned-only scan while the rustdoc still carries an exclusive
+/// token. (The citing direction may stay on the pinned list: the
+/// pinned-tokens test holds every pinned token verbatim in its
+/// section, so a pinned class token is a section-carried one.) The
+/// downgrade guard below keeps the exclusive leg firing on exactly
+/// the trimmed-pin artifact.
+fn token_problems(claim: &Claim, index: &DocIndex) -> Vec<String> {
+    let pinned: Vec<&str> = claim
+        .checks
+        .iter()
+        .flat_map(|check| check.tokens.iter().copied())
+        .collect();
+    let cited: Vec<Class> = match &claim.cells {
+        Cells::Board(cells) => cells.iter().map(|(_, class)| *class).collect(),
+        Cells::Uncelled(_) => Vec::new(),
+    };
+    let mut problems = Vec::new();
+    for class in Class::ALL.iter().copied() {
+        let contract = class.contract();
+        let Some(token) = contract.token else {
+            continue;
+        };
+        if cited.contains(&class) {
+            if !pinned.iter().any(|t| t.contains(token)) {
+                problems.push(format!(
+                    "{}: cites a {class:?} cell but pins no token containing `{token}`",
+                    claim.op
+                ));
+            }
+        } else if contract.token_exclusive {
+            if pinned.iter().any(|t| t.contains(token)) {
+                problems.push(format!(
+                    "{}: pins a token containing `{token}` without citing a {class:?} cell: \
+                     the token is that class's alone",
+                    claim.op
+                ));
+            }
+            for check in claim.checks {
+                // A missing section is the pinned-tokens test's
+                // finding, not this leg's; scan what exists.
+                let Ok(section) = index.section(claim.op, check.site) else {
+                    continue;
+                };
+                if section.contains(token) {
+                    problems.push(format!(
+                        "{}: its `# Complexity` section at {:?} carries `{token}` without \
+                         citing a {class:?} cell: the token is that class's alone, so \
+                         either the class citation or the prose must move",
+                        claim.op, check.site
+                    ));
+                }
+            }
+        }
+    }
+    problems
+}
+
 /// The seal's reverse leg fires on a constructed decoration claim: a
 /// [`Class::SuperlinearCounter`] cell whose operation has no standing
 /// exponent-mechanism red is named as a contradiction.
@@ -608,28 +646,25 @@ fn a_witnessless_superlinear_counter_claim_is_flagged_as_decoration() {
     );
 }
 
-/// The token-exclusivity leg reads only the roster's *pinned* tokens,
-/// never the rustdoc section itself.
+/// The token-exclusivity leg catches a downgraded claim whose pinned
+/// tokens were trimmed: the section text is the leg's ground truth.
 ///
-/// A claim downgraded to `Linear` that also drops `Ω(M(` from its
-/// pinned list passes every contract check while the live
-/// `# Complexity` section still carries the MulBound class's
-/// exclusive token.
-///
-/// A witness for review, not a ratification: this fixture is the
-/// cheapest artifact the current criteria bless — `Version::rank`
-/// re-cited as `Linear` (its counters *are* flat, so no exponent-red
-/// stance objects; `version_rank` is not judge-rostered) with the
-/// pinned tokens trimmed to the space claim alone. The exclusivity
-/// predicate replicated below (verbatim from
-/// [`classes_satisfy_their_contracts`]) raises nothing, and the last
-/// assertion proves the gap is live against the real rustdoc: the
-/// scanned section still contains `Ω(M(`, so roster and prose have
-/// drifted apart with every gate green. Closing the hole means
-/// scanning the *section text* for exclusive tokens (not just the
-/// pinned list); when that lands, this witness flips and retires.
+/// The adequacy tripwire for [`token_problems`]'s section scan,
+/// holding the cheapest wrong artifact the leg must keep rejecting:
+/// `Version::rank` re-cited as `Linear` (its counters *are* flat, so
+/// no exponent-red stance objects; `version_rank` is not
+/// judge-rostered) with the pinned tokens trimmed to the space claim
+/// alone — every roster-side check blesses it, and only the live
+/// `# Complexity` section still carrying the MulBound class's
+/// exclusive `Ω(M(` token convicts it. A revert of the leg to
+/// pinned-list scanning reads red here. The preconditions keep the
+/// fixture meaningful: the real section must still carry the token
+/// (if MulBound legitimately dissolves, re-point the fixture at a
+/// live exclusive-token section), and the stance and judge legs must
+/// still bless the downgrade (so this leg stays the artifact's only
+/// detector).
 #[test]
-fn a_downgraded_mul_bound_claim_slips_the_token_exclusivity_leg() {
+fn a_downgraded_mul_bound_claim_is_convicted_by_its_section_text() {
     let fixture = Claim {
         op: "Version::rank",
         checks: &[super::Check {
@@ -638,43 +673,7 @@ fn a_downgraded_mul_bound_claim_slips_the_token_exclusivity_leg() {
         }],
         cells: Cells::Board(&[("version_rank", Class::Linear)]),
     };
-    let pinned: Vec<&str> = fixture
-        .checks
-        .iter()
-        .flat_map(|check| check.tokens.iter().copied())
-        .collect();
-    let cited: Vec<Class> = match &fixture.cells {
-        Cells::Board(cells) => cells.iter().map(|(_, class)| *class).collect(),
-        Cells::Uncelled(_) => Vec::new(),
-    };
-    // The exclusivity predicate, replicated verbatim from
-    // classes_satisfy_their_contracts.
-    let mut problems: Vec<String> = Vec::new();
-    for class in Class::ALL.iter().copied() {
-        let contract = class.contract();
-        let Some(token) = contract.token else {
-            continue;
-        };
-        if cited.contains(&class) {
-            if !pinned.iter().any(|t| t.contains(token)) {
-                problems.push(format!("cites {class:?} without its token"));
-            }
-        } else if contract.token_exclusive && pinned.iter().any(|t| t.contains(token)) {
-            problems.push(format!("pins {class:?}'s exclusive token uncited"));
-        }
-    }
-    // The stance and judge legs bless it too: flat counters, no red.
-    let exponent_red_ops = exponent_red_ops();
-    let Cells::Board(cells) = &fixture.cells else {
-        unreachable!("the fixture cites a board cell");
-    };
-    let stance = stance_contradiction(fixture.op, cells[0].0, cells[0].1, &exponent_red_ops);
-    assert!(
-        problems.is_empty() && stance.is_none(),
-        "the downgraded claim was flagged ({problems:?}, {stance:?}): the \
-         exclusivity gap has been closed — retire this witness with the fix"
-    );
-    // The gap is live: the real rustdoc section still carries the
+    // Precondition: the real rustdoc section still carries the
     // exclusive token the fixture's pinned list dropped.
     let index = doc_index();
     let section = index
@@ -683,7 +682,29 @@ fn a_downgraded_mul_bound_claim_slips_the_token_exclusivity_leg() {
     assert!(
         section.contains("Ω(M("),
         "Version::rank's Complexity section no longer carries `Ω(M(`: \
-         re-point this witness at a live MulBound section"
+         re-point this fixture at a live MulBound section"
+    );
+    // Precondition: the stance and judge legs bless the downgrade
+    // (flat counters, no red), so the token leg is the only detector.
+    let exponent_red_ops = exponent_red_ops();
+    let Cells::Board(cells) = &fixture.cells else {
+        unreachable!("the fixture cites a board cell");
+    };
+    let stance = stance_contradiction(fixture.op, cells[0].0, cells[0].1, &exponent_red_ops);
+    assert!(
+        stance.is_none(),
+        "the stance legs began flagging the downgrade fixture ({stance:?}): \
+         pick a fixture only the token leg convicts"
+    );
+    // The leg of record convicts the artifact, by the section text.
+    let problems = token_problems(&fixture, &index);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("section") && p.contains("Ω(M(")),
+        "the downgraded claim slipped the token-exclusivity leg \
+         ({problems:?}): the leg is reading the producer's pinned list \
+         instead of the rustdoc section text"
     );
 }
 
