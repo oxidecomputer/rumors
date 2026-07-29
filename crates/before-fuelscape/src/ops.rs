@@ -79,6 +79,17 @@ pub const SLICE_ARITIES: &[usize] = &[2, 4, 8, 16];
 /// party's packed bytes, the arity a declared constant.
 const FORKS_SHARES: u32 = 8;
 
+/// The tick count the `version_ticks` row drives, a declared constant:
+/// large enough that iterated single ticks could never reach it, so the
+/// panel reads at the fused walk's flat cost, not a count-proportional
+/// one (the walk is at most two fused passes and one splice at any
+/// count; the count itself enters only as its bit width).
+const TICKS_COUNT: u32 = 1_000_000_000;
+
+/// The share count the `party_join_all` row re-merges: the fold's
+/// arity, a declared constant matching the forks row's split.
+const JOIN_ALL_SHARES: u32 = 8;
+
 /// One measured operation: a roster row.
 pub struct OpSpec {
     /// The atlas name (also the output file stem).
@@ -240,6 +251,20 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
+        name: "version_ticks",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Party]),
+        covers: &["Version::ticks"],
+        size_measure: "total packed bytes; split uniform across the two operands (tick \
+             count a declared constant, 10⁹: the fused multi-tick walk is flat in the \
+             count — at most two fused passes and one splice — so one panel at one \
+             large count is the whole n-dependence)",
+        measure: |g, inputs| {
+            load_version(g, 0, &inputs[0]);
+            load_party(g, 1, &inputs[1]);
+            g.call("ff_version_ticks", &[0, 1, TICKS_COUNT])
+        },
+    },
+    OpSpec {
         name: "version_project",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Party]),
         covers: &[
@@ -253,6 +278,44 @@ pub const ROSTER: &[OpSpec] = &[
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             g.call("ff_version_project", &[2, 0, 1])
+        },
+    },
+    OpSpec {
+        name: "own_version_cmp",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Party, Operand::Version]),
+        covers: &[
+            "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
+        ],
+        size_measure: "total packed bytes of the projected version, its masking party, \
+             and the compared version, split uniform three ways (the fused \
+             three-stream co-walk, no materialization; view construction is O(1) \
+             preparation, and the equality entry runs the same fused mechanism)",
+        measure: |g, inputs| {
+            load_version(g, 0, &inputs[0]);
+            load_party(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            g.call("ff_own_version_cmp", &[0, 1, 2])
+        },
+    },
+    OpSpec {
+        name: "own_version_pair_cmp",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Party,
+            Operand::Version,
+            Operand::Party,
+        ]),
+        covers: &["OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)"],
+        size_measure: "total packed bytes of the two views' versions and masking \
+             parties, split uniform four ways (the fused four-stream co-walk, no \
+             materialization; view construction is O(1) preparation, and the equality \
+             entry runs the same fused mechanism)",
+        measure: |g, inputs| {
+            load_version(g, 0, &inputs[0]);
+            load_party(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_party(g, 3, &inputs[3]);
+            g.call("ff_own_version_pair_cmp", &[0, 1, 2, 3])
         },
     },
     OpSpec {
@@ -421,6 +484,20 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
+        name: "party_join_all",
+        inputs: Inputs::Packed(&[Operand::Party]),
+        covers: &["Party::join_all"],
+        size_measure: "packed bytes of one uniform party; the measured fold re-merges \
+             its 8 balanced shares (a declared constant, split in preparation) into \
+             the residual — independent uniform parties are almost never pairwise \
+             disjoint, so the n-ary domain is reached by re-merging a split",
+        measure: |g, inputs| {
+            load_party(g, 0, &inputs[0]);
+            prep(g, "ff_party_forks", &[1, 0, JOIN_ALL_SHARES]);
+            g.call("ff_party_join_all", &[0, 1, JOIN_ALL_SHARES])
+        },
+    },
+    OpSpec {
         name: "party_is_disjoint",
         inputs: Inputs::Packed(&[Operand::Party, Operand::Party]),
         covers: &["Party::is_disjoint"],
@@ -542,6 +619,34 @@ pub const ROSTER: &[OpSpec] = &[
         measure: |g, inputs| {
             compose_clock_pair(g, inputs);
             g.call("ff_clock_join", &[4, 5])
+        },
+    },
+    OpSpec {
+        name: "clock_join_all",
+        inputs: Inputs::Packed(&[
+            Operand::Party,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["Clock::join_all"],
+        size_measure: "total packed bytes of one party and four versions, split \
+             uniform five ways; the party fork-split four ways in preparation, so the \
+             measured fold reunites three disjoint clocks into the first",
+        measure: |g, inputs| {
+            load_party(g, 0, &inputs[0]);
+            // Three shares into registers 1..4; register 0 keeps the
+            // residual, so the four parties partition the sampled region.
+            prep(g, "ff_party_forks", &[1, 0, 3]);
+            for (i, version) in inputs[1..].iter().enumerate() {
+                load_version(g, 4 + i as u32, version);
+            }
+            prep(g, "ff_clock_from_parts", &[8, 0, 4]);
+            prep(g, "ff_clock_from_parts", &[9, 1, 5]);
+            prep(g, "ff_clock_from_parts", &[10, 2, 6]);
+            prep(g, "ff_clock_from_parts", &[11, 3, 7]);
+            g.call("ff_clock_join_all", &[8, 9, 3])
         },
     },
     OpSpec {
@@ -667,9 +772,18 @@ pub const ROSTER: &[OpSpec] = &[
 /// `crates/before` change outside this crate).
 pub const EXEMPTIONS: &[(&str, &str)] = &[
     // ── constructors without a size axis ──
-    ("Party::seed", "constant-input constructor: no size axis to plot"),
-    ("Version::new", "constant-input constructor: no size axis to plot"),
-    ("Clock::seed", "constant-input constructor: no size axis to plot"),
+    (
+        "Party::seed",
+        "constant-input constructor: no size axis to plot",
+    ),
+    (
+        "Version::new",
+        "constant-input constructor: no size axis to plot",
+    ),
+    (
+        "Clock::seed",
+        "constant-input constructor: no size axis to plot",
+    ),
     // ── O(1)-scale accessors and predicates ──
     (
         "Party::is_seed",
@@ -680,10 +794,22 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "an O(1) bit test against the canonical 2-bit empty stream",
     ),
     ("Party::as_bytes", "O(1) borrow of the stored packed bytes"),
-    ("Version::as_bytes", "O(1) borrow of the stored packed bytes"),
-    ("Party::encoded_bits", "stored-length accessor over the packed form"),
-    ("Version::encoded_bits", "stored-length accessor over the packed form"),
-    ("Clock::encoded_bits", "sum of the two parts' stored-length accessors"),
+    (
+        "Version::as_bytes",
+        "O(1) borrow of the stored packed bytes",
+    ),
+    (
+        "Party::encoded_bits",
+        "stored-length accessor over the packed form",
+    ),
+    (
+        "Version::encoded_bits",
+        "stored-length accessor over the packed form",
+    ),
+    (
+        "Clock::encoded_bits",
+        "sum of the two parts' stored-length accessors",
+    ),
     ("Clock::party", "O(1) reference accessor"),
     (
         "Clock::version",
@@ -694,7 +820,10 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "Ranked::version",
         "O(1) accessor over the precomputed (rank, version) pair",
     ),
-    ("Ranked::rank", "O(1) accessor over the precomputed (rank, version) pair"),
+    (
+        "Ranked::rank",
+        "O(1) accessor over the precomputed (rank, version) pair",
+    ),
     (
         "Ranked::into_parts",
         "O(1) decomposition of the precomputed (rank, version) pair",
@@ -704,6 +833,27 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "Party::tick",
         "the identical event walk as Version::tick, entered from the party (the \
          version_tick panel prices it)",
+    ),
+    (
+        "Party::ticks",
+        "the identical fused multi-tick walk as Version::ticks, entered from the \
+         party (the version_ticks panel prices it)",
+    ),
+    (
+        "Clock::ticks",
+        "the identical fused multi-tick walk as Version::ticks, entered on the \
+         clock's own parts (the version_ticks panel prices it)",
+    ),
+    (
+        "Clock::forks",
+        "composition of the balanced party split (the party_forks panel prices the \
+         walk) with one version byte-copy clone per share; no distinct walk",
+    ),
+    (
+        "Clock Display / FromStr / TryFrom",
+        "composition of the party and version text walks (the party and version \
+         text panels price them) plus a top-level delimiter scan over the same \
+         text; no distinct walk",
     ),
     (
         "Party::encode_to",
@@ -767,64 +917,32 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     // ── no guest kernel exports the operation ──
     (
-        "Party::ticks",
-        "Ticks-argument walk with no guest kernel; the version_tick panel prices the \
-         walk's unit step",
-    ),
-    (
-        "Version::ticks",
-        "Ticks-argument walk with no guest kernel; the version_tick panel prices the \
-         walk's unit step",
-    ),
-    (
-        "Clock::ticks",
-        "Ticks-argument walk with no guest kernel; the clock_tick panel prices the \
-         walk's unit step",
-    ),
-    (
-        "Party::join_all",
-        "n-ary party fold with no guest kernel (the guest's party join is binary); \
-         the party_join panel prices the merge step",
-    ),
-    (
-        "Clock::join_all",
-        "n-ary clock fold with no guest kernel; the clock_join panel prices the \
-         merge step and the version_join_all panel the version-side fold",
-    ),
-    (
-        "Clock::forks",
-        "no guest kernel; composition of the party split (party_forks panel) and a \
-         version clone per share",
-    ),
-    (
-        "Clock Display / FromStr / TryFrom",
-        "no guest kernel for clock text; the party and version text panels price \
-         both constituent walks",
-    ),
-    (
         "serde / borsh impls (feature-gated, strict-decode pinned)",
         "feature-gated shims over the packed codecs; the decode/encode panels price \
-         the walks, and no guest kernel exports the shims",
-    ),
-    (
-        "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
-        "no guest kernel for the fused masked comparison; the version_project and \
-         version_cmp panels price the constituent walks",
-    ),
-    (
-        "OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)",
-        "no guest kernel for the fused four-stream co-walk; the version_project and \
-         version_cmp panels price the constituent walks",
+         the walks, and no guest kernel exports the shims (the guest builds the \
+         crate at default features)",
     ),
     (
         "causally::all",
         "O(1) unbounded-range constructor; no guest kernel exports the causally \
          combinators",
     ),
-    ("causally::since", "O(1) range view constructor over a borrowed version"),
-    ("causally::not_before", "O(1) range view constructor over a borrowed version"),
-    ("causally::known_at", "O(1) range view constructor over a borrowed version"),
-    ("causally::before", "O(1) range view constructor over a borrowed version"),
+    (
+        "causally::since",
+        "O(1) range view constructor over a borrowed version",
+    ),
+    (
+        "causally::not_before",
+        "O(1) range view constructor over a borrowed version",
+    ),
+    (
+        "causally::known_at",
+        "O(1) range view constructor over a borrowed version",
+    ),
+    (
+        "causally::before",
+        "O(1) range view constructor over a borrowed version",
+    ),
     (
         "causally::delta",
         "range constructor whose validity check is one causal comparison; the \
@@ -835,13 +953,22 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "range constructor whose validity check is one causal comparison; the \
          version_cmp panel prices the walk",
     ),
-    ("causally::Range::since", "O(1) bound replacement plus one causal comparison"),
+    (
+        "causally::Range::since",
+        "O(1) bound replacement plus one causal comparison",
+    ),
     (
         "causally::Range::not_before",
         "O(1) bound replacement plus one causal comparison",
     ),
-    ("causally::Range::known_at", "O(1) bound replacement plus one causal comparison"),
-    ("causally::Range::before", "O(1) bound replacement plus one causal comparison"),
+    (
+        "causally::Range::known_at",
+        "O(1) bound replacement plus one causal comparison",
+    ),
+    (
+        "causally::Range::before",
+        "O(1) bound replacement plus one causal comparison",
+    ),
     (
         "causally::Range::contains",
         "definitional combination of causal comparisons against the bounds; the \

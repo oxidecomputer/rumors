@@ -385,6 +385,33 @@ pub extern "C" fn ff_version_tick(ver: u32, party: u32) -> i32 {
     })
 }
 
+/// `Version::ticks`: advance the version in `ver` by `n` events for the
+/// party in `party` (the fused multi-tick walk, flat in the count).
+#[no_mangle]
+pub extern "C" fn ff_version_ticks(ver: u32, party: u32, n: u32) -> i32 {
+    REGS.with_borrow_mut(|regs| {
+        // Two disjoint borrows out of one file: split at the higher index
+        // (the same discipline as `ff_version_tick`).
+        let (v_idx, p_idx) = (ver as usize, party as usize);
+        if v_idx == p_idx || regs.len() <= v_idx.max(p_idx) {
+            return ERR_REG;
+        }
+        let (lo, hi) = regs.split_at_mut(v_idx.max(p_idx));
+        let (a, b) = if v_idx < p_idx {
+            (&mut lo[v_idx], &mut hi[0])
+        } else {
+            (&mut hi[0], &mut lo[p_idx])
+        };
+        match (a, b) {
+            (Some(Val::V(v)), Some(Val::P(p))) => {
+                v.ticks(p, u64::from(n));
+                OK
+            }
+            _ => ERR_REG,
+        }
+    })
+}
+
 /// `Version` join (`|`): `dst = take(a) | &b` (the by-value/by-ref cell).
 #[no_mangle]
 pub extern "C" fn ff_version_join(dst: u32, a: u32, b: u32) -> i32 {
@@ -558,6 +585,48 @@ pub extern "C" fn ff_version_meet_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
+/// The fused three-stream masked comparison `(v / p) ⋚ w`, no
+/// materialization: returns 0 `Less`, 1 `Equal`, 2 `Greater`,
+/// 3 concurrent (no ordering).
+#[no_mangle]
+pub extern "C" fn ff_own_version_cmp(v: u32, p: u32, w: u32) -> i32 {
+    let r = with_v(v, |ver| {
+        with_p(p, |party| {
+            with_v(w, |other| (ver / party).partial_cmp(other))
+        })
+    });
+    match r {
+        Some(Some(Some(ord))) => match ord {
+            Some(Ordering::Less) => 0,
+            Some(Ordering::Equal) => 1,
+            Some(Ordering::Greater) => 2,
+            None => 3,
+        },
+        _ => ERR_REG,
+    }
+}
+
+/// The fused four-stream masked comparison `(v₁ / p₁) ⋚ (v₂ / p₂)`, no
+/// materialization: returns 0 `Less`, 1 `Equal`, 2 `Greater`,
+/// 3 concurrent (no ordering).
+#[no_mangle]
+pub extern "C" fn ff_own_version_pair_cmp(v1: u32, p1: u32, v2: u32, p2: u32) -> i32 {
+    let r = with_v(v1, |va| {
+        with_p(p1, |pa| {
+            with_v(v2, |vb| with_p(p2, |pb| (va / pa).partial_cmp(&(vb / pb))))
+        })
+    });
+    match r {
+        Some(Some(Some(Some(ord)))) => match ord {
+            Some(Ordering::Less) => 0,
+            Some(Ordering::Equal) => 1,
+            Some(Ordering::Greater) => 2,
+            None => 3,
+        },
+        _ => ERR_REG,
+    }
+}
+
 // ─── Party operations (measured) ─────────────────────────────────────────────
 
 /// `Party::seed` into `dst`.
@@ -609,6 +678,29 @@ pub extern "C" fn ff_party_join(a: u32, b: u32) -> i32 {
             put(b, Val::P(rejected));
             ERR_OP
         }
+        None => ERR_REG,
+    }
+}
+
+/// `Party::join_all`: fold the parties in `src..src + n` into `a`
+/// (consumes the range; the n-ary balanced fold).
+///
+/// On an overlap rejection the handed-back parties are dropped rather
+/// than restored: the harness aborts the case on any nonzero return, and
+/// the atlas's fold panels construct disjoint populations, so the error
+/// path is a roster bug, never a measurement.
+#[no_mangle]
+pub extern "C" fn ff_party_join_all(a: u32, src: u32, n: u32) -> i32 {
+    let mut ops = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        match take_p(src + i) {
+            Some(p) => ops.push(p),
+            None => return ERR_REG,
+        }
+    }
+    match with_p_mut(a, |pa| pa.join_all(ops)) {
+        Some(Ok(())) => OK,
+        Some(Err(_)) => ERR_OP,
         None => ERR_REG,
     }
 }
@@ -692,6 +784,28 @@ pub extern "C" fn ff_clock_join(a: u32, b: u32) -> i32 {
             put(b, Val::C(rejected));
             ERR_OP
         }
+        None => ERR_REG,
+    }
+}
+
+/// `Clock::join_all`: fold the clocks in `src..src + n` into `a`
+/// (consumes the range; the n-ary balanced fold over both halves).
+///
+/// On an overlap rejection the handed-back clocks are dropped rather
+/// than restored, as in `ff_party_join_all`: the error path is a roster
+/// bug, never a measurement.
+#[no_mangle]
+pub extern "C" fn ff_clock_join_all(a: u32, src: u32, n: u32) -> i32 {
+    let mut ops = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        match take_c(src + i) {
+            Some(c) => ops.push(c),
+            None => return ERR_REG,
+        }
+    }
+    match with_c_mut(a, |ca| ca.join_all(ops).map(|_| ())) {
+        Some(Ok(())) => OK,
+        Some(Err(_)) => ERR_OP,
         None => ERR_REG,
     }
 }
