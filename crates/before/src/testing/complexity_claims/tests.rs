@@ -539,10 +539,11 @@ fn a_witnessless_superlinear_counter_claim_is_flagged_as_decoration() {
 
 /// The `Ω(M(·))` floor's committed witness family embeds no hard
 /// product: the plateau-puncture numerator is one shift and one
-/// increment away from the turn mass, because the plateau is
-/// `H = 2^(32w)` — the parked factor `H − 1` is an all-ones run the
-/// settle's own balanced-digit spelling compacts to two signed
-/// digits.
+/// increment away from the turn mass.
+///
+/// The plateau is `H = 2^(32w)`, so the parked factor `H − 1` is an
+/// all-ones run the settle's own balanced-digit spelling compacts to
+/// two signed digits.
 ///
 /// A witness for review, not a ratification. This test computes the
 /// exact rank of `PP(w, d)` with **no multiplication anywhere in its
@@ -580,10 +581,12 @@ fn plateau_puncture_numerator_is_computable_by_shift_alone() {
 }
 
 /// The token-exclusivity leg reads only the roster's *pinned* tokens,
-/// never the rustdoc section itself: a claim downgraded to `Linear`
-/// that also drops `Ω(M(` from its pinned list passes every contract
-/// check while the live `# Complexity` section still carries the
-/// MulBound class's exclusive token.
+/// never the rustdoc section itself.
+///
+/// A claim downgraded to `Linear` that also drops `Ω(M(` from its
+/// pinned list passes every contract check while the live
+/// `# Complexity` section still carries the MulBound class's
+/// exclusive token.
 ///
 /// A witness for review, not a ratification: this fixture is the
 /// cheapest artifact the current criteria bless — `Version::rank`
