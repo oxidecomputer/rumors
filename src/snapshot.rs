@@ -5,7 +5,7 @@ use std::task::{Context, Poll};
 use futures::{Stream, StreamExt as _};
 
 use crate::tree::Tree;
-use crate::tree::backend::{Leaf as _, LeafWalk, Local, Store, VersionBounds};
+use crate::tree::backend::{Leaf as _, Local, Store, VersionBounds};
 use crate::{Key, Network, StorageError, Version};
 
 /// A consistent point-in-time view of a set of rumors.
@@ -53,7 +53,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> std::fmt::Debug for Snapshot<T, S> {
 /// ready and the error is uninhabited; a storage-owning backend's items
 /// resolve as its reads do, and surface its failures.
 pub struct Messages<T: Send + Sync + 'static, S: Store<T> = Local> {
-    walk: LeafWalk<T, S>,
+    walk: S::Walk,
 }
 
 impl<T: Send + Sync + 'static, S: Store<T>> Stream for Messages<T, S> {
@@ -225,7 +225,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> Snapshot<T, S> {
         R: std::ops::RangeBounds<Version>,
     {
         Messages {
-            walk: self.tree.range(VersionBounds::from_range(range)).boxed(),
+            walk: self.tree.range(VersionBounds::from_range(range)),
         }
     }
 

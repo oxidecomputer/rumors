@@ -73,10 +73,10 @@ use crate::{
     Network,
     message::Message,
     tree::{
-        backend::{Backend, Leaf, Node, NodeStream, Root, Store},
+        backend::{Backend, Leaf, LeafWalk, Node, NodeStream, Root, Store, VersionBounds, ranged},
         typed::{
             Hash, Prefix,
-            height::{Height, S, Z},
+            height::{self, Height, S, Z},
         },
     },
 };
@@ -1040,6 +1040,13 @@ where
     /// Every root flip records durably; committers prepare the identity
     /// clock.
     const PERSISTS: bool = true;
+
+    /// The boxed generic walk: every leaf resolves through store reads.
+    type Walk = LeafWalk<T, Self>;
+
+    fn range(self, root: Option<Self::Node<height::Root>>, bounds: VersionBounds) -> Self::Walk {
+        ranged(self, root, bounds)
+    }
 
     // The mutation seams keep their generic tower defaults but box the
     // entry: the towers are `BoxFuture`-per-level internally, yet the

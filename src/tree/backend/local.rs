@@ -1,7 +1,9 @@
 use std::convert::Infallible;
 use std::mem;
-use std::pin::pin;
+use std::ops::Bound;
+use std::pin::{Pin, pin};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt, future, stream};
@@ -31,6 +33,31 @@ mod adversarial;
 mod tests;
 #[cfg(test)]
 pub use adversarial::with_schedule;
+
+/// The in-memory backend's [`Store::range`] walk: the synchronous owned
+/// leaf walk behind an always-ready [`Stream`] face.
+///
+/// No box, no vtable, no executor round-trip per item — every poll answers
+/// [`Poll::Ready`] straight off the resident tree.
+/// This is the static-dispatch arm the [`Store::Walk`] associated type
+/// exists to permit; a storage-owning backend's walk suspends on real
+/// reads instead.
+pub struct LocalWalk<T: Send + Sync + 'static>(
+    typed::untyped::RangeOwned<T, (Bound<Version>, Bound<Version>)>,
+);
+
+impl<T: Send + Sync + 'static> Stream for LocalWalk<T> {
+    type Item = Result<(tree::Key, typed::Node<T, Z>), Infallible>;
+
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(
+            self.get_mut()
+                .0
+                .next()
+                .map(|(key, leaf)| Ok((key, typed::Node::from_walk(leaf)))),
+        )
+    }
+}
 
 impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
     type Backend = Local;
@@ -269,16 +296,17 @@ impl<T: Send + Sync + 'static> Store<T> for Local {
         future::ready(Ok(root.and_then(|node| node.get_leaf(&path))))
     }
 
+    type Walk = LocalWalk<T>;
+
     fn range(
         self,
         root: Option<typed::Node<T, typed::height::Root>>,
         bounds: VersionBounds,
-    ) -> impl Stream<Item = Result<(crate::tree::Key, typed::Node<T, Z>), Infallible>> + Send {
-        let mut walk = typed::node::Root::range_owned(root.as_ref(), (bounds.start, bounds.end));
-        stream::iter(std::iter::from_fn(move || {
-            walk.next()
-                .map(|(key, leaf)| Ok((key, typed::Node::from_walk(leaf))))
-        }))
+    ) -> LocalWalk<T> {
+        LocalWalk(typed::node::Root::range_owned(
+            root.as_ref(),
+            (bounds.start, bounds.end),
+        ))
     }
 
     // `commit` keeps its no-op default: the resident tree has nothing to

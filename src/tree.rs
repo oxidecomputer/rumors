@@ -65,11 +65,8 @@ mod key;
 pub(crate) mod traverse;
 pub(crate) mod typed;
 
-use futures::Stream;
-
 use crate::{Version, message::Message};
 use backend::{Leaf as _, Local, Node as _, Store, VersionBounds};
-use typed::height::Z;
 
 pub use key::Key;
 pub use typed::hash::MERKLE_HASH_LEN;
@@ -290,10 +287,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> Tree<T, S> {
     /// Subtrees wholly outside the range are pruned by their resident
     /// version bounds without being fetched, so streaming a small causal
     /// delta against a large tree costs work proportional to the delta.
-    pub(crate) fn range(
-        &self,
-        bounds: VersionBounds,
-    ) -> impl Stream<Item = Result<(Key, S::Node<Z>), S::Error>> + Send + 'static {
+    pub(crate) fn range(&self, bounds: VersionBounds) -> S::Walk {
         self.backend.clone().range(self.root.root.clone(), bounds)
     }
 

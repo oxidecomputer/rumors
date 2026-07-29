@@ -1,4 +1,4 @@
-use crate::tree::backend::{Leaf as _, LeafWalk, Local, Store, VersionBounds};
+use crate::tree::backend::{Leaf as _, Local, Store, VersionBounds};
 use crate::{Key, StorageError, Version};
 use futures::{Stream, StreamExt as _};
 use std::pin::Pin;
@@ -81,7 +81,7 @@ pub(super) enum Channel<T: Send + Sync + 'static, S: Store<T> = Local> {
 /// One in-progress pass: the frozen walk over its snapshot, and the
 /// snapshot's ceiling to absorb into the checkpoint when the walk drains.
 struct Pass<T: Send + Sync + 'static, S: Store<T>> {
-    walk: LeafWalk<T, S>,
+    walk: S::Walk,
     ceiling: Version,
 }
 
@@ -105,13 +105,10 @@ impl<T: Send + Sync + 'static, S: Store<T>> UnorderedMessages<T, S> {
         if pass.is_none() {
             let inner = rx.borrow_and_update();
             *pass = Some(Pass {
-                walk: inner
-                    .tree
-                    .range(VersionBounds {
-                        start: std::ops::Bound::Excluded(checkpoint.clone()),
-                        end: std::ops::Bound::Unbounded,
-                    })
-                    .boxed(),
+                walk: inner.tree.range(VersionBounds {
+                    start: std::ops::Bound::Excluded(checkpoint.clone()),
+                    end: std::ops::Bound::Unbounded,
+                }),
                 ceiling: inner.tree.latest().clone(),
             });
         }

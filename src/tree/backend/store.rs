@@ -28,7 +28,7 @@ use crate::{
     Version,
     tree::{
         Key,
-        backend::{Action, Backend, Leaf, Root, VersionBounds},
+        backend::{Action, Backend, Leaf, LeafWalk, Root, VersionBounds},
         traverse::store,
         typed::{
             Path, Prefix,
@@ -157,27 +157,22 @@ pub trait Store<T: Send + Sync + 'static>: Backend<T, Node<Z>: Leaf<T>> {
         async move { store::get::get(&self, root, path).await }
     }
 
+    /// The concrete stream [`range`](Self::range) returns: what the read
+    /// surfaces ([`Messages`](crate::Messages), the observers) hold across
+    /// polls.
+    ///
+    /// A nameable type rather than an opaque return so each backend picks
+    /// its own dispatch: the in-memory backend walks synchronously with no
+    /// per-item box or vcall, and a storage-owning backend keeps the boxed
+    /// async walk ([`ranged`] is the one-line default body for it).
+    type Walk: Stream<Item = Result<(Key, Self::Node<Z>), Self::Error>> + Send + Unpin + 'static;
+
     /// Stream the live leaves whose versions fall within `bounds`, in
     /// ascending path order, each keyed by its full 32-byte [`Key`].
     ///
     /// Subtrees wholly outside the range are pruned by their resident
     /// version bounds without being fetched.
-    fn range(
-        self,
-        root: Option<Self::Node<height::Root>>,
-        bounds: VersionBounds,
-    ) -> impl Stream<Item = Result<(Key, Self::Node<Z>), Self::Error>> + Send {
-        async_stream::try_stream! {
-            let Some(node) = root else { return };
-            let backend = self;
-            let mut leaves =
-                store::walk::Walk::walk(&backend, Prefix::new(), node, &bounds, false);
-            while let Some(item) = leaves.next().await {
-                let (prefix, leaf) = item?;
-                yield (Key::from(prefix), leaf);
-            }
-        }
-    }
+    fn range(self, root: Option<Self::Node<height::Root>>, bounds: VersionBounds) -> Self::Walk;
 
     /// Persist the canonical root — and the identity clock that stamps its
     /// versions — atomically.
@@ -264,4 +259,31 @@ pub trait Store<T: Send + Sync + 'static>: Backend<T, Node<Z>: Leaf<T>> {
     fn barrier(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async { Ok(()) }
     }
+}
+
+/// The boxed generic walk: the one-line [`Store::range`] body for a backend
+/// whose leaves resolve through async fetches.
+///
+/// Streams the live leaves under `root` whose versions fall within
+/// `bounds`, in ascending path order, pruning by resident version bounds —
+/// the walk tower shared by every backend that does not override the
+/// traversal itself.
+pub(crate) fn ranged<S, T>(
+    backend: S,
+    root: Option<S::Node<height::Root>>,
+    bounds: VersionBounds,
+) -> LeafWalk<T, S>
+where
+    S: Store<T>,
+    T: Send + Sync + 'static,
+{
+    Box::pin(async_stream::try_stream! {
+        let Some(node) = root else { return };
+        let mut leaves =
+            store::walk::Walk::walk(&backend, Prefix::new(), node, &bounds, false);
+        while let Some(item) = leaves.next().await {
+            let (prefix, leaf) = item?;
+            yield (Key::from(prefix), leaf);
+        }
+    })
 }

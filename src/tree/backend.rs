@@ -44,6 +44,7 @@ pub(super) use local::with_schedule as with_local_schedule;
 
 mod store;
 pub use store::Store;
+pub(crate) use store::ranged;
 // The seam vocabulary `Store` speaks — the per-path action of the
 // batch-apply, and the owned causal bounds of the range walk — re-exported
 // where implementors and their conformance checks import the trait.

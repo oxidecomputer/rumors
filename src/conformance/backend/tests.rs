@@ -16,13 +16,13 @@ use crate::{
     Version, causally,
     message::Message,
     tree::{
-        backend::Store,
+        backend::{LeafWalk, Store, VersionBounds, ranged},
         mirror::streaming::{
             Backend, BoxNodeStream, Leaf, Local, Node, NodeStream, convert::Convert,
         },
         typed::{
             self, Hash, Prefix,
-            height::{Height, S, Z},
+            height::{self as height, Height, S, Z},
         },
     },
 };
@@ -390,7 +390,9 @@ where
 {
     // Deliberately overrides nothing else: every local operation runs the
     // generic default towers, which is exactly what the differential suite
-    // in [`store`] pins against the synchronous engines.
+    // in [`store`] pins against the synchronous engines. (`Walk`/`range`
+    // are the boxed generic walk — the required spelling of the same
+    // default, since the associated type cannot be defaulted.)
     //
     // A materialized row owns its bytes outright — there is no shared
     // allocation whose identity `same` could report — so it answers
@@ -398,6 +400,12 @@ where
     // fallback the contract requires to be always sufficient.
     fn same<H: Height>(_a: &Self::Node<H>, _b: &Self::Node<H>) -> bool {
         false
+    }
+
+    type Walk = LeafWalk<T, Self>;
+
+    fn range(self, root: Option<Self::Node<height::Root>>, bounds: VersionBounds) -> Self::Walk {
+        ranged(self, root, bounds)
     }
 }
 
