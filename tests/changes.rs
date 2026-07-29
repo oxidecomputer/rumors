@@ -65,6 +65,57 @@ async fn one_tick_per_observed_commit() {
     assert_eq!(changes.next().now_or_never(), None);
 }
 
+/// A no-change commit produces no tick: a redact of a key that is not
+/// live and an empty batch both leave the frontier where it was.
+///
+/// A real commit afterwards still ticks, pinning that the quiet came from
+/// the unchanged frontier, not a dead observer.
+#[pollster::test]
+async fn no_change_commit_does_not_tick() {
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let mut changes = rumors.changes();
+    assert_eq!(changes.next().now_or_never(), Some(Some(())));
+
+    // Mint a key, then genuinely redact it (one tick consumed here).
+    rumors
+        .send(1)
+        .await
+        .expect("the in-memory backend is infallible");
+    let key = rumors
+        .snapshot()
+        .collected()
+        .find_map(|(k, _, m)| (*m == 1).then_some(k))
+        .expect("message 1 is live");
+    rumors
+        .redact(key)
+        .await
+        .expect("the in-memory backend is infallible");
+    assert_eq!(changes.next().now_or_never(), Some(Some(())));
+    assert_eq!(changes.next().now_or_never(), None);
+
+    // Redacting the same key again forgets nothing: no tick.
+    rumors
+        .redact(key)
+        .await
+        .expect("the in-memory backend is infallible");
+    assert_eq!(changes.next().now_or_never(), None, "no-op redact is quiet");
+
+    // An empty batch commits nothing: no tick.
+    rumors
+        .batch()
+        .commit()
+        .await
+        .expect("the in-memory backend is infallible");
+    assert_eq!(changes.next().now_or_never(), None, "empty batch is quiet");
+
+    // The observer is still alive: a real commit ticks.
+    rumors
+        .send(2)
+        .await
+        .expect("the in-memory backend is infallible");
+    assert_eq!(changes.next().now_or_never(), Some(Some(())));
+}
+
 /// Ticks coalesce: any number of commits between polls is one tick — the
 /// stream is a signal, not a ledger.
 #[pollster::test]

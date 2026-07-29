@@ -403,9 +403,9 @@ fn checkpoint_is_portable_across_replicas() {
     assert_eq!(items[0].2, 2, "A-observed messages are skipped at B");
 }
 
-/// The observer's non-blocking step lends exactly as
-/// `borrow_next` does, and distinguishes a *quiet* observer (nothing new,
-/// actors live — where `borrow_next` would block) from an *ended* one.
+/// The observer's non-blocking step yields exactly what awaiting `next`
+/// would, and distinguishes a *quiet* observer (nothing new, actors live —
+/// where `next` would suspend) from an *ended* one.
 #[test]
 fn try_next_distinguishes_quiet_from_ended() {
     use rumors::TryNext;
@@ -441,8 +441,8 @@ fn try_next_distinguishes_quiet_from_ended() {
     );
 }
 
-/// The owned-item face: the `Stream` impl yields the same messages as
-/// `borrow_next`, owned, and terminates with `None` once the set closes.
+/// The owned-item face: the `Stream` impl yields the same messages as the
+/// inherent `next`, owned, and terminates with `None` once the set closes.
 #[test]
 fn stream_face_matches_and_terminates() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();

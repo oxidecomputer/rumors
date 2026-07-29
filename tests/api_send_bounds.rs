@@ -77,8 +77,8 @@ fn try_into_peer_future_is_send() {
     drop(fut);
 }
 
-/// Both observer faces — `borrow_next`'s future and the `Stream`'s item
-/// future — are `Send`, for spawned and `select!`-driven consumers.
+/// Both observer faces — the inherent `next` future and the `Stream`'s
+/// item future — are `Send`, for spawned and `select!`-driven consumers.
 #[test]
 fn observer_futures_are_send() {
     let alice = Peer::<String>::seed().sync_window_floor().into_rumors();
@@ -89,8 +89,10 @@ fn observer_futures_are_send() {
         drop(fut);
     }
     // The `Stream` face's item future must be `Send` too, for
-    // `tokio::spawn`d `select!` consumers.
-    let fut = messages.next();
+    // `tokio::spawn`d `select!` consumers. Name the trait method
+    // explicitly: the inherent `next` above would otherwise shadow it,
+    // and the leg would silently re-test the same future.
+    let fut = futures::StreamExt::next(&mut messages);
     require_send(&fut);
     drop(fut);
 }

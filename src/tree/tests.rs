@@ -919,6 +919,14 @@ proptest! {
     /// is stated inline over the raw `Bound` pair: `Tree::range`'s
     /// `RangeBounds` surface accepts crossed pairs, which `before::causally`
     /// validates away at composition.)
+    ///
+    /// Deliberate internal-entry decision: this differential pins the
+    /// crate-internal `Tree::range`/`Tree::iter` walks rather than the
+    /// public surface. The borrowing walk is not a user path — it is the
+    /// in-memory oracle the owned walk (and through it every public read)
+    /// is pinned against — so the suite must address it directly; the
+    /// public surface's own coverage rides on the behavioral suites over
+    /// `Snapshot` and the observers.
     #[test]
     fn range_and_freeze_match_the_naive_filter(
         (a, b) in crate::tree::arb::arb_divergent_pair(),

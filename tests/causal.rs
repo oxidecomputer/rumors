@@ -309,8 +309,8 @@ fn observer_drains_the_final_state_causally_then_ends() {
     assert_eq!(step(&mut obs), Step::Ended, "ended is terminal");
 }
 
-/// The owned-item face delivers the same causal order as `borrow_next` and
-/// terminates with `None` once the set closes.
+/// The owned-item face delivers the same causal order as the inherent
+/// `next` and terminates with `None` once the set closes.
 #[test]
 fn stream_face_is_causal_and_terminates() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
