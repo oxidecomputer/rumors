@@ -537,6 +537,125 @@ fn a_witnessless_superlinear_counter_claim_is_flagged_as_decoration() {
     );
 }
 
+/// The `Ω(M(·))` floor's committed witness family embeds no hard
+/// product: the plateau-puncture numerator is one shift and one
+/// increment away from the turn mass, because the plateau is
+/// `H = 2^(32w)` — the parked factor `H − 1` is an all-ones run the
+/// settle's own balanced-digit spelling compacts to two signed
+/// digits.
+///
+/// A witness for review, not a ratification. This test computes the
+/// exact rank of `PP(w, d)` with **no multiplication anywhere in its
+/// own arithmetic** — `(M << 32w) + 1` — and matches the shipped fold
+/// exactly. A fold that compacts its *factor* side the way
+/// `charge_digits` already compacts its digits side answers this
+/// family in `O(|v|)` digit work, so the family cannot mandate
+/// `Ω(M(|v|))` for "any fold that answers exactly": the input funds
+/// the factor's *width* but not its *content* (~zero entropy in
+/// `H − 1` beyond the width itself). The neighbouring
+/// [`mul_bound_embedding_is_alive`] pin guards both factors'
+/// `bit_len` — width, which this degenerate factor satisfies — so the
+/// pin blesses a family on which the floor is beatable. The floor
+/// clause needs a plateau whose climb carries dense content (varied
+/// funded increments summing to an incompressible `H'`), making the
+/// numerator a genuine two-sided multiplication instance; when such a
+/// family lands, re-point the embedding pin at it and retire this
+/// witness with the change.
+#[test]
+fn plateau_puncture_numerator_is_computable_by_shift_alone() {
+    use dashu_int::UBig;
+    let (w, d) = (64usize, 48usize);
+    let v = crate::meter::plateau_puncture(w, d).version();
+    // The turn mass, then the numerator by shift and increment only:
+    // no product is formed anywhere in this test.
+    let m: UBig = (1..=d).map(|i| UBig::ONE << (33 * i - 1)).sum();
+    let numerator = (m << (32 * w)) + 1u8;
+    assert_eq!(
+        v.rank().to_string(),
+        format!("{numerator}/2^{}", 33 * d),
+        "the plateau-puncture rank is its turn mass shifted by the plateau's \
+         width, plus one: if this stops holding, the family changed and this \
+         witness (and the floor claim it disputes) must be re-derived"
+    );
+}
+
+/// The token-exclusivity leg reads only the roster's *pinned* tokens,
+/// never the rustdoc section itself: a claim downgraded to `Linear`
+/// that also drops `Ω(M(` from its pinned list passes every contract
+/// check while the live `# Complexity` section still carries the
+/// MulBound class's exclusive token.
+///
+/// A witness for review, not a ratification: this fixture is the
+/// cheapest artifact the current criteria bless — `Version::rank`
+/// re-cited as `Linear` (its counters *are* flat, so no exponent-red
+/// stance objects; `version_rank` is not judge-rostered) with the
+/// pinned tokens trimmed to the space claim alone. The exclusivity
+/// predicate replicated below (verbatim from
+/// [`classes_satisfy_their_contracts`]) raises nothing, and the last
+/// assertion proves the gap is live against the real rustdoc: the
+/// scanned section still contains `Ω(M(`, so roster and prose have
+/// drifted apart with every gate green. Closing the hole means
+/// scanning the *section text* for exclusive tokens (not just the
+/// pinned list); when that lands, this witness flips and retires.
+#[test]
+fn a_downgraded_mul_bound_claim_slips_the_token_exclusivity_leg() {
+    let fixture = Claim {
+        op: "Version::rank",
+        checks: &[super::Check {
+            site: super::Site::Fn,
+            tokens: &["`O(|v|)` space"],
+        }],
+        cells: Cells::Board(&[("version_rank", Class::Linear)]),
+    };
+    let pinned: Vec<&str> = fixture
+        .checks
+        .iter()
+        .flat_map(|check| check.tokens.iter().copied())
+        .collect();
+    let cited: Vec<Class> = match &fixture.cells {
+        Cells::Board(cells) => cells.iter().map(|(_, class)| *class).collect(),
+        Cells::Uncelled(_) => Vec::new(),
+    };
+    // The exclusivity predicate, replicated verbatim from
+    // classes_satisfy_their_contracts.
+    let mut problems: Vec<String> = Vec::new();
+    for class in Class::ALL.iter().copied() {
+        let contract = class.contract();
+        let Some(token) = contract.token else {
+            continue;
+        };
+        if cited.contains(&class) {
+            if !pinned.iter().any(|t| t.contains(token)) {
+                problems.push(format!("cites {class:?} without its token"));
+            }
+        } else if contract.token_exclusive && pinned.iter().any(|t| t.contains(token)) {
+            problems.push(format!("pins {class:?}'s exclusive token uncited"));
+        }
+    }
+    // The stance and judge legs bless it too: flat counters, no red.
+    let exponent_red_ops = exponent_red_ops();
+    let Cells::Board(cells) = &fixture.cells else {
+        unreachable!("the fixture cites a board cell");
+    };
+    let stance = stance_contradiction(fixture.op, cells[0].0, cells[0].1, &exponent_red_ops);
+    assert!(
+        problems.is_empty() && stance.is_none(),
+        "the downgraded claim was flagged ({problems:?}, {stance:?}): the \
+         exclusivity gap has been closed — retire this witness with the fix"
+    );
+    // The gap is live: the real rustdoc section still carries the
+    // exclusive token the fixture's pinned list dropped.
+    let index = doc_index();
+    let section = index
+        .section("Version::rank", super::Site::Fn)
+        .expect("Version::rank has a Complexity section");
+    assert!(
+        section.contains("Ω(M("),
+        "Version::rank's Complexity section no longer carries `Ω(M(`: \
+         re-point this witness at a live MulBound section"
+    );
+}
+
 /// The expected-red roster's own hygiene: every entry names a live
 /// board cell exactly once and carries at least one mechanism.
 ///
