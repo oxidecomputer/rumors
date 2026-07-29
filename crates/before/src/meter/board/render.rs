@@ -170,13 +170,31 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
 ///
 /// Panics if `scale` is not strictly positive.
 pub(super) fn sweep(scale: f64, heap: &HeapMeter) -> Vec<CellResult> {
+    let all: Vec<FamilyId> = FamilyId::board().collect();
+    sweep_families(scale, heap, &all)
+}
+
+/// Sweep one slice of the family axis against the whole operation table
+/// at `scale` and judge every cell.
+///
+/// The measurement discipline is [`sweep`]'s exactly — single-threaded,
+/// operation outer, family inner within the slice, each cell measured at
+/// the scaled size and its double under the in-process determinism
+/// self-verification — so a process-sharded run (the `shard` module) is
+/// the serial sweep partitioned, never a second discipline.
+///
+/// # Panics
+///
+/// Panics if `scale` is not strictly positive.
+pub(super) fn sweep_families(scale: f64, heap: &HeapMeter, slice: &[FamilyId]) -> Vec<CellResult> {
     assert!(
         scale > 0.0 && scale.is_finite(),
         "amp-board: scale must be a positive finite number"
     );
 
-    let families: Vec<(FamilyData, FamilyData)> = FamilyId::board()
-        .map(|kind| {
+    let families: Vec<(FamilyData, FamilyData)> = slice
+        .iter()
+        .map(|&kind| {
             (
                 FamilyData::build(kind, scale, 0),
                 FamilyData::build(kind, scale, 1),
@@ -212,18 +230,30 @@ pub(super) fn sweep(scale: f64, heap: &HeapMeter) -> Vec<CellResult> {
     results
 }
 
-/// Run the whole board and render the matrix to `out`.
+/// Run the whole board in this process and render the matrix to `out`.
 ///
 /// `scale` multiplies every family's base size (1.0 is the seconds-scale
 /// default; the smoke test passes a small fraction). Cells run at the scaled
 /// size and its double. Red rows print first.
 ///
+/// This is the serial reference path; [`run_sharded`](super::shard::run_sharded)
+/// renders the same matrix from process-sharded sweeps, byte-identical by
+/// pin (`just amp-board-shard-pin`).
+///
 /// # Panics
 ///
 /// Panics if `scale` is not strictly positive.
 pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summary> {
-    let results = sweep(scale, heap);
+    render_results(&sweep(scale, heap), out)
+}
 
+/// Render one full sweep's judged cells as the matrix: the legend derived
+/// from the results themselves, red rows first, the summary line last.
+///
+/// `results` must be a whole board's cells in board row order (operation
+/// outer, family inner) — [`sweep`]'s output, or a shard merge's
+/// reconstruction of it.
+pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io::Result<Summary> {
     writeln!(
         out,
         "amplification board: transient cost vs denominator bytes (packed input; total I/O on \
@@ -250,7 +280,7 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
     writeln!(out)?;
     writeln!(out, "liveness declarations on this board:")?;
     let mut legend = std::collections::BTreeSet::new();
-    for r in &results {
+    for r in results {
         for (currency, liveness) in r.s2.floors.each() {
             legend.insert(match liveness {
                 Liveness::Floor { why, .. } => format!("  {} floor: {why}", currency.label()),

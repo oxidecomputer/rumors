@@ -49,8 +49,10 @@
 //! `measure` (the metering engine), `judge` (scoring and verdicts),
 //! `render` (the driver and the printed matrix), `worst` (the worst-case
 //! map: the argmax fold over the same judged cells, and its committed
-//! ranking pin), `export` (the bench mirror), and `coverage` (the tiling
-//! table and the red-triage buffer).
+//! ranking pin), `shard` (process-sharded parallelism: the family axis
+//! split across child processes, each owning its own allocator, merged
+//! back byte-identically), `export` (the bench mirror), and `coverage`
+//! (the tiling table and the red-triage buffer).
 //!
 //! # The criterion
 //!
@@ -135,10 +137,13 @@
 //! so two board runs at the same scale are byte-identical under any
 //! machine load: the board reads no clock, conditions nothing on timing,
 //! and comparing runs needs no exclusion rules. The claim is enforced,
-//! not assumed, on two legs: the runner itself measures every cell twice
+//! not assumed, on three legs: the runner itself measures every cell twice
 //! in process and panics on any counter or denominator disagreement
-//! ([`run`]'s self-verification), and the `amp-board-determinism` recipe
-//! byte-compares two whole renders across processes. Time still has its own
+//! ([`run`]'s self-verification, in every process that sweeps cells), the
+//! `amp-board-determinism` recipe byte-compares two whole renders across
+//! processes, and the `amp-board-shard-pin` recipe holds the
+//! process-sharded render byte-identical to the serial reference at both
+//! scales of record. Time still has its own
 //! judged leg — wall time is the one implementation-agnostic witness for
 //! *time*, exactly as heap is for space: a kernel doing quadratic work in
 //! plain machine-word arithmetic (no allocation, no recursion, no metered
@@ -225,8 +230,10 @@
 //!
 //! # Reading the numbers
 //!
-//! The board runs every cell in one process and resets the peak-heap counter
-//! between cells, so a cell's heap number can include allocator noise from
+//! The board sweeps single-threaded — one cell at a time, the peak-heap
+//! counter reset between cells, many cells sharing one process's allocator
+//! (the whole board's in a serial run, a family slice's per child in a
+//! sharded one) — so a cell's heap number can include allocator noise from
 //! the harness itself: the board's numbers are *indicative*. The enforced
 //! record is the meter test binary (`tests/meter.rs`), whose scenarios run
 //! one per process under nextest and pin exact envelopes. Zero-measurement
@@ -279,6 +286,7 @@ mod measure;
 mod operand;
 mod ops;
 mod render;
+mod shard;
 #[cfg(test)]
 mod tests;
 mod worst;
@@ -299,4 +307,7 @@ pub use currency::{ByCurrency, Currency, Floors, Liveness};
 pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
 pub use measure::HeapMeter;
 pub use render::{run, Summary};
+pub use shard::{
+    check_worst_map_sharded, emit_shard, run_sharded, worst_map_sharded, ShardSpawner,
+};
 pub use worst::{check_worst_map, worst_map, NEAR_TIE_RATIO, WORST_MAP_SCALES};

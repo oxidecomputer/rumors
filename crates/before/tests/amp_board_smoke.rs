@@ -99,6 +99,50 @@ fn board_runs_to_completion() {
     );
 }
 
+/// The sharded pipeline is the serial pipeline: merging shard emissions
+/// renders the matrix byte-identical to the serial render at the same
+/// scale.
+///
+/// This pins the shard protocol round-trip — emit, parse, reorder,
+/// re-judge — and the merge's board-order reconstruction, in-process at
+/// smoke scale with a shard count that splits the roster unevenly. The
+/// cross-process leg of the same identity (child processes, the scales
+/// of record, the one-time-initialization hazard) is the gate's
+/// `amp-board-shard-pin` recipe, with the serial render as the
+/// reference.
+#[test]
+fn sharded_render_matches_serial() {
+    let heap = HeapMeter {
+        reset_peak: || HEAP.reset_peak_usage(),
+        peak: || HEAP.peak_usage(),
+        current: || HEAP.current_usage(),
+    };
+    let mut serial = Vec::new();
+    board::run(SMOKE_SCALE, &heap, &mut serial).expect("writing to a Vec succeeds");
+
+    // Three shards over the roster: uneven slices unless the roster
+    // length happens to be a multiple.
+    const SHARDS: usize = 3;
+    let spawn = |scale: f64| -> std::io::Result<Vec<Vec<u8>>> {
+        (0..SHARDS)
+            .map(|index| {
+                let mut capture = Vec::new();
+                board::emit_shard(scale, index, SHARDS, &heap, &mut capture)?;
+                Ok(capture)
+            })
+            .collect()
+    };
+    let mut sharded = Vec::new();
+    board::run_sharded(SMOKE_SCALE, SHARDS, &spawn, &mut sharded)
+        .expect("writing to a Vec succeeds");
+
+    assert_eq!(
+        String::from_utf8(serial).expect("the board renders UTF-8"),
+        String::from_utf8(sharded).expect("the board renders UTF-8"),
+        "the sharded render must be byte-identical to the serial render"
+    );
+}
+
 /// The worst-case map folds totally over the board's sweep at any scale:
 /// every operation row renders exactly one line per mapped currency
 /// (heap, limb, scan, touch), so a row can neither drop out of the map
