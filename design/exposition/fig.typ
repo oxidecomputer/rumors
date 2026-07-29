@@ -219,3 +219,59 @@
     body
   },
 )
+
+// ---------------------------------------------------------------------
+// Attack cards: one adversarial family per card. Three compartments,
+// uniform across every family in the document — the input shape the
+// attacker constructs (drawn), the work it extracts from the design it
+// refutes, and the landed mechanism that defeats it. A family whose
+// point is a floor rather than a cure passes `cure: none` and states
+// the floor in `forces`.
+#let attack(
+  name,
+  target,
+  input,
+  forces,
+  cure: none,
+) = block(
+  width: 100%, stroke: 0.7pt + gray-line.darken(10%), radius: 3pt,
+  inset: 0pt, clip: true,
+  stack(
+    dir: ttb,
+    block(width: 100%, fill: ink-light.lighten(45%), inset: (x: 9pt, y: 5pt),
+      grid(columns: (auto, 1fr), align: (left, right),
+        text(size: 8.5pt, weight: "bold", smallcaps(name)),
+        text(size: 8.5pt, style: "italic")[attacks: #target])),
+    block(width: 100%, inset: (x: 10pt, y: 9pt), align(center, input)),
+    block(width: 100%, inset: (x: 9pt, y: 6pt),
+      stroke: (top: 0.5pt + gray-line.lighten(30%)),
+      text(size: 8.5pt)[#text(fill: accent.darken(10%), weight: "bold",
+        smallcaps("extracts")) #h(0.6em) #forces]),
+    ..if cure != none {
+      (block(width: 100%, inset: (x: 9pt, y: 6pt),
+        stroke: (top: 0.5pt + gray-line.lighten(30%)),
+        text(size: 8.5pt)[#text(fill: ink, weight: "bold",
+          smallcaps("defeated by")) #h(0.6em) #cure]),)
+    } else { () },
+  ),
+)
+
+// ---------------------------------------------------------------------
+// A schematic packed-stream strip for attack cards: cells of
+// (label, width, role), role "t" topology, "p" payload, "w" wide
+// payload, "x" neutral (ellipses, annotations).
+#let codestrip(cells, h: 15pt) = stack(dir: ltr, spacing: 1.5pt, ..cells.map(c => {
+  let (label, w, role) = c
+  let bg = if role == "t" { ink-light } else if role == "p" { accent-light } else if role == "w" { accent-light.darken(12%) } else { white }
+  let strk = if role == "x" { none } else { 0.6pt + gray-line.darken(20%) }
+  box(width: w, height: h, fill: bg, stroke: strk,
+    align(center + horizon, text(size: 6.8pt, label)))
+}))
+
+// A labeled row for multi-operand attack cards: a small left label, a
+// drawing on the right.
+#let oprow(label, body) = grid(
+  columns: (52pt, 1fr), align: (right + horizon, left + horizon),
+  column-gutter: 8pt,
+  text(size: 7.5pt, fill: gray-line.darken(40%), label), body,
+)
