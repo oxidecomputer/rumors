@@ -15,7 +15,7 @@ use super::{EXEMPTIONS, ROSTER};
 /// reviewed exemption, and a renamed one fails here by name (a stale
 /// exemption included).
 #[test]
-fn panels_and_exemptions_tile_the_triangle_roster() {
+fn panels_and_exemptions_tile_the_coverage_roster() {
     let surface: BTreeSet<&str> = METHOD_SURFACE
         .iter()
         .chain(FAMILY_SURFACE)
