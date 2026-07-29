@@ -17,6 +17,7 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::link::{Connector, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
 use crate::testing::{Quiescence, run_to_quiescence};
+use crate::tree::backend::Local;
 use crate::tree::{Root, Tree};
 use crate::{Error, Inner, Peer, Retire};
 
@@ -98,6 +99,7 @@ fn overlapping_retiree_party_is_rejected() {
         inner: watch::Sender::new(Inner {
             party: Some(party_of(&survivor)),
             tree: Tree {
+                backend: Local,
                 root: Root::default(),
             },
         }),
@@ -264,7 +266,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized};
 
-    let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root.into();
+    let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root;
     let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root))
         .unwrap_or_else(|never| match never {});
     let listing = borsh::to_vec(&materialized::fan_listing(&fan)).expect("a listing serializes");
@@ -557,7 +559,10 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     let (escaped_root, _, escaped) =
         crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
     poisoned.inner.send_modify(|inner| {
-        inner.tree.join(Tree { root: escaped_root });
+        inner.tree.join_now(Tree {
+            backend: Local,
+            root: escaped_root,
+        });
     });
     assert!(
         !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),
@@ -677,4 +682,74 @@ fn gossip_session_root_hash_reads() {
         0,
         "a gossip session reads no root hash in either side's commit",
     );
+}
+
+/// The gossip fork section waits on the commit lock.
+///
+/// Party linearity's first leg: a committer that stamped its actions from
+/// the pre-fork party but has not yet published must exclude any party
+/// *shrink*, or the donated fork's new owner could mint the coordinates
+/// the in-flight commit is about to publish (the classification lives at
+/// `Peer::commit`). This pins the mechanism, not just the stall: while
+/// the commit lock is parked — exactly a stalled `Batch::commit` — a
+/// session serving a bootstrap must not have *forked the party yet* (the
+/// donation happens inside the lock's critical section), and releasing
+/// the lock lets the donation and the session complete.
+#[tokio::test]
+async fn fork_section_waits_on_the_commit_lock() {
+    use futures::FutureExt as _;
+
+    let provider = Peer::<u64>::seed();
+    let parked = Arc::clone(&provider.commit);
+    let provider = provider.into_rumors();
+    crate::testing::commit(provider.batch().send(7));
+
+    // Park a committer: hold the commit lock as a commit stalled between
+    // its prep and publish would.
+    let guard = parked.lock_owned().await;
+    let before = provider
+        .dangerously_alias_party()
+        .expect("a live set holds its party");
+
+    // A newcomer bootstraps from the provider: serving the join *forks*
+    // the provider's party, and that fork happens inside the commit
+    // lock's critical section.
+    let (mut near, mut far) = memory();
+    let session = async {
+        tokio::join!(
+            Peer::<u64>::bootstrap().join(&mut near),
+            provider.gossip(&mut far),
+        )
+    };
+    let mut session = std::pin::pin!(session);
+
+    // Drive the joint session: it must park at the provider's fork
+    // section with the party still whole — the donation must not be
+    // sliced out from under the stalled committer.
+    for _ in 0..256 {
+        assert!(
+            session.as_mut().now_or_never().is_none(),
+            "the fork section must wait for the parked commit lock",
+        );
+    }
+    let during = provider
+        .dangerously_alias_party()
+        .expect("a live set holds its party");
+    assert_eq!(
+        before, during,
+        "no fork leaves the party while the commit lock is held",
+    );
+
+    // Release the committer; the donation proceeds and the session
+    // completes, narrowing the provider's party.
+    drop(guard);
+    let (joined, served) = session.await;
+    served.expect("the provider serves the join");
+    joined
+        .expect("the join session completes")
+        .expect("the provider is established");
+    let after = provider
+        .dangerously_alias_party()
+        .expect("a live set holds its party");
+    assert_ne!(before, after, "the released session donated a fork");
 }

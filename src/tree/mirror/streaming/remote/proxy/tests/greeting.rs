@@ -9,6 +9,7 @@
 
 use crate::message::Message;
 use crate::testing::{IoPlan, run_to_quiescence};
+use crate::tree::backend::Local;
 use crate::tree::{
     Action, Tree,
     arb::{early_first_child_dispute_pair, nth_party},
@@ -18,7 +19,11 @@ use super::harness;
 
 /// The observable root hash of a reconciled `tree::Root`.
 fn hash_of(root: &crate::tree::Root<()>) -> [u8; 16] {
-    Tree { root: root.clone() }.hash()
+    Tree {
+        backend: Local,
+        root: root.clone(),
+    }
+    .hash()
 }
 
 /// Reconcile through the two-proxy wire harness, requiring both sides to
@@ -44,8 +49,14 @@ fn wire_reconcile(
 /// The deep divergent pair's expected union, computed by the in-memory join
 /// oracle.
 fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; 16] {
-    let mut union = Tree { root: a.clone() };
-    union.join(Tree { root: b.clone() });
+    let mut union = Tree {
+        backend: Local,
+        root: a.clone(),
+    };
+    union.join_now(Tree {
+        backend: Local,
+        root: b.clone(),
+    });
     union.hash()
 }
 
@@ -126,7 +137,7 @@ fn empty_carried_listing_asks_for_everything() {
 
     let expected = {
         let mut union = populated.clone();
-        union.join(emptied.clone());
+        union.join_now(emptied.clone());
         union
     };
     let (left, right) = wire_reconcile(emptied.root, populated.root.clone());

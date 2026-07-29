@@ -1,11 +1,12 @@
-use std::convert::Infallible;
 use std::sync::Arc;
 
+use before::Clock;
 use borsh::BorshSerialize;
 use tokio::sync::{Mutex, watch};
 
 use crate::message::Message;
 use crate::tree::Action;
+use crate::tree::backend::{Local, Store};
 use crate::{Inner, Key, StorageError};
 
 /// A batch of insertions and redactions against a [`Rumors`](crate::Rumors),
@@ -31,14 +32,14 @@ use crate::{Inner, Key, StorageError};
 /// and two batches carry no guaranteed causal relationship to one another
 /// unless the application synchronizes them itself.
 #[must_use = "a batch does nothing until `commit` is awaited; dropping it aborts"]
-pub struct Batch<'a, T: Send + Sync> {
-    inner: &'a watch::Sender<Inner<T>>,
+pub struct Batch<'a, T: Send + Sync + 'static, S: Store<T> = Local> {
+    inner: &'a watch::Sender<Inner<T, S>>,
     commit: &'a Arc<Mutex<()>>,
     actions: Vec<Action<T>>,
 }
 
-impl<'a, T: Send + Sync> Batch<'a, T> {
-    pub(crate) fn new(inner: &'a watch::Sender<Inner<T>>, commit: &'a Arc<Mutex<()>>) -> Self {
+impl<'a, T: Send + Sync + 'static, S: Store<T>> Batch<'a, T, S> {
+    pub(crate) fn new(inner: &'a watch::Sender<Inner<T, S>>, commit: &'a Arc<Mutex<()>>) -> Self {
         Self {
             inner,
             commit,
@@ -86,7 +87,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// poll, so cancellation before that poll aborts cleanly, and a
     /// persistent backend may additionally leave a committed-but-
     /// unacknowledged write that the next local commit supersedes.
-    pub async fn commit(self) -> Result<(), StorageError<Infallible>> {
+    pub async fn commit(self) -> Result<(), StorageError<S::Error>> {
         let Self {
             inner,
             commit,
@@ -108,8 +109,11 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         // local working copy, not the party, and the lock holds the pair
         // stable. Party growth (a returned or reclaimed fork) may land
         // between prep and publish, harmlessly: versions minted from the
-        // narrower party stay exclusively this replica's.
-        let (reactions, base) = {
+        // narrower party stay exclusively this replica's. A persisting
+        // backend additionally gets an alias of the committing party, to
+        // record beside the flipped root (`Store::commit`); recording is
+        // the one sanctioned use of an alias.
+        let (reactions, base, alias) = {
             let inner = inner.borrow();
             // The party is present on every reachable handle: `retire`
             // consumes the `Peer`, and the `Peer`/`Rumors` XOR keeps a
@@ -118,7 +122,8 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
                 debug_assert!(false, "no party to tick in a `Batch` commit");
                 return Ok(());
             };
-            (inner.tree.assign(party, actions), inner.tree.clone())
+            let alias = S::PERSISTS.then(|| party.dangerously_alias());
+            (inner.tree.assign(party, actions), inner.tree.clone(), alias)
         };
 
         // Phase 3 (build): apply the stamped reactions to a clone of the
@@ -127,7 +132,17 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         // `react`'s own flag: no root hash is read on this path
         // (`Tree::act` states the flag's contract).
         let mut built = base.clone();
-        let changed = built.react(reactions);
+        let changed = built.react(reactions).await.map_err(StorageError)?;
+
+        // Persist before publishing: the backend's root-flip transaction
+        // records the built root and the identity clock (the committing
+        // party at the built frontier) atomically, so the store can never
+        // hold a tree whose minted coordinates its recorded identity does
+        // not dominate. The in-memory backend's `commit` is a no-op.
+        built
+            .persist(alias.map(|alias| Clock::from_parts(alias, built.latest().clone())))
+            .await
+            .map_err(StorageError)?;
 
         // Phase 4 (publish): swap the built root in. This must follow the
         // build with no intervening await, in the same poll: a future is

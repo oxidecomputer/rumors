@@ -511,7 +511,10 @@ fn leaf_sibling_path(last: u8) -> Path {
 
 /// Wrap an optional root node in a [`tree::Root`](crate::tree::Root) with the
 /// given ceiling.
-fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate::tree::Root<T> {
+fn root_with_ceiling<T: Send + Sync + 'static>(
+    node: Option<Node<T, Root>>,
+    ceiling: Version,
+) -> crate::tree::Root<T> {
     crate::tree::Root {
         ceiling,
         root: node,

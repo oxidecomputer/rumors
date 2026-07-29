@@ -33,7 +33,7 @@ use rumors::testing::SnapshotCollect as _;
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble is deterministic and these byte-level captures stay
 /// reproducible across runs.
-fn seeded<T>() -> Rumors<T> {
+fn seeded<T: Send + Sync + 'static>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()

@@ -59,7 +59,7 @@ where
 }
 
 /// Wrap a node as a [`Root`] whose ceiling is the node's own.
-pub(super) fn rooted<T>(node: Option<TreeNode<T, height::Root>>) -> Root<T> {
+pub(super) fn rooted<T: Send + Sync + 'static>(node: Option<TreeNode<T, height::Root>>) -> Root<T> {
     Root {
         ceiling: node
             .as_ref()
@@ -80,7 +80,10 @@ pub(super) fn rooted<T>(node: Option<TreeNode<T, height::Root>>) -> Root<T> {
 /// semantically inert here: deletion-pruning compares leaf versions against
 /// the PEER's ceiling, and every fixture keeps each side's supplies on
 /// chains the other side's ceiling never covers.
-pub(super) fn rooted_at<T>(node: Option<TreeNode<T, height::Root>>, ceiling: Version) -> Root<T> {
+pub(super) fn rooted_at<T: Send + Sync + 'static>(
+    node: Option<TreeNode<T, height::Root>>,
+    ceiling: Version,
+) -> Root<T> {
     Root {
         ceiling,
         root: node,

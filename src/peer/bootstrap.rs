@@ -9,6 +9,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::bookmark::{Bookmark, BookmarkError};
 use crate::link::{Acceptor, Connector, Link};
+use crate::tree::backend::{Local, Store};
 use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{Error, Peer, Protocol};
@@ -36,9 +37,9 @@ use super::gossip::Unbookmarked;
 /// [`BookmarkedBootstrap`] state (whose `join` reports outcomes as a
 /// [`Joined`], since a persist can fail while the peer lives).
 ///
-/// The builder is `Copy`: after a mutual-bootstrap bail
-/// ([`join`](Self::join)'s `Ok(None)`) or a failed session, the same
-/// configuration retries against another provider as-is.
+/// The builder is `Clone` (and `Copy` with the in-memory backend): after
+/// a mutual-bootstrap bail ([`join`](Self::join)'s `Ok(None)`) or a failed
+/// session, the same configuration retries against another provider as-is.
 ///
 /// # The provider's side
 ///
@@ -51,28 +52,36 @@ use super::gossip::Unbookmarked;
 /// fork crosses the wire, so a failed serve can leave identity held by no
 /// one, never by both sides.
 #[must_use = "a `Bootstrap` does nothing until `join` runs it against a link"]
-pub struct Bootstrap<T> {
+pub struct Bootstrap<T: Send + Sync + 'static, S: Store<T> = Local> {
     pub(crate) protocol: Protocol,
     pub(crate) window: WindowConfig,
     pub(crate) run_budget: RunBudget,
+    /// The backend the joined peer's replica will be resident in.
+    pub(crate) store: S,
     /// Covariant, `Send`/`Sync`-neutral marker for the payload type the
     /// new [`Peer`] will carry.
     marker: PhantomData<fn() -> T>,
 }
 
-// Manual, unbounded impls: the payload type is phantom (the builder holds
-// configuration only), so the `T: Clone`/`T: Copy` bounds `derive` would
-// add have nothing to constrain.
-impl<T> Clone for Bootstrap<T> {
+// Manual impls: the payload type is phantom (the builder holds
+// configuration and the backend handle only), so the `T: Clone`/`T: Copy`
+// bounds `derive` would add have nothing to constrain.
+impl<T: Send + Sync + 'static, S: Store<T>> Clone for Bootstrap<T, S> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            protocol: self.protocol,
+            window: self.window,
+            run_budget: self.run_budget,
+            store: self.store.clone(),
+            marker: PhantomData,
+        }
     }
 }
 
-impl<T> Copy for Bootstrap<T> {}
+impl<T: Send + Sync + 'static, S: Store<T> + Copy> Copy for Bootstrap<T, S> {}
 
 /// The configuration only; the payload type parameter carries no state.
-impl<T> std::fmt::Debug for Bootstrap<T> {
+impl<T: Send + Sync + 'static, S: Store<T>> std::fmt::Debug for Bootstrap<T, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bootstrap")
             .field("protocol", &self.protocol)
@@ -82,7 +91,7 @@ impl<T> std::fmt::Debug for Bootstrap<T> {
     }
 }
 
-impl<T> Bootstrap<T> {
+impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// The all-defaults configuration behind [`Peer::bootstrap`], the one
     /// constructor.
     pub(crate) fn new() -> Self {
@@ -90,6 +99,27 @@ impl<T> Bootstrap<T> {
             protocol: Protocol::default(),
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
+            store: Local,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<T: Send + Sync + 'static, S: Store<T>> Bootstrap<T, S> {
+    /// Make the joined peer's replica resident in `store` rather than the
+    /// in-memory backend.
+    ///
+    /// The bootstrap session materializes the provider's whole set
+    /// directly into `store` as it arrives, and the joined peer keeps the
+    /// backend exactly as [`Peer::seed_in`] would have. Selectable in any
+    /// order with the session settings; selecting it again replaces the
+    /// backend (the last selection wins).
+    pub fn backend<S2: Store<T>>(self, store: S2) -> Bootstrap<T, S2> {
+        Bootstrap {
+            protocol: self.protocol,
+            window: self.window,
+            run_budget: self.run_budget,
+            store,
             marker: PhantomData,
         }
     }
@@ -176,7 +206,7 @@ impl<T> Bootstrap<T> {
     /// the bookmark's to record. And a bookmark records identity, never
     /// content: messages are recovered by
     /// [`gossip`](crate::Rumors::gossip)ing, like any peer's.
-    pub fn bookmark<B: Bookmark>(self, bookmark: B) -> BookmarkedBootstrap<T, B> {
+    pub fn bookmark<B: Bookmark>(self, bookmark: B) -> BookmarkedBootstrap<T, B, S> {
         BookmarkedBootstrap {
             config: self,
             bookmark,
@@ -214,9 +244,12 @@ impl<T> Bootstrap<T> {
     pub async fn join<CR, CW, C, A>(
         self,
         link: &mut Link<CR, CW, C, A>,
-    ) -> Result<Option<Peer<T>>, Error>
+    ) -> Result<
+        Option<Peer<T, crate::bookmark::NoBookmark, S>>,
+        Error<crate::bookmark::NoBookmark, S::Error>,
+    >
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -243,16 +276,16 @@ impl<T> Bootstrap<T> {
 /// bookmark itself does not: one bookmark records one peer, so there is
 /// nothing coherent for a second selection to mean.
 #[must_use = "a `BookmarkedBootstrap` does nothing until `join` runs it against a link"]
-pub struct BookmarkedBootstrap<T, B> {
+pub struct BookmarkedBootstrap<T: Send + Sync + 'static, B, S: Store<T> = Local> {
     /// The session settings, exactly as the plain builder holds them.
-    config: Bootstrap<T>,
+    config: Bootstrap<T, S>,
     /// The storage the joined peer's identity will be recorded in.
     bookmark: B,
 }
 
 /// The session settings; the bookmark is shown by its type only, since
 /// [`Bookmark`] does not require `Debug`.
-impl<T, B> std::fmt::Debug for BookmarkedBootstrap<T, B> {
+impl<T: Send + Sync + 'static, B, S: Store<T>> std::fmt::Debug for BookmarkedBootstrap<T, B, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BookmarkedBootstrap")
             .field("config", &self.config)
@@ -261,7 +294,7 @@ impl<T, B> std::fmt::Debug for BookmarkedBootstrap<T, B> {
     }
 }
 
-impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark, S: Store<T>> BookmarkedBootstrap<T, B, S> {
     /// Select the reconciliation protocol; the contract is
     /// [`Bootstrap::protocol`]'s.
     pub fn protocol(mut self, protocol: Protocol) -> Self {
@@ -294,9 +327,9 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     /// received identity before anything is handed back. Each of the four
     /// ways that can end is a [`Joined`] variant; the bookmark comes back
     /// in every outcome that never used it.
-    pub async fn join<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Joined<T, B>
+    pub async fn join<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Joined<T, B, S>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -304,7 +337,7 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     {
         let Self { config, bookmark } = self;
         match config.join(link).await {
-            Ok(Some(peer)) => match peer.bookmark(bookmark).await {
+            Ok(Some(peer)) => match peer.bookmark_in(bookmark).await {
                 Ok(peer) => Joined::Joined { peer },
                 Err(unbookmarked) => Joined::Unbookmarked(unbookmarked),
             },
@@ -323,13 +356,13 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
 /// retry with ([`Bailed`](Self::Bailed), [`Failed`](Self::Failed)).
 #[must_use = "every `Joined` variant carries a peer or the bookmark; dropping it loses one or the other"]
 #[derive(Debug)]
-pub enum Joined<T, B: BookmarkError> {
+pub enum Joined<T: Send + Sync + 'static, B: BookmarkError, S: Store<T> = Local> {
     /// **Joined and durable.** The session committed, the received
     /// identity is attached and persisted, and the link rests at a clean
     /// session boundary.
     Joined {
         /// The new, bookmarked peer.
-        peer: Peer<T, B>,
+        peer: Peer<T, B, S>,
     },
     /// **Bailed, nothing moved.** The counterparty was itself still
     /// bootstrapping, so neither side had a universe to share.
@@ -348,7 +381,7 @@ pub enum Joined<T, B: BookmarkError> {
     /// This is exactly [`Peer::bookmark`]'s failure: take the peer back
     /// out and retry the attach against healthy storage, or proceed
     /// knowingly unbookmarked.
-    Unbookmarked(Unbookmarked<T, B>),
+    Unbookmarked(Unbookmarked<T, B, S>),
     /// **Failed.** The session failed before any peer existed; the
     /// bookmark never touched storage and comes back for the retry.
     ///
@@ -357,7 +390,7 @@ pub enum Joined<T, B: BookmarkError> {
     /// exactly as [`Bootstrap::join`]'s `Err` describes.
     Failed {
         /// What failed the session.
-        error: Error,
+        error: Error<crate::bookmark::NoBookmark, S::Error>,
         /// The unused bookmark, for the retry.
         bookmark: B,
     },

@@ -12,6 +12,14 @@
 //! (see the visibility note in [`conformance::backend`](super::super)), so
 //! this suite pins the trait seam itself rather than a public operation —
 //! the seam *is* the surface a backend implements.
+//!
+//! Not yet covered here: [`Store::commit`]'s sequencing law (invoked once
+//! per root-replacing commit, before the publish, with the built root and
+//! the identity clock) and the handle-custody contract. Both are no-ops
+//! for every backend this suite can currently instantiate, so a law here
+//! would pass vacuously; they gain their teeth alongside the first
+//! persistent backend's conformance run, whose store both records commits
+//! and reclaims storage.
 
 use std::ops::Bound;
 

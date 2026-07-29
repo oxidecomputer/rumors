@@ -233,7 +233,7 @@ pub fn window_tradeoff_table() -> String {
 /// Covers every bound the tree holds (leaf versions and every interior
 /// ceiling and floor); the result is the exact per-node aggregate the
 /// greeting exchanges.
-pub fn max_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
+pub fn max_version_bytes<T: Send + Sync + 'static>(snapshot: &crate::Snapshot<T>) -> usize {
     snapshot.tree().max_version_bytes()
 }
 
@@ -246,7 +246,7 @@ pub fn max_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
 /// input materialized; this walk measures a reconciled tree against the
 /// pre-session exchange, so tests can pin the model side of the account
 /// to reality.
-pub fn max_bound_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
+pub fn max_bound_bytes<T: Send + Sync + 'static>(snapshot: &crate::Snapshot<T>) -> usize {
     snapshot.tree().max_bound_bytes()
 }
 

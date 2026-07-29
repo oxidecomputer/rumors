@@ -1,7 +1,6 @@
-use crate::tree::RangeOwned;
+use crate::tree::backend::{Leaf as _, LeafWalk, Local, Node as _, Store, VersionBounds};
 use crate::{Key, StorageError, Version};
-use futures::Stream;
-use std::convert::Infallible;
+use futures::{Stream, StreamExt as _};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -32,7 +31,7 @@ use tokio::sync::watch;
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
-pub struct UnorderedMessages<T> {
+pub struct UnorderedMessages<T: Send + Sync + 'static, S: Store<T> = Local> {
     /// The watch channel, or the in-flight wait for it to change.
     ///
     /// The wait future owns the receiver and hands it back: the `Stream`
@@ -40,9 +39,9 @@ pub struct UnorderedMessages<T> {
     /// (recreating one per poll would drop its waker registration and lose
     /// the wakeup), so the wait is materialized; [`next`](Self::next)
     /// enters it only to finish what a `Stream` poll started.
-    channel: Option<Channel<T>>,
+    channel: Option<Channel<T, S>>,
     checkpoint: Version,
-    pass: Option<Pass<T>>,
+    pass: Option<Pass<T, S>>,
 }
 
 /// The outcome of [`UnorderedMessages::try_next`] or [`CausalMessages::try_next`].
@@ -66,28 +65,28 @@ pub enum TryNext<T> {
 
 /// A wait for the channel to change, owning the receiver; resolves to
 /// whether the channel closed, and the receiver itself.
-type WaitForChange<T> =
-    Pin<Box<dyn Future<Output = (bool, watch::Receiver<crate::Inner<T>>)> + Send>>;
+type WaitForChange<T, S> =
+    Pin<Box<dyn Future<Output = (bool, watch::Receiver<crate::Inner<T, S>>)> + Send>>;
 
 /// An observer's hold on the watch channel: either the receiver itself, or
 /// the materialized owned wait the `Stream` face left in flight (see the
 /// [`UnorderedMessages::channel`] field docs for why the wait must be owned).
-pub(super) enum Channel<T> {
+pub(super) enum Channel<T: Send + Sync + 'static, S: Store<T> = Local> {
     /// The channel is in hand.
-    Ready(watch::Receiver<crate::Inner<T>>),
+    Ready(watch::Receiver<crate::Inner<T, S>>),
     /// A wait for change is in flight.
-    Waiting(WaitForChange<T>),
+    Waiting(WaitForChange<T, S>),
 }
 
 /// One in-progress pass: the frozen walk over its snapshot, and the
 /// snapshot's ceiling to absorb into the checkpoint when the walk drains.
-struct Pass<T> {
-    walk: RangeOwned<T, (std::ops::Bound<Version>, std::ops::Bound<Version>)>,
+struct Pass<T: Send + Sync + 'static, S: Store<T>> {
+    walk: LeafWalk<T, S>,
     ceiling: Version,
 }
 
-impl<T> UnorderedMessages<T> {
-    pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
+impl<T: Send + Sync + 'static, S: Store<T>> UnorderedMessages<T, S> {
+    pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T, S>>, since: Version) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
             checkpoint: since,
@@ -99,19 +98,20 @@ impl<T> UnorderedMessages<T> {
     /// watch read guard lives only long enough to freeze the walk (a root
     /// handle clone) and capture the ceiling.
     fn open_pass(
-        pass: &mut Option<Pass<T>>,
-        rx: &mut watch::Receiver<crate::Inner<T>>,
+        pass: &mut Option<Pass<T, S>>,
+        rx: &mut watch::Receiver<crate::Inner<T, S>>,
         checkpoint: &Version,
-    ) where
-        T: Send + Sync,
-    {
+    ) {
         if pass.is_none() {
             let inner = rx.borrow_and_update();
             *pass = Some(Pass {
-                walk: inner.tree.range_owned((
-                    std::ops::Bound::Excluded(checkpoint.clone()),
-                    std::ops::Bound::Unbounded,
-                )),
+                walk: inner
+                    .tree
+                    .range(VersionBounds {
+                        start: std::ops::Bound::Excluded(checkpoint.clone()),
+                        end: std::ops::Bound::Unbounded,
+                    })
+                    .boxed(),
                 ceiling: inner.tree.latest().clone(),
             });
         }
@@ -120,10 +120,7 @@ impl<T> UnorderedMessages<T> {
     /// Advance to the next message.
     async fn next_inner(
         &mut self,
-    ) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<Infallible>>
-    where
-        T: Send + Sync,
-    {
+    ) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<S::Error>> {
         loop {
             match self.channel.as_mut().expect("channel state present") {
                 // Finish a wait the `Stream` face left in flight.
@@ -138,8 +135,13 @@ impl<T> UnorderedMessages<T> {
                     Self::open_pass(&mut self.pass, rx, &self.checkpoint);
 
                     let pass = self.pass.as_mut().expect("opened above");
-                    if let Some((key, leaf)) = pass.walk.next() {
-                        return Ok(Some((key, leaf.version().clone(), leaf.value().clone())));
+                    if let Some(item) = pass.walk.next().await {
+                        let (key, leaf) = item.map_err(StorageError)?;
+                        return Ok(Some((
+                            key,
+                            leaf.span().join().clone(),
+                            leaf.message().as_arc().clone(),
+                        )));
                     }
 
                     // The pass drained: absorb its ceiling as completed,
@@ -214,14 +216,11 @@ impl<T> UnorderedMessages<T> {
     }
 }
 
-impl<T> UnorderedMessages<T> {
+impl<T: Send + Sync + 'static, S: Store<T>> UnorderedMessages<T, S> {
     /// Advance to the next message, yielding it owned. Awaits quietly while
     /// the set is unchanged; resolves `Ok(None)` once no further change is
     /// possible.
-    pub async fn next(&mut self) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<Infallible>>
-    where
-        T: Send + Sync,
-    {
+    pub async fn next(&mut self) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<S::Error>> {
         self.next_inner().await
     }
 
@@ -230,10 +229,7 @@ impl<T> UnorderedMessages<T> {
     ///
     /// [`Quiet`]: TryNext::Quiet
     /// [`Ended`]: TryNext::Ended
-    pub fn try_next(&mut self) -> Result<TryNext<T>, StorageError<Infallible>>
-    where
-        T: Send + Sync,
-    {
+    pub fn try_next(&mut self) -> Result<TryNext<T>, StorageError<S::Error>> {
         use futures::FutureExt;
         match self.next_inner().now_or_never() {
             None => Ok(TryNext::Quiet),
@@ -249,8 +245,8 @@ impl<T> UnorderedMessages<T> {
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future.
-impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
-    type Item = Result<(Key, Version, Arc<T>), StorageError<Infallible>>;
+impl<T: Send + Sync + 'static, S: Store<T>> Stream for UnorderedMessages<T, S> {
+    type Item = Result<(Key, Version, Arc<T>), StorageError<S::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -269,12 +265,19 @@ impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
                     Self::open_pass(&mut this.pass, rx, &this.checkpoint);
 
                     let pass = this.pass.as_mut().expect("opened above");
-                    if let Some((key, leaf)) = pass.walk.next() {
-                        return Poll::Ready(Some(Ok((
-                            key,
-                            leaf.version().clone(),
-                            leaf.value().clone(),
-                        ))));
+                    match pass.walk.poll_next_unpin(cx) {
+                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(Some(Ok((key, leaf)))) => {
+                            return Poll::Ready(Some(Ok((
+                                key,
+                                leaf.span().join().clone(),
+                                leaf.message().as_arc().clone(),
+                            ))));
+                        }
+                        Poll::Ready(Some(Err(e))) => {
+                            return Poll::Ready(Some(Err(StorageError(e))));
+                        }
+                        Poll::Ready(None) => {}
                     }
 
                     // The pass drained: absorb its ceiling, then enter the

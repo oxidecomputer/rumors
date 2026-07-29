@@ -40,10 +40,29 @@ use crate::{
 /// The local-operations capability of a backend: copy-on-write
 /// construction, node identity, and the bulk tree operations, each an
 /// overridable seam. See the [module docs](self).
-pub trait Store<T: Send + Sync + 'static>: Backend<T>
-where
-    Self::Node<Z>: Leaf<T>,
-{
+///
+/// # Handle custody
+///
+/// Every node handle a `Store` mints — through construction, fetch, or
+/// any seam here — must stay valid until the last clone of that handle
+/// drops, however long the holder keeps it: replicas clone roots out of
+/// their published state into snapshots, observers, and sessions, and
+/// none of those holders re-registers with the backend. A backend whose
+/// nodes reference storage it can reclaim must therefore make its handles
+/// self-protecting (registration travels inside the handle), and since
+/// `Drop` cannot await, release is *deferred*: a dropped handle queues its
+/// deregistration for the backend's next transaction rather than
+/// performing I/O.
+pub trait Store<T: Send + Sync + 'static>: Backend<T, Node<Z>: Leaf<T>> {
+    /// Whether [`commit`](Self::commit) records anything durable.
+    ///
+    /// `false` — the default — promises `commit` is a no-op, and licenses
+    /// committers to skip preparing the identity clock it would carry (the
+    /// preparation aliases the party, work worth skipping on every
+    /// in-memory commit). A backend that overrides `commit` sets this
+    /// `true`.
+    const PERSISTS: bool = false;
+
     /// Whether two handles name the same backend allocation.
     ///
     /// The `Arc::ptr_eq` analog: **sufficient, not necessary**, for
@@ -160,7 +179,7 @@ where
         }
     }
 
-    /// Persist the canonical root — and the party clock that stamps its
+    /// Persist the canonical root — and the identity clock that stamps its
     /// versions — atomically.
     ///
     /// A replica calls this at every root-replacing commit, *before*
@@ -168,18 +187,23 @@ where
     /// is the root-flip transaction, and flipping the root and recording
     /// the clock in one transaction is what keeps the two from diverging
     /// at rest (a stale clock beside a persisted tree would re-mint used
-    /// version coordinates on restart). The default does nothing: a
+    /// version coordinates on restart). `clock` pairs an alias of the
+    /// committing party with the built root's frontier — exactly the
+    /// record a restart needs to keep minting past everything stored —
+    /// and is `None` only when the replica holds no identity (a
+    /// retirement's donated party is in flight). The default does
+    /// nothing, and [`PERSISTS`](Self::PERSISTS) tells committers so: a
     /// backend whose tree lives and dies with the process has nothing to
     /// flip.
     fn commit(
         &self,
         root: &Root<Self, T>,
-        party: Option<&before::Party>,
+        clock: Option<before::Clock>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send
     where
         Self: Sized,
     {
-        let _ = (root, party);
+        let _ = (root, clock);
         async { Ok(()) }
     }
 }

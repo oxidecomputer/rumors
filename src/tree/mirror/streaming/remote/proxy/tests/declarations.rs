@@ -12,6 +12,7 @@
 
 use crate::message::Message;
 use crate::testing::run_to_quiescence;
+use crate::tree::backend::Local;
 use crate::tree::{
     Action, Tree,
     arb::{early_first_child_dispute_pair, nth_party},
@@ -25,13 +26,23 @@ use super::harness::{self, GreetingRewrite};
 
 /// The observable root hash of a reconciled `tree::Root`.
 fn hash_of(root: &crate::tree::Root<()>) -> [u8; 16] {
-    Tree { root: root.clone() }.hash()
+    Tree {
+        backend: Local,
+        root: root.clone(),
+    }
+    .hash()
 }
 
 /// The expected reconciled union, computed by the in-memory join oracle.
 fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; 16] {
-    let mut union = Tree { root: a.clone() };
-    union.join(Tree { root: b.clone() });
+    let mut union = Tree {
+        backend: Local,
+        root: a.clone(),
+    };
+    union.join_now(Tree {
+        backend: Local,
+        root: b.clone(),
+    });
     union.hash()
 }
 

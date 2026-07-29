@@ -55,7 +55,7 @@ where
     Self::Node<Z>: Leaf<T>,
 {
     /// The type of nodes carrying messages of type `T`, indexed by height `H`.
-    type Node<H: Height>: Node<T, Height = H, Backend = Self> + Clone + Send + 'static;
+    type Node<H: Height>: Node<T, Height = H, Backend = Self> + Clone + Send + Sync + 'static;
 
     /// The type of errors returned by this backend.
     ///
@@ -337,6 +337,14 @@ where
 
 /// A [`NodeStream`] erased to one level of type depth.
 pub(crate) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
+
+/// A boxed, fully-owned walk over selected live leaves, keyed by their
+/// [`Key`](crate::tree::Key)s: what holders of [`Store::range`]'s stream
+/// keep across polls and awaits.
+pub(crate) type LeafWalk<T, S> = futures::stream::BoxStream<
+    'static,
+    Result<(crate::tree::Key, <S as Backend<T>>::Node<Z>), <S as Backend<T>>::Error>,
+>;
 
 /// A backend's whole tree at rest: the node structure (absent when empty)
 /// and the causal ceiling that rides *outside* it.

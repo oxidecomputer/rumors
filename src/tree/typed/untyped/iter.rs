@@ -447,24 +447,12 @@ struct Level<T> {
     rollback: usize,
 }
 
-/// A live leaf popped out of a [`RangeOwned`] walk: an owned handle on the leaf
-/// node, lending its version and value to whoever holds it.
+/// A live leaf popped out of a [`RangeOwned`] walk: an owned handle on the
+/// leaf node, convertible to the bare height-zero handle the backend seams
+/// yield.
 pub struct Leaf<T>(Node<T>);
 
 impl<T> Leaf<T> {
-    /// The causal [`Version`] at which this message was observed.
-    pub fn version(&self) -> &Version {
-        self.0.ceiling()
-    }
-
-    /// The message's value.
-    pub fn value(&self) -> &std::sync::Arc<T> {
-        self.0
-            .as_leaf()
-            .expect("a Leaf wraps a leaf node, by construction")
-            .as_arc()
-    }
-
     /// Unwrap into a bare height-zero leaf node.
     ///
     /// The walk yields the leaf as stored, which usually carries the

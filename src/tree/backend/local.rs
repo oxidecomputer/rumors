@@ -12,7 +12,7 @@ use crate::{
         self,
         backend::Store,
         mirror::streaming::{
-            Backend, Leaf, Node, Root,
+            Backend, Leaf, Node,
             backend::{BoxNodeStream, NodeStream},
             convert::Convert,
         },
@@ -278,21 +278,4 @@ impl<T: Send + Sync + 'static> Store<T> for Local {
 
     // `commit` keeps its no-op default: the resident tree has nothing to
     // flip.
-}
-
-// `tree::Root` is exactly the `Local` instance of the session's generic
-// `Root`: the same (ceiling, optional root node) pair, concretely typed.
-
-impl<T: Send + Sync + 'static> From<tree::Root<T>> for Root<Local, T> {
-    fn from(root: tree::Root<T>) -> Self {
-        let tree::Root { ceiling, root } = root;
-        Root { ceiling, root }
-    }
-}
-
-impl<T: Send + Sync + 'static> From<Root<Local, T>> for tree::Root<T> {
-    fn from(root: Root<Local, T>) -> Self {
-        let Root { ceiling, root } = root;
-        tree::Root { ceiling, root }
-    }
 }

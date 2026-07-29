@@ -21,7 +21,7 @@ use crate::common::wire::{block_on, bootstrap_fork_async};
 use rumors::testing::SnapshotCollect as _;
 
 /// A peer seeded from a fixed RNG so the capture is deterministic.
-fn seeded<T>() -> Rumors<T> {
+fn seeded<T: Send + Sync + 'static>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
 }
 

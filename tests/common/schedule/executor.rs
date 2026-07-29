@@ -15,7 +15,7 @@ use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce};
 use crate::common::wire::bootstrap_fork;
 
-pub struct ExecutionResult<T> {
+pub struct ExecutionResult<T: Send + Sync + 'static> {
     pub peers: Vec<Peer<T>>,
     pub oracle: Oracle<T>,
     /// For each `Insert` event, the `Key` minted at the originating peer.

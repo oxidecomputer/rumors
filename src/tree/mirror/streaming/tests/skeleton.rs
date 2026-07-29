@@ -145,7 +145,10 @@ pub(super) fn asks(p: Party, height: usize) -> bool {
 ///
 /// If the advertised versions are equal: such a session short-circuits
 /// without descending, so it has no skeleton to talk about.
-pub(super) fn client_role<T>(client: &TreeRoot<T>, server: &TreeRoot<T>) -> Party {
+pub(super) fn client_role<T: Send + Sync + 'static>(
+    client: &TreeRoot<T>,
+    server: &TreeRoot<T>,
+) -> Party {
     if crate::tree::mirror::streaming::message::initiates(
         advertised_len(client),
         &client.ceiling,
@@ -160,7 +163,7 @@ pub(super) fn client_role<T>(client: &TreeRoot<T>, server: &TreeRoot<T>) -> Part
 
 /// The live message count a root advertises in its greeting: the election's
 /// primary key.
-fn advertised_len<T>(root: &TreeRoot<T>) -> u64 {
+fn advertised_len<T: Send + Sync + 'static>(root: &TreeRoot<T>) -> u64 {
     root.root
         .as_ref()
         .map(|node| node.len() as u64)

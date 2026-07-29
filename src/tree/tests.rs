@@ -6,6 +6,7 @@ use proptest::prelude::*;
 use super::typed::{Hash, Path, hash::Hasher, untyped};
 use super::*;
 use crate::message::Message;
+use crate::tree::backend::Local;
 
 impl Arbitrary for Key {
     type Parameters = ();
@@ -342,7 +343,7 @@ proptest! {
 
         // Route A: one react batch, base order.
         let mut direct = Tree::new();
-        direct.react(kept.iter().map(versioned));
+        direct.react_now(kept.iter().map(versioned));
 
         // Route B: shuffled order, split into two batches, with the extra
         // leaves inserted in between and redacted again afterwards.
@@ -352,9 +353,9 @@ proptest! {
             .map(|(i, b)| event(kept.len() + i, b))
             .collect();
         let mut detoured = Tree::new();
-        detoured.react(shuffled[..cut].iter().map(versioned));
-        detoured.react(extra_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
-        detoured.react(shuffled[cut..].iter().map(versioned));
+        detoured.react_now(shuffled[..cut].iter().map(versioned));
+        detoured.react_now(extra_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        detoured.react_now(shuffled[cut..].iter().map(versioned));
         detoured.act(
             &party_of("P"),
             extra_events.iter().rev().map(|(k, _, _)| Action::Forget(*k)),
@@ -362,10 +363,10 @@ proptest! {
 
         // Route C: two disjoint halves, merged in memory.
         let mut joined = Tree::new();
-        joined.react(kept[..cut].iter().map(versioned));
+        joined.react_now(kept[..cut].iter().map(versioned));
         let mut right = Tree::new();
-        right.react(kept[cut..].iter().map(versioned));
-        joined.join(right);
+        right.react_now(kept[cut..].iter().map(versioned));
+        joined.join_now(right);
 
         let serialize = |tree: &Tree<Bytes>| -> Option<Vec<u8>> {
             tree.root
@@ -421,7 +422,7 @@ proptest! {
         let version = version_for(&party, 1);
 
         let mut all_in_one = Tree::new();
-        all_in_one.react(
+        all_in_one.react_now(
             bytes
                 .iter()
                 .cloned()
@@ -438,7 +439,7 @@ proptest! {
                     .into_iter()
                     .map(|b| insert_at(version.clone(), &party, 1, b))
                     .collect();
-                partitioned.react(batch);
+                partitioned.react_now(batch);
             }
         }
 
@@ -467,7 +468,7 @@ proptest! {
             .collect();
 
         let mut t_react = Tree::new();
-        t_react.react(
+        t_react.react_now(
             versions
                 .into_iter()
                 .zip(bytes.iter().cloned())
@@ -695,15 +696,15 @@ proptest! {
         let v_b = version_for(&party, 2);
 
         let mut t_ab = Tree::new();
-        t_ab.react(
+        t_ab.react_now(
             bytes_a.iter().cloned().map(|b| insert_at(v_a.clone(), &party, 1, b)));
-        t_ab.react(
+        t_ab.react_now(
             bytes_b.iter().cloned().map(|b| insert_at(v_b.clone(), &party, 2, b)));
 
         let mut t_ba = Tree::new();
-        t_ba.react(
+        t_ba.react_now(
             bytes_b.iter().cloned().map(|b| insert_at(v_b.clone(), &party, 2, b)));
-        t_ba.react(
+        t_ba.react_now(
             bytes_a.iter().cloned().map(|b| insert_at(v_a.clone(), &party, 1, b)));
 
         prop_assert_eq!(t_ab, t_ba);
@@ -718,13 +719,13 @@ proptest! {
         let v = version_for(&party, 1);
 
         let mut t_once = Tree::new();
-        t_once.react(
+        t_once.react_now(
             bytes.iter().cloned().map(|b| insert_at(v.clone(), &party, 1, b)));
 
         let mut t_twice = Tree::new();
-        t_twice.react(
+        t_twice.react_now(
             bytes.iter().cloned().map(|b| insert_at(v.clone(), &party, 1, b)));
-        t_twice.react(
+        t_twice.react_now(
             bytes.iter().cloned().map(|b| insert_at(v.clone(), &party, 1, b)));
 
         prop_assert_eq!(t_once, t_twice);
@@ -755,13 +756,13 @@ proptest! {
             .collect();
 
         let mut t_base = Tree::new();
-        t_base.react(base.iter().cloned().map(|b| {
+        t_base.react_now(base.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             insert_at(v.clone(), &party, *scalar, b)
         }));
 
         let mut t_shuf = Tree::new();
-        t_shuf.react(shuffled.iter().cloned().map(|b| {
+        t_shuf.react_now(shuffled.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             insert_at(v.clone(), &party, *scalar, b)
         }));
@@ -806,8 +807,8 @@ proptest! {
             b_events.push(insert_at(recorded, &b_id, scalar, value.clone()));
         }
 
-        tree_a.react(b_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
-        tree_b.react(a_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        tree_a.react_now(b_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        tree_b.react_now(a_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
 
         prop_assert_eq!(tree_a.latest(), tree_b.latest());
         prop_assert_eq!(tree_a.hash(), tree_b.hash());
@@ -881,7 +882,7 @@ proptest! {
         let path_v2 = leaf_path(&party, 2, &value);
 
         prop_assert_ne!(path_v1, path_v2);
-        let got = [tree.get(&path_v1).unwrap(), tree.get(&path_v2).unwrap()];
+        let got = [tree.get_now(&path_v1).unwrap(), tree.get_now(&path_v2).unwrap()];
         prop_assert!(got.iter().all(|b| b.1[..] == *value));
     }
 }
@@ -928,8 +929,8 @@ proptest! {
     ) {
         use std::ops::Bound;
 
-        let tree = Tree { root: a };
-        let other = Tree { root: b };
+        let tree = Tree { backend: Local, root: a };
+        let other = Tree { backend: Local, root: b };
 
         // Bound candidates spanning the partial order's relationships to the
         // walked tree: its own leaf versions and ceiling (dominated/equal),
@@ -984,17 +985,33 @@ proptest! {
             .map(owned)
             .collect();
 
-        let ranged: Vec<_> = tree.range((start.clone(), end.clone())).map(owned).collect();
+        let ranged: Vec<_> = tree.range_oracle((start.clone(), end.clone())).map(owned).collect();
         prop_assert_eq!(&ranged, &naive, "range must equal the naive filter");
         prop_assert!(
             ranged.windows(2).all(|pair| pair[0].0 < pair[1].0),
             "range yields ascending keys",
         );
 
-        let mut frozen = tree.range_owned((start, end));
+        let frozen = tree.range(crate::tree::backend::VersionBounds {
+            start: start.clone(),
+            end,
+        });
         let mut thawed = Vec::new();
-        while let Some((key, leaf)) = frozen.next() {
-            thawed.push((key, leaf.version().clone(), leaf.value().clone()));
+        {
+            use futures::{FutureExt as _, StreamExt as _};
+            let mut frozen = std::pin::pin!(frozen);
+            while let Some(item) = frozen
+                .next()
+                .now_or_never()
+                .expect("the in-memory backend's walk is immediate")
+            {
+                let (key, leaf) = item.unwrap_or_else(|e| match e {});
+                thawed.push((
+                    key,
+                    leaf.ceiling().clone(),
+                    leaf.message().as_arc().clone(),
+                ));
+            }
         }
         prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
     }
@@ -1011,7 +1028,7 @@ proptest! {
         root in crate::tree::arb::arb_tree_root(0, 0..24),
         flip in any::<prop::sample::Index>(),
     ) {
-        let tree = Tree { root };
+        let tree = Tree { backend: Local, root };
 
         let forward: Vec<_> = tree.iter().map(owned).collect();
         prop_assert_eq!(tree.iter().len(), forward.len());
@@ -1023,8 +1040,8 @@ proptest! {
 
         for (key, version, value) in &forward {
             prop_assert_eq!(
-                tree.get(key),
-                Some((version, value)),
+                tree.get_now(key),
+                Some((version.clone(), value.clone())),
                 "get resolves every iterated key",
             );
         }
@@ -1037,7 +1054,7 @@ proptest! {
             // The flipped path could, in principle, name another live leaf;
             // only assert the miss when it does not.
             if !forward.iter().any(|(k, ..)| *k == perturbed) {
-                prop_assert_eq!(tree.get(&perturbed), None, "a foreign key misses");
+                prop_assert_eq!(tree.get_now(&perturbed), None, "a foreign key misses");
             }
         }
     }
@@ -1130,7 +1147,7 @@ proptest! {
         // the deletion-honoring arm, aimed at the argmax half the time
         // so the resize-down direction is exercised through the merge.
         let absorbed = right.clone();
-        left.join(absorbed);
+        left.join_now(absorbed);
         prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
 
         for forget in forgets {
@@ -1149,7 +1166,7 @@ proptest! {
             left.act(&party_of("A"), [Action::Forget(key)]);
         }
 
-        left.join(right);
+        left.join_now(right);
         prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
     }
 }
@@ -1389,9 +1406,18 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 
     // Plant the escaped leaf by in-memory join: `Tree::join` is a local
     // merge, not wire ingestion, so no session tripwire guards it.
-    let mut tree = Tree { root: receiver };
-    tree.join(Tree { root: poisoned });
-    assert!(tree.get(&key).is_some(), "the join plants the escaped leaf");
+    let mut tree = Tree {
+        backend: Local,
+        root: receiver,
+    };
+    tree.join_now(Tree {
+        backend: Local,
+        root: poisoned,
+    });
+    assert!(
+        tree.get_now(&key).is_some(),
+        "the join plants the escaped leaf"
+    );
     assert!(
         !mirror::contained(&escaped, tree.latest()),
         "the merged ceiling never covers the escaped version",
@@ -1401,7 +1427,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     // ceiling, which the escaped version strictly dominates.
     tree.act(&receiver_party, [Action::Forget(key)]);
     assert!(
-        tree.get(&key).is_some(),
+        tree.get_now(&key).is_some(),
         "redacting the escaped leaf is silently skipped",
     );
 
@@ -1409,9 +1435,9 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     // receives it on merge, because no ceiling ever classifies it as
     // already-seen-and-deleted.
     let mut fresh: Tree<()> = Tree::new();
-    fresh.join(tree);
+    fresh.join_now(tree);
     assert!(
-        fresh.get(&key).is_some(),
+        fresh.get_now(&key).is_some(),
         "the escaped leaf re-plants into a fresh replica",
     );
 }

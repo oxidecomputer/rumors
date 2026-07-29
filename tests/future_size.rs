@@ -90,3 +90,55 @@ fn bootstrap_future_fits_budget() {
          see gossip_future_fits_budget for rationale",
     );
 }
+
+/// `Rumors::send` runs the commit protocol's build against the storage
+/// backend; its layout must stay handle-sized.
+///
+/// `send` carries `Batch::commit`'s state machine whole, so this also
+/// guards the commit path: the local traversal seams must not fold a
+/// protocol tower or a backend's build state into the public future.
+#[test]
+fn send_future_fits_budget() {
+    let alice: Rumors<u64> = Peer::seed().into_rumors();
+    let fut = alice.send(7);
+    let size = size_of_val(&fut);
+
+    assert!(
+        size <= PUBLIC_FUTURE_BUDGET,
+        "send future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+         see gossip_future_fits_budget for rationale",
+    );
+}
+
+/// `Batch::commit` on a multi-action batch is the same commit protocol as
+/// `send`, entered through the explicit builder.
+#[test]
+fn batch_commit_future_fits_budget() {
+    let alice: Rumors<u64> = Peer::seed().into_rumors();
+    let batch = alice.batch().send(1).send(2);
+    let fut = batch.commit();
+    let size = size_of_val(&fut);
+
+    assert!(
+        size <= PUBLIC_FUTURE_BUDGET,
+        "batch commit future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+         see gossip_future_fits_budget for rationale",
+    );
+}
+
+/// `Snapshot::get` descends through the backend's point-lookup seam; the
+/// public read future must stay a handle-sized descent, not a tower.
+#[test]
+fn snapshot_get_future_fits_budget() {
+    let alice: Rumors<u64> = Peer::seed().into_rumors();
+    let snapshot = alice.snapshot();
+    let key = rumors::Key::from([0u8; 32]);
+    let fut = snapshot.get(&key);
+    let size = size_of_val(&fut);
+
+    assert!(
+        size <= PUBLIC_FUTURE_BUDGET,
+        "snapshot get future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+         see gossip_future_fits_budget for rationale",
+    );
+}

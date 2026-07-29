@@ -23,7 +23,7 @@ use crate::tree::{
     mirror::{
         Error as MirrorError,
         streaming::{
-            Local, Root,
+            Local,
             materialized::{Error as MaterializedError, Handshaking},
             mirror,
             remote::{Error as RemoteError, Handshaking as RemoteHandshaking},
@@ -491,8 +491,8 @@ where
     RC: Connector,
     RA: Acceptor,
 {
-    let left = Handshaking::start(Local, Root::from(left)).window(window);
-    let right = Handshaking::start(Local, Root::from(right)).window(window);
+    let left = Handshaking::start(Local, left).window(window);
+    let right = Handshaking::start(Local, right).window(window);
     let remote_right = RemoteHandshaking::start(Local, left_link).window(window);
     let remote_left = RemoteHandshaking::start(Local, right_link).window(window);
     let (left, right) = join!(
@@ -500,7 +500,7 @@ where
         Box::pin(mirror(remote_left, right)),
     );
     (
-        left.map(|(root, _control)| root.into()),
-        right.map(|(_control, root)| root.into()),
+        left.map(|(root, _control)| root),
+        right.map(|(_control, root)| root),
     )
 }

@@ -35,4 +35,3 @@ pub use path::Path;
 pub use prefix::Prefix;
 #[cfg(test)]
 pub use untyped::Iter;
-pub use untyped::{Leaf, RangeOwned};

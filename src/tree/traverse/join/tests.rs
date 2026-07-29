@@ -7,6 +7,7 @@
 use proptest::prelude::*;
 
 use crate::tree::arb::{arb_divergent_pair, arb_tree_root};
+use crate::tree::backend::Local;
 use crate::tree::mirror::alternating::{local, mirror};
 use crate::tree::{Root, Tree};
 
@@ -25,8 +26,14 @@ fn mirror_merge(a: Root<()>, b: Root<()>) -> Root<()> {
 
 /// Merges via `Tree::join`.
 fn join_tree(a: Root<()>, b: Root<()>) -> Root<()> {
-    let mut a = Tree { root: a };
-    a.join(Tree { root: b });
+    let mut a = Tree {
+        backend: Local,
+        root: a,
+    };
+    a.join_now(Tree {
+        backend: Local,
+        root: b,
+    });
     a.root
 }
 
