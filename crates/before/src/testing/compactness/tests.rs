@@ -9,6 +9,7 @@
 //! order — the comb mechanism arising at random. No sample in any family
 //! reached ratio 2.
 
+use crate::meter::registry::Shape;
 use proptest::prelude::*;
 
 use crate::testing::bridge::from_oracle_version;
@@ -72,14 +73,14 @@ proptest! {
 #[test]
 fn adversarial_shapes_hold_the_envelope() {
     for d in [1, 2, 3, 8, 64, 512, 4096] {
-        check_sample(&decode(&meter::dense(d)));
+        check_sample(&decode(&Shape::Dense.packed1(d)));
     }
     for b in [1, 2, 8, 64, 512, 4096] {
-        check_sample(&decode(&meter::hugeleaf(b)));
+        check_sample(&decode(&Shape::Hugeleaf.packed1(b)));
     }
     for b in [1, 8, 64, 512] {
         for d in [1, 8, 64, 512] {
-            check_sample(&decode(&meter::bigroot(b, d)));
+            check_sample(&decode(&Shape::Bigroot.packed2(b, d)));
         }
     }
 }

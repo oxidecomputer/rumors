@@ -22,12 +22,8 @@
 
 use proptest::prelude::*;
 
-use crate::meter::{
-    alt_spine, arming_train, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair,
-    dense, dense_factor, dense_suffix, dense_suffix_mate, factor_digit, freeze_position, harmonic,
-    hugeleaf, jump_comb, jump_pair, lone_freeze, plateau_puncture, promotion_rearm,
-    promotion_rearm_mate, puncture_product, wide_arming, wide_tooth_comb, Packed,
-};
+use crate::meter::registry::Shape;
+use crate::meter::{dense_factor, factor_digit, Packed};
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
 use crate::testing::generators::arb_oracle_version;
@@ -129,28 +125,28 @@ fn assert_pair(a: &Version, b: &Version) {
 fn family_pool() -> Vec<Version> {
     vec![
         Version::new(),
-        version_of(&dense(1)),
-        version_of(&dense(2)),
-        version_of(&dense(64)),
-        version_of(&bigroot(7, 3)),
-        version_of(&bigroot(64, 16)),
-        version_of(&hugeleaf(1)),
-        version_of(&hugeleaf(64)),
-        version_of(&cliff_comb(3, 2)),
-        version_of(&cliff_comb(16, 16)),
-        version_of(&wide_tooth_comb(16, 8, 8)),
+        version_of(&Shape::Dense.packed1(1)),
+        version_of(&Shape::Dense.packed1(2)),
+        version_of(&Shape::Dense.packed1(64)),
+        version_of(&Shape::Bigroot.packed2(7, 3)),
+        version_of(&Shape::Bigroot.packed2(64, 16)),
+        version_of(&Shape::Hugeleaf.packed1(1)),
+        version_of(&Shape::Hugeleaf.packed1(64)),
+        version_of(&Shape::CliffComb.packed2(3, 2)),
+        version_of(&Shape::CliffComb.packed2(16, 16)),
+        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
         // Wide teeth over the freeze allowance: bounded oscillation that
         // must ride the live component without freezing.
-        version_of(&wide_tooth_comb(320, 300, 6)),
+        version_of(&Shape::WideToothComb.packed3(320, 300, 6)),
         // The stale-drift shape: the mid-stream jump is wide enough that
         // the first cheap delta behind it fires a freeze.
-        version_of(&jump_comb(16, 8)),
-        version_of(&jump_comb(320, 4)),
-        version_of(&cliff_fan(16, 8)),
-        version_of(&cancelling_chain(16, 8)),
-        version_of(&alt_spine(3)),
-        version_of(&alt_spine(64)),
-        version_of(&harmonic(16)),
+        version_of(&Shape::JumpComb.packed2(16, 8)),
+        version_of(&Shape::JumpComb.packed2(320, 4)),
+        version_of(&Shape::CliffFan.packed2(16, 8)),
+        version_of(&Shape::CancellingChain.packed2(16, 8)),
+        version_of(&Shape::AltSpine.packed1(3)),
+        version_of(&Shape::AltSpine.packed1(64)),
+        version_of(&Shape::Harmonic.packed1(16)),
     ]
 }
 
@@ -164,9 +160,9 @@ fn party_pool() -> Vec<Party> {
         seed,
         half,
         quarter,
-        Party::decode(&crate::meter::scattered_id(1).bytes[..])
+        Party::decode(&Shape::ScatteredId.packed1(1).bytes[..])
             .expect("scattered id is strict normal form"),
-        Party::decode(&crate::meter::scattered_id(9).bytes[..])
+        Party::decode(&Shape::ScatteredId.packed1(9).bytes[..])
             .expect("scattered id is strict normal form"),
     ]
 }
@@ -212,32 +208,32 @@ fn families_agree_with_the_packed_forms() {
 /// arm it more than once per sweep or with mixed signs.
 fn promoting_pool() -> Vec<Version> {
     vec![
-        version_of(&promotion_rearm(1)),
-        version_of(&promotion_rearm(3)),
-        version_of(&promotion_rearm_mate(3)),
-        version_of(&dense_suffix(1, 2)),
-        version_of(&dense_suffix(3, 1)),
-        version_of(&dense_suffix_mate(3, 1)),
-        version_of(&wide_arming(10, 2)),
-        version_of(&wide_arming(13, 3)),
-        version_of(&freeze_position(3)),
-        version_of(&plateau_puncture(10, 3)),
-        version_of(&plateau_puncture(12, 1)),
+        version_of(&Shape::PromotionRearm.packed1(1)),
+        version_of(&Shape::PromotionRearm.packed1(3)),
+        version_of(&Shape::PromotionRearmMate.packed1(3)),
+        version_of(&Shape::DenseSuffix.packed2(1, 2)),
+        version_of(&Shape::DenseSuffix.packed2(3, 1)),
+        version_of(&Shape::DenseSuffixMate.packed2(3, 1)),
+        version_of(&Shape::WideArming.packed2(10, 2)),
+        version_of(&Shape::WideArming.packed2(13, 3)),
+        version_of(&Shape::FreezePosition.packed1(3)),
+        version_of(&Shape::PlateauPuncture.packed2(10, 3)),
+        version_of(&Shape::PlateauPuncture.packed2(12, 1)),
         // The first-freeze-gate straddles: the sweep's one freeze fired
         // arbitrarily late (a long never-freezing plateau prefix) and
         // fired early ahead of a long never-freezing tail — the settle's
         // smallest nonempty configuration, one parked drift against one
         // final segment, from both sides of the gate.
-        version_of(&lone_freeze(2, 2)),
-        version_of(&lone_freeze(6, 2)),
-        version_of(&lone_freeze(2, 6)),
+        version_of(&Shape::LoneFreeze.packed2(2, 2)),
+        version_of(&Shape::LoneFreeze.packed2(6, 2)),
+        version_of(&Shape::LoneFreeze.packed2(2, 6)),
         // The multi-arming trains: same-sign and alternating, so the
         // settle's parked sums are exercised both accumulating and
         // cancelling across aggregate seams.
-        version_of(&arming_train(1, 19, 1, false)),
-        version_of(&arming_train(3, 19, 1, false)),
-        version_of(&arming_train(4, 19, 2, true)),
-        version_of(&arming_train(5, 20, 1, true)),
+        version_of(&Shape::ArmingTrain.packed_train(1, 19, 1, false)),
+        version_of(&Shape::ArmingTrain.packed_train(3, 19, 1, false)),
+        version_of(&Shape::ArmingTrain.packed_train(4, 19, 2, true)),
+        version_of(&Shape::ArmingTrain.packed_train(5, 20, 1, true)),
     ]
 }
 
@@ -279,11 +275,11 @@ fn promoting_families_agree_with_the_oracle() {
 #[test]
 fn pair_families_agree() {
     for (k, m, d) in [(3, 1, 1), (16, 4, 2), (320, 6, 3), (512, 8, 2)] {
-        let (pa, pb) = jump_pair(k, m, d);
+        let (pa, pb) = Shape::JumpPair.packed_pair3(k, m, d);
         assert_pair(&version_of(&pa), &version_of(&pb));
     }
     for n in [2, 4, 16, 64] {
-        let (v, w) = concurrent_pair(n);
+        let (v, w) = Shape::ConcurrentPair.version_pair(n);
         assert_pair(&v, &w);
     }
 }
@@ -409,7 +405,7 @@ proptest! {
     /// `m` and spine density `d`.
     #[test]
     fn arbitrary_jump_pairs_agree(k in 3usize..400, m in 1usize..8, d in 1usize..4) {
-        let (pa, pb) = jump_pair(k, m, d);
+        let (pa, pb) = Shape::JumpPair.packed_pair3(k, m, d);
         assert_pair(&version_of(&pa), &version_of(&pb));
     }
 
@@ -419,7 +415,7 @@ proptest! {
     /// which operand dominates.
     #[test]
     fn arbitrary_concurrent_pairs_agree(log_n in 1u32..7) {
-        let (v, w) = concurrent_pair(1 << log_n);
+        let (v, w) = Shape::ConcurrentPair.version_pair(1 << log_n);
         assert_pair(&v, &w);
     }
 
@@ -441,8 +437,8 @@ proptest! {
         g in 1usize..4,
         alternate: bool,
     ) {
-        let a = version_of(&arming_train(n, w, g, alternate));
-        let b = version_of(&arming_train(n, w, g, !alternate));
+        let a = version_of(&Shape::ArmingTrain.packed_train(n, w, g, alternate));
+        let b = version_of(&Shape::ArmingTrain.packed_train(n, w, g, !alternate));
         assert_single(&a);
         assert_pair(&a, &b);
     }
@@ -488,7 +484,7 @@ proptest! {
             if v == UBig::ZERO { UBig::ONE } else { v }
         };
         let (x, y) = (nonzero(&x_bytes), nonzero(&y_bytes));
-        let v = puncture_product(&x, &y).version();
+        let v = Shape::PunctureProduct.packed_product(&x, &y).version();
         let wire = v.encode();
         prop_assert_eq!(
             &Version::decode(&wire[..]).expect("a stored version's wire bytes decode"),
@@ -784,7 +780,7 @@ fn dense_factor_tier_legs() {
     /// form, and (where the tree fits the budget) the recursive
     /// oracle.
     fn assert_leg(x: &UBig, y: &UBig, oracle: bool, label: &str) {
-        let v = puncture_product(x, y).version();
+        let v = Shape::PunctureProduct.packed_product(x, y).version();
         let numerator = ((x * y) << 1usize) + 1u8;
         assert_eq!(
             v.rank().to_string(),
@@ -923,7 +919,7 @@ mod adequacy {
     use suanpan::{touch_meter, Accumulator};
 
     use crate::codec::{Base, BitsSlice};
-    use crate::meter::freeze_position;
+    use crate::meter::registry::Shape;
     use crate::version::skyline::encode;
     use crate::version::skyline::sweep::{LeafCursor, Side};
     use crate::Rank;
@@ -986,7 +982,7 @@ mod adequacy {
     /// One tripwire run: packed bytes and the touch count over the
     /// known-bad fold, value-pinned against the shipped kernel.
     fn run(k: usize) -> (u64, u64) {
-        let v = freeze_position(k).version();
+        let v = Shape::FreezePosition.packed1(k).version();
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
@@ -1043,7 +1039,6 @@ mod adequacy {
     // `P · (2^S − position) = P · 2^S − P · position` is sound; only
     // its cost class is not.
 
-    use crate::meter::{promotion_rearm, promotion_rearm_mate};
     use crate::version::skyline::sweep::{advance, fold};
 
     /// The anchored-segment integral with the span-reading promotion.
@@ -1278,7 +1273,7 @@ mod adequacy {
     /// count over the known-bad fold, value-pinned against the shipped
     /// kernel.
     fn span_rank_run(p: usize) -> (u64, u64) {
-        let v = promotion_rearm(p).version();
+        let v = Shape::PromotionRearm.packed1(p).version();
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
@@ -1296,8 +1291,8 @@ mod adequacy {
     /// bytes and the touch count over the known-bad co-sweep,
     /// value-pinned against the shipped kernel.
     fn span_pair_run(p: usize) -> (u64, u64) {
-        let a = promotion_rearm(p).version();
-        let b = promotion_rearm_mate(p).version();
+        let a = Shape::PromotionRearm.packed1(p).version();
+        let b = Shape::PromotionRearmMate.packed1(p).version();
         let ea = encode(&a);
         let eb = encode(&b);
         let expected = a.distance(&b);
@@ -1385,7 +1380,6 @@ mod adequacy {
     // the same cross-term sum, term by term; only its cost class is
     // not the tree's.
 
-    use crate::meter::{dense_suffix, dense_suffix_mate};
     use crate::version::skyline::query::{Arming, WindowMass};
 
     /// The anchored-segment integral with the per-arming suffix-walk
@@ -1647,7 +1641,7 @@ mod adequacy {
     /// touch count over the known-bad fold, value-pinned against the
     /// shipped kernel.
     fn suffix_walk_rank_run(p: usize) -> (u64, u64) {
-        let v = dense_suffix(p, p).version();
+        let v = Shape::DenseSuffix.packed2(p, p).version();
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
@@ -1665,8 +1659,8 @@ mod adequacy {
     /// packed bytes and the touch count over the known-bad co-sweep,
     /// value-pinned against the shipped kernel.
     fn suffix_walk_pair_run(p: usize) -> (u64, u64) {
-        let a = dense_suffix(p, p).version();
-        let b = dense_suffix_mate(p, p).version();
+        let a = Shape::DenseSuffix.packed2(p, p).version();
+        let b = Shape::DenseSuffixMate.packed2(p, p).version();
         let ea = encode(&a);
         let eb = encode(&b);
         let expected = a.distance(&b);
@@ -1910,7 +1904,7 @@ mod adequacy {
     /// The limb currency is the point: the bad absorb's excess is pure
     /// window-digit traffic, which only the combine tap meters.
     fn per_digit_run(p: usize) -> (u64, u64) {
-        let v = dense_suffix(p, p).version();
+        let v = Shape::DenseSuffix.packed2(p, p).version();
         let enc = encode(&v);
         let expected = v.rank();
         reset_limb_ops();
@@ -1974,8 +1968,6 @@ mod adequacy {
     // its cost class is not the backend's. Mid-sweep segment settles
     // ride the shipped path — both families' wide × dense work sits
     // entirely at the close, which is what this kernel swaps.
-
-    use crate::meter::{plateau_puncture, wide_arming};
 
     /// The retired per-digit charge: one `parked`-wide product per
     /// balanced digit of the mass.
@@ -2164,8 +2156,10 @@ mod adequacy {
     /// per-byte growth x1.89 touch and x1.87 limb.]
     #[test]
     fn schoolbook_settle_reads_superlinear_on_wide_arming() {
-        let (small_bytes, small_touches, small_limbs) = schoolbook_run(wide_arming(500, 500));
-        let (large_bytes, large_touches, large_limbs) = schoolbook_run(wide_arming(1_000, 1_000));
+        let (small_bytes, small_touches, small_limbs) =
+            schoolbook_run(Shape::WideArming.packed2(500, 500));
+        let (large_bytes, large_touches, large_limbs) =
+            schoolbook_run(Shape::WideArming.packed2(1_000, 1_000));
         eprintln!(
             "MEASURED adequacy_schoolbook_wide_arming: small={small_touches}/{small_bytes}B \
              (limb {small_limbs}) large={large_touches}/{large_bytes}B (limb {large_limbs})"
@@ -2201,9 +2195,10 @@ mod adequacy {
     /// per-byte growth x1.90 touch and x1.65 limb.]
     #[test]
     fn schoolbook_settle_reads_superlinear_on_plateau_puncture() {
-        let (small_bytes, small_touches, small_limbs) = schoolbook_run(plateau_puncture(500, 500));
+        let (small_bytes, small_touches, small_limbs) =
+            schoolbook_run(Shape::PlateauPuncture.packed2(500, 500));
         let (large_bytes, large_touches, large_limbs) =
-            schoolbook_run(plateau_puncture(1_000, 1_000));
+            schoolbook_run(Shape::PlateauPuncture.packed2(1_000, 1_000));
         eprintln!(
             "MEASURED adequacy_schoolbook_plateau_puncture: small={small_touches}/{small_bytes}B \
              (limb {small_limbs}) large={large_touches}/{large_bytes}B (limb {large_limbs})"

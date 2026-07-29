@@ -27,14 +27,8 @@ use proptest::prelude::*;
 use rayon::prelude::*;
 
 use crate::codec::Base;
-use crate::meter::{
-    alt_spine, ascend_cliff, ascend_cliff_id, ascend_cliff_plateau, bigroot, cancelling_chain,
-    cliff_comb, cliff_fan, dense, descending_raises, descending_raises_id, harmonic, hugeleaf,
-    id_spine, memo_chain, memo_chain_id, memo_churn, memo_churn_id, memo_comb, memo_comb_id,
-    memo_fanout, memo_oscillating, nested_full_id, nested_left_full_id, pure_comb, pure_comb_id,
-    reveal_comb, reveal_comb_hifloor, reveal_comb_id, scattered_id, staircase, wide_tail,
-    wide_tooth_comb, Packed,
-};
+use crate::meter::registry::Shape;
+use crate::meter::Packed;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
 };
@@ -117,47 +111,47 @@ fn assert_tick(v: &Version, p: &Party) {
 fn event_pool() -> Vec<Version> {
     vec![
         Version::new(),
-        version_of(&dense(1)),
-        version_of(&dense(2)),
-        version_of(&dense(64)),
-        version_of(&bigroot(7, 3)),
-        version_of(&bigroot(64, 16)),
-        version_of(&hugeleaf(1)),
-        version_of(&hugeleaf(64)),
-        version_of(&cliff_comb(3, 2)),
-        version_of(&cliff_comb(16, 16)),
-        version_of(&wide_tooth_comb(16, 8, 8)),
-        version_of(&cliff_fan(16, 8)),
-        version_of(&cancelling_chain(16, 8)),
-        version_of(&alt_spine(3)),
-        version_of(&alt_spine(64)),
-        version_of(&harmonic(16)),
-        version_of(&wide_tail(7, 3)),
-        version_of(&wide_tail(64, 16)),
-        version_of(&staircase(1)),
-        version_of(&staircase(16)),
-        version_of(&memo_chain(1, true)),
-        version_of(&memo_chain(8, true)),
-        version_of(&memo_chain(8, false)),
-        version_of(&memo_comb(1)),
-        version_of(&memo_comb(4)),
-        version_of(&memo_fanout(1, 7)),
-        version_of(&memo_fanout(6, 64)),
-        version_of(&memo_oscillating(6, 64)),
-        version_of(&memo_churn(1)),
-        version_of(&memo_churn(5)),
-        version_of(&descending_raises(1)),
-        version_of(&descending_raises(6)),
-        version_of(&reveal_comb(1, 2)),
-        version_of(&reveal_comb(6, 5)),
-        version_of(&reveal_comb_hifloor(1, 2)),
-        version_of(&reveal_comb_hifloor(6, 5)),
-        version_of(&pure_comb(1, 2)),
-        version_of(&pure_comb(6, 5)),
-        version_of(&ascend_cliff(1, 2)),
-        version_of(&ascend_cliff(6, 5)),
-        version_of(&ascend_cliff_plateau(1, 2)),
-        version_of(&ascend_cliff_plateau(6, 5)),
+        version_of(&Shape::Dense.packed1(1)),
+        version_of(&Shape::Dense.packed1(2)),
+        version_of(&Shape::Dense.packed1(64)),
+        version_of(&Shape::Bigroot.packed2(7, 3)),
+        version_of(&Shape::Bigroot.packed2(64, 16)),
+        version_of(&Shape::Hugeleaf.packed1(1)),
+        version_of(&Shape::Hugeleaf.packed1(64)),
+        version_of(&Shape::CliffComb.packed2(3, 2)),
+        version_of(&Shape::CliffComb.packed2(16, 16)),
+        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
+        version_of(&Shape::CliffFan.packed2(16, 8)),
+        version_of(&Shape::CancellingChain.packed2(16, 8)),
+        version_of(&Shape::AltSpine.packed1(3)),
+        version_of(&Shape::AltSpine.packed1(64)),
+        version_of(&Shape::Harmonic.packed1(16)),
+        version_of(&Shape::WideTail.packed2(7, 3)),
+        version_of(&Shape::WideTail.packed2(64, 16)),
+        version_of(&Shape::Staircase.packed1(1)),
+        version_of(&Shape::Staircase.packed1(16)),
+        version_of(&Shape::MemoChain.packed_flagged(1, true)),
+        version_of(&Shape::MemoChain.packed_flagged(8, true)),
+        version_of(&Shape::MemoChain.packed_flagged(8, false)),
+        version_of(&Shape::MemoComb.packed1(1)),
+        version_of(&Shape::MemoComb.packed1(4)),
+        version_of(&Shape::MemoFanout.packed2(1, 7)),
+        version_of(&Shape::MemoFanout.packed2(6, 64)),
+        version_of(&Shape::MemoOscillating.packed2(6, 64)),
+        version_of(&Shape::MemoChurn.packed1(1)),
+        version_of(&Shape::MemoChurn.packed1(5)),
+        version_of(&Shape::DescendingRaises.packed1(1)),
+        version_of(&Shape::DescendingRaises.packed1(6)),
+        version_of(&Shape::RevealComb.packed2(1, 2)),
+        version_of(&Shape::RevealComb.packed2(6, 5)),
+        version_of(&Shape::RevealCombHifloor.packed2(1, 2)),
+        version_of(&Shape::RevealCombHifloor.packed2(6, 5)),
+        version_of(&Shape::PureComb.packed2(1, 2)),
+        version_of(&Shape::PureComb.packed2(6, 5)),
+        version_of(&Shape::AscendCliff.packed2(1, 2)),
+        version_of(&Shape::AscendCliff.packed2(6, 5)),
+        version_of(&Shape::AscendCliffPlateau.packed2(1, 2)),
+        version_of(&Shape::AscendCliffPlateau.packed2(6, 5)),
     ]
 }
 
@@ -168,31 +162,31 @@ fn event_pool() -> Vec<Version> {
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
         Party::seed(),
-        party_of(&id_spine(1, false)),
-        party_of(&id_spine(3, false)),
-        party_of(&id_spine(3, true)),
-        party_of(&id_spine(64, false)),
-        party_of(&id_spine(64, true)),
-        party_of(&scattered_id(1)),
-        party_of(&scattered_id(16)),
-        party_of(&nested_full_id(1)),
-        party_of(&nested_full_id(8)),
-        party_of(&nested_left_full_id(1)),
-        party_of(&nested_left_full_id(8)),
-        party_of(&memo_chain_id(1)),
-        party_of(&memo_chain_id(8)),
-        party_of(&memo_comb_id(1)),
-        party_of(&memo_comb_id(4)),
-        party_of(&memo_churn_id(1)),
-        party_of(&memo_churn_id(5)),
-        party_of(&descending_raises_id(1)),
-        party_of(&descending_raises_id(6)),
-        party_of(&reveal_comb_id(1)),
-        party_of(&reveal_comb_id(6)),
-        party_of(&pure_comb_id(1)),
-        party_of(&pure_comb_id(6)),
-        party_of(&ascend_cliff_id(1)),
-        party_of(&ascend_cliff_id(6)),
+        party_of(&Shape::IdSpine.packed_flagged(1, false)),
+        party_of(&Shape::IdSpine.packed_flagged(3, false)),
+        party_of(&Shape::IdSpine.packed_flagged(3, true)),
+        party_of(&Shape::IdSpine.packed_flagged(64, false)),
+        party_of(&Shape::IdSpine.packed_flagged(64, true)),
+        party_of(&Shape::ScatteredId.packed1(1)),
+        party_of(&Shape::ScatteredId.packed1(16)),
+        party_of(&Shape::NestedFullId.packed1(1)),
+        party_of(&Shape::NestedFullId.packed1(8)),
+        party_of(&Shape::NestedLeftFullId.packed1(1)),
+        party_of(&Shape::NestedLeftFullId.packed1(8)),
+        party_of(&Shape::MemoChainId.packed1(1)),
+        party_of(&Shape::MemoChainId.packed1(8)),
+        party_of(&Shape::MemoCombId.packed1(1)),
+        party_of(&Shape::MemoCombId.packed1(4)),
+        party_of(&Shape::MemoChurnId.packed1(1)),
+        party_of(&Shape::MemoChurnId.packed1(5)),
+        party_of(&Shape::DescendingRaisesId.packed1(1)),
+        party_of(&Shape::DescendingRaisesId.packed1(6)),
+        party_of(&Shape::RevealCombId.packed1(1)),
+        party_of(&Shape::RevealCombId.packed1(6)),
+        party_of(&Shape::PureCombId.packed1(1)),
+        party_of(&Shape::PureCombId.packed1(6)),
+        party_of(&Shape::AscendCliffId.packed1(1)),
+        party_of(&Shape::AscendCliffId.packed1(6)),
     ];
     for oid in all_normal_ids(2) {
         let p = from_oracle_party(&oid);
@@ -499,8 +493,8 @@ fn deep_spines_tick_and_flag_identically() {
         assert_eq!(encode(&ticked), encode(grown), "entry agreement");
     };
 
-    let deep_ev = version_of(&alt_spine(4096));
-    let deep_id = party_of(&id_spine(4096, false));
+    let deep_ev = version_of(&Shape::AltSpine.packed1(4096));
+    let deep_id = party_of(&Shape::IdSpine.packed_flagged(4096, false));
     let spike = left_spike(4096);
     let one: Version = "1".parse().expect("test literals parse");
 
@@ -528,7 +522,7 @@ fn deep_spines_tick_and_flag_identically() {
     text.push_str("(0, 0, 1)");
     text.push_str(&", 0)".repeat(4095));
     let matched: Version = text.parse().expect("the matched spine literal parses");
-    let nested = party_of(&nested_full_id(4096));
+    let nested = party_of(&Shape::NestedFullId.packed1(4096));
     assert!(
         !flag_of(&matched, &nested),
         "every nested raise maxes a lone leaf against a zero minimum: identity"
@@ -551,7 +545,7 @@ fn deep_spines_tick_and_flag_identically() {
         .to_string()
         .parse()
         .expect("the leaf literal parses");
-    let mirror = party_of(&nested_left_full_id(4096));
+    let mirror = party_of(&Shape::NestedLeftFullId.packed1(4096));
     assert_deep_changed(&tail, &mirror, &wide_leaf);
 
     // The descending staircase under the unary id spine: every
@@ -566,7 +560,7 @@ fn deep_spines_tick_and_flag_identically() {
     text.push_str("(1, 1, 0)");
     text.push_str(&", 0)".repeat(4095));
     let stairs: Version = text.parse().expect("the staircase literal parses");
-    let spine_id = party_of(&id_spine(4096, false));
+    let spine_id = party_of(&Shape::IdSpine.packed_flagged(4096, false));
     let mut text = "(0, ".to_string();
     text.push_str(&"(1, ".repeat(4094));
     text.push_str("(1, 2, 0)");
@@ -588,8 +582,8 @@ fn deep_spines_tick_and_flag_identically() {
     text.push('0');
     text.push_str(&")".repeat(k as usize + 1));
     let expected: Version = text.parse().expect("the chain literal parses");
-    let chain = memo_chain(k as usize, true).version();
-    let chain_id = party_of(&memo_chain_id(k as usize));
+    let chain = Shape::MemoChain.packed_flagged(k as usize, true).version();
+    let chain_id = party_of(&Shape::MemoChainId.packed1(k as usize));
     assert_deep_changed(&chain, &chain_id, &expected);
 
     // The reveal comb at 4096 sites: every site's left-full raise meets
@@ -608,8 +602,8 @@ fn deep_spines_tick_and_flag_identically() {
     text.push_str(&format!(", {w})").repeat(k - 1));
     text.push(')');
     let expected: Version = text.parse().expect("the reveal-comb literal parses");
-    let comb = reveal_comb(k, b).version();
-    let comb_id = party_of(&reveal_comb_id(k));
+    let comb = Shape::RevealComb.packed2(k, b).version();
+    let comb_id = party_of(&Shape::RevealCombId.packed1(k));
     assert_deep_changed(&comb, &comb_id, &expected);
 
     // The ascending cliff at 4096 spine nodes: fill is the identity
@@ -629,8 +623,8 @@ fn deep_spines_tick_and_flag_identically() {
     let expected: Version = text
         .parse()
         .expect("the grown ascending-cliff literal parses");
-    let cliff = ascend_cliff(k, b).version();
-    let cliff_id = party_of(&ascend_cliff_id(k));
+    let cliff = Shape::AscendCliff.packed2(k, b).version();
+    let cliff_id = party_of(&Shape::AscendCliffId.packed1(k));
     assert_deep_unchanged(&cliff, &cliff_id, &expected);
 }
 
@@ -778,9 +772,9 @@ proptest! {
 /// same position, replacing, never stacking.
 #[test]
 fn tick_deep_orbits_stay_banded() {
-    let ev = crate::meter::bigroot(64, 4).version();
-    let ida = party_of(&crate::meter::id_spine(4, false));
-    let idb = party_of(&crate::meter::id_spine(4, true));
+    let ev = Shape::Bigroot.packed2(64, 4).version();
+    let ida = party_of(&Shape::IdSpine.packed_flagged(4, false));
+    let idb = party_of(&Shape::IdSpine.packed_flagged(4, true));
 
     let mut e = encode(&ev);
     e = tick(&e, &ida);

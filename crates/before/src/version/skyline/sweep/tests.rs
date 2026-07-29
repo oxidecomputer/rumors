@@ -16,10 +16,8 @@ use proptest::prelude::*;
 use rayon::prelude::*;
 
 use crate::codec::Bits;
-use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    wide_tooth_comb, Packed,
-};
+use crate::meter::registry::Shape;
+use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
@@ -130,9 +128,9 @@ fn flush_right_ties_agree() {
 #[test]
 fn deep_versus_empty_agrees() {
     for deep in [
-        version_of(&dense(1_000)),
-        version_of(&cliff_comb(64, 64)),
-        version_of(&bigroot(64, 32)),
+        version_of(&Shape::Dense.packed1(1_000)),
+        version_of(&Shape::CliffComb.packed2(64, 64)),
+        version_of(&Shape::Bigroot.packed2(64, 32)),
     ] {
         assert_verdicts(&deep, &Version::new());
     }
@@ -148,21 +146,21 @@ fn deep_versus_empty_agrees() {
 fn family_pairs_agree() {
     let pool: Vec<Version> = vec![
         Version::new(),
-        version_of(&dense(1)),
-        version_of(&dense(2)),
-        version_of(&dense(64)),
-        version_of(&bigroot(7, 3)),
-        version_of(&bigroot(64, 16)),
-        version_of(&hugeleaf(1)),
-        version_of(&hugeleaf(64)),
-        version_of(&cliff_comb(3, 2)),
-        version_of(&cliff_comb(16, 16)),
-        version_of(&wide_tooth_comb(16, 8, 8)),
-        version_of(&cliff_fan(16, 8)),
-        version_of(&cancelling_chain(16, 8)),
-        version_of(&alt_spine(3)),
-        version_of(&alt_spine(64)),
-        version_of(&harmonic(16)),
+        version_of(&Shape::Dense.packed1(1)),
+        version_of(&Shape::Dense.packed1(2)),
+        version_of(&Shape::Dense.packed1(64)),
+        version_of(&Shape::Bigroot.packed2(7, 3)),
+        version_of(&Shape::Bigroot.packed2(64, 16)),
+        version_of(&Shape::Hugeleaf.packed1(1)),
+        version_of(&Shape::Hugeleaf.packed1(64)),
+        version_of(&Shape::CliffComb.packed2(3, 2)),
+        version_of(&Shape::CliffComb.packed2(16, 16)),
+        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
+        version_of(&Shape::CliffFan.packed2(16, 8)),
+        version_of(&Shape::CancellingChain.packed2(16, 8)),
+        version_of(&Shape::AltSpine.packed1(3)),
+        version_of(&Shape::AltSpine.packed1(64)),
+        version_of(&Shape::Harmonic.packed1(16)),
     ];
     for a in &pool {
         for b in &pool {

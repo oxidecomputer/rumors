@@ -123,7 +123,7 @@
 //!   scattered party) whose mandatory output dominates its input — the
 //!   case the small-operand crosses cannot exhibit; its two projection
 //!   cells are the board's only I/O-denominated non-text cells.
-//! - `harmonic` (`meter::harmonic`, a 1-leaf at every depth), built
+//! - `harmonic` (a 1-leaf at every depth), built
 //!   against the linear-functional rows (`rank`/`distance`/`lag`/
 //!   `min_ticks`) and the rank rows (`rank_pair_ops`, `rank_sum`): its
 //!   rank's numerator is as
@@ -1067,8 +1067,9 @@ impl FamilyData {
     /// Build the staggered fold population: `n` operands of `m` unit
     /// teeth each, teeth in the gaps of every other operand's.
     ///
-    /// Fed in bit-reversed order (`meter::stagger_population` carries
-    /// both the construction and the feed order's derivation).
+    /// Fed in bit-reversed order ([`Shape::StaggerPopulation`]'s
+    /// constructor carries both the construction and the feed order's
+    /// derivation).
     fn stagger(n: usize, m: usize) -> FamilyData {
         let (versions, ids) = Shape::StaggerPopulation.population(n, m);
         let mut data = Self::bare(FamilyId::Stagger);

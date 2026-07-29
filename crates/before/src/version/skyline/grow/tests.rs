@@ -24,10 +24,8 @@ use rayon::prelude::*;
 
 use crate::codec::Bits;
 use crate::codec::BitsSlice;
-use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    id_spine, scattered_id, wide_tooth_comb, Packed,
-};
+use crate::meter::registry::Shape;
+use crate::meter::Packed;
 use crate::recurse::descend;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -210,21 +208,21 @@ fn combine(route: &mut Route, expand: bool, key: usize, left: Cost, right: Cost)
 fn event_pool() -> Vec<Version> {
     vec![
         Version::new(),
-        version_of(&dense(1)),
-        version_of(&dense(2)),
-        version_of(&dense(64)),
-        version_of(&bigroot(7, 3)),
-        version_of(&bigroot(64, 16)),
-        version_of(&hugeleaf(1)),
-        version_of(&hugeleaf(64)),
-        version_of(&cliff_comb(3, 2)),
-        version_of(&cliff_comb(16, 16)),
-        version_of(&wide_tooth_comb(16, 8, 8)),
-        version_of(&cliff_fan(16, 8)),
-        version_of(&cancelling_chain(16, 8)),
-        version_of(&alt_spine(3)),
-        version_of(&alt_spine(64)),
-        version_of(&harmonic(16)),
+        version_of(&Shape::Dense.packed1(1)),
+        version_of(&Shape::Dense.packed1(2)),
+        version_of(&Shape::Dense.packed1(64)),
+        version_of(&Shape::Bigroot.packed2(7, 3)),
+        version_of(&Shape::Bigroot.packed2(64, 16)),
+        version_of(&Shape::Hugeleaf.packed1(1)),
+        version_of(&Shape::Hugeleaf.packed1(64)),
+        version_of(&Shape::CliffComb.packed2(3, 2)),
+        version_of(&Shape::CliffComb.packed2(16, 16)),
+        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
+        version_of(&Shape::CliffFan.packed2(16, 8)),
+        version_of(&Shape::CancellingChain.packed2(16, 8)),
+        version_of(&Shape::AltSpine.packed1(3)),
+        version_of(&Shape::AltSpine.packed1(64)),
+        version_of(&Shape::Harmonic.packed1(16)),
     ]
 }
 
@@ -234,13 +232,13 @@ fn event_pool() -> Vec<Version> {
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
         Party::seed(),
-        party_of(&id_spine(1, false)),
-        party_of(&id_spine(3, false)),
-        party_of(&id_spine(3, true)),
-        party_of(&id_spine(64, false)),
-        party_of(&id_spine(64, true)),
-        party_of(&scattered_id(1)),
-        party_of(&scattered_id(16)),
+        party_of(&Shape::IdSpine.packed_flagged(1, false)),
+        party_of(&Shape::IdSpine.packed_flagged(3, false)),
+        party_of(&Shape::IdSpine.packed_flagged(3, true)),
+        party_of(&Shape::IdSpine.packed_flagged(64, false)),
+        party_of(&Shape::IdSpine.packed_flagged(64, true)),
+        party_of(&Shape::ScatteredId.packed1(1)),
+        party_of(&Shape::ScatteredId.packed1(16)),
     ];
     for oid in all_normal_ids(2) {
         let p = from_oracle_party(&oid);
@@ -412,7 +410,7 @@ fn left_spike(depth: usize) -> Version {
 /// the route pin (the reference probe is stack-guarded) ride along.
 #[test]
 fn deep_spines_grow_identically() {
-    let deep_id = party_of(&id_spine(4096, false));
+    let deep_id = party_of(&Shape::IdSpine.packed_flagged(4096, false));
     let spike = left_spike(4096);
     let out = assert_grow_depth_safe(&Version::new(), &deep_id)
         .expect("a leaf under a node id is a grow-branch pair");
@@ -422,7 +420,7 @@ fn deep_spines_grow_identically() {
         "grow expands the chain to the owned tip"
     );
 
-    let deep_ev = version_of(&alt_spine(4096));
+    let deep_ev = version_of(&Shape::AltSpine.packed1(4096));
     let out = assert_grow_depth_safe(&deep_ev, &deep_id)
         .expect("no full-id region meets a subdividable subtree: a grow-branch pair");
     assert_eq!(
