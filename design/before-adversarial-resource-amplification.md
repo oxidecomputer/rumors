@@ -3008,6 +3008,155 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   remainder pre-existing drift from the #76/tooth-tail promotions
   that never moved the prose.
 
+- **CURED 2026-07-28 (cure round #91, the settle products to the
+  multiplication bound; branch `settle91` @ base c16a73f6).**
+  Charter: the campaign's last substantive victory, owner-mandated
+  ("I don't accept quadratic operations, honestly or otherwise") —
+  take rank/distance/lag worst-case time to the integer-
+  multiplication bound by delegating the swollen settle products to
+  the backend cluster-wise, flip both committed red pins into
+  flatness bands, and re-derive the claims. All numbers exact
+  deterministic counters, dev profile for pins and bands, release
+  for boards; every movement measured at the parent c16a73f6.
+
+  **The mechanism.** Both residual sites now charge through one
+  path: a settle product's balanced signed digits split into
+  clusters at zero-gaps wider than the factor's own digit width
+  (`clusters`/`charge_digits`, query.rs), each cluster densifies
+  into at most two magnitudes (positive and negative digits
+  separately, no signed subtraction before the product), and each
+  rides one backend multiplication (dashu, at whatever tier its
+  dispatch engages: simple ≤ 24 words, Karatsuba ≤ 96, Toom-3
+  ≤ 4,000, NTT above), metered as traffic (operands + product
+  widths, the `parse_decimal` delegation convention) with
+  single-digit clusters on the old word-product fast path. The
+  close-time `P · segment` settle compacts the segment through the
+  window spelling first (`charge_segment`), so a climb's all-ones
+  run still collapses to two far-apart digits and never densifies
+  its span. The ledger settle re-associates through a
+  **mass-balanced** product tree (offline midpoint splits over
+  parked-digits + window-density masses, iterative on explicit
+  stacks): node products shrink geometrically down the tree, so
+  their backend costs telescope into the root's under any
+  power-law multiplication tier — the entry-count binary counter
+  was measured out (its shape lets one wide arming meet an equal
+  share of window mass at every level, stacking a
+  `(log n)^(2−r)` polylog on top of the bound). Cost bound,
+  derived (query.rs module doc): `O(M(|v|))` while every product's
+  smaller side sits in a power-law tier (every input under
+  ~64 KiB packed, and any `O(1)`-arming input at any size);
+  `O(M(|v|) · log a)` in general, `a` the arming count — the
+  tree-depth log survives only past the backend's 4,000-word
+  quasilinear threshold. The threshold seam is deliberate reuse of
+  the zero-run geometry and is parameterized (`clusters` takes the
+  gap limit as an argument) so the constants round's
+  threshold-gated certificates can gate the same seam; one
+  derivation lives at `charge_digits` (split where bridging stops
+  paying: a gap narrower than the factor costs less to carry than
+  the extra product, a wider one is unfunded work, and factor-width
+  spacing caps separated products at O(span) traffic).
+
+  **Verdict (both directions, denominated per packed byte, dev
+  exact).** Ceiling evidence — the two red pins flipped flat
+  through the public `rank`:
+  | family | parent (schoolbook) | tip (delegated) | per-byte growth |
+  |---|---|---|---|
+  | WA(500,500)→WA(1000,1000), 14,263 B→28,451 B | touches 288,037→1,083,963 (×1.89/B), limb 293,651→1,095,255 (×1.87/B) | touches 34,742→69,373, limb 41,942→83,836 | ×1.89/×1.87 → **×1.00/×1.00** (8.3×/7.0× lighter at the small scale) |
+  | PP(500,500)→PP(1000,1000), 14,188 B→28,376 B | touches 154,100→566,188 (×1.84/B), limb 165,566→589,122 (×1.78/B) | touches 25,585→51,157, limb 37,825→75,639 | ×1.84/×1.78 → **×1.00/×1.00** (6.0×/4.4× lighter) |
+
+  Floor evidence — the plateau-puncture answer still embeds the
+  product: the band's exact-rank leg (`H · M + 1` at scale
+  `2^(33d)`) and the roster's `mul_bound_embedding_is_alive` pin
+  hold `Ω(M(|v|))` mandatory; the retired per-digit charge is
+  committed and failing beside the kernels
+  (`schoolbook_settle_reads_superlinear_on_wide_arming` ×1.89/B
+  touch, `..._on_plateau_puncture` ×1.84/B, both value-exact
+  against the shipped folds — the adequacy ratchet's
+  committed-and-failing form). Flip table: `ledger_wide_arming_pin
+  → ledger_wide_arming` flatness band (measured-×1.25 two-scale
+  ceilings, per-byte ×1.25 flatness, liveness floor, min_ticks
+  leg); `answer_embedded_product` red pin → flatness band (same
+  legs plus the exact-rank Ω-witness); `quadratic_ceiling` RETIRED
+  under the dissolution ratchet — its derivation priced the
+  schoolbook settle, every family it held now reads flat under the
+  strictly tighter `settle_flatness` probes (pair
+  ×1.93/B → ×1.04/B touch; trains ×1.17/×1.13 → ×1.09/×1.04 with
+  measured ceilings), and what it caught the schoolbook kernels
+  keep catching red. The train probes' alternating-strictly-cheaper
+  leg is retired with its premise: under delegated products the
+  parked sums' sign schedule is a constants effect (alternating
+  reads within 3% of same-sign, the ceilings' doc records it), and
+  the sign schedules' value coverage stays in the promoting
+  differential pool. Pair/query value witnesses: all committed
+  suites pass untouched (promoting pool, 691-pair exhaustive,
+  arbitrary trees, organic histories, composed forms, paper
+  oracle); new at the mechanism's seams — a cluster-geometry unit
+  pin (splits exactly at the gap limit) and a differential proptest
+  (`clustered_charge_agrees_with_whole_span_products`: arbitrary
+  sparse balanced masses × factors straddling the threshold and
+  the backend's tier boundaries, against two whole-span products
+  on an un-clustered path).
+
+  **Claims and the class vocabulary (owner-directed mid-round).**
+  rank/distance/lag re-derived to the landed three-part form:
+  `O(M(|v|) · log |v|)` worst case (the log absorbed below the
+  backend's quasilinear threshold and on `O(1)`-arming inputs,
+  where the bound is `O(M(|v|))`), `Ω(M(|v|))` mandatory,
+  `O(|v| log |v|)` on `O(1)`-wide-parked streams; the
+  non-contractual gap is now the tree-depth factor. The rows'
+  class moved `Linear → MulBound`, a new roster class (superlinear
+  worst case at the multiplication bound, delegated below every
+  deterministic counter — no honest board or judge red can exist),
+  and the class vocabulary's bindings were unified per the owner's
+  scattershot ruling: every `Class` variant now declares one
+  `ClassContract` (exponent-red stance, judge-red membership,
+  defining token with exclusivity, named `#[test]`-attributed
+  witnesses), enforced by one uniform test
+  (`classes_satisfy_their_contracts`) with an exhaustive match
+  making a contract-less class a compile error. MulBound's
+  contract binds the `Ω(M(` token bidirectionally to the class and
+  names its five witnesses (both flat bands, both schoolbook
+  kernels, the embedding pin).
+
+  **The residual log, for the owner (the charter's stop-and-report
+  obligation, resolved toward the goal on this review branch).**
+  The ratified target was unqualified `O(M(|v|))`; the landed
+  mechanism carries `O(M(|v|) · log a)` in exactly one corner —
+  armings numerous enough and parked sums/window masses wide
+  enough that the tree's products engage the backend's quasilinear
+  tier (≥ 4,000-word smaller sides, i.e. quarter-megabyte parked
+  sums) at Ω(log a) levels simultaneously. Below that corner the
+  bound is clean `O(M(|v|))` [derived, module doc; measured flat
+  through every committed family]. No fixed decomposition known to
+  us removes the last log over a quasilinear `M` (the prefix-
+  correlation shape's standard bound is `M(n) log n`); §14's
+  standing asymptotic bar ("multiplication-equivalent up to log
+  factors ... at their problem's own optimum, stated and priced")
+  accepts the landed form, but the charter's tighter unqualified
+  target does not — the owner ratifies the claim as landed or
+  commissions the log's removal as its own item. Claims are stated
+  exactly (never weaker than proven, the log never hidden).
+
+  **Board and instruments:** fresh release renders at both scales
+  read **1328 + 6 (1334 cells)**, the red set exactly the six
+  pre-existing ratified entries, zero verdict flips; the whole
+  diff against parent renders on this machine is twelve query
+  cells' constants per scale (rank/distance/lag × reveal-comb,
+  reveal-hifloor, pure-comb, promo-rearm): limb +0.1/B and touch
+  +0.1/B on the comb rows (the products' operand-traffic records),
+  and the promo-rearm heap constant 0.7 → 2.3 B/B at exponent
+  1.00 (the settle's leaf aggregates — one accumulator and one
+  window vector per arming held at the close — far inside the
+  16 B/B ceiling; space stays `O(|v|)`). §13's cell count and red
+  roster are unchanged. Fuzzfit: the enforcement legs held at the
+  previous pin with no trip — the charter's expected staleness trip
+  did not occur (the organic corpus rarely arms the ledger and its
+  settles sit inside the pinned tolerances) — and the deliberate
+  re-fit moved one band at the sixth decimal
+  (`ff_version_min_ticks` slope 1.097606 → 1.097638, code layout
+  alone; the linear-functional trio byte-identical), annotated in
+  the bands pin of record.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
