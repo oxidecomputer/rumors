@@ -182,6 +182,20 @@ contents:
   quadratic measured and committed as a failing threshold — and the
   cure's commit turns exactly that pin green and tightens it. Every
   claim of improvement moves a committed number.
+- *White-box worst-case construction, as the closing audit.* The
+  roster is not grown by sampling but by reading: for each
+  operation, read the implementation, construct the input family
+  that maximizes its work — construct, not argue — and diff the
+  constructed shapes against the committed roster. The negative
+  space is where the blindspots live: the audit's largest catches
+  (unfired promotions, answer-embedded products,
+  non-shrinking fold accumulators) were all inputs whose essence no
+  instrument had generated. Each operation pair also demands its
+  _dual_ family — join against meet, forward against reverse — since
+  a shape that wedges one walk can read benign on its mirror. The
+  final round of that audit constructed nothing that read above its
+  committed band: the clean verdict the board's all-green state
+  summarizes.
 - *The designs in this document are survivors.* The two-zone
   accumulator, the uncompressed watermark stack, fold-on-close, the
   additive output bound, the composed pair measures, freeze
