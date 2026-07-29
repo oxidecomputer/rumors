@@ -1259,12 +1259,9 @@ impl<T> Drop for PartyGuard<T> {
 /// remote participant additionally retains adapter, codec, session, and
 /// transport context, so neither side can be collapsed without losing useful
 /// information.
-fn streaming_error(
-    error: tree::mirror::Error<
-        materialized::Error<std::convert::Infallible>,
-        streaming_remote::Error<std::convert::Infallible>,
-    >,
-) -> Error {
+fn streaming_error<E>(
+    error: tree::mirror::Error<materialized::Error<E>, streaming_remote::Error<E>>,
+) -> Error<crate::bookmark::NoBookmark, E> {
     Error::Mirror(error)
 }
 

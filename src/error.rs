@@ -20,6 +20,7 @@
 //! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
 //! | [`Error::Bookmark`] | unchanged (committed if raised after absorbing a retirement) | fix or replace the bookmark storage, then retry |
 //! | [`Error::Mirror`] | unchanged | reconciliation failed: the nested source names the detecting side and the fault |
+//! | [`Error::Storage`] | unchanged | the storage backend failed on a local operation: fix or replace the storage, then retry |
 
 use std::convert::Infallible;
 
@@ -40,18 +41,33 @@ pub use crate::tree::mirror::streaming::remote::{
     StreamClass, StreamError,
 };
 
-/// The concrete production mirror failure, retaining its detecting side.
-pub type MirrorError = mirror::Error<MaterializedError<Infallible>, RemoteError<Infallible>>;
+/// The production mirror failure, retaining its detecting side.
+///
+/// Generic over the storage backend's error `E`; the default in-memory
+/// backend is infallible.
+pub type MirrorError<E = Infallible> = mirror::Error<MaterializedError<E>, RemoteError<E>>;
+
+/// A storage-backend failure on a local operation.
+///
+/// Wraps the backend's own error wherever an operation touches stored
+/// tree state outside a session: sending, redacting, committing a batch,
+/// or reading through a snapshot or observer. The default in-memory
+/// backend is infallible, so for it this error cannot be constructed.
+#[derive(Debug, thiserror::Error)]
+#[error("storage backend failed: {0}")]
+pub struct StorageError<E>(#[source] pub E);
 
 /// An error returned by bootstrap, gossip, or retirement.
 ///
 /// Generic over the bookmark `B` only to retain its backend error in
-/// [`Bookmark`](Self::Bookmark). Every wire and protocol variant is otherwise
-/// bookmark-independent. The default bookmark type has an uninhabited backend
-/// error.
+/// [`Bookmark`](Self::Bookmark), and over the storage backend's error `E`
+/// in [`Mirror`](Self::Mirror) and [`Storage`](Self::Storage). Every wire
+/// and protocol variant is otherwise independent of both. The default
+/// bookmark type and the default in-memory storage backend both have
+/// uninhabited errors.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
-pub enum Error<B: BookmarkError = NoBookmark> {
+pub enum Error<B: BookmarkError = NoBookmark, E = Infallible> {
     /// An underlying reader/writer error, or a Borsh framing failure outside
     /// the streaming mirror itself.
     #[error(transparent)]
@@ -204,10 +220,18 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// The nested source retains the detecting side and remains matchable
     /// through backend, adapter, session, codec, and transport errors.
     #[error(transparent)]
-    Mirror(#[from] MirrorError),
+    Mirror(#[from] MirrorError<E>),
+
+    /// The storage backend failed on a local operation inside the session
+    /// driver, outside reconciliation itself.
+    ///
+    /// The replica is unchanged: the session's result was not committed.
+    /// Fix or replace the storage, then retry over a fresh link.
+    #[error(transparent)]
+    Storage(#[from] StorageError<E>),
 }
 
-impl From<handshake::Error> for Error<NoBookmark> {
+impl<E> From<handshake::Error> for Error<NoBookmark, E> {
     fn from(error: handshake::Error) -> Self {
         match error {
             handshake::Error::Io(error) => Error::Io(error),
@@ -227,13 +251,13 @@ impl From<handshake::Error> for Error<NoBookmark> {
     }
 }
 
-impl Error<NoBookmark> {
+impl<E> Error<NoBookmark, E> {
     /// Re-tags a bookmark-free session error under any bookmark `B`.
     ///
-    /// Wire and protocol machinery produces `Error<NoBookmark>`; peer-level
-    /// drivers return `Error<B>`. The only bookmark backend error here is
-    /// uninhabited, making the conversion total and lossless.
-    pub(crate) fn widen<B: BookmarkError>(self) -> Error<B> {
+    /// Wire and protocol machinery produces `Error<NoBookmark, E>`;
+    /// peer-level drivers return `Error<B, E>`. The only bookmark backend
+    /// error here is uninhabited, making the conversion total and lossless.
+    pub(crate) fn widen<B: BookmarkError>(self) -> Error<B, E> {
         match self {
             Error::Io(error) => Error::Io(error),
             Error::MagicMismatch { remote_magic } => Error::MagicMismatch { remote_magic },
@@ -262,6 +286,7 @@ impl Error<NoBookmark> {
                 Error::BootstrapHistoryConflict { claimed_min_events }
             }
             Error::Mirror(error) => Error::Mirror(error),
+            Error::Storage(error) => Error::Storage(error),
             Error::Bookmark(error) => match error {
                 BookmarkIo::Io(never) => match never {},
                 BookmarkIo::Format(error) => Error::Bookmark(BookmarkIo::Format(error)),

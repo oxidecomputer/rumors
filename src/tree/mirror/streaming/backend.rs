@@ -50,7 +50,10 @@ where
     type Node<H: Height>: Node<T, Height = H, Backend = Self> + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
-    type Error: Send + 'static;
+    ///
+    /// The bound is what lets a backend failure surface through the public
+    /// error enums (`thiserror` sources) unchanged.
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Bytes one node value with `children` child entries keeps resident
     /// beyond the replica's own storage, its version bounds (ceiling and

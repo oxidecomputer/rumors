@@ -310,7 +310,7 @@ pub use bookmark::{
     BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, Bookmark, BookmarkError, BookmarkIo, FormatError,
     NoBookmark, Serialized,
 };
-pub use error::{Error, MirrorError};
+pub use error::{Error, MirrorError, StorageError};
 pub use link::{Acceptor, Connector, Link};
 pub use network::Network;
 pub(crate) use peer::Inner;
