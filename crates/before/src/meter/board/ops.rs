@@ -16,7 +16,6 @@ use super::ceilings::{
     ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE, INDEX_PROBE_SCAN_BITS,
     MACHINE_WORD_MAGNITUDE_BITS, MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING,
     MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT, TICKS_BOARD_COUNT,
-    TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE,
 };
 use super::cell::{assert_honest_text, Cell, TextSpec};
 use super::currency::{Floors, Liveness};
@@ -135,17 +134,22 @@ pub(super) fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         // many-armings spine, the accumulator skip families (the
         // many-jumps and deep-segment-freeze spines), the settle
         // sentinels (the many-armings re-arm spine over its unit mate,
-        // the answer-embedded product, and the first-freeze gate
+        // the single wide arming over the same spine, the
+        // answer-embedded product, and the first-freeze gate
         // straddle), and the switch-density population.
         // The tooth-tail pair rides the same designation: its genre is
         // the fused pair sweep, which the distance/lag rows drive (the
-        // cmp row runs the identical walk).
+        // cmp row runs the identical walk). Wide-arming's text-parse
+        // cells ride the deterministic board columns and the
+        // `parse_wide_arming` envelope band, as tooth-tail's parse
+        // cell does.
         FamilyKind::JumpPair
         | FamilyKind::FreezePos
         | FamilyKind::PromoRearm
         | FamilyKind::WeightComb
         | FamilyKind::FreezeParade
         | FamilyKind::DenseSuffix
+        | FamilyKind::WideArming
         | FamilyKind::PlateauPuncture
         | FamilyKind::LoneFreeze
         | FamilyKind::ConcurrentPair
@@ -1431,7 +1435,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let fed = version_noncanonical_text(&v.to_string());
                 let n = fed.len();
                 let floors = text_rejection_floors(na(NA_LIMB_REJECTION), na(NA_TOUCH_REJECTION));
-                let cell = Cell::new(n, floors, move || {
+                Some(Cell::new(n, floors, move || {
                     let err = fed
                         .parse::<Version>()
                         .expect_err("a non-canonical tail is rejected");
@@ -1440,17 +1444,7 @@ pub(super) fn ops() -> Vec<Op> {
                         "the placed defect is the equal-sibling tail, not {err:?}"
                     );
                     (err, fed)
-                });
-                // The densest node-per-text-byte family carries its
-                // ratified family-stated heap ceiling
-                // (TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE's
-                // derivation); every other family rides the global
-                // flat allowance.
-                Some(if matches!(f.kind, FamilyKind::ToothTail) {
-                    cell.with_declared_heap(TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE)
-                } else {
-                    cell
-                })
+                }))
             },
         },
         Op {

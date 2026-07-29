@@ -1913,11 +1913,17 @@ fn tick_expand_cross_envelope() {
 
 // The text envelope table: pinned ceiling = measured ×1.25, rounded up,
 // and only ever tightened. The trailing comment on each line is the
-// measurement of record (parse rows 2026-07-24; render rows 2026-07-28,
-// at the streaming finalize arena; aarch64-apple-darwin, dev profile,
-// identical repeated runs) the ceiling derives from. Re-pin by rerunning
-// under `--no-capture` with `--all-features` and reading the MEASURED
-// lines.
+// measurement of record (parse rows 2026-07-29, at the parse transient
+// cure — parallel chunked open-node stacks in place of a doubling
+// frame vector, the extraction magnitude moved instead of cloned, and
+// the wide path-sum buffer dropped at extraction; the peak-heap column
+// moved on all four rows, parent-measured 11,135,057 → 3,232,857
+// dense, 1,409,795 → 302,363 bigroot, 157,024 → 130,771 hugeleaf,
+// 386,073 → 275,441 cliff, with limb and scan byte-identical; render
+// rows 2026-07-28, at the streaming finalize arena;
+// aarch64-apple-darwin, dev profile, identical repeated runs) the
+// ceiling derives from. Re-pin by rerunning under `--no-capture` with
+// `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
 // module doc's liveness-floor convention).
 #[rustfmt::skip]
@@ -1928,10 +1934,10 @@ mod text_env {
     pub const SKYLINE_RENDER_BIGROOT: SweepEnvelope  = sweep_envelope(   249_600,        0,   127_368,   137_512, 76_420); //    199_680, 0,   101_894, 110_009
     pub const SKYLINE_RENDER_HUGELEAF: SweepEnvelope = sweep_envelope(   171_310,        0,     7_330,   312_503, 4_398); //    137_048, 0,     5_864, 250_002
     pub const SKYLINE_RENDER_CLIFF: SweepEnvelope    = sweep_envelope( 1_113_202,        0,   243_385,    17_923, 146_031); //    890_561, 0,   194_708, 14_338
-    pub const SKYLINE_PARSE_DENSE: SweepEnvelope     = sweep_envelope(13_918_822,        0, 1_875_017,   937_515, 1_125_009); // 11_135_057, 0, 1_500_013, 750_012
-    pub const SKYLINE_PARSE_BIGROOT: SweepEnvelope   = sweep_envelope( 1_762_244,        0,   152_374,   275_023, 91_424); //  1_409_795, 0,   121_899, 220_018
-    pub const SKYLINE_PARSE_HUGELEAF: SweepEnvelope  = sweep_envelope(   196_280,        0,     7_329,   625_005, 4_397); //    157_024, 0,     5_863, 500_004
-    pub const SKYLINE_PARSE_CLIFF: SweepEnvelope     = sweep_envelope(   482_592,        0,    84_705,    35_845, 50_823); //    386_073, 0,    67_764, 28_676
+    pub const SKYLINE_PARSE_DENSE: SweepEnvelope     = sweep_envelope( 4_041_072,        0, 1_875_017,   937_515, 1_125_009); //  3_232_857, 0, 1_500_013, 750_012
+    pub const SKYLINE_PARSE_BIGROOT: SweepEnvelope   = sweep_envelope(   377_954,        0,   152_374,   275_023, 91_424); //    302_363, 0,   121_899, 220_018
+    pub const SKYLINE_PARSE_HUGELEAF: SweepEnvelope  = sweep_envelope(   163_464,        0,     7_329,   625_005, 4_397); //    130_771, 0,     5_863, 500_004
+    pub const SKYLINE_PARSE_CLIFF: SweepEnvelope     = sweep_envelope(   344_302,        0,    84_705,    35_845, 50_823); //    275_441, 0,    67_764, 28_676
 }
 
 /// Rendering the dense spine's skyline stays within its envelope.
@@ -2422,6 +2428,10 @@ mod skyline_flatness {
             (meter::dense(4_096), "dense"),
             (meter::cliff_comb(512, 512), "cliff"),
             (meter::bigroot(8_000, 2_000), "bigroot"),
+            // The parse direction's dual: the render walks the same
+            // wide-swing-then-dense-trail stream through its summary
+            // merges, and records zero accumulator work doing it.
+            (meter::wide_arming(512, 512), "wide_arming"),
         ] {
             let v = packed.version();
             let enc = meter::skyline::encode(&v);
@@ -4539,6 +4549,132 @@ mod ledger_wide_arming {
                  product's width times its density again",
             );
         }
+    }
+}
+
+// ─── the wide-arming parse band ──────────────────────────────────────────────
+//
+// The parse-side exact-`top` genre, held flat at the text seam. The
+// family's rendered text funds one wide swing (the `2^(32w)` arming
+// climb) ahead of a `Θ(d)`-leaf trailing run whose deltas are all
+// zero; the parse extracts one signed magnitude per leaf from the
+// path-sum accumulator, so an extraction that pays a stale high-water
+// span instead of the settled top re-walks the swing's `w` dead digits
+// once per trailing leaf — `Θ(w·d)` touches on `Θ(w + d)` text,
+// quadratic at `w = d`. The shipped discipline resets the accumulator
+// at each extraction, so every read pays the span written since the
+// previous leaf and the trailing run stays O(1) per leaf. The
+// committed schoolbook kernel
+// (`schoolbook_parse_reads_superlinear_on_wide_arming`, the text
+// kernel's test suite) keeps the compensating-subtraction read failing
+// on this very family, value-exact, so this band is never decoration.
+// The board's wide-arming column prices the same mechanism through the
+// public from_str and parse entries at both acceptance scales.
+#[cfg(feature = "limb-meter")]
+mod parse_wide_arming {
+    use before::meter;
+    use suanpan::touch_meter;
+
+    /// One text-parse run over `wide_arming(s, s)`'s rendered text:
+    /// text bytes and accumulator touches over the parse body alone
+    /// (the text renders outside the metered window).
+    ///
+    /// Carries `min_ticks`' closed form as the cross-fold semantic leg
+    /// (proving the generator builds the gap spine and the wide arming
+    /// this band reasons about), the one-touch-per-leaf liveness floor
+    /// (every leaf's delta extraction reads at least one accumulator
+    /// digit, so a parse whose path-sum state left the metered
+    /// representation fails loudly instead of passing the flatness
+    /// ratio vacuously at zero touches), and the value leg (the parse
+    /// lands on the stored stream byte for byte).
+    fn run(s: usize) -> (u64, u64) {
+        use dashu_int::UBig;
+        let v = meter::wide_arming(s, s).version();
+        let expected =
+            UBig::from(s as u64) + (UBig::ONE << (32 * s)) + (UBig::ONE << 288usize) + 3u8;
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the closed form parses"),
+            "the family's stored-code sum disagrees with min_ticks: the \
+             generator does not build the tree this band reasons about"
+        );
+        let enc = meter::skyline::encode(&v);
+        let text = meter::skyline::text::render(&enc);
+        let bytes = text.len() as u64;
+        touch_meter::reset();
+        let parsed = meter::skyline::text::parse(&text).expect("rendered text parses");
+        let touches = touch_meter::touches();
+        assert_eq!(
+            parsed, enc,
+            "the parse must land on the stored stream byte for byte"
+        );
+        // The gap spine alone holds 33s leaves (the whole family
+        // 33s + 5), and each leaf's delta extraction reads at least
+        // one accumulator digit.
+        let leaf_floor = 33 * s as u64;
+        assert!(
+            touches >= leaf_floor,
+            "parse at {bytes} text bytes: {touches} digit touches under the \
+             {leaf_floor}-leaf floor: the parse's path-sum accumulator is not \
+             running on the metered representation"
+        );
+        (bytes, touches)
+    }
+
+    /// Digit width (and gap count) of the band's small run; the large
+    /// run doubles both.
+    const WIDE_ARMING_SMALL: usize = 256;
+
+    /// Absolute two-scale touch ceilings: the measured record ×1.25.
+    ///
+    /// The record: 19,511 → 38,967 touches across
+    /// WA(256, 256) → WA(512, 512) on 70,169 B → 140,219 B of rendered
+    /// text (0.28 touches per byte, flat across the doubling)
+    /// \[measured 2026-07-29, exact counters\] — tightened in the
+    /// cure's own commit from the compensating-subtraction read of
+    /// 2,109,502 → 8,413,246 touches (30.1 → 60.0 per byte, ×2.00 per
+    /// byte across the doubling: the high-water walk's quadratic
+    /// signature), measured at the parent and kept demonstrated red by
+    /// the committed schoolbook kernel.
+    const PARSE_WIDE_ARMING_TOUCH_CEILINGS: (u64, u64) = (24_388, 48_708);
+
+    /// The text parse is flat per byte on the wide-arming family:
+    /// per-byte touch work stays within ×1.25 across a `WA(s, s)`
+    /// doubling, under absolute two-scale ceilings.
+    ///
+    /// `WA(s, s)` scales the swing's width and the trailing run's
+    /// length together, so an extraction that pays the high-water span
+    /// again moves this band on the exponent leg (the schoolbook
+    /// kernel reads ×2.00 per byte — the ceilings' doc), and a dark
+    /// tap reads under the liveness floor in [`run`].
+    #[test]
+    fn parse_wide_arming_touch_cost_is_flat_per_unit() {
+        let (small_bytes, small_touches) = run(WIDE_ARMING_SMALL);
+        let (large_bytes, large_touches) = run(2 * WIDE_ARMING_SMALL);
+        eprintln!(
+            "MEASURED parse_wide_arming: small={small_touches}/{small_bytes}B \
+             large={large_touches}/{large_bytes}B"
+        );
+        assert!(
+            small_touches <= PARSE_WIDE_ARMING_TOUCH_CEILINGS.0
+                && large_touches <= PARSE_WIDE_ARMING_TOUCH_CEILINGS.1,
+            "the parse's touch cost exceeds the pinned ceilings on the \
+             wide-arming family ({small_touches}/{small_bytes}B -> \
+             {large_touches}/{large_bytes}B against {} / {})",
+            PARSE_WIDE_ARMING_TOUCH_CEILINGS.0,
+            PARSE_WIDE_ARMING_TOUCH_CEILINGS.1,
+        );
+        assert!(
+            u128::from(large_touches) * u128::from(small_bytes) * 4
+                <= u128::from(small_touches) * u128::from(large_bytes) * 5,
+            "the parse's touch cost grew more than x1.25 per byte across the \
+             wide-arming doubling ({small_touches}/{small_bytes}B -> \
+             {large_touches}/{large_bytes}B): the extraction is paying a stale \
+             high-water span again"
+        );
     }
 }
 

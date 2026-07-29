@@ -65,6 +65,7 @@ const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("weight-comb", 43),
     ("freeze-parade", 43),
     ("dense-suffix", 43),
+    ("wide-arming", 43),
     ("plateau-puncture", 43),
     ("lone-freeze", 43),
     ("concurrent-pair", 43),
@@ -232,6 +233,11 @@ const BAND_TO_FAMILY: &[(&str, &str)] = &[
         "ascend-plateau",
     ),
     ("skyline_cmp_tooth_tail_is_flat_per_unit", "tooth-tail"),
+    ("rank_wide_arming_is_flat_per_unit", "wide-arming"),
+    (
+        "parse_wide_arming_touch_cost_is_flat_per_unit",
+        "wide-arming",
+    ),
     ("skyline_rank_dense_suffix_is_flat_per_unit", "dense-suffix"),
     (
         "skyline_distance_dense_suffix_is_flat_per_unit",
@@ -299,10 +305,6 @@ const BAND_ONLY: &[(&str, &str)] = &[
     (
         "meet_all_shade_is_flat_per_unit",
         "the meet-shade population is an envelope-suite fold wedge by the FAMILIES roster criterion; the version_meet_all row prices the fold on the rostered fold populations",
-    ),
-    (
-        "rank_wide_arming_is_flat_per_unit",
-        "the wide-arming family prices the ledger settle's wide × dense aggregate-product seam, and its column is withheld on a live finding: given board rows it reads its five text-parse cells red at both acceptance scales — the parse's per-leaf delta accumulator re-walks the arming's dead high-water span once per trailing leaf, Θ(w·d) touches on Θ(w+d) text (the superlinearity pin beside the parse kernel, `parse_delta_accumulator_reads_superlinear_on_wide_arming`, carries the measured record) — so the column follows the parse cure, as the tooth-tail column followed the exact-top cure",
     ),
     (
         "pair_plateau_train_is_flat_per_unit",

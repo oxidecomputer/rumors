@@ -124,7 +124,6 @@ pub(super) struct Cell {
     /// The declared-models mechanism at a flat constant, for the cell
     /// classes whose honest constant a ratified derivation puts over
     /// the global allowance (each declaring constant —
-    /// [`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`](super::ceilings::TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE),
     /// [`ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE),
     /// [`ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE) — carries
     /// its derivation). The exponent leg is untouched: the declaration
