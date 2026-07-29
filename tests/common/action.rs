@@ -52,7 +52,9 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
 ///
 /// Panics unless exactly one leaf qualifies.
 pub fn minted_key<T: Send + Sync>(snapshot: &Snapshot<T>, pre: &Version) -> Key {
-    let mut fresh = snapshot.range(causally::since(pre)).map(|(k, _, _)| k);
+    let mut fresh = rumors::testing::collect_range(snapshot, causally::since(pre))
+        .into_iter()
+        .map(|(k, _, _)| k);
     let key = fresh.next().expect("a send mints exactly one live leaf");
     assert!(
         fresh.next().is_none(),
@@ -71,12 +73,14 @@ where
         match a {
             LocalAction::Insert(v) => {
                 let pre = local.snapshot().latest().clone();
-                local.send(v.clone());
+                pollster::block_on(local.send(v.clone()))
+                    .expect("the in-memory backend is infallible");
                 keys.push(minted_key(&local.snapshot(), &pre));
             }
             LocalAction::Redact(idx) => {
                 if !keys.is_empty() {
-                    local.redact(keys[idx % keys.len()]);
+                    pollster::block_on(local.redact(keys[idx % keys.len()]))
+                        .expect("the in-memory backend is infallible");
                 }
             }
         }

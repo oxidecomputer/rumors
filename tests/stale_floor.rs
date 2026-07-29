@@ -23,6 +23,7 @@ mod common;
 
 use common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 use rumors::Peer;
+use rumors::testing::SnapshotCollect as _;
 
 /// A message minted by a freshly-bootstrapped peer survives gossip, no
 /// matter how far the provider had ticked before serving the bootstrap:
@@ -33,24 +34,21 @@ fn message_minted_after_bootstrap_survives_gossip() {
         let f = Peer::<u64>::seed().sync_window_floor().into_rumors();
         // F ticks well past genesis before serving anyone.
         {
-            let mut batch = f.batch();
-            for v in 0..16u64 {
-                batch.send(v);
-            }
+            rumors::testing::commit((0..16u64).fold(f.batch(), |batch, v| batch.send(v)));
         }
 
         // B bootstraps from F and mints a brand-new message: its version
         // must come out above (or concurrent to) everything F published
         // before the fork, never dominated.
         let b = bootstrap_fork_async(&f).await;
-        b.send(100);
+        pollster::block_on(b.send(100)).expect("the in-memory backend is infallible");
 
         // Sync the two: a dominated version would read as "already
         // forgotten" and evict the fresh message from both sides.
         wire_gossip_async(&f, &b).await;
 
-        let f_has = f.snapshot().iter().any(|(_, _, m)| **m == 100);
-        let b_has = b.snapshot().iter().any(|(_, _, m)| **m == 100);
+        let f_has = f.snapshot().collected().any(|(_, _, m)| *m == 100);
+        let b_has = b.snapshot().collected().any(|(_, _, m)| *m == 100);
         assert!(
             f_has && b_has,
             "message 100 must survive the sync: f_has={f_has} b_has={b_has}"

@@ -17,9 +17,11 @@ pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::tree::mirror::streaming::remote::RunBudget;
 pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::mirror::streaming::window::WindowConfig;
+use std::convert::Infallible;
+
 use crate::{
-    Batch, Bookmark, CausalMessages, Key, Network, Protocol, Rumors, Snapshot, UnorderedMessages,
-    Version,
+    Batch, Bookmark, CausalMessages, Key, Network, Protocol, Rumors, Snapshot, StorageError,
+    UnorderedMessages, Version,
 };
 
 mod bootstrap;
@@ -156,23 +158,28 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// Separate from `inner` because persisting is `async` and the record is
     /// `!Clone`; see [`Bookmarked`].
     pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
-    /// Serializes *root-replacing* commits: writers that publish a new
-    /// content tree acquire this, build the new root off the `watch`, and
-    /// publish in one final `send_if_modified`.
+    /// Serializes every commit that reads the `(party, frontier)` pair and
+    /// later publishes from it: root replacements, and party *shrinks*.
     ///
-    /// A slow build therefore never blocks readers or observers, and two
-    /// builds never race a publish. The write sites, classified:
+    /// A committer acquires this, stamps its actions against the pair in
+    /// one quick read, builds the new root off the `watch` (readers and
+    /// observers are never blocked by a build), and publishes in one final
+    /// `send_if_modified` — a plain swap, sound because the lock kept the
+    /// published root exactly the one the build started from. The write
+    /// sites, classified:
     ///
-    /// - the gossip install (root-replacing: takes this lock, held across
-    ///   the merge);
-    /// - the [`Batch`] `Drop` commit (root-replacing, but `Drop` cannot
-    ///   await: its single sync critical section is atomic on its own, and
-    ///   the install tolerates it by merging inside its own critical
-    ///   section rather than swapping a stale build in — see the install's
-    ///   body for when that changes);
-    /// - the gossip fork section, the bookmark reclaim, and `PartyGuard`
-    ///   recovery (party-only: they never replace the root, so per-closure
-    ///   `watch` atomicity suffices and they stay lock-free).
+    /// - [`Batch::commit`] and the gossip install (root-replacing: build
+    ///   off the watch, swap-publish under the lock);
+    /// - the gossip fork section (party-*shrink*: it donates identity at
+    ///   the exact frontier it snapshots, so it must exclude any in-flight
+    ///   commit whose versions were minted from the pre-fork party but not
+    ///   yet published — see its body comment);
+    /// - the bookmark reclaim and `PartyGuard` recovery (party-*growth*:
+    ///   lock-free by design; versions minted from a narrower party remain
+    ///   exclusively this replica's when the party grows back, so growth
+    ///   cannot invalidate an in-flight commit);
+    /// - the bootstrap install (fresh construction: no concurrent handle
+    ///   exists, no lock needed).
     ///
     /// Lock order: bookmark, then this, then the `watch`'s internal lock.
     /// No path acquires them in any other order (in particular, nothing
@@ -563,29 +570,25 @@ impl<T, B: BookmarkError> Peer<T, B> {
         Rumors::new(self)
     }
 
-    pub(crate) fn send(&self, message: T) -> Batch<'_, T>
+    pub(crate) async fn send(&self, message: T) -> Result<(), StorageError<Infallible>>
     where
         T: BorshSerialize + Send + Sync,
     {
-        let mut batch = self.batch();
-        batch.send(message);
-        batch
+        self.batch().send(message).commit().await
     }
 
-    pub(crate) fn redact(&self, key: Key) -> Batch<'_, T>
+    pub(crate) async fn redact(&self, key: Key) -> Result<(), StorageError<Infallible>>
     where
         T: Send + Sync,
     {
-        let mut batch = self.batch();
-        batch.redact(key);
-        batch
+        self.batch().redact(key).commit().await
     }
 
     pub(crate) fn batch(&self) -> Batch<'_, T>
     where
         T: Send + Sync,
     {
-        Batch::new(&self.inner)
+        Batch::new(&self.inner, &self.commit)
     }
 
     pub(crate) fn snapshot(&self) -> Snapshot<T> {

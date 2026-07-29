@@ -160,7 +160,8 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
     let n = fleet.len();
     match op {
         Op::Send { peer, value } => {
-            fleet[peer % n].send(value);
+            pollster::block_on(fleet[peer % n].send(value))
+                .expect("the in-memory backend is infallible");
         }
         Op::Gossip { a, off } if n >= 2 => {
             let a = a % n;
@@ -318,8 +319,8 @@ proptest! {
             // Both sides originate mid-cycle: versions advance under the
             // forked and remainder parties, which must not disturb the
             // identity algebra.
-            newcomer.send(cycle as u64);
-            p.send(u64::MAX - cycle as u64);
+            pollster::block_on(newcomer.send(cycle as u64)).expect("the in-memory backend is infallible");
+            pollster::block_on(p.send(u64::MAX - cycle as u64)).expect("the in-memory backend is infallible");
             retire_into(newcomer, &p);
 
             let now = alias(&p);
@@ -359,7 +360,7 @@ proptest! {
         let mut newcomers: Vec<Option<Rumors<u64>>> = (0..order.len())
             .map(|i| {
                 let newcomer = bootstrap_fork(&p);
-                newcomer.send(i as u64);
+                pollster::block_on(newcomer.send(i as u64)).expect("the in-memory backend is infallible");
                 Some(newcomer)
             })
             .collect();

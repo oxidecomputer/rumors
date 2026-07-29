@@ -79,7 +79,7 @@ fn gossip_rejects_foreign_network() {
 #[test]
 fn bootstrap_adopts_provider_network() {
     let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    provider.batch().send(1).send(2).send(3);
+    rumors::testing::commit(provider.batch().send(1).send(2).send(3));
     let provider_network = provider.network();
 
     let bootstrapped = block_on(async move {

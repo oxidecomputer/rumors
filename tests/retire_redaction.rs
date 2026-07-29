@@ -12,6 +12,7 @@ mod common;
 use rumors::{Peer, Retire};
 
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use rumors::testing::SnapshotCollect as _;
 
 /// The absorber drops an entry the retiree redacted after their last
 /// ordinary gossip: the redaction rides the retire session itself.
@@ -21,21 +22,24 @@ fn retire_carries_last_minute_redactions() {
     let b = bootstrap_fork(&a);
 
     // B originates an entry and A learns it through ordinary gossip.
-    b.send("presence: b".to_string());
+    pollster::block_on(b.send("presence: b".to_string()))
+        .expect("the in-memory backend is infallible");
     let key = b
         .snapshot()
-        .iter()
+        .collected()
         .map(|(key, _, _)| key)
         .next()
         .expect("the sent entry is live");
     wire_gossip(&a, &b);
     assert!(
-        a.snapshot().get(&key).is_some(),
+        pollster::block_on(a.snapshot().get(&key))
+            .expect("the in-memory backend is infallible")
+            .is_some(),
         "precondition: A holds B's entry after gossip"
     );
 
     // B redacts it *after* that gossip, then retires into A.
-    b.redact(key);
+    pollster::block_on(b.redact(key)).expect("the in-memory backend is infallible");
     let retiree = block_on(b.try_into_peer()).expect("sole handle");
     let outcome = block_on(async {
         let (mut b_link, mut a_link) = rumors::link::memory();
@@ -48,7 +52,9 @@ fn retire_carries_last_minute_redactions() {
 
     // The absorber holds the absence, not the ghost.
     assert!(
-        a.snapshot().get(&key).is_none(),
+        pollster::block_on(a.snapshot().get(&key))
+            .expect("the in-memory backend is infallible")
+            .is_none(),
         "A must honor the redaction the retiree carried"
     );
 }

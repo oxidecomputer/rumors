@@ -18,6 +18,54 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
     crate::tree::mirror::streaming::remote::render_v2_capture(a, b)
 }
 
+/// Drain a [`Snapshot`](crate::Snapshot)'s message stream into a `Vec`,
+/// synchronously.
+///
+/// The in-memory backend's stream items are all immediately ready and its
+/// error is uninhabited, so suites can compare snapshot contents without
+/// carrying an executor. Order is the stream's own (unspecified).
+pub fn collect<T: Send + Sync>(
+    snapshot: &crate::Snapshot<T>,
+) -> Vec<(crate::Key, crate::Version, std::sync::Arc<T>)> {
+    use futures::TryStreamExt;
+    pollster::block_on(snapshot.iter().try_collect()).expect("the in-memory backend is infallible")
+}
+
+/// Chainable form of [`collect`]: drain a snapshot's stream into an owned
+/// iterator, synchronously, at the end of a method chain.
+pub trait SnapshotCollect<T> {
+    /// Drain into `Vec` and hand back its iterator; see [`collect`].
+    fn collected(&self) -> std::vec::IntoIter<(crate::Key, crate::Version, std::sync::Arc<T>)>;
+}
+
+impl<T: Send + Sync> SnapshotCollect<T> for crate::Snapshot<T> {
+    fn collected(&self) -> std::vec::IntoIter<(crate::Key, crate::Version, std::sync::Arc<T>)> {
+        collect(self).into_iter()
+    }
+}
+
+/// Drain the messages of a [`Snapshot`](crate::Snapshot) whose versions
+/// fall in the causal `range` into a `Vec`, synchronously.
+///
+/// The range-filtered sibling of [`collect`], with
+/// [`Snapshot::range`](crate::Snapshot::range)'s bound semantics.
+pub fn collect_range<T: Send + Sync, R: std::ops::RangeBounds<crate::Version>>(
+    snapshot: &crate::Snapshot<T>,
+    range: R,
+) -> Vec<(crate::Key, crate::Version, std::sync::Arc<T>)> {
+    use futures::TryStreamExt;
+    pollster::block_on(snapshot.range(range).try_collect())
+        .expect("the in-memory backend is infallible")
+}
+
+/// Commit a [`Batch`](crate::Batch), synchronously.
+///
+/// The in-memory backend's commit future suspends only at the commit
+/// lock, so suites without a concurrent committer can commit inline.
+pub fn commit<T: Send + Sync>(batch: crate::Batch<'_, T>) {
+    pollster::block_on(batch.commit()).expect("the in-memory backend is infallible")
+}
+
 /// A snapshot of the crate-wide census of live tree-node handles.
 #[derive(Clone, Copy, Debug)]
 pub struct NodeCensus {

@@ -44,6 +44,7 @@ use tokio::time::timeout;
 
 use crate::common::fault::{FaultPlan, faulty};
 use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
+use rumors::testing::SnapshotCollect as _;
 
 /// Generous wall-clock bound: everything here is in-memory and finishes in
 /// microseconds, so hitting the deadline means a wedged driver, not a slow
@@ -97,8 +98,12 @@ async fn one_round(
 #[tokio::test(flavor = "current_thread")]
 async fn single_tick_reduces_to_gossip() {
     let (a, b) = pair().await;
-    a.send(1);
-    b.send(2);
+    a.send(1)
+        .await
+        .expect("the in-memory backend is infallible");
+    b.send(2)
+        .await
+        .expect("the in-memory backend is infallible");
 
     let (mut a_link, mut b_link) = links();
     let once = || stream::once(std::future::ready(()));
@@ -134,7 +139,9 @@ async fn pending_when_serves_remote_initiations() {
     let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
 
     for round in 0..3u64 {
-        a.send(round);
+        a.send(round)
+            .await
+            .expect("the in-memory backend is infallible");
         a_tx.unbounded_send(()).expect("driver alive");
         let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
         assert_eq!(a_session.led, Led::Local, "round {round}: A initiated");
@@ -161,7 +168,9 @@ async fn suppression_swallows_echoes_not_news() {
 
     // Round 1: the initial `changes()` yield on both sides drives the
     // reconnect-convergence session (both led locally; one session total).
-    a.send(1);
+    a.send(1)
+        .await
+        .expect("the in-memory backend is infallible");
     let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 
@@ -180,7 +189,9 @@ async fn suppression_swallows_echoes_not_news() {
 
     // But real news still initiates: a change on B drives exactly one more
     // session, B-led.
-    b.send(2);
+    b.send(2)
+        .await
+        .expect("the in-memory backend is infallible");
     let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(b_session.led, Led::Local, "B had the news");
     assert_eq!(a_session.led, Led::Remote, "A only served");
@@ -220,7 +231,9 @@ async fn heartbeat_ticks_are_free_until_divergence() {
 
     // Diverged (the lost-wakeup scenario): the next heartbeat tick fires a
     // real session.
-    a.send(7);
+    a.send(7)
+        .await
+        .expect("the in-memory backend is infallible");
     a_tx.unbounded_send(()).expect("driver alive");
     let (a_session, _) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(a_session.led, Led::Local);
@@ -239,7 +252,9 @@ async fn changes_propagate_transitively_through_a_chain() {
     let (mut ab_a_link, mut ab_b_link) = links();
     let (mut bc_b_link, mut bc_c_link) = links();
 
-    a.send(42);
+    a.send(42)
+        .await
+        .expect("the in-memory backend is infallible");
 
     // Four drivers, every policy stream a real change signal. Consume
     // session items in the background of the convergence check: the
@@ -270,7 +285,7 @@ async fn changes_propagate_transitively_through_a_chain() {
         loop {
             c_changes.next().await.expect("set still open");
             let snapshot = c.snapshot();
-            if snapshot.iter().any(|(_, _, m)| **m == 42) {
+            if snapshot.collected().any(|(_, _, m)| *m == 42) {
                 return;
             }
         }
@@ -323,8 +338,12 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
 #[pollster::test]
 async fn dropping_a_driver_mid_session_commits_nothing() {
     let (a, b) = pair().await;
-    a.send(1);
-    b.send(2);
+    a.send(1)
+        .await
+        .expect("the in-memory backend is infallible");
+    b.send(2)
+        .await
+        .expect("the in-memory backend is infallible");
     let a_before = (a.snapshot().hash(), a.snapshot().latest().clone());
     let b_before = (b.snapshot().hash(), b.snapshot().latest().clone());
 
@@ -432,7 +451,7 @@ fn dropping_next_futures_loses_nothing() {
     let mut a_sessions = a.gossip_when(a_when, &mut a_link);
     let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
 
-    a.send(1);
+    pollster::block_on(a.send(1)).expect("the in-memory backend is infallible");
     a_tx.unbounded_send(()).expect("driver alive");
 
     // Every poll creates each driver's `next()` future afresh, polls it once,
@@ -471,7 +490,9 @@ async fn a_clean_end_leaves_the_connection_reusable() {
     let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
 
     // Phase 1: a single-tick driver runs one session and ends cleanly.
-    a.send(1);
+    a.send(1)
+        .await
+        .expect("the in-memory backend is infallible");
     {
         let once = stream::once(std::future::ready(()));
         let mut a_sessions = a.gossip_when(once, &mut a_link);
@@ -493,7 +514,9 @@ async fn a_clean_end_leaves_the_connection_reusable() {
     }
 
     // Phase 2: the same link hosts a one-shot `gossip`.
-    a.send(2);
+    a.send(2)
+        .await
+        .expect("the in-memory backend is infallible");
     let (a_out, b_item) = timeout(
         DEADLINE,
         futures::future::join(a.gossip(&mut a_link), b_sessions.next()),
@@ -504,7 +527,9 @@ async fn a_clean_end_leaves_the_connection_reusable() {
     b_item.expect("B's driver running").expect("B's session");
 
     // Phase 3: and then a second driver.
-    a.send(3);
+    a.send(3)
+        .await
+        .expect("the in-memory backend is infallible");
     {
         let once = stream::once(std::future::ready(()));
         let mut a_sessions = a.gossip_when(once, &mut a_link);
@@ -553,8 +578,8 @@ proptest! {
     ) {
         block_on(async {
             let (a, b) = pair().await;
-            a.send(1);
-            b.send(2);
+            a.send(1).await.expect("the in-memory backend is infallible");
+            b.send(2).await.expect("the in-memory backend is infallible");
 
             let (a_side, b_side) = rumors::link::memory_with_capacity(LINK_BUF);
             let a_link = faulty(a_side, FaultPlan {
@@ -596,8 +621,8 @@ proptest! {
             // Atomicity: whatever happened, each side holds its own send,
             // nothing beyond the union, and never a torn intermediate.
             let (a_snapshot, b_snapshot) = (a.snapshot(), b.snapshot());
-            assert!(a_snapshot.iter().any(|(_, _, m)| **m == 1));
-            assert!(b_snapshot.iter().any(|(_, _, m)| **m == 2));
+            assert!(a_snapshot.collected().any(|(_, _, m)| *m == 1));
+            assert!(b_snapshot.collected().any(|(_, _, m)| *m == 2));
             assert!(a_snapshot.len() <= 2);
             assert!(b_snapshot.len() <= 2);
 
@@ -689,11 +714,11 @@ proptest! {
                 for op in &script {
                     match op {
                         Op::SendA => {
-                            a.send(sent);
+                            pollster::block_on(a.send(sent)).expect("the in-memory backend is infallible");
                             sent += 1;
                         }
                         Op::SendB => {
-                            b.send(1_000_000 + sent);
+                            pollster::block_on(b.send(1_000_000 + sent)).expect("the in-memory backend is infallible");
                             sent += 1;
                         }
                         Op::TickA => a_tx.unbounded_send(()).expect("A driver holds its rx"),

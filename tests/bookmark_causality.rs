@@ -69,6 +69,7 @@ use crate::common::fault::{self, FaultPlan};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::sim::arb_fault;
 use crate::common::wire::tokio_block_on as block_on;
+use rumors::testing::SnapshotCollect as _;
 
 /// The message payload: a simulation-unique id that is also the message's
 /// emission sequence number, so a single per-[`World`] counter mints both at
@@ -388,14 +389,14 @@ impl World {
             return;
         };
         let network = rumors.network();
-        rumors.send(id); // commits when the returned Batch drops, at the `;`
+        pollster::block_on(rumors.send(id)).expect("the in-memory backend is infallible");
         // Read back the leaf's version. Under the current-thread schedule no
         // other task runs between the commit and here, so the lookup is
         // race-free and the just-sent unique id is present exactly once.
         let snapshot = rumors.snapshot();
         let mut version = None;
-        for (_key, leaf_version, value) in snapshot.iter() {
-            if **value == id {
+        for (_key, leaf_version, value) in snapshot.collected() {
+            if *value == id {
                 version = Some(leaf_version.clone());
                 break;
             }
@@ -416,11 +417,12 @@ impl World {
             return;
         };
         let snapshot = rumors.snapshot();
-        let keys: Vec<Key> = snapshot.iter().map(|(key, _, _)| key).collect();
+        let keys: Vec<Key> = snapshot.collected().map(|(key, _, _)| key).collect();
         if keys.is_empty() {
             return;
         }
-        rumors.redact(keys[which % keys.len()]);
+        pollster::block_on(rumors.redact(keys[which % keys.len()]))
+            .expect("the in-memory backend is infallible");
     }
 
     /// Promote every pending emission of `who` that has become **known to the
@@ -870,11 +872,11 @@ impl World {
             let rumors = self.nodes[k].live().unwrap();
             let network = rumors.network();
             let snapshot = rumors.snapshot();
-            for (_key, leaf_version, value) in snapshot.iter() {
+            for (_key, leaf_version, value) in snapshot.collected() {
                 live_leaves += 1;
-                let seq = **value;
+                let seq = *value;
                 assert!(
-                    self.emissions.contains_exact(network, seq, leaf_version),
+                    self.emissions.contains_exact(network, seq, &leaf_version),
                     "live message #{seq} at version {leaf_version:?} in network {network:?} \
                      survived the heal without an exact durable emission witness",
                 );

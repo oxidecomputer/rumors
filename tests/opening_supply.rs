@@ -18,6 +18,7 @@ use rumors::{Peer, Rumors};
 
 use crate::common::gossip_snapshot::capture_gossip;
 use crate::common::wire::{block_on, bootstrap_fork_async};
+use rumors::testing::SnapshotCollect as _;
 
 /// A peer seeded from a fixed RNG so the capture is deterministic.
 fn seeded<T>() -> Rumors<T> {
@@ -64,11 +65,12 @@ fn frames_labeled(capture: &str, label: &str) -> usize {
 fn divergent_root_child_has_one_question_owner() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1);
+        pollster::block_on(a.send(1)).expect("the in-memory backend is infallible");
         let b = bootstrap_fork_async(&a).await;
-        a.send(DISPUTED_SIBLING_VALUE);
+        pollster::block_on(a.send(DISPUTED_SIBLING_VALUE))
+            .expect("the in-memory backend is infallible");
         let y = BALLAST_FROM;
-        b.batch().send(y).send(y + 1).send(y + 2);
+        rumors::testing::commit(b.batch().send(y).send(y + 1).send(y + 2));
         (a, b)
     });
 
@@ -76,7 +78,7 @@ fn divergent_root_child_has_one_question_owner() {
     // is the smaller set and initiates.
     let akeys: Vec<u8> = a
         .snapshot()
-        .iter()
+        .collected()
         .map(|(k, _, _)| k.as_bytes()[0])
         .collect();
     assert_eq!(akeys.len(), 2, "the initiator holds the sibling pair");
@@ -84,7 +86,7 @@ fn divergent_root_child_has_one_question_owner() {
     let radix = akeys[0];
     assert_eq!(
         b.snapshot()
-            .iter()
+            .collected()
             .filter(|(k, _, _)| k.as_bytes()[0] == radix)
             .count(),
         1,

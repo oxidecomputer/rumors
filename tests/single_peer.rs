@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
+use rumors::testing::SnapshotCollect as _;
 use rumors::{Key, Peer, Rumors, Version, causally};
 
 /// Commit `values` to `peer` as one batch, returning the `(Key, Version)`
@@ -19,14 +20,11 @@ use rumors::{Key, Peer, Rumors, Version, causally};
 fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<(Key, Version)> {
     let pre = peer.snapshot().latest().clone();
     {
-        let mut batch = peer.batch();
-        for v in values {
-            batch.send(*v);
-        }
+        rumors::testing::commit(values.iter().fold(peer.batch(), |batch, v| batch.send(*v)));
     }
-    peer.snapshot()
-        .range(causally::since(&pre))
-        .map(|(k, v, _)| (k, v.clone()))
+    rumors::testing::collect_range(&peer.snapshot(), causally::since(&pre))
+        .into_iter()
+        .map(|(k, v, _)| (k, v))
         .collect()
 }
 
@@ -132,8 +130,8 @@ proptest! {
             let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
-            for (_, _, v) in peer.snapshot().iter() {
-                *out.entry(**v).or_insert(0) += 1;
+            for (_, _, v) in peer.snapshot().collected() {
+                *out.entry(*v).or_insert(0) += 1;
             }
             out
         };

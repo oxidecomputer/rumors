@@ -94,9 +94,11 @@
 //! async fn main() -> Result<(), rumors::Error> {
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string()).await?;
 //!
-//!     for (_key, _version, message) in alice.snapshot().iter() {
+//!     use futures::TryStreamExt;
+//!     let mut messages = alice.snapshot().iter();
+//!     while let Some((_key, _version, message)) = messages.try_next().await? {
 //!         println!("alice holds: {message}");
 //!     }
 //!     Ok(())
@@ -107,11 +109,13 @@
 //! alice holds: the meeting is at noon
 //! ```
 //!
-//! A bare `send` statement commits right there, as the statement ends;
-//! chaining several changes into one atomic commit is
-//! [`Batch`](crate::Batch)'s job. Notice that the snapshot yields a key
-//! and a version alongside each message — we ignore them for now, and the
-//! key returns in step 6.
+//! A `send` commits when awaited; chaining several changes into one
+//! atomic commit is [`Batch`](crate::Batch)'s job. Reading back goes
+//! through a [`Snapshot`](crate::Snapshot), whose message stream yields a
+//! key and a version alongside each message — we ignore them for now, and
+//! the key returns in step 6. (With the in-memory set every stream item
+//! is immediately ready and the error impossible; the `?` is the shape of
+//! the API, not a hazard here.)
 //!
 //! # Step 4: bootstrap Bob
 //!
@@ -130,7 +134,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), rumors::Error> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string()).await?;
 //!
 //!     // Alice serves one gossip session on her end of the link...
 //!     let (mut near, mut far) = rumors::link::memory();
@@ -145,7 +149,9 @@
 //!         .into_rumors();
 //!     server.await.expect("alice's serving task");
 //!
-//!     for (_key, _version, message) in bob.snapshot().iter() {
+//!     use futures::TryStreamExt;
+//!     let mut messages = bob.snapshot().iter();
+//!     while let Some((_key, _version, message)) = messages.try_next().await? {
 //!         println!("bob holds: {message}");
 //!     }
 //!     Ok(())
@@ -181,7 +187,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), rumors::Error> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string()).await?;
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
@@ -196,7 +202,7 @@
 //!     // A second, long-lived link between them, one driver per end.
 //!     let (mut alice_side, mut bob_side) = rumors::link::memory();
 //!
-//!     alice.send("bring the slides".to_string());
+//!     alice.send("bring the slides".to_string()).await?;
 //!
 //!     let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
 //!     let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
@@ -239,7 +245,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), rumors::Error> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string()).await?;
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
@@ -253,7 +259,7 @@
 //!
 //!     let (mut alice_side, mut bob_side) = rumors::link::memory();
 //!
-//!     alice.send("bring the slides".to_string());
+//!     alice.send("bring the slides".to_string()).await?;
 //!
 //!     let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
 //!     let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
@@ -266,12 +272,17 @@
 //!     println!("bob holds {} messages", bob.snapshot().len());
 //!
 //!     // New: find the key by observing, redact, and drive one more session.
+//!     use futures::TryStreamExt;
 //!     let snapshot = alice.snapshot();
 //!     let (key, _version, _message) = snapshot
 //!         .iter()
-//!         .find(|(_, _, message)| message.as_str() == "the meeting is at noon")
+//!         .try_filter(|(_, _, message)| {
+//!             std::future::ready(message.as_str() == "the meeting is at noon")
+//!         })
+//!         .try_next()
+//!         .await?
 //!         .expect("alice still holds the meeting message");
-//!     alice.redact(key);
+//!     alice.redact(key).await?;
 //!
 //!     let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
 //!     pushed.expect("alice's driver is running")?;
@@ -279,7 +290,8 @@
 //!
 //!     assert_eq!(alice.snapshot().len(), 1);
 //!     assert_eq!(bob.snapshot().len(), 1);
-//!     for (_key, _version, message) in bob.snapshot().iter() {
+//!     let mut messages = bob.snapshot().iter();
+//!     while let Some((_key, _version, message)) = messages.try_next().await? {
 //!         println!("bob still holds: {message}");
 //!     }
 //!     Ok(())

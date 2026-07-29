@@ -291,17 +291,22 @@ fn build_unilateral_redactions(
 }
 
 fn send_all(rumors: &Rumors<u8>, messages: Vec<u8>) {
-    let mut batch = rumors.batch();
-    for message in messages {
-        batch.send(message);
-    }
+    pollster::block_on(
+        messages
+            .into_iter()
+            .fold(rumors.batch(), |batch, message| batch.send(message))
+            .commit(),
+    )
+    .expect("the in-memory backend is infallible");
 }
 
 fn redact_all(rumors: &Rumors<u8>, keys: &[Key]) {
-    let mut batch = rumors.batch();
-    for key in keys {
-        batch.redact(*key);
-    }
+    pollster::block_on(
+        keys.iter()
+            .fold(rumors.batch(), |batch, key| batch.redact(*key))
+            .commit(),
+    )
+    .expect("the in-memory backend is infallible");
 }
 
 /// A seed peer measuring shipped behavior: the default pipeline window is
@@ -319,7 +324,10 @@ fn seeded_with_messages(protocol: Protocol, n: usize, seed: u64) -> Rumors<u8> {
 fn seeded_with_keys(protocol: Protocol, n: usize, seed: u64) -> (Rumors<u8>, Vec<Key>) {
     let rumors = production_seed(protocol);
     send_all(&rumors, random_bytes(n, seed));
-    let keys = rumors.snapshot().iter().map(|(k, _, _)| k).collect();
+    let keys = rumors::testing::collect(&rumors.snapshot())
+        .into_iter()
+        .map(|(k, _, _)| k)
+        .collect();
     (rumors, keys)
 }
 

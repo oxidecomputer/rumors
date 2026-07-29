@@ -145,19 +145,15 @@ fn bytes_after_the_marker_stay_untouched() {
 /// version.
 fn redacted_history_root(events: u64) -> tree::Root<u64> {
     let donor = Peer::<u64>::seed();
-    {
-        let mut batch = donor.batch();
-        for v in 0..events {
-            batch.send(v);
-        }
-    }
-    let keys: Vec<_> = donor.snapshot().iter().map(|(key, _, _)| key).collect();
-    {
-        let mut batch = donor.batch();
-        for key in keys {
-            batch.redact(key);
-        }
-    }
+    crate::testing::commit((0..events).fold(donor.batch(), |batch, v| batch.send(v)));
+    let keys: Vec<_> = crate::testing::collect(&donor.snapshot())
+        .into_iter()
+        .map(|(key, _, _)| key)
+        .collect();
+    crate::testing::commit(
+        keys.into_iter()
+            .fold(donor.batch(), |batch, key| batch.redact(key)),
+    );
     let snapshot = donor.snapshot();
     assert!(snapshot.is_empty(), "every message was redacted");
     assert!(
@@ -240,12 +236,11 @@ async fn claim_bootstrap_v1(
 /// A provider holding `values`, plus its pre-session content hash.
 fn provider_with(values: &[u64]) -> Peer<u64> {
     let provider = Peer::<u64>::seed();
-    {
-        let mut batch = provider.batch();
-        for &v in values {
-            batch.send(v);
-        }
-    }
+    crate::testing::commit(
+        values
+            .iter()
+            .fold(provider.batch(), |batch, &v| batch.send(v)),
+    );
     provider
 }
 

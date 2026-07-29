@@ -44,13 +44,14 @@
 //! its leaves' versions. The version bounds power both deletion honoring
 //! (a subtree whose ceiling the counterparty's version contains holds
 //! nothing it is missing — see [`traverse::unknown`]) and causal range
-//! queries ([`Tree::range`]), which prune whole subtrees without entering
-//! them.
+//! queries ([`Tree::range_owned`]), which prune whole subtrees without
+//! entering them.
 //!
 //! # The traversal trio
 //!
 //! All mutation and reconciliation is three inductive traversals over the
-//! same structure ([`traverse`]): [`act`](Tree::act) applies a local batch
+//! same structure ([`traverse`]): act ([`react`](Tree::react), applying
+//! the reactions [`assign`](Tree::assign) stamps) applies a local batch
 //! in one pass; [`join`](Tree::join) merges two in-memory trees;
 //! [`mirror`] reconciles two trees over a wire. `join` and `mirror` are
 //! observationally identical — both delegate deletion honoring to the same
@@ -164,14 +165,16 @@ pub enum Action<T> {
     Forget(Key),
 }
 
-/// The iterator of [`Snapshot::iter`](crate::Snapshot::iter):
-/// a lazy depth-first walk over every live message as
-/// `(Key, &Version, &Arc<T>)`, in unspecified order.
+/// A lazy depth-first walk over every live message as
+/// `(Key, &Version, &Arc<T>)`, in unspecified order: the borrowing test
+/// oracle the owned public walks are pinned against.
 ///
 /// An [`ExactSizeIterator`] (the live-message count is known up front) and a
 /// [`DoubleEndedIterator`].
+#[cfg(test)]
 pub struct Iter<'a, T>(typed::Iter<'a, T>);
 
+#[cfg(test)]
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = (Key, &'a Version, &'a Arc<T>);
 
@@ -184,19 +187,21 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
+#[cfg(test)]
 impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back().map(|(k, v, m)| (k, v, m.as_arc()))
     }
 }
 
+#[cfg(test)]
 impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
 impl<T> Tree<T> {
     /// Creates a new, empty tree carrying the empty [`Version`].
     ///
     /// A tree owns no party identity: advancing the version is driven by a
-    /// [`Party`](before::Party) passed into [`act`](Self::act) by the caller (the
+    /// [`Party`](before::Party) passed into [`assign`](Self::assign) by the caller (the
     /// [`Peer`](crate::Peer) that owns the party). Forking a tree is a
     /// plain [`clone`](Clone); any party split happens on the owning
     /// [`Peer`](crate::Peer).
@@ -298,7 +303,9 @@ impl<T> Tree<T> {
     }
 
     /// Lazily iterates every live leaf currently in the tree as
-    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
+    /// `(Key, &Version, &Arc<T>)`, in unspecified order: the borrowing
+    /// oracle the owned walks are pinned against.
+    #[cfg(test)]
     pub fn iter(&self) -> Iter<'_, T>
     where
         T: Send + Sync,
@@ -315,9 +322,8 @@ impl<T> Tree<T> {
     /// Freezes a fully-owned walk over the live leaves whose versions fall
     /// within the causal `range`.
     ///
-    /// The lifetime-free counterpart of [`range`](Self::range), holdable
-    /// across awaits and in long-lived state, pinning only its unvisited
-    /// frontier.
+    /// Lifetime-free: holdable across awaits and in long-lived state,
+    /// pinning only its unvisited frontier.
     pub fn range_owned<R>(&self, range: R) -> RangeOwned<T, R>
     where
         R: std::ops::RangeBounds<Version>,
@@ -337,8 +343,10 @@ impl<T> Tree<T> {
     /// small delta against a large tree costs work proportional to the delta
     /// (plus the pruning frontier), not the tree.
     ///
-    /// Unlike [`iter`](Self::iter), not an [`ExactSizeIterator`]: how many
-    /// leaves pass is unknown until they are visited.
+    /// Not an [`ExactSizeIterator`]: how many leaves pass is unknown until
+    /// they are visited. The borrowing oracle
+    /// [`range_owned`](Self::range_owned) is pinned against.
+    #[cfg(test)]
     pub fn range<R>(
         &self,
         range: R,
@@ -354,51 +362,13 @@ impl<T> Tree<T> {
             .map(|(k, v, m)| (k, v, m.as_arc()))
     }
 
-    /// Applies the specified actions as a batch to the tree, advancing its
-    /// internal version vector once per action.
+    /// Applies the specified actions as one batch commit:
+    /// [`assign`](Self::assign) composed with [`react`](Self::react) in
+    /// place, for the tests and oracles that need a one-call commit.
     ///
-    /// Each [`Action::Insert`] advances the local party's component of the
-    /// version vector by one before the leaf's path is derived; the inserts
-    /// in a batch are therefore assigned strictly-increasing versions in the
-    /// order they appear, and two content-identical messages within a batch
-    /// receive distinct keys. An [`Action::Forget`] ticks too, so an
-    /// effectual forget carries a version strictly greater than any prior
-    /// insert (the mirror protocol's deletion-honoring inference depends on
-    /// that; see the body comment). A forget that targets a key derived from
-    /// an earlier insert in the same batch overrides that insert (last
-    /// action on a path wins).
-    ///
-    /// A batch is applied to the tree in a single traversal, which is more
-    /// efficient than applying its actions one at a time: in theory an
-    /// O(log n) speedup over one-by-one insertion, in practice about 2-3x
-    /// since the log base is 256.
-    ///
-    /// This function is "morally associative": partitioning a sequence of
-    /// actions across multiple `act` calls produces the same tree as a
-    /// single `act` over their concatenation, except possibly for the tree's
-    /// version when several actions address the same key. In that case the
-    /// version is incremented once per changed key, regardless of how many
-    /// actions pertain to it.
-    ///
-    /// # The changed flag
-    ///
-    /// Returns whether the batch changed the tree, so the caller can answer
-    /// "did anything happen?" without reading the root hash — the answer the
-    /// traversal's effectual-action observer already produced. The two
-    /// directions carry different promises:
-    ///
-    /// - **`false` is exact**: the root hash is byte-identical to what it was
-    ///   before the call, and the causal ceiling did not move. Nothing about
-    ///   the tree changed. A watcher skipped on `false` misses nothing.
-    /// - **`true` is conservative**: the tree changed *or* an action was
-    ///   silently skipped as causally prior to the leaf it targeted. The skip
-    ///   is unreachable when every leaf's version is bounded by the tree's
-    ///   ceiling — which `act` and `join` both maintain, so every honestly
-    ///   built tree qualifies — because each action ticks strictly above the
-    ///   ceiling. Only a store poisoned by nonconforming gossip (a leaf
-    ///   *above* the ceiling; session ingestion rejects the shape) can
-    ///   produce `true` without a hash change, and then the cost is one
-    ///   spurious watch wakeup, never a missed one.
+    /// Returns [`react`](Self::react)'s changed flag; the two-direction
+    /// contract is stated there.
+    #[cfg(test)]
     pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
     where
         T: Send + Sync,
@@ -411,15 +381,34 @@ impl<T> Tree<T> {
     /// Stamps each action with its committed version and key against the
     /// tree's current frontier: the synchronous *prep* step of a commit.
     ///
+    /// Each [`Action::Insert`] advances the local party's component of the
+    /// version vector by one before the leaf's path is derived; the inserts
+    /// in a batch are therefore assigned strictly-increasing versions in the
+    /// order they appear, and two content-identical messages within a batch
+    /// receive distinct keys. An [`Action::Forget`] ticks too, so an
+    /// effectual forget carries a version strictly greater than any prior
+    /// insert (the mirror protocol's deletion-honoring inference depends on
+    /// that; see the body comment). A forget that targets a key derived from
+    /// an earlier insert in the same batch overrides that insert (last
+    /// action on a path wins, once [`react`](Self::react) applies them).
+    ///
+    /// A commit built this way is "morally associative": partitioning a
+    /// sequence of actions across multiple commits produces the same tree
+    /// as a single commit over their concatenation, except possibly for
+    /// the tree's version when several actions address the same key. In
+    /// that case the version is incremented once per changed key,
+    /// regardless of how many actions pertain to it.
+    ///
     /// Split from [`react`](Self::react) (the build step) so a committer
     /// can run the build outside the critical section that read the
-    /// frontier. [`act`](Self::act) is the two composed; its doc states
-    /// the contract the two steps implement together.
+    /// frontier.
     ///
     /// Reads the frontier and the party; mutates nothing. The stamped
     /// versions are only as fresh as the frontier they were read against:
-    /// the committer must hold the frontier stable (today, by staying inside
-    /// one `watch` critical section) from `assign` through `react`.
+    /// the committer must hold the `(party, frontier)` pair stable (by
+    /// holding the commit lock — see `Peer::commit` — or by staying inside
+    /// one `watch` critical section) from `assign` through `react`'s
+    /// publication.
     pub(crate) fn assign<I>(
         &self,
         party: &before::Party,
@@ -474,21 +463,37 @@ impl<T> Tree<T> {
     /// If multiple actions refer to the same leaf of the tree, the causally
     /// latest action wins, with order of specification breaking concurrency
     /// and version ties. Each item is keyed by its version and content hash,
-    /// so if each party only manipulates its own tree through
-    /// [`Tree::act`], these conflicts cannot arise.
+    /// so if each party only stamps actions against its own tree through
+    /// [`assign`](Self::assign), these conflicts cannot arise.
     ///
-    /// As with [`act`](Self::act), a batch is applied in a single traversal,
-    /// which is more efficient than applying its actions one at a time but
-    /// semantically equivalent.
+    /// A batch is applied in a single traversal, which is more efficient
+    /// than applying its actions one at a time but semantically
+    /// equivalent: in theory an O(log n) speedup over one-by-one
+    /// insertion, in practice about 2-3x since the log base is 256.
     ///
     /// The *build* step of a commit; [`assign`](Self::assign) is the prep
     /// step that stamps the reactions, and states the frontier-stability
     /// obligation between the two.
     ///
-    /// Returns whether the effectual-action observer fired at all — the
-    /// changed flag [`act`](Self::act) hands out, with the contract stated
-    /// there. `false` means no observation and therefore no ceiling
-    /// movement either: the tree is untouched.
+    /// # The changed flag
+    ///
+    /// Returns whether the batch changed the tree, so the caller can answer
+    /// "did anything happen?" without reading the root hash — the answer the
+    /// traversal's effectual-action observer already produced. The two
+    /// directions carry different promises:
+    ///
+    /// - **`false` is exact**: the root hash is byte-identical to what it was
+    ///   before the call, and the causal ceiling did not move. Nothing about
+    ///   the tree changed. A watcher skipped on `false` misses nothing.
+    /// - **`true` is conservative**: the tree changed *or* an action was
+    ///   silently skipped as causally prior to the leaf it targeted. The skip
+    ///   is unreachable when every leaf's version is bounded by the tree's
+    ///   ceiling — which the commit paths and `join` both maintain, so every
+    ///   honestly built tree qualifies — because each action ticks strictly
+    ///   above the ceiling. Only a store poisoned by nonconforming gossip (a
+    ///   leaf *above* the ceiling; session ingestion rejects the shape) can
+    ///   produce `true` without a hash change, and then the cost is one
+    ///   spurious watch wakeup, never a missed one.
     pub(crate) fn react<M, I>(&mut self, reactions: I) -> bool
     where
         T: Send + Sync,

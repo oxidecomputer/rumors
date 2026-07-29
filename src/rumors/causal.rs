@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -8,7 +9,7 @@ use futures::Stream;
 use tokio::sync::watch;
 
 use crate::tree::Leaf;
-use crate::{Key, Version};
+use crate::{Key, StorageError, Version};
 
 use super::unordered::{Channel, TryNext};
 
@@ -47,9 +48,6 @@ pub struct CausalMessages<T> {
     /// a *single* ingest (a new pass opens only once this empties), whose
     /// range start was `checkpoint` and whose ceiling is `ingested`.
     staged: BTreeMap<(Rank, Key), Leaf<T>>,
-    /// The most recently delivered leaf, kept alive so its version and
-    /// value can be lent to the caller until the next call.
-    current: Option<(Key, Leaf<T>)>,
 }
 
 impl<T> CausalMessages<T> {
@@ -59,7 +57,6 @@ impl<T> CausalMessages<T> {
             ingested: since.clone(),
             checkpoint: since,
             staged: BTreeMap::new(),
-            current: None,
         }
     }
 
@@ -95,31 +92,30 @@ impl<T> CausalMessages<T> {
         *ingested |= &ceiling;
     }
 
-    /// Pop the causally least staged message, parking it in `current` so
-    /// its borrows survive the return.
+    /// Pop the causally least staged message, yielding it owned.
     ///
     /// Lets the resume point catch up when this empties the backlog (the
     /// popped message is in the caller's hands by the time the checkpoint
     /// can be read).
-    fn pop(&mut self) -> Option<(Key, &Version, &Arc<T>)> {
+    fn pop(&mut self) -> Option<(Key, Version, Arc<T>)> {
         let ((_, key), leaf) = self.staged.pop_first()?;
         if self.staged.is_empty() {
             self.checkpoint = self.ingested.clone();
         }
-        let (key, leaf) = self.current.insert((key, leaf));
-        Some((*key, leaf.version(), leaf.value()))
+        Some((key, leaf.version().clone(), leaf.value().clone()))
     }
 
-    /// Advance to the next message in causal order and lend it.
-    pub(crate) async fn borrow_next_inner(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    /// Advance to the next message in causal order.
+    async fn next_inner(
+        &mut self,
+    ) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<Infallible>>
     where
         T: Send + Sync,
     {
         loop {
             // Deliver the staged backlog before consulting the channel:
             // everything staged became deliverable when its pass finished
-            // ingesting. (Polonius limitation: returning `self.pop()` here
-            // would hold the borrow across the loop, so flag-and-break.)
+            // ingesting.
             if !self.staged.is_empty() {
                 break;
             }
@@ -129,7 +125,7 @@ impl<T> CausalMessages<T> {
                     let (closed, rx) = wait.as_mut().await;
                     self.channel = Some(Channel::Ready(rx));
                     if closed {
-                        return None;
+                        return Ok(None);
                     }
                 }
                 Channel::Ready(rx) => {
@@ -140,13 +136,13 @@ impl<T> CausalMessages<T> {
                         // is gone and the ingest above saw the final state.
                         self.checkpoint = self.ingested.clone();
                         if rx.changed().await.is_err() {
-                            return None;
+                            return Ok(None);
                         }
                     }
                 }
             }
         }
-        self.pop()
+        Ok(self.pop())
     }
 
     /// The sound resume point: the causal frontier *behind* any internally
@@ -169,52 +165,49 @@ impl<T> CausalMessages<T> {
 }
 
 impl<T> CausalMessages<T> {
-    /// Advance to the next message in causal order, lending its version and
-    /// value until the following call.
+    /// Advance to the next message in causal order, yielding it owned.
     ///
-    /// Awaits quietly while the set is unchanged; resolves [`None`] once no
-    /// further change is possible and the backlog has drained.
-    pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    /// Awaits quietly while the set is unchanged; resolves `Ok(None)` once
+    /// no further change is possible and the backlog has drained.
+    pub async fn next(&mut self) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<Infallible>>
     where
         T: Send + Sync,
     {
-        self.borrow_next_inner().await
+        self.next_inner().await
     }
+
     /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
     /// again later) if not, [`Ended`] if no further message is possible.
     ///
     /// [`Quiet`]: TryNext::Quiet
     /// [`Ended`]: TryNext::Ended
-    pub fn try_next(&mut self) -> TryNext<'_, T>
+    pub fn try_next(&mut self) -> Result<TryNext<T>, StorageError<Infallible>>
     where
         T: Send + Sync,
     {
         use futures::FutureExt;
-        match self.borrow_next_inner().now_or_never() {
-            None => TryNext::Quiet,
-            Some(None) => TryNext::Ended,
-            Some(Some(message)) => TryNext::Message(message),
+        match self.next_inner().now_or_never() {
+            None => Ok(TryNext::Quiet),
+            Some(Ok(None)) => Ok(TryNext::Ended),
+            Some(Ok(Some(message))) => Ok(TryNext::Message(message)),
+            Some(Err(e)) => Err(e),
         }
     }
 }
 
-/// The owned-item face: `(Key, Version, Arc<T>)` per item, popped from the
-/// same staged backlog [`borrow_next`](CausalMessages::borrow_next) lends
-/// from.
+/// The `Stream` face: the same owned items as [`next`](CausalMessages::next),
+/// popped from the same staged backlog.
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an
 /// owned future, exactly as in [`UnorderedMessages`](super::UnorderedMessages).
 impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
-    type Item = (Key, Version, Arc<T>);
+    type Item = Result<(Key, Version, Arc<T>), StorageError<Infallible>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         loop {
-            if let Some(((_, key), leaf)) = this.staged.pop_first() {
-                if this.staged.is_empty() {
-                    this.checkpoint = this.ingested.clone();
-                }
-                return Poll::Ready(Some((key, leaf.version().clone(), leaf.value().clone())));
+            if let Some(message) = this.pop() {
+                return Poll::Ready(Some(Ok(message)));
             }
             match this.channel.as_mut().expect("channel state present") {
                 Channel::Waiting(wait) => match wait.as_mut().poll(cx) {

@@ -27,11 +27,7 @@ const PREAMBLE_LEN: usize = 25;
 
 /// Insert each of `vals` into `k` as one committed batch.
 fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
-    let mut batch = k.batch();
-    for &v in vals {
-        batch.send(v);
-    }
-    drop(batch);
+    crate::testing::commit(vals.iter().fold(k.batch(), |batch, &v| batch.send(v)));
     k
 }
 
@@ -631,17 +627,16 @@ fn root_hash_read_meter_is_live() {
 /// Pins the root-hash reads a batch commit performs: zero.
 ///
 /// The commit decides "did the tree change?" from the changed flag
-/// [`Tree::act`] returns, so no root hash is read — and none *forced* over
-/// the freshly rebuilt, memo-less copy-on-write spine — inside the watch
-/// critical section. Both the batch build and the commit run synchronously
-/// on this thread, so the bracketed count is exact.
+/// [`Tree::react`] returns, so no root hash is read — and none *forced*
+/// over the freshly rebuilt, memo-less copy-on-write spine — anywhere in
+/// the commit's phases. The commit future is driven to completion on this
+/// thread (`testing::commit` uses `pollster`, no spawns), so the bracketed
+/// count is exact.
 #[test]
 fn batch_commit_root_hash_reads() {
     let peer = with_messages(Peer::<u64>::seed(), &[1, 2]);
     let before = crate::tree::meter::root_hash_reads();
-    let mut batch = peer.batch();
-    batch.send(3);
-    drop(batch);
+    crate::testing::commit(peer.batch().send(3));
     assert_eq!(
         crate::tree::meter::root_hash_reads() - before,
         0,

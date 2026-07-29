@@ -51,8 +51,12 @@ async fn divergent_pair() -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork_async(&a).await;
     for v in 0..DIVERGENT_MESSAGES {
-        a.send(v);
-        b.send(1_000 + v);
+        a.send(v)
+            .await
+            .expect("the in-memory backend is infallible");
+        b.send(1_000 + v)
+            .await
+            .expect("the in-memory backend is infallible");
     }
     (a, b)
 }

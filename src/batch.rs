@@ -1,22 +1,27 @@
+use std::convert::Infallible;
+use std::sync::Arc;
+
 use borsh::BorshSerialize;
-use tokio::sync::watch;
+use tokio::sync::{Mutex, watch};
 
 use crate::message::Message;
 use crate::tree::Action;
-use crate::{Inner, Key};
+use crate::{Inner, Key, StorageError};
 
 /// A batch of insertions and redactions against a [`Rumors`](crate::Rumors),
-/// committed atomically.
+/// committed atomically by [`commit`](Batch::commit).
 ///
-/// Returned by [`send`](crate::Rumors::send),
-/// [`redact`](crate::Rumors::redact), and [`batch`](crate::Rumors::batch) on
-/// [`Rumors`](crate::Rumors). Dropping the batch commits it: the single-action
-/// case reads as a plain call (`rumors.send(message);` commits at the end of
-/// the statement), and chaining accumulates
-/// (`rumors.batch().send(a).send(b).redact(key);`) into one commit.
+/// Returned by [`batch`](crate::Rumors::batch) on
+/// [`Rumors`](crate::Rumors); the single-action case reads as a plain
+/// awaited call (`rumors.send(message).await?`), and chaining accumulates
+/// (`rumors.batch().send(a).send(b).redact(key).commit().await?`) into one
+/// commit: observers and concurrent gossip sessions see either none of the
+/// batch or all of it, never a prefix.
 ///
-/// Building a [`Batch`] holds no lock; committing locks the rumor set
-/// momentarily.
+/// Building a [`Batch`] holds no lock; committing serializes with the
+/// set's other committers. Dropping an uncommitted batch *aborts* it: the
+/// staged actions are discarded, no version is minted, and no observer
+/// wakes — the batch never happened.
 ///
 /// Commit is the causal moment: a sent message's version dominates
 /// everything this replica had observed when the batch committed, not when
@@ -25,15 +30,18 @@ use crate::{Inner, Key};
 /// concurrent synchronization can land between building and committing,
 /// and two batches carry no guaranteed causal relationship to one another
 /// unless the application synchronizes them itself.
+#[must_use = "a batch does nothing until `commit` is awaited; dropping it aborts"]
 pub struct Batch<'a, T: Send + Sync> {
     inner: &'a watch::Sender<Inner<T>>,
+    commit: &'a Arc<Mutex<()>>,
     actions: Vec<Action<T>>,
 }
 
 impl<'a, T: Send + Sync> Batch<'a, T> {
-    pub(crate) fn new(inner: &'a watch::Sender<Inner<T>>) -> Self {
+    pub(crate) fn new(inner: &'a watch::Sender<Inner<T>>, commit: &'a Arc<Mutex<()>>) -> Self {
         Self {
             inner,
+            commit,
             actions: Vec::new(),
         }
     }
@@ -44,7 +52,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     ///
     /// If `message` fails to serialize. Serialization runs here, not at
     /// commit: the failure surfaces at the offending call.
-    pub fn send(&mut self, message: T) -> &mut Self
+    pub fn send(mut self, message: T) -> Self
     where
         T: BorshSerialize,
     {
@@ -55,44 +63,88 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// Redacts a [`Key`] as part of this batch.
     ///
     /// Redacting a key not held at commit time is a no-op.
-    pub fn redact(&mut self, key: Key) -> &mut Self {
+    pub fn redact(mut self, key: Key) -> Self {
         self.actions.push(Action::Forget(key));
         self
     }
-}
 
-impl<T: Send + Sync> Drop for Batch<'_, T> {
-    fn drop(&mut self) {
-        if self.actions.is_empty() {
-            return;
+    /// Commit every staged action as one atomic unit.
+    ///
+    /// This is a root-replacing commit, run as the commit protocol's
+    /// phases: acquire the set's commit lock, stamp each action against the
+    /// commit-time frontier, build the new tree off the `watch` (readers
+    /// and observers are never blocked by the build), and publish the
+    /// built root in one final critical section, waking observers exactly
+    /// once iff the tree changed.
+    ///
+    /// # Cancellation
+    ///
+    /// Dropping the returned future before it resolves either commits the
+    /// whole batch or aborts it, never a prefix. A caller that never saw
+    /// `Ok` must treat the batch as "may or may not have committed": with
+    /// the in-memory backend the commit is atomic with the future's final
+    /// poll, so cancellation before that poll aborts cleanly, and a
+    /// persistent backend may additionally leave a committed-but-
+    /// unacknowledged write that the next local commit supersedes.
+    pub async fn commit(self) -> Result<(), StorageError<Infallible>> {
+        let Self {
+            inner,
+            commit,
+            actions,
+        } = self;
+        if actions.is_empty() {
+            return Ok(());
         }
-        let actions = std::mem::take(&mut self.actions);
-        // A root-replacing commit, run entirely inside one critical section.
-        // `Drop` cannot await, so this path cannot take the peer's commit
-        // lock — and it does not need it: the closure is atomic on its own,
-        // and the in-memory build is instantaneous. The body still runs the
-        // commit protocol's phases in order (prep: stamp every action
-        // against the commit-time frontier; build: apply; publish: wake
-        // observers once iff the tree changed), so an explicit async commit
-        // replacing this one only moves the build out of the critical
-        // section, behind the commit lock — the phases themselves stand.
-        self.inner.send_if_modified(|inner| {
+
+        // Phase 1: the commit lock. Serializes this commit against every
+        // other root replacement *and* every party shrink (the gossip fork
+        // section), so the `(party, frontier)` pair read below stays valid
+        // through the publish. Lock order: bookmark → commit → watch; this
+        // path never touches the bookmark.
+        let _commit = commit.lock().await;
+
+        // Phase 2 (prep): stamp every action against the commit-time
+        // frontier. A read-only borrow suffices: minting versions ticks a
+        // local working copy, not the party, and the lock holds the pair
+        // stable. Party growth (a returned or reclaimed fork) may land
+        // between prep and publish, harmlessly: versions minted from the
+        // narrower party stay exclusively this replica's.
+        let (reactions, base) = {
+            let inner = inner.borrow();
             // The party is present on every reachable handle: `retire`
             // consumes the `Peer`, and the `Peer`/`Rumors` XOR keeps a
             // retiring set's handles from coexisting with it.
             let Some(party) = inner.party.as_ref() else {
                 debug_assert!(false, "no party to tick in a `Batch` commit");
-                return false;
+                return Ok(());
             };
-            // Prep, build, and publish in one traversal: `act` is
-            // `assign` (stamp every action against the commit-time
-            // frontier) composed with `react` (apply); its changed flag is
-            // the single observer wakeup, and no root hash is read inside
-            // this critical section (`Tree::act` states the flag's
-            // contract). The explicit async commit calls the two halves
-            // separately, with the build between them run off this
-            // critical section.
-            inner.tree.act(party, actions)
+            (inner.tree.assign(party, actions), inner.tree.clone())
+        };
+
+        // Phase 3 (build): apply the stamped reactions to a clone of the
+        // published root, off the `watch`. Copy-on-write shares everything
+        // untouched; only the rebuilt spines are fresh. Change detection is
+        // `react`'s own flag: no root hash is read on this path
+        // (`Tree::act` states the flag's contract).
+        let mut built = base.clone();
+        let changed = built.react(reactions);
+
+        // Phase 4 (publish): swap the built root in. This must follow the
+        // build with no intervening await, in the same poll: a future is
+        // only dropped between polls, so "built → published" is indivisible
+        // under cancellation. The lock guarantees the published root is
+        // still the one the build started from, making the swap a plain
+        // replacement — never a merge, and in particular never an
+        // `OrdMap::diff` between a map and its own clone-derived build
+        // (`Children::diff_owned` states that provenance constraint).
+        inner.send_if_modified(move |inner| {
+            debug_assert!(
+                inner.tree == base,
+                "the commit lock held the published root stable through the build"
+            );
+            inner.tree = built;
+            changed
         });
+        Ok(())
     }
 }

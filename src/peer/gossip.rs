@@ -681,14 +681,18 @@ impl<T, B: Persist> Peer<T, B> {
         //   its `gossip_inner` call, so a retiring set is bookmarked before
         //   donating itself.)
         //
-        // The lock order is bookmark-then-`watch`, as everywhere; this
-        // section is party-only plus a root *read*, so the commit lock
-        // (which sits between the two in the full order — see
-        // `Peer::commit`) is deliberately not taken, and a local commit is
-        // never excluded by an in-flight session outside the install. A
-        // failed record write aborts the session before any wire traffic:
-        // dropping `guarded` re-joins the speculative fork, and the next
-        // update re-records what the reclaim already grew in memory.
+        // The lock order is bookmark → commit → `watch`, as everywhere. The
+        // commit lock is taken here because a fork is a party *shrink*: a
+        // committer that stamped its actions from the pre-fork party but
+        // has not yet published would otherwise publish versions minted
+        // from identity this section is donating — the donated fork's new
+        // owner could mint the same coordinates, violating linearity. The
+        // lock spans only the critical section below, never any wire
+        // traffic, so a local commit is excluded for one party motion, not
+        // a session. A failed record write aborts the session before any
+        // wire traffic: dropping `guarded` re-joins the speculative fork,
+        // and the next update re-records what the reclaim already grew in
+        // memory.
         let mut guarded = PartyGuard {
             party: None,
             recover: self.inner.clone(),
@@ -699,6 +703,7 @@ impl<T, B: Persist> Peer<T, B> {
             if let Err(e) = bookmark.ensure_loaded().await {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
             }
+            let commit = self.commit.lock().await;
             let mut persist = false;
             self.inner.send_if_modified(|inner| {
                 if let Some(party) = inner.party.as_mut() {
@@ -731,6 +736,10 @@ impl<T, B: Persist> Peer<T, B> {
                 // We modified the watched party only if we removed something.
                 guarded.party.is_some()
             });
+            // The fork (if any) is taken and the snapshot frozen: no
+            // in-flight commit can now straddle them. The bookmark write
+            // below needs only the bookmark mutex.
+            drop(commit);
             if persist && let Err(e) = bookmark.write().await {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
             }
@@ -877,15 +886,18 @@ impl<T, B: Persist> Peer<T, B> {
         // session above, so a local commit is excluded for the duration of
         // an in-memory join, not a network round trip.
         //
-        // The merge itself still runs *inside* the publish critical section:
-        // `Batch`'s `Drop` commit cannot take the commit lock (`Drop` cannot
-        // await), so a build staged outside the section could not simply be
-        // swapped in over an interleaved batch. Once every root-replacing
-        // writer holds the lock, the build moves out of the section and the
-        // publish becomes a plain swap that must follow the build's last
-        // await within a single poll (a future is only dropped between
-        // polls, so "build observed → watch published" stays indivisible
-        // under cancellation).
+        // The merge runs off the `watch`, against a clone of the published
+        // root: readers and observers are never blocked by the join. The
+        // lock is what makes the publish below a plain *swap* — every root
+        // replacement and party shrink holds it, so the published root
+        // cannot move between the clone and the swap — and the swap must
+        // follow the build with no intervening await, in the same poll (a
+        // future is only dropped between polls, so "built → published"
+        // stays indivisible under cancellation). Swapping rather than
+        // re-joining also keeps every `OrdMap` diff on this path between a
+        // live tree and a wire-materialized counterpart — never between a
+        // map and its own clone-derived build (`Children::diff_owned`
+        // states that provenance constraint).
         //
         // The reconciled tree's frontier is the converged version: what both
         // replicas hold the instant this commits, *before* the join below
@@ -893,6 +905,11 @@ impl<T, B: Persist> Peer<T, B> {
         let merged = Tree { root };
         let converged = merged.latest().clone();
         let commit = self.commit.lock().await;
+        let base = self.inner.borrow().tree.clone();
+        let mut built = base.clone();
+        // Change detection is `join`'s own flag: no root hash is read on
+        // this path (`Tree::join` states the flag's contract).
+        let changed = built.join(merged);
         let mut party_overlap = false;
         self.inner.send_if_modified(|inner| {
             if let Some(party) = absorbed.take() {
@@ -910,18 +927,14 @@ impl<T, B: Persist> Peer<T, B> {
                 }
             }
 
-            // Join the tree we got via gossip: a synchronous, in-memory
-            // merge, run directly inside the critical section, as in `send`
-            // and `redact`.
-            //
-            // We've modified the watch if the peer retired or the tree
-            // changed, straight from `join`'s changed flag: no root hash is
-            // read inside this critical section (`Tree::join` states the
-            // flag's contract). The join runs unconditionally — it must
-            // commit the merge even when the retirement alone decides the
-            // notification.
-            let tree_changed = inner.tree.join(merged);
-            peer_retiring || tree_changed
+            debug_assert!(
+                inner.tree == base,
+                "the commit lock held the published root stable through the merge"
+            );
+            inner.tree = built;
+
+            // We've modified the watch if the peer retired or the tree changed
+            peer_retiring || changed
         });
         // The root is published: release before the bookmark update below,
         // preserving the bookmark → commit order for every acquirer.

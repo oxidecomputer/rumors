@@ -152,8 +152,8 @@ async fn main() -> Result<(), rumors::Error> {
     // The universe's first peer creates it; every later peer bootstraps in.
     let alice = Peer::<String>::seed().into_rumors();
 
-    // A bare `send` statement commits when its `Batch` drops, right here.
-    alice.send("the meeting is at noon".to_string());
+    // A `send` commits when awaited (the in-memory set cannot fail).
+    alice.send("the meeting is at noon".to_string()).await?;
 
     // A session runs over a `Link`: a control byte stream plus a supply
     // of independent data streams (see the `link` module); here, the
@@ -172,8 +172,10 @@ async fn main() -> Result<(), rumors::Error> {
     let bob = bob.into_rumors();
 
     // Convergence: Bob holds the message Alice sent before they ever met.
+    use futures::TryStreamExt;
     let snapshot = bob.snapshot();
-    let (_key, _version, message) = snapshot.iter().next().expect("one live message");
+    let (_key, _version, message) =
+        snapshot.iter().try_next().await?.expect("one live message");
     println!("bob heard: {message}");
     // Prints exactly:
     //     bob heard: the meeting is at noon

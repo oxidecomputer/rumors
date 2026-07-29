@@ -64,6 +64,7 @@ use rumors::{Bookmark, BookmarkError, Key, Peer, Retire, Rumors, Serialized};
 use tokio::io::AsyncWrite;
 
 use crate::common::wire::block_on;
+use rumors::testing::SnapshotCollect as _;
 
 /// In-memory link stream capacity, comfortably larger than any session here ships.
 const LINK_BUF: usize = 8 * 1024;
@@ -487,7 +488,7 @@ fn incorporating_remote_content_writes_nothing() {
     let helper = block_on(serve_bootstrap(&probe.subject));
 
     // A local change, then a session: the change is checkpointed.
-    probe.subject.send(1);
+    pollster::block_on(probe.subject.send(1)).expect("the in-memory backend is infallible");
     let before = probe.cursor();
     block_on(plain_gossip(&probe.subject, &helper));
     let (_reads, writes) = probe.counts_since(before);
@@ -495,7 +496,7 @@ fn incorporating_remote_content_writes_nothing() {
 
     // Now the *helper* changes, and the subject pulls it in over a session that
     // does no local work. Not one write may occur.
-    helper.send(2);
+    pollster::block_on(helper.send(2)).expect("the in-memory backend is infallible");
     let before = probe.cursor();
     block_on(plain_gossip(&probe.subject, &helper));
     let (reads, writes) = probe.counts_since(before);
@@ -505,7 +506,11 @@ fn incorporating_remote_content_writes_nothing() {
         "incorporating remote content must drive no bookmark I/O",
     );
     assert!(
-        probe.subject.snapshot().iter().any(|(_, _, m)| **m == 2),
+        probe
+            .subject
+            .snapshot()
+            .collected()
+            .any(|(_, _, m)| *m == 2),
         "the remote content was nonetheless incorporated",
     );
 }
@@ -518,9 +523,10 @@ fn read_happens_exactly_once_across_a_long_life() {
     let helper = block_on(serve_bootstrap(&probe.subject));
 
     for round in 0..16u64 {
-        probe.subject.send(round);
+        pollster::block_on(probe.subject.send(round)).expect("the in-memory backend is infallible");
         block_on(plain_gossip(&probe.subject, &helper));
-        helper.send(1_000 + round);
+        pollster::block_on(helper.send(1_000 + round))
+            .expect("the in-memory backend is infallible");
         block_on(plain_gossip(&probe.subject, &helper));
     }
 
@@ -621,7 +627,11 @@ impl World {
             Op::Send => {
                 // A send always inserts a fresh message, ticking the subject's
                 // own region: a checkpoint is always owed afterwards.
-                self.probe.subject.send(self.next_msg);
+                self.probe
+                    .subject
+                    .send(self.next_msg)
+                    .await
+                    .expect("the in-memory backend is infallible");
                 self.next_msg += 1;
                 self.model.local_change();
                 None
@@ -636,11 +646,15 @@ impl World {
                     .probe
                     .subject
                     .snapshot()
-                    .iter()
+                    .collected()
                     .map(|(k, _, _)| k)
                     .collect();
                 if !keys.is_empty() {
-                    self.probe.subject.redact(keys[i % keys.len()]);
+                    self.probe
+                        .subject
+                        .redact(keys[i % keys.len()])
+                        .await
+                        .expect("the in-memory backend is infallible");
                     self.model.local_change();
                 }
                 None
@@ -648,7 +662,10 @@ impl World {
             Op::HelperSend(i) => {
                 if !self.helpers.is_empty() {
                     let n = self.helpers.len();
-                    self.helpers[i % n].send(1_000_000 + self.next_msg);
+                    self.helpers[i % n]
+                        .send(1_000_000 + self.next_msg)
+                        .await
+                        .expect("the in-memory backend is infallible");
                     self.next_msg += 1;
                 }
                 None

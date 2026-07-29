@@ -299,6 +299,7 @@ impl<'a, T> Iter<'a, T> {
     }
 
     /// The empty iterator, for a tree with no root.
+    #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self {
             walk: Walk::new(None, &[], ..),

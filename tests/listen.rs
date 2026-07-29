@@ -24,6 +24,7 @@ use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages, Version, causally};
 
 use crate::common::action::minted_key;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use rumors::testing::SnapshotCollect as _;
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
@@ -37,12 +38,13 @@ enum Step {
     Ended,
 }
 
-/// Poll `borrow_next` exactly once without an executor.
+/// Poll `next` exactly once without an executor.
 fn step(obs: &mut UnorderedMessages<u64>) -> Step {
-    match obs.borrow_next().now_or_never() {
+    match obs.next().now_or_never() {
         None => Step::Quiet,
-        Some(None) => Step::Ended,
-        Some(Some((k, v, m))) => Step::Item((k, v.clone(), **m)),
+        Some(Ok(None)) => Step::Ended,
+        Some(Ok(Some((k, v, m)))) => Step::Item((k, v, *m)),
+        Some(Err(e)) => match e.0 {},
     }
 }
 
@@ -63,7 +65,11 @@ fn drain(obs: &mut UnorderedMessages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
 /// identify messages uniquely; `Version` is only partially ordered, so it
 /// can't key a comparison set.)
 fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
-    rumors.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
+    rumors
+        .snapshot()
+        .collected()
+        .map(|(k, _, m)| (k, *m))
+        .collect()
 }
 
 /// §6.1 Genesis replay: a from-genesis observer on a populated set yields
@@ -73,10 +79,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
 fn genesis_replay_observes_the_live_set_once() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
-        let mut batch = rumors.batch();
-        for v in 0..8u64 {
-            batch.send(v);
-        }
+        rumors::testing::commit((0..8u64).fold(rumors.batch(), |batch, v| batch.send(v)));
     }
 
     let mut obs = rumors.unordered_messages();
@@ -107,9 +110,9 @@ fn genesis_replay_observes_the_live_set_once() {
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2).send(3);
+    rumors::testing::commit(rumors.batch().send(1).send(2).send(3));
     let v_mid = rumors.snapshot().latest().clone();
-    rumors.batch().send(4).send(5).send(6);
+    rumors::testing::commit(rumors.batch().send(4).send(5).send(6));
 
     let mut obs = rumors.unordered_messages_since(v_mid.clone());
     let (items, _) = drain(&mut obs);
@@ -144,13 +147,13 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
     assert!(initial.is_empty(), "nothing to observe yet");
 
     // A local send through a sibling clone.
-    sibling.send(10);
+    pollster::block_on(sibling.send(10)).expect("the in-memory backend is infallible");
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the sibling's send is observed");
     assert_eq!(items[0].2, 10);
 
     // A message learned through gossip.
-    b.send(20);
+    pollster::block_on(b.send(20)).expect("the in-memory backend is infallible");
     wire_gossip(&a, &b);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the gossip-learned message is observed");
@@ -169,28 +172,28 @@ fn redactions_are_honored_silently() {
 
     // Redacted before subscription: never fires.
     let pre = rumors.snapshot().latest().clone();
-    rumors.send(1);
+    pollster::block_on(rumors.send(1)).expect("the in-memory backend is infallible");
     let key_1 = minted_key(&rumors.snapshot(), &pre);
-    rumors.redact(key_1);
+    pollster::block_on(rumors.redact(key_1)).expect("the in-memory backend is infallible");
     let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "a pre-subscription redaction never fires");
 
     // Observed, then redacted: nothing further fires.
     let pre = rumors.snapshot().latest().clone();
-    rumors.send(2);
+    pollster::block_on(rumors.send(2)).expect("the in-memory backend is infallible");
     let key_2 = minted_key(&rumors.snapshot(), &pre);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the live message fires once");
-    rumors.redact(key_2);
+    pollster::block_on(rumors.redact(key_2)).expect("the in-memory backend is infallible");
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "a redaction fires no further observation");
 
     // Inserted and redacted wholly between passes: never delivered.
     let pre = rumors.snapshot().latest().clone();
-    rumors.send(3);
+    pollster::block_on(rumors.send(3)).expect("the in-memory backend is infallible");
     let key_3 = minted_key(&rumors.snapshot(), &pre);
-    rumors.redact(key_3);
+    pollster::block_on(rumors.redact(key_3)).expect("the in-memory backend is infallible");
     let (items, _) = drain(&mut obs);
     assert!(
         items.is_empty(),
@@ -198,11 +201,11 @@ fn redactions_are_honored_silently() {
     );
 
     // A from-now observer does not see pre-subscription content.
-    rumors.send(4);
+    pollster::block_on(rumors.send(4)).expect("the in-memory backend is infallible");
     let mut from_now = rumors.unordered_messages_since(rumors.snapshot().latest().clone());
     let (items, _) = drain(&mut from_now);
     assert!(items.is_empty(), "a from-now observer starts quiet");
-    rumors.send(5);
+    pollster::block_on(rumors.send(5)).expect("the in-memory backend is infallible");
     let (items, _) = drain(&mut from_now);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].2, 5, "only post-subscription content fires");
@@ -213,7 +216,7 @@ fn redactions_are_honored_silently() {
 #[test]
 fn observer_drains_the_final_state_then_ends() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    rumors::testing::commit(rumors.batch().send(1).send(2));
     let expected = live_map(&rumors);
 
     let mut obs = rumors.unordered_messages();
@@ -241,7 +244,7 @@ fn observer_drains_the_final_state_then_ends() {
 fn retire_ends_the_observer() {
     let survivor = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let retiree = bootstrap_fork(&survivor);
-    retiree.send(7);
+    pollster::block_on(retiree.send(7)).expect("the in-memory backend is infallible");
 
     let mut obs = retiree.unordered_messages();
 
@@ -274,7 +277,7 @@ fn retire_ends_the_observer() {
 #[test]
 fn observer_stays_quiet_while_actors_live() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send(1);
+    pollster::block_on(rumors.send(1)).expect("the in-memory backend is infallible");
 
     let mut obs = rumors.unordered_messages();
     let (_, ended) = drain(&mut obs);
@@ -312,7 +315,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
     // The round-trip neither ended the observer nor closed the set: a send
     // through a fresh handle is still observed.
     let rumors = peer.into_rumors();
-    rumors.send(42);
+    pollster::block_on(rumors.send(42)).expect("the in-memory backend is infallible");
     let (items, ended) = drain(&mut obs);
     assert!(!ended, "the reclaimed Peer keeps the set open");
     assert_eq!(
@@ -329,15 +332,17 @@ fn observer_does_not_block_reunite_and_survives_it() {
 #[test]
 fn lent_borrows_do_not_block_senders() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    rumors::testing::commit(rumors.batch().send(1).send(2));
 
     let mut obs = rumors.unordered_messages();
-    let lent = block_on(obs.borrow_next()).expect("first item of the pass");
-    let lent_value = *lent.2.clone();
+    let lent = block_on(obs.next())
+        .expect("the in-memory backend is infallible")
+        .expect("first item of the pass");
+    let lent_value = *lent.2;
 
     // With the borrow conceptually outstanding (the observer is mid-pass),
     // a send must not deadlock.
-    rumors.send(3);
+    pollster::block_on(rumors.send(3)).expect("the in-memory backend is infallible");
 
     let (rest, _) = drain(&mut obs);
     assert!(
@@ -356,7 +361,7 @@ fn lent_borrows_do_not_block_senders() {
 #[test]
 fn checkpoint_round_trips_on_an_unchanged_set() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2).send(3);
+    rumors::testing::commit(rumors.batch().send(1).send(2).send(3));
 
     let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
@@ -381,8 +386,8 @@ fn checkpoint_is_portable_across_replicas() {
     let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
-    a.send(1);
-    b.send(2);
+    pollster::block_on(a.send(1)).expect("the in-memory backend is infallible");
+    pollster::block_on(b.send(2)).expect("the in-memory backend is infallible");
 
     // Observe everything A has, completing the pass to earn the checkpoint.
     let mut obs_a = a.unordered_messages();
@@ -406,29 +411,32 @@ fn try_next_distinguishes_quiet_from_ended() {
     use rumors::TryNext;
 
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    rumors::testing::commit(rumors.batch().send(1).send(2));
 
     let mut obs = rumors.unordered_messages();
     let mut seen = BTreeSet::new();
-    while let TryNext::Message((_, _, m)) = obs.try_next() {
-        seen.insert(**m);
+    while let TryNext::Message((_, _, m)) = obs.try_next().expect("infallible") {
+        seen.insert(*m);
     }
     assert_eq!(seen, BTreeSet::from([1, 2]), "the pending pass drains");
     assert!(
-        matches!(obs.try_next(), TryNext::Quiet),
+        matches!(obs.try_next().expect("infallible"), TryNext::Quiet),
         "with a handle live, a drained observer is quiet, not ended"
     );
 
-    rumors.send(3);
-    let TryNext::Message((_, _, m)) = obs.try_next() else {
+    pollster::block_on(rumors.send(3)).expect("the in-memory backend is infallible");
+    let TryNext::Message((_, _, m)) = obs.try_next().expect("infallible") else {
         panic!("the new send is immediately available");
     };
-    assert_eq!(**m, 3);
+    assert_eq!(*m, 3);
 
     drop(rumors);
-    assert!(matches!(obs.try_next(), TryNext::Ended));
+    assert!(matches!(
+        obs.try_next().expect("infallible"),
+        TryNext::Ended
+    ));
     assert!(
-        matches!(obs.try_next(), TryNext::Ended),
+        matches!(obs.try_next().expect("infallible"), TryNext::Ended),
         "ended is terminal"
     );
 }
@@ -437,23 +445,20 @@ fn try_next_distinguishes_quiet_from_ended() {
 /// `borrow_next`, owned, and terminates with `None` once the set closes.
 #[test]
 fn stream_face_matches_and_terminates() {
-    use futures::StreamExt;
-
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    rumors::testing::commit(rumors.batch().send(1).send(2));
     let expected = live_map(&rumors);
 
     let mut obs = rumors.unordered_messages();
     let mut items = BTreeMap::new();
-    while let Some(Some((k, _, m))) = obs.next().now_or_never() {
+    while let Some(Ok(Some((k, _, m)))) = obs.next().now_or_never() {
         items.insert(k, *m);
     }
     assert_eq!(items, expected, "the Stream face yields the live set");
 
     drop(rumors);
-    assert_eq!(
-        obs.next().now_or_never(),
-        Some(None),
+    assert!(
+        matches!(obs.next().now_or_never(), Some(Ok(None))),
         "the Stream ends once the set closes"
     );
 }
@@ -477,11 +482,12 @@ fn folding_delivered_versions_can_lose_a_message() {
             let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0))
                 .sync_window_floor()
                 .into_rumors();
-            rumors.send(0);
-            rumors.send(candidate);
+            pollster::block_on(rumors.send(0)).expect("the in-memory backend is infallible");
+            pollster::block_on(rumors.send(candidate))
+                .expect("the in-memory backend is infallible");
             let snapshot = rumors.snapshot();
-            let first_yielded = snapshot.iter().next().expect("two live messages");
-            let later_first = **first_yielded.2 == candidate;
+            let first_yielded = snapshot.collected().next().expect("two live messages");
+            let later_first = *first_yielded.2 == candidate;
             drop(snapshot);
             later_first.then_some((rumors, candidate))
         })
@@ -562,12 +568,12 @@ proptest! {
                 Op::Send(v) => {
                     let handle = if i % 2 == 0 { &rumors } else { &sibling };
                     let pre = handle.snapshot().latest().clone();
-                    handle.send(*v);
+                    pollster::block_on(handle.send(*v)).expect("the in-memory backend is infallible");
                     minted.push(minted_key(&handle.snapshot(), &pre));
                 }
                 Op::Redact(idx) => {
                     if !minted.is_empty() {
-                        rumors.redact(minted[idx % minted.len()]);
+                        pollster::block_on(rumors.redact(minted[idx % minted.len()])).expect("the in-memory backend is infallible");
                     }
                 }
                 Op::Drain => {
@@ -614,10 +620,9 @@ proptest! {
     ) {
         let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
         {
-            let mut batch = rumors.batch();
-            for v in &phase_one {
-                batch.send(*v);
-            }
+            rumors::testing::commit(
+                phase_one.iter().fold(rumors.batch(), |batch, v| batch.send(*v)),
+            );
         }
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,
@@ -640,10 +645,9 @@ proptest! {
 
         // More traffic after the stop.
         {
-            let mut batch = rumors.batch();
-            for v in &phase_two {
-                batch.send(*v);
-            }
+            rumors::testing::commit(
+                phase_two.iter().fold(rumors.batch(), |batch, v| batch.send(*v)),
+            );
         }
 
         // Resume from the persisted checkpoint and drain to the end.
@@ -679,4 +683,52 @@ proptest! {
         // (Mid-pass, `redelivered ⊆ first_keys` holds by construction; the
         // loss-freedom assertion above is the substantive check.)
     }
+}
+
+/// Concurrent committers serialize at the commit lock: every committed
+/// message is delivered to an observer exactly once, and none is lost to
+/// a racing publish.
+///
+/// Two tasks interleave batch commits; the final set holds them all.
+#[test]
+fn concurrent_batch_commits_serialize_and_deliver_exactly_once() {
+    const PER_TASK: u64 = 100;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .build()
+        .expect("build runtime");
+    runtime.block_on(async {
+        let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let mut obs = rumors.unordered_messages();
+
+        let (a, b) = (rumors.clone(), rumors.clone());
+        let writer_a = tokio::spawn(async move {
+            for v in 0..PER_TASK {
+                a.send(v)
+                    .await
+                    .expect("the in-memory backend is infallible");
+            }
+        });
+        let writer_b = tokio::spawn(async move {
+            for v in PER_TASK..2 * PER_TASK {
+                b.send(v)
+                    .await
+                    .expect("the in-memory backend is infallible");
+            }
+        });
+        writer_a.await.expect("writer task");
+        writer_b.await.expect("writer task");
+
+        assert_eq!(rumors.snapshot().len(), 2 * PER_TASK as usize);
+
+        let mut seen = BTreeSet::new();
+        while let Some(Ok(Some((key, _, m)))) = obs.next().now_or_never() {
+            assert!(seen.insert((key, *m)), "a message was delivered twice");
+        }
+        assert_eq!(
+            seen.len(),
+            2 * PER_TASK as usize,
+            "every committed message is observed exactly once"
+        );
+    });
 }

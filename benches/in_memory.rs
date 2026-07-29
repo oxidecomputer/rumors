@@ -8,8 +8,9 @@
 //! of serializing a payload.
 //!
 //! The handles here are the asynchronous [`rumors::Rumors`] and its message
-//! observers: every operation measured is synchronous on that surface
-//! (batches commit on drop), so no runtime is involved.
+//! observers. The in-memory backend's futures and stream items are all
+//! immediately ready, so each measurement drives them with `pollster`'s
+//! single-future executor: no runtime rides inside the timed region.
 //!
 //! # Fixture discipline
 //!
@@ -41,7 +42,7 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use futures::FutureExt;
+use futures::{FutureExt, TryStreamExt};
 use rumors::{CausalMessages, Key, Peer, Rumors, UnorderedMessages, causally};
 
 // The shared grid module exposes a superset of helpers; each bench binary uses
@@ -57,10 +58,12 @@ const DELTAS: &[usize] = &[1, 100, 10_000];
 
 /// Commit `n` unit payloads to `rumors` as one batch.
 fn send_units(rumors: &Rumors<()>, n: usize) {
-    let mut batch = rumors.batch();
-    for _ in 0..n {
-        batch.send(());
-    }
+    pollster::block_on(
+        (0..n)
+            .fold(rumors.batch(), |batch, _| batch.send(()))
+            .commit(),
+    )
+    .expect("the in-memory backend is infallible");
 }
 
 /// A freshly seeded rumor set holding `n` messages, paired with its live
@@ -68,7 +71,10 @@ fn send_units(rumors: &Rumors<()>, n: usize) {
 fn build(n: usize) -> (Rumors<()>, Vec<Key>) {
     let rumors: Rumors<()> = Peer::seed().into_rumors();
     send_units(&rumors, n);
-    let keys = rumors.snapshot().iter().map(|(k, _, _)| k).collect();
+    let keys = rumors::testing::collect(&rumors.snapshot())
+        .into_iter()
+        .map(|(k, _, _)| k)
+        .collect();
     (rumors, keys)
 }
 
@@ -76,7 +82,7 @@ fn build(n: usize) -> (Rumors<()>, Vec<Key>) {
 /// many messages were yielded.
 fn drain(observer: &mut UnorderedMessages<()>) -> usize {
     let mut count = 0usize;
-    while let Some(Some(item)) = observer.borrow_next().now_or_never() {
+    while let Some(Ok(Some(item))) = observer.next().now_or_never() {
         black_box(item);
         count += 1;
     }
@@ -119,10 +125,13 @@ fn bench_iter(c: &mut Criterion) {
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let mut count = 0usize;
-                for entry in snapshot.iter() {
-                    black_box(entry);
-                    count += 1;
-                }
+                let mut walk = snapshot.iter();
+                pollster::block_on(async {
+                    while let Some(entry) = walk.try_next().await.expect("infallible") {
+                        black_box(entry);
+                        count += 1;
+                    }
+                });
                 black_box(count)
             })
         });
@@ -143,11 +152,12 @@ fn bench_redact(c: &mut Criterion) {
             b.iter_batched(
                 || build(n),
                 |(rumors, keys)| {
-                    let mut batch = rumors.batch();
-                    for key in keys {
-                        batch.redact(black_box(key));
-                    }
-                    drop(batch);
+                    pollster::block_on(
+                        keys.into_iter()
+                            .fold(rumors.batch(), |batch, key| batch.redact(black_box(key)))
+                            .commit(),
+                    )
+                    .expect("the in-memory backend is infallible");
                     rumors
                 },
                 BatchSize::PerIteration,
@@ -192,10 +202,13 @@ fn bench_range_delta(c: &mut Criterion) {
                 |b| {
                     b.iter(|| {
                         let mut count = 0usize;
-                        for entry in snapshot.range(causally::since(black_box(&checkpoint))) {
-                            black_box(entry);
-                            count += 1;
-                        }
+                        let mut walk = snapshot.range(causally::since(black_box(&checkpoint)));
+                        pollster::block_on(async {
+                            while let Some(entry) = walk.try_next().await.expect("infallible") {
+                                black_box(entry);
+                                count += 1;
+                            }
+                        });
                         black_box(count)
                     })
                 },
@@ -259,7 +272,7 @@ fn bench_observer_delta(c: &mut Criterion) {
 /// many messages were yielded: [`drain`]'s twin for the causal face.
 fn drain_causal(observer: &mut CausalMessages<()>) -> usize {
     let mut count = 0usize;
-    while let Some(Some(item)) = observer.borrow_next().now_or_never() {
+    while let Some(Ok(Some(item))) = observer.next().now_or_never() {
         black_box(item);
         count += 1;
     }
@@ -334,7 +347,10 @@ fn bench_get(c: &mut Criterion) {
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let snapshot = rumors.snapshot();
-                black_box(snapshot.get(black_box(&key)));
+                black_box(
+                    pollster::block_on(snapshot.get(black_box(&key)))
+                        .expect("the in-memory backend is infallible"),
+                );
             })
         });
     }

@@ -364,12 +364,21 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) {
     for op in script {
         match op {
             Activity::Send(value) => {
-                handle.send(value);
+                handle
+                    .send(value)
+                    .await
+                    .expect("the in-memory backend is infallible");
             }
             Activity::Redact(index) => {
-                let keys: Vec<Key> = handle.snapshot().iter().map(|(k, _, _)| k).collect();
+                let keys: Vec<Key> = rumors::testing::collect(&handle.snapshot())
+                    .into_iter()
+                    .map(|(k, _, _)| k)
+                    .collect();
                 if !keys.is_empty() {
-                    handle.redact(keys[index % keys.len()]);
+                    handle
+                        .redact(keys[index % keys.len()])
+                        .await
+                        .expect("the in-memory backend is infallible");
                 }
             }
         }
@@ -406,14 +415,14 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
         // races nothing.
         let finished = done.load(Ordering::Acquire);
 
-        while let Some(Some((key, version, _))) = plain.borrow_next().now_or_never() {
+        while let Some(Ok(Some((key, version, _)))) = plain.next().now_or_never() {
             let _ = version;
             assert!(
                 plain_seen.insert(key),
                 "Messages delivered key {key:?} twice"
             );
         }
-        while let Some(Some((key, version, _))) = causal.borrow_next().now_or_never() {
+        while let Some(Ok(Some((key, version, _)))) = causal.next().now_or_never() {
             assert!(
                 causal_seen.insert(key),
                 "CausalMessages delivered key {key:?} twice"
@@ -440,7 +449,7 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
 
     // The writers have settled and both observers are quiet: everything
     // live in the set was live at each observer's final pass.
-    for (key, _, _) in handle.snapshot().iter() {
+    for (key, _, _) in rumors::testing::collect(&handle.snapshot()) {
         assert!(
             plain_seen.contains(&key),
             "Messages never delivered live key {key:?}"
@@ -490,12 +499,12 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
 
     // Phase 1: fleet. The seed's content predates every fork.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    {
-        let mut batch = seed.batch();
-        for &v in &plan.seed_messages {
-            batch.send(v);
-        }
-    }
+    plan.seed_messages
+        .iter()
+        .fold(seed.batch(), |batch, &v| batch.send(v))
+        .commit()
+        .await
+        .expect("the in-memory backend is infallible");
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
     for _ in 1..plan.n_peers {
         let child = crate::common::wire::bootstrap_fork_async(&fleet[0]).await;

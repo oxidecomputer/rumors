@@ -15,6 +15,7 @@ use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
 
 use crate::common::gossip_snapshot::{capture_gossip, capture_session};
 use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
+use rumors::testing::SnapshotCollect as _;
 
 /// Messages each side originates after the fork: enough for multi-leaf
 /// supplied subtrees, so run batching is genuinely exercised on the wire.
@@ -39,8 +40,10 @@ fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumor
 
         let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..DIVERGENT_PER_SIDE {
-            left.send(rng.next_u64());
-            right.send(rng.next_u64());
+            pollster::block_on(left.send(rng.next_u64()))
+                .expect("the in-memory backend is infallible");
+            pollster::block_on(right.send(rng.next_u64()))
+                .expect("the in-memory backend is infallible");
         }
         (left, right)
     })
@@ -53,8 +56,8 @@ fn assert_converges(pair: (Rumors<u64>, Rumors<u64>)) {
     let (left, right) = (left.snapshot(), right.snapshot());
     assert_eq!(left.len(), right.len());
     assert_eq!(
-        left.iter().map(|(k, _, _)| k).collect::<Vec<_>>(),
-        right.iter().map(|(k, _, _)| k).collect::<Vec<_>>(),
+        left.collected().map(|(k, _, _)| k).collect::<Vec<_>>(),
+        right.collected().map(|(k, _, _)| k).collect::<Vec<_>>(),
     );
 }
 
@@ -96,10 +99,12 @@ fn seeded_diverged_pair(
 
         let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..left_messages {
-            left.send(rng.next_u64());
+            pollster::block_on(left.send(rng.next_u64()))
+                .expect("the in-memory backend is infallible");
         }
         for _ in 0..right_messages {
-            right.send(rng.next_u64());
+            pollster::block_on(right.send(rng.next_u64()))
+                .expect("the in-memory backend is infallible");
         }
         (left, right)
     })
@@ -261,7 +266,8 @@ fn seeded_provider() -> Rumors<u64> {
         .into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
     for _ in 0..DIVERGENT_PER_SIDE {
-        provider.send(rng.next_u64());
+        pollster::block_on(provider.send(rng.next_u64()))
+            .expect("the in-memory backend is infallible");
     }
     provider
 }

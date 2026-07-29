@@ -1031,18 +1031,16 @@ fn starved_pool_degrades_latency_not_liveness() {
             .expect("the seed serves the bootstrap")
             .sync_window_floor()
             .into_rumors();
-        {
-            let mut batch = seed.batch();
-            for payload in 0..2048u64 {
-                batch.send(payload);
-            }
-        }
-        {
-            let mut batch = newcomer.batch();
-            for payload in 2048..4096u64 {
-                batch.send(payload);
-            }
-        }
+        (0..2048u64)
+            .fold(seed.batch(), |batch, payload| batch.send(payload))
+            .commit()
+            .await
+            .expect("the in-memory backend is infallible");
+        (2048..4096u64)
+            .fold(newcomer.batch(), |batch, payload| batch.send(payload))
+            .commit()
+            .await
+            .expect("the in-memory backend is infallible");
         let (near, far) = futures::future::join(seed.gossip(&mut a), newcomer.gossip(&mut b)).await;
         near.expect("gossip completes over the starved pool");
         far.expect("gossip completes over the starved pool");

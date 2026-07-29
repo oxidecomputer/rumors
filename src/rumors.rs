@@ -8,9 +8,10 @@ pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
-use crate::{Batch, Error, Gossiped, Key, Network, Peer, Snapshot, Version};
+use crate::{Batch, Error, Gossiped, Key, Network, Peer, Snapshot, StorageError, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
+use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{
@@ -131,12 +132,10 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         }
     }
 
-    /// Send a message.
+    /// Send a message, committing it as its own one-action batch.
     ///
-    /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `rumors.send(message);` commits at the end of the statement, and
-    /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit.
+    /// To commit several sends and redactions atomically, accumulate them
+    /// with [`batch`](Self::batch) instead.
     ///
     /// `send` does not return the message's [`Key`]. Keys come back through
     /// observation: the observers and [`Snapshot`] attach every message to
@@ -148,32 +147,34 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///
     /// # Observe-then-send is domination
     ///
-    /// Every message this replica observed before a batch commits is in
-    /// the causal past of that batch's sends, which is the supersession
+    /// Every message this replica observed before a send commits is in
+    /// the causal past of that send, which is the supersession
     /// contract last-write-wins patterns lean on. The boundary: sends from
-    /// different threads or different batches carry **no** guaranteed
-    /// causal relationship to one another unless the application
-    /// synchronizes them itself (building a batch holds no lock, so
-    /// concurrent synchronization can land before the batch commits).
+    /// different tasks carry **no** guaranteed causal relationship to one
+    /// another unless the application synchronizes them itself.
+    ///
+    /// # Cancellation
+    ///
+    /// Dropping the future before it resolves either commits the message
+    /// or discards it, never anything in between; [`Batch::commit`] states
+    /// the full contract.
     ///
     /// # Panics
     ///
     /// If `message` fails to serialize (see [`Batch::send`]).
-    pub fn send(&self, message: T) -> Batch<'_, T>
+    pub async fn send(&self, message: T) -> Result<(), StorageError<Infallible>>
     where
         T: BorshSerialize + Send + Sync,
     {
-        self.peer.send(message)
+        self.peer.send(message).await
     }
 
-    /// Redact a message: remove the live message named by `key` from the set,
-    /// here and, through gossip, everywhere. Redacting a key not currently
-    /// held is a no-op.
+    /// Redact a message: remove the live message named by `key` from the
+    /// set, here and, through gossip, everywhere.
     ///
-    /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `rumors.redact(key);` commits at the end of the statement, and chaining
-    /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit.
+    /// Redacting a key not currently held is a no-op. Commits as its own
+    /// one-action batch; accumulate with [`batch`](Self::batch) to commit
+    /// several changes atomically.
     ///
     /// # Deletion is honored
     ///
@@ -200,29 +201,41 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// And batching breaks the correspondence anyway: a batch inserts all
     /// its messages at once, so sends are not 1:1 with insertions and a
     /// message's `Key` is not knowable until insertion.
-    pub fn redact(&self, key: Key) -> Batch<'_, T>
+    pub async fn redact(&self, key: Key) -> Result<(), StorageError<Infallible>>
     where
         T: Send + Sync,
     {
-        self.peer.redact(key)
+        self.peer.redact(key).await
     }
 
     /// Start an empty [`Batch`], for committing several changes as one
     /// atomic unit: observers and concurrent gossip sessions see either
     /// none of the batch or all of it, never a prefix.
     ///
+    /// The batch commits when [`commit`](Batch::commit) is awaited;
+    /// dropping it uncommitted aborts it.
+    ///
     /// # Examples
     ///
     /// ```
     /// use rumors::Peer;
     ///
+    /// # tokio::runtime::Builder::new_current_thread()
+    /// #     .build()
+    /// #     .unwrap()
+    /// #     .block_on(async {
     /// let rumors = Peer::<String>::seed().into_rumors();
     /// rumors
     ///     .batch()
     ///     .send("a".to_string())
-    ///     .send("b".to_string());
-    /// // The batch committed, atomically, when the statement ended.
+    ///     .send("b".to_string())
+    ///     .commit()
+    ///     .await?;
+    /// // The batch committed atomically: both messages, or neither.
     /// assert_eq!(rumors.snapshot().len(), 2);
+    /// # Ok::<(), rumors::StorageError<std::convert::Infallible>>(())
+    /// # })?;
+    /// # Ok::<(), rumors::StorageError<std::convert::Infallible>>(())
     /// ```
     pub fn batch(&self) -> Batch<'_, T>
     where
@@ -477,7 +490,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// // A long-lived link between them, one driver per end.
     /// let (mut alice_side, mut bob_side) = rumors::link::memory();
     ///
-    /// alice.send("psst".to_string());
+    /// alice.send("psst".to_string()).await?;
     ///
     /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
     /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);

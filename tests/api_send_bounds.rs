@@ -8,7 +8,6 @@
 //! future without awaiting — so a regression to a `!Send` return fails
 //! this crate's compilation.
 
-use futures::StreamExt;
 use rumors::{Peer, Rumors, Snapshot, UnorderedMessages};
 
 /// Compile-time `Send`-bound check. Takes its argument by reference so the
@@ -85,7 +84,7 @@ fn observer_futures_are_send() {
     let alice = Peer::<String>::seed().sync_window_floor().into_rumors();
     let mut messages = alice.unordered_messages();
     {
-        let fut = messages.borrow_next();
+        let fut = messages.next();
         require_send(&fut);
         drop(fut);
     }
