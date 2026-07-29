@@ -612,8 +612,9 @@ impl Party {
     /// in `mem::swap`) and *never* a publicly constructible value (a `Party` is
     /// a nonzero share).
     ///
-    /// Used as a placeholder when moving a party out of a `&mut` during `sync`,
-    /// immediately overwritten by the re-split half.
+    /// Used as a placeholder when moving a party out of a `&mut` (the
+    /// splitting iterator in [`forks`](Party::forks)), immediately
+    /// overwritten by a real share.
     pub(crate) fn anonymous() -> Party {
         Party::from_bits(codec::Bits::new())
     }
@@ -621,6 +622,22 @@ impl Party {
     /// A read-only [`IdReader`] cursor at the root of this party's packed id bits.
     pub(crate) fn view(&self) -> IdReader<'_> {
         IdReader::root(&self.0)
+    }
+
+    /// Reunites this party with `other` and re-splits the union, in one
+    /// fused walk: the `(keep, give)` halves of [`join`](Party::join)
+    /// followed by [`fork`](Party::fork), byte-identical to that
+    /// composition (`IdReader::sum_split` carries the argument; the
+    /// `sync_is_join_then_fork` law and the `sum_split` differentials pin
+    /// it), without building the joined party. `None` if the parties
+    /// overlap; neither operand is moved either way.
+    ///
+    /// `O(|a| + |b|)` worst case, and sublinear where the regions do not
+    /// interleave — a subtree owned by one side alone is spliced into its
+    /// half without a walk.
+    pub(crate) fn sum_split(&self, other: &Party) -> Option<(Party, Party)> {
+        let (keep, give) = self.view().sum_split(other.view())?;
+        Some((Party::from_bits(keep), Party::from_bits(give)))
     }
 
     /// The canonical packed bytes of this [`Party`]: what
