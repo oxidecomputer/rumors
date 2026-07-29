@@ -145,7 +145,7 @@ readme-check:
 # determinism tripwire.
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism
+gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism worst-cases-pin
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -460,6 +460,34 @@ amp-board-determinism scale="0.25":
     cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$a"
     cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$b"
     cmp "$a" "$b"
+
+# The worst-case map answers "which committed shape is worst for operation
+# X" mechanically: for every operation x currency it takes the argmax over
+# the family roster of the board's own normalized constants (each cell's
+# reading over its own denominator of record), with the runner-up and the
+# margin beside it. Honest scope: the maximum over the committed roster --
+# the claim that this is the true worst case is carried by the complexity
+# claims and their tripwires, not by this table. Runs at release, the
+# board's profile of record, at both scales of record (default and
+# acceptance), one table each.
+
+# Render the worst-case map: the argmax family per operation x currency, both scales of record.
+worst-cases:
+    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- worst-cases
+
+# The map's rankings are pinned: a committed expectation table (the
+# WORST_RANKINGS const beside the fold) is entry-compared against the live
+# fold at both scales of record, so a ranking flip is caught in the gate,
+# never discovered by a reader. A flip is news: either a family
+# legitimately overtook (re-pin deliberately with a movement annotation) or
+# a code change made some shape relatively worse (investigate first).
+# Exits nonzero on any drift, naming the operation, currency, scale, and
+# both worsts. Runs at release, the board's profile of record: rankings
+# derive from readings, and dev readings are never pinned.
+
+# Entry-compare the live worst-case fold against the committed ranking pin.
+worst-cases-pin:
+    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- worst-cases-check
 
 # Paste a peer id into the dialog, or dial one directly:
 # `just rumormill --name bob --peer <endpoint-id>`.

@@ -1005,3 +1005,164 @@ fn bench_riders_name_declared_model_cells() {
         );
     }
 }
+
+// ─── the worst-case map ─────────────────────────────────────────────────────
+
+/// An [`Entry`](super::worst::Entry) candidate with the modeled flag off,
+/// for the argmax-kernel tests.
+fn candidate(family: &'static str, value: f64) -> super::worst::Entry {
+    super::worst::Entry {
+        family,
+        value,
+        modeled: false,
+    }
+}
+
+/// The argmax kernel records every exactly-tied family at the top, sorted
+/// by name, and picks the runner-up strictly below the maximum.
+///
+/// A tie is recorded whole, so it can never make the ranking pin flappy;
+/// a runner-up tie reports the name-order first entry, and a runner-up
+/// never shadows a tied worst.
+#[test]
+fn worst_rank_records_ties_whole_and_runner_up_strictly_below() {
+    let (worst, runner_up) = super::worst::rank(vec![
+        candidate("beta", 4.0),
+        candidate("alpha", 4.0),
+        candidate("delta", 2.0),
+        candidate("gamma", 2.0),
+        candidate("zeta", 1.0),
+    ]);
+    let names: Vec<&str> = worst.iter().map(|e| e.family).collect();
+    assert_eq!(
+        names,
+        ["alpha", "beta"],
+        "tied maxima, in family-name order"
+    );
+    let runner_up = runner_up.expect("entries exist strictly below the maximum");
+    assert_eq!(
+        runner_up.family, "delta",
+        "the runner-up is the best entry strictly below the maximum, name-order first on a tie"
+    );
+    assert_eq!(runner_up.value, 2.0);
+}
+
+/// Zero readings never place in the argmax.
+///
+/// A currency every shape reads zero on folds to an empty worst set
+/// (rendered `-`), and a currency only one shape drives has a worst but
+/// no runner-up — a shape that does none of the work is not a runner-up
+/// at zero.
+#[test]
+fn worst_rank_excludes_zero_readings() {
+    let (worst, runner_up) =
+        super::worst::rank(vec![candidate("alpha", 0.0), candidate("beta", 0.0)]);
+    assert!(worst.is_empty(), "an all-zero currency is dead on the row");
+    assert!(runner_up.is_none());
+    let (worst, runner_up) =
+        super::worst::rank(vec![candidate("alpha", 1.5), candidate("beta", 0.0)]);
+    let names: Vec<&str> = worst.iter().map(|e| e.family).collect();
+    assert_eq!(names, ["alpha"]);
+    assert!(
+        runner_up.is_none(),
+        "a zero reading must not surface as a runner-up"
+    );
+}
+
+/// Render one worst-map row for a two-family column at the given margin.
+fn rendered_row(worst_value: f64, runner_up_value: f64) -> String {
+    let column = super::worst::CurrencyWorst {
+        currency: super::Currency::Touch,
+        off: false,
+        per_r: false,
+        worst: vec![candidate("alpha", worst_value)],
+        runner_up: Some(candidate("beta", runner_up_value)),
+    };
+    let mut out = Vec::new();
+    super::worst::row(&mut out, "probe_op", &column).expect("writing to a Vec succeeds");
+    String::from_utf8(out).expect("the map renders UTF-8")
+}
+
+/// The `~near-tie` flag fires exactly under [`NEAR_TIE_RATIO`](super::NEAR_TIE_RATIO).
+///
+/// A margin strictly inside the band is flagged, and a margin at the
+/// boundary or beyond is not: the flag marks rank orders a reader must
+/// not over-read, and its boundary is the pinned constant, not a
+/// formatting accident.
+#[test]
+fn worst_row_flags_near_ties_strictly_under_the_ratio() {
+    assert!(
+        rendered_row(1.2, 1.0).contains("~near-tie"),
+        "a margin inside the band must be flagged"
+    );
+    assert!(
+        !rendered_row(super::NEAR_TIE_RATIO, 1.0).contains("~near-tie"),
+        "a margin exactly at the ratio is outside the band"
+    );
+    assert!(
+        !rendered_row(2.0, 1.0).contains("~near-tie"),
+        "a clear margin must not be flagged"
+    );
+}
+
+/// The committed ranking pin stays well-formed against the live axes
+/// without a board run.
+///
+/// Per scale of record it names exactly the board's operation rows, in
+/// board row order, and every pinned worst set is name-sorted,
+/// duplicate-free rostered family names (or the dead-row `-`).
+///
+/// The cheap structural half of the pin's tamper evidence; the readings
+/// half — the argmax itself — is the release-profile entry-compare
+/// (`just worst-cases-pin`), because rankings derive from readings and
+/// dev readings are never pinned.
+#[test]
+fn worst_rankings_pin_is_well_formed() {
+    use super::family::{FamilyData, FAMILIES};
+    use super::worst::WORST_RANKINGS;
+    let ops: Vec<&str> = super::ops::ops().into_iter().map(|op| op.name).collect();
+    let families: std::collections::BTreeSet<&str> = FAMILIES
+        .iter()
+        .map(|&kind| FamilyData::build(kind, 0.02, 0).name)
+        .collect();
+    for (label, _) in super::worst::WORST_MAP_SCALES {
+        let pinned: Vec<&str> = WORST_RANKINGS
+            .iter()
+            .filter(|(scale, _, _)| *scale == label)
+            .map(|(_, op, _)| *op)
+            .collect();
+        assert_eq!(
+            pinned, ops,
+            "the {label}-scale pin must name exactly the board's operation rows, in board \
+             row order"
+        );
+    }
+    assert_eq!(
+        WORST_RANKINGS.len(),
+        ops.len() * super::worst::WORST_MAP_SCALES.len(),
+        "the pin carries exactly one entry per operation per scale of record"
+    );
+    for (scale, op, columns) in WORST_RANKINGS {
+        for worst in columns {
+            if *worst == "-" {
+                continue;
+            }
+            let names: Vec<&str> = worst.split(',').collect();
+            let mut sorted = names.clone();
+            sorted.sort_unstable();
+            sorted.dedup();
+            assert_eq!(
+                names, sorted,
+                "{op} at the {scale} scale: a pinned worst set is name-sorted and \
+                 duplicate-free"
+            );
+            for name in names {
+                assert!(
+                    families.contains(name),
+                    "{op} at the {scale} scale pins {name}, which is not on the FAMILIES \
+                     roster"
+                );
+            }
+        }
+    }
+}
