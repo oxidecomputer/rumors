@@ -214,6 +214,65 @@ fn single_value_hash_matches_reference() {
     assert_eq!(&tree_hash, reference.as_bytes());
 }
 
+/// Pins an upstream `imbl` defect this crate must design around.
+///
+/// On two `OrdMap`s that share clone-derived chunk structure (`b` built by
+/// cloning `a` and inserting), `diff` can silently skip an *update*,
+/// yielding the pure additions while mis-reporting the changed key as
+/// unchanged. Fresh, independently built maps with the same content diff
+/// correctly.
+///
+/// [`Children::diff_owned`](super::typed::node::Children::diff_owned) states
+/// the provenance constraint this imposes on its callers. The assertions
+/// here pin the *defect*: when an `imbl` upgrade makes this test fail, the
+/// bug is fixed upstream, and the constraint (and this pin) can be lifted.
+/// The key set is the minimal shrunk shape that first exposed the skip (a
+/// 27-key map gaining 11 keys plus one update).
+#[test]
+fn imbl_diff_skips_updates_between_clone_derived_maps() {
+    use imbl::OrdMap;
+    let base_keys: [u8; 27] = [
+        8, 29, 32, 35, 37, 40, 44, 57, 63, 67, 78, 79, 80, 87, 88, 91, 93, 104, 111, 114, 117, 118,
+        119, 126, 140, 141, 147,
+    ];
+    let adds: [u8; 11] = [17, 20, 22, 28, 38, 56, 62, 96, 124, 129, 131];
+    let mut a: OrdMap<u8, u64> = OrdMap::new();
+    for k in base_keys {
+        a.insert(k, 0);
+    }
+
+    // Clone-derived: ascending inserts plus one update, over shared chunks.
+    let mut derived = a.clone();
+    let mut ops: Vec<(u8, u64)> = adds.iter().map(|&k| (k, 0)).collect();
+    ops.push((93, 1));
+    ops.sort();
+    for (k, v) in ops {
+        derived.insert(k, v);
+    }
+
+    // Fresh: identical content, independently built chunks.
+    let mut fresh: OrdMap<u8, u64> = OrdMap::new();
+    for (k, v) in derived.iter() {
+        fresh.insert(*k, *v);
+    }
+    assert_eq!(derived, fresh);
+
+    let update_yielded = |ours: &OrdMap<u8, u64>, theirs: &OrdMap<u8, u64>| {
+        ours.diff(theirs)
+            .any(|item| matches!(item, imbl::ordmap::DiffItem::Update { old: (&93, _), .. }))
+    };
+    assert!(
+        update_yielded(&a, &fresh),
+        "diff against an independently built map reports the update",
+    );
+    assert!(
+        !update_yielded(&a, &derived),
+        "the upstream defect: diff against a clone-derived map skips the \
+         update; if this assertion fails, imbl fixed it upstream, and the \
+         provenance constraint on `Children::diff_owned` can be lifted",
+    );
+}
+
 proptest! {
     /// The tree's root hash must equal the reference hash derived
     /// independently from the leaf-path set alone, for any sequence of

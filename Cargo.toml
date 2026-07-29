@@ -74,6 +74,15 @@ async-stream = "0.3"
 rand = "0.8"
 
 [dev-dependencies]
+# Test-only. imbl's `OrdMap`/`OrdSet` diff — and `PartialEq`, which is
+# diff-backed — silently drops differences between clone-derived maps
+# (https://github.com/jneem/imbl/issues/161; pinned by
+# `imbl_diff_skips_updates_between_clone_derived_maps`). Production code
+# must never depend on imbl: the tree's child table is the crate's own
+# radix fan. Test code may use imbl for structural sharing, but never the
+# diff entry points nor `==` between maps (clippy.toml and the doclint
+# grep enforce the deny-list).
+imbl = "7"
 rumors = { path = ".", features = ["test-internals", "conformance"] }
 before = { path = "crates/before", features = ["borsh"] }
 proptest = "1"
