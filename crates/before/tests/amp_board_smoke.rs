@@ -105,11 +105,11 @@ fn board_runs_to_completion() {
 ///
 /// This pins the shard protocol round-trip — emit, parse, reorder,
 /// re-judge — and the merge's board-order reconstruction, in-process at
-/// smoke scale with a shard count that splits the roster unevenly. The
-/// cross-process leg of the same identity (child processes, the scales
-/// of record, the one-time-initialization hazard) is the gate's
-/// `amp-board-shard-pin` recipe, with the serial render as the
-/// reference.
+/// smoke scale with a shard count that splits the operation × family
+/// grid unevenly. The cross-process leg of the same identity (child
+/// processes, the scales of record, the one-time-initialization hazard)
+/// is the gate's `amp-board-shard-pin` recipe, with the serial render
+/// as the reference.
 #[test]
 fn sharded_render_matches_serial() {
     let heap = HeapMeter {
@@ -120,8 +120,8 @@ fn sharded_render_matches_serial() {
     let mut serial = Vec::new();
     board::run(SMOKE_SCALE, &heap, &mut serial).expect("writing to a Vec succeeds");
 
-    // Three shards over the roster: uneven slices unless the roster
-    // length happens to be a multiple.
+    // Three shards over the cell grid: uneven slices unless the grid
+    // size happens to be a multiple.
     const SHARDS: usize = 3;
     let spawn = |scale: f64| -> std::io::Result<Vec<Vec<u8>>> {
         (0..SHARDS)

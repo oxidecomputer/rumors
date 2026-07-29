@@ -429,11 +429,12 @@ bench-judge-tripwire:
 #
 # Every mode parallelizes by process sharding: the peak-heap column reads
 # the process-global allocator, so the sweep stays single-threaded inside
-# each process and the runner spawns one child per family slice instead,
-# merging the measured samples back in board order. Sharding must not move
-# a reading (the amp-board-shard-pin recipe holds the sharded render
-# byte-identical to the serial one); AMP_BOARD_SHARDS overrides the shard
-# count, and AMP_BOARD_SHARDS=1 is the direct in-process serial path.
+# each process and the runner spawns children that split the operation x
+# family cell grid instead, merging the measured samples back in board
+# order. Sharding must not move a reading (the amp-board-shard-pin recipe
+# holds the sharded render byte-identical to the serial one);
+# AMP_BOARD_SHARDS overrides the shard count, and AMP_BOARD_SHARDS=1 is
+# the direct in-process serial path.
 
 # Run the amplification board: the red-green resource-proportionality matrix over before's public operations.
 amp-board *args:
@@ -472,10 +473,11 @@ amp-board-determinism scale="0.25":
     cmp "$a" "$b"
 
 # Process sharding must not move a single reading: the sharded render (the
-# default path: one child process per family slice, each owning its own
-# global allocator) is byte-compared against the serial in-process render
-# (AMP_BOARD_SHARDS=1, the reference path) at both scales of record. Any
-# diff is a finding to investigate — a reading that depends on which
+# default path: child processes splitting the operation x family cell
+# grid, each owning its own global allocator) is byte-compared against
+# the serial in-process render (AMP_BOARD_SHARDS=1, the reference path)
+# at both scales of record. Any diff is a finding to investigate — a
+# reading that depends on which
 # process measured it (one-time lazy initialization is the known genre) —
 # never an accepted delta. On a single-core machine the default path is
 # already serial and the comparison is vacuous; the machines of record are

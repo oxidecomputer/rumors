@@ -32,11 +32,11 @@
 //! The sweep is single-threaded by design — the peak-heap column reads
 //! the process-global allocator, so concurrent threads would blend live
 //! sets — and parallelizes by process instead: every mode spawns one
-//! copy of this binary per family slice (`--shard i/N`, an internal
-//! protocol; `board::shard` documents it), each child measuring its
-//! slice under exactly the serial discipline, and the parent merges,
-//! judges, and renders. `AMP_BOARD_SHARDS` overrides the shard count
-//! (default: available parallelism, capped at the family roster);
+//! copy of this binary per slice of the operation × family cell grid
+//! (`--shard i/N`, an internal protocol; `board::shard` documents it),
+//! each child measuring its slice under exactly the serial discipline,
+//! and the parent merges, judges, and renders. `AMP_BOARD_SHARDS`
+//! overrides the shard count (default: available parallelism);
 //! `AMP_BOARD_SHARDS=1` takes the direct in-process serial path — the
 //! reference the sharded render is byte-compared against in the gate
 //! (`just amp-board-shard-pin`).
@@ -45,7 +45,6 @@ use std::io;
 use std::process::{Command, Stdio};
 
 use before::meter::board::{self, HeapMeter};
-use before::meter::registry::FamilyId;
 use peak_alloc::PeakAlloc;
 
 #[global_allocator]
@@ -68,8 +67,8 @@ fn heap_meter() -> HeapMeter {
 }
 
 /// The shard count for this run: the override if set, else available
-/// parallelism, capped at the family roster length (more children than
-/// families would only spawn empty sweeps).
+/// parallelism, capped at the cell-grid size (more children than cells
+/// would only spawn empty sweeps).
 fn shard_count() -> usize {
     let requested = match std::env::var_os(SHARDS_ENV) {
         Some(value) => value
@@ -81,13 +80,13 @@ fn shard_count() -> usize {
             }),
         None => std::thread::available_parallelism().map_or(1, usize::from),
     };
-    requested.min(FamilyId::board().count())
+    requested.min(board::max_useful_shards())
 }
 
 /// Build the child spawner: launch `count` copies of this binary
-/// concurrently, one family slice each at the given scale, and return
-/// their stdout captures in shard order (the merge validates each
-/// child's stamps).
+/// concurrently, one cell-grid slice each at the given scale, and
+/// return their stdout captures in shard order (the merge validates
+/// each child's stamps).
 fn spawner(count: usize) -> impl Fn(f64) -> io::Result<Vec<Vec<u8>>> {
     move |scale: f64| {
         let exe = std::env::current_exe()?;
