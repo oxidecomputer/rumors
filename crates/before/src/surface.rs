@@ -90,8 +90,9 @@ const fn codec_row(op: &'static str) -> SurfaceRow {
 /// combination of `partial_cmp` verdicts, which are bound on all three
 /// legs; binding the combinator adds sampling of a totally-derived form.
 const fn causally_row(op: &'static str) -> SurfaceRow {
-    const REASON: &str = "definitional combinator over the bound causal order \
-         (partial_cmp); unit-tested in causally/tests.rs";
+    const REASON: &str = "semantically a combinator over the bound causal order \
+         (partial_cmp), law-pinned to it (bounded_matches_bound_relations); \
+         unit-tested in causally/tests.rs";
     SurfaceRow {
         op,
         prod_tree: Leg::Excluded(REASON),

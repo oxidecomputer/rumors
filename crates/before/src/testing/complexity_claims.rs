@@ -317,10 +317,10 @@ const fn constant(op: &'static str) -> Claim {
     }
 }
 
-/// The `causally` module doc's shared line: thirteen rows price the same
-/// two facts, so they share one bound at one site.
+/// The `causally` module doc's shared line: fourteen rows price the same
+/// three facts, so they share one bound at one site.
 const CAUSALLY_BOUND: Bound = Bound::Custom {
-    line: "constructors `O(1)`; each validating or membership comparison `O(a + b)`.",
+    line: "constructors `O(1)`; validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
     reason: "one module-doc section prices every constructor and predicate together",
 };
 
