@@ -503,10 +503,11 @@ const CAUSALLY_COMPOSITION: &str =
     "stores two borrows plus at most one validating causal comparison, the \
      identical comparison the causally_contains row prices";
 
-/// The claims roster of record. One row per public operation, named as
-/// the coverage surface names it; the tests hold it total, its sites'
-/// terminal lines byte-equal to the rendered bounds, and its cited cells
-/// alive on the board.
+/// The claims roster of record: one row per public operation, named as
+/// the coverage surface names it.
+///
+/// The tests hold it total, its sites' terminal lines byte-equal to
+/// the rendered bounds, and its cited cells alive on the board.
 pub(crate) const CLAIMS: &[Claim] = &[
     // ───────────────────────────── Party ─────────────────────────────
     constant("Party::seed"),

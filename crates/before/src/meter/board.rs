@@ -1041,10 +1041,11 @@ pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 158.0;
 pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 177.0;
 
 /// The mirror-wide display pair's declared render model: the limb
-/// *exponent* ceiling, judged in place of [`MAX_SCALING_EXPONENT`] on
-/// exactly the `version_display` and `clock_display` mirror-wide cells
-/// (the declared-models section; every other column stays at the global
-/// bounds).
+/// *exponent* ceiling, judged in place of [`MAX_SCALING_EXPONENT`].
+///
+/// Declared on exactly the `version_display` and `clock_display`
+/// mirror-wide cells (the declared-models section; every other column
+/// stays at the global bounds).
 ///
 /// Derivation: the render's summary merge on a deep tree of wide
 /// interior values is the documented `SuperlinearTime` class (the
@@ -6182,10 +6183,11 @@ pub enum BenchMode {
     Full,
 }
 
-/// The board's not-applicable table: every `before::surface` row (method
-/// or family) with no board row of its own, and the mechanism-based
-/// reason none is meaningful — the machine-readable half of the module
-/// doc's coverage tiling.
+/// The board's not-applicable table: every `before::surface` row with
+/// no board row of its own, and the mechanism-based reason why.
+///
+/// The machine-readable half of the module doc's coverage tiling,
+/// covering method and family rows alike.
 ///
 /// The tiling test in the complexity-claims suite
 /// (`board_coverage_tiles_the_public_surface`) holds this table and the
@@ -6390,8 +6392,10 @@ pub struct ExpectedRed {
     /// Whether the cell reads red on a constant mechanism at either
     /// acceptance scale.
     pub constant: bool,
-    /// The live task that owns this entry's triage. An entry with no
-    /// owner is normalization of deviance; the acceptance assertion
+    /// The live task that owns this entry's triage.
+    ///
+    /// An entry with no owner is normalization of deviance; the
+    /// acceptance assertion
     /// (`expected_red_buffer_is_an_empty_triage_buffer` in the
     /// complexity-claims suite) refuses it, and refuses any entry at
     /// all at acceptance.
@@ -6416,9 +6420,10 @@ pub struct ExpectedRed {
 pub const BOARD_EXPECTED_REDS: &[ExpectedRed] = &[];
 
 /// Declared-model board cells outside the designed pairings whose time
-/// leg the pinned bench subset must still cover: a cell judged green
-/// under an owner-declared counter model keeps a wall-clock witness
-/// even where no designed pairing times its shape.
+/// leg the pinned bench subset must still cover.
+///
+/// A cell judged green under an owner-declared counter model keeps a
+/// wall-clock witness even where no designed pairing times its shape.
 ///
 /// Membership is by `(operation, family)` cell name, expectations live
 /// in the judge's roster as ever; a cell whose declared model dissolves

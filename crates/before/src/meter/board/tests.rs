@@ -954,7 +954,9 @@ fn declared_capacity_model_bands_the_projection_peak() {
 
 /// Every declared-model bench rider names a live board cell that
 /// actually carries a declared model, so the rider census cannot go
-/// stale: a cure that dissolves a cell's model must retire its rider in
+/// stale.
+///
+/// A cure that dissolves a cell's model must retire its rider in
 /// the same change, and a rider can never point at an undeclared cell.
 #[test]
 fn bench_riders_name_declared_model_cells() {
