@@ -818,9 +818,9 @@ const fn touch_envelope(
 mod rank_env {
     use super::{touch_envelope, TouchEnvelope};
     //                                                             peak heap, segments,    limb ops, touches, limb floor, touch floor       measured: peak heap, segments, limb ops (movement), touches
-    pub const RANK_DENSE: TouchEnvelope         = touch_envelope(      81_950,        0,     312_507, 156_259, 187_503, 93_755); //          0 -> 65_560, 240 -> 0, 3 -> 250_005, 0 -> 125_007 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
-    pub const RANK_BIGROOT: TouchEnvelope       = touch_envelope(      76_895,        0,      27_744, 21_493, 16_646, 12_895); //     41_368 -> 61_516 -> 61_708 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 16 -> 0, 2_191 -> 22_195, 4_689 -> 17_194 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
-    pub const RANK_HARMONIC: TouchEnvelope      = touch_envelope(      73_000,        0,     166_402, 248_324, 99_840, 148_994); //     33_840 -> 58_400, 124 -> 0, 2_049 -> 133_121, 67_522 -> 198_659 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
+    pub const RANK_DENSE: TouchEnvelope         = touch_envelope(      30_720,        0,     312_507,       7, 187_503, 3); //          0 -> 65_560, 240 -> 0, 3 -> 250_005, 0 -> 125_007 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads); heap 65_576 -> 24_576 and touches 125_007 -> 5 (2026-07-29, round #87: the segment feed opens at the first freeze — the depth control's touch column and scale-deep segment buffer were the feed)
+    pub const RANK_BIGROOT: TouchEnvelope       = touch_envelope(      72_045,        0,      27_744,   8_990, 16_646, 5_394); //     41_368 -> 61_516 -> 61_708 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 16 -> 0, 2_191 -> 22_195, 4_689 -> 17_194 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads); heap 61_724 -> 57_636 and touches 17_194 -> 7_192 (2026-07-29, round #87: the segment feed opens at the first freeze)
+    pub const RANK_HARMONIC: TouchEnvelope      = touch_envelope(      52_550,        0,     166_402, 166_402, 99_840, 99_840); //     33_840 -> 58_400, 124 -> 0, 2_049 -> 133_121, 67_522 -> 198_659 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads); heap 58_416 -> 42_040 and touches 198_658 -> 133_121 (2026-07-29, round #87: the segment feed opens at the first freeze — one deposit per leaf gone)
     pub const RANK_PAIR_MISMATCH: TouchEnvelope = touch_envelope(     234_400,        0,      87_910,      0, 52_746, 0); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output) -> 54_704 (2026-07-24, metered trailing_zeros) -> 70_328 (2026-07-26, widening shifts record output width: a re-denomination, the exponent-alignment work newly counted), 0
     pub const RANK_SUM_MIXED: TouchEnvelope     = touch_envelope(      78_140,        0,       9_769, 22_268, 5_861, 13_360); //     62_512 -> 62_704 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands),   0, 156_312_196 -> 3_908 (raw accumulator, one normalization) -> 7_815 (2026-07-24, metered trailing_zeros), 17_814
 }
@@ -3517,28 +3517,36 @@ mod skyline_flatness {
             touches: touch_meter::touches(),
             limb_ops: meter::limb_ops(),
         };
+        // The liveness floor is the mechanism's irreducible work, not
+        // the family's typical work: every nonzero stored delta folds
+        // into the integral's accumulator at least once, and the
+        // block's `2n` leaves alternate heights 0 and 2, so all `2n`
+        // of its deltas are nonzero.
         assert!(
-            run.touches >= run.bytes,
-            "rank at {bytes} operand bytes: {} digit touches under the \
-             one-per-byte floor: the fold's accumulator work is not \
-             metered",
+            run.touches >= 2 * n as u64,
+            "rank on WC({n}): {} digit touches under the one-per-nonzero-delta \
+             floor of {}: the fold's accumulator work is not metered",
             run.touches,
+            2 * n,
         );
         run
     }
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// weight comb, measured 2026-07-28 ×1.25.
+    /// weight comb, measured 2026-07-29 ×1.25.
     ///
-    /// The record: 21,512 / 43,016 touches and 36,353 / 72,705 limb
-    /// ops across `n = 512 → 1,024` (~3.1 touches per packed byte,
-    /// flat across the doubling). With certificate consumption
-    /// disabled (measured 2026-07-28 under a local probe build whose
-    /// scans step digit by digit), the same runs read 282,632 →
-    /// 1,089,544 touches — `n² + O(n)` exactly, ×1.93 per byte across
-    /// the doubling — so this band is the before-level adequacy
-    /// witness for the zero-run ledger.
-    const RANK_WEIGHT_COMB_CEILINGS: [(u64, u64); 2] = [(26_890, 45_441), (53_770, 90_881)];
+    /// The record: 4,104 / 8,200 touches and 36,353 / 72,705 limb
+    /// ops across `n = 512 → 1,024` (~0.58 touches per packed byte,
+    /// flat across the doubling; touches 21,512 / 43,016 → 4,104 /
+    /// 8,200 at round #87, 2026-07-29 — the segment feed opens at the
+    /// first freeze, and this family never freezes, so its per-leaf
+    /// feed deposits left with the round). With certificate
+    /// consumption disabled (measured 2026-07-28 under a local probe
+    /// build whose scans step digit by digit), the runs of that date
+    /// read 282,632 → 1,089,544 touches — `n² + O(n)` exactly, ×1.93
+    /// per byte across the doubling — so this band is the
+    /// before-level adequacy witness for the zero-run ledger.
+    const RANK_WEIGHT_COMB_CEILINGS: [(u64, u64); 2] = [(5_130, 45_441), (10_250, 90_881)];
 
     /// Block pairs of the weight-comb band's small run.
     const RANK_WEIGHT_COMB_SMALL: usize = 512;
@@ -3620,28 +3628,38 @@ mod skyline_flatness {
             touches: touch_meter::touches(),
             limb_ops: meter::limb_ops(),
         };
+        // The liveness floor is the mechanism's irreducible work, not
+        // the family's typical work: every nonzero stored delta folds
+        // into the integral's accumulator at least once, and each of
+        // the `k` freeze blocks stores two nonzero drops (the wide
+        // in-pair `2^288` and the unit cross-pair code).
         assert!(
-            run.touches >= run.bytes,
-            "rank at {bytes} operand bytes: {} digit touches under the \
-             one-per-byte floor: the fold's accumulator work is not \
-             metered",
+            run.touches >= 2 * k as u64,
+            "rank on FZ({k}): {} digit touches under the one-per-nonzero-delta \
+             floor of {}: the fold's accumulator work is not metered",
             run.touches,
+            2 * k,
         );
         run
     }
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// freeze parade, measured 2026-07-28 ×1.25.
+    /// freeze parade, measured 2026-07-29 ×1.25.
     ///
-    /// The record: 81,080 / 162,140 touches and 84,484 / 168,964 limb
-    /// ops across `k = 512 → 1,024` (~1.6 touches per packed byte,
-    /// flat across the doubling). With the write watermark disabled
-    /// (measured 2026-07-28 under a local probe build whose scaled
-    /// reads start at digit 0), the same runs read 864,953 → 3,302,749
-    /// touches and 345,605 → 1,215,493 limb ops — ×1.91 per byte
-    /// across the doubling in both currencies — so this band is the
-    /// before-level adequacy witness for the watermark read.
-    const RANK_FREEZE_PARADE_CEILINGS: [(u64, u64); 2] = [(101_350, 105_605), (202_675, 211_205)];
+    /// The record: 46,774 / 93,530 touches and 83,973 / 167,941 limb
+    /// ops across `k = 512 → 1,024` (~0.94 touches per packed byte,
+    /// flat across the doubling; touches 81,080 / 162,140 → 46,774 /
+    /// 93,530 at round #87, 2026-07-29 — the segment feed opens at the
+    /// first freeze, so the deep pre-freeze spine no longer deposits;
+    /// the freeze blocks' banked segments and settles are untouched,
+    /// and the limb column is byte-identical). With the write
+    /// watermark disabled (measured 2026-07-28 under a local probe
+    /// build whose scaled reads start at digit 0), the runs of that
+    /// date read 864,953 → 3,302,749 touches and 345,605 → 1,215,493
+    /// limb ops — ×1.91 per byte across the doubling in both
+    /// currencies — so this band is the before-level adequacy witness
+    /// for the watermark read.
+    const RANK_FREEZE_PARADE_CEILINGS: [(u64, u64); 2] = [(58_468, 104_967), (116_913, 209_927)];
 
     /// Freeze blocks of the parade band's small run.
     const RANK_FREEZE_PARADE_SMALL: usize = 512;
@@ -5200,17 +5218,17 @@ const fn query_envelope(
 mod query_env {
     use super::{query_envelope, QueryEnvelope};
     //                                                                        peak heap, segments,  limb ops, scan bits,   touches, limb floor, touch floor       measured: heap, seg, limb, scan, touches
-    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259, 187_503, 93_755); // 65_560, 0, 250_004 -> 250_005 (2026-07-24, metered trailing_zeros), 875_017, 125_007
-    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199, 16_646, 12_895); // 60_088 -> 61_516 (2026-07-24, dashu-int backend) -> 61_708 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 21_413 -> 22_195 (2026-07-24, metered trailing_zeros), 310_024, 17_194
-    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_840, 148_994); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097 -> 133_121 (2026-07-24, metered trailing_zeros), 458_763, 198_659
-    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_915,        0,     7_805,    48_647,     8_008, 4_707, 4_804); // 2_460 -> 2_540 (2026-07-24, dashu-int backend) -> 3_132 (2026-07-28, the zero-run ledger's map nodes plus the anchored-segment fold's integrator, measured at the cure-round merge), 0, 6_244 -> 6_277 (2026-07-24, metered trailing_zeros), 38_917, 6_406
-    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     4_505,        0,    29_552, 2_996_319,    27_187, 17_755, 16_311); // 2_740 -> 2_820 (2026-07-24, dashu-int backend) -> 3_604 (2026-07-28, the zero-run ledger's map nodes plus the anchored-segment fold's integrator, measured at the cure-round merge), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864 -> 21_749 (2026-07-28, certificate skips replace the accumulator's zero-run walks)
+    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    30_720,        0,   312_505, 1_093_772,         7, 187_503, 3); // 65_560, 0, 250_004 -> 250_005 (2026-07-24, metered trailing_zeros), 875_017, 125_007; heap 65_576 -> 24_576 and touches 125_007 -> 5 (2026-07-29, round #87: the segment feed opens at the first freeze — the depth control's touch column and scale-deep segment buffer were the feed)
+    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,     8_990, 16_646, 5_394); // 60_088 -> 61_516 (2026-07-24, dashu-int backend) -> 61_708 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 21_413 -> 22_195 (2026-07-24, metered trailing_zeros), 310_024, 17_194; heap 61_724 -> 57_636 (the older ceiling stands) and touches 17_194 -> 7_192 (2026-07-29, round #87: the segment feed opens at the first freeze)
+    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    52_550,        0,   165_122,   573_454,   166_402, 99_840, 99_840); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097 -> 133_121 (2026-07-24, metered trailing_zeros), 458_763, 198_659; heap 58_416 -> 42_040 and touches 198_658 -> 133_121 (2026-07-29, round #87: the segment feed opens at the first freeze — one deposit per leaf gone)
+    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_045,        0,     7_805,    48_647,     5_407, 4_707, 3_243); // 2_460 -> 2_540 (2026-07-24, dashu-int backend) -> 3_132 (2026-07-28, the zero-run ledger's map nodes plus the anchored-segment fold's integrator, measured at the cure-round merge), 0, 6_244 -> 6_277 (2026-07-24, metered trailing_zeros), 38_917, 6_406; heap 3_132 -> 2_436 and touches 6_406 -> 4_325 (2026-07-29, round #87: the segment feed opens at the first freeze)
+    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_635,        0,    29_552, 2_996_319,    24_585, 17_755, 14_751); // 2_740 -> 2_820 (2026-07-24, dashu-int backend) -> 3_604 (2026-07-28, the zero-run ledger's map nodes plus the anchored-segment fold's integrator, measured at the cure-round merge), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864 -> 21_749 (2026-07-28, certificate skips replace the accumulator's zero-run walks); heap 3_604 -> 2_908 and touches 21_749 -> 19_668 (2026-07-29, round #87: the segment feed opens at the first freeze — the no-freeze pin pays no feed at all)
     // The practical-regime gauge (2026-07-29, round #87): `Version::rank`
     // on one concurrent-pair operand — word-scale heights over organic
     // forks, no freeze, no arming. The row pins the benign path's
     // constants so the adversarial machinery's price on common inputs is
     // a committed number, not a vibe.
-    pub const RANK_CONCURRENT: QueryEnvelope              = query_envelope(        85,        0,    15_362,    81_933,    16_219, 9_216, 9_731); // 68, 0, 12_289, 65_546, 12_975 (2026-07-29, the row's pin of record at round #87's base)
+    pub const RANK_CONCURRENT: QueryEnvelope              = query_envelope(        85,        0,    15_362,    81_933,    11_099, 9_216, 6_659); // 68, 0, 12_289, 65_546, 12_975 (2026-07-29, the row's pin of record at round #87's base); touches 12_975 -> 8_879 (2026-07-29, round #87: the segment feed opens at the first freeze — the practical regime's one-third dead weight)
     pub const TICKS_DENSE: QueryEnvelope                 = query_envelope(    58_815,        0,   312_525,   468_809,   156_281, 187_515, 93_768); // 47_052 -> 47_084 (pre-existing drift, measured at the ledger cure's base) -> 47_180 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 250_020, 375_047, 125_025 (2026-07-27: the tick row's readings plus the count's gamma codes)
     pub const TICKS_NESTED_WIDE: QueryEnvelope           = query_envelope(    14_107,        0,    30_350,   150_071,    46_135, 18_210, 27_681); // 11_286 -> 11_350 (pre-existing drift, measured at the ledger cure's base) -> 11_542 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 24_280, 120_057, 36_908 (2026-07-27: the fill branch pays its documented second walk - scan ~2x the tick row's one walk)
     pub const TICKS_MIRROR_WIDE: QueryEnvelope           = query_envelope(    39_506,        0,    50_725,   230_045,   152_575, 30_435, 91_545); // 31_605 -> 31_701 (pre-existing drift, measured at the ledger cure's base) -> 31_989 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 40_580, 184_036, 122_060 (2026-07-27: second-walk fill branch, as the nested-wide row)
@@ -5249,10 +5267,10 @@ mod query_env {
     // accumulator instead of skipping the meet leg, buying the heap
     // (−96%), limb (−60%), and scan (−25%) columns down with the same
     // change.
-    pub const DISTANCE_JUMP_PAIR: QueryEnvelope           = query_envelope(     6_260,        0,    67_382, 4_022_900,   212_660, 40_428, 127_596); // 5_008 -> 5_776 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 53_905, 3_218_320, 184_494 (2026-07-27, the fused co-sweep; from 138_809, 0, 973_702, 6_464_538, 1_029_327 at the uncured composed form) -> 170_128 (2026-07-28, certificate skips replace the accumulator's zero-run walks)
-    pub const LAG_JUMP_PAIR: QueryEnvelope                = query_envelope(     6_260,        0,    63_549, 4_022_900,   176_829, 38_129, 106_097); // 5_008 -> 5_776 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 50_839, 3_218_320, 163_509 (2026-07-27, the fused co-sweep; from 138_641, 0, 127_449, 4_315_090, 87_148 at the composed form) -> 141_463 (2026-07-28, certificate skips replace the accumulator's zero-run walks)
-    pub const DISTANCE_CONCURRENT: QueryEnvelope          = query_envelope(       105,        0,    29_009,   157_859,    45_229, 17_405, 27_137); // 84, 0, 23_207, 126_287, 36_183 (2026-07-27, the fused co-sweep; from 5_964, 0, 166_549, 263_500, 61_442 at the composed form)
-    pub const LAG_CONCURRENT: QueryEnvelope               = query_envelope(       105,        0,    29_009,   157_859,    46_078, 17_405, 27_646); // 84, 0, 23_207, 126_287, 36_862 (2026-07-27, the fused co-sweep; from 5_964, 0, 95_571, 197_300, 43_696 at the composed form)
+    pub const DISTANCE_JUMP_PAIR: QueryEnvelope           = query_envelope(     5_760,        0,    67_382, 4_022_900,   208_742, 40_428, 125_244); // 5_008 -> 5_776 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 53_905, 3_218_320, 184_494 (2026-07-27, the fused co-sweep; from 138_809, 0, 973_702, 6_464_538, 1_029_327 at the uncured composed form) -> 170_128 (2026-07-28, certificate skips replace the accumulator's zero-run walks) -> 167_225 (pre-existing drift, measured at round #87's base); heap 5_376 -> 4_608 and touches 167_225 -> 166_993 (2026-07-29, round #87: the segment feed opens at the first freeze — this pair freezes early, so only the pre-freeze prefix moves)
+    pub const LAG_JUMP_PAIR: QueryEnvelope                = query_envelope(     5_760,        0,    63_549, 4_022_900,   173_489, 38_129, 104_093); // 5_008 -> 5_776 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 50_839, 3_218_320, 163_509 (2026-07-27, the fused co-sweep; from 138_641, 0, 127_449, 4_315_090, 87_148 at the composed form) -> 141_463 (2026-07-28, certificate skips replace the accumulator's zero-run walks) -> 139_023 (pre-existing drift, measured at round #87's base); heap 5_376 -> 4_608 and touches 139_023 -> 138_791 (2026-07-29, round #87: the segment feed opens at the first freeze)
+    pub const DISTANCE_CONCURRENT: QueryEnvelope          = query_envelope(       105,        0,    29_009,   157_859,    34_989, 17_405, 20_993); // 84, 0, 23_207, 126_287, 36_183 (2026-07-27, the fused co-sweep; from 5_964, 0, 166_549, 263_500, 61_442 at the composed form) -> 32_087 (pre-existing drift, measured at round #87's base) -> 27_991 (2026-07-29, round #87: the segment feed opens at the first freeze — the word-scale pair never freezes)
+    pub const LAG_CONCURRENT: QueryEnvelope               = query_envelope(       105,        0,    29_009,   157_859,    35_838, 17_405, 21_502); // 84, 0, 23_207, 126_287, 36_862 (2026-07-27, the fused co-sweep; from 5_964, 0, 95_571, 197_300, 43_696 at the composed form) -> 32_766 (pre-existing drift, measured at round #87's base) -> 28_670 (2026-07-29, round #87: the segment feed opens at the first freeze)
     // The masked-comparison rows (2026-07-27, the OwnVersion landing):
     // the fused projected comparisons on the correlated mask-drift
     // families, priced input-only on shapes whose *materialization* is

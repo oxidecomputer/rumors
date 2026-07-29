@@ -114,7 +114,11 @@
 //!   interval could ride a stale width.
 //! - `P` (*parked*): drift a freeze moved out of `L`, anchored at that
 //!   freeze. A segment-mass accumulator sums the interval masses since
-//!   `P`'s anchor; the next freeze (or the stream end) settles
+//!   `P`'s anchor — the feed opens at the first freeze, since segment
+//!   mass exists only to settle parked drift and the mass behind the
+//!   first freeze funds no settle (no arming precedes the first
+//!   window), so a sweep that never freezes deposits no interval mass
+//!   at all; the next freeze (or the stream end) settles
 //!   `P · segment` in one compacted product and re-anchors. The
 //!   segment mass's nonzero span is the *depth variation inside the
 //!   segment* — the dyadic positions' shared prefix never appears in
@@ -291,7 +295,11 @@
 //! and dense-suffix bands hold the many-freezes and many-armings
 //! genres flat, and the `ledger_wide_arming` and
 //! `answer_embedded_product` bands hold the wide × dense genres flat
-//! per byte in the fold's own traffic). Distance and lag (the `DISTANCE_*`/`LAG_*`
+//! per byte in the fold's own traffic). The freeze work's feeds open at
+//! the first freeze, so a sweep that never freezes — word-scale
+//! heights, the practical regime the `RANK_CONCURRENT` row gauges —
+//! pays the integral's own folds and nothing toward the settle
+//! machinery. Distance and lag (the `DISTANCE_*`/`LAG_*`
 //! rows, plus the `skyline_flatness` module's jump-pair and pair
 //! re-arm bands) add, per
 //! boundary, work bounded by the boundary's own folded codes — the
@@ -744,7 +752,28 @@ struct Integrator {
     /// `P`: drift parked by freezes, anchored at the last freeze.
     parked: Accumulator,
     /// The interval mass accumulated since `parked`'s anchor.
+    ///
+    /// Fed only while [`frozen`](Self::frozen) holds: every consumer of
+    /// segment mass settles drift some freeze parked, so a sweep that
+    /// never freezes — every practical-regime input — deposits nothing
+    /// here and pays nothing per interval for the settle machinery's
+    /// existence.
     seg: Accumulator,
+    /// Whether any freeze has parked drift: the gate on the segment and
+    /// window feeds.
+    ///
+    /// Until the first freeze, no segment mass can ever be read against
+    /// a parked width — the pre-freeze settle has no parked mass to
+    /// cover, and the mass banked behind the first freeze would feed
+    /// only the first promotion's window, which no arming precedes, so
+    /// the ledger settle multiplies it into nothing (a window is charged
+    /// exactly by the parked sums of entries before it, and the first
+    /// entry is the reduction's leftmost leaf in every node that
+    /// contains it). Skipping the feed until the gate opens is therefore
+    /// value-identical on every input; it removes the one per-interval
+    /// deposit — and the segment buffer's scale-deep growth — that
+    /// benign sweeps paid without ever reading.
+    frozen: bool,
     /// `B`: the opening plateau, anchored at position zero and closing
     /// as `B · 2^S`.
     base: Accumulator,
@@ -967,6 +996,7 @@ impl Integrator {
             live: Accumulator::new(),
             parked: Accumulator::new(),
             seg: Accumulator::new(),
+            frozen: false,
             base: Accumulator::new(),
             pos_local: Accumulator::new(),
             promotions: Vec::new(),
@@ -980,7 +1010,8 @@ impl Integrator {
     }
 
     /// Credit one elementary interval: the live component's contribution
-    /// at the interval's mass, and the mass itself into the segment sum.
+    /// at the interval's mass, and — once a freeze has parked drift —
+    /// the mass itself into the segment sum.
     fn interval(&mut self, weight_shift: u64) {
         // The zero test is one-sided (true means zero, false means
         // unknown), which is all this skip needs: a redundantly spelled
@@ -988,7 +1019,12 @@ impl Integrator {
         if !self.live.is_literally_zero() {
             self.total.add_accum_shl(&self.live, weight_shift);
         }
-        self.seg.add_magnitude_shl(&self.one, weight_shift);
+        // Segment mass exists to settle parked drift, so the feed waits
+        // for the gate ([`frozen`](Self::frozen) derives why the mass
+        // behind the first freeze funds nothing).
+        if self.frozen {
+            self.seg.add_magnitude_shl(&self.one, weight_shift);
+        }
     }
 
     /// Fold the orientation-change term `(σ′ − σ) · D′` into the live
@@ -1039,6 +1075,12 @@ impl Integrator {
             return;
         }
         let drift = Base::from(drift);
+        // Open the gate on the segment and window feeds: from here on,
+        // parked drift exists for segment mass to settle. At this first
+        // opening the segment sum is empty — the mass behind it funds
+        // nothing ([`frozen`](Self::frozen)) — so the settle below banks
+        // and charges only from the second freeze onward.
+        self.frozen = true;
         self.settle_segment();
         if self.parked.digit_count() > base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS {
             self.promote();
