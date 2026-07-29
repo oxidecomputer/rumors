@@ -1306,15 +1306,20 @@ fn rank_cross_path_normalization(a: &Rank, b: &Rank, c: &Rank) -> bool {
 /// Laws over one clock.
 ///
 /// The fork-event-join model's composite operations on a whole stamp:
-/// `fork` preserves the event component and splits the id, `tick`/`send`
-/// advance strictly and fix the party, `ticks` agrees with the version
-/// entry point, peeks are stable, an own-message receive is a bare tick,
-/// `sync` reconciles a fork, `own_version` is the projection, and the
-/// parts/codec/text round-trips.
+/// `fork` preserves the event component and splits the id, the balanced
+/// n-way fork's two forms agree, `tick`/`send` advance strictly and fix
+/// the party, `ticks` agrees with the version entry point, peeks are
+/// stable, an own-message receive is a bare tick, `sync` reconciles a
+/// fork, `own_version` is the projection, and the parts/codec/text
+/// round-trips.
 pub static CLOCK_SOLO: &[Law<fn(&Clock) -> bool>] = &[
     ("fork_preserves_version", fork_preserves_version),
     ("fork_splits_the_party", fork_splits_the_party),
     ("fork_join_restores_the_clock", fork_join_restores_the_clock),
+    (
+        "clock_forks_matches_from_array",
+        clock_forks_matches_from_array,
+    ),
     ("peek_is_stable", peek_is_stable),
     (
         "clock_tick_advances_and_fixes_party",
@@ -1371,6 +1376,20 @@ fn fork_join_restores_the_clock(c: &Clock) -> bool {
     let mut keeper = c.dangerously_alias();
     let child = keeper.fork();
     keeper.join(child).is_ok() && keeper == *c
+}
+
+/// The two balanced-fork forms agree at the clock level: `From<Clock>`
+/// for `[Clock; N]` equals the residual the borrowing `forks(N - 1)`
+/// keeps, followed by the shares it yields (`[residual] ++ forks`) —
+/// every child pairing its party share with a clone of the parent
+/// version.
+fn clock_forks_matches_from_array(c: &Clock) -> bool {
+    const N: usize = 4;
+    let array: [Clock; N] = c.dangerously_alias().into();
+    let mut keeper = c.dangerously_alias();
+    let yielded: Vec<Clock> = keeper.forks(N - 1).collect();
+    let reconstructed: Vec<Clock> = std::iter::once(keeper).chain(yielded).collect();
+    array.iter().eq(reconstructed.iter())
 }
 
 /// `version()` (peek) does not advance the clock: repeated peeks are equal
