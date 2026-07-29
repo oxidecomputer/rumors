@@ -390,9 +390,11 @@ impl<'a> IdLeafCursor<'a> {
 
 impl PlateauCursor for IdLeafCursor<'_> {
     /// A step's crossing is its *entering* flag: whether the cursor is
-    /// now unsettled atop a present subtree (an absent slot settles
-    /// immediately as the synthetic unowned plateau). The sweep settles
-    /// every entered subtree against the other operand before emitting.
+    /// now unsettled atop a present subtree.
+    ///
+    /// An absent slot settles immediately as the synthetic unowned
+    /// plateau. The sweep settles every entered subtree against the
+    /// other operand before emitting.
     type Crossing = bool;
 
     /// The current item's depth: its interval has width `2^-depth`.
