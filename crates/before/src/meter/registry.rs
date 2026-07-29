@@ -951,7 +951,13 @@ pub enum Coverage {
     /// suite holds the rendered matrix to, so a bundle slot gained or
     /// lost without a deliberate re-declaration fails there.
     Board {
-        /// The declared operation-row reach of this family's bundle.
+        /// The declared operation-row reach of this family's bundle:
+        /// the version-only shapes (a version, its derived pairings,
+        /// and its rejection rows) supply 43 rows; the id pair
+        /// (parties only) 38; the cross shapes (version, mounted
+        /// party pair, clock, and the id-side rejections) 64; the
+        /// fold-only populations exactly the 3 fold rows; and the
+        /// benign control supplies every row.
         cells: usize,
     },
     /// No board column: a kernel-seam probe (or an operand-tuple

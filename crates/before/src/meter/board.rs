@@ -236,13 +236,16 @@
 //!
 //! # Families
 //!
-//! Every shape from [`meter`](crate::meter) reaches every operation its
-//! operand bundle supplies (the product section above); the roster, each
-//! shape's carrier class, and the per-shape genre notes live in the
-//! `family` module, on the `FAMILIES` roster and the shape variants
-//! themselves. The list is deliberately narrower than the generator
-//! surface: a shape earns a board column only as a whole-surface
-//! adversary, while kernel-seam probes live in the envelope suite alone.
+//! Every family reaches every operation its operand bundle supplies (the
+//! product section above). The roster of record is the registry's
+//! [`FamilyId`](crate::meter::registry::FamilyId) — the board's axis is
+//! `FamilyId::board()`, the roster filtered on each variant's committed
+//! coverage answer — with the per-family genre notes on the variants and
+//! the carrier classes and operand bundles in the `family` module. The
+//! board's columns are deliberately narrower than the registry: a family
+//! earns a column only as a whole-surface adversary, while kernel-seam
+//! probes live in the envelope suite alone, each with its dated
+//! envelope-only ruling on its registry row.
 //!
 //! # Coverage: the board tiling
 //!
