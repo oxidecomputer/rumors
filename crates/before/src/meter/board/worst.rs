@@ -367,34 +367,79 @@ pub fn worst_map(label: &str, scale: f64, heap: &HeapMeter, out: &mut dyn Write)
 ///
 /// Pinned from the release-profile fold (the board's profile of record)
 /// at both [`WORST_MAP_SCALES`], 2026-07-29.
+///
+/// Movement 2026-07-29 (the dense-suffix, plateau-puncture, and
+/// lone-freeze family promotions; 56 entries re-pinned from the live
+/// release fold, every pre-existing cell's reading byte-identical to
+/// the parent renders):
+///
+/// - **plateau-puncture takes 17 heap argmaxes** (the decode, merge,
+///   query, rank, and version-rejection rows, both scales): the family
+///   stores one input-wide plateau magnitude behind dense plunge
+///   topology, so the cells that materialize the wide value read
+///   hugeleaf's genre at a denser per-byte budget (near-ties,
+///   ×1.02–1.24 over hugeleaf, weight-comb, and freeze-parade), and
+///   the query cells buffer the answer-embedded product at Θ(input)
+///   width (version_rank ×1.88, distance/lag ×1.49–1.82 over the
+///   prior worsts).
+/// - **lone-freeze takes 14 touch argmaxes** (clock_decode, the clock
+///   merges, the own-version comparisons and materializations, and the
+///   decode-rejection rows, both scales): its canonical encoding is
+///   the board's densest nonzero-delta stream (~5 bits per oscillating
+///   unit leaf), so every accumulator-running walk folds the most
+///   digit touches per packed byte — small margins (×1.02–1.32) over
+///   benign, staircase, and concurrent-pair.
+/// - **lone-freeze takes 3 heap argmaxes at the acceptance scale**
+///   (version_join/meet/meet_assign): the merge output materializes
+///   the wide plateau code over the dense unit stream, and at ×4 the
+///   operand outgrows the flat allowance that masks the constant at
+///   the default scale (×1.05–1.17 over plateau-puncture).
+/// - **dense-suffix takes 8 touch argmaxes** (the text-parse and
+///   from_str rows, both scales): the parse's per-leaf delta
+///   accumulator pays each block boundary's fixed 608-bit swing — the
+///   constant-width shadow of the mechanism the wide-arming
+///   superlinearity pin holds red beside the parse kernel — at 1.0–1.4
+///   touches per text byte (×1.07–2.05 over staircase,
+///   concurrent-pair, and hugeleaf).
+/// - **dense-suffix takes 5 scan argmaxes at the acceptance scale**
+///   (decode, min_ticks, the projection materializations,
+///   decode_trailing): whole-stream scans saturate at 8 bits per
+///   packed byte (16 on the two-walk projections), so the argmax among
+///   saturated families is a hairline constant (margins render ×1.00
+///   over freeze-pos and promo-rearm); the flip is the exact
+///   deterministic argmax, not a class movement.
+/// - **the version_decode_truncated scan tie sets grow by the three
+///   promoted families** (both scales): the truncation defect scans
+///   every byte of every version-carrying family identically, and the
+///   fold pins the whole tied set.
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
-    ("default", "version_decode", ["hugeleaf", "dense", "staircase", "staircase"]),
+    ("default", "version_decode", ["plateau-puncture", "dense", "staircase", "staircase"]),
     ("default", "version_encode", ["promo-rearm", "-", "-", "-"]),
     ("default", "version_cmp", ["hugeleaf", "staircase", "staircase", "staircase"]),
     ("default", "version_eq", ["-", "-", "-", "-"]),
-    ("default", "version_concurrent", ["hugeleaf", "staircase", "staircase", "staircase"]),
-    ("default", "version_join", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
-    ("default", "version_join_assign", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
-    ("default", "version_meet", ["hugeleaf", "dense", "weight-comb", "staircase"]),
-    ("default", "version_meet_assign", ["hugeleaf", "dense", "weight-comb", "staircase"]),
+    ("default", "version_concurrent", ["plateau-puncture", "staircase", "staircase", "staircase"]),
+    ("default", "version_join", ["plateau-puncture", "dense", "mirror-wide", "staircase"]),
+    ("default", "version_join_assign", ["plateau-puncture", "dense", "mirror-wide", "staircase"]),
+    ("default", "version_meet", ["plateau-puncture", "dense", "weight-comb", "staircase"]),
+    ("default", "version_meet_assign", ["plateau-puncture", "dense", "weight-comb", "staircase"]),
     ("default", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("default", "version_ticks", ["ascend-cliff", "mirror-narrow", "reveal-comb", "mirror-narrow"]),
     ("default", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
-    ("default", "version_rank", ["hugeleaf", "staircase", "hugeleaf", "harmonic"]),
-    ("default", "rank_pair_ops", ["freeze-parade", "concurrent-pair", "-", "-"]),
-    ("default", "rank_sum", ["weight-comb", "hugeleaf", "-", "freeze-pos"]),
-    ("default", "version_distance", ["promo-rearm", "staircase", "hugeleaf", "staircase"]),
-    ("default", "version_lag", ["promo-rearm", "staircase", "hugeleaf", "staircase"]),
+    ("default", "version_rank", ["plateau-puncture", "staircase", "hugeleaf", "harmonic"]),
+    ("default", "rank_pair_ops", ["plateau-puncture", "concurrent-pair", "-", "-"]),
+    ("default", "rank_sum", ["plateau-puncture", "hugeleaf", "-", "freeze-pos"]),
+    ("default", "version_distance", ["plateau-puncture", "staircase", "hugeleaf", "staircase"]),
+    ("default", "version_lag", ["plateau-puncture", "staircase", "hugeleaf", "staircase"]),
     ("default", "version_min_ticks", ["ascend-cliff", "staircase", "staircase", "staircase"]),
     ("default", "version_join_all", ["-", "stagger", "benign", "stagger"]),
     ("default", "version_meet_all", ["-", "stagger", "stagger", "stagger"]),
-    ("default", "own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "benign"]),
-    ("default", "own_version_cmp", ["hugeleaf", "dense", "promo-rearm", "benign"]),
+    ("default", "own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "lone-freeze"]),
+    ("default", "own_version_cmp", ["hugeleaf", "dense", "promo-rearm", "lone-freeze"]),
     ("default", "own_version_pair_cmp", ["hugeleaf", "dense", "jump-pair", "dense"]),
     ("default", "version_display", ["mirror-narrow", "mirror-wide", "jump-pair", "-"]),
-    ("default", "version_from_str", ["mirror-narrow", "staircase", "jump-pair", "staircase"]),
+    ("default", "version_from_str", ["mirror-narrow", "staircase", "jump-pair", "dense-suffix"]),
     ("default", "version_hash", ["-", "-", "-", "-"]),
-    ("default", "causally_contains", ["hugeleaf", "staircase", "staircase", "staircase"]),
+    ("default", "causally_contains", ["plateau-puncture", "staircase", "staircase", "staircase"]),
     ("default", "party_decode", ["id-pair", "-", "id-pair", "-"]),
     ("default", "party_encode", ["-", "-", "-", "-"]),
     ("default", "party_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
@@ -406,60 +451,60 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "party_display", ["pure-comb", "-", "mirror-narrow,nested-full", "-"]),
     ("default", "party_from_str", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
     ("default", "party_hash", ["-", "-", "-", "-"]),
-    ("default", "clock_decode", ["id-pair", "dense", "id-pair", "staircase"]),
+    ("default", "clock_decode", ["id-pair", "dense", "id-pair", "lone-freeze"]),
     ("default", "clock_encode", ["id-pair", "-", "-", "-"]),
     ("default", "clock_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("default", "clock_fork", ["promo-rearm", "-", "mirror-narrow,nested-full", "-"]),
-    ("default", "clock_join", ["hugeleaf", "dense", "id-pair", "concurrent-pair"]),
-    ("default", "clock_sync", ["hugeleaf", "dense", "mirror-narrow", "concurrent-pair"]),
+    ("default", "clock_join", ["plateau-puncture", "dense", "id-pair", "lone-freeze"]),
+    ("default", "clock_sync", ["plateau-puncture", "dense", "mirror-narrow", "lone-freeze"]),
     ("default", "clock_recv", ["id-pair", "id-pair", "hugeleaf", "staircase"]),
-    ("default", "clock_own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "benign"]),
+    ("default", "clock_own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "lone-freeze"]),
     ("default", "clock_display", ["tooth-tail", "mirror-wide", "jump-pair", "-"]),
-    ("default", "clock_from_str", ["dense,harmonic", "concurrent-pair", "jump-pair", "concurrent-pair"]),
+    ("default", "clock_from_str", ["dense,harmonic", "concurrent-pair", "jump-pair", "dense-suffix"]),
     ("default", "clock_hash", ["-", "-", "-", "-"]),
-    ("default", "version_decode_truncated", ["weight-comb", "harmonic", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb", "staircase"]),
-    ("default", "version_decode_trailing", ["hugeleaf", "dense", "promo-rearm", "staircase"]),
-    ("default", "version_decode_noncanon", ["hugeleaf", "harmonic", "freeze-parade,reveal-hifloor", "staircase"]),
-    ("default", "version_parse_trailing", ["mirror-narrow", "staircase", "jump-pair", "staircase"]),
-    ("default", "version_parse_noncanon", ["tooth-tail", "staircase", "jump-pair", "staircase"]),
+    ("default", "version_decode_truncated", ["plateau-puncture", "harmonic", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb", "staircase"]),
+    ("default", "version_decode_trailing", ["plateau-puncture", "dense", "promo-rearm", "staircase"]),
+    ("default", "version_decode_noncanon", ["plateau-puncture", "harmonic", "freeze-parade,reveal-hifloor", "staircase"]),
+    ("default", "version_parse_trailing", ["mirror-narrow", "staircase", "jump-pair", "dense-suffix"]),
+    ("default", "version_parse_noncanon", ["tooth-tail", "staircase", "jump-pair", "dense-suffix"]),
     ("default", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
     ("default", "party_decode_trailing", ["id-pair", "-", "id-pair", "-"]),
     ("default", "party_decode_noncanon", ["id-pair", "-", "benign,comb-scatter,staircase", "-"]),
     ("default", "party_parse_trailing", ["id-pair", "-", "-", "-"]),
     ("default", "party_parse_noncanon", ["id-pair", "-", "-", "-"]),
-    ("default", "clock_decode_truncated", ["id-pair", "harmonic", "id-pair", "staircase"]),
-    ("default", "clock_decode_trailing", ["id-pair", "dense", "id-pair", "staircase"]),
-    ("default", "clock_parse_trailing", ["dense,harmonic", "concurrent-pair", "jump-pair", "hugeleaf"]),
+    ("default", "clock_decode_truncated", ["id-pair", "harmonic", "id-pair", "lone-freeze"]),
+    ("default", "clock_decode_trailing", ["id-pair", "dense", "id-pair", "lone-freeze"]),
+    ("default", "clock_parse_trailing", ["dense,harmonic", "concurrent-pair", "jump-pair", "dense-suffix"]),
     ("default", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
     ("default", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
     ("default", "clock_sync_overlap", ["id-pair", "-", "id-pair", "-"]),
     ("default", "party_join_all_overlap", ["nested-full", "-", "benign", "-"]),
     ("default", "party_without_none", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "version_decode", ["hugeleaf", "dense", "freeze-pos", "staircase"]),
+    ("acceptance", "version_decode", ["hugeleaf", "dense", "dense-suffix", "staircase"]),
     ("acceptance", "version_encode", ["promo-rearm", "-", "-", "-"]),
     ("acceptance", "version_cmp", ["hugeleaf", "staircase", "freeze-pos", "staircase"]),
     ("acceptance", "version_eq", ["-", "-", "-", "-"]),
     ("acceptance", "version_concurrent", ["hugeleaf", "staircase", "freeze-pos", "staircase"]),
-    ("acceptance", "version_join", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
+    ("acceptance", "version_join", ["lone-freeze", "dense", "mirror-wide", "staircase"]),
     ("acceptance", "version_join_assign", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
-    ("acceptance", "version_meet", ["hugeleaf", "dense", "weight-comb", "staircase"]),
-    ("acceptance", "version_meet_assign", ["hugeleaf", "dense", "weight-comb", "staircase"]),
+    ("acceptance", "version_meet", ["lone-freeze", "dense", "weight-comb", "staircase"]),
+    ("acceptance", "version_meet_assign", ["lone-freeze", "dense", "weight-comb", "staircase"]),
     ("acceptance", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("acceptance", "version_ticks", ["ascend-cliff", "comb-scatter", "comb-scatter", "mirror-narrow"]),
     ("acceptance", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
-    ("acceptance", "version_rank", ["hugeleaf", "staircase", "hugeleaf", "staircase"]),
+    ("acceptance", "version_rank", ["plateau-puncture", "staircase", "hugeleaf", "staircase"]),
     ("acceptance", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
     ("acceptance", "rank_sum", ["bigroot", "hugeleaf", "-", "freeze-pos"]),
-    ("acceptance", "version_distance", ["pure-comb", "staircase", "hugeleaf", "staircase"]),
-    ("acceptance", "version_lag", ["pure-comb", "staircase", "hugeleaf", "staircase"]),
-    ("acceptance", "version_min_ticks", ["ascend-cliff", "staircase", "freeze-pos", "staircase"]),
+    ("acceptance", "version_distance", ["plateau-puncture", "staircase", "hugeleaf", "staircase"]),
+    ("acceptance", "version_lag", ["plateau-puncture", "staircase", "hugeleaf", "staircase"]),
+    ("acceptance", "version_min_ticks", ["ascend-cliff", "staircase", "dense-suffix", "staircase"]),
     ("acceptance", "version_join_all", ["weave", "stagger", "benign", "stagger"]),
     ("acceptance", "version_meet_all", ["weave", "stagger", "stagger", "stagger"]),
-    ("acceptance", "own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "benign"]),
-    ("acceptance", "own_version_cmp", ["hugeleaf", "dense", "freeze-pos", "benign"]),
+    ("acceptance", "own_version_to_version", ["hugeleaf", "dense", "dense-suffix", "lone-freeze"]),
+    ("acceptance", "own_version_cmp", ["hugeleaf", "dense", "freeze-pos", "lone-freeze"]),
     ("acceptance", "own_version_pair_cmp", ["hugeleaf", "dense", "jump-pair", "dense"]),
     ("acceptance", "version_display", ["mirror-narrow", "mirror-wide", "jump-pair", "-"]),
-    ("acceptance", "version_from_str", ["mirror-narrow", "staircase", "jump-pair", "staircase"]),
+    ("acceptance", "version_from_str", ["mirror-narrow", "staircase", "jump-pair", "dense-suffix"]),
     ("acceptance", "version_hash", ["-", "-", "-", "-"]),
     ("acceptance", "causally_contains", ["hugeleaf", "staircase", "freeze-pos", "staircase"]),
     ("acceptance", "party_decode", ["id-pair", "-", "id-pair", "-"]),
@@ -473,30 +518,30 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "party_display", ["pure-comb", "-", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "party_from_str", ["comb-scatter", "-", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "party_hash", ["-", "-", "-", "-"]),
-    ("acceptance", "clock_decode", ["id-pair", "dense", "id-pair", "staircase"]),
+    ("acceptance", "clock_decode", ["id-pair", "dense", "id-pair", "lone-freeze"]),
     ("acceptance", "clock_encode", ["id-pair", "-", "-", "-"]),
     ("acceptance", "clock_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("acceptance", "clock_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
-    ("acceptance", "clock_join", ["hugeleaf", "dense", "id-pair", "concurrent-pair"]),
-    ("acceptance", "clock_sync", ["hugeleaf", "dense", "mirror-narrow", "concurrent-pair"]),
+    ("acceptance", "clock_join", ["hugeleaf", "dense", "id-pair", "lone-freeze"]),
+    ("acceptance", "clock_sync", ["hugeleaf", "dense", "mirror-narrow", "lone-freeze"]),
     ("acceptance", "clock_recv", ["id-pair", "id-pair", "hugeleaf", "staircase"]),
-    ("acceptance", "clock_own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "benign"]),
+    ("acceptance", "clock_own_version_to_version", ["hugeleaf", "dense", "dense-suffix", "lone-freeze"]),
     ("acceptance", "clock_display", ["tooth-tail", "mirror-wide", "jump-pair", "-"]),
-    ("acceptance", "clock_from_str", ["dense,harmonic", "concurrent-pair", "jump-pair", "concurrent-pair"]),
+    ("acceptance", "clock_from_str", ["dense,harmonic", "concurrent-pair", "jump-pair", "dense-suffix"]),
     ("acceptance", "clock_hash", ["-", "-", "-", "-"]),
-    ("acceptance", "version_decode_truncated", ["bigroot", "harmonic", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb", "staircase"]),
-    ("acceptance", "version_decode_trailing", ["hugeleaf", "dense", "promo-rearm", "staircase"]),
+    ("acceptance", "version_decode_truncated", ["bigroot", "harmonic", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb", "staircase"]),
+    ("acceptance", "version_decode_trailing", ["hugeleaf", "dense", "dense-suffix", "staircase"]),
     ("acceptance", "version_decode_noncanon", ["hugeleaf", "harmonic", "reveal-hifloor", "staircase"]),
-    ("acceptance", "version_parse_trailing", ["mirror-narrow", "staircase", "jump-pair", "staircase"]),
-    ("acceptance", "version_parse_noncanon", ["tooth-tail", "staircase", "jump-pair", "staircase"]),
+    ("acceptance", "version_parse_trailing", ["mirror-narrow", "staircase", "jump-pair", "dense-suffix"]),
+    ("acceptance", "version_parse_noncanon", ["tooth-tail", "staircase", "jump-pair", "dense-suffix"]),
     ("acceptance", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
     ("acceptance", "party_decode_trailing", ["id-pair", "-", "id-pair", "-"]),
     ("acceptance", "party_decode_noncanon", ["id-pair", "-", "comb-scatter,staircase", "-"]),
     ("acceptance", "party_parse_trailing", ["comb-scatter", "-", "-", "-"]),
     ("acceptance", "party_parse_noncanon", ["comb-scatter", "-", "-", "-"]),
-    ("acceptance", "clock_decode_truncated", ["id-pair", "harmonic", "id-pair", "staircase"]),
-    ("acceptance", "clock_decode_trailing", ["id-pair", "dense", "id-pair", "staircase"]),
-    ("acceptance", "clock_parse_trailing", ["dense,harmonic", "concurrent-pair", "jump-pair", "hugeleaf"]),
+    ("acceptance", "clock_decode_truncated", ["id-pair", "harmonic", "id-pair", "lone-freeze"]),
+    ("acceptance", "clock_decode_trailing", ["id-pair", "dense", "id-pair", "lone-freeze"]),
+    ("acceptance", "clock_parse_trailing", ["dense,harmonic", "concurrent-pair", "jump-pair", "dense-suffix"]),
     ("acceptance", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
     ("acceptance", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
     ("acceptance", "clock_sync_overlap", ["id-pair", "-", "id-pair", "-"]),
