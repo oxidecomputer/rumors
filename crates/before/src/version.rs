@@ -561,9 +561,14 @@ impl Version {
     /// One *fused* pair walk feeds both endpoints: the meet and join
     /// emissions consume the identical crossing sequence, so each
     /// operand is decoded once and every crossing folds into the
-    /// running difference once — half the scan and accumulator traffic
-    /// of composing `&` and `|`, which the span scan-identity pins in
-    /// the resource-envelope suite (`tests/meter.rs`) hold exactly.
+    /// running difference once, where composing `&` and `|` decodes
+    /// and folds each twice. The saving is the composition's second
+    /// pair decode and second set of crossing folds — the emitted
+    /// outputs are the same either way, so total traffic shrinks by
+    /// the shared reads, not by half — and the resource-envelope
+    /// suite (`tests/meter.rs`) pins both faces: the span
+    /// scan-identity holds the decode saving exact, and the
+    /// touch-traffic undercut pins the shared folds.
     ///
     /// **Complexity**: `O(a + b)`.
     ///
