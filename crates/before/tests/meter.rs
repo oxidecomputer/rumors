@@ -8282,3 +8282,196 @@ mod placement {
         );
     }
 }
+
+// ─── span hull scenarios ─────────────────────────────────────────────────────
+//
+// The fused hull kernel's resource identities, stated relationally against
+// the single-op emissions and the pair comparison on the same operands so
+// there is no constant to re-pin: one fused sweep feeds both endpoints, so
+// the pair's streams are decoded once where the composed emitters decode
+// them twice. Two regimes, denominated separately: the *pair* regime
+// (binary `span`, and `span_all`'s leaf combines) shares its operands
+// between the meet and join legs — decode-halving; the *interior* regime
+// (`span_all`'s combines over already-merged hulls) reads a different
+// operand pair per leg — consolidation into one fold, no shared walk.
+#[cfg(feature = "scan-meter")]
+mod span {
+    use before::{meter, Clock, Version};
+
+    /// Scan bits of one closure run, on a fresh counter.
+    fn scanned(f: impl FnOnce()) -> u64 {
+        meter::reset_scan_bits();
+        f();
+        meter::scan_bits()
+    }
+
+    /// The span fixture: two comparable snapshots `s < v` of one
+    /// multi-party history (received sends give the streams real
+    /// structure), a divergent line `div` concurrent to `v`, and a
+    /// small population of intermediate snapshots for the n-ary
+    /// regimes.
+    fn fixture() -> (Version, Version, Version, Vec<Version>) {
+        let mut main = Clock::seed();
+        let mut others: Vec<Clock> = (0..6).map(|_| main.fork()).collect();
+        let mut population = Vec::new();
+        let mut rounds = |main: &mut Clock, population: &mut Vec<Version>, n: usize| {
+            let k = others.len();
+            for i in 0..n {
+                main.tick();
+                let msg = others[i % k].send().clone();
+                main.recv(&msg);
+                if i % 7 == 0 {
+                    population.push(main.version().clone());
+                }
+            }
+        };
+        rounds(&mut main, &mut population, 24);
+        let s = main.version().clone();
+        let mut diverged = main.fork();
+        rounds(&mut main, &mut population, 24);
+        let v = main.version().clone();
+        for _ in 0..24 {
+            diverged.tick();
+        }
+        let div = diverged.version().clone();
+        assert!(s < v, "the snapshot chain is strict");
+        assert!(v.concurrent(&div), "the lines diverge");
+        (s, v, div, population)
+    }
+
+    /// GREEN PIN: the fused hull decodes the pair once — the pair
+    /// regime's scan identity.
+    ///
+    /// Scan counts both stream reads and builder writes, and the fused
+    /// sweep's writes are the two single-op outputs exactly, so the
+    /// saving is precisely one decode of both operands:
+    /// `span + decode(a) + decode(b) == meet + join`, with each
+    /// operand's decode priced as half its self-comparison
+    /// (`cmp(x, x)` reads `x` twice and writes nothing — the placement
+    /// suite's self-normalizing witness, immune to the early exit a
+    /// cross-operand comparison takes on concurrent pairs). Stated
+    /// relationally, so no measured constant can rot; checked on a
+    /// comparable and a concurrent pair — emission sweeps never exit
+    /// early, so the identity is genre-independent.
+    #[test]
+    fn span_fuses_the_pair_walk() {
+        let (s, v, div, _) = fixture();
+        for (a, b, genre) in [(&s, &v, "comparable"), (&v, &div, "concurrent")] {
+            let fused = scanned(|| {
+                let _ = a.span(b);
+            });
+            let met = scanned(|| {
+                let _ = a & b;
+            });
+            let joined = scanned(|| {
+                let _ = a | b;
+            });
+            let decode_a = scanned(|| assert!(a.partial_cmp(a).is_some())) / 2;
+            let decode_b = scanned(|| assert!(b.partial_cmp(b).is_some())) / 2;
+            eprintln!(
+                "MEASURED span_pair_{genre}: fused={fused} meet={met} join={joined} \
+                 pair_decode={}",
+                decode_a + decode_b,
+            );
+            assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+            assert_eq!(
+                fused + decode_a + decode_b,
+                met + joined,
+                "{genre}: the fused hull must cost the composed emissions minus \
+                 exactly one decode of the pair"
+            );
+        }
+    }
+
+    /// GREEN PIN: `span_all`'s leaf combines ride the fused pair walk —
+    /// at one item the n-ary door scans exactly as the binary span.
+    #[test]
+    fn span_all_leaf_combine_is_the_fused_pair_walk() {
+        let (s, v, _, _) = fixture();
+        let fused = scanned(|| {
+            let _ = s.span(&v);
+        });
+        let unary = scanned(|| {
+            let _ = s.span_all([&v]);
+        });
+        eprintln!("MEASURED span_all_unary: span={fused} span_all={unary}");
+        assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+        assert_eq!(
+            unary, fused,
+            "span_all at one item must scan exactly as the binary span"
+        );
+    }
+
+    /// GREEN PIN: the n-ary hull undercuts the two composed folds, and
+    /// the saving is the leaf level's — the interior regime
+    /// consolidates without a shared walk, so the fold stays strictly
+    /// above half the composition.
+    ///
+    /// `span_all` fuses exactly the leaf combines (two raw inputs, one
+    /// shared pair walk); interior combines read a different operand
+    /// pair per leg (`lo₁ ∧ lo₂`, `hi₁ ∨ hi₂`), costing what the two
+    /// composed folds' interior levels cost. The composition is
+    /// measured over the identical population, receiver included.
+    #[test]
+    fn span_all_fuses_the_leaf_level() {
+        let (s, _, _, population) = fixture();
+        assert!(
+            population.len() >= 4,
+            "the population exercises interior combines"
+        );
+        let fused = scanned(|| {
+            let _ = s.span_all(&population);
+        });
+        let composed = scanned(|| {
+            let _ = Version::meet_all(core::iter::once(&s).chain(&population))
+                .expect("a seeded fold is nonempty");
+            let _ = Version::join_all(core::iter::once(&s).chain(&population));
+        });
+        eprintln!("MEASURED span_all_population: fused={fused} composed={composed}");
+        assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+        assert!(
+            fused < composed,
+            "the leaf-level fusion must undercut the composed folds \
+             ({fused} vs {composed})"
+        );
+        assert!(
+            fused * 2 > composed,
+            "interior combines have no shared pair walk: the fold must stay \
+             strictly above half the composition ({fused} vs {composed})"
+        );
+    }
+
+    /// GREEN PIN: the fused hull folds each crossing into the running
+    /// difference once — the accumulator-traffic face of the fusion.
+    ///
+    /// A two-accumulator spelling (each emission keeping its own
+    /// difference) would read exactly the composed sum; the strict
+    /// undercut is what pins the sharing.
+    #[cfg(feature = "limb-meter")]
+    #[test]
+    fn span_shares_the_crossing_folds() {
+        let (s, v, _, _) = fixture();
+        let limbs = |f: &dyn Fn()| {
+            meter::reset_limb_ops();
+            f();
+            meter::limb_ops()
+        };
+        let fused = limbs(&|| {
+            let _ = s.span(&v);
+        });
+        let met = limbs(&|| {
+            let _ = &s & &v;
+        });
+        let joined = limbs(&|| {
+            let _ = &s | &v;
+        });
+        eprintln!("MEASURED span_pair_limbs: fused={fused} meet={met} join={joined}");
+        assert!(fused > 0, "a live limb meter reads nonzero on a real walk");
+        assert!(
+            fused < met + joined,
+            "the fused hull must fold each crossing once: one shared \
+             difference, not one per emission ({fused} vs {} composed)",
+            met + joined
+        );
+    }
+}

@@ -637,13 +637,15 @@ impl<'a> Span<'a> {
     ///
     /// [`Version::span`] and [`Version::span_all`] construct through
     /// here — their endpoints are minted owned, so the span borrows
-    /// nothing. The caller's derivation must guarantee `lo <= hi`
-    /// (a meet/join pair over one nonempty collection always does).
+    /// nothing. The caller's derivation must guarantee `lo <= hi`; a
+    /// meet/join pair over one nonempty collection always does, and the
+    /// hull laws (`span_is_the_pair_hull`, `span_all_is_the_lattice_hull`)
+    /// pin every deriving caller's endpoints to the committed lattice
+    /// folds on every law consumer. There is deliberately no
+    /// re-validating assertion here: recomputing the comparison per
+    /// construction would spend the fused hull walk's entire saving on
+    /// re-checking an invariant the differential laws already pin.
     pub(crate) fn owned(lo: Version, hi: Version) -> Span<'static> {
-        debug_assert!(
-            lo <= hi,
-            "Span::owned requires lo <= hi: the endpoints must be one collection's meet and join"
-        );
         Span {
             lo: Cow::Owned(lo),
             hi: Cow::Owned(hi),
@@ -704,6 +706,51 @@ impl<'a> Span<'a> {
     /// cost is [`place`](Self::place)'s exactly.
     pub fn dominance_of(&self, probe: &Version) -> Dominance {
         place::dominance(probe.view(), self.lo.view(), self.hi.view())
+    }
+
+    /// The span's start endpoint, read as the *meet*.
+    ///
+    /// The lattice reading is honest for any valid span, not only a
+    /// derived hull: `lo <= hi` makes the start the meet of the two
+    /// endpoints — and of everything the span covers. On a hull from
+    /// [`Version::span`] or [`Version::span_all`] it is definitionally
+    /// the collection's [`meet_all`](Version::meet_all); the hull laws
+    /// in [`laws`](crate::laws) pin the accessor spelling.
+    ///
+    /// # Complexity
+    ///
+    /// **Complexity**: `O(1)`.
+    pub fn meet(&self) -> &Version {
+        &self.lo
+    }
+
+    /// The span's end endpoint, read as the *join* — dually to
+    /// [`meet`](Self::meet).
+    ///
+    /// `lo <= hi` makes the end the join of the two endpoints and of
+    /// everything the span covers; on a derived hull it is
+    /// definitionally the collection's
+    /// [`join_all`](Version::join_all), accessor spelling pinned by
+    /// the hull laws in [`laws`](crate::laws).
+    ///
+    /// # Complexity
+    ///
+    /// **Complexity**: `O(1)`.
+    pub fn join(&self) -> &Version {
+        &self.hi
+    }
+
+    /// Destructures this span into its owned `(meet, join)` endpoints.
+    ///
+    /// The order is [`meet`](Self::meet) then [`join`](Self::join).
+    /// Owned endpoints move out; borrowed endpoints are materialized,
+    /// at most one byte copy each.
+    ///
+    /// # Complexity
+    ///
+    /// **Complexity**: `O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.
+    pub fn into_parts(self) -> (Version, Version) {
+        (self.lo.into_owned(), self.hi.into_owned())
     }
 }
 

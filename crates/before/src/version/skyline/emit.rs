@@ -26,7 +26,10 @@
 //! reversed — pointwise max follows the higher side, pointwise min the
 //! lower — and the selection is everything that distinguishes them:
 //! each entry point passes its own picking closure and the sweep never
-//! consults which operation it is running. The output's delta across a
+//! consults which operation it is running. Because the crossing
+//! sequence and the running difference are selection-independent,
+//! [`hull`] emits both outputs from one sweep, each operand decoded
+//! once. The output's delta across a
 //! boundary needs no absolute heights:
 //!
 //! - **Same side**: the output moves with its side, so the delta is
@@ -123,6 +126,108 @@ pub fn meet(a: &BitsSlice, b: &BitsSlice) -> Bits {
         Ordering::Greater => Side::B,
         Ordering::Equal => current,
     })
+}
+
+/// The hull `(meet, join)` of the versions two skyline streams denote,
+/// as canonical skyline streams, from **one** fused sweep.
+///
+/// [`meet`] and [`join`] differ only in their side selection: both
+/// consume the identical crossing sequence — the boundaries the pair
+/// sweep's `advance_diff` yields and the one running difference `D` — and
+/// pick a side per elementary interval. Emitting both from one sweep
+/// therefore decodes each operand once and folds each crossing into
+/// the accumulator once, where composing the two entry points does
+/// both twice; only the per-interval side selections and the two
+/// output builders are doubled. Each output is byte-identical to its
+/// single-op entry point: the differential proptest beside this module
+/// pins the identity stream-level, and the `span_is_the_pair_hull` law
+/// pins it through the public door on every law consumer.
+///
+/// The per-interval sign reads this loop already performs are exactly
+/// the comparison sweep's fold, so the pair *relation* is decidable in
+/// this same pass by carrying the two surviving-direction flags beside
+/// the emissions (both surviving to exhaustion is equality; one alone
+/// is domination) — the deliberate seam for comparable-pair fast paths
+/// (hand back the operands, no emission) and single-emission equality
+/// dedup, should a caller need the verdict.
+///
+/// # Panics
+///
+/// [`join`]'s contract exactly: canonical operands required, structural
+/// violations panic, the rest yield an unspecified output pair.
+pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (Bits, Bits) {
+    /// One output of the fused sweep: its side selection (pointwise min
+    /// or max — the only point where the two outputs differ), the side
+    /// it is currently following, and its builder.
+    struct Emission {
+        pick: fn(Ordering, Side) -> Side,
+        side: Side,
+        out: SkylineBuilder,
+    }
+
+    let OpenedPair {
+        a: mut ca,
+        b: mut cb,
+        mut diff,
+        a_first,
+        b_first,
+    } = OpenedPair::open(a_bits, b_bits);
+
+    // The first interval opens each output with its winning side's
+    // absolute height; the capacity estimate is `emit`'s, per builder.
+    let mut outputs = [
+        // Pointwise min: the lower side wins, sticky at ties.
+        Emission {
+            pick: |sign, current| match sign {
+                Ordering::Less => Side::A,
+                Ordering::Greater => Side::B,
+                Ordering::Equal => current,
+            },
+            side: Side::A,
+            out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
+        },
+        // Pointwise max: the higher side wins, sticky at ties.
+        Emission {
+            pick: |sign, current| match sign {
+                Ordering::Greater => Side::A,
+                Ordering::Less => Side::B,
+                Ordering::Equal => current,
+            },
+            side: Side::A,
+            out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
+        },
+    ];
+    for emission in &mut outputs {
+        emission.side = (emission.pick)(diff.sign(), Side::A);
+        let first = match emission.side {
+            Side::A => &a_first,
+            Side::B => &b_first,
+        };
+        emission
+            .out
+            .leaf(ca.depth().max(cb.depth()), gamma_code(first));
+    }
+
+    while !(ca.done() && cb.done()) {
+        // One crossing, folded once, serves both outputs' deltas.
+        let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
+        let depth = ca.depth().max(cb.depth());
+        for emission in &mut outputs {
+            let new_side = (emission.pick)(diff.sign(), emission.side);
+            let (negative, magnitude) = if new_side == emission.side {
+                step_delta(emission.side, &da, &db)
+            } else {
+                switch_delta(&diff, new_side, step_delta(emission.side, &da, &db))
+            };
+            emission.side = new_side;
+            emission
+                .out
+                .leaf(depth, gamma_code(&zigzag_signed(negative, magnitude)));
+        }
+    }
+
+    let [lo, hi] = outputs;
+    (lo.out.finish(), hi.out.finish())
 }
 
 /// Run the emission sweep, generic over the side selection.

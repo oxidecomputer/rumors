@@ -599,6 +599,33 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     span_row("causally::Span::ordered"),
     span_row("causally::Span::place"),
     span_row("causally::Span::dominance_of"),
+    SurfaceRow {
+        op: "causally::Span::meet",
+        prod_tree: Leg::Law("span_is_the_pair_hull"),
+        prod_fs: Leg::Excluded(
+            "accessor over a stored endpoint; the hull laws pin the accessor \
+             spelling to the committed lattice folds",
+        ),
+        tree_fs: Leg::Excluded("accessor over a stored endpoint; law-pinned"),
+    },
+    SurfaceRow {
+        op: "causally::Span::join",
+        prod_tree: Leg::Law("span_is_the_pair_hull"),
+        prod_fs: Leg::Excluded(
+            "accessor over a stored endpoint; the hull laws pin the accessor \
+             spelling to the committed lattice folds",
+        ),
+        tree_fs: Leg::Excluded("accessor over a stored endpoint; law-pinned"),
+    },
+    SurfaceRow {
+        op: "causally::Span::into_parts",
+        prod_tree: Leg::Law("span_is_the_pair_hull"),
+        prod_fs: Leg::Excluded(
+            "borrow-settling mechanics of the Rust API; the law pins value \
+             preservation in (meet, join) order",
+        ),
+        tree_fs: Leg::Excluded("borrow-settling mechanics of the Rust API"),
+    },
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot

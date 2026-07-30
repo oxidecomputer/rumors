@@ -210,6 +210,18 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          door's debug assertion sits outside the cost contract",
     ),
     (
+        "causally::Span::meet",
+        "a borrow of a stored endpoint: no walk, no allocation",
+    ),
+    (
+        "causally::Span::join",
+        "a borrow of a stored endpoint: no walk, no allocation",
+    ),
+    (
+        "causally::Span::into_parts",
+        "at most one byte copy per borrowed endpoint: no walk",
+    ),
+    (
         "&Version / &Party (Div — the lazy projection view)",
         "O(1) view construction (two borrows); the materialization and fused \
          comparison costs are celled at the OwnVersion rows",

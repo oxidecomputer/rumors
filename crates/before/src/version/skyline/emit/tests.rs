@@ -3,7 +3,9 @@
 //! The recursive oracle's join and meet (through the bridge) are the
 //! byte-level value witness, a three-cursor overlay walk re-derives
 //! every output plateau pointwise, and the lattice laws are asserted on
-//! the emitted streams themselves.
+//! the emitted streams themselves. The fused hull sweep rides every
+//! oracle comparison: on each witnessed pair it must reproduce both
+//! single-op outputs byte for byte from its one walk.
 //!
 //! Canonical uniqueness is what makes the oracle differential total:
 //! the emitted stream must equal the oracle's encoded result *byte for
@@ -29,7 +31,7 @@ use crate::version::skyline::sweep::{LeafCursor, PlateauCursor, Step};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Version};
 
-use super::{join, meet};
+use super::{hull, join, meet};
 
 /// Decode a meter-generated packed shape as a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -38,7 +40,8 @@ fn version_of(p: &Packed) -> Version {
 
 /// Assert both emitters against the recursive oracle on one pair, in
 /// both operand orders, and run the pointwise overlay witness on each
-/// emitted stream.
+/// emitted stream; the fused hull sweep must reproduce both single-op
+/// outputs byte for byte from its one walk.
 fn assert_emits(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
@@ -53,6 +56,9 @@ fn assert_emits(a: &Version, b: &Version) {
         assert_eq!(out, met, "meet must match the oracle: {a} vs {b}");
         validate(&out).expect("an emitted meet is canonical");
         assert_pointwise(x, y, &out, true);
+        let (lo, hi) = hull(x, y);
+        assert_eq!(lo, met, "the fused hull's meet must match: {a} vs {b}");
+        assert_eq!(hi, joined, "the fused hull's join must match: {a} vs {b}");
     }
 }
 
@@ -239,15 +245,22 @@ fn exhaustive_small_scope_emits_identically() {
         .collect();
     pool.par_iter().for_each(|(ta, va, ea)| {
         for (tb, vb, eb) in &pool {
+            let joined = encode(&from_oracle_version(&(ta.clone() | tb.clone())));
+            let met = encode(&from_oracle_version(&(ta.clone() & tb.clone())));
             assert_eq!(
                 join(ea, eb),
-                encode(&from_oracle_version(&(ta.clone() | tb.clone()))),
+                joined,
                 "join must match the oracle: {va} vs {vb}"
             );
             assert_eq!(
                 meet(ea, eb),
-                encode(&from_oracle_version(&(ta.clone() & tb.clone()))),
+                met,
                 "meet must match the oracle: {va} vs {vb}"
+            );
+            assert_eq!(
+                hull(ea, eb),
+                (met, joined),
+                "the fused hull must match both single-op outputs: {va} vs {vb}"
             );
         }
     });

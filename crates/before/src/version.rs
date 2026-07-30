@@ -558,7 +558,12 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// One meet and one join over the pair.
+    /// One *fused* pair walk feeds both endpoints: the meet and join
+    /// emissions consume the identical crossing sequence, so each
+    /// operand is decoded once and every crossing folds into the
+    /// running difference once — half the scan and accumulator traffic
+    /// of composing `&` and `|`, which the span scan-identity pins in
+    /// the resource-envelope suite (`tests/meter.rs`) hold exactly.
     ///
     /// **Complexity**: `O(a + b)`.
     ///
@@ -581,7 +586,8 @@ impl Version {
     /// assert_eq!(hull.place(&vb), Placement::Between);
     /// ```
     pub fn span(&self, other: &Version) -> causally::Span<'static> {
-        causally::Span::owned(Self::meet_refs(self, other), Self::join_refs(self, other))
+        let (lo, hi) = Self::span_refs(self, other);
+        causally::Span::owned(lo, hi)
     }
 
     /// The causal span of this version and every version in `others`:
@@ -652,20 +658,19 @@ impl Version {
         // lattice directions, and carrying `(lo, hi)` through the
         // counter feeds them from a single pass — the caller's iterator
         // is never buffered, and each input is read at its combines
-        // alone. A leaf combine (two raw inputs) derives the pair hull;
-        // an interior combine folds per side, because its two legs read
-        // *different* operand pairs (`lo₁ ∧ lo₂` and `hi₁ ∨ hi₂`) — no
-        // shared pair walk exists there to fuse.
+        // alone. A leaf combine (two raw inputs) derives the pair hull
+        // through the fused pair walk, each input decoded once for both
+        // endpoints; an interior combine folds per side, because its
+        // two legs read *different* operand pairs (`lo₁ ∧ lo₂` and
+        // `hi₁ ∨ hi₂`) — no shared pair walk exists there to fuse.
         let inputs = core::iter::once(SpanInput::Receiver(self))
             .chain(others.into_iter().map(SpanInput::Item))
             .map(Hull::Input);
         let group = crate::fold::balanced_reduce(inputs, |a, b| {
             let (lo, hi) = match (a, b) {
-                // A leaf combine: two raw inputs derive their pair hull.
-                (Hull::Input(a), Hull::Input(b)) => {
-                    let (a, b) = (a.version(), b.version());
-                    (Self::meet_refs(a, b), Self::join_refs(a, b))
-                }
+                // A leaf combine: two raw inputs derive their pair hull
+                // in one fused walk.
+                (Hull::Input(a), Hull::Input(b)) => Self::span_refs(a.version(), b.version()),
                 (Hull::Merged { mut lo, mut hi }, Hull::Input(b)) => {
                     let b = b.version();
                     lo.meet_view(b.view());
@@ -862,6 +867,32 @@ impl Version {
             return Version::new(); // v ∧ 0 = 0, whatever `v` was
         }
         Version::from_bits(skyline::emit::meet(&a.0, &b.0))
+    }
+
+    /// The borrowed-operands hull: `(a ∧ b, a ∨ b)` as fresh
+    /// [`Version`]s from **one** fused emission sweep, reading both
+    /// operands in place.
+    ///
+    /// The short-circuits are [`meet_refs`](Self::meet_refs) and
+    /// [`join_refs`](Self::join_refs)'s in the same order — keep the
+    /// three in lockstep — each settling both endpoints at once. The
+    /// general path runs one pair walk feeding both output builders
+    /// (`skyline::emit::hull`), where composing the two emitters would
+    /// decode each operand twice and fold every crossing twice.
+    fn span_refs(a: &Version, b: &Version) -> (Version, Version) {
+        if codec::canonical_eq(&a.0, &b.0) {
+            return (a.clone(), a.clone()); // a ∧ a = a = a ∨ a
+        }
+        if skyline::is_empty_stream(&a.0) {
+            // 0 ∧ v = 0 (`a` is already the meet), 0 ∨ v = v.
+            return (a.clone(), b.clone());
+        }
+        if skyline::is_empty_stream(&b.0) {
+            // v ∧ 0 = 0, v ∨ 0 = v.
+            return (Version::new(), a.clone());
+        }
+        let (lo, hi) = skyline::emit::hull(&a.0, &b.0);
+        (Version::from_bits(lo), Version::from_bits(hi))
     }
 
     /// Encodes this [`Version`] to bytes.

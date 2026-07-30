@@ -833,7 +833,8 @@ fn bounded_coarsens_span_place(a: &Version, b: &Version, c: &Version) -> bool {
 /// meet and join over `{receiver} ∪ items`, every input within.
 ///
 /// The endpoints are [`Version::meet_all`] and
-/// [`Version::join_all`] over all three inputs; which input rides as
+/// [`Version::join_all`] over all three inputs — the accessors read
+/// exactly them back; which input rides as
 /// the receiver is irrelevant and so is item order (the fold laws'
 /// order-independence, observed through the door); and every input
 /// places within the hull — never
@@ -844,11 +845,12 @@ fn span_all_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
     let meet = Version::meet_all([a, b, c]).expect("a triple is nonempty");
     let join = Version::join_all([a, b, c]);
     let definitional = hull == Span::ordered(&meet, &join);
+    let accessors = *hull.meet() == meet && *hull.join() == join;
     let permuted = hull == c.span_all([a, b]) && hull == b.span_all([c, a]);
     let contained = [a, b, c]
         .into_iter()
         .all(|v| !matches!(hull.place(v), Placement::Before | Placement::After));
-    definitional && permuted && contained
+    definitional && accessors && permuted && contained
 }
 
 /// `place` against the degenerate span `[v, v]` is pairwise
@@ -877,9 +879,11 @@ fn degenerate_span_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
 }
 
 /// The pair span: endpoints the pair's meet and join, commutative,
-/// subsuming the flip repair on comparable pairs, and coherent with
-/// the n-ary form at its edges (the empty iterator is the coincident
-/// `[self, self]`, one item is the binary span).
+/// subsuming the flip repair on comparable pairs, coherent with the
+/// n-ary form at its edges (the empty iterator is the coincident
+/// `[self, self]`, one item is the binary span), and read back exactly
+/// by the accessors (`meet`/`join` borrow the endpoints; `into_parts`
+/// hands them out owned, in `(meet, join)` order).
 ///
 /// On a comparable pair the hull *is* the reordered pair (either
 /// orientation yields the validated span); on a concurrent pair
@@ -888,6 +892,10 @@ fn span_is_the_pair_hull(a: &Version, b: &Version) -> bool {
     let hull = a.span(b);
     let (meet, join) = (a & b, a | b);
     let definitional = hull == Span::ordered(&meet, &join);
+    let accessors = *hull.meet() == meet && *hull.join() == join && {
+        let (lo, hi) = a.span(b).into_parts();
+        lo == meet && hi == join
+    };
     let commutative = hull == b.span(a);
     let flip_subsumed = match a.partial_cmp(b) {
         Some(Ordering::Less | Ordering::Equal) => hull == Span::ordered(a, b),
@@ -896,7 +904,7 @@ fn span_is_the_pair_hull(a: &Version, b: &Version) -> bool {
     };
     let empty_edge = a.span_all(core::iter::empty::<&Version>()) == Span::ordered(a, a);
     let unary_edge = a.span_all([b]) == hull;
-    definitional && commutative && flip_subsumed && empty_edge && unary_edge
+    definitional && accessors && commutative && flip_subsumed && empty_edge && unary_edge
 }
 
 // ───────────────────────────── Party: one value ─────────────────────────────

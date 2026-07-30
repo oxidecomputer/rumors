@@ -678,12 +678,11 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             bound: Bound::LinearPair,
         }],
-        // The pair hull is one meet and one join over the same pair;
-        // their rows witness the class.
-        cells: Cells::Board(&[
-            ("version_meet", Class::Linear),
-            ("version_join", Class::Linear),
-        ]),
+        // The fused pair hull has its own row: one sweep feeds both
+        // endpoints, priced directly rather than as the join/meet
+        // composition it undercuts (the span scan-identity pins in
+        // tests/meter.rs hold the undercut exact).
+        cells: Cells::Board(&[("version_span", Class::Linear)]),
     },
     Claim {
         op: "Version::span_all",
@@ -691,12 +690,9 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             bound: Bound::Fold,
         }],
-        // The hull's endpoints are the two committed lattice folds;
-        // their rows witness the class.
-        cells: Cells::Board(&[
-            ("version_meet_all", Class::FoldLog),
-            ("version_join_all", Class::FoldLog),
-        ]),
+        // The hull fold has its own row: one balanced reduction
+        // carrying both endpoints, leaf combines fused.
+        cells: Cells::Board(&[("version_span_all", Class::FoldLog)]),
     },
     Claim {
         op: "Version::encode",
@@ -1064,6 +1060,22 @@ pub(crate) const CLAIMS: &[Claim] = &[
         "causally::Span::dominance_of",
         Cells::Board(&[("causally_contains", Class::Linear)]),
     ),
+    constant("causally::Span::meet"),
+    constant("causally::Span::join"),
+    Claim {
+        op: "causally::Span::into_parts",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Custom {
+                line: "`O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.",
+                reason: "a borrow-settling move: at most one byte copy per endpoint, no \
+                         walk; no template splits on the operands' borrow state",
+            },
+        }],
+        cells: Cells::Uncelled(
+            "at most one byte copy per borrowed endpoint (the board's coverage table)",
+        ),
+    },
     // ─────────────────────── operator/trait families ───────────────────────
     Claim {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
