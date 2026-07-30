@@ -142,16 +142,8 @@ where
     type Backend = Failing<N::Backend>;
     type Height = N::Height;
 
-    fn ceiling(&self) -> &Version {
-        self.0.ceiling()
-    }
-
-    fn floor(&self) -> &Version {
-        self.0.floor()
-    }
-
-    fn dominance_of(&self, known: &Version) -> causally::Dominance {
-        self.0.dominance_of(known)
+    fn span(&self) -> causally::Span<'_> {
+        self.0.span()
     }
 
     fn hash(&self) -> Hash {

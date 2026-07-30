@@ -800,7 +800,7 @@ where
         let supply = match replies.as_slice() {
             [] => None,
             [Reaction::Supply(radix, leaf)] if *radix == expected => {
-                if !contained(leaf.ceiling(), &their_version) {
+                if !contained(leaf.span().join(), &their_version) {
                     return violation(Violation::UncontainedSupply);
                 }
                 stats.gained(1);
