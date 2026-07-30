@@ -1901,14 +1901,8 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
 /// A concurrent pair sharing a rank (half vs. the two-peak tree) drives
 /// the fused walk's hardest arm (the exact total must cancel to zero)
 /// into the tiebreak: the views compare non-`Equal`, ordered exactly as
-/// the versions' canonical bytes, while `to_rank` still ties and every
-/// rank-only heterogeneous mix still answers `Equal` — which also
-/// witnesses the documented cross-type hazard (each view equals the
-/// shared `Rank`; the views differ from each other).
-// The redundant-looking operand mixes are the point: each spelling
-// exercises a distinct heterogeneous impl (`Ranked` vs `&Rank`,
-// `&Ranked` vs `Rank`, ...).
-#[allow(clippy::nonminimal_bool, clippy::op_ref)]
+/// the versions' canonical bytes, while the rank question — asked
+/// explicitly through `to_rank` — still answers a tie.
 #[test]
 fn ranked_orders_equal_rank_concurrent_pairs_by_bytes() {
     let half: Version = "(0, 1, 0)".parse().unwrap();
@@ -1923,12 +1917,6 @@ fn ranked_orders_equal_rank_concurrent_pairs_by_bytes() {
     assert_eq!(h.cmp(&p), byte_order, "rank ties order by version bytes");
     assert_eq!(p.cmp(&h), byte_order.reverse());
     assert_eq!(h.to_rank(), p.to_rank(), "the ranks themselves still tie");
-    // The rank-only heterogeneous mixes still answer `Equal` — the
-    // documented non-transitive triangle, witnessed directly:
-    // h == rank, rank == p, yet h != p.
-    assert!(h == peaks.rank() && half.rank() == p);
-    assert!(h == &peaks.rank() && &half.rank() == p.clone());
-    assert!(&h == peaks.rank());
 }
 
 proptest! {

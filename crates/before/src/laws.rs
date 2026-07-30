@@ -440,31 +440,24 @@ fn version_eq_implies_hash_eq(a: &Version, b: &Version) -> bool {
 ///
 /// The fused co-walk equals the materialized `Rank` order wherever the
 /// ranks differ, rank ties resolve by the versions' canonical bytes,
-/// equality is version identity, every heterogeneous operand mix
-/// (`Ranked` vs [`Rank`], either direction, owned and borrowed)
-/// answers the rank question alone — and the order therefore extends
+/// equality is version identity, the explicit spelling of the rank
+/// question (`to_rank`, then [`Rank`]'s own comparison) answers exactly
+/// the materialized rank order — and the order therefore extends
 /// causality (causally ordered versions compare the same way, by rank
 /// strict monotonicity; only ties fall to the causally-free tiebreak).
-// The "needless" borrows are the point: the law exercises the
-// `&Ranked` operand impls std would not derive.
-#[allow(clippy::needless_borrow)]
 fn ranked_orders_by_rank_then_bytes(a: &Version, b: &Version) -> bool {
     let (ra, rb) = (Ranked::from(a), Ranked::from(b));
     let rank_want = a.rank().cmp(&b.rank());
     let want = rank_want.then_with(|| a.as_bytes().cmp(b.as_bytes()));
     let fused = ra.cmp(&rb) == want && rb.cmp(&ra) == want.reverse();
     let eq = (ra == rb) == (a == b);
-    let heterogeneous = ra.partial_cmp(&b.rank()) == Some(rank_want)
-        && a.rank().partial_cmp(&rb) == Some(rank_want)
-        && (ra == b.rank()) == (rank_want == Ordering::Equal)
-        && (a.rank() == rb) == (rank_want == Ordering::Equal)
-        && (&ra).partial_cmp(&b.rank()) == Some(rank_want)
-        && ra.partial_cmp(&&b.rank()) == Some(rank_want);
+    let explicit = ra.to_rank().cmp(&rb.to_rank()) == rank_want
+        && (ra.to_rank() == b.rank()) == (rank_want == Ordering::Equal);
     let extends = match a.partial_cmp(b) {
         Some(ord) => want == ord,
         None => true, // concurrent: rank or tiebreak orders them
     };
-    fused && eq && heterogeneous && extends
+    fused && eq && explicit && extends
 }
 
 /// The composite key encoding is lexicographic, totally: byte order on

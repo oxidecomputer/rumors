@@ -761,13 +761,13 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("not a paper object; see the prod↔tree reason"),
     },
     SurfaceRow {
-        op: "Ranked / Rank comparisons and From conversions (the total order, all operand mixes)",
+        op: "Ranked comparisons and the Ranked / Rank From conversions (the total order)",
         prod_tree: Leg::Law("ranked_orders_by_rank_then_bytes"),
         prod_fs: Leg::Excluded(
             "every cell is the rank comparison — whose quantity is bound on all three \
-             legs at Version::rank — completed on homogeneous rank ties by the \
-             canonical-byte tiebreak; the law pins the fused walk, the \
-             version-identity equality, and every rank-only heterogeneous mix to it",
+             legs at Version::rank — completed on rank ties by the canonical-byte \
+             tiebreak; the law pins the fused walk, the version-identity equality, \
+             and the explicit to_rank spelling of the rank question to it",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the delegation"),
     },
