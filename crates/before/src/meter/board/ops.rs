@@ -85,7 +85,8 @@ pub(super) enum OpGroup {
     /// materializes the projection.
     Projection,
     /// The fold rows: `version_join_all`, `version_meet_all`,
-    /// `party_join_all`.
+    /// `version_span_all`, `party_join_all`, and
+    /// `party_join_all_overlap`.
     Fold,
     /// Rows over a shape's disjoint party pair.
     Party,
