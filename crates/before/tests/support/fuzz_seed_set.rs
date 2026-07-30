@@ -149,32 +149,30 @@ pub fn seed_set() -> Vec<Seed> {
     // `fuzz/fuzz_targets/fuzz_laws.rs` (its `chunk` carves the values in
     // this order, its `picks` reads the scripts); a change on either side
     // means regenerating the seeds.
-    let laws_chunks = |versions: [&Version; 3],
-                       parties: [&Party; 2],
-                       clock: &Clock,
-                       scripts: [&[u8]; 3]| {
-        let mut bytes = Vec::new();
-        let mut push = |encoded: Vec<u8>| {
-            let len =
-                u8::try_from(encoded.len()).expect("seed values encode within one length byte");
-            bytes.push(len);
-            bytes.extend_from_slice(&encoded);
+    let laws_chunks =
+        |versions: [&Version; 3], parties: [&Party; 2], clock: &Clock, scripts: [&[u8]; 3]| {
+            let mut bytes = Vec::new();
+            let mut push = |encoded: Vec<u8>| {
+                let len =
+                    u8::try_from(encoded.len()).expect("seed values encode within one length byte");
+                bytes.push(len);
+                bytes.extend_from_slice(&encoded);
+            };
+            for version in versions {
+                push(version.encode());
+            }
+            for party in parties {
+                push(party.encode());
+            }
+            push(clock.encode());
+            for script in scripts {
+                let arity = u8::try_from(script.len())
+                    .expect("seed list scripts stay within one arity byte");
+                bytes.push(arity);
+                bytes.extend_from_slice(script);
+            }
+            bytes
         };
-        for version in versions {
-            push(version.encode());
-        }
-        for party in parties {
-            push(party.encode());
-        }
-        push(clock.encode());
-        for script in scripts {
-            let arity =
-                u8::try_from(script.len()).expect("seed list scripts stay within one arity byte");
-            bytes.push(arity);
-            bytes.extend_from_slice(script);
-        }
-        bytes
-    };
 
     // A live family: the synced clock's nested version, the sibling's
     // concurrent version, the empty version, and the two disjoint sibling

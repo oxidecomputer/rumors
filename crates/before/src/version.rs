@@ -613,9 +613,10 @@ impl Version {
     /// operands are read in place; the endpoints are minted owned, so
     /// the span borrows nothing from the collection.
     ///
-    /// The `span_all_is_the_lattice_hull` and `span_is_the_pair_hull`
-    /// laws in [`laws`](crate::laws) pin the door: the endpoints are
-    /// definitionally [`meet_all`](Self::meet_all) and
+    /// The `span_all_is_the_family_hull`,
+    /// `span_all_is_rotation_invariant`, and `span_is_the_pair_hull`
+    /// laws in [`laws`](crate::laws) pin the door at every arity: the
+    /// endpoints are definitionally [`meet_all`](Self::meet_all) and
     /// [`join_all`](Self::join_all) over `{self} ∪ others`, which
     /// element rides as the receiver is irrelevant and so is item
     /// order, every input places within the hull (never
