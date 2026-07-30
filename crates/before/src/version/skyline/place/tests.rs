@@ -27,9 +27,9 @@ fn composed(probe: &Version, start: Option<&Version>, end: Option<&Version>) -> 
     }
 }
 
-/// The composed two-sweep spelling of the interval mode: the nine-state
+/// The composed two-sweep spelling of the span mode: the nine-state
 /// verdict transcribed from the raw relations.
-fn composed_interval(probe: &Version, lo: &Version, hi: &Version) -> Placement {
+fn composed_span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
     let lo_rel = sweep::causal_cmp(probe.view(), lo.view());
     let hi_rel = sweep::causal_cmp(probe.view(), hi.view());
     match lo_rel {
@@ -51,16 +51,16 @@ fn composed_interval(probe: &Version, lo: &Version, hi: &Version) -> Placement {
     }
 }
 
-/// The dominance coarsening of [`composed_interval`]: the mode's
+/// The dominance coarsening of [`composed_span`]: the mode's
 /// stream-level oracle.
 fn composed_dominance(probe: &Version, lo: &Version, hi: &Version) -> Dominance {
-    match composed_interval(probe, lo, hi) {
-        Placement::At(Endpoint::End | Endpoint::Both) | Placement::After => Dominance::Whole,
+    match composed_span(probe, lo, hi) {
+        Placement::At(Endpoint::End | Endpoint::Both) | Placement::After => Dominance::After,
         Placement::At(Endpoint::Start)
         | Placement::Between
-        | Placement::Concurrent(Endpoint::End) => Dominance::StartOnly,
+        | Placement::Concurrent(Endpoint::End) => Dominance::Between,
         Placement::Before | Placement::Concurrent(Endpoint::Start | Endpoint::Both) => {
-            Dominance::Neither
+            Dominance::Before
         }
     }
 }
@@ -106,11 +106,11 @@ fn walk_places_organic_witnesses() {
     assert_eq!(placed(&a1, None, None), Ranged::Inside);
 }
 
-/// Every interval-mode drop and early-return path on an organic witness
+/// Every span-mode drop and early-return path on an organic witness
 /// set: a decided endpoint concurrency drops only its own cursor, and
 /// the walk returns early exactly when both endpoints have refuted.
 #[test]
-fn interval_walk_places_organic_witnesses() {
+fn span_walk_places_organic_witnesses() {
     let mut alice = Clock::seed();
     let mut bob = alice.fork();
     let a1 = alice.tick().clone();
@@ -120,7 +120,7 @@ fn interval_walk_places_organic_witnesses() {
     let joined = &a2 | &b1;
 
     let placed =
-        |probe: &Version, lo: &Version, hi: &Version| interval(probe.view(), lo.view(), hi.view());
+        |probe: &Version, lo: &Version, hi: &Version| span(probe.view(), lo.view(), hi.view());
     // The chain verdicts.
     assert_eq!(placed(&Version::new(), &a1, &a3), Placement::Before);
     assert_eq!(placed(&a1, &a1, &a3), Placement::At(Endpoint::Start));
@@ -192,7 +192,7 @@ proptest! {
         }
     }
 
-    /// The fused interval and dominance walks equal their composed
+    /// The fused span and dominance walks equal their composed
     /// two-sweep spellings.
     ///
     /// Checked on every ordered stream pair (constructed via meet/join,
@@ -200,7 +200,7 @@ proptest! {
     /// order), for probes spanning the operands and their lattice
     /// corners.
     #[test]
-    fn interval_walks_match_the_composed_sweeps(
+    fn span_walks_match_the_composed_sweeps(
         a in arb_oracle_version(),
         b in arb_oracle_version(),
         c in arb_oracle_version(),
@@ -224,9 +224,9 @@ proptest! {
         for (lo, hi) in pairs {
             for probe in [&a, &b, &c, &meet, &join] {
                 prop_assert_eq!(
-                    interval(probe.view(), lo.view(), hi.view()),
-                    composed_interval(probe, lo, hi),
-                    "fused interval walk vs composed sweeps",
+                    span(probe.view(), lo.view(), hi.view()),
+                    composed_span(probe, lo, hi),
+                    "fused span walk vs composed sweeps",
                 );
                 prop_assert_eq!(
                     dominance(probe.view(), lo.view(), hi.view()),

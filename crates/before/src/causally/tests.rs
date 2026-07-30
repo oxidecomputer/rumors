@@ -341,9 +341,9 @@ fn coincident_bounds_canonicalize_to_at_start() {
     assert!(keeping.contains(&low));
 }
 
-/// The interval witness fixture: an alice chain `a[0] < ... < a[4]`
+/// The span witness fixture: an alice chain `a[0] < ... < a[4]`
 /// and `b1` concurrent to every version of it.
-fn interval_fixtures() -> ([Version; 5], Version) {
+fn span_fixtures() -> ([Version; 5], Version) {
     let mut alice = Clock::seed();
     let mut bob = alice.fork();
     let chain = [(); 5].map(|()| alice.tick().clone());
@@ -358,32 +358,32 @@ fn interval_fixtures() -> ([Version; 5], Version) {
 ///
 /// The five chain regions land on `[a2, a4]`, the coincident
 /// `At(Both)` on `[a2, a2]`, and all three `Concurrent` payloads on
-/// intervals whose endpoints straddle the divergent line.
+/// spans whose endpoints straddle the divergent line.
 #[test]
-fn interval_place_places_every_witness() {
-    let ([a1, a2, a3, a4, a5], b1) = interval_fixtures();
+fn span_place_places_every_witness() {
+    let ([a1, a2, a3, a4, a5], b1) = span_fixtures();
     let genesis = Version::new();
 
-    // The chain verdicts, on a proper interval.
-    let interval = Interval::new(&a2, &a4).unwrap();
-    assert_eq!(interval.place(&genesis), Placement::Before);
-    assert_eq!(interval.place(&a1), Placement::Before);
-    assert_eq!(interval.place(&a2), Placement::At(Endpoint::Start));
-    assert_eq!(interval.place(&a3), Placement::Between);
-    assert_eq!(interval.place(&a4), Placement::At(Endpoint::End));
-    assert_eq!(interval.place(&a5), Placement::After);
-    // Concurrent to both endpoints of the same interval.
-    assert_eq!(interval.place(&b1), Placement::Concurrent(Endpoint::Both));
+    // The chain verdicts, on a proper span.
+    let span = Span::new(&a2, &a4).unwrap();
+    assert_eq!(span.place(&genesis), Placement::Before);
+    assert_eq!(span.place(&a1), Placement::Before);
+    assert_eq!(span.place(&a2), Placement::At(Endpoint::Start));
+    assert_eq!(span.place(&a3), Placement::Between);
+    assert_eq!(span.place(&a4), Placement::At(Endpoint::End));
+    assert_eq!(span.place(&a5), Placement::After);
+    // Concurrent to both endpoints of the same span.
+    assert_eq!(span.place(&b1), Placement::Concurrent(Endpoint::Both));
 
-    // Equality to one endpoint of a coincident interval is equality to
+    // Equality to one endpoint of a coincident span is equality to
     // both: always `At(Both)`, never `At(Start)` or `At(End)`.
-    let coincident = Interval::new(&a2, &a2).unwrap();
+    let coincident = Span::new(&a2, &a2).unwrap();
     assert_eq!(coincident.place(&a2), Placement::At(Endpoint::Both));
 
     // Concurrent to the start only: `hi = a2 | b1` dominates both
     // lines, so `b1 ∥ a2` while `b1 < hi`.
     let top = &a2 | &b1;
-    let straddling = Interval::new(&a2, &top).unwrap();
+    let straddling = Span::new(&a2, &top).unwrap();
     assert_eq!(
         straddling.place(&b1),
         Placement::Concurrent(Endpoint::Start)
@@ -391,108 +391,99 @@ fn interval_place_places_every_witness() {
 
     // Concurrent to the end only: `a2 > a1` while `a2 ∥ a1 | b1`.
     let side_top = &a1 | &b1;
-    let sideways = Interval::new(&a1, &side_top).unwrap();
+    let sideways = Span::new(&a1, &side_top).unwrap();
     assert_eq!(sideways.place(&a2), Placement::Concurrent(Endpoint::End));
 }
 
 /// Every [`Dominance`] verdict on the nine placement witnesses: the
 /// coarsening's three fibers, each exercised through all its members.
 #[test]
-fn interval_dominance_coarsens_every_witness() {
-    let ([a1, a2, a3, a4, a5], b1) = interval_fixtures();
+fn span_dominance_coarsens_every_witness() {
+    let ([a1, a2, a3, a4, a5], b1) = span_fixtures();
 
-    let interval = Interval::new(&a2, &a4).unwrap();
-    // Whole: At(End), After, and the coincident At(Both).
-    assert_eq!(interval.dominance_of(&a4), Dominance::Whole);
-    assert_eq!(interval.dominance_of(&a5), Dominance::Whole);
-    let coincident = Interval::new(&a2, &a2).unwrap();
-    assert_eq!(coincident.dominance_of(&a2), Dominance::Whole);
-    // StartOnly: At(Start), Between, Concurrent(End).
-    assert_eq!(interval.dominance_of(&a2), Dominance::StartOnly);
-    assert_eq!(interval.dominance_of(&a3), Dominance::StartOnly);
+    let span = Span::new(&a2, &a4).unwrap();
+    // After: At(End), Placement::After, and the coincident At(Both).
+    assert_eq!(span.dominance_of(&a4), Dominance::After);
+    assert_eq!(span.dominance_of(&a5), Dominance::After);
+    let coincident = Span::new(&a2, &a2).unwrap();
+    assert_eq!(coincident.dominance_of(&a2), Dominance::After);
+    // Between: At(Start), Placement::Between, Concurrent(End).
+    assert_eq!(span.dominance_of(&a2), Dominance::Between);
+    assert_eq!(span.dominance_of(&a3), Dominance::Between);
     let side_top = &a1 | &b1;
-    let sideways = Interval::new(&a1, &side_top).unwrap();
-    assert_eq!(sideways.dominance_of(&a2), Dominance::StartOnly);
-    // Neither: Before, Concurrent(Start), Concurrent(Both).
-    assert_eq!(interval.dominance_of(&a1), Dominance::Neither);
+    let sideways = Span::new(&a1, &side_top).unwrap();
+    assert_eq!(sideways.dominance_of(&a2), Dominance::Between);
+    // Before: Placement::Before, Concurrent(Start), Concurrent(Both).
+    assert_eq!(span.dominance_of(&a1), Dominance::Before);
     let top = &a2 | &b1;
-    let straddling = Interval::new(&a2, &top).unwrap();
-    assert_eq!(straddling.dominance_of(&b1), Dominance::Neither);
-    assert_eq!(interval.dominance_of(&b1), Dominance::Neither);
+    let straddling = Span::new(&a2, &top).unwrap();
+    assert_eq!(straddling.dominance_of(&b1), Dominance::Before);
+    assert_eq!(span.dominance_of(&b1), Dominance::Before);
 }
 
 /// The validating door admits exactly the ordered pairs: `lo <= hi`
 /// composes (coincident included), while reversed and incomparable
 /// pairs are rejected with `Crossed`.
 #[test]
-fn interval_new_rejects_unordered_pairs() {
-    let ([_, a2, _, a4, _], b1) = interval_fixtures();
-    assert!(Interval::new(&a2, &a4).is_ok());
-    assert!(Interval::new(&a2, &a2).is_ok(), "coincident is ordered");
-    assert_eq!(Interval::new(&a4, &a2), Err(Crossed), "reversed crosses");
+fn span_new_rejects_unordered_pairs() {
+    let ([_, a2, _, a4, _], b1) = span_fixtures();
+    assert!(Span::new(&a2, &a4).is_ok());
+    assert!(Span::new(&a2, &a2).is_ok(), "coincident is ordered");
+    assert_eq!(Span::new(&a4, &a2), Err(Crossed), "reversed crosses");
     assert_eq!(
-        Interval::new(&a2, &b1),
+        Span::new(&a2, &b1),
         Err(Crossed),
         "an incomparable pair bounds nothing"
     );
-    assert_eq!(Interval::new(&b1, &a2), Err(Crossed));
+    assert_eq!(Span::new(&b1, &a2), Err(Crossed));
 }
 
-/// The trusted door constructs the identical interval the validating
+/// The trusted door constructs the identical span the validating
 /// door does on an ordered pair — it skips only the check.
 #[test]
-fn interval_ordered_is_the_validated_interval() {
-    let ([_, a2, _, a4, _], _) = interval_fixtures();
-    assert_eq!(
-        Interval::ordered(&a2, &a4),
-        Interval::new(&a2, &a4).unwrap()
-    );
-    assert_eq!(
-        Interval::ordered(&a2, &a2),
-        Interval::new(&a2, &a2).unwrap()
-    );
+fn span_ordered_is_the_validated_span() {
+    let ([_, a2, _, a4, _], _) = span_fixtures();
+    assert_eq!(Span::ordered(&a2, &a4), Span::new(&a2, &a4).unwrap());
+    assert_eq!(Span::ordered(&a2, &a2), Span::new(&a2, &a2).unwrap());
 }
 
 /// The trusted door's debug assertion catches a violated guarantee: an
 /// unordered pair panics in debug builds rather than constructing an
-/// interval whose verdicts would be meaningless.
+/// span whose verdicts would be meaningless.
 #[test]
 #[cfg(debug_assertions)]
-#[should_panic(expected = "Interval::ordered requires lo <= hi")]
-fn interval_ordered_asserts_the_guarantee_in_debug() {
-    let ([_, a2, _, a4, _], _) = interval_fixtures();
-    let _ = Interval::ordered(&a4, &a2);
+#[should_panic(expected = "Span::ordered requires lo <= hi")]
+fn span_ordered_asserts_the_guarantee_in_debug() {
+    let ([_, a2, _, a4, _], _) = span_fixtures();
+    let _ = Span::ordered(&a4, &a2);
 }
 
 /// The deriving door on every input genre: empty yields no hull, and
-/// every nonempty genre its tightest containing interval.
+/// every nonempty genre its tightest containing span.
 ///
-/// A lone version's hull is the coincident interval; a comparable
-/// pair's is its validated interval in either orientation; a
+/// A lone version's hull is the coincident span; a comparable
+/// pair's is its validated span in either orientation; a
 /// concurrent pair's is a hull whose fresh endpoints strictly bracket
 /// both inputs; and owned items feed the same door as references.
 #[test]
 fn spanning_derives_the_hull() {
-    let ([a1, a2, _, _, _], b1) = interval_fixtures();
+    let ([a1, a2, _, _, _], b1) = span_fixtures();
 
     // The hull of nothing does not exist: the lattice has no top.
-    assert!(Interval::spanning(Vec::<&Version>::new()).is_none());
-    // A lone version's hull is the coincident interval.
-    assert_eq!(
-        Interval::spanning([&a1]).unwrap(),
-        Interval::new(&a1, &a1).unwrap()
-    );
+    assert!(Span::spanning(Vec::<&Version>::new()).is_none());
+    // A lone version's hull is the coincident span.
+    assert_eq!(Span::spanning([&a1]).unwrap(), Span::new(&a1, &a1).unwrap());
     // Comparable pairs: the hull is the flip repair, both orientations.
-    let flat = Interval::new(&a1, &a2).unwrap();
-    assert_eq!(Interval::spanning([&a1, &a2]).unwrap(), flat);
-    assert_eq!(Interval::spanning([&a2, &a1]).unwrap(), flat);
+    let flat = Span::new(&a1, &a2).unwrap();
+    assert_eq!(Span::spanning([&a1, &a2]).unwrap(), flat);
+    assert_eq!(Span::spanning([&a2, &a1]).unwrap(), flat);
     // A concurrent pair has no reordering, but it has a hull: both
     // inputs sit strictly inside it.
-    let hull = Interval::spanning([&a2, &b1]).unwrap();
+    let hull = Span::spanning([&a2, &b1]).unwrap();
     assert_eq!(hull.place(&a2), Placement::Between);
     assert_eq!(hull.place(&b1), Placement::Between);
     // Owned items feed the same door (the Borrow calling convention).
-    assert_eq!(Interval::spanning([a1.clone(), a2.clone()]).unwrap(), flat);
+    assert_eq!(Span::spanning([a1.clone(), a2.clone()]).unwrap(), flat);
 }
 
 /// `a <= b` under the impl causal order (`None` means concurrent, so not
@@ -570,25 +561,25 @@ proptest! {
         }
     }
 
-    /// The interval gate's family claim, differentially against
-    /// `partial_cmp`: `Interval::new` admits exactly the pairs the
+    /// The span gate's family claim, differentially against
+    /// `partial_cmp`: `Span::new` admits exactly the pairs the
     /// causal order deems ordered, and on every admitted pair the
-    /// trusted door builds the identical interval.
+    /// trusted door builds the identical span.
     #[test]
-    fn interval_gate_admits_exactly_the_ordered(
+    fn span_gate_admits_exactly_the_ordered(
         lo in arb_oracle_version(),
         hi in arb_oracle_version(),
     ) {
         let lo = from_oracle_version(&lo);
         let hi = from_oracle_version(&hi);
-        let admitted = Interval::new(&lo, &hi);
+        let admitted = Span::new(&lo, &hi);
         prop_assert_eq!(
             admitted.is_ok(),
             le(&lo, &hi),
             "the gate admits exactly the ordered pairs"
         );
-        if let Ok(interval) = admitted {
-            prop_assert_eq!(interval, Interval::ordered(&lo, &hi));
+        if let Ok(span) = admitted {
+            prop_assert_eq!(span, Span::ordered(&lo, &hi));
         }
     }
 }

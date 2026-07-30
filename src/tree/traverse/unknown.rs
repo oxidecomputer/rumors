@@ -39,7 +39,7 @@ where
 
         // One fused walk classifies the node: the counterparty's version
         // is placed against the subtree's memoized `[floor, ceiling]`
-        // interval — ordered structurally, since both memos are the meet
+        // span — ordered structurally, since both memos are the meet
         // and join of the same leaf versions, which is what lets the
         // trusted constructor skip a validating comparison per node —
         // and each verdict of the dominance face is one prune decision.
@@ -49,21 +49,21 @@ where
         // the whole verdict, decided at the first refuting interval
         // (the floor, a meet, is likely the smallest stream, and whole
         // divergent subtrees are the common case high in the tree).
-        let interval = causally::Interval::ordered(node.floor(), node.ceiling());
-        match interval.dominance_of(known) {
+        let span = causally::Span::ordered(node.floor(), node.ceiling());
+        match span.dominance_of(known) {
             // `known` does not dominate even the floor (the floor is
             // beyond or beside it): the whole subtree is definitely
             // unknown (children are always in the causal future or
             // present of their parent's floor), so return the node
             // unchanged.
-            causally::Dominance::Neither => return Some(node),
+            causally::Dominance::Before => return Some(node),
             // `known` dominates the ceiling: the whole subtree is
             // already known (children are always in the causal past or
             // present of their parent's ceiling), so don't return
             // anything at all.
-            causally::Dominance::Whole => return None,
+            causally::Dominance::After => return None,
             // Only the floor is dominated: the subtree is mixed.
-            causally::Dominance::StartOnly => {}
+            causally::Dominance::Between => {}
         }
 
         // Recursively process each child, re-assembling only the unknown children

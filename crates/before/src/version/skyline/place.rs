@@ -59,7 +59,7 @@
 //!   so the start cursor is dropped and the walk sweeps on over the
 //!   probe and end streams alone (with no end bound the verdict is
 //!   [`Ranged::Inside`] immediately).
-//! - [`interval`], the nine-way [`Placement`] verdict: no single
+//! - [`span`], the nine-way [`Placement`] verdict: no single
 //!   concurrency is the whole verdict — `Concurrent(Start)` vs
 //!   `Concurrent(Both)` needs the other endpoint's relation — so a
 //!   concurrency-decided side is dropped, and the walk returns early
@@ -68,17 +68,17 @@
 //! - [`dominance`], the three-way [`Dominance`] verdict: the
 //!   verdict reads only the bound-at-or-below-probe directions, so a
 //!   *single* refuted direction acts — `lo <= probe` refuted returns
-//!   [`Dominance::Neither`] at the refuting interval, the earliest
+//!   [`Dominance::Before`] at the refuting interval, the earliest
 //!   bail in the placement family, and `hi <= probe` refuted drops the
 //!   end cursor while the start relation still decides
-//!   [`StartOnly`](Dominance::StartOnly) vs
-//!   [`Neither`](Dominance::Neither).
+//!   [`Between`](Dominance::Between) vs
+//!   [`Before`](Dominance::Before).
 //!
 //! Every other relation ((in)equality against a bound, domination either
 //! way) is refutable early but confirmable only at exhaustion, again
 //! exactly as in the pair sweep.
 //!
-//! The interval walks speak the public vocabulary directly: the
+//! The span walks speak the public vocabulary directly: the
 //! nine-state [`Placement`] and its [`Dominance`] coarsening are raw
 //! relation facts against two concrete versions — exactly this layer's
 //! vocabulary — so a stream-level duplicate would add a 1:1 mapping
@@ -106,8 +106,8 @@
 //! # Testing
 //!
 //! The two-walk composition is the oracle, once per question: the
-//! `bounded_matches_bound_relations`, `interval_place_matches_relations`,
-//! and `interval_dominance_coarsens_place` laws in [`crate::laws`] pin
+//! `bounded_matches_bound_relations`, `span_place_matches_relations`,
+//! and `span_dominance_coarsens_place` laws in [`crate::laws`] pin
 //! each verdict to the raw `partial_cmp` verdicts on every law consumer
 //! (generated, organic, exhaustive, and fuzzed populations), the
 //! stream-level proptests beside this module drive all three entry
@@ -288,16 +288,16 @@ pub(crate) fn range(
     )
 }
 
-/// Place a probe stream against an ordered interval's endpoint streams
+/// Place a probe stream against an ordered span's endpoint streams
 /// at full resolution, each stream decoded once.
 ///
-/// `lo` and `hi` must satisfy `lo <= hi` (`causally::Interval`'s
+/// `lo` and `hi` must satisfy `lo <= hi` (`causally::Span`'s
 /// construction contract); the verdict is unspecified otherwise.
 ///
 /// # Panics
 ///
 /// The canonical-stream contract of [`range`], on all three operands.
-pub(crate) fn interval(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placement {
+pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placement {
     /// Either endpoint's decided concurrency drops its own cursor
     /// while the other still sweeps.
     ///
@@ -336,12 +336,12 @@ pub(crate) fn interval(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Pla
     )
 }
 
-/// The dominance face of [`interval`]: the three-way verdict, with the
+/// The dominance face of [`span`]: the three-way verdict, with the
 /// placement family's earliest bail (a refuted `lo <= probe` returns at
 /// the refuting interval; a refuted `hi <= probe` stops the end stream's
 /// scan).
 ///
-/// The same operand contract as [`interval`].
+/// The same operand contract as [`span`].
 ///
 /// # Panics
 ///
@@ -358,10 +358,10 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
             if ge {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
-                ControlFlow::Break(Dominance::Neither)
+                ControlFlow::Break(Dominance::Before)
             }
         },
-        // `hi <= probe` refuted takes `Whole` off the table, and the
+        // `hi <= probe` refuted takes `Dominance::After` off the table, and the
         // verdict now rides the start relation alone — the end stream
         // is never scanned further.
         |_le, ge, _| {
@@ -372,17 +372,17 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
             }
         },
         // `hi <= probe` surviving to exhaustion is domination of the
-        // whole interval; otherwise `lo <= probe` surviving is the
-        // start. `Neither` is unreachable here on canonical validated
+        // whole span; otherwise `lo <= probe` surviving is the
+        // start. `Dominance::Before` is unreachable here on canonical validated
         // inputs (a refuted start direction returned from the loop) but
         // keeps the map total.
         |lo, hi| {
             if matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
-                Dominance::Whole
+                Dominance::After
             } else if matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
-                Dominance::StartOnly
+                Dominance::Between
             } else {
-                Dominance::Neither
+                Dominance::Before
             }
         },
     )
