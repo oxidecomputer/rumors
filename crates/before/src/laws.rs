@@ -880,10 +880,12 @@ fn degenerate_span_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
 
 /// The pair span: endpoints the pair's meet and join, commutative,
 /// subsuming the flip repair on comparable pairs, coherent with the
-/// n-ary form at its edges (the empty iterator is the coincident
-/// `[self, self]`, one item is the binary span), and read back exactly
-/// by the accessors (`meet`/`join` borrow the endpoints; `into_parts`
-/// hands them out owned, in `(meet, join)` order).
+/// n-ary form at its edges, and read back exactly by the accessors.
+///
+/// The n-ary edges: the empty iterator is the coincident
+/// `[self, self]`, one item is the binary span. The accessors:
+/// `meet`/`join` borrow the endpoints; `into_parts` hands them out
+/// owned, in `(meet, join)` order.
 ///
 /// On a comparable pair the hull *is* the reordered pair (either
 /// orientation yields the validated span); on a concurrent pair
