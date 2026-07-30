@@ -33,8 +33,10 @@ pub(crate) const ITEM_EXCEPTIONS: &[Exception] = &[];
 
 /// Module-scope exceptions: entire public trees deliberately outside the
 /// roster, each a feature-gated instrument surface with its own totality
-/// discipline. Prefixes must end in `::` so they can never match a
-/// sibling module by accident.
+/// discipline.
+///
+/// Prefixes must end in `::` so they can never match a sibling module by
+/// accident.
 pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
     Exception {
         name: "meter::",
