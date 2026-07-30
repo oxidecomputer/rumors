@@ -264,6 +264,8 @@ impl<T> Tree<T> {
 
     /// Returns the root hash for the tree.
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
+        #[cfg(test)]
+        meter::record_root_hash_read();
         Node::root_hash(&self.root.clone().into()).into()
     }
 
@@ -491,6 +493,37 @@ impl<T> Tree<T> {
 
         self.root.ceiling |= their_version;
         self.root.root = merged;
+    }
+}
+
+/// Test-only meter for root-hash reads through [`Tree::hash`].
+///
+/// A read may be answered from the node memos, but a *fresh* tree spine (the
+/// copy-on-write path every commit rebuilds) has no memo, so a read inside a
+/// commit's critical section re-hashes that spine while the watch lock is
+/// held. The pinned tests over this counter (`root_hash_read_meter_is_live`
+/// and the commit-path pins beside it in `crate::tests`) enforce how many
+/// such reads each commit path performs.
+///
+/// Thread-local, because every commit critical section runs synchronously on
+/// its caller's thread: a test brackets the operation on its own thread and
+/// reads a count no concurrent test can perturb.
+#[cfg(test)]
+pub(crate) mod meter {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ROOT_HASH_READS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// How many root hashes [`Tree::hash`](super::Tree::hash) has served on
+    /// this thread.
+    pub(crate) fn root_hash_reads() -> u64 {
+        ROOT_HASH_READS.with(Cell::get)
+    }
+
+    pub(super) fn record_root_hash_read() {
+        ROOT_HASH_READS.with(|c| c.set(c.get() + 1));
     }
 }
 

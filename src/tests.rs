@@ -609,3 +609,76 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
         "a poisoned link must fail the next gossip fast, got {retry:?}",
     );
 }
+
+/// The root-hash meter is alive: a root-hash read through the public
+/// snapshot surface moves the per-thread counter by exactly one.
+///
+/// The liveness leg for the two commit-path pins below — a ceiling asserted
+/// over a counter that stopped counting would pass vacuously.
+#[test]
+fn root_hash_read_meter_is_live() {
+    let peer = with_messages(Peer::<u64>::seed(), &[1]);
+    let before = crate::tree::meter::root_hash_reads();
+    let _ = peer.snapshot().hash();
+    assert_eq!(
+        crate::tree::meter::root_hash_reads() - before,
+        1,
+        "one snapshot hash is exactly one root-hash read",
+    );
+}
+
+/// Pins the root-hash reads a batch commit performs.
+///
+/// The commit decides "did the tree change?" by comparing the root hash
+/// before and after applying the batch, so every commit reads the root hash
+/// twice inside the watch critical section — and the post-`act` read hashes
+/// the freshly rebuilt copy-on-write spine (no memo yet) while the lock is
+/// held. Both the batch build and the commit run synchronously on this
+/// thread, so the bracketed count is exact.
+#[test]
+fn batch_commit_root_hash_reads() {
+    let peer = with_messages(Peer::<u64>::seed(), &[1, 2]);
+    let before = crate::tree::meter::root_hash_reads();
+    let mut batch = peer.batch();
+    batch.send(3);
+    drop(batch);
+    assert_eq!(
+        crate::tree::meter::root_hash_reads() - before,
+        2,
+        "a batch commit reads the root hash twice in its critical section",
+    );
+}
+
+/// Pins the root-hash reads a plain gossip session performs, across both
+/// sides.
+///
+/// Each side's write-back commit decides "did the tree change?" by comparing
+/// the root hash before and after joining the reconciled tree — two reads per
+/// side inside the watch critical section, four across the session; the
+/// mirror exchange itself hashes nodes, never the root through
+/// [`Tree::hash`]. Both peers run on this thread (`pollster` drives the
+/// joined futures with no spawns), so the bracketed count is exact.
+#[test]
+fn gossip_session_root_hash_reads() {
+    let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
+    let (provider, joiner) = bootstrap_from(provider);
+
+    // Honest divergence on both sides, so the session has real work: each
+    // side both provides and absorbs content.
+    let provider = with_messages(provider, &[10]);
+    let joiner = with_messages(joiner, &[20]);
+
+    let before = crate::tree::meter::root_hash_reads();
+    pollster::block_on(async {
+        let (mut a_link, mut b_link) = memory();
+        let (provider_out, joiner_out) =
+            tokio::join!(provider.gossip(&mut a_link), joiner.gossip(&mut b_link));
+        provider_out.expect("provider gossip");
+        joiner_out.expect("joiner gossip");
+    });
+    assert_eq!(
+        crate::tree::meter::root_hash_reads() - before,
+        4,
+        "a gossip session reads the root hash twice per side in its commit",
+    );
+}
