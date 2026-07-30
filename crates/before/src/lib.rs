@@ -352,9 +352,10 @@
 //!
 //! Every feature is off by default.
 //!
-//! - **`serde`** — `Serialize`/`Deserialize` for [`Party`], [`Version`], and
-//!   [`Clock`], each as its canonical byte encoding; deserializing runs the
-//!   same strict validation as [`decode`](Clock::decode).
+//! - **`serde`** — `Serialize`/`Deserialize` for [`Party`], [`Version`],
+//!   [`Clock`], [`Rank`], [`Ranked`], and [`Span`](causally::Span), each as
+//!   its canonical byte encoding; deserializing runs the same strict
+//!   validation as [`decode`](Clock::decode).
 //! - **`borsh`** — `BorshSerialize`/`BorshDeserialize`, likewise as the
 //!   canonical encodings. The encodings are *prefix-free* — no value's
 //!   encoding is a prefix of another's, so a decoder knows where each value

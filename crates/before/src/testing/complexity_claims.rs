@@ -1400,6 +1400,12 @@ pub(crate) const CLAIMS: &[Claim] = &[
             ("party_decode", Class::Linear),
             ("clock_encode", Class::Linear),
             ("clock_decode", Class::Linear),
+            ("rank_encode", Class::Linear),
+            ("rank_decode", Class::Linear),
+            ("ranked_encode", Class::Linear),
+            ("ranked_decode", Class::Linear),
+            ("span_encode", Class::Linear),
+            ("span_decode", Class::Linear),
         ]),
     },
     Claim {
