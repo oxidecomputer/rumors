@@ -68,9 +68,10 @@ where
 }
 
 /// The inductive step of the merge, implemented per [`Height`]; see the
-/// module docs for the four-case analysis each level performs, and the
-/// [`join`] free function for the `changed` contract each step upholds:
-/// set on any gain from `b` or any deletion-honoring drop from `a`, left
+/// module docs for the four-case analysis each level performs.
+///
+/// Each step upholds the [`join`] free function's `changed` contract: set
+/// on any gain from `b` or any deletion-honoring drop from `a`, left
 /// alone when the result is content-identical to `a`.
 pub trait Join: Unknown {
     fn join<T>(

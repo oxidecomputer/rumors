@@ -1087,9 +1087,11 @@ proptest! {
 proptest! {
     /// The changed flag [`Tree::act`] returns tracks the root hash exactly
     /// on honestly built trees: `false` iff the root hash is byte-identical
-    /// across the call, over batches mixing inserts, forgets of live keys,
-    /// and forgets of keys nothing holds (including the all-no-op and empty
-    /// batches, which must read `false`).
+    /// across the call.
+    ///
+    /// The batches mix inserts, forgets of live keys, and forgets of keys
+    /// nothing holds — including the all-no-op and empty batches, which
+    /// must read `false`.
     ///
     /// The `false ⇒ hash-equal` direction is the flag's contract — a
     /// watcher skipped on `false` must miss nothing. The converse direction
@@ -1131,8 +1133,10 @@ proptest! {
 
     /// The changed flag [`Tree::join`] returns tracks the root hash
     /// exactly: `false` iff the merge left this tree's root hash
-    /// byte-identical, over divergent pairs covering one-sided novelty,
-    /// shared subtrees, and deletion honoring in both directions.
+    /// byte-identical.
+    ///
+    /// The divergent pairs cover one-sided novelty, shared subtrees, and
+    /// deletion honoring in both directions.
     ///
     /// The `false ⇒ hash-equal` direction is the flag's contract — a
     /// watcher skipped on `false` must miss nothing. The converse pins
@@ -1150,11 +1154,12 @@ proptest! {
     }
 }
 
-/// A ceiling-only join reports unchanged: absorbing a counterparty whose
-/// every message we already hold or honor as deleted advances our causal
-/// ceiling but leaves the content — and the root hash — untouched, and the
-/// changed flag stays `false`, so watchers of the *set* are not woken for
-/// a merge that taught the set nothing.
+/// A ceiling-only join reports unchanged.
+///
+/// Absorbing a counterparty whose every message we already hold or honor
+/// as deleted advances our causal ceiling but leaves the content — and the
+/// root hash — untouched, and the changed flag stays `false`, so watchers
+/// of the *set* are not woken for a merge that taught the set nothing.
 #[test]
 fn ceiling_only_join_reports_unchanged() {
     let mut tree: Tree<Bytes> = Tree::new();
