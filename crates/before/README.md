@@ -275,12 +275,16 @@ containment of history, and two versions with no containing order are
   `implementation` — so `v < w` implies
   `v.rank() < w.rank()`: causes always sort before their effects. Only
   concurrent versions can tie, and any deterministic tiebreak then
-  yields the same total order on every replica. `Ranked` views a
-  version by its rank — comparisons run fused over the packed
-  streams, no rank materialized — and `Rank::encode` emits a
-  canonical byte form whose plain byte-wise order *is* the rank
-  order, so a sorted KV store can use it as a causal-ordering key
-  with no rank-aware comparator on the store's side.
+  yields the same total order on every replica. `Ranked` builds
+  that total order in: it views a version by its rank — comparisons
+  run fused over the packed streams, no rank materialized — with the
+  version's canonical bytes as the tiebreak, and its
+  `encode` emits a composite byte key whose plain
+  byte-wise order *is* the total order, `decode`
+  recovering the version from the key. `Rank::encode` is the
+  rank-only key form for stores that bring their own tiebreak;
+  either way a sorted KV store gets a causal-ordering key with no
+  rank-aware comparator on the store's side.
 
 ### How it works
 

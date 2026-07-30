@@ -524,21 +524,55 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         op: "Ranked::encode",
         prod_tree: Leg::Law("ranked_carries_own_rank"),
         prod_fs: Leg::Excluded(
-            "a function has no byte representation; the fused emission is law-pinned \
-             byte-identical to Rank::encode over the materialized rank",
+            "a function has no byte representation; the composite key is law-pinned as \
+             the rank encoding followed by the version's canonical bytes, its byte \
+             order pinned equal to the view's total order \
+             (ranked_encoding_orders_like_ord)",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
     SurfaceRow {
         op: "Ranked::encode_to",
         prod_tree: Leg::Excluded(
-            "the identical fused emission as Ranked::encode with a writer sink; its \
-             doctest pins byte identity with encode, and the borsh suite drives it as \
-             the serializer",
+            "the identical composite emission as Ranked::encode with a writer sink; \
+             its doctest pins byte identity with encode, and the borsh suite drives it \
+             as the serializer",
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
              semantic domain quotients away — ratified by owner, 2026-07-26",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
+        op: "Ranked::encode_rank",
+        prod_tree: Leg::Law("ranked_carries_own_rank"),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; the fused rank-only emission is \
+             law-pinned byte-identical to Rank::encode over the materialized rank",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
+        op: "Ranked::encode_rank_to",
+        prod_tree: Leg::Excluded(
+            "the identical fused rank-only emission as Ranked::encode_rank with a \
+             writer sink; its doctest pins byte identity with encode_rank",
+        ),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; representation is exactly what the \
+             semantic domain quotients away — ratified by owner, 2026-07-26",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
+        op: "Ranked::decode",
+        prod_tree: Leg::Law("ranked_carries_own_rank"),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; strict decode is pinned \
+             production-side (the decode∘encode identity clause of the law, the \
+             composite suffix-safety proptests, the per-genre rejection witnesses, \
+             the rank-against-version verification the method documents)",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
@@ -697,12 +731,13 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("not a paper object; see the prod↔tree reason"),
     },
     SurfaceRow {
-        op: "Ranked / Rank comparisons and From conversions (rank order, all operand mixes)",
-        prod_tree: Leg::Law("ranked_orders_by_rank"),
+        op: "Ranked / Rank comparisons and From conversions (the total order, all operand mixes)",
+        prod_tree: Leg::Law("ranked_orders_by_rank_then_bytes"),
         prod_fs: Leg::Excluded(
-            "every cell is definitionally the rank comparison, whose quantity is \
-             bound on all three legs at Version::rank; the law pins the fused walk, \
-             the equality semantics, and every heterogeneous mix to it",
+            "every cell is the rank comparison — whose quantity is bound on all three \
+             legs at Version::rank — completed on homogeneous rank ties by the \
+             canonical-byte tiebreak; the law pins the fused walk, the \
+             version-identity equality, and every rank-only heterogeneous mix to it",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the delegation"),
     },

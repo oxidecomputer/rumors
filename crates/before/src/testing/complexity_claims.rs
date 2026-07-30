@@ -945,9 +945,37 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             bound: Bound::MulBound,
         }],
-        // The identical fused fold and emission with a writer sink;
-        // the ranked_encode cell prices it.
+        // The identical composite emission with a writer sink; the
+        // ranked_encode cell prices it.
         cells: Cells::Board(&[("ranked_encode", Class::MulBound)]),
+    },
+    Claim {
+        op: "Ranked::encode_rank",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::MulBound,
+        }],
+        cells: Cells::Board(&[("ranked_encode_rank", Class::MulBound)]),
+    },
+    Claim {
+        op: "Ranked::encode_rank_to",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::MulBound,
+        }],
+        // The identical fused rank-only fold and emission with a
+        // writer sink; the ranked_encode_rank cell prices it.
+        cells: Cells::Board(&[("ranked_encode_rank", Class::MulBound)]),
+    },
+    Claim {
+        op: "Ranked::decode",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::MulBound,
+        }],
+        // One strict linear parse plus the verifying rank fold over
+        // the decoded version: the fold's class governs.
+        cells: Cells::Board(&[("ranked_decode", Class::MulBound)]),
     },
     // ───────────────────────────── causally ─────────────────────────────
     causally("causally::all", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
@@ -1340,14 +1368,16 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ),
     },
     Claim {
-        op: "Ranked / Rank comparisons and From conversions (rank order, all operand mixes)",
+        op: "Ranked / Rank comparisons and From conversions (the total order, all operand mixes)",
         checks: &[Check {
             site: Site::TypeDoc("src/version/ranked.rs", "Ranked"),
             bound: Bound::MulBoundPair,
         }],
         // The fused signed co-sweep is distance/lag's integrator with
-        // constant orientation, so the pair claim and its witnesses are
-        // theirs; the ranked_cmp row drives it whole-surface.
+        // constant orientation (the rank-tie byte tiebreak is one
+        // comparison inside the same linear space bound), so the pair
+        // claim and its witnesses are theirs; the ranked_cmp row
+        // drives it whole-surface.
         cells: Cells::Board(&[("ranked_cmp", Class::MulBound)]),
     },
 ];

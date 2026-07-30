@@ -416,7 +416,7 @@ fn deep_trees_roundtrip_through_borsh() {
 
 /// A [`Rank`]'s borsh bytes are exactly its canonical encoding — no
 /// length prefix, no second format — and the [`Ranked`] view
-/// serializes identically; the rank round-trips.
+/// serializes its own composite key; both round-trip.
 ///
 /// Zero, an integral-only rank, and a deep small fraction cover the
 /// stream's three shapes (empty fraction in one byte, empty fraction
@@ -434,10 +434,70 @@ fn rank_borsh_is_the_canonical_encoding() {
         assert_eq!(&crate::Rank::try_from_slice(&bytes).unwrap(), rank);
     }
     let v = Version::try_from(7).unwrap();
+    let view_bytes = borsh::to_vec(&v.ranked()).unwrap();
     assert_eq!(
-        borsh::to_vec(&v.ranked()).unwrap(),
-        v.rank().encode(),
-        "the view serializes the identical bytes"
+        view_bytes,
+        v.ranked().encode(),
+        "the view serializes its composite key: raw framing, one wire form"
+    );
+    assert_eq!(
+        crate::Ranked::try_from_slice(&view_bytes)
+            .unwrap()
+            .version(),
+        &v,
+        "the composite round-trips to the same version"
+    );
+}
+
+/// A [`Ranked`] composite key composes inside a larger borsh stream,
+/// and its rejection genres cross the borsh boundary intact.
+///
+/// A `(Ranked, Party, Rank)` concatenation deserializes field by
+/// field, each read consuming exactly its own bytes.
+///
+/// A cut anywhere mid-composite surfaces the reader's own
+/// `UnexpectedEof`; a mismatched rank prefix crosses as `InvalidData`
+/// carrying [`Decode::NotCanonical`] (the redundancy check
+/// `Ranked::decode` documents).
+#[test]
+fn ranked_borsh_composes_and_keeps_its_genres() {
+    let half: Version = "(0, 1, 0)".parse().unwrap();
+    let mut party = Party::seed();
+    let _ = party.fork();
+    let rank = Version::try_from(5).unwrap().rank();
+    let mut stream = Vec::new();
+    borsh::BorshSerialize::serialize(&half.ranked(), &mut stream).unwrap();
+    borsh::BorshSerialize::serialize(&party, &mut stream).unwrap();
+    borsh::BorshSerialize::serialize(&rank, &mut stream).unwrap();
+    let mut reader: &[u8] = &stream;
+    assert_eq!(
+        crate::Ranked::deserialize_reader(&mut reader)
+            .unwrap()
+            .version(),
+        &half,
+    );
+    assert_eq!(Party::deserialize_reader(&mut reader).unwrap(), party);
+    assert_eq!(crate::Rank::deserialize_reader(&mut reader).unwrap(), rank);
+    assert!(reader.is_empty(), "every byte belonged to some field");
+
+    let key = borsh::to_vec(&half.ranked()).unwrap();
+    for cut in 0..key.len() {
+        let err = crate::Ranked::try_from_slice(&key[..cut]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnexpectedEof, "cut at byte {cut}");
+    }
+    let forged = [
+        Version::try_from(6).unwrap().rank().encode(),
+        half.as_bytes().to_vec(),
+    ]
+    .concat();
+    let err = crate::Ranked::try_from_slice(&forged).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::NotCanonical)),
+        "expected NotCanonical, got: {inner:?}"
     );
 }
 
@@ -497,5 +557,27 @@ proptest! {
         prop_assert_eq!(&crate::Rank::try_from_slice(&sa).unwrap(), &a);
         prop_assert_eq!(&crate::Rank::try_from_slice(&sb).unwrap(), &b);
         prop_assert_eq!(sa.cmp(&sb), a.cmp(&b), "serialized order is rank order");
+    }
+}
+
+proptest! {
+    /// [`Ranked`] composite keys round-trip through borsh, and byte
+    /// order on the serialized bytes is the views' total order.
+    ///
+    /// The raw framing's inheritance, ties included: the causal
+    /// ordering (and its deterministic tiebreak) survives the
+    /// transport unchanged.
+    #[test]
+    fn ranked_borsh_roundtrips_and_orders(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let (ra, rb) = (crate::Ranked::from(&a), crate::Ranked::from(&b));
+        let (sa, sb) = (borsh::to_vec(&ra).unwrap(), borsh::to_vec(&rb).unwrap());
+        let back_a = crate::Ranked::try_from_slice(&sa).unwrap();
+        let back_b = crate::Ranked::try_from_slice(&sb).unwrap();
+        prop_assert!(back_a == ra && *back_a.version() == a);
+        prop_assert!(back_b == rb && *back_b.version() == b);
+        prop_assert_eq!(sa.cmp(&sb), ra.cmp(&rb), "serialized order is the total order");
+        prop_assert_eq!(sa == sb, a == b, "byte equality is version identity");
     }
 }
