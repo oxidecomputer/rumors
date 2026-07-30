@@ -84,7 +84,8 @@
 //! ceiling per wire byte up to the fold's own constant. `rank_encode`
 //! is I/O-denominated (content in plus the actual canonical bytes out,
 //! read back from the result), with the emission's honesty asserted at
-//! prepare — the canonical form is `‖r‖ + O(log ‖r‖)` bits, so a padded
+//! prepare — the canonical form is at most `9⁄8 · ‖r‖ + O(log ‖r‖)`
+//! bits, so a padded
 //! output cannot inflate the denominator; `rank_decode`'s operand *is*
 //! the canonical bytes, input-denominated like every codec row; and
 //! `ranked_encode` stays input-denominated because its output is

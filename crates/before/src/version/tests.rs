@@ -1345,53 +1345,63 @@ fn seeded_rank(seed: u64) -> super::Rank {
 /// shared integral part, every step of the integral header (the
 /// mantissa-width steps at `I + 1` crossing a power of two, and the
 /// width-of-width steps where the unary run itself lengthens), and
-/// equal integral parts separated only deep in the fraction. Each byte
-/// string is pinned exactly — the wire form is canonical, so these are
-/// format goldens — and the whole battery must be strictly ascending
-/// in byte order exactly as it is ascending in rank order.
+/// equal integral parts separated only deep in the fraction — across
+/// a group seam, where the deeper rank's extra expansion bits ride a
+/// further continuation-framed group. Each byte string is pinned
+/// exactly — the wire form is canonical, so these are format goldens —
+/// and the whole battery must be strictly ascending in byte order
+/// exactly as it is ascending in rank order.
 #[test]
 fn rank_encoding_known_values() {
     let rank_of = |text: &str| text.parse::<Version>().unwrap().rank();
     let int = |n: u64| Version::try_from(n).unwrap().rank();
     // (value, its pinned canonical bytes), in strictly ascending order.
     let battery: Vec<(super::Rank, Vec<u8>)> = vec![
+        // Zero = "0" ++ "0": the smallest header, an empty fraction's
+        // immediate close.
         (super::Rank::ZERO, vec![0x00]),
-        // 1/4 = "0" ++ "01": the fraction's shortest deep form.
-        (rank_of("(0, (0, 1, 0), 0)"), vec![0x20]),
-        // 1/2 = "0" ++ "1".
-        (rank_of("(0, 1, 0)"), vec![0x40]),
-        // 3/4 = "0" ++ "11": a strict bit-extension of 1/2's stream.
-        (rank_of("(0, 1, (0, 1, 0))"), vec![0x60]),
-        // 1 = "100" ++ "0": the first integral header step.
+        // 1/4 = "0" ++ "1 01000000 0": one group framing the
+        // expansion ".01", zero-padded past its last set bit.
+        (rank_of("(0, (0, 1, 0), 0)"), vec![0x50, 0x00]),
+        // 1/2 = "0" ++ "1 10000000 0".
+        (rank_of("(0, 1, 0)"), vec![0x60, 0x00]),
+        // 3/4 = "0" ++ "1 11000000 0": splits from 1/2 inside the
+        // shared group, at the second expansion bit.
+        (rank_of("(0, 1, (0, 1, 0))"), vec![0x70, 0x00]),
+        // 1 = "1000" ++ "0": the first integral header step.
         (int(1), vec![0x80]),
-        // 3/2 = 1's stream extended by the fraction "1".
+        // 3/2 = 1's integral code, then one group framing ".1":
+        // integral-only vs fractional at a shared integral part is
+        // decided at the continuation-vs-close bit.
         (
             super::Rank::from_raw(crate::codec::Base::from(3u8), 1),
-            vec![0x88],
+            vec![0x8C, 0x00],
         ),
         (int(2), vec![0x90]),
         (int(3), vec![0xA0]),
         (int(4), vec![0xA8]),
-        // 5, then 5 + 2⁻⁴⁰ and 5 + 2⁻⁴⁰ + 2⁻⁴¹: an integral-only
-        // encoding that is a strict byte prefix of its deep-fraction
-        // extensions, and equal integral parts with equal fraction
-        // prefixes separated only at the 41st fraction bit.
+        // 5, then 5 + 2⁻⁴⁰ and 5 + 2⁻⁴⁰ + 2⁻⁴¹: equal integral parts
+        // separated only deep in the fraction — the deepest pair only
+        // past a group seam (the 41st expansion bit opens a sixth
+        // group), and the integral-only rank separated from both at
+        // its close bit, never by a byte-prefix relation.
         (int(5), vec![0xB0]),
         (
             super::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40),
-            vec![0xB0, 0x00, 0x00, 0x00, 0x00, 0x08],
+            vec![0xB4, 0x02, 0x01, 0x00, 0x80, 0x40, 0x40],
         ),
         (
             super::Rank::from_raw(crate::codec::Base::from(5u128 << 41 | 3), 41),
-            vec![0xB0, 0x00, 0x00, 0x00, 0x00, 0x0C],
+            vec![0xB4, 0x02, 0x01, 0x00, 0x80, 0x40, 0x70, 0x00],
         ),
         // 6 and 7: the last mantissa of width 2 against the first of
         // width 3 — the header's width-of-width (unary run) step.
         (int(6), vec![0xB8]),
-        (int(7), vec![0xC0]),
-        (int(8), vec![0xC1]),
-        // 15 and 16: the next mantissa-width step inside one run width
-        // (16's content spills exactly one bit into a second byte).
+        (int(7), vec![0xC0, 0x00]),
+        (int(8), vec![0xC1, 0x00]),
+        // 15 and 16: the next mantissa-width step inside one run
+        // width, separated by the mantissa's final bit at the byte
+        // seam.
         (int(15), vec![0xC8, 0x00]),
         (int(16), vec![0xC8, 0x80]),
     ];
@@ -1509,20 +1519,24 @@ fn rank_encoding_exhaustive_small_scope() {
 /// Committed witnesses, one per rejection genre the decoder can reach.
 ///
 /// Empty input, an unterminated unary run, a truncated header payload,
-/// a truncated integral mantissa, a trailing zero byte, and the one
-/// spelling a trailing-zero fraction could take (spilling its zeros
-/// into a further byte — inside the final byte such bits *are* the
-/// padding, so no distinct non-canonical string exists there, and the
-/// bijectivity half of the exhaustive sweep is the committed proof).
-/// The remaining documented genre — a non-minimal integral header — is
+/// a truncated integral mantissa, a truncated fraction group, a
+/// trailing zero byte, a set padding bit, the one spelling a
+/// trailing-zero fraction can take (an all-zero final group — inside
+/// the final group trailing zeros *are* the padding, so the only
+/// non-canonical spelling spills them into a group of their own), and
+/// the integral representation bound (a unary run of 64, declaring a
+/// mantissa width beyond `2⁶⁴` bits — the one format bound a small
+/// input can reach; the fraction bound needs over half a GiB of real
+/// groups, since the fraction has no length header to forge). The
+/// remaining documented genre — a non-minimal integral header — is
 /// structurally unrepresentable (every `(run, payload)` pair decodes to
-/// a width whose own width matches the run exactly), which the same
-/// sweep witnesses mechanically at small scope.
+/// a width whose own width matches the run exactly), which the
+/// exhaustive sweep witnesses mechanically at small scope.
 #[test]
 #[allow(clippy::type_complexity)]
 fn rank_decoding_rejects_each_genre() {
     use crate::error::Decode;
-    let genres: [(&[u8], fn(&Decode) -> bool, &str); 6] = [
+    let genres: [(&[u8], fn(&Decode) -> bool, &str); 9] = [
         (&[], |e| matches!(e, Decode::Truncated), "empty input"),
         (
             &[0xFF],
@@ -1541,20 +1555,41 @@ fn rank_decoding_rejects_each_genre() {
             |e| matches!(e, Decode::Truncated),
             "truncated mantissa",
         ),
+        // 01000000: a set continuation bit with 6 bits left, no room
+        // for its 8-bit group.
+        (
+            &[0x40],
+            |e| matches!(e, Decode::Truncated),
+            "truncated fraction group",
+        ),
         // The encoding of 1, then a whole padding byte.
         (
             &[0x80, 0x00],
             |e| matches!(e, Decode::TrailingBits),
             "trailing zero byte",
         ),
-        // "0" ++ "10101010": the 8-bit fraction .10101010 ends in a
-        // zero bit, so its content spills nothing into byte two — the
-        // canonical spelling of the value is the 7-bit fraction packed
-        // in one byte, and the spilled form is non-minimal packing.
+        // 10000100: the encoding of 1 (stream "10000") with a set bit
+        // in its three padding positions.
         (
-            &[0x55, 0x00],
+            &[0x84],
             |e| matches!(e, Decode::TrailingBits),
-            "trailing-zero fraction",
+            "set padding bit",
+        ),
+        // "0" ++ "1 10000000" ++ "1 00000000" ++ "0": the fraction
+        // ".1" spelled with a second, all-zero group — the
+        // trailing-zero-fraction spelling, non-minimal packing.
+        (
+            &[0x60, 0x20, 0x00],
+            |e| matches!(e, Decode::TrailingBits),
+            "all-zero final group",
+        ),
+        // 64 ones, then the run's terminating zero: an integral
+        // mantissa width of 2⁶⁴ or more bits — past the format bound,
+        // whatever follows.
+        (
+            &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00],
+            |e| matches!(e, Decode::NotCanonical),
+            "integral width past the format bound",
         ),
     ];
     for (bytes, is_genre, what) in genres {
@@ -1574,8 +1609,8 @@ fn rank_decoding_rejects_each_genre() {
 /// under 1.0 bit per packed input bit. Measured \[2026-07-29, this
 /// test instrumented\]: wide counter 0.56 (the worst — a lone
 /// counter's version pays gamma's doubled width where the encoding
-/// pays the width once), deep spine 0.34, dense staircase 0.34, deep
-/// wide counter 0.24, plateau puncture 0.16; the 1.0 pin leaves
+/// pays the width once), deep spine 0.38, dense staircase 0.38, deep
+/// wide counter 0.27, plateau puncture 0.18; the 1.0 pin leaves
 /// headroom for packing drift while sitting an order under the
 /// exponential blowup arbitrary in-memory ranks can reach.
 #[test]
@@ -1631,6 +1666,107 @@ fn rank_encoding_size_is_provenance_linear() {
             "{name}: encoded rank ({encoded_bits} bits) exceeds the pinned \
              1.0 ratio over packed input ({input_bits} bits)"
         );
+    }
+}
+
+/// Committed witnesses for suffix safety at the padding seam: the
+/// shapes where a naive expansion spelling would make one encoding a
+/// byte prefix of another's.
+///
+/// Each pair is two distinct ranks whose streams agree bit-for-bit up
+/// to where the smaller one's content ends — an integral-only rank
+/// against a deep-fraction extension, zero against a small deep
+/// fraction, and a one-bit fraction against an extension whose extra
+/// bits begin with a byte's worth of zeros. For each pair the law's
+/// full strength is asserted directly: the encodings are not byte
+/// prefixes of one another, so the smaller rank's key sorts first
+/// under *any* tiebreak suffix — including the worst one, `0xFF`
+/// against the larger key's continuation.
+#[test]
+fn rank_encoding_is_suffix_safe_at_the_padding_seam() {
+    let pairs: [(super::Rank, super::Rank); 3] = [
+        // 5 against 5 + 2⁻⁴⁰: equal integral parts, one fraction empty.
+        (
+            Version::try_from(5).unwrap().rank(),
+            super::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40),
+        ),
+        // Zero against 2⁻⁹: the empty stream tail against a fraction
+        // whose first byte's worth of expansion bits is all zero.
+        (
+            super::Rank::ZERO,
+            super::Rank::from_raw(crate::codec::Base::from(1u8), 9),
+        ),
+        // 1/2 against 1/2 + 2⁻⁸: the extension's extra expansion bits
+        // are exactly the shorter stream's padding, then a set bit.
+        (
+            super::Rank::from_raw(crate::codec::Base::from(1u8), 1),
+            super::Rank::from_raw(crate::codec::Base::from(129u8), 8),
+        ),
+    ];
+    for (small, large) in &pairs {
+        assert!(small < large, "the witness pair is ordered");
+        let (es, el) = (small.encode(), large.encode());
+        assert!(
+            !el.starts_with(&es) && !es.starts_with(&el),
+            "prefix-free: {small} vs {large}"
+        );
+        assert!(es < el, "byte order is rank order: {small} vs {large}");
+        // The worst suffix: the smaller key padded high, the larger low.
+        let key_small = [es, vec![0xFF; 4]].concat();
+        let key_large = [el, vec![0x00; 4]].concat();
+        assert!(
+            key_small < key_large,
+            "no suffix flips the order: {small} vs {large}"
+        );
+    }
+}
+
+proptest! {
+    /// THE LAW's suffix-safety half, adversarially: distinct ranks'
+    /// encodings are never byte prefixes of one another, so a key
+    /// built as `encoding ++ tiebreak` orders by rank first under
+    /// every choice of tiebreak — the KV-key contract `Rank::encode`
+    /// documents.
+    ///
+    /// Over pairs mixing far-apart magnitude classes, forced class
+    /// ties, and near-miss extensions (the second rank re-derived
+    /// from the first with a deepened fraction), with arbitrary
+    /// suffix bytes on both keys.
+    #[test]
+    fn rank_lex_encoding_is_suffix_safe(
+        sa in any::<u64>(),
+        sb in any::<u64>(),
+        extend in any::<bool>(),
+        deepen in 1u32..64,
+        suffix_a in proptest::collection::vec(any::<u8>(), 0..5),
+        suffix_b in proptest::collection::vec(any::<u8>(), 0..5),
+    ) {
+        let a = seeded_rank(sa);
+        let b = if extend {
+            // A strict extension of `a`'s expansion: the genre where
+            // one stream continues past the other's content.
+            let (num, exp) = a.raw_parts();
+            super::Rank::from_raw(
+                (num.clone() << deepen) + 1u32,
+                exp.saturating_add(deepen),
+            )
+        } else {
+            seeded_rank(sb)
+        };
+        let (ea, eb) = (a.encode(), b.encode());
+        if a != b {
+            prop_assert!(
+                !eb.starts_with(&ea) && !ea.starts_with(&eb),
+                "prefix-free: {} vs {}", a, b
+            );
+        }
+        let key_a = [ea, suffix_a].concat();
+        let key_b = [eb, suffix_b].concat();
+        match a.cmp(&b) {
+            Ordering::Less => prop_assert!(key_a < key_b, "{} vs {}", a, b),
+            Ordering::Greater => prop_assert!(key_a > key_b, "{} vs {}", a, b),
+            Ordering::Equal => {}
+        }
     }
 }
 
@@ -1829,6 +1965,58 @@ proptest! {
         prop_assert_eq!(rb.cmp(&ra), want.reverse(), "antisymmetry: {} vs {}", b, a);
         prop_assert_eq!(ra.encode(), a.rank().encode(), "fused encode: {}", a);
     }
+}
+
+/// The fused comparison's hard genres, constructed: deep total
+/// cancellation, and verdicts decided only at the walk's last
+/// contribution.
+///
+/// A staircase and its mirror image share a rank by symmetry while
+/// their mass sits at opposite ends of the interval, so the signed
+/// co-sweep's running difference swings through every level's
+/// magnitude before the exact total cancels to `Equal` — the widest
+/// cancellation an 800-level walk can force through the freeze and
+/// promotion machinery. Splitting one mirror's core step then moves
+/// the total by `2⁻⁸⁰³` alone: every level above still cancels, and
+/// the verdict's sign rests entirely on the deepest contribution.
+/// Each verdict is checked against the
+/// materialized `Rank` order in both argument orders, and the fused
+/// encode against the materialized encode on the same deep shapes.
+#[test]
+fn ranked_fused_walk_survives_deep_cancellation() {
+    // The staircase: one new unit plateau per level, mass leaning left
+    // (`(0, t, 1)`) or right (`(0, 1, t)`) — mirror images, so their
+    // areas agree level for level.
+    fn stairs(depth: usize, lean_left: bool, core: &str) -> Version {
+        let mut text = String::from(core);
+        for _ in 0..depth {
+            text = if lean_left {
+                format!("(0, {text}, 1)")
+            } else {
+                format!("(0, 1, {text})")
+            };
+        }
+        text.parse().unwrap()
+    }
+    let left = stairs(800, true, "(0, 1, 0)");
+    let right = stairs(800, false, "(0, 1, 0)");
+    // The same mirror with its deepest step split: a rank-3/8 core
+    // instead of 1/2, so the total drops by exactly 2⁻⁸⁰³ after 800
+    // levels of cancellation.
+    let shallower = stairs(800, false, "(0, (0, 1, (0, 1, 0)), 0)");
+    assert_ne!(left, right, "the mirrors are distinct versions");
+    assert!(left.concurrent(&right), "and concurrent");
+    for (a, b) in [(&left, &right), (&left, &shallower), (&right, &shallower)] {
+        let want = a.rank().cmp(&b.rank());
+        assert_eq!(Ranked::from(a).cmp(&Ranked::from(b)), want);
+        assert_eq!(Ranked::from(b).cmp(&Ranked::from(a)), want.reverse());
+        assert_eq!(Ranked::from(a).encode(), a.rank().encode());
+    }
+    assert_eq!(left.rank(), right.rank(), "the mirrors tie by symmetry");
+    assert!(
+        shallower.rank() < right.rank(),
+        "the split step decides alone"
+    );
 }
 
 // ─────────────────────── projection onto a party (`/`) ───────────────────────

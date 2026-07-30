@@ -423,9 +423,9 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         op: "Rank::encode",
         prod_tree: Leg::Excluded(
             "Rank is not a paper object and no wire form exists in the oracle; the \
-             encoding's laws are production-side pins (the lexicographic-order \
-             proptests, the exhaustive bijectivity sweep, the boundary goldens, the \
-             per-genre rejection witnesses, the provenance size pin)",
+             encoding's laws are production-side pins (the lexicographic-order and \
+             suffix-safety proptests, the exhaustive bijectivity sweep, the boundary \
+             goldens, the per-genre rejection witnesses, the provenance size pin)",
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
