@@ -184,11 +184,16 @@ pub trait Node<T: Send + Sync + 'static> {
     /// per read: the in-memory backend stores each branch's memoized
     /// bounds as one [`causally::Span`], ordered by construction, and
     /// answers by reborrowing it
-    /// ([`causally::Span::reborrow`]); a backend reading bounds back
-    /// from its own storage should validate the pair once at node load
-    /// ([`causally::Span::new`], surfacing
-    /// [`Crossed`](causally::Crossed) as the load-time storage-corruption
-    /// error it is) and answer thereafter through the trusted door
+    /// ([`causally::Span::reborrow`]). A backend reading bounds back
+    /// from its own storage validates the pair once at node load: bounds
+    /// stored as the span's canonical bytes load through
+    /// [`causally::Span::decode`] — one pass that parses both endpoints
+    /// and proves them ordered, rejecting corrupt bytes and crossed
+    /// pairs alike as the load-time storage corruption they are — and
+    /// bounds held as two already-decoded versions validate through
+    /// [`causally::Span::new`], surfacing
+    /// [`Crossed`](causally::Crossed) the same way. Either way the
+    /// backend answers thereafter through the trusted door
     /// ([`causally::Span::new_unchecked`]) or its own stored span's reborrow.
     /// A violated ordering is not a detected fault: every verdict read
     /// off the span becomes unspecified, which here means silently
