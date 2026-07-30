@@ -863,14 +863,65 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             bound: Bound::Custom {
                 line: "`O(‖a‖ + ‖b‖)`, the operands' numeric sizes.",
-                reason: "Rank has no packed encoding; costs are value-content-denominated",
+                reason: "the operands are in-memory ranks; costs are \
+                         value-content-denominated",
             },
         }],
         cells: Cells::Board(&[("rank_pair_ops", Class::Linear)]),
     },
+    Claim {
+        op: "Rank::encode",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Custom {
+                line: "`O(‖r‖)` time and space; the output is `‖r‖ + O(log ‖r‖)` bits.",
+                reason: "the operand is an in-memory rank denominated by value content; \
+                         the output is mandatory, so the honest bound names it",
+            },
+        }],
+        cells: Cells::Board(&[("rank_encode", Class::LinearIo)]),
+    },
+    Claim {
+        op: "Rank::decode",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Linear,
+        }],
+        cells: Cells::Board(&[("rank_decode", Class::Linear)]),
+    },
     constant("Ranked::version"),
-    constant("Ranked::rank"),
-    constant("Ranked::into_parts"),
+    Claim {
+        op: "Ranked::to_rank",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::MulBound,
+        }],
+        // Definitional delegation: one rank fold over the viewed
+        // version, so the row of record is Version::rank's.
+        cells: Cells::Board(&[("version_rank", Class::MulBound)]),
+    },
+    Claim {
+        op: "Ranked::into_owned",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Custom {
+                line: "`O(n)` when borrowed (one byte copy of the version); `O(1)` when owned.",
+                reason: "a borrow-settling move: at most one byte copy, no walk; no \
+                         template splits on the operand's borrow state",
+            },
+        }],
+        cells: Cells::Uncelled(
+            "at most one byte copy of the borrowed version (the board's coverage table)",
+        ),
+    },
+    Claim {
+        op: "Ranked::encode",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::MulBound,
+        }],
+        cells: Cells::Board(&[("ranked_encode", Class::MulBound)]),
+    },
     // ───────────────────────────── causally ─────────────────────────────
     causally("causally::all", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
     causally("causally::since", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
@@ -1199,7 +1250,9 @@ pub(crate) const CLAIMS: &[Claim] = &[
             bound: Bound::Custom {
                 line: "comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display` \
                        superlinear in the numerator width (decimal conversion).",
-                reason: "Rank has no packed encoding; one type-doc section prices its \
+                reason: "Rank's arithmetic operands are in-memory values with no packed \
+                         operand form (the canonical wire form is priced on its own \
+                         encode/decode rows); one type-doc section prices the \
                          value-content-denominated surface",
             },
         }],
@@ -1228,17 +1281,15 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ),
     },
     Claim {
-        op: "Ranked Ord / From<Version> (byte tiebreak)",
+        op: "Ranked / Rank comparisons and From conversions (rank order, all operand mixes)",
         checks: &[Check {
             site: Site::TypeDoc("src/version/ranked.rs", "Ranked"),
-            bound: Bound::Custom {
-                line: "construction `O(n)` (the rank fold); comparison as `Rank` — `O(1)` \
-                       across scales, linear on ties.",
-                reason: "one type-doc section prices construction and the tiebroken order \
-                         together",
-            },
+            bound: Bound::MulBoundPair,
         }],
-        cells: Cells::Board(&[("version_rank", Class::Linear)]),
+        // The fused signed co-sweep is distance/lag's integrator with
+        // constant orientation, so the pair claim and its witnesses are
+        // theirs; the ranked_cmp row drives it whole-surface.
+        cells: Cells::Board(&[("ranked_cmp", Class::MulBound)]),
     },
 ];
 

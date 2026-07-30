@@ -74,13 +74,24 @@
 //! join/meet as the 1-Lipschitz proptest in
 //! [`tier2`](crate::meter::tier2)'s test suite rather than assumed.
 //!
-//! **Rank operands** (`rank_pair_ops`, `rank_sum`) have no packed encoding
-//! to charge against; their denominator of record is the operands' **value
-//! content** `bits(num) + exp` in bytes. That content is wire-bounded:
-//! every public construction path (the `rank`/`distance`/`lag` folds)
-//! emits a rank whose numerator width and exponent are each linear in the
-//! packed bits the fold read, so a ceiling per content byte is a ceiling
-//! per wire byte up to the fold's own constant.
+//! **Rank operands** (`rank_pair_ops`, `rank_sum`, and `rank_encode`'s
+//! input side) are in-memory values with no packed operand form; their
+//! denominator of record is the operands' **value content**
+//! `bits(num) + exp` in bytes. That content is wire-bounded: every
+//! public construction path (the `rank`/`distance`/`lag` folds) emits a
+//! rank whose numerator width and exponent are each linear in the
+//! packed bits the fold read, so a ceiling per content byte is a
+//! ceiling per wire byte up to the fold's own constant. `rank_encode`
+//! is I/O-denominated (content in plus the actual canonical bytes out,
+//! read back from the result), with the emission's honesty asserted at
+//! prepare — the canonical form is `‖r‖ + O(log ‖r‖)` bits, so a padded
+//! output cannot inflate the denominator; `rank_decode`'s operand *is*
+//! the canonical bytes, input-denominated like every codec row; and
+//! `ranked_encode` stays input-denominated because its output is
+//! provenance-bounded within the packed input (asserted at prepare), so
+//! input bytes are the honest, harder denominator and the
+//! flat-denominator shape's content exponent governs it exactly as it
+//! governs `version_rank`.
 
 use std::any::Any;
 

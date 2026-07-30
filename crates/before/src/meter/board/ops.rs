@@ -9,7 +9,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::error::{Decode, Parse};
-use crate::{causally, Clock, Party, Rank, Version};
+use crate::{causally, Clock, Party, Rank, Ranked, Version};
 
 use super::ceilings::{
     both_present_nodes, ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE,
@@ -34,10 +34,11 @@ use super::floors::{
     tick_walk_floors, touch_delta_fold, touch_fold_first_merges, touch_pair_fold,
     touch_wide_stream, walk_floors, NA_HEAP_IN_PLACE, NA_LIMB_DEPENDENCY, NA_LIMB_ID_TREE,
     NA_LIMB_NARROW, NA_LIMB_NOT_FORCED, NA_LIMB_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES,
-    NA_SCAN_NO_STREAM, NA_SCAN_SEED_PARTY, NA_TOUCH_GROW, NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED,
-    NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_REJECTION, NA_TOUCH_RENDER_SUMMARIES,
-    NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM,
-    WHY_SCAN_EXAMINES, WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
+    NA_SCAN_NO_STREAM, NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_TOUCH_GROW, NA_TOUCH_ID_TREE,
+    NA_TOUCH_NOT_FORCED, NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_REJECTION,
+    NA_TOUCH_RENDER_SUMMARIES, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_DECODE,
+    WHY_LIMB_RANK_ENCODE, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM, WHY_SCAN_EXAMINES,
+    WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
 };
 use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_clock, radix_units_party,
@@ -481,6 +482,76 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "rank_encode",
+            group: OpGroup::Rank,
+            prepare: |f| {
+                // The family-derived rank (maximal exponent on the
+                // spines), built at family construction, outside
+                // measurement. I/O-denominated: value content in, the
+                // actual canonical bytes out (the `cell` module doc's
+                // rank denomination), with the emission's honesty
+                // asserted here — a canonical encoding is
+                // `‖r‖ + O(log ‖r‖)` bits, so padding the output side
+                // of the denominator trips the run instead of greening
+                // the cell.
+                let (a, _) = f.rank_pair.clone()?;
+                let content = a.content_bits();
+                let encoded_len = a.encode().len();
+                assert!(
+                    (encoded_len as u64) * 8 <= content + 64,
+                    "output honesty: a canonical rank encoding is content + O(log) bits"
+                );
+                let floors = Floors {
+                    heap: heap_materializes(encoded_len),
+                    limb: Liveness::Floor {
+                        min: rank_numerator_limbs(&a),
+                        why: WHY_LIMB_RANK_ENCODE,
+                    },
+                    segments: seg_ceiling_only(),
+                    scan: na(NA_SCAN_NO_STREAM),
+                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
+                };
+                Some(Cell::io(
+                    content.div_ceil(8) as usize,
+                    floors,
+                    |result| {
+                        result
+                            .downcast_ref::<(Vec<u8>, Rank)>()
+                            .expect("the rank_encode cell keeps its bytes")
+                            .0
+                            .len()
+                    },
+                    move || (a.encode(), a),
+                ))
+            },
+        },
+        Op {
+            name: "rank_decode",
+            group: OpGroup::Rank,
+            prepare: |f| {
+                // The canonical bytes of the family-derived rank,
+                // encoded at prepare, outside measurement; the operand
+                // is the byte string itself, input-denominated like
+                // every codec row (the coding is canonical 1:1).
+                let (a, _) = f.rank_pair.clone()?;
+                let bytes = a.encode();
+                let numerator_bytes = (rank_numerator_limbs(&a) * 8) as usize;
+                let floors = Floors {
+                    heap: heap_materializes(numerator_bytes),
+                    limb: Liveness::Floor {
+                        min: rank_numerator_limbs(&a),
+                        why: WHY_LIMB_RANK_DECODE,
+                    },
+                    segments: seg_ceiling_only(),
+                    scan: na(NA_SCAN_RANK_BYTES),
+                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
+                };
+                Some(Cell::new(bytes.len(), floors, move || {
+                    Rank::decode(&bytes[..]).expect("a canonical rank encoding decodes")
+                }))
+            },
+        },
+        Op {
             name: "version_distance",
             group: OpGroup::Measure,
             prepare: |f| {
@@ -508,6 +579,58 @@ pub(super) fn ops() -> Vec<Op> {
                     touch: touch_pair_fold(&v, &w),
                 };
                 Some(Cell::new(n, floors, move || (v.lag(&w), v, w)))
+            },
+        },
+        Op {
+            name: "ranked_cmp",
+            group: OpGroup::Measure,
+            prepare: |f| {
+                // The fused rank comparison: the distance/lag co-sweep
+                // with constant orientation, so it takes their floors
+                // (the walk decodes both streams, folds every nonzero
+                // delta, and answers a word-scale verdict).
+                let (v, w, n) = f.version_pair()?;
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: limb_stream(mandatory_limbs_stream(&v) + mandatory_limbs_stream(&w)),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: touch_pair_fold(&v, &w),
+                };
+                Some(Cell::new(n, floors, move || {
+                    let ord = Ranked::from(&v).cmp(&Ranked::from(&w));
+                    (ord, v, w)
+                }))
+            },
+        },
+        Op {
+            name: "ranked_encode",
+            group: OpGroup::Measure,
+            prepare: |f| {
+                // The fused rank-to-bytes emission: the rank fold's
+                // floors plus the mandatory output. Input-denominated:
+                // the provenance pin bounds the output within the
+                // packed input (asserted here, so the bound is
+                // enforced at every family and scale), which makes
+                // input bytes the honest, harder denominator — the
+                // codec rows' rule — and lets the flat-denominator
+                // shape's content exponent govern exactly as on the
+                // version_rank cell this row extends.
+                let (v, n) = f.version()?;
+                let encoded_len = Ranked::from(&v).encode().len();
+                assert!(
+                    encoded_len <= n + 1,
+                    "output honesty: a version-derived rank encodes within its \
+                     version's packed bytes"
+                );
+                let floors = Floors {
+                    heap: heap_materializes(encoded_len),
+                    limb: limb_stream(mandatory_limbs_stream(&v)),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
+                };
+                Some(Cell::new(n, floors, move || (Ranked::from(&v).encode(), v)))
             },
         },
         Op {
@@ -1737,4 +1860,12 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
     ]
+}
+
+/// A rank's numerator width in 64-bit limbs (minimum 1): the limb floors
+/// of the wire rows, which materialize the numerator whatever the
+/// exponent (a spine rank's exponent is wide while its numerator is one
+/// word — the exponent costs fraction *bits* on the wire, never limbs).
+fn rank_numerator_limbs(rank: &Rank) -> u64 {
+    rank.raw_parts().0.bits().div_ceil(64).max(1)
 }

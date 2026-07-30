@@ -420,22 +420,64 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
     },
     SurfaceRow {
+        op: "Rank::encode",
+        prod_tree: Leg::Excluded(
+            "Rank is not a paper object and no wire form exists in the oracle; the \
+             encoding's laws are production-side pins (the lexicographic-order \
+             proptests, the exhaustive bijectivity sweep, the boundary goldens, the \
+             per-genre rejection witnesses, the provenance size pin)",
+        ),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; representation is exactly what the \
+             semantic domain quotients away — ratified by owner, 2026-07-26",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
+        op: "Rank::decode",
+        prod_tree: Leg::Excluded(
+            "Rank is not a paper object and no wire form exists in the oracle; strict \
+             decode is pinned production-side (round-trip inside the lexicographic \
+             proptests, the exhaustive accept-or-reject sweep, the rejection \
+             witnesses)",
+        ),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; representation is exactly what the \
+             semantic domain quotients away — ratified by owner, 2026-07-26",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
         op: "Ranked::version",
         prod_tree: Leg::Law("ranked_sort_respects_causality"),
-        prod_fs: Leg::Excluded("accessor over the byte-tiebroken total order; law-pinned"),
-        tree_fs: Leg::Excluded("accessor over the byte-tiebroken total order; law-pinned"),
+        prod_fs: Leg::Excluded("accessor over the rank view; law-pinned"),
+        tree_fs: Leg::Excluded("accessor over the rank view; law-pinned"),
     },
     SurfaceRow {
-        op: "Ranked::rank",
-        prod_tree: Leg::Law("ranked_tiebreaks_equal_ranks_by_bytes"),
-        prod_fs: Leg::Excluded("accessor over the byte-tiebroken total order; law-pinned"),
-        tree_fs: Leg::Excluded("accessor over the byte-tiebroken total order; law-pinned"),
+        op: "Ranked::to_rank",
+        prod_tree: Leg::Law("ranked_carries_own_rank"),
+        prod_fs: Leg::Excluded(
+            "definitional delegation to Version::rank, which is bound on all three \
+             legs; the law pins the delegation",
+        ),
+        tree_fs: Leg::Excluded("see the Version::rank row; the law pins the delegation"),
     },
     SurfaceRow {
-        op: "Ranked::into_parts",
-        prod_tree: Leg::Law("ranked_tiebreaks_equal_ranks_by_bytes"),
-        prod_fs: Leg::Excluded("accessor over the byte-tiebroken total order; law-pinned"),
-        tree_fs: Leg::Excluded("accessor over the byte-tiebroken total order; law-pinned"),
+        op: "Ranked::into_owned",
+        prod_tree: Leg::Law("ranked_carries_own_rank"),
+        prod_fs: Leg::Excluded(
+            "borrow-settling mechanics of the Rust API; the law pins value preservation",
+        ),
+        tree_fs: Leg::Excluded("borrow-settling mechanics of the Rust API"),
+    },
+    SurfaceRow {
+        op: "Ranked::encode",
+        prod_tree: Leg::Law("ranked_carries_own_rank"),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; the fused emission is law-pinned \
+             byte-identical to Rank::encode over the materialized rank",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
     // ───────────────────────────── causally ─────────────────────────────
     causally_row("causally::all"),
@@ -587,13 +629,14 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("not a paper object; see the prod↔tree reason"),
     },
     SurfaceRow {
-        op: "Ranked Ord / From<Version> (byte tiebreak)",
-        prod_tree: Leg::Law("ranked_linearly_extends_causality"),
+        op: "Ranked / Rank comparisons and From conversions (rank order, all operand mixes)",
+        prod_tree: Leg::Law("ranked_orders_by_rank"),
         prod_fs: Leg::Excluded(
-            "the tiebreak promises only some consistent total order extending \
-             causality — representational by design",
+            "every cell is definitionally the rank comparison, whose quantity is \
+             bound on all three legs at Version::rank; the law pins the fused walk, \
+             the equality semantics, and every heterogeneous mix to it",
         ),
-        tree_fs: Leg::Excluded("representational by design; see the prod↔fs reason"),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the delegation"),
     },
     SurfaceRow {
         op: "unbounded depth (beyond the differential grids)",

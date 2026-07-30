@@ -499,6 +499,36 @@ pub(super) fn render_map(
 /// re-pinned from the live release fold, every non-sync cell's reading
 /// byte-identical to the parent renders at both scales):
 ///
+/// Movement 2026-07-29 (the rank wire form and the rank view: the
+/// rank_encode/rank_decode and ranked_cmp/ranked_encode rows join the
+/// table; 8 entries pinned from the live release fold, every
+/// pre-existing entry byte-identical to the parent renders at both
+/// scales):
+///
+/// - **hugeleaf takes the rank_encode heap argmax, concurrent-pair its
+///   limb argmax** (both scales): the emission's transient is the
+///   output buffer plus the integral extraction, densest per content
+///   byte on the one wide-numerator value; the arithmetic pass is one
+///   shift-and-bias, so the limb argmax lands on the pair family whose
+///   content is mostly numerator.
+/// - **freeze-parade takes the rank_decode heap argmax** (both
+///   scales): its rank's numerator-to-content share makes the decoded
+///   materialization (assembly buffers plus the shift-and-or) the
+///   densest per encoded byte; concurrent-pair keeps the limb column
+///   for the same numerator-share reason as the encode row.
+/// - **the fused rows read as their walk parents** (both scales):
+///   ranked_cmp takes wide-arming heap / staircase limb / hugeleaf
+///   scan / staircase touch — version_distance's genre exactly, the
+///   same co-sweep at constant orientation (hugeleaf edges the scan
+///   argmax at saturation because the comparison walks the pair
+///   without distance's overlay pre-scan reweighting) — and
+///   ranked_encode takes wide-arming heap / staircase limb /
+///   hugeleaf scan / harmonic-then-staircase touch — version_rank's
+///   genre under the same input denomination (the provenance pin
+///   bounds the mandatory output inside the packed input, so `n` is
+///   the honest denominator and the saturated-scan and touch
+///   near-ties resolve as the walk's own, not an `n_io` rescale).
+///
 /// - **the clock_sync scan argmax falls back to the organic control**
 ///   (mirror-narrow → benign, both scales): the fused walk splices any
 ///   party subtree owned by one side alone without reading its nodes,
@@ -523,8 +553,12 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_rank", ["wide-arming", "staircase", "hugeleaf", "harmonic"]),
     ("default", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
     ("default", "rank_sum", ["plateau-puncture", "hugeleaf", "-", "freeze-pos"]),
+    ("default", "rank_encode", ["hugeleaf", "concurrent-pair", "-", "-"]),
+    ("default", "rank_decode", ["freeze-parade", "concurrent-pair", "-", "-"]),
     ("default", "version_distance", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("default", "version_lag", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
+    ("default", "ranked_cmp", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
+    ("default", "ranked_encode", ["wide-arming", "staircase", "hugeleaf", "harmonic"]),
     ("default", "version_min_ticks", ["ascend-cliff", "staircase", "staircase", "staircase"]),
     ("default", "version_join_all", ["-", "stagger", "benign", "stagger"]),
     ("default", "version_meet_all", ["-", "stagger", "stagger", "stagger"]),
@@ -590,8 +624,12 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_rank", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("acceptance", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
     ("acceptance", "rank_sum", ["bigroot", "hugeleaf", "-", "freeze-pos"]),
+    ("acceptance", "rank_encode", ["hugeleaf", "concurrent-pair", "-", "-"]),
+    ("acceptance", "rank_decode", ["freeze-parade", "concurrent-pair", "-", "-"]),
     ("acceptance", "version_distance", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("acceptance", "version_lag", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
+    ("acceptance", "ranked_cmp", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
+    ("acceptance", "ranked_encode", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("acceptance", "version_min_ticks", ["ascend-cliff", "staircase", "dense-suffix", "staircase"]),
     ("acceptance", "version_join_all", ["weave", "stagger", "benign", "stagger"]),
     ("acceptance", "version_meet_all", ["weave", "stagger", "stagger", "stagger"]),
