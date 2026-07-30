@@ -4,15 +4,17 @@
 //! decodes as nothing (or as the wrong value) and quietly stops seeding
 //! the fuzzer with what it was written to represent. These tests hold
 //! `fuzz/seeds/` byte-identical to the live derivation
-//! (`tests/support/fuzz_seed_set.rs`) and hold every `fuzz_decode` seed
-//! to the decode contract it seeds, so format drift is a red gate with a
+//! (`tests/support/fuzz_seed_set.rs`) and hold every seed to the
+//! contract it seeds — the decode targets' round-trips, the
+//! differential target's per-genre rejection witnesses, the parse
+//! target's display round-trips — so format drift is a red gate with a
 //! one-command fix (`cargo run -p before --example fuzz_seeds`).
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-use before::{Clock, Party, Version};
+use before::{causally::Span, error::Decode, Clock, Party, Rank, Ranked, Version};
 
 #[path = "support/fuzz_seed_set.rs"]
 mod fuzz_seed_set;
@@ -118,9 +120,128 @@ fn decode_seeds_decode_as_named_and_round_trip() {
                     "version seed re-encode is not stable"
                 );
             }
+            "rank" => {
+                let rank = Rank::decode(&bytes[..]).expect("a rank seed decodes as a Rank");
+                assert_eq!(&rank.encode(), bytes, "rank seed re-encode is not stable");
+            }
+            "ranked" => {
+                let key = Ranked::decode(&bytes[..]).expect("a ranked seed decodes as a Ranked");
+                assert_eq!(&key.encode(), bytes, "ranked seed re-encode is not stable");
+            }
+            "span" => {
+                let span = Span::decode(&bytes[..]).expect("a span seed decodes as a Span");
+                assert_eq!(&span.encode(), bytes, "span seed re-encode is not stable");
+            }
             other => panic!("unknown seed kind {other}"),
         }
     }
+}
+
+/// Every `fuzz_decode_differential` seed exercises the case its name declares.
+///
+/// The accept-frontier seeds decode and round-trip, and each rejection
+/// witness rejects with the exact genre whose precedence the
+/// differential oracle guards — so the committed corpus keeps seeding
+/// the genre seams it was written for, and a reintroduced
+/// verdict-before-padding ordering reddens this gate directly.
+#[test]
+fn differential_seeds_exercise_their_genre_seams() {
+    for seed in fuzz_seed_set::seed_set() {
+        if seed.target != "fuzz_decode_differential" {
+            continue;
+        }
+        let bytes = &seed.bytes;
+        match seed.name {
+            "span_ordered" => {
+                let span = Span::decode(&bytes[..]).expect("the ordered span seed decodes");
+                assert_eq!(&span.encode(), bytes, "span seed re-encode is not stable");
+            }
+            "ranked_nested" => {
+                let key = Ranked::decode(&bytes[..]).expect("the ranked seed decodes");
+                assert_eq!(&key.encode(), bytes, "ranked seed re-encode is not stable");
+            }
+            "postcard_span" => {
+                let payload: Vec<u8> =
+                    postcard::from_bytes(bytes).expect("the frame carries a byte payload");
+                let span = Span::decode(&payload[..]).expect("the framed payload is a span");
+                assert_eq!(
+                    span.encode(),
+                    payload,
+                    "the payload is the canonical encoding"
+                );
+            }
+            "span_crossed" => {
+                assert!(
+                    matches!(Span::decode(&bytes[..]), Err(Decode::NotCanonical)),
+                    "a crossed pair is the canonical spelling of no span"
+                );
+            }
+            "span_crossed_padding" => {
+                assert!(
+                    matches!(Span::decode(&bytes[..]), Err(Decode::TrailingBits)),
+                    "nonzero padding outranks the refuted pair verdict"
+                );
+            }
+            "span_negative_join" => {
+                assert!(
+                    matches!(Span::decode(&bytes[..]), Err(Decode::NotCanonical)),
+                    "a whole negative-height join rejects as the validator would"
+                );
+            }
+            "span_trailing" => {
+                assert!(
+                    matches!(Span::decode(&bytes[..]), Err(Decode::TrailingBits)),
+                    "a spurious byte past the composite is the trailing genre"
+                );
+            }
+            "ranked_mismatched" => {
+                assert!(
+                    matches!(Ranked::decode(&bytes[..]), Err(Decode::NotCanonical)),
+                    "a rank prefix the version does not measure is non-canonical"
+                );
+            }
+            other => panic!("unknown differential seed {other}"),
+        }
+    }
+}
+
+/// Every `fuzz_parse` seed parses as named and round-trips through its display.
+///
+/// The seeds actually exercise the text parsers they were written for,
+/// and the wide seed really is wide (a magnitude past `u64::MAX`, the
+/// tier random text never reaches).
+#[test]
+fn parse_seeds_parse_as_named_and_round_trip() {
+    let mut saw_wide = false;
+    for seed in fuzz_seed_set::seed_set() {
+        if seed.target != "fuzz_parse" {
+            continue;
+        }
+        let text = std::str::from_utf8(&seed.bytes).expect("parse seeds are UTF-8");
+        match seed.name {
+            "clock_display" => {
+                let clock: Clock = text.parse().expect("the clock seed parses");
+                assert_eq!(clock.to_string(), text, "clock display round-trip");
+            }
+            "version_nested_text" => {
+                let version: Version = text.parse().expect("the nested version seed parses");
+                assert_eq!(version.to_string(), text, "version display round-trip");
+            }
+            "party_nested_text" => {
+                let party: Party = text.parse().expect("the party seed parses");
+                assert_eq!(party.to_string(), text, "party display round-trip");
+            }
+            "version_wide" => {
+                let version: Version = text.parse().expect("the wide version seed parses");
+                assert_eq!(version.to_string(), text, "wide display round-trip");
+                // A version leaf displays as its bare magnitude; 21+ digits
+                // is past u64::MAX (20 digits), i.e. the wide-gamma tier.
+                saw_wide |= text.len() >= 21;
+            }
+            other => panic!("unknown parse seed {other}"),
+        }
+    }
+    assert!(saw_wide, "no fuzz_parse seed reaches the wide-decimal tier");
 }
 
 /// Carve the next length-prefixed chunk off a `fuzz_laws` seed, exactly as

@@ -14,7 +14,7 @@
 //! integration test (the checker), so the two cannot drift from each
 //! other; both build against the public API only.
 
-use before::{Clock, Party, Version};
+use before::{causally::Span, Clock, Party, Ranked, Version};
 
 /// One committed seed file: its fuzz target, file name, and exact bytes.
 pub struct Seed {
@@ -90,6 +90,10 @@ pub fn seed_set() -> Vec<Seed> {
     let mut y = x.fork();
     let mut z = y.fork();
     x.tick();
+    // A strictly ordered pair from one history: `older` (one tick) sits
+    // strictly below `newer` (the sync-joined nested tree). The rank,
+    // ranked-key, span, and differential seeds below are all built from it.
+    let older = x.version().clone();
     z.tick();
     z.tick();
     x.sync(&mut z).expect("forked clocks are disjoint");
@@ -101,6 +105,111 @@ pub fn seed_set() -> Vec<Seed> {
     // `y` exists to nest `z`'s party a level deeper; its version stays
     // empty and needs no seed of its own.
     let _ = y.version();
+    let newer = x.version().clone();
+
+    // Ranks, ranked keys, and spans: canonical encodings of the remaining
+    // wire types, so the decode target's corpus reaches every roster row.
+    seeds.push(Seed {
+        target: "fuzz_decode",
+        name: "rank_nested",
+        bytes: newer.rank().encode(),
+    });
+    seeds.push(Seed {
+        target: "fuzz_decode",
+        name: "ranked_nested",
+        bytes: Ranked::from(&newer).encode(),
+    });
+    let span_ordered = Span::new(&older, &newer)
+        .expect("one history's versions are ordered")
+        .encode();
+    seeds.push(Seed {
+        target: "fuzz_decode",
+        name: "span_ordered",
+        bytes: span_ordered.clone(),
+    });
+
+    // Differential-target seeds: the accept frontier plus one committed
+    // witness per rejection genre whose *precedence* the differential
+    // oracle guards. Every fuzz run replays the seed corpus first, so a
+    // reintroduced genre-ordering defect (a pair verdict pronounced before
+    // the padding check) crashes the very first smoke run.
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "span_ordered",
+        bytes: span_ordered.clone(),
+    });
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "ranked_nested",
+        bytes: Ranked::from(&newer).encode(),
+    });
+    // The postcard frame of a span: the committed serde tests pin the
+    // typed payload byte-identical to `encode()` inside the format's
+    // plain byte-sequence framing, so the frame derives from the
+    // encoding alone (no serde feature needed here).
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "postcard_span",
+        bytes: postcard::to_allocvec(&span_ordered)
+            .expect("postcard serialization to a Vec is infallible"),
+    });
+    // A strictly crossed pair: the join strictly below the meet.
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "span_crossed",
+        bytes: [newer.encode(), older.encode()].concat(),
+    });
+    // A crossed pair whose join also carries a set padding bit: the
+    // structural genre (TrailingBits) must outrank the pair verdict.
+    let mut padded_empty = Version::new().encode();
+    padded_empty[0] |= 0x04;
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "span_crossed_padding",
+        bytes: [older.encode(), padded_empty].concat(),
+    });
+    // A join whose running height dips negative: root internal `0`, left
+    // leaf `1` with height gamma(0) `1`, right leaf `1` with delta
+    // zigzag(-1) `010`, one zero padding bit — 0b0111_0100. Not derivable
+    // from the API (no encode produces it); it seeds the one documented
+    // fused/composed genre divergence, the height-dip subsumption.
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "span_negative_join",
+        bytes: [Version::new().encode(), vec![0x74]].concat(),
+    });
+    // A complete span followed by a spurious byte: the borsh prefix read
+    // accepts and leaves a remainder; the whole-slice decode must reject.
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "span_trailing",
+        bytes: [span_ordered, vec![0x00]].concat(),
+    });
+    // A rank prefix the version does not measure: well-formed components
+    // no encode ever pairs.
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "ranked_mismatched",
+        bytes: [newer.rank().encode(), older.encode()].concat(),
+    });
+
+    // Text-parse seeds: the display notation of known values, including
+    // the nested tuple form and wide decimal magnitudes.
+    seeds.push(Seed {
+        target: "fuzz_parse",
+        name: "clock_display",
+        bytes: x.to_string().into_bytes(),
+    });
+    seeds.push(Seed {
+        target: "fuzz_parse",
+        name: "version_nested_text",
+        bytes: newer.to_string().into_bytes(),
+    });
+    seeds.push(Seed {
+        target: "fuzz_parse",
+        name: "party_nested_text",
+        bytes: quarter.party().to_string().into_bytes(),
+    });
 
     // Decode-then-ops scripts, in fuzz_decode_ops framing: flavour byte,
     // 1-byte length prefix, the value bytes, then the op script. The
@@ -228,6 +337,35 @@ pub fn seed_set() -> Vec<Seed> {
     });
     // `quarter_owner` exists to nest the parties; only its party is read.
     let _ = quarter_owner.version();
+
+    // The wide tier for the rank-bearing and text decoders: rank streams
+    // with mantissas past the machine word, a span whose endpoints carry
+    // wide bases, and the wide decimal display (which parses as both a
+    // version leaf and a tick count) — shapes random bytes essentially
+    // never reach (the same ~2^-64 unary-prefix argument as the laws
+    // seeds above).
+    seeds.push(Seed {
+        target: "fuzz_decode",
+        name: "rank_wide",
+        bytes: wide_nested.rank().encode(),
+    });
+    seeds.push(Seed {
+        target: "fuzz_decode",
+        name: "ranked_wide",
+        bytes: Ranked::from(&wide_nested).encode(),
+    });
+    seeds.push(Seed {
+        target: "fuzz_decode",
+        name: "span_wide",
+        bytes: Span::new(&wide_nested, &wide_leaf)
+            .expect("the nested wide tree sits below the 2^128 leaf")
+            .encode(),
+    });
+    seeds.push(Seed {
+        target: "fuzz_parse",
+        name: "version_wide",
+        bytes: wide_leaf.to_string().into_bytes(),
+    });
 
     seeds
 }

@@ -226,8 +226,10 @@ fuzz-build:
 [working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_differential corpus/fuzz_decode_differential seeds/fuzz_decode_differential -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run fuzz_laws corpus/fuzz_laws seeds/fuzz_laws -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run fuzz_parse corpus/fuzz_parse seeds/fuzz_parse -- -max_total_time={{ secs }}
 
 # The fuzz-fit asymptotics harness lives in a detached workspace
 # (crates/before/fuzzfit, the fuzz-target idiom), so workspace-wide builds

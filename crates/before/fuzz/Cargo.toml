@@ -3,8 +3,10 @@
 # tries to build it (it needs nightly + libFuzzer). Build/run with cargo-fuzz only:
 #   cargo +nightly fuzz build
 #   cargo +nightly fuzz run fuzz_decode -- -max_total_time=20
+#   cargo +nightly fuzz run fuzz_decode_differential -- -max_total_time=20
 #   cargo +nightly fuzz run fuzz_decode_ops -- -max_total_time=20
 #   cargo +nightly fuzz run fuzz_laws -- -max_total_time=20
+#   cargo +nightly fuzz run fuzz_parse -- -max_total_time=20
 [workspace]
 
 [package]
@@ -24,15 +26,23 @@ libfuzzer-sys = "0.4"
 # GlobalAlloc: the workspace policy prefers a maintained crate over owning unsafe
 # code, even in a fuzz binary.
 peak_alloc = "0.3"
+# The transport formats the differential target drives against the raw decodes:
+# borsh's `deserialize_reader` is the self-delimiting prefix read, postcard is the
+# byte-carrying serde format of record (the same one the crate's committed serde
+# tests pin the payload bytes through). `serde` supplies only the trait bounds.
+borsh = "1"
+postcard = { version = "1", features = ["use-std"] }
+serde = "1"
 
 [dependencies.before]
 path = ".."
 # `laws` exposes the named law predicates (`before::laws`) the fuzz_laws
-# target drives; the crate's proptests assert the same collection.
-features = ["laws"]
+# target drives; `serde` and `borsh` light the transport impls the
+# fuzz_decode_differential target holds against the raw decodes.
+features = ["laws", "serde", "borsh"]
 
 # The package's lib (src/lib.rs) is the shared harness: the peak-tracking global
-# allocator and the per-input heap cap both targets run under.
+# allocator and the per-input heap cap every target runs under.
 
 # Decode-only target: feed arbitrary bytes to every top-level `decode`. Asserts the
 # keystone invariant (COV-7) inline — an accepted value re-encodes stably and decodes
@@ -40,6 +50,17 @@ features = ["laws"]
 [[bin]]
 name = "fuzz_decode"
 path = "fuzz_targets/fuzz_decode.rs"
+test = false
+doc = false
+bench = false
+
+# Differential decode target: every decode with a composed public-API counterpart
+# (the fused Span and Ranked decodes, the borsh and postcard transports) runs both
+# paths on the same bytes and asserts agreement on accept, value + re-encode, and
+# rejection genre — the axis plain round-trip fuzzing is blind to.
+[[bin]]
+name = "fuzz_decode_differential"
+path = "fuzz_targets/fuzz_decode_differential.rs"
 test = false
 doc = false
 bench = false
@@ -61,6 +82,16 @@ bench = false
 [[bin]]
 name = "fuzz_laws"
 path = "fuzz_targets/fuzz_laws.rs"
+test = false
+doc = false
+bench = false
+
+# Text-parse target: feed arbitrary UTF-8 to every public `FromStr` (the paper-notation
+# parsers and the decimal tick count); an accepted value's display must re-parse to the
+# same value.
+[[bin]]
+name = "fuzz_parse"
+path = "fuzz_targets/fuzz_parse.rs"
 test = false
 doc = false
 bench = false
