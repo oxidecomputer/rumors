@@ -130,7 +130,7 @@ use suanpan::Accumulator;
 use crate::causally::{Dominance, Endpoint, Placement};
 use crate::codec::{Base, BitsSlice};
 
-use super::sweep::{fold, LeafCursor, PlateauCursor, Side, Step};
+use super::sweep::{fold, Directions, LeafCursor, PlateauCursor, Side, Step};
 
 /// Where a probe stream's version sits relative to a validated pair of
 /// bound streams under *range* semantics: the range walk's verdict, at
@@ -174,10 +174,10 @@ struct BoundSide<'a> {
     cursor: LeafCursor<'a>,
     /// `height_probe − height_bound`, on the cliff-immune accumulator.
     diff: Accumulator,
-    /// `probe <= bound` still possible (no interval put the probe above).
-    le: bool,
-    /// `bound <= probe` still possible (no interval put the bound above).
-    ge: bool,
+    /// The surviving directions of this side's pair, the probe as the
+    /// `a` operand: `le` is `probe <= bound` still possible, `ge` is
+    /// `bound <= probe`.
+    directions: Directions,
 }
 
 impl<'a> BoundSide<'a> {
@@ -195,28 +195,18 @@ impl<'a> BoundSide<'a> {
         BoundSide {
             cursor,
             diff,
-            le: true,
-            ge: true,
+            directions: Directions::new(),
         }
     }
 
     /// Fold this interval's sign into the surviving directions.
     fn read(&mut self) {
-        match self.diff.sign() {
-            Ordering::Greater => self.le = false,
-            Ordering::Less => self.ge = false,
-            Ordering::Equal => {}
-        }
+        self.directions.fold(self.diff.sign());
     }
 
     /// The relation the completed sweep decided, as the causal order.
     fn relation(&self) -> Option<Ordering> {
-        match (self.le, self.ge) {
-            (true, true) => Some(Ordering::Equal),
-            (true, false) => Some(Ordering::Less),
-            (false, true) => Some(Ordering::Greater),
-            (false, false) => None,
-        }
+        self.directions.relation()
     }
 }
 
@@ -246,8 +236,8 @@ pub(crate) fn range(
         // its cursor and sweep on for the end relation — and with no
         // end bound left in the question, past-or-concurrent to the
         // start is already the contained region.
-        |le, ge, end_live| {
-            if le || ge {
+        |dirs, end_live| {
+            if dirs.le || dirs.ge {
                 ControlFlow::Continue(Fate::Sweep)
             } else if end_live {
                 ControlFlow::Continue(Fate::Drop)
@@ -258,8 +248,8 @@ pub(crate) fn range(
         // Concurrent to the end is the whole verdict: on a validated
         // range a probe concurrent to the end cannot be below the
         // start.
-        |le, ge, _| {
-            if le || ge {
+        |dirs, _| {
+            if dirs.le || dirs.ge {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Break(Ranged::ConcurrentToEnd)
@@ -304,8 +294,8 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
     /// `Concurrent(Start)` vs `Concurrent(Both)` needs the other
     /// endpoint's relation; when the refuted side was the last one
     /// standing, both endpoints have refuted and the verdict is fixed.
-    fn on_side(le: bool, ge: bool, other_live: bool) -> ControlFlow<Placement, Fate> {
-        if le || ge {
+    fn on_side(dirs: Directions, other_live: bool) -> ControlFlow<Placement, Fate> {
+        if dirs.le || dirs.ge {
             ControlFlow::Continue(Fate::Sweep)
         } else if other_live {
             ControlFlow::Continue(Fate::Drop)
@@ -354,8 +344,8 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
         // `lo <= probe` refuted is the whole verdict — the probe
         // dominates not even the start, whatever the end relation: the
         // family's earliest bail.
-        |_le, ge, _| {
-            if ge {
+        |dirs, _| {
+            if dirs.ge {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Break(Dominance::Before)
@@ -364,8 +354,8 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
         // `hi <= probe` refuted takes `Dominance::After` off the table, and the
         // verdict now rides the start relation alone — the end stream
         // is never scanned further.
-        |_le, ge, _| {
-            if ge {
+        |dirs, _| {
+            if dirs.ge {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Continue(Fate::Drop)
@@ -392,8 +382,8 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
 /// streams, folding each elementary interval's signs and letting the
 /// verdict hooks act.
 ///
-/// `on_start` and `on_end` see their side's surviving directions after
-/// its sign fold, plus whether the other side still sweeps: `Break`
+/// `on_start` and `on_end` see their side's surviving [`Directions`]
+/// after its sign fold, plus whether the other side still sweeps: `Break`
 /// carries a determined verdict out of the walk, and `Continue` carries
 /// the side's [`Fate`]. The hooks act only on refutations — which are
 /// permanent — so an early break or drop never moves a verdict the
@@ -407,8 +397,8 @@ fn walk<V>(
     probe: &BitsSlice,
     start: Option<&BitsSlice>,
     end: Option<&BitsSlice>,
-    on_start: impl Fn(bool, bool, bool) -> ControlFlow<V, Fate>,
-    on_end: impl Fn(bool, bool, bool) -> ControlFlow<V, Fate>,
+    on_start: impl Fn(Directions, bool) -> ControlFlow<V, Fate>,
+    on_end: impl Fn(Directions, bool) -> ControlFlow<V, Fate>,
     finish: impl FnOnce(Option<Option<Ordering>>, Option<Option<Ordering>>) -> V,
 ) -> V {
     if start.is_none() && end.is_none() {
@@ -425,7 +415,7 @@ fn walk<V>(
         // identical.
         if let Some(side) = &mut end {
             side.read();
-            match on_end(side.le, side.ge, start.is_some()) {
+            match on_end(side.directions, start.is_some()) {
                 ControlFlow::Continue(Fate::Sweep) => {}
                 ControlFlow::Continue(Fate::Drop) => end = None,
                 ControlFlow::Break(verdict) => return verdict,
@@ -433,7 +423,7 @@ fn walk<V>(
         }
         if let Some(side) = &mut start {
             side.read();
-            match on_start(side.le, side.ge, end.is_some()) {
+            match on_start(side.directions, end.is_some()) {
                 ControlFlow::Continue(Fate::Sweep) => {}
                 ControlFlow::Continue(Fate::Drop) => start = None,
                 ControlFlow::Break(verdict) => return verdict,
