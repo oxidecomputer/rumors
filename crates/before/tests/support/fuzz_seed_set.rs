@@ -142,10 +142,17 @@ pub fn seed_set() -> Vec<Seed> {
 
     // Law-target inputs, in fuzz_laws framing: six length-prefixed chunks —
     // `[len: u8][bytes]` each — decoded positionally as three Versions, two
-    // Parties, and a Clock. The framing is a wire contract with
+    // Parties, and a Clock, then three list scripts — `[arity: u8][pool
+    // indices: one byte per element]`, versions (pool of 4) then parties
+    // (pool of 3) then clocks (pool of 3) — feeding the variadic law
+    // groups. The framing is a wire contract with
     // `fuzz/fuzz_targets/fuzz_laws.rs` (its `chunk` carves the values in
-    // this order); a change on either side means regenerating the seeds.
-    let laws_chunks = |versions: [&Version; 3], parties: [&Party; 2], clock: &Clock| {
+    // this order, its `picks` reads the scripts); a change on either side
+    // means regenerating the seeds.
+    let laws_chunks = |versions: [&Version; 3],
+                       parties: [&Party; 2],
+                       clock: &Clock,
+                       scripts: [&[u8]; 3]| {
         let mut bytes = Vec::new();
         let mut push = |encoded: Vec<u8>| {
             let len =
@@ -160,12 +167,22 @@ pub fn seed_set() -> Vec<Seed> {
             push(party.encode());
         }
         push(clock.encode());
+        for script in scripts {
+            let arity =
+                u8::try_from(script.len()).expect("seed list scripts stay within one arity byte");
+            bytes.push(arity);
+            bytes.extend_from_slice(script);
+        }
         bytes
     };
 
     // A live family: the synced clock's nested version, the sibling's
     // concurrent version, the empty version, and the two disjoint sibling
-    // parties around the clock itself.
+    // parties around the clock itself. The scripts cross the balanced
+    // counter's first-octave boundaries: an arity-5 version list (the
+    // merged–merged carry at four, then the drain) with a repeat and the
+    // empty version, and arity-4 party and clock lists whose repeats are
+    // aliases (the refusal arm).
     seeds.push(Seed {
         target: "fuzz_laws",
         name: "laws_family",
@@ -173,6 +190,7 @@ pub fn seed_set() -> Vec<Seed> {
             [clock.version(), sibling.version(), &Version::new()],
             [clock.party(), sibling.party()],
             &clock,
+            [&[0, 1, 2, 3, 0], &[0, 1, 2, 0], &[0, 1, 2, 0]],
         ),
     });
 
@@ -191,6 +209,12 @@ pub fn seed_set() -> Vec<Seed> {
     let mut quarter_owner = Clock::seed();
     let mut half = quarter_owner.fork();
     let quarter = half.fork();
+    // The second-octave scripts: arities 17/16/15 (a lone input under a
+    // weight-4 carry; the full carry; a four-group drain), cycling their
+    // pools so wide-gamma values ride through every combine weight.
+    let deep_versions: Vec<u8> = (0..17u8).map(|i| i % 4).collect();
+    let deep_parties: Vec<u8> = (0..16u8).map(|i| i % 3).collect();
+    let deep_clocks: Vec<u8> = (0..15u8).map(|i| i % 3).collect();
     seeds.push(Seed {
         target: "fuzz_laws",
         name: "laws_wide_gamma",
@@ -201,6 +225,7 @@ pub fn seed_set() -> Vec<Seed> {
                 quarter_owner.party().dangerously_alias(),
                 wide_nested.clone(),
             ),
+            [&deep_versions, &deep_parties, &deep_clocks],
         ),
     });
     // `quarter_owner` exists to nest the parties; only its party is read.
