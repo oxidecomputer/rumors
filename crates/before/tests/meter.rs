@@ -6379,11 +6379,13 @@ fn own_version_pair_cmp_mask_drift_envelope() {
 const JOIN_EQUAL_OPERANDS_PEAK: usize = 440;
 
 /// The cheap-clone demonstration: `join_all` over two byte-equal
-/// versions answers through the equality rung and hands back a clone —
-/// an `O(1)` refcount bump — so the fold's peak heap is the counter
-/// machinery alone, *byte-identical across a 4x operand growth* (the
-/// flatness leg no operand-copying clone arm can pass). The semantic
-/// leg pins the verdict: the join IS the operand, byte for byte.
+/// versions answers through the equality rung and hands back a clone,
+/// an `O(1)` refcount bump.
+///
+/// The fold's peak heap is therefore the counter machinery alone,
+/// *byte-identical across a 4x operand growth* (the flatness leg no
+/// operand-copying clone arm can pass). The semantic leg pins the
+/// verdict: the join IS the operand, byte for byte.
 #[test]
 fn join_all_equal_operands_is_clone_cheap() {
     let run = |depth: usize| {
@@ -8865,7 +8867,9 @@ mod identity_fast_paths {
     }
 
     /// Clone operands answer every identity-law fast path without a
-    /// walk: comparison (`order_reflexive`), join and meet idempotence
+    /// walk.
+    ///
+    /// Comparison (`order_reflexive`), join and meet idempotence
     /// (`merge_idempotent`/`meet_idempotent`), the coincident hull
     /// (`span_with_self_is_coincident`), and the n-ary folds' adjacent
     /// clone collapse — all zero scanned bits over operands that share
@@ -8919,10 +8923,12 @@ mod identity_fast_paths {
     }
 
     /// Byte-equal operands in distinct buffers keep the walked paths
-    /// covered: comparison takes the full sweep (the clone-identity
-    /// rung must not fire across buffers), while the byte-compare rung
-    /// answers join/meet/span/distance/lag with no bit-stream walk —
-    /// and every verdict equals the clone-operand fast path's.
+    /// covered.
+    ///
+    /// Comparison takes the full sweep (the clone-identity rung must
+    /// not fire across buffers), while the byte-compare rung answers
+    /// join/meet/span/distance/lag with no bit-stream walk — and every
+    /// verdict equals the clone-operand fast path's.
     #[test]
     fn distinct_buffers_keep_the_walked_paths_covered() {
         let (v, redecoded, _) = fixture();
@@ -8954,8 +8960,10 @@ mod identity_fast_paths {
         }
     }
 
-    /// The party identity fast paths: an alias (shared buffer) answers
-    /// `covers` (true: `covers_reflexive`) and `is_disjoint` (false:
+    /// The party identity fast paths fire on aliases and only aliases.
+    ///
+    /// An alias (shared buffer) answers `covers` (true:
+    /// `covers_reflexive`) and `is_disjoint` (false:
     /// `never_disjoint_from_self`) without a walk, while a distinct
     /// party pair walks — and a buffer-distinct re-decode of the same
     /// party takes the walk to the same verdicts, keeping the walked
@@ -8995,12 +9003,14 @@ mod identity_fast_paths {
         }
     }
 
-    /// The metric fast paths at arithmetic width: `distance` and `lag`
-    /// over clone or byte-equal operands fold nothing through the
-    /// accumulator (`distance_to_self_is_zero`/`lag_to_self_is_zero`),
-    /// where the same pair walked whole at the parent — and a real pair
-    /// still folds, so the zeros are the equality rung, not a dead
-    /// touch meter.
+    /// The metric fast paths skip the fold at arithmetic width.
+    ///
+    /// `distance` and `lag` over clone or byte-equal operands fold
+    /// nothing through the accumulator
+    /// (`distance_to_self_is_zero`/`lag_to_self_is_zero`), where the
+    /// same pair walked whole at the parent — and a real pair still
+    /// folds, so the zeros are the equality rung, not a dead touch
+    /// meter.
     #[cfg(feature = "limb-meter")]
     #[test]
     fn metric_fast_paths_skip_the_fold() {

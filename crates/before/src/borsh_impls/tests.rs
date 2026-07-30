@@ -671,10 +671,11 @@ proptest! {
 }
 
 /// The borsh span door dedups the coincident span's storage exactly as
-/// the byte-slice decode does: the fused admission verdict detects
-/// `hi == lo` on the wire, so the deserialized endpoints share one
-/// buffer (clone identity holds) and the composite still re-serializes
-/// byte-identically.
+/// the byte-slice decode does.
+///
+/// The fused admission verdict detects `hi == lo` on the wire, so the
+/// deserialized endpoints share one buffer (clone identity holds) and
+/// the composite still re-serializes byte-identically.
 #[test]
 fn span_borsh_dedups_the_coincident_span() {
     use crate::causally::Span;

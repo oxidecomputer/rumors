@@ -2316,10 +2316,12 @@ proptest! {
 
 proptest! {
     /// The identity-law fast paths agree with the walked paths across
-    /// buffer identity: every equal-operand shortcut answers identically
-    /// on a clone (shared buffer, the clone-identity rung) and on a
-    /// byte-equal re-build in a distinct buffer (the byte compare or the
-    /// full walk) — comparison `Equal`, join and meet the value itself,
+    /// buffer identity.
+    ///
+    /// Every equal-operand shortcut answers identically on a clone
+    /// (shared buffer, the clone-identity rung) and on a byte-equal
+    /// re-build in a distinct buffer (the byte compare or the full
+    /// walk) — comparison `Equal`, join and meet the value itself,
     /// distance and lag zero, and the hull coincident.
     #[test]
     fn identity_fast_paths_agree_across_buffer_identity(oa in arb_oracle_version()) {
@@ -2340,8 +2342,9 @@ proptest! {
 }
 
 proptest! {
-    /// The n-ary folds' adjacent clone collapse is value-invisible:
-    /// folding a population with each element expanded into an adjacent
+    /// The n-ary folds' adjacent clone collapse is value-invisible.
+    ///
+    /// Folding a population with each element expanded into an adjacent
     /// run of clones equals folding the population itself, for
     /// `join_all`, `meet_all`, and `span_all` (idempotence makes a run
     /// one operand; the collapse must change no verdict).
