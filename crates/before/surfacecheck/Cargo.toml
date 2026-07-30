@@ -1,0 +1,30 @@
+# Standalone surface-totality workspace. The empty `[workspace]` table
+# detaches it from the parent `rumors` workspace, so ordinary workspace
+# builds never compile it (the rustdoc-JSON schema tooling stays out of
+# the production crates' graph); the gate reaches it through the
+# `just surface-totality` recipe alone, which documents the check and the
+# toolchain-bump procedure.
+
+[workspace]
+
+[package]
+name = "surfacecheck"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+# The roster of record: `before::surface::METHOD_SURFACE`, public under
+# the `meter` feature exactly so instrument crates like this one can bind
+# to the rows the surface-coverage suite enforces — one enumeration, no
+# second hand-maintained copy to drift.
+before = { path = "..", features = ["meter"] }
+# The official rustdoc JSON schema crate. Pinned exact because the crate
+# version IS the format pin: rustdoc-types 0.59.0 speaks format_version
+# 59, and main.rs refuses any document whose format_version differs from
+# `rustdoc_types::FORMAT_VERSION`, naming both numbers. Bumping the
+# nightly toolchain therefore means bumping this pin to the release
+# whose FORMAT_VERSION matches what the new nightly emits (the recipe
+# comment in the workspace justfile walks through it).
+rustdoc-types = "=0.59.0"
+serde_json = "1"
