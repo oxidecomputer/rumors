@@ -1996,22 +1996,25 @@ proptest! {
 /// checked against the materialized rank-then-bytes order in both
 /// argument orders, and the fused rank-only encode against the
 /// materialized encode on the same deep shapes.
+/// The staircase: one new unit plateau per level over the given core,
+/// mass leaning left (`(0, t, 1)`) or right (`(0, 1, t)`) — mirror
+/// images, so their areas agree level for level and the two leans
+/// share a rank by symmetry. The extreme-depth genre no generator
+/// reaches, shared by the deep-cancellation and composite-key suites.
+fn stairs(depth: usize, lean_left: bool, core: &str) -> Version {
+    let mut text = String::from(core);
+    for _ in 0..depth {
+        text = if lean_left {
+            format!("(0, {text}, 1)")
+        } else {
+            format!("(0, 1, {text})")
+        };
+    }
+    text.parse().unwrap()
+}
+
 #[test]
 fn ranked_fused_walk_survives_deep_cancellation() {
-    // The staircase: one new unit plateau per level, mass leaning left
-    // (`(0, t, 1)`) or right (`(0, 1, t)`) — mirror images, so their
-    // areas agree level for level.
-    fn stairs(depth: usize, lean_left: bool, core: &str) -> Version {
-        let mut text = String::from(core);
-        for _ in 0..depth {
-            text = if lean_left {
-                format!("(0, {text}, 1)")
-            } else {
-                format!("(0, 1, {text})")
-            };
-        }
-        text.parse().unwrap()
-    }
     let left = stairs(800, true, "(0, 1, 0)");
     let right = stairs(800, false, "(0, 1, 0)");
     // The same mirror with its deepest step split: a rank-3/8 core
@@ -2073,8 +2076,10 @@ proptest! {
 /// structure — the shapes most likely to share a long byte prefix.
 ///
 /// A tick chain (each version one event past the last), a spine tower
-/// (each one level deeper), and the equal-rank concurrent pair are
-/// checked pairwise: no encoding is a byte prefix of any other's.
+/// (each one level deeper, out to 800 levels — extreme depth past the
+/// arb generator's reach), the 800-level mirror staircases, and the
+/// equal-rank concurrent pair are checked pairwise: no encoding is a
+/// byte prefix of any other's.
 #[test]
 fn version_encoding_is_prefix_free_on_growth_chains() {
     let mut battery: Vec<Version> = Vec::new();
@@ -2088,13 +2093,18 @@ fn version_encoding_is_prefix_free_on_growth_chains() {
         battery.push(clock.version().clone());
         b = clock.fork();
     }
-    for depth in [0usize, 1, 2, 3, 8] {
+    for depth in [0usize, 1, 2, 3, 8, 200, 201, 800] {
         let mut text = String::from("1");
         for _ in 0..depth {
             text = format!("(0, {text}, 0)");
         }
         battery.push(text.parse().unwrap());
     }
+    // The 800-level staircase and its mirror: extreme depth past any
+    // generator's reach, sharing a rank by symmetry — the deep genre
+    // whose streams extend structure level by level.
+    battery.push(stairs(800, true, "(0, 1, 0)"));
+    battery.push(stairs(800, false, "(0, 1, 0)"));
     battery.push("(0, 1, 0)".parse().unwrap());
     battery.push("(0, (0, 1, 0), (0, 0, 1))".parse().unwrap());
     battery.push(Version::new());
@@ -2158,11 +2168,13 @@ proptest! {
 /// The equal-rank concurrent pair (half vs. the two-peak tree), the
 /// empty version against half (the zero rank's one-byte stream against
 /// a fractional one — decided in the rank component, with the version
-/// tail present on both), and a tick chain pair. For each pair the
-/// full strength is asserted directly: neither key is a byte prefix of
-/// the other, byte order equals the views' total order, and the worst
-/// suffixes (`0xFF` on the smaller key, `0x00` on the larger) cannot
-/// flip it.
+/// tail present on both), a tick chain pair, and the 800-level mirror
+/// staircases (rank-equal at extreme depth, so the keys agree through
+/// a rank prefix hundreds of bytes long before the version tail
+/// decides). For each pair the full strength is asserted directly:
+/// neither key is a byte prefix of the other, byte order equals the
+/// views' total order, and the worst suffixes (`0xFF` on the smaller
+/// key, `0x00` on the larger) cannot flip it.
 #[test]
 fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
     let half: Version = "(0, 1, 0)".parse().unwrap();
@@ -2171,8 +2183,19 @@ fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
     let mut clock = Clock::seed();
     let one = clock.tick().clone();
     let two = clock.tick().clone();
-    let pairs: [(&Version, &Version); 3] =
-        [(&half, &peaks), (&Version::new(), &half), (&one, &two)];
+    let deep_left = stairs(800, true, "(0, 1, 0)");
+    let deep_right = stairs(800, false, "(0, 1, 0)");
+    assert_eq!(
+        deep_left.rank(),
+        deep_right.rank(),
+        "the deep mirrors tie by symmetry"
+    );
+    let pairs: [(&Version, &Version); 4] = [
+        (&half, &peaks),
+        (&Version::new(), &half),
+        (&one, &two),
+        (&deep_left, &deep_right),
+    ];
     for (a, b) in pairs {
         let want = Ranked::from(a).cmp(&Ranked::from(b));
         assert_ne!(want, Ordering::Equal, "the witness pair is ordered");
@@ -2202,9 +2225,10 @@ fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
 /// land in the rank stream, at the component seam, and inside the
 /// version); a trailing zero byte (the version component's whole-input
 /// strictness); a set bit in the version's padding; and a well-formed
-/// rank prefix paired with a version it does not measure (the
-/// composite's redundancy check — `NotCanonical`, the genre for
-/// well-formed structure that is the canonical spelling of no value).
+/// rank prefix paired with a version it does not measure, witnessed
+/// from both sides of the true rank (the composite's redundancy check
+/// — `NotCanonical`, the genre for well-formed structure that is the
+/// canonical spelling of no value).
 /// The components' interior genres are their own suites' business
 /// (`rank_decoding_rejects_each_genre` and the codec suite's
 /// rejection battery); the cuts here prove each component's rejection
@@ -2241,16 +2265,56 @@ fn ranked_decode_rejects_each_genre() {
         matches!(Ranked::decode(&set_padding[..]), Err(Decode::TrailingBits)),
         "set bit in the version padding"
     );
-    // A rank the version does not measure: rank(5) over half's bytes.
-    let mismatched = [
-        Version::try_from(5).unwrap().rank().encode(),
-        half.as_bytes().to_vec(),
-    ]
-    .concat();
+    // A rank the version does not measure, from both sides of the true
+    // rank (the verification is an equality, not an ordering): rank(5)
+    // over half's bytes, and half's rank (1/2) over five's bytes.
+    let five = Version::try_from(5).unwrap();
+    let above = [five.rank().encode(), half.as_bytes().to_vec()].concat();
     assert!(
-        matches!(Ranked::decode(&mismatched[..]), Err(Decode::NotCanonical)),
-        "mismatched rank prefix"
+        matches!(Ranked::decode(&above[..]), Err(Decode::NotCanonical)),
+        "rank prefix above the true rank"
     );
+    let below = [half.rank().encode(), five.as_bytes().to_vec()].concat();
+    assert!(
+        matches!(Ranked::decode(&below[..]), Err(Decode::NotCanonical)),
+        "rank prefix below the true rank"
+    );
+}
+
+proptest! {
+    /// Flipping any single bit of a canonical composite key yields a
+    /// byte string `Ranked::decode` either rejects or accepts
+    /// canonically: the accepted view re-encodes to exactly the
+    /// mutated input, so decode stays injective on bytes and byte
+    /// equality on keys stays [`Eq`] on views.
+    ///
+    /// The codec suite's mutation genre, aimed at the composite's own
+    /// seam: a flip in the self-delimiting rank prefix can move where
+    /// the version parse begins, and the accepted language must still
+    /// contain only canonical keys. The rank-against-version
+    /// verification makes any accept a needle's eye (the flipped rank
+    /// must be exactly what the reparsed version measures), so in
+    /// practice every flip rejects; the disjunction is the contract,
+    /// and it also holds if a flip ever lands on another view's key.
+    #[test]
+    fn ranked_composite_bit_flip_rejects_or_decodes_canonically(oa in arb_oracle_version()) {
+        let v = from_oracle_version(&oa);
+        let key = Ranked::from(&v).encode();
+        for byte in 0..key.len() {
+            for bit in 0..8u8 {
+                let mut mutated = key.clone();
+                mutated[byte] ^= 0x80 >> bit;
+                if let Ok(view) = Ranked::decode(&mutated[..]) {
+                    prop_assert_eq!(
+                        view.encode(),
+                        mutated,
+                        "accepted mutation must re-encode to itself: {} byte {} bit {}",
+                        v, byte, bit
+                    );
+                }
+            }
+        }
+    }
 }
 
 // ─────────────────────── projection onto a party (`/`) ───────────────────────
