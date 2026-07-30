@@ -237,8 +237,8 @@ fn ranked_differential(data: &[u8]) {
 ///     embedded `Decode` genre matches exactly, except that the raw
 ///     whole-slice parse may report `TrailingBits` where borsh's
 ///     prefix-scoped composite checks (the ranked cross-check, the span
-///     pair verdict, the party anonymity check) reject first — borsh
-///     cannot see bytes it has not been asked to read.
+///     pair verdict) reject first — borsh cannot see bytes it has not
+///     been asked to read.
 fn borsh_vs_raw<T>(
     data: &[u8],
     decode: impl Fn(&[u8]) -> Result<T, Decode>,
@@ -289,12 +289,7 @@ fn borsh_vs_raw<T>(
                 (b, r) if b == r => true,
                 // borsh's prefix-scoped composite checks reject where the
                 // whole-slice parse still sees unconsumed input.
-                (Genre::NotCanonical | Genre::Anonymous, Genre::TrailingBits) => true,
-                // The anonymous id is the *empty* bit string, so the empty
-                // input is a complete-but-anonymous id to the slice grammar
-                // (raw `Anonymous`) and an exhausted reader to borsh
-                // (`Truncated`); `Anonymous` arises nowhere else.
-                (Genre::Truncated, Genre::Anonymous) => true,
+                (Genre::NotCanonical, Genre::TrailingBits) => true,
                 _ => false,
             };
             assert!(
