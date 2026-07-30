@@ -2,12 +2,17 @@
 name = "before"
 version = "0.1.0"
 edition = "2021"
-description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed BitVec storage, transient fixed-width working form, linear-typed API."
+description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed bit-stream storage, transient fixed-width working form, linear-typed API."
 license = "MPL-2.0"
 readme = "README.md"
 
 [dependencies]
 bitvec = "1"
+# The refcounted backing store of the at-rest form (`codec::Bits`): freezing
+# a built stream is `BitVec::into_vec` -> `Bytes::from(vec)`, zero-copy, and
+# cloning a stored `Version` is a refcount bump instead of a byte copy. Bit
+# manipulation stays in `bitvec`; `bytes` owns only the frozen storage.
+bytes = "1"
 # Arbitrary-precision magnitudes behind `Base` (a thin metered newtype over
 # `UBig`): values up to two machine words stay inline, stored words are
 # borrowable as slices (the streamed comparisons and the accumulator's wide

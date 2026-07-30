@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use crate::error::Parse;
 
 use super::tree::PARSE_STACK_INLINE;
-use super::{validate_id, Base, Bits};
+use super::{validate_id, Base, BitsMut};
 
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure
 /// ASCII (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
@@ -75,9 +75,9 @@ pub(crate) fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
 /// Iterative, like the packed-tree parsers in [`super::tree`]: depth lives on
 /// an explicit frame stack, never the call stack, so nesting depth cannot
 /// overflow.
-pub(crate) fn parse_id_str(s: &str) -> Result<Bits, Parse> {
+pub(crate) fn parse_id_str(s: &str) -> Result<BitsMut, Parse> {
     let mut cur = Cur::new(s);
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     parse_id_tree(&mut cur, &mut bits)?;
     if cur.peek().is_some() {
         return Err(Parse::Syntax); // trailing junk
@@ -125,7 +125,7 @@ enum IdFrame {
 /// `(0, 0)` / `(1, 1)` once its `)` has parsed (a structural defect outranks
 /// the canonicality check, exactly the token order of the grammar). One
 /// frame per unfinished ancestor, [`PARSE_STACK_INLINE`] frames inline.
-fn parse_id_tree(cur: &mut Cur, bits: &mut Bits) -> Result<(), Parse> {
+fn parse_id_tree(cur: &mut Cur, bits: &mut BitsMut) -> Result<(), Parse> {
     let mut stack: SmallVec<[IdFrame; PARSE_STACK_INLINE]> = SmallVec::new();
     loop {
         // One atom: a leaf token, or a `(` opening the next unfinished node.
@@ -181,7 +181,7 @@ fn parse_id_tree(cur: &mut Cur, bits: &mut Bits) -> Result<(), Parse> {
 /// Parse a stamp `(i, e)` into its id bit stream and the event component's
 /// text. Splits at the top-level (depth-0) comma, parses the id side, and
 /// returns the event side for the caller's version parser. Iterative.
-pub(crate) fn parse_clock_str(s: &str) -> Result<(Bits, &str), Parse> {
+pub(crate) fn parse_clock_str(s: &str) -> Result<(BitsMut, &str), Parse> {
     let t = s.trim();
     let bytes = t.as_bytes();
     if bytes.first() != Some(&b'(') || bytes.last() != Some(&b')') {

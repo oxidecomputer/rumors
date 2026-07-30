@@ -2,7 +2,7 @@
 
 use insta::assert_snapshot;
 
-use crate::codec::{encode_int, Base, Bits, BitsSlice};
+use crate::codec::{encode_int, Base, BitsMut, BitsSlice};
 use crate::error::{Crossed, Decode, Overlap, Parse};
 use crate::{Clock, Party, Rank, Version};
 
@@ -23,7 +23,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// One Elias-gamma row: `n` then its code as an MSB-first bit string and the bit count.
 fn gamma_row(n: u64) -> String {
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     encode_int(&mut bits, &Base::from(n));
     format!(
         "{:>20} -> {} ({} bits)",
@@ -66,7 +66,7 @@ fn gamma_bit_layout_table() {
 
     // Arbitrary-width witness: 2^64 has no u64 representation, but the gamma code (and
     // therefore an event base of this magnitude) encodes and round-trips regardless.
-    let mut big_bits = Bits::new();
+    let mut big_bits = BitsMut::new();
     let big = Base::from(1u8) << 64u32; // 2^64
     encode_int(&mut big_bits, &big);
     assert_snapshot!(

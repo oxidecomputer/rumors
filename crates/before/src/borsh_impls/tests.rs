@@ -4,7 +4,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::decode_error;
-use crate::codec::{self, BitCursor, Bits, PARSE_STACK_INLINE};
+use crate::codec::{self, BitCursor, BitsMut, PARSE_STACK_INLINE};
 use crate::error::Decode;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{
@@ -170,7 +170,7 @@ proptest! {
 /// byte at a time, per-bit reads only, and the default per-bit `read_int`.
 struct BitwiseReaderCursor<'a, R> {
     reader: &'a mut R,
-    bits: Bits,
+    bits: BitsMut,
     position: usize,
 }
 
@@ -200,7 +200,7 @@ impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
 fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
     let mut cursor = BitwiseReaderCursor {
         reader,
-        bits: Bits::new(),
+        bits: BitsMut::new(),
         position: 0,
     };
     crate::version::skyline::validate_from(&mut cursor)?;
@@ -220,7 +220,7 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
 fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let mut cursor = BitwiseReaderCursor {
         reader,
-        bits: Bits::new(),
+        bits: BitsMut::new(),
         position: 0,
     };
     codec::parse_id_from(&mut cursor)?;

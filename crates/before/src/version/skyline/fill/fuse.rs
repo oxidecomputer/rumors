@@ -46,7 +46,7 @@
 //! is first trips on topology (the replaced range was not a single
 //! leaf) before any code comparison is reached.
 
-use crate::codec::{BitCursor, Bits, BitsSlice, PopStack};
+use crate::codec::{BitCursor, BitsMut, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::build::SkylineBuilder;
@@ -126,7 +126,7 @@ impl Out {
     ///
     /// Unreachable in a verbatim walk: matched emissions return before
     /// their bodies, and diverging ones materialize first.
-    pub(super) fn leaf(&mut self, depth: usize, code: Bits) {
+    pub(super) fn leaf(&mut self, depth: usize, code: BitsMut) {
         match self {
             Out::Built(builder) => builder.leaf(depth, code),
             Out::Verbatim { .. } => {
@@ -179,7 +179,7 @@ impl Out {
     /// Finish the walk's output: the built stream when a plateau
     /// diverged, or `None` for an unchanged walk (every plateau
     /// matched; `fill(i, e) = e`, byte-exact by canonical uniqueness).
-    pub(super) fn finish(self, ev: &BitsSlice) -> Option<Bits> {
+    pub(super) fn finish(self, ev: &BitsSlice) -> Option<BitsMut> {
         match self {
             Out::Built(builder) => Some(builder.finish()),
             Out::Verbatim { matched_end } => {
@@ -313,8 +313,8 @@ impl RouteProbe {
     fn expand_subtree(&mut self, id: &mut IdReader) -> Cost {
         // Phase per frame: false = the left child's distance is
         // outstanding, true = the right child's.
-        let mut phase = Bits::new();
-        let mut right_present = Bits::new();
+        let mut phase = BitsMut::new();
+        let mut right_present = BitsMut::new();
         let mut vals = PopStack::new();
         let mut reg = 0usize;
         // `None`: enter the subtree at the cursor; `Some(d)`: rise with

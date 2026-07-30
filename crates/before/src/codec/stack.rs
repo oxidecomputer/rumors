@@ -1,6 +1,6 @@
 //! A pop-able stack of nonnegative integers held as bits.
 
-use super::bits::Bits;
+use super::bits::BitsMut;
 
 #[cfg(test)]
 mod tests;
@@ -17,17 +17,17 @@ mod tests;
 /// typically costs a few bits.
 pub(crate) struct PopStack {
     /// Width markers: for each entry, one `false` under `w − 1` `true`s.
-    unary: Bits,
+    unary: BitsMut,
     /// Value bits, most-significant pushed first so pops read the value
     /// least-significant first.
-    value: Bits,
+    value: BitsMut,
 }
 
 impl PopStack {
     pub(crate) fn new() -> Self {
         PopStack {
-            unary: Bits::new(),
-            value: Bits::new(),
+            unary: BitsMut::new(),
+            value: BitsMut::new(),
         }
     }
 

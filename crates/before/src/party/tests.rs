@@ -462,11 +462,11 @@ fn sum_split_collapsed_union_matches_terminal_split() {
 /// fused walk's loop.
 mod sum_split_constructed {
     use super::*;
-    use crate::codec::Bits;
+    use crate::codec::BitsMut;
 
     /// The full `1` leaf: terminal tag `00`.
-    fn full() -> Bits {
-        let mut b = Bits::new();
+    fn full() -> BitsMut {
+        let mut b = BitsMut::new();
         b.push(false);
         b.push(false);
         b
@@ -474,8 +474,8 @@ mod sum_split_constructed {
 
     /// An internal node over the present children (normal form is the
     /// caller's obligation: at least one child, never two terminals).
-    fn node(left: Option<&Bits>, right: Option<&Bits>) -> Bits {
-        let mut b = Bits::new();
+    fn node(left: Option<&BitsMut>, right: Option<&BitsMut>) -> BitsMut {
+        let mut b = BitsMut::new();
         b.push(left.is_some());
         b.push(right.is_some());
         if let Some(l) = left {
@@ -489,8 +489,8 @@ mod sum_split_constructed {
 
     /// `levels` unary nodes toward `left_side` over `tail` (built
     /// tags-first, so a deep spine costs one pass, not one per level).
-    fn spine(levels: usize, left_side: bool, tail: Bits) -> Bits {
-        let mut b = Bits::with_capacity(2 * levels + tail.len());
+    fn spine(levels: usize, left_side: bool, tail: BitsMut) -> BitsMut {
+        let mut b = BitsMut::with_capacity(2 * levels + tail.len());
         for _ in 0..levels {
             b.push(left_side);
             b.push(!left_side);
@@ -500,7 +500,7 @@ mod sum_split_constructed {
     }
 
     /// The leftmost `2^-k` cell: a `k`-level left-unary spine over `1`.
-    fn leftmost(k: usize) -> Bits {
+    fn leftmost(k: usize) -> BitsMut {
         spine(k, true, full())
     }
 
@@ -510,8 +510,8 @@ mod sum_split_constructed {
     /// Built by one preorder pass — `k − 1` both-present nodes whose
     /// left child continues and whose right child is full, then the
     /// deepest right-only cell.
-    fn complement_leftmost(k: usize) -> Bits {
-        let mut b = Bits::with_capacity(4 * k);
+    fn complement_leftmost(k: usize) -> BitsMut {
+        let mut b = BitsMut::with_capacity(4 * k);
         for _ in 1..k {
             b.push(true);
             b.push(true);
@@ -527,7 +527,7 @@ mod sum_split_constructed {
 
     /// The fused walk against its composition on one id pair, in both
     /// operand orders (byte equality, `None` arms included).
-    fn assert_matches_composition(a: &Bits, b: &Bits) {
+    fn assert_matches_composition(a: &BitsMut, b: &BitsMut) {
         for (x, y) in [(a, b), (b, a)] {
             let fused = IdReader::root(x).sum_split(IdReader::root(y));
             let composed = IdReader::root(x)
@@ -615,7 +615,7 @@ mod sum_split_constructed {
             f();
             crate::codec::scan::scan_bits()
         };
-        let compare = |name: &str, a: &Bits, b: &Bits| -> u64 {
+        let compare = |name: &str, a: &BitsMut, b: &BitsMut| -> u64 {
             let fused = scan(&|| {
                 IdReader::root(a).sum_split(IdReader::root(b));
             });
@@ -660,7 +660,7 @@ mod sum_split_constructed {
     /// split of the other, and two empties split to empties.
     #[test]
     fn root_leaf_and_empty_operands_match_composition() {
-        let empty = Bits::new();
+        let empty = BitsMut::new();
         assert_matches_composition(&full(), &leftmost(3));
         assert_matches_composition(&full(), &empty);
         assert_matches_composition(&empty, &empty.clone());

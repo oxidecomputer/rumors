@@ -21,7 +21,7 @@ use rayon::prelude::*;
 use suanpan::Accumulator;
 
 use crate::codec::Base;
-use crate::codec::{Bits, BitsSlice};
+use crate::codec::{BitsMut, BitsSlice};
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
@@ -237,7 +237,7 @@ fn flat_over_deep_collapses_totally() {
 /// collapse cascades — deterministically rather than by sampling.
 #[test]
 fn exhaustive_small_scope_emits_identically() {
-    let pool: Vec<(crate::oracle::Version, Version, Bits)> = all_normal_events(EV_SMALL_DEPTH)
+    let pool: Vec<(crate::oracle::Version, Version, BitsMut)> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| {
             let v = from_oracle_version(t);
@@ -273,7 +273,7 @@ fn exhaustive_small_scope_emits_identically() {
 /// operators, as byte equality of canonical streams.
 #[test]
 fn family_lattice_laws_hold_on_the_kernel() {
-    let pool: Vec<Bits> = family_pool().iter().map(encode).collect();
+    let pool: Vec<BitsMut> = family_pool().iter().map(encode).collect();
     for ea in &pool {
         assert_eq!(join(ea, ea), *ea, "join is idempotent");
         assert_eq!(meet(ea, ea), *ea, "meet is idempotent");
@@ -291,7 +291,7 @@ fn family_lattice_laws_hold_on_the_kernel() {
 /// Associativity holds on the emitted streams over every family triple.
 #[test]
 fn family_associativity_holds_on_the_kernel() {
-    let pool: Vec<Bits> = family_pool().iter().map(encode).collect();
+    let pool: Vec<BitsMut> = family_pool().iter().map(encode).collect();
     pool.par_iter().for_each(|ea| {
         for eb in &pool {
             for ec in &pool {
@@ -356,7 +356,7 @@ proptest! {
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
-        let pool: Vec<(crate::oracle::Version, &Version, Bits)> = clocks
+        let pool: Vec<(crate::oracle::Version, &Version, BitsMut)> = clocks
             .iter()
             .map(|c| (to_oracle_version(c.version()), c.version(), encode(c.version())))
             .collect();

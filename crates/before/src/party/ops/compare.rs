@@ -1,6 +1,6 @@
 use core::ops::ControlFlow;
 
-use crate::codec::Bits;
+use crate::codec::BitsMut;
 use crate::idbits::{IdNode, IdReader};
 
 impl IdReader<'_> {
@@ -114,7 +114,7 @@ fn lockstep_holds(mut a: IdReader, mut b: IdReader, a_settles: impl Fn(IdNode) -
 /// keeps the stack empty.
 struct Lockstep {
     /// Two presence bits per queued right child pair, innermost on top.
-    pending: Bits,
+    pending: BitsMut,
     /// Whether the current pair's `a` side is a present child (read the
     /// real cursor) or an absent `0` (stand in a synthetic empty).
     a_on: bool,
@@ -126,7 +126,7 @@ impl Lockstep {
     /// A walk at its root pair: both sides are the real cursors.
     fn new() -> Lockstep {
         Lockstep {
-            pending: Bits::new(),
+            pending: BitsMut::new(),
             a_on: true,
             b_on: true,
         }

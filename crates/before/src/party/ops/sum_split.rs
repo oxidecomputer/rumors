@@ -1,4 +1,4 @@
-use crate::codec::{Bits, BitsSlice};
+use crate::codec::{BitsMut, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
 
 impl<'a> IdReader<'a> {
@@ -65,7 +65,7 @@ impl<'a> IdReader<'a> {
     /// where the composition pays two scans of it (`sum`'s copy skip,
     /// then `split`'s subtree-end scan) plus its bytes in the built
     /// union.
-    pub(crate) fn sum_split(mut self, mut other: IdReader) -> Option<(Bits, Bits)> {
+    pub(crate) fn sum_split(mut self, mut other: IdReader) -> Option<(BitsMut, BitsMut)> {
         // An empty operand leaves the union the other operand, whole, so
         // the halves are its plain split. Only the root can be empty:
         // below it, presence in the union keeps both cursors live.
@@ -76,7 +76,7 @@ impl<'a> IdReader<'a> {
             return Some(self.split());
         }
         // The union's spine tags, shared by both halves (split's prefix).
-        let mut spine = Bits::new();
+        let mut spine = BitsMut::new();
         loop {
             let (a_node, b_node) = (self.peek(), other.peek());
             let (al, ar) = match a_node {
@@ -136,7 +136,7 @@ enum UnionChild<'a> {
     /// The child is one operand's subtree alone: its verbatim bit range.
     Verbatim(&'a BitsSlice),
     /// The child is present on both sides: the merged (summed) subtree.
-    Merged(Bits),
+    Merged(BitsMut),
 }
 
 impl UnionChild<'_> {
@@ -190,8 +190,8 @@ fn union_child<'a>(a: Option<&'a BitsSlice>, b: Option<&'a BitsSlice>) -> Option
 
 /// Assemble one half: the spine, the branch retagged to its kept side,
 /// and the kept child's bits.
-fn half(spine: &BitsSlice, left: bool, right: bool, child: &UnionChild) -> Bits {
-    let mut out = Bits::with_capacity(spine.len() + 2 + child.bits().len());
+fn half(spine: &BitsSlice, left: bool, right: bool, child: &UnionChild) -> BitsMut {
+    let mut out = BitsMut::with_capacity(spine.len() + 2 + child.bits().len());
     out.extend_from_bitslice(spine);
     out.push(left);
     out.push(right);
@@ -201,8 +201,8 @@ fn half(spine: &BitsSlice, left: bool, right: bool, child: &UnionChild) -> Bits 
 
 /// Assemble one delegated-mode half: the spine, then the composition's
 /// own half of the branch subtree's union.
-fn splice(spine: &BitsSlice, tail: &BitsSlice) -> Bits {
-    let mut out = Bits::with_capacity(spine.len() + tail.len());
+fn splice(spine: &BitsSlice, tail: &BitsSlice) -> BitsMut {
+    let mut out = BitsMut::with_capacity(spine.len() + tail.len());
     out.extend_from_bitslice(spine);
     out.extend_from_bitslice(tail);
     out

@@ -2267,15 +2267,21 @@ fn div_can_fragment_and_raise_min_ticks() {
 
 /// The at-rest form is the wire bytes in a length-carrying container.
 ///
-/// A [`Version`] is exactly one `codec::Bits` (pointer, live bit length,
-/// capacity — 24 bytes on 64-bit), and a [`Clock`](crate::Clock) is a
-/// `Party` plus a `Version` (48). A regression here means the storage
-/// grew a field beside the container — the cached live length must ride
-/// inside it, since the wire legitimately omits it.
+/// A [`Version`] is exactly one `codec::Bits` (the refcounted buffer
+/// handle — pointer, byte length, shared-state pointer, vtable — plus
+/// the live bit length: 40 bytes on 64-bit), and a
+/// [`Clock`](crate::Clock) is a `Party` plus a `Version` (80). A
+/// regression here means the storage grew a field beside the container —
+/// the cached live length must ride inside it, since the wire
+/// legitimately omits it.
+// 24/48 -> 40/80 (2026-07-30, the Bytes-backed at-rest form: the
+// refcounted handle carries one more word than the owning bit-vector,
+// plus the live bit length beside it — the handle growth that buys the
+// O(1) clone).
 #[test]
 fn at_rest_size_is_one_container_per_stream() {
-    assert_eq!(core::mem::size_of::<Version>(), 24);
-    assert_eq!(core::mem::size_of::<crate::Clock>(), 48);
+    assert_eq!(core::mem::size_of::<Version>(), 40);
+    assert_eq!(core::mem::size_of::<crate::Clock>(), 80);
 }
 
 proptest! {

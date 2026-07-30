@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use proptest::prelude::*;
 use rayon::prelude::*;
 
-use crate::codec::Bits;
+use crate::codec::BitsMut;
 use crate::codec::BitsSlice;
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
@@ -84,7 +84,7 @@ fn assert_grow(v: &Version, p: &Party) -> bool {
 /// The recursive oracle walks on native frames, so the deep-spine test
 /// calls this directly and takes its value witnesses from closed forms
 /// instead.
-fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<Bits> {
+fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<BitsMut> {
     let enc = encode(v);
     match fused_fill(&enc, p) {
         // fill moved the tree: the splice is unreachable for this pair.

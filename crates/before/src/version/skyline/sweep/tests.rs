@@ -15,7 +15,7 @@ use core::cmp::Ordering;
 use proptest::prelude::*;
 use rayon::prelude::*;
 
-use crate::codec::Bits;
+use crate::codec::BitsMut;
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
@@ -181,7 +181,7 @@ fn family_pairs_agree() {
 /// plateau consumption, zero deltas across subtree boundaries.
 #[test]
 fn exhaustive_small_scope_agrees() {
-    let pool: Vec<(oracle::Version, Version, Bits)> = all_normal_events(EV_SMALL_DEPTH)
+    let pool: Vec<(oracle::Version, Version, BitsMut)> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| {
             let v = from_oracle_version(t);
@@ -243,7 +243,7 @@ proptest! {
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
-        let pool: Vec<(oracle::Version, &Version, Bits)> = clocks
+        let pool: Vec<(oracle::Version, &Version, BitsMut)> = clocks
             .iter()
             .map(|c| (to_oracle_version(c.version()), c.version(), encode(c.version())))
             .collect();

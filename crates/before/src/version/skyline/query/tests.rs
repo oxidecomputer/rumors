@@ -321,7 +321,7 @@ fn exhaustive_small_scope_agrees() {
 /// pair product stays fast.
 #[test]
 fn exhaustive_small_scope_pairs_agree() {
-    let events: Vec<crate::codec::Bits> = all_normal_events(EV_SMALL_DEPTH)
+    let events: Vec<crate::codec::BitsMut> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| encode(&from_oracle_version(t)))
         .collect();

@@ -521,9 +521,11 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::dangerously_alias",
         checks: &[Check {
             site: Site::Fn,
-            bound: Bound::Linear,
+            bound: Bound::Constant,
         }],
-        cells: Cells::Uncelled("one byte copy (the board's coverage table)"),
+        // 2026-07-30, the Bytes-backed at-rest form: was Linear (one
+        // byte copy); the alias now shares the refcounted stored buffer.
+        cells: Cells::Uncelled("one refcount bump (the board's coverage table)"),
     },
     Claim {
         op: "Party::encode",
@@ -878,9 +880,12 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::dangerously_alias",
         checks: &[Check {
             site: Site::Fn,
-            bound: Bound::Linear,
+            bound: Bound::Constant,
         }],
-        cells: Cells::Uncelled("one byte copy per part (the board's coverage table)"),
+        // 2026-07-30, the Bytes-backed at-rest form: was Linear (one
+        // byte copy per part); the alias now shares each part's
+        // refcounted stored buffer.
+        cells: Cells::Uncelled("one refcount bump per part (the board's coverage table)"),
     },
     // ───────────────────────────── Rank / Ranked ─────────────────────────────
     Claim {

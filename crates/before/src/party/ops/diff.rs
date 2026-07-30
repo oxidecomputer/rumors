@@ -48,7 +48,7 @@
 //! recursion depth tracks the full tree depth — cost bits, not stack
 //! frames or grown segments.
 
-use crate::codec::{Bits, BitsSlice};
+use crate::codec::{BitsMut, BitsSlice};
 use crate::idbits::IdReader;
 use crate::version::skyline::sweep::{self, PlateauCursor};
 
@@ -74,7 +74,7 @@ impl IdReader<'_> {
     /// `O(n + m)`: the sweep form of `oracle::Party::without` (the module
     /// doc), reading each operand's tags at most once and emitting one
     /// output plateau or covered block per item of the overlay.
-    pub(crate) fn diff(self, other: IdReader) -> Bits {
+    pub(crate) fn diff(self, other: IdReader) -> BitsMut {
         // `self \ other ⊆ self`, but over a full `self` plateau the output
         // is `other`'s complement, which can be as large as `other`. Both
         // inputs combined is a safe bound; normalization only shrinks it.
@@ -258,11 +258,11 @@ struct IdLeafCursor<'a> {
     pos: usize,
     /// Root-to-item branch directions: `false` inside a left child
     /// slot, `true` inside a right.
-    path: Bits,
+    path: BitsMut,
     /// One bit per open left-branch level, innermost last: whether that
     /// ancestor's right child is present in the stream (`false` = the
     /// right slot is a synthetic unowned plateau).
-    pending_right: Bits,
+    pending_right: BitsMut,
     /// Count of left-branch levels in `path`: zero exactly at the final
     /// item (the all-right path), so [`done`](Self::done) is `O(1)`.
     open_lefts: usize,
@@ -283,8 +283,8 @@ impl<'a> IdLeafCursor<'a> {
         let mut this = IdLeafCursor {
             bits: BitsSlice::empty(),
             pos: 0,
-            path: Bits::new(),
-            pending_right: Bits::new(),
+            path: BitsMut::new(),
+            pending_right: BitsMut::new(),
             open_lefts: 0,
             item: Item::Plateau { owned: false },
         };

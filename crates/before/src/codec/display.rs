@@ -1,6 +1,6 @@
 use crate::idbits::{IdNode, IdReader};
 
-use super::{Bits, BitsSlice};
+use super::{BitsMut, BitsSlice};
 
 /// While rendering an open id node, which child the walk is inside.
 ///
@@ -30,7 +30,7 @@ pub(crate) fn write_id(
     let mut reader = IdReader::root(bits);
     // Per open node: a phase bit on top ([`LEFT_PHASE`]/[`RIGHT_PHASE`]);
     // under a left phase, the right child's presence bit.
-    let mut pending = Bits::new();
+    let mut pending = BitsMut::new();
     // Whether the child to render next is present (decode the cursor) or
     // an absent `0` (the cursor holds no bits for it).
     let mut present = true;

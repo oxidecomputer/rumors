@@ -1,6 +1,6 @@
 use crate::error::Parse;
 
-use super::{validate_id, Bits, BitsSlice};
+use super::{validate_id, BitsMut, BitsSlice};
 
 /// Whether a normal-form id stream is the anonymous (empty) identity.
 ///
@@ -30,8 +30,8 @@ pub(crate) fn id_is_empty(bits: &BitsSlice) -> bool {
 
 /// The bits for an id leaf: the empty stream for `0` (absence), the terminal tag
 /// `00` for `1`.
-pub(crate) fn id_leaf(v: bool) -> Bits {
-    let mut b = Bits::with_capacity(2);
+pub(crate) fn id_leaf(v: bool) -> BitsMut {
+    let mut b = BitsMut::with_capacity(2);
     if v {
         b.push(false); // terminal tag `00`: an owned leaf, no children
         b.push(false);
@@ -48,14 +48,14 @@ fn id_is_terminal(bits: &BitsSlice) -> bool {
 /// empty stream (absent), so the 2-bit tag records which children are present.
 ///
 /// Rejects a collapsible `(0, 0)` or `(1, 1)`, then validates the result.
-pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> {
+pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<BitsMut, Parse> {
     if l.is_empty() && r.is_empty() {
         return Err(Parse::NotCanonical); // (0, 0) → 0, not a node
     }
     if id_is_terminal(l) && id_is_terminal(r) {
         return Err(Parse::NotCanonical); // (1, 1) → 1, not a node
     }
-    let mut b = Bits::with_capacity(2 + l.len() + r.len());
+    let mut b = BitsMut::with_capacity(2 + l.len() + r.len());
     b.push(!l.is_empty()); // bit 0 = left present
     b.push(!r.is_empty()); // bit 1 = right present
     b.extend_from_bitslice(l);

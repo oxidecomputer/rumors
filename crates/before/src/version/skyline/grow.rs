@@ -91,7 +91,7 @@
 //! which would misread a direction silently rather than panic. Deep
 //! spines swap the native-frame oracle for closed-form expected values.
 
-use crate::codec::{self, Base, BitCursor, Bits, BitsSlice};
+use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice};
 
 use super::build::SkylineBuilder;
 use super::walk::LeafWalk;
@@ -126,14 +126,14 @@ pub(super) const COST_MAX: Cost = (u32::MAX, u32::MAX);
 /// which is why the route differential pins the walk's route against a
 /// reference recursive probe bit for bit.
 pub(super) struct Route {
-    dirs: Bits,
+    dirs: BitsMut,
 }
 
 impl Route {
     /// All directions cleared, sized to the id's bit positions.
     pub(super) fn new(id_span: usize) -> Self {
         Route {
-            dirs: Bits::repeat(false, id_span),
+            dirs: BitsMut::repeat(false, id_span),
         }
     }
 
@@ -359,7 +359,7 @@ enum Step {
 /// One decode, one signed step, one re-encode — `O(the code's own
 /// width + the width of k)`, the only payload arithmetic in the whole
 /// emit.
-fn recode(code: &BitsSlice, step: Step, k: &Base) -> Bits {
+fn recode(code: &BitsSlice, step: Step, k: &Base) -> BitsMut {
     let (value, end) = codec::decode_int(code, 0).expect("canonical skyline bits");
     debug_assert_eq!(end, code.len(), "a payload range is exactly one code");
     let increment = match step {
@@ -417,7 +417,7 @@ fn recode(code: &BitsSlice, step: Step, k: &Base) -> Bits {
 /// (`fill::tick`/`fill::ticks`) established both. The id must own at
 /// least one region and `k` must be at least 1; the result otherwise is
 /// unspecified in release builds (debug builds panic).
-pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &Base) -> Bits {
+pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &Base) -> BitsMut {
     debug_assert!(
         !id_bits.is_empty(),
         "grow requires an id owning at least one region"
@@ -432,7 +432,7 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
     let mut out = SkylineBuilder::with_capacity(ev_bits.len() + id_bits.len() + 64);
     // One bit per chosen-path level: `true` = the branch descended left,
     // so its right sibling subtree is pending after the inflation point.
-    let mut pending = Bits::new();
+    let mut pending = BitsMut::new();
     let mut depth = 0usize;
     // Whether any leaf has entered the output ahead of the grown leaf.
     // The grown leaf's own code is absolute exactly when none has
@@ -460,7 +460,7 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
             // flag), and incrementing that leaf in place is the
             // inflation.
             match ev.read() {
-                Some(code) => break (code, Bits::new()),
+                Some(code) => break (code, BitsMut::new()),
                 None => unreachable!("a full id over an event node collapses under fill"),
             }
         }
@@ -485,7 +485,7 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
             // id-only, its directions collected for the fresh leaves'
             // preorder.
             Some(code) => {
-                let mut dirs = Bits::new();
+                let mut dirs = BitsMut::new();
                 let mut cur = (key, l, r);
                 loop {
                     let (key, l, r) = cur;

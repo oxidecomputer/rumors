@@ -9,14 +9,14 @@
 //! function, but its inner node hoards a liftable minimum, so it is not
 //! the normal spelling and is refused.
 
-use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, DsiCursor};
+use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Parse;
 
 use super::{unzigzag, zigzag};
 
 /// The skyline stream of an event leaf with base `n`.
-pub(crate) fn leaf(n: u64) -> Bits {
-    let mut bits = Bits::new();
+pub(crate) fn leaf(n: u64) -> BitsMut {
+    let mut bits = BitsMut::new();
     bits.push(true); // topology: a leaf
     codec::encode_int(&mut bits, &Base::from(n)); // absolute height
     bits
@@ -29,7 +29,7 @@ pub(crate) fn leaf(n: u64) -> Bits {
 /// (neither child's minimum leaf height is zero — normal form stores the
 /// shared minimum at the parent) or when the node is collapsible (two leaf
 /// children of equal height, which is just the leaf itself).
-pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> {
+pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<BitsMut, Parse> {
     let (l_topo, l_heights) = scan(l);
     let (r_topo, r_heights) = scan(r);
 
@@ -49,12 +49,12 @@ pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> 
     }
 
     let n = Base::from(n);
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     bits.push(false); // topology: this node
     bits.extend_from_bitslice(&l_topo); // then the left subtree's topology…
     bits.extend_from_bitslice(&r_topo); // …then the right's — but the
                                         // payloads interleave, so re-emit.
-    let mut out = Bits::new();
+    let mut out = BitsMut::new();
     let mut topo = bits.iter().by_vals();
     let mut heights = l_heights.iter().chain(r_heights.iter());
     let mut prev: Option<Base> = None;
@@ -77,9 +77,9 @@ pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> 
 
 /// Split a canonical stream into its topology flags (wire convention:
 /// `0` internal, `1` leaf) and absolute leaf heights.
-fn scan(bits: &BitsSlice) -> (Bits, Vec<Base>) {
+fn scan(bits: &BitsSlice) -> (BitsMut, Vec<Base>) {
     let mut cursor = DsiCursor::new(bits);
-    let mut topology = Bits::new();
+    let mut topology = BitsMut::new();
     let mut heights: Vec<Base> = Vec::new();
     let mut pending = 1usize;
     while pending > 0 {

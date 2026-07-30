@@ -1,4 +1,4 @@
-use crate::codec::Bits;
+use crate::codec::BitsMut;
 use crate::idbits::{IdNode, IdReader};
 
 use super::build::{Built, IdBuilder};
@@ -27,7 +27,7 @@ impl IdReader<'_> {
     ///
     /// The nodes are [`peek`](IdReader::peek)ed, not read: a copied side must
     /// stay unconsumed so `copy_reader` can splice its whole subtree.
-    pub(crate) fn sum(mut self, mut other: IdReader) -> Option<Bits> {
+    pub(crate) fn sum(mut self, mut other: IdReader) -> Option<BitsMut> {
         // Conservative: the disjoint union has at most as many bits as both
         // inputs combined; normalization (collapsing `(v, v)` leaves) only
         // shrinks it. No tighter bound is cheap without doing the sum.
@@ -135,7 +135,7 @@ impl IdReader<'_> {
 /// and a collapse retracts a fixed-width suffix of the output
 /// ([`IdBuilder::collapse_terminal_pair`]).
 struct Frames {
-    bits: Bits,
+    bits: BitsMut,
 }
 
 /// One popped [`Frames`] entry; see the stack's two shapes.
@@ -150,7 +150,9 @@ enum Frame {
 
 impl Frames {
     fn new() -> Frames {
-        Frames { bits: Bits::new() }
+        Frames {
+            bits: BitsMut::new(),
+        }
     }
 
     /// Queue the right child pair (present sides `ar`/`br`) of the node now

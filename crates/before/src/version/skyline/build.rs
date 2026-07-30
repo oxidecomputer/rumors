@@ -53,7 +53,7 @@
 //! (`tests/meter.rs`, the `skyline_join_*` rows) pins the whole
 //! emission's transient against these bounds.
 
-use crate::codec::{Bits, BitsSlice, PackedBuilder, PopStack};
+use crate::codec::{BitsMut, BitsSlice, PackedBuilder, PopStack};
 
 /// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
 ///
@@ -81,10 +81,10 @@ pub(super) struct SkylineBuilder {
     out: PackedBuilder,
     /// The held leaf's payload code (the module doc's *held leaf*);
     /// `None` only before the first leaf arrives.
-    held: Option<Bits>,
+    held: Option<BitsMut>,
     /// Root-to-held-leaf branch directions: `false` inside a left child,
     /// `true` inside a right.
-    path: Bits,
+    path: BitsMut,
     /// Parallel to `path`: at a right-branch level, whether the completed
     /// left sibling is a single leaf (the collapse precondition).
     ///
@@ -92,7 +92,7 @@ pub(super) struct SkylineBuilder {
     /// record at right-branch levels
     /// [`continue_verbatim`](Self::continue_verbatim) splices in, where
     /// canonicity already rules the merge out.
-    left_leaf: Bits,
+    left_leaf: BitsMut,
     /// Code lengths of the left-sibling leaves, one entry per
     /// right-branch level whose `left_leaf` bit is set, deepest last.
     lens: PopStack,
@@ -104,8 +104,8 @@ impl SkylineBuilder {
         SkylineBuilder {
             out: PackedBuilder::with_capacity(capacity),
             held: None,
-            path: Bits::new(),
-            left_leaf: Bits::new(),
+            path: BitsMut::new(),
+            left_leaf: BitsMut::new(),
             lens: PopStack::new(),
         }
     }
@@ -118,7 +118,7 @@ impl SkylineBuilder {
     /// later one. The leaf sequence must be the preorder tiling of one
     /// tree: each new depth must be reachable from the last by the forced
     /// flip-and-descend, which the builder debug-asserts.
-    pub(super) fn leaf(&mut self, depth: usize, code: Bits) {
+    pub(super) fn leaf(&mut self, depth: usize, code: BitsMut) {
         debug_assert!(!code.is_empty(), "a leaf payload code is never empty");
         let Some(held) = self.held.take() else {
             // The first leaf: the leftmost path, one flag per ancestor.
@@ -266,7 +266,7 @@ impl SkylineBuilder {
     /// # Panics
     ///
     /// Panics if no leaf was ever appended.
-    pub(super) fn finish(mut self) -> Bits {
+    pub(super) fn finish(mut self) -> BitsMut {
         let held = self
             .held
             .take()

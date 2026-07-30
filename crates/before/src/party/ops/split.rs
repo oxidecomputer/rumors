@@ -1,4 +1,4 @@
-use crate::codec::{Bits, BitsSlice};
+use crate::codec::{BitsMut, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
 
 impl IdReader<'_> {
@@ -17,10 +17,10 @@ impl IdReader<'_> {
     /// absence, not a leaf). At a terminal the split is `(1,0)`/`(0,1)`.
     ///
     /// The recursive form of `oracle::Party::split` (the paper's `split`).
-    pub(crate) fn split(self) -> (Bits, Bits) {
+    pub(crate) fn split(self) -> (BitsMut, BitsMut) {
         // split(0) = (0, 0): the empty id splits into two empties.
         if let IdNode::Empty = self.peek() {
-            return (Bits::new(), Bits::new());
+            return (BitsMut::new(), BitsMut::new());
         }
         let start = self.pos();
         build_split(self.bits(), start)
@@ -43,7 +43,7 @@ enum SpineEnd {
 /// already-normal bit ranges, normal by construction (the kept child is
 /// nonempty, so no collapse can arise). Iterative: the spine walk is a loop, so
 /// deep ids cannot overflow.
-fn build_split(bits: &BitsSlice, start: usize) -> (Bits, Bits) {
+fn build_split(bits: &BitsSlice, start: usize) -> (BitsMut, BitsMut) {
     let mut pos = start;
     let (prefix_end, kind) = loop {
         match (bits[pos], bits[pos + 1]) {
@@ -71,13 +71,13 @@ fn build_split(bits: &BitsSlice, start: usize) -> (Bits, Bits) {
 
             // Each half keeps one child and drops the other, so its length is
             // exact: prefix + the 2-bit retagged branch + the kept child.
-            let mut a = Bits::with_capacity(prefix.len() + 2 + i1.len());
+            let mut a = BitsMut::with_capacity(prefix.len() + 2 + i1.len());
             a.extend_from_bitslice(prefix);
             a.push(true); // branch → Left-only: keep i1 ...
             a.push(false); // ... drop i2
             a.extend_from_bitslice(i1);
 
-            let mut b = Bits::with_capacity(prefix.len() + 2 + i2.len());
+            let mut b = BitsMut::with_capacity(prefix.len() + 2 + i2.len());
             b.extend_from_bitslice(prefix);
             b.push(false); // branch → Right-only: drop i1 ...
             b.push(true); // ... keep i2
@@ -93,14 +93,14 @@ fn build_split(bits: &BitsSlice, start: usize) -> (Bits, Bits) {
                 bits.len(),
                 "the terminal is the spine's tail",
             );
-            let mut a = Bits::with_capacity(prefix.len() + 4);
+            let mut a = BitsMut::with_capacity(prefix.len() + 4);
             a.extend_from_bitslice(prefix);
             a.push(true); // (1, 0): Left-only ...
             a.push(false);
             a.push(false); // ... over a terminal
             a.push(false);
 
-            let mut b = Bits::with_capacity(prefix.len() + 4);
+            let mut b = BitsMut::with_capacity(prefix.len() + 4);
             b.extend_from_bitslice(prefix);
             b.push(false); // (0, 1): Right-only ...
             b.push(true);

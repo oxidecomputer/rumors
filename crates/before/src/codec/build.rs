@@ -21,21 +21,21 @@
 //! their tag; the skyline builder ([`crate::version::skyline`]) appends
 //! leaf delta codes and collapses equal sibling leaves by truncation.
 
-use super::{Bits, BitsSlice};
+use super::{BitsMut, BitsSlice};
 
 /// An append-truncate builder over one packed preorder bit stream.
 ///
 /// The wrapper owning it defines the tree coding; this core owns the
 /// buffer, the primitive moves, and the write metering.
 pub(crate) struct PackedBuilder {
-    bits: Bits,
+    bits: BitsMut,
 }
 
 impl PackedBuilder {
     /// Create a builder with room for `capacity` bits before reallocation.
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         PackedBuilder {
-            bits: Bits::with_capacity(capacity),
+            bits: BitsMut::with_capacity(capacity),
         }
     }
 
@@ -58,7 +58,7 @@ impl PackedBuilder {
     /// Collapse repairs re-anchor a surviving code before truncating the
     /// region it sits in; this is the read half of that repair (the
     /// skyline builder's cascade, on the production join/meet path).
-    pub(crate) fn extract(&self, start: usize) -> Bits {
+    pub(crate) fn extract(&self, start: usize) -> BitsMut {
         super::scan::record_bits(self.bits.len() - start);
         self.bits[start..].to_bitvec()
     }
@@ -107,7 +107,7 @@ impl PackedBuilder {
     }
 
     /// Take the finished stream.
-    pub(crate) fn finish(self) -> Bits {
+    pub(crate) fn finish(self) -> BitsMut {
         self.bits
     }
 }

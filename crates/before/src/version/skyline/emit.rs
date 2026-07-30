@@ -78,7 +78,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, Bits, BitsSlice};
+use crate::codec::{Base, BitsMut, BitsSlice};
 
 use super::build::SkylineBuilder;
 use super::sweep::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
@@ -101,7 +101,7 @@ use super::{gamma_code, zigzag_signed};
 /// panic; the rest (a collapsible sibling pair, a delta driving the
 /// running height negative) sweep silently, and the output is then
 /// unspecified.
-pub fn join(a: &BitsSlice, b: &BitsSlice) -> Bits {
+pub fn join(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
     // Pointwise max: the higher side wins the interval, sticky at ties.
     emit(a, b, |sign, current| match sign {
         Ordering::Greater => Side::A,
@@ -119,7 +119,7 @@ pub fn join(a: &BitsSlice, b: &BitsSlice) -> Bits {
 ///
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output.
-pub fn meet(a: &BitsSlice, b: &BitsSlice) -> Bits {
+pub fn meet(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
     // Pointwise min: the lower side wins the interval, sticky at ties.
     emit(a, b, |sign, current| match sign {
         Ordering::Less => Side::A,
@@ -155,7 +155,7 @@ pub fn meet(a: &BitsSlice, b: &BitsSlice) -> Bits {
 ///
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output pair.
-pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (Bits, Bits) {
+pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (BitsMut, BitsMut) {
     /// One output of the fused sweep: its side selection (pointwise min
     /// or max — the only point where the two outputs differ), the side
     /// it is currently following, and its builder.
@@ -236,7 +236,7 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (Bits, Bits) {
 /// the difference's sign and the current side — the winner by sign,
 /// sticky at ties, and the only point where join and meet differ (see
 /// the module doc's side-switch algebra).
-fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) -> Side) -> Bits {
+fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) -> Side) -> BitsMut {
     let OpenedPair {
         a: mut ca,
         b: mut cb,

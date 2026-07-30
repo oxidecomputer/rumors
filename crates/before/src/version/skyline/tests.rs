@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 
 use proptest::prelude::*;
 
-use crate::codec::{self, Base, Bits};
+use crate::codec::{self, Base, BitsMut};
 use crate::error::Decode;
 use crate::meter::registry::Shape;
 use crate::meter::tier2::tier2_size;
@@ -33,7 +33,7 @@ fn version_of(p: &Packed) -> Version {
 }
 
 /// The stored skyline stream of a version, as live bits.
-fn stream_of(v: &Version) -> Bits {
+fn stream_of(v: &Version) -> BitsMut {
     v.as_bits().to_bitvec()
 }
 
@@ -76,7 +76,7 @@ fn one_fork_matches_hand_derivation() {
 // ─── the strict-reject corpus ───────────────────────────────────────────────
 
 /// Append a leaf carrying a raw payload value (the caller pre-zigzags).
-fn push_leaf(bits: &mut Bits, payload: u64) {
+fn push_leaf(bits: &mut BitsMut, payload: u64) {
     bits.push(true);
     codec::encode_int(bits, &Base::from(payload));
 }
@@ -86,7 +86,7 @@ fn push_leaf(bits: &mut Bits, payload: u64) {
 #[test]
 fn rejects_zero_right_sibling_delta() {
     // (5, 5): internal root, leaf height 5, then delta 0.
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     bits.push(false); // root: internal
     push_leaf(&mut bits, 5); // gamma(5): the first leaf, absolute
     push_leaf(&mut bits, 0); // zigzag(0) = 0 -> gamma(0): equal sibling
@@ -109,7 +109,7 @@ fn accepts_zero_delta_across_a_subtree_boundary() {
         ),
         oracle::Version::leaf(1u64),
     ));
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     bits.push(false); // root: internal
     bits.push(false); // left child: internal
     push_leaf(&mut bits, 0); // leaf 0: gamma(0), absolute
@@ -126,7 +126,7 @@ fn accepts_zero_delta_across_a_subtree_boundary() {
 #[test]
 fn rejects_negative_running_height() {
     // (1, -1): internal root, leaf height 1, then delta -2.
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     bits.push(false); // root: internal
     push_leaf(&mut bits, 1); // first leaf: height 1
     push_leaf(&mut bits, 3); // zigzag(-2) = 3: height would be -1
@@ -139,7 +139,7 @@ fn rejects_negative_running_height() {
 fn rejects_negative_height_midstream() {
     // Root over leaf(1) and (node over leaf(-1), leaf(5)): the middle leaf
     // dips negative before the last one recovers.
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     bits.push(false); // root: internal
     push_leaf(&mut bits, 1); // first leaf: height 1
     bits.push(false); // right child: internal
@@ -237,8 +237,8 @@ fn zigzag_is_a_bijection_without_negative_zero() {
 /// Emit the flag-inverted skyline spelling of a normal-form oracle tree:
 /// per-node preorder flag `1` internal / `0` leaf, payloads exactly the
 /// stored coding's (first leaf absolute, later leaves zigzag deltas).
-fn inverted_flag_stream(t: &oracle::Version) -> Bits {
-    fn walk(t: &oracle::Version, offset: &Base, prev: &mut Option<Base>, out: &mut Bits) {
+fn inverted_flag_stream(t: &oracle::Version) -> BitsMut {
+    fn walk(t: &oracle::Version, offset: &Base, prev: &mut Option<Base>, out: &mut BitsMut) {
         match t {
             oracle::Version::Leaf(n) => {
                 out.push(false); // leaf flag, inverted spelling
@@ -256,7 +256,7 @@ fn inverted_flag_stream(t: &oracle::Version) -> Bits {
             }
         }
     }
-    let mut out = Bits::new();
+    let mut out = BitsMut::new();
     walk(t, &Base::ZERO, &mut None, &mut out);
     out
 }
@@ -265,8 +265,8 @@ fn inverted_flag_stream(t: &oracle::Version) -> Bits {
 /// grammar (`internal` says which flag value opens two children), invert
 /// exactly the one flag bit per node, and copy every payload code
 /// verbatim.
-fn flip_topology_flags(bits: &Bits, internal: bool) -> Bits {
-    let mut out = Bits::with_capacity(bits.len());
+fn flip_topology_flags(bits: &BitsMut, internal: bool) -> BitsMut {
+    let mut out = BitsMut::with_capacity(bits.len());
     let mut pos = 0usize;
     let mut pending = 1usize;
     while pending > 0 {
@@ -338,7 +338,7 @@ proptest! {
 /// Assert one mutated stream never aliases its origin: it is rejected, or
 /// it decodes to a different version whose canonical encoding is the
 /// mutated stream itself.
-fn assert_mutation_never_aliases(v: &Version, bits: &Bits, flip: usize) {
+fn assert_mutation_never_aliases(v: &Version, bits: &BitsMut, flip: usize) {
     let mut mutated = bits.clone();
     let old = mutated[flip];
     mutated.set(flip, !old);

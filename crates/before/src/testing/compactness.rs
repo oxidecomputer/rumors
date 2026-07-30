@@ -21,7 +21,7 @@
 
 use proptest::prelude::*;
 
-use crate::codec::{self, Base, Bits};
+use crate::codec::{self, Base, BitsMut};
 use crate::meter::tier2::{tier2_size, Tier2Size};
 use crate::Version;
 
@@ -135,7 +135,7 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
     let m = (Base::from(1u8) << m_bits_u32) - &Base::from(1u8);
 
     let pair_bits = 2 * m_bits + 8;
-    let mut bits = Bits::with_capacity(pairs * pair_bits - 2);
+    let mut bits = BitsMut::with_capacity(pairs * pair_bits - 2);
     // The spine: each node is `1 . gamma(0)`, its left child the next spine
     // node (the innermost left child is the first pair subtree).
     for _ in 0..pairs - 1 {
