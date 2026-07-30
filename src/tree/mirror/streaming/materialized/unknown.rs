@@ -20,8 +20,6 @@
 //! step keeps the type flat, and its `Send`-ness asserted rather than proven
 //! through the whole tower.
 
-use std::cmp::Ordering;
-
 use futures::future::{self, BoxFuture, FutureExt};
 
 use crate::{
@@ -45,29 +43,29 @@ pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Ver
     causally::known_at(version).contains(node.ceiling())
 }
 
-enum Knowledge {
-    Unknown,
-    Known,
-    Mixed,
-}
-
-/// Classify a subtree from its memoized version bounds without descending.
-fn knowledge<T: Send + Sync + 'static>(node: &impl Node<T>, known: &Version) -> Knowledge {
-    let known_at = causally::known_at(known);
-    // Fast path, checked first because the meet is cheaper and its verdict
-    // can early-terminate (a floor concurrent to `known` is decided at the
-    // first opposing interval): a floor beyond the known range means the
-    // whole subtree is unknown.
-    if known_at.placement_of(node.floor()) == Ordering::Greater {
-        return Knowledge::Unknown;
-    }
-    // Slower path, checked second: confirming containment reads the whole
-    // streams.
-    if known_at.contains(node.ceiling()) {
-        return Knowledge::Known;
-    }
-    // If neither is true, we have to descend.
-    Knowledge::Mixed
+/// Classify a subtree from its memoized version bounds without
+/// descending: how much of the node's `[floor, ceiling]` interval the
+/// counterparty's version dominates *is* the knowledge verdict.
+///
+/// [`Neither`](causally::Dominance::Neither) — the floor is beyond or
+/// beside `known` — means the whole subtree is unknown;
+/// [`Whole`](causally::Dominance::Whole) — the ceiling is within
+/// `known`'s past — means it is all already known; and
+/// [`StartOnly`](causally::Dominance::StartOnly) means mixed, so the
+/// caller descends.
+///
+/// One fused walk answers it: the interval is ordered structurally (the
+/// memos are the meet and join of the same leaf versions), so the
+/// trusted constructor skips a validating comparison per node, and the
+/// walk decodes `known` once where placing the two bounds separately
+/// would decode it once per bound. The cheap unknown-subtree exit
+/// survives the fusion: `floor <= known` refuted is the whole verdict,
+/// decided at the first refuting interval.
+fn knowledge<T: Send + Sync + 'static>(
+    node: &impl Node<T>,
+    known: &Version,
+) -> causally::Dominance {
+    causally::Interval::ordered(node.floor(), node.ceiling()).dominance_of(known)
 }
 
 /// Prune one subtree to what a counterparty at `known` is missing, honoring
@@ -113,15 +111,17 @@ where
     S<H>: Height,
 {
     match knowledge(&node, known) {
-        Knowledge::Unknown => {
+        // Wholly unknown: the whole subtree travels.
+        causally::Dominance::Neither => {
             let children = children_of(backend, prefix, node.clone()).await?;
             return Ok((Some(node), children));
         }
-        Knowledge::Known => {
+        // Wholly known: nothing under the node needs to travel.
+        causally::Dominance::Whole => {
             stats.shed(node.len() as u64);
             return Ok((None, Vec::new()));
         }
-        Knowledge::Mixed => {}
+        causally::Dominance::StartOnly => {}
     }
 
     // Mixed: prune the children one by one; the surviving group is both the
@@ -199,12 +199,14 @@ where
     {
         Box::pin(async move {
             match knowledge(&node, known) {
-                Knowledge::Unknown => return Ok(Some(node)),
-                Knowledge::Known => {
+                // Wholly unknown: the whole subtree travels.
+                causally::Dominance::Neither => return Ok(Some(node)),
+                // Wholly known: nothing under the node needs to travel.
+                causally::Dominance::Whole => {
                     stats.shed(node.len() as u64);
                     return Ok(None);
                 }
-                Knowledge::Mixed => {}
+                causally::Dominance::StartOnly => {}
             }
 
             // Mixed: descend. Explode just this node one level, prune its
