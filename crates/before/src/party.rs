@@ -716,6 +716,17 @@ impl Party {
     pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
         Party(codec::Bits::freeze(bits))
     }
+
+    /// Adopt an already-frozen canonical id stream as a `Party`: the
+    /// decode-side gate, dual to the build-side
+    /// [`from_bits`](Self::from_bits).
+    ///
+    /// Callers guarantee the stream is a nonempty normal-form id in
+    /// canonical storage — what a validated decode slice already is —
+    /// so no re-canonicalization runs and adoption is `O(1)`.
+    pub(crate) fn from_frozen(bits: codec::Bits) -> Self {
+        Party(bits)
+    }
 }
 
 /// Paper notation: `0` / `1` leaves, `(l, r)` nodes. E.g. `(1, (0, 1))`.

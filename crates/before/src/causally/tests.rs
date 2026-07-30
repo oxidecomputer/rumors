@@ -1073,3 +1073,83 @@ proptest! {
         }
     }
 }
+
+// ─────────────────── the coincident span's storage dedup ───────────────────
+
+/// A wire-loaded coincident span stores one buffer twice: the admission
+/// walk detects `hi == lo` in the pass that proves dominance, so the
+/// decoded endpoints share storage (clone identity holds) exactly as a
+/// computed coincident hull's do — and the span still re-encodes
+/// byte-identically and equals the computed form.
+#[test]
+fn decoded_coincident_span_shares_one_buffer() {
+    let mut clock = Clock::seed();
+    for _ in 0..12 {
+        clock.tick();
+    }
+    let v = clock.version().clone();
+    let computed = v.span(&v);
+    assert!(
+        computed.meet().view().ptr_eq(computed.join().view()),
+        "a computed coincident hull stores one buffer twice"
+    );
+
+    let bytes = computed.encode();
+    let decoded = Span::decode(&bytes[..]).expect("a canonical composite decodes");
+    assert_eq!(decoded, computed, "the wire round-trips the span");
+    assert_eq!(decoded.encode(), bytes, "re-encoding is byte-identical");
+    assert!(
+        decoded.meet().view().ptr_eq(decoded.join().view()),
+        "the decode-fused equality must dedup the coincident span's storage: \
+         wire-loaded spans hit the ptr_eq ladder exactly like computed ones"
+    );
+}
+
+/// A strictly-dominating wire span keeps two distinct endpoint streams —
+/// the dedup fires only on coincidence — and both endpoints adopt slices
+/// of the one read buffer (no per-endpoint copy), observable as the
+/// decode reproducing both components byte-for-byte.
+#[test]
+fn decoded_strict_span_keeps_distinct_endpoints() {
+    let mut clock = Clock::seed();
+    let lo = clock.tick().clone();
+    let hi = clock.tick().clone();
+    let span = Span::new(&lo, &hi).expect("ordered");
+    let decoded = Span::decode(&span.encode()[..]).expect("a canonical composite decodes");
+    assert!(
+        !decoded.meet().view().ptr_eq(decoded.join().view()),
+        "distinct endpoints must not read as clones"
+    );
+    assert_eq!(decoded.meet(), &lo);
+    assert_eq!(decoded.join(), &hi);
+}
+
+proptest! {
+    /// The coincident span's fast rungs agree with the fused walk across
+    /// buffer identity: `place` and `dominance_of` against `[v, v]`
+    /// return identical verdicts whether the endpoints share one buffer
+    /// (the clone-identity rung: hull doors, wire decode) or sit in
+    /// distinct byte-equal buffers (the fused three-stream walk), and
+    /// both transcribe `probe.partial_cmp(v)` exactly — the
+    /// `degenerate_span_place_is_partial_cmp` law's table.
+    #[test]
+    fn coincident_span_rungs_agree_across_buffer_identity(
+        ov in arb_oracle_version(),
+        op in arb_oracle_version(),
+    ) {
+        let v = from_oracle_version(&ov);
+        let probe = from_oracle_version(&op);
+        let shared = v.span(&v); // one buffer, two clones
+        let distinct_v = from_oracle_version(&ov);
+        let distinct = Span::new(&v, &distinct_v).expect("equal versions are ordered");
+        prop_assert_eq!(shared.place(&probe), distinct.place(&probe));
+        prop_assert_eq!(shared.dominance_of(&probe), distinct.dominance_of(&probe));
+        let expected = match probe.partial_cmp(&v) {
+            Some(Ordering::Less) => Placement::Before,
+            Some(Ordering::Equal) => Placement::At(Endpoint::Both),
+            Some(Ordering::Greater) => Placement::After,
+            None => Placement::Concurrent(Endpoint::Both),
+        };
+        prop_assert_eq!(shared.place(&probe), expected);
+    }
+}

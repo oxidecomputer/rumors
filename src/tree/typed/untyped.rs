@@ -545,27 +545,15 @@ impl<T> Node<T> {
     /// fused walk that decodes `probe` once and keeps the dominance
     /// face's early exit at the first interval refuting `floor <= probe`.
     ///
-    /// A leaf's bounds coincide at its version, where the dominance
-    /// question collapses to one containment check: a coincident span
-    /// admits no [`Between`](causally::Dominance::Between), and its
-    /// [`After`](causally::Dominance::After) bucket is exactly
-    /// `version <= probe` (the `degenerate_span_place_is_partial_cmp`
-    /// and `span_dominance_coarsens_place` laws in `before::laws` pin
-    /// the coarsening), so the single-bound range placement answers it
-    /// with one decode of each stream.
+    /// A leaf's bounds coincide at its version, where the span door
+    /// itself collapses the dominance question to one containment
+    /// check ([`causally::Span::dominance_of`]'s coincident rung — a
+    /// leaf's span stores its one version twice, and clone identity
+    /// certifies the coincidence in `O(1)`), so routing wholly through
+    /// [`span`](Self::span) pays a leaf one decode of each stream,
+    /// never two.
     pub fn dominance_of(&self, probe: &Version) -> causally::Dominance {
-        match &self.inner.children {
-            Children::Leaf { version, .. } => {
-                if causally::known_at(probe).contains(version) {
-                    causally::Dominance::After
-                } else {
-                    causally::Dominance::Before
-                }
-            }
-            Children::Branch {
-                bounds, children, ..
-            } => Self::bounds(bounds, children).dominance_of(probe),
-        }
+        self.span().dominance_of(probe)
     }
 
     /// Force one branch's bounds memo: the tightest span containing every

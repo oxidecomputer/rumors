@@ -6364,6 +6364,59 @@ fn own_version_pair_cmp_mask_drift_envelope() {
     );
 }
 
+// ─── the cheap-clone demonstration cell ──────────────────────────────────────
+
+/// Peak-heap ceiling for the equal-operands join fold: the fold's own
+/// machinery (the counter's group vec, the dedup adapter's held clone),
+/// none of it proportional to the operands.
+// 536 -> 352 (2026-07-30, the Bytes-backed at-rest form, parent
+// 3a4f3c8e at 536: the equality rung's hand-back was a byte copy of the
+// 376 B operand; it is now an O(1) refcount bump, so the fold's peak is
+// its size-independent machinery alone — the flatness leg below is the
+// proof). Ceiling 1.25x the 352 B measurement of record.
+const JOIN_EQUAL_OPERANDS_PEAK: usize = 440;
+
+/// The cheap-clone demonstration: `join_all` over two byte-equal
+/// versions answers through the equality rung and hands back a clone —
+/// an `O(1)` refcount bump — so the fold's peak heap is the counter
+/// machinery alone, *byte-identical across a 4x operand growth* (the
+/// flatness leg no operand-copying clone arm can pass). The semantic
+/// leg pins the verdict: the join IS the operand, byte for byte.
+#[test]
+fn join_all_equal_operands_is_clone_cheap() {
+    let run = |depth: usize| {
+        let p = Shape::Dense.packed1(depth);
+        let a = version_of(&p);
+        let b = version_of(&p); // byte-equal, buffer-distinct
+        let input_bytes = a.encode().len() + b.encode().len();
+        HEAP.reset_peak_usage();
+        let baseline = HEAP.current_usage();
+        let out = Version::join_all([&a, &b]);
+        let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
+        eprintln!(
+            "MEASURED join_all_equal_operands/{depth}: input_bytes={input_bytes} \
+             peak_heap={peak_heap}"
+        );
+        assert_eq!(out, a, "a ∨ a = a: the fold's verdict is the operand");
+        assert_eq!(out.as_bytes(), a.as_bytes());
+        peak_heap
+    };
+    // The witness of record: two equal 376 B versions (dense depth 1,000).
+    let small = run(1000);
+    let large = run(4000);
+    assert!(
+        small <= JOIN_EQUAL_OPERANDS_PEAK,
+        "join_all over two equal operands peaked {small} B (ceiling \
+         {JOIN_EQUAL_OPERANDS_PEAK} B): the clone arm must not copy the \
+         operand: {ISOLATION_NOTE}"
+    );
+    assert_eq!(
+        small, large,
+        "the equal-operands fold's peak must not move with operand size: \
+         the clone arm is O(1): {ISOLATION_NOTE}"
+    );
+}
+
 // ─── join-fold scenarios ────────────────────────────────────────────────────
 //
 // The public join folds on the scatter population: 1,024 balanced-forked
