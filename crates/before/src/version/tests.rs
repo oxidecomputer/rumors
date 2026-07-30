@@ -1980,6 +1980,25 @@ proptest! {
     }
 }
 
+/// The staircase: one new unit plateau per level over the given core,
+/// mass leaning left (`(0, t, 1)`) or right (`(0, 1, t)`).
+///
+/// The two leans are mirror images — their areas agree level for
+/// level, so they share a rank by symmetry. The extreme-depth genre no
+/// generator reaches, shared by the deep-cancellation and
+/// composite-key suites.
+fn stairs(depth: usize, lean_left: bool, core: &str) -> Version {
+    let mut text = String::from(core);
+    for _ in 0..depth {
+        text = if lean_left {
+            format!("(0, {text}, 1)")
+        } else {
+            format!("(0, 1, {text})")
+        };
+    }
+    text.parse().unwrap()
+}
+
 /// The fused comparison's hard genres, constructed: deep total
 /// cancellation, and verdicts decided only at the walk's last
 /// contribution.
@@ -1996,23 +2015,6 @@ proptest! {
 /// checked against the materialized rank-then-bytes order in both
 /// argument orders, and the fused rank-only encode against the
 /// materialized encode on the same deep shapes.
-/// The staircase: one new unit plateau per level over the given core,
-/// mass leaning left (`(0, t, 1)`) or right (`(0, 1, t)`) — mirror
-/// images, so their areas agree level for level and the two leans
-/// share a rank by symmetry. The extreme-depth genre no generator
-/// reaches, shared by the deep-cancellation and composite-key suites.
-fn stairs(depth: usize, lean_left: bool, core: &str) -> Version {
-    let mut text = String::from(core);
-    for _ in 0..depth {
-        text = if lean_left {
-            format!("(0, {text}, 1)")
-        } else {
-            format!("(0, 1, {text})")
-        };
-    }
-    text.parse().unwrap()
-}
-
 #[test]
 fn ranked_fused_walk_survives_deep_cancellation() {
     let left = stairs(800, true, "(0, 1, 0)");
@@ -2284,9 +2286,11 @@ fn ranked_decode_rejects_each_genre() {
 proptest! {
     /// Flipping any single bit of a canonical composite key yields a
     /// byte string `Ranked::decode` either rejects or accepts
-    /// canonically: the accepted view re-encodes to exactly the
-    /// mutated input, so decode stays injective on bytes and byte
-    /// equality on keys stays [`Eq`] on views.
+    /// canonically (the accepted view re-encodes to exactly the
+    /// mutated input).
+    ///
+    /// Acceptance-canonicity is what keeps decode injective on bytes
+    /// and byte equality on keys exactly [`Eq`] on views.
     ///
     /// The codec suite's mutation genre, aimed at the composite's own
     /// seam: a flip in the self-delimiting rank prefix can move where
