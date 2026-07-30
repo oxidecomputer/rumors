@@ -198,22 +198,22 @@ mod envelope {
     //                                              peak heap,  segments, limb ops, limb floor           measured: peak heap, segments, limb ops
     pub const DECODE_DENSE: Envelope    = envelope(   120_045,        0,       625_003, 375_001); // 11_072_549 -> 96_036 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 250_002 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels)
     pub const CMP_DENSE: Envelope       = envelope(    30_740,        0,       312_505, 187_503); //          8 -> 24_592, 192 -> 0, 2_000_010 -> 250_004 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep)
-    pub const JOIN_DENSE: Envelope      = envelope(   188_892,        0,       937_505, 562_503); //  4_797_477 -> 151_113, 240 -> 0, 3_000_008 -> 750_004 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
+    pub const JOIN_DENSE: Envelope      = envelope(   130_297,        0,       937_505, 562_503); //  4_797_477 -> 151_113 -> 104_237 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 240 -> 0, 3_000_008 -> 750_004 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
     // The tick rows live in `query_env`: the tick walk's cost currency
     // is accumulator digit touches (with scanned bits beside it), which
     // this four-column table never watched.
     pub const DECODE_BIGROOT: Envelope  = envelope(    60_090,        0,        50_790, 30_474); //  1_396_905 -> 48_072 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 20_630 -> 40_632 (2026-07-25, C2: operations route to the skyline kernels)
     pub const CMP_BIGROOT: Envelope     = envelope(    40_350,        0,        25_790, 15_474); // 56_416_936 -> 32_280, 12 -> 0, 37_606_270 -> 20_632 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep; the V1 kill realized)
-    pub const JOIN_BIGROOT: Envelope    = envelope(   102_250,        0,        76_583, 45_949); // 56_849_753 -> 81_800, 16 -> 0, 87_631_274 -> 61_266 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel; the V1 kill realized)
+    pub const JOIN_BIGROOT: Envelope    = envelope(    85_060,        0,        76_583, 45_949); // 56_849_753 -> 81_800 -> 68_048 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 16 -> 0, 87_631_274 -> 61_266 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel; the V1 kill realized)
     pub const DECODE_HUGELEAF: Envelope = envelope(   122_504,        0,         2_443, 1_465); //     48_851 -> 98_003 (2026-07-25, C2: operations route to the skyline kernels: the validating wire decode holds the running height), 0, 1_954
-    pub const JOIN_HUGELEAF: Envelope   = envelope(   224_528,        0,         4_887, 2_931); //    115_707 -> 179_622 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel holds both payload buffers), 0, 7_821 -> 3_909 (2026-07-25, C2: operations route to the skyline kernels)
+    pub const JOIN_HUGELEAF: Envelope   = envelope(   185_494,        0,         4_887, 2_931); //    115_707 -> 179_622 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel holds both payload buffers) -> 148_395 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 0, 7_821 -> 3_909 (2026-07-25, C2: operations route to the skyline kernels)
     pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0, 0); //    125_001 -> 223_305, 202 -> 0, 0 (2026-07-24, iterative id walks: frame bits on the heap, no grown segments)
     pub const ID_COVERS: Envelope       = envelope(        10,        0,             0, 0); //          0 -> 8,  85 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_WITHOUT: Envelope      = envelope(   521_110,        0,             0, 0); //    518_219 -> 416_888 (2026-07-26, dev builds run no shadow re-parse of the diff emission: the differential suites carry the normal-form check), 138 -> 0, 0 (2026-07-23, iterative complement)
     pub const DECODE_CLIFF: Envelope    = envelope(     4_052,        0,        12_903, 7_741); //    607_489 -> 3_241 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 40_960 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels)
     pub const CMP_CLIFF: Envelope       = envelope(     1_710,        0,         7_765, 4_659); //        496 -> 1_368 (2026-07-25, C2: operations route to the skyline kernels: the sweep holds two accumulators), 0, 190_474 -> 6_212 (2026-07-25, C2: operations route to the skyline kernels: the cliff-immune sweep)
-    pub const JOIN_CLIFF: Envelope      = envelope(     7_913,        0,        25_869, 15_521); //  1_411_489 -> 6_330, 0, 384_008 -> 20_695 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
+    pub const JOIN_CLIFF: Envelope      = envelope(     5_672,        0,        25_869, 15_521); //  1_411_489 -> 6_330 -> 4_537 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 0, 384_008 -> 20_695 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
     // Skyline validator rows (2026-07-23, new scenarios): the V5
     // replacement's transient, achieved — the dense row's 49 KB peak over
     // 125k levels is ~3.1 bits per open ancestor (bit stack plus
@@ -5822,7 +5822,7 @@ mod query_env {
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_508,   468_758,   312_510, 187_504, 187_506); // 24_576, 0, 500_002 -> 250_006 (2026-07-28, the anchor-web fold: the per-close signed offset compare is gone), 375_006, 125_005 -> 250_008 (2026-07-28: every delta folds into two accumulators - the live height and the web's gap - so the touch column doubles while the quadratic minima circulation leaves; heap and scan byte-identical across the rewrite)
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(     3_240,        0,     7_855,    17_923,    13_273, 4_713, 7_964); // 49_752 -> 2_592 -> 3_168 (2026-07-28, the anchor-web fold's 19x drop, then the zero-run ledger's map nodes measured at the cure-round merge; the older ceiling stands), 8_258 -> 6_284, 70_962 -> 10_619 (2026-07-28, the anchor-web fold: the comb's wide F-relative pending offsets and their per-close folds are epoch-ledger counts now, touches 6.7x down; scan byte-identical), 0, 14_338
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (2026-07-25, single-record id tags), 35_939
-    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       488,        0,   317_380,   330_913,    63_347, 190_428, 38_007); // 73_216 -> 390 -> 294 (2026-07-26, the at-rest form is codec::Bits, the wire bytes in a length-carrying container) -> 390 (2026-07-29, the borrow-shaped fold face: the counter stack's entries carry the operand-form tag, ~8 B per level; work columns byte-identical), 0, 690_310 -> 253_904 (sequential 14_281_732) -> 253_902 (pre-existing drift, measured at round #123's base), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
+    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       386,        0,   317_380,   330_913,    63_347, 190_428, 38_007); // 73_216 -> 390 -> 294 (2026-07-26, the at-rest form is codec::Bits, the wire bytes in a length-carrying container) -> 390 (2026-07-29, the borrow-shaped fold face: the counter stack's entries carry the operand-form tag, ~8 B per level; work columns byte-identical) -> 309 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the fold's lone-group settle and adoption arms clone by refcount), 0, 690_310 -> 253_904 (sequential 14_281_732) -> 253_902 (pre-existing drift, measured at round #123's base), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
     pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       780,        0,         0,   322_068,         0, 0, 0); // 336 -> 624 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: one refcount control block per frozen stream live in the fold's groups; work columns byte-identical), 0, 0, 292_432 -> 257_654 (2026-07-26, join_all answers its up-front tests through a per-call id index; the 292_432 was a mid-round reading, the C2 flag-day commit itself reads 276_044) (sequential 3_284_952), 0
     // Tick rows (2026-07-25, the #34 currency round): moved onto the
     // five-meter harness — the tick walk's cost currency is accumulator
@@ -6369,11 +6369,13 @@ fn own_version_pair_cmp_mask_drift_envelope() {
 /// Peak-heap ceiling for the equal-operands join fold: the fold's own
 /// machinery (the counter's group vec, the dedup adapter's held clone),
 /// none of it proportional to the operands.
-// 536 -> 352 (2026-07-30, the Bytes-backed at-rest form, parent
-// 3a4f3c8e at 536: the equality rung's hand-back was a byte copy of the
-// 376 B operand; it is now an O(1) refcount bump, so the fold's peak is
-// its size-independent machinery alone — the flatness leg below is the
-// proof). Ceiling 1.25x the 352 B measurement of record.
+// 624 -> 352 at 376 B operands, 1_749 -> 352 at 1_501 B (2026-07-30,
+// the Bytes-backed at-rest form, parent-measured at 3a4f3c8e: the
+// equality rung's hand-back was a byte copy of the operand, so the
+// parent peak scaled with it; the hand-back is now an O(1) refcount
+// bump and the fold's peak is its size-independent machinery alone —
+// the flatness leg below is the proof). Ceiling 1.25x the 352 B
+// measurement of record.
 const JOIN_EQUAL_OPERANDS_PEAK: usize = 440;
 
 /// The cheap-clone demonstration: `join_all` over two byte-equal

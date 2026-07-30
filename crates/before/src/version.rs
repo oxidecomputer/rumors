@@ -210,6 +210,12 @@ impl Version {
     /// ```
     pub fn ticks(&mut self, party: &Party, n: impl Into<Ticks>) {
         let n = n.into();
+        // The empty run is the identity — the `ticks_zero_is_identity`
+        // law in [`laws`](crate::laws) — settled without re-freezing
+        // the stream (a width test, not a value compare: no limb work).
+        if n.0.bits() == 0 {
+            return;
+        }
         *self = Version::from_bits(skyline::fill::ticks(&self.0, party, &n.0));
     }
 

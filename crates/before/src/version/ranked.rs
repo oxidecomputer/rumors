@@ -153,10 +153,10 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    /// One byte copy of the version when borrowed; free when already
-    /// owned.
+    /// A borrowed view settles by cloning the version, which shares its
+    /// stored buffer; an owned one moves out.
     ///
-    /// **Complexity**: `O(n)` when borrowed (one byte copy of the version); `O(1)` when owned.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::{Ranked, Version};

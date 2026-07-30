@@ -852,12 +852,12 @@ impl<'a> Span<'a> {
     /// Destructures this span into its owned `(meet, join)` endpoints.
     ///
     /// The order is [`meet`](Self::meet) then [`join`](Self::join).
-    /// Owned endpoints move out; borrowed endpoints are materialized,
-    /// at most one byte copy each.
+    /// Owned endpoints move out; borrowed endpoints settle by cloning,
+    /// which shares the stored buffer.
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.
+    /// **Complexity**: `O(1)`.
     pub fn into_parts(self) -> (Version, Version) {
         (self.lo.into_owned(), self.hi.into_owned())
     }
@@ -891,7 +891,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.
+    /// **Complexity**: `O(1)`.
     pub fn into_owned(self) -> Span<'static> {
         Span {
             lo: Cow::Owned(self.lo.into_owned()),
