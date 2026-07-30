@@ -54,7 +54,7 @@ where
 /// differs from `a`'s: some leaf was gained from `b`, or some leaf of `a`
 /// was dropped by deletion honoring. The recursion decides this exactly,
 /// with no hashing, through the same mechanics as the in-memory
-/// [`traverse::join`](crate::tree::traverse::join): a gain is a subtree of
+/// [`traverse::join`](fn@crate::tree::traverse::join): a gain is a subtree of
 /// `b` surviving the deletion filter where `a` held nothing, and a drop is
 /// the filter's own shed observation on `a`'s side. Gains and drops live at
 /// distinct content-addressed paths and each is monotone at its path, so

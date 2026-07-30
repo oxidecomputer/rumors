@@ -1245,9 +1245,9 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
     ) {
-        let mut tree = Tree { root: a };
+        let mut tree = Tree { backend: Local, root: a };
         let before = tree.hash();
-        let changed = tree.join(Tree { root: b });
+        let changed = tree.join_now(Tree { backend: Local, root: b });
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
@@ -1343,7 +1343,7 @@ fn ceiling_only_join_reports_unchanged() {
 
     let before = tree.hash();
     let ceiling_before = tree.latest().clone();
-    let changed = tree.join(other);
+    let changed = tree.join_now(other);
     assert!(
         !changed,
         "a merge that teaches the set nothing reports unchanged",
@@ -1375,9 +1375,15 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
     let receiver_party = super::arb::nth_party(0);
     let key = Key::from(path);
 
-    let mut tree = Tree { root: receiver };
+    let mut tree = Tree {
+        backend: Local,
+        root: receiver,
+    };
     assert!(
-        tree.join(Tree { root: poisoned }),
+        tree.join_now(Tree {
+            backend: Local,
+            root: poisoned,
+        }),
         "planting the escaped leaf is a real change",
     );
 
@@ -1393,7 +1399,7 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
         "the skipped forget left the root hash byte-identical",
     );
     assert!(
-        tree.get(&key).is_some(),
+        tree.get_now(&key).is_some(),
         "the escaped leaf survives the skipped forget",
     );
 }

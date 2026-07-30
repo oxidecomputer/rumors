@@ -38,7 +38,7 @@
 //! caller would retry. Integrity below that — torn pages, bit rot — is
 //! the store's own department, per the [`Kv`] contract.
 
-use before::Version;
+use before::{Version, causally};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::kv::{Kv, ReadTxn, Table, WriteTxn};
@@ -189,8 +189,16 @@ pub(crate) enum NodeBody {
         prefix: Vec<u8>,
         /// The node hash at this record's full stored prefix.
         hash: Hash,
-        ceiling: Version,
-        floor: Version,
+        /// The subtree's version bounds — floor as the span's meet,
+        /// ceiling as its join — stored as the canonical composite span
+        /// encoding.
+        ///
+        /// Decoding *is* the validating load door: borsh deserialization
+        /// runs the fused one-pass parse that proves the pair ordered, so
+        /// corrupt bytes and crossed pairs alike refuse the record (the
+        /// module's corruption policy), and every span this store hands
+        /// back upholds the ordering the classifiers rely on.
+        bounds: causally::Span<'static>,
         /// Live leaves beneath (the `len` summary).
         leaves: u64,
         /// The largest bound encoding beneath (the `version_bytes`

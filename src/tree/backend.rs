@@ -267,7 +267,8 @@ pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
     /// Every read surface yields versions through this accessor, so a
     /// backend keeps one `Arc<Version>` per resident leaf and a yield is
     /// a refcount bump — never a deep clone of the ITC event tree. The
-    /// same value [`Node::ceiling`]/[`Node::floor`] answer by reference.
+    /// same value is both endpoints of the leaf's coincident
+    /// [`Node::span`].
     fn version(&self) -> &Arc<Version>;
 
     /// Construct a leaf node from one decoded wire record, taking custody

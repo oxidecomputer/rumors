@@ -654,7 +654,7 @@ impl<T> Node<T> {
         bounds.get_or_init(|| {
             if children.values().all(Node::is_leaf) {
                 let mut versions = children.values().map(|child| match &child.inner.children {
-                    Children::Leaf { version, .. } => version,
+                    Children::Leaf { version, .. } => &**version,
                     Children::Branch { .. } => {
                         unreachable!("every child of a fringe branch is a leaf")
                     }

@@ -278,7 +278,7 @@ proptest! {
                 .expect("the generic tower is infallible");
             prop_assert_eq!(ours.is_some(), theirs.is_some());
             if let (Some(ours), Some(theirs)) = (&ours, &theirs) {
-                prop_assert_eq!(ours.ceiling(), theirs.ceiling());
+                prop_assert_eq!(ours.span(), theirs.span());
                 prop_assert_eq!(ours.hash(), theirs.hash());
                 prop_assert_eq!(ours.message().bytes(), theirs.message().bytes());
             }
@@ -286,7 +286,7 @@ proptest! {
                 .expect("the persistent walk answered");
             prop_assert_eq!(ours.is_some(), stored.is_some());
             if let (Some(ours), Some(stored)) = (&ours, &stored) {
-                prop_assert_eq!(ours.ceiling(), stored.ceiling());
+                prop_assert_eq!(ours.span(), stored.span());
                 prop_assert_eq!(ours.hash(), stored.hash());
                 prop_assert_eq!(ours.message().bytes(), stored.message().bytes());
             }
@@ -338,20 +338,24 @@ proptest! {
             let (stored_key, stored_leaf) = stored.expect("the persistent walk answered");
             prop_assert_eq!(our_key, their_key);
             prop_assert_eq!(our_key, stored_key);
-            prop_assert_eq!(our_leaf.ceiling(), their_leaf.ceiling());
-            prop_assert_eq!(our_leaf.ceiling(), stored_leaf.ceiling());
+            prop_assert_eq!(our_leaf.span(), their_leaf.span());
+            prop_assert_eq!(our_leaf.span(), stored_leaf.span());
             prop_assert_eq!(our_leaf.hash(), their_leaf.hash());
             prop_assert_eq!(our_leaf.hash(), stored_leaf.hash());
         }
     }
 
     /// The generic `join` default is observationally identical to the
-    /// synchronous merge.
+    /// synchronous merge, changed flag included.
     ///
     /// Two replicas forked from a shared corpus and diverged — including
     /// redactions of shared leaves, the deletion-honoring case — merge to
     /// the same root hash whether the tower or the engine performs the
-    /// join, and the merge is symmetric.
+    /// join, and the merge is symmetric. Every backend's changed flag is
+    /// held to the flag's own contract — set iff the merged hash differs
+    /// from the first argument's, per orientation — with the hash
+    /// comparison as the test-side oracle, and the three backends' flags
+    /// agree on the shared orientation.
     #[test]
     fn join_tower_agrees_with_local_engine(
         common in steps(24),
@@ -370,7 +374,7 @@ proptest! {
         let ours_resolved = resolve(&ours, &mut left_clock, &mut inserted);
         let theirs_resolved = resolve(&theirs, &mut right_clock, &mut right_inserted);
 
-        let merged: Vec<Hash> = [false, true]
+        let merged: Vec<(Hash, bool)> = [false, true]
             .into_iter()
             .map(|swap| {
                 let mut a = Replica::new(Materializing);
@@ -380,16 +384,22 @@ proptest! {
                 b.act(duplicate(&shared));
                 b.act(duplicate(&theirs_resolved));
                 let (a, b) = if swap { (b, a) } else { (a, b) };
+                let mut changed = false;
                 let joined = pollster::block_on(Materializing.join(
                     a.root.clone(),
                     b.root.clone(),
                     &a.ceiling,
                     &b.ceiling,
+                    &mut changed,
                 ))
                 .expect("the generic tower is infallible");
-                joined
+                let hash = joined
                     .map(|node| node.hash())
-                    .unwrap_or_else(Hash::empty_root)
+                    .unwrap_or_else(Hash::empty_root);
+                // The flag's contract, against the hash oracle: set iff
+                // the merged content differs from `a`'s, per orientation.
+                assert_eq!(changed, hash != a.hash());
+                (hash, changed)
             })
             .collect();
 
@@ -402,15 +412,18 @@ proptest! {
         stored_a.act(duplicate(&ours_resolved));
         stored_b.act(duplicate(&shared));
         stored_b.act(duplicate(&theirs_resolved));
+        let mut stored_changed = false;
         let stored_merge = pollster::block_on(backend.join(
             stored_a.root.clone(),
             stored_b.root.clone(),
             &stored_a.ceiling,
             &stored_b.ceiling,
+            &mut stored_changed,
         ))
         .expect("the persistent join answered")
         .map(|node| node.hash())
         .unwrap_or_else(Hash::empty_root);
+        prop_assert_eq!(stored_changed, stored_merge != stored_a.hash());
 
         let mut a = Replica::new(Local);
         let mut b = Replica::new(Local);
@@ -418,20 +431,26 @@ proptest! {
         a.act(ours_resolved);
         b.act(duplicate(&shared));
         b.act(theirs_resolved);
+        let mut local_changed = false;
         let joined = pollster::block_on(Local.join(
             a.root.clone(),
             b.root.clone(),
             &a.ceiling,
             &b.ceiling,
+            &mut local_changed,
         ))
         .expect("the in-memory engine is infallible");
         let oracle = joined
             .map(|node| node.hash())
             .unwrap_or_else(Hash::empty_root);
+        prop_assert_eq!(local_changed, oracle != a.hash());
 
-        prop_assert_eq!(merged[0], oracle);
-        prop_assert_eq!(merged[1], oracle);
+        prop_assert_eq!(merged[0].0, oracle);
+        prop_assert_eq!(merged[1].0, oracle);
         prop_assert_eq!(stored_merge, oracle);
+        // The three backends decide one orientation's flag identically.
+        prop_assert_eq!(merged[0].1, local_changed);
+        prop_assert_eq!(stored_changed, local_changed);
     }
 
     /// `same` is sound: any two handles it unifies carry equal subtree

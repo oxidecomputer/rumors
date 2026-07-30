@@ -57,8 +57,7 @@ proptest! {
             NodeBody::Branch {
                 prefix,
                 hash: Hash::leaf(b"x"),
-                ceiling: Version::new(),
-                floor: Version::new(),
+                bounds: Version::new().span(&Version::new()),
                 leaves: 5,
                 version_bytes: 9,
                 children: children

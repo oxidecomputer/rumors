@@ -68,7 +68,7 @@ use borsh::BorshDeserialize;
 use bytes::Bytes;
 use futures::future;
 
-use before::Version;
+use before::{Version, causally};
 
 use crate::{
     Network,
@@ -219,8 +219,9 @@ enum Body<T> {
         prefix: Vec<u8>,
         /// The record's hash at offset zero (its full stored prefix).
         hash: Hash,
-        ceiling: Version,
-        floor: Version,
+        /// The stored bounds span, already proven ordered by the record
+        /// decode's fused parse; [`Node::span`] reborrows it.
+        bounds: causally::Span<'static>,
         leaves: u64,
         version_bytes: u64,
         /// Ascending radix, ≥ 2 entries; hashes stored fat per edge.
@@ -289,16 +290,14 @@ impl<T: Send + Sync + 'static> Body<T> {
             NodeBody::Branch {
                 prefix,
                 hash,
-                ceiling,
-                floor,
+                bounds,
                 leaves,
                 version_bytes,
                 children,
             } => Body::Branch {
                 prefix,
                 hash,
-                ceiling,
-                floor,
+                bounds,
                 leaves,
                 version_bytes,
                 children,
@@ -321,16 +320,14 @@ impl<T: Send + Sync + 'static> Body<T> {
             Body::Branch {
                 prefix,
                 hash,
-                ceiling,
-                floor,
+                bounds,
                 leaves,
                 version_bytes,
                 children,
             } => NodeBody::Branch {
                 prefix: prefix.clone(),
                 hash: *hash,
-                ceiling: ceiling.clone(),
-                floor: floor.clone(),
+                bounds: bounds.clone(),
                 leaves: *leaves,
                 version_bytes: *version_bytes,
                 children: children.clone(),
@@ -358,8 +355,7 @@ impl<T: Send + Sync + 'static> Body<T> {
             }
             Body::Branch {
                 prefix,
-                ceiling,
-                floor,
+                bounds,
                 leaves,
                 version_bytes,
                 children,
@@ -374,8 +370,7 @@ impl<T: Send + Sync + 'static> Body<T> {
                 Body::Branch {
                     prefix,
                     hash,
-                    ceiling: ceiling.clone(),
-                    floor: floor.clone(),
+                    bounds: bounds.clone(),
                     leaves: *leaves,
                     version_bytes: *version_bytes,
                     children: children.clone(),
@@ -528,9 +523,10 @@ impl<K: Kv, T: Send + Sync + 'static + borsh::BorshDeserialize, H: Height> KvNod
     /// counts it.
     pub(crate) fn resident_bytes(&self) -> usize {
         use crate::tree::backend::Node as _;
+        let span = self.span();
         let heap = self.inner.body.prefix().len()
-            + self.ceiling().as_bytes().len()
-            + self.floor().as_bytes().len()
+            + span.meet().as_bytes().len()
+            + span.join().as_bytes().len()
             + match &self.inner.body {
                 Body::Leaf { .. } => 0,
                 Body::Branch { children, .. } => {
@@ -548,17 +544,16 @@ where
     type Backend = KvBackend<K, T>;
     type Height = H;
 
-    fn ceiling(&self) -> &Version {
+    fn span(&self) -> causally::Span<'_> {
         match &self.inner.body {
-            Body::Leaf { version, .. } => version,
-            Body::Branch { ceiling, .. } => ceiling,
-        }
-    }
-
-    fn floor(&self) -> &Version {
-        match &self.inner.body {
-            Body::Leaf { version, .. } => version,
-            Body::Branch { floor, .. } => floor,
+            // A leaf's bounds coincide at its version: the trusted door is
+            // exactly the in-memory leaf's own answer, a structural
+            // guarantee rather than a loaded pair.
+            Body::Leaf { version, .. } => causally::Span::new_unchecked(version, version),
+            // A branch reborrows the stored span the record decode already
+            // proved ordered — the load-time validation is the fused borsh
+            // parse in the schema layer, so no per-read check is owed here.
+            Body::Branch { bounds, .. } => bounds.reborrow(),
         }
     }
 
@@ -871,8 +866,7 @@ where
                 // with one strong edge per child.
                 _ => {
                     let mut edges = Vec::with_capacity(survivors.len());
-                    let mut ceilings = Vec::with_capacity(survivors.len());
-                    let mut floors = Vec::with_capacity(survivors.len());
+                    let mut spans = Vec::with_capacity(survivors.len());
                     let mut leaves: u64 = 0;
                     let mut version_bytes: usize = 0;
                     // Guards from mid-span reifications, held until the
@@ -883,22 +877,26 @@ where
                         let (id, guard) = child.reified(&self).await?;
                         guards.extend(guard);
                         edges.push((*radix, id, child.hash()));
-                        ceilings.push(child.ceiling().clone());
-                        floors.push(child.floor().clone());
+                        spans.push(child.span());
                         leaves += child.len() as u64;
                         version_bytes = version_bytes.max(child.version_bytes());
                     }
-                    let ceiling = Version::join_all(ceilings);
-                    let floor = Version::meet_all(floors).expect("at least two children");
+                    // The parent's bounds are the hull of the children's
+                    // spans: meet of meets, join of joins, by-ref balanced
+                    // folds over the borrowing spans.
+                    let floor = Version::meet_all(spans.iter().map(causally::Span::meet))
+                        .expect("at least two children");
+                    let ceiling = Version::join_all(spans.iter().map(causally::Span::join));
+                    drop(spans);
                     version_bytes = version_bytes
                         .max(ceiling.as_bytes().len())
                         .max(floor.as_bytes().len());
+                    let bounds = floor.span(&ceiling);
                     let hash = Hash::branch(&[], edges.iter().map(|&(r, _, h)| (r, h)));
                     let body = Body::Branch {
                         prefix: Vec::new(),
                         hash,
-                        ceiling,
-                        floor,
+                        bounds,
                         leaves,
                         version_bytes: version_bytes as u64,
                         children: edges,
@@ -999,8 +997,7 @@ where
             },
             Body::Branch {
                 prefix,
-                ceiling,
-                floor,
+                bounds,
                 leaves,
                 version_bytes,
                 children,
@@ -1014,8 +1011,7 @@ where
                 Body::Branch {
                     prefix,
                     hash,
-                    ceiling: ceiling.clone(),
-                    floor: floor.clone(),
+                    bounds: bounds.clone(),
                     leaves: *leaves,
                     version_bytes: *version_bytes,
                     children: children.clone(),
@@ -1080,11 +1076,12 @@ where
         b: Option<Self::Node<crate::tree::typed::height::Root>>,
         a_version: &Version,
         b_version: &Version,
+        changed: &mut bool,
     ) -> impl Future<
         Output = Result<Option<Self::Node<crate::tree::typed::height::Root>>, Self::Error>,
     > + Send {
         Box::pin(async move {
-            crate::tree::traverse::store::join(&self, a, b, a_version, b_version).await
+            crate::tree::traverse::store::join(&self, a, b, a_version, b_version, changed).await
         })
     }
 

@@ -54,8 +54,7 @@ fn branch_record(children: &[NodeId]) -> NodeRecord {
         body: NodeBody::Branch {
             prefix: Vec::new(),
             hash: Hash::leaf(b"branch"),
-            ceiling: Version::new(),
-            floor: Version::new(),
+            bounds: Version::new().span(&Version::new()),
             leaves: children.len() as u64,
             version_bytes: 1,
             children: children
