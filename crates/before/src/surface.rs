@@ -115,20 +115,6 @@ const fn span_row(op: &'static str) -> SurfaceRow {
     }
 }
 
-/// The deriving span door's row: the hull's endpoints are the two
-/// committed lattice folds, which are bound on all three legs.
-const fn spanning_row() -> SurfaceRow {
-    const REASON: &str = "semantically the composition of the two committed lattice \
-         folds (meet_all/join_all), law-pinned to them (spanning_is_the_lattice_hull); \
-         unit-tested in causally/tests.rs";
-    SurfaceRow {
-        op: "causally::Span::spanning",
-        prod_tree: Leg::Excluded(REASON),
-        prod_fs: Leg::Excluded(REASON),
-        tree_fs: Leg::Excluded(REASON),
-    }
-}
-
 /// The n-ary hand-back exclusion, shared by the `join_all`/`forks`
 /// family of rows; the reason carries the half-binding rationale.
 const HANDBACK: &str = "hand-back value identity and order against the fixed accumulator \
@@ -322,6 +308,24 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
             "n-ary pointwise-min realization not adopted; the operation stays bound \
              on its prod↔tree leg — ratified by owner, 2026-07-26",
         ),
+    },
+    SurfaceRow {
+        op: "Version::span",
+        prod_tree: Leg::Law("span_is_the_pair_hull"),
+        prod_fs: Leg::Excluded(
+            "definitionally the pair meet and join, both bound on all three legs; \
+             the law pins the endpoints byte-identical to them",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
+    },
+    SurfaceRow {
+        op: "Version::span_all",
+        prod_tree: Leg::Law("span_all_is_the_lattice_hull"),
+        prod_fs: Leg::Excluded(
+            "definitionally the two committed lattice folds (meet_all/join_all) over \
+             {self} ∪ others; the law pins the endpoints byte-identical to them",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
     },
     codec_row("Version::encode"),
     codec_row("Version::encode_to"),
@@ -595,7 +599,6 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     span_row("causally::Span::ordered"),
     span_row("causally::Span::place"),
     span_row("causally::Span::dominance_of"),
-    spanning_row(),
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot
