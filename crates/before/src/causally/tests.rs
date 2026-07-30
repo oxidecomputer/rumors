@@ -593,12 +593,14 @@ proptest! {
 // ───────────────────────────── the span wire form ─────────────────────────────
 
 /// Committed witnesses, one per rejection genre the span wire decode
-/// can reach: a strictly crossed pair, a concurrent pair (both
-/// orders), a non-canonical component on each side of the seam,
-/// truncation at every byte boundary (inside the meet, at the seam
-/// with the join missing entirely, inside the join), a trailing byte
-/// after the complete composite, and a set padding bit inside each
-/// component's final byte.
+/// can reach.
+///
+/// A strictly crossed pair, a concurrent pair (both orders), a
+/// non-canonical component on each side of the seam, truncation at
+/// every byte boundary (inside the meet, at the seam with the join
+/// missing entirely, inside the join), a trailing byte after the
+/// complete composite, and a set padding bit inside each component's
+/// final byte.
 #[test]
 fn span_decode_rejects_each_genre() {
     use crate::error::Decode;
@@ -708,15 +710,16 @@ fn span_decode_rejects_each_genre() {
     );
 }
 
-/// FUSED-VALIDATE VERDICT IDENTITY, exhaustively at small scope: over
-/// every ordered pair of normal-form event trees to the committed depth
-/// bound, the fused wire decode of `lo.encode() ++ hi.encode()` agrees
-/// with the composed form — decode each component, then validate with
-/// `Span::new` — accepting exactly the same composites, producing the
-/// same span on every accept, and rejecting every crossed or concurrent
-/// pair as `NotCanonical`. The corpus reaches ordered, reversed,
-/// coincident, and concurrent pairs by brute force, and the liveness
-/// floors prove both verdicts fired at scale.
+/// FUSED-VALIDATE VERDICT IDENTITY, exhaustively at small scope.
+///
+/// Over every ordered pair of normal-form event trees to the committed
+/// depth bound, the fused wire decode of `lo.encode() ++ hi.encode()`
+/// agrees with the composed form — decode each component, then
+/// validate with `Span::new` — accepting exactly the same composites,
+/// producing the same span on every accept, and rejecting every
+/// crossed or concurrent pair as `NotCanonical`. The corpus reaches
+/// ordered, reversed, coincident, and concurrent pairs by brute force,
+/// and the liveness floors prove both verdicts fired at scale.
 #[test]
 fn span_decode_verdict_matches_the_composed_form_exhaustively() {
     use crate::error::Decode;
@@ -760,11 +763,12 @@ fn span_decode_verdict_matches_the_composed_form_exhaustively() {
 }
 
 proptest! {
-    /// FUSED-VALIDATE VERDICT IDENTITY over arbitrary pairs: the fused
-    /// wire decode of `a.encode() ++ b.encode()` agrees with the
-    /// composed form (decode each component, then `Span::new`) on both
-    /// verdicts, and on every accept the two forms produce the same
-    /// span.
+    /// FUSED-VALIDATE VERDICT IDENTITY over arbitrary pairs.
+    ///
+    /// The fused wire decode of `a.encode() ++ b.encode()` agrees with
+    /// the composed form (decode each component, then `Span::new`) on
+    /// both verdicts, and on every accept the two forms produce the
+    /// same span.
     #[test]
     fn span_decode_verdict_matches_the_composed_form(
         oa in arb_oracle_version(),
@@ -793,12 +797,14 @@ proptest! {
     }
 
     /// The span composite is prefix-free: distinct spans' encodings are
-    /// never byte prefixes of one another — pinned directly on the
-    /// composite (it rides the components' committed prefix-freedom,
-    /// but the pin is on the composite itself, never inferred).
-    /// Prefix-freedom is what lets one composite self-delimit inside a
-    /// larger stream: the borsh leg reads exactly one span and leaves
-    /// the next field's bytes unread.
+    /// never byte prefixes of one another.
+    ///
+    /// Pinned directly on the composite (it rides the components'
+    /// committed prefix-freedom, but the pin is on the composite
+    /// itself, never inferred). Prefix-freedom is what lets one
+    /// composite self-delimit inside a larger stream: the borsh leg
+    /// reads exactly one span and leaves the next field's bytes
+    /// unread.
     #[test]
     fn span_encoding_is_prefix_free(
         oa in arb_oracle_version(),

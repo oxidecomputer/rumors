@@ -8564,9 +8564,10 @@ mod span_codec {
 
     /// GREEN PIN: the fused decode scans the second component ONCE —
     /// its reading is exactly the first component's standalone parse
-    /// plus one comparison sweep, and strictly under the composed
-    /// decode + decode + compare shape by exactly the second
-    /// component's parse scan.
+    /// plus one comparison sweep.
+    ///
+    /// The composed decode + decode + compare shape sits strictly
+    /// above it, by exactly the second component's parse scan.
     ///
     /// Both statements are relational, so no measured constant can
     /// rot: the identity pins the fusion to its own pieces (an ordered
