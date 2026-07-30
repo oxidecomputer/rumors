@@ -190,7 +190,7 @@ impl<'a> IdIndex<'a> {
                 None => {
                     // The indexed side owns nothing here: disjoint.
                     // Skip `other`'s subtree to resync its cursor.
-                    skip_present_children(&mut other, b);
+                    other.skip_present_children(b);
                 }
                 Some(p) => {
                     step!();
@@ -288,18 +288,4 @@ fn metered_partition_point(rights: &[u32], target: u32) -> usize {
         }
     }
     lo
-}
-
-/// Skip the present children of an already-read id node, resyncing its
-/// cursor past the whole subtree. A terminal (`Full`) has none; an internal
-/// node has the children its tag declared.
-fn skip_present_children(reader: &mut IdReader, b: IdNode) {
-    if let IdNode::Internal { left, right } = b {
-        if left {
-            reader.skip();
-        }
-        if right {
-            reader.skip();
-        }
-    }
 }

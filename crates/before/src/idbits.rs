@@ -158,6 +158,21 @@ impl<'a> IdReader<'a> {
         }
     }
 
+    /// Advance this cursor past the present children of `node`, its
+    /// already-read node, resyncing it past the whole subtree. A terminal
+    /// (`Full`) has none; an internal node has the children its tag
+    /// declared.
+    pub(crate) fn skip_present_children(&mut self, node: IdNode) {
+        if let IdNode::Internal { left, right } = node {
+            if left {
+                self.skip();
+            }
+            if right {
+                self.skip();
+            }
+        }
+    }
+
     /// The underlying packed bit stream, or the empty slice for a synthetic
     /// reader (which addresses no bits).
     ///

@@ -378,7 +378,7 @@ use super::emit::signed_sum;
 use super::sweep::{
     advance, advance_diff, fold, Crossed, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
-use super::{gamma_code, zigzag_signed};
+use super::{fold_signed, gamma_code, zigzag_signed};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
 /// digits, over the just-folded delta's own width: a fold that leaves
@@ -1497,15 +1497,6 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
         "a subtree minimum never exceeds its leaves"
     );
     Base::from(magnitude)
-}
-
-/// Fold a signed magnitude into an accumulator.
-fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
-    if negative {
-        acc.sub_magnitude(magnitude);
-    } else {
-        acc.add_magnitude(magnitude);
-    }
 }
 
 /// Project the version a skyline stream denotes onto a packed id's owned

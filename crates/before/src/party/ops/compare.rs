@@ -34,7 +34,7 @@ impl IdReader<'_> {
             let b_node = walk.read_b(&mut other);
             if let IdNode::Empty = b_node {
                 // b owns nothing: disjoint. Skip the rest of a's subtree.
-                skip_present_children(&mut self, a_node);
+                self.skip_present_children(a_node);
                 if walk.complete() {
                     return true;
                 }
@@ -93,7 +93,7 @@ impl IdReader<'_> {
             if let IdNode::Empty = b_node {
                 // b owns nothing here: trivially covered. Skip the rest of
                 // a's subtree.
-                skip_present_children(&mut self, a_node);
+                self.skip_present_children(a_node);
                 if walk.complete() {
                     return true;
                 }
@@ -117,20 +117,6 @@ impl IdReader<'_> {
                 // owns in full).
                 _ => return false,
             }
-        }
-    }
-}
-
-/// Skip the present children of an already-read id node, resyncing its cursor
-/// past the whole subtree. A terminal (`Full`) has none; an internal node has
-/// the children its tag declared.
-fn skip_present_children(a: &mut IdReader, node: IdNode) {
-    if let IdNode::Internal { left, right } = node {
-        if left {
-            a.skip();
-        }
-        if right {
-            a.skip();
         }
     }
 }

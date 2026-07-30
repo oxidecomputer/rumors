@@ -71,19 +71,11 @@ use core::cmp::Ordering;
 use suanpan::Accumulator;
 
 use crate::codec::Base;
+use crate::version::skyline::fold_signed;
 
 /// A signed relative quantity: sign and magnitude, the module's
 /// exchange currency with the zigzag coding and the scans.
 pub(super) type Signed = (bool, Base);
-
-/// Fold a signed quantity into an accumulator.
-pub(super) fn fold(acc: &mut Accumulator, neg: bool, mag: &Base) {
-    if neg {
-        acc.sub_magnitude(mag);
-    } else {
-        acc.add_magnitude(mag);
-    }
-}
 
 /// One record of the difference stack.
 enum DiffEntry {
@@ -159,7 +151,7 @@ impl MinStack {
     /// `t` shifts; the differences and followers are height-free.
     pub(super) fn fold_height(&mut self, neg: bool, mag: &Base) {
         if self.armed > 0 {
-            fold(&mut self.t, neg, mag);
+            fold_signed(&mut self.t, neg, mag);
         }
     }
 
@@ -306,7 +298,7 @@ impl MinStack {
         if self.pending > 0 {
             // below = h − v = −off.
             let mut below = self.lease();
-            fold(&mut below, !off.0, &off.1);
+            fold_signed(&mut below, !off.0, &off.1);
             self.arm(below);
             return;
         }
@@ -323,38 +315,38 @@ impl MinStack {
                 // drop dwarfs the offset. Residue = m − v = −t − off.
                 let mut residue = core::mem::take(&mut self.t);
                 residue.negate();
-                fold(&mut residue, off.0, &off.1);
+                fold_signed(&mut residue, off.0, &off.1);
                 for follower in self.followers.iter_mut().flatten() {
                     follower.sub_accum(&residue);
                 }
                 let mut t = self.lease();
-                fold(&mut t, !off.0, &off.1);
+                fold_signed(&mut t, !off.0, &off.1);
                 self.t = t;
                 self.propagate(residue);
                 return;
             }
         }
         // Fold the priced side; restore it unless it funds the residue.
-        fold(&mut self.t, off.0, &off.1);
+        fold_signed(&mut self.t, off.0, &off.1);
         if self.t.sign() != Ordering::Less {
             // v at or above the anchor, hence at or above the minimum.
-            fold(&mut self.t, !off.0, &off.1);
+            fold_signed(&mut self.t, !off.0, &off.1);
             return;
         }
         // v < A: only a drop past the latent too is a true undercut.
         if self.latent.is_some() && !self.decide_undercut_through_latent() {
-            fold(&mut self.t, !off.0, &off.1);
+            fold_signed(&mut self.t, !off.0, &off.1);
             return;
         }
         if self.t.sign() != Ordering::Less {
             // A collapse re-based the anchor to m and v is not below it.
-            fold(&mut self.t, !off.0, &off.1);
+            fold_signed(&mut self.t, !off.0, &off.1);
             return;
         }
         // Undercut: t holds v − A, off stays folded to fund the residue.
         self.undercut();
         let mut t = self.lease();
-        fold(&mut t, !off.0, &off.1);
+        fold_signed(&mut t, !off.0, &off.1);
         self.t = t;
     }
 
@@ -444,7 +436,7 @@ impl MinStack {
                 return sign;
             }
         }
-        fold(&mut self.t, above.0, &above.1);
+        fold_signed(&mut self.t, above.0, &above.1);
         let mut sign = self.t.sign();
         if self.latent.is_some() {
             sign = match sign {
@@ -464,7 +456,7 @@ impl MinStack {
                 }
             };
         }
-        fold(&mut self.t, !above.0, &above.1);
+        fold_signed(&mut self.t, !above.0, &above.1);
         sign
     }
 
@@ -482,9 +474,9 @@ impl MinStack {
     pub(super) fn compare_above_vs(&mut self, above: &Signed, d_arm: &Accumulator) -> Ordering {
         debug_assert!(self.armed > 0, "a raise compares against an armed frame");
         self.t.sub_accum(d_arm);
-        fold(&mut self.t, above.0, &above.1);
+        fold_signed(&mut self.t, above.0, &above.1);
         let sign = self.t.sign();
-        fold(&mut self.t, !above.0, &above.1);
+        fold_signed(&mut self.t, !above.0, &above.1);
         self.t.add_accum(d_arm);
         sign
     }
