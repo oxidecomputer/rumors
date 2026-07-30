@@ -565,8 +565,10 @@ impl Clock {
         // The party is the byte-aligned prefix: parse its id to find its bit
         // length, round up to the byte boundary the version starts on, then
         // decode each part independently. `Party::decode` checks the party's
-        // canonicity, padding, and the anonymous-id rejection (paper §3: a
-        // standalone share is `i ≠ 0`); `Version::decode` checks the version.
+        // canonicity and padding — its grammar has no empty production, so
+        // the party is a nonzero share (paper §3: a standalone share is
+        // `i ≠ 0`) and empty input is exhausted input; `Version::decode`
+        // checks the version.
         let id_bytes = {
             let bits = codec::bytes_as_bits(&buf);
             codec::parse_id(bits, 0)?.div_ceil(8)

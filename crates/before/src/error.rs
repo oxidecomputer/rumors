@@ -61,6 +61,13 @@ pub enum Decode {
     /// The id region is the anonymous identity `0` (it owns no region). A
     /// standalone [`Party`](crate::Party)/[`Clock`](crate::Clock) must own a
     /// nonzero share of the unit interval `[0, 1)`.
+    ///
+    /// No byte input produces this rejection: the wire grammar has no
+    /// spelling of the anonymous id (a `0` is structural absence, recorded
+    /// as a zero presence bit in its parent's tag, and exhausted input —
+    /// the empty input included — is [`Truncated`](Decode::Truncated)).
+    /// The anonymous id's one spelling is textual — the paper-notation
+    /// literal `0` — and rejects as [`Parse::Anonymous`].
     #[error("party is anonymous")]
     Anonymous,
     /// The underlying reader failed.

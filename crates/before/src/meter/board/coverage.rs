@@ -30,10 +30,10 @@
 //! indexed test against self that `party_join_all_overlap` prices,
 //! inline; clock non-canonicality — packed or text — is the component
 //! validators on the same streams the version and party non-canonical
-//! rows drive; [`Decode::Anonymous`](crate::error::Decode) is the
-//! accepting parse of the empty stream (a zero-byte operand, no scaling
-//! axis) and [`Parse::Anonymous`](crate::error::Parse) the one-token
-//! `"0"`; [`Decode::Io`](crate::error::Decode) is the caller's reader —
+//! rows drive; [`Decode::Anonymous`](crate::error::Decode) arises on no
+//! byte input (the wire grammar has no spelling of the anonymous id, so
+//! there is nothing to price) and [`Parse::Anonymous`](crate::error::Parse)
+//! is the one-token `"0"`; [`Decode::Io`](crate::error::Decode) is the caller's reader —
 //! a failing reader is a truncation carrying an error, priced by the
 //! truncated rows — and `encode_to`'s error the caller's writer, at
 //! most the encode row's work before it propagates; the `TryFrom`
