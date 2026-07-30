@@ -320,7 +320,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version::span_all",
-        prod_tree: Leg::Law("span_all_is_the_lattice_hull"),
+        prod_tree: Leg::Law("span_all_is_the_family_hull"),
         prod_fs: Leg::Excluded(
             "definitionally the two committed lattice folds (meet_all/join_all) over \
              {self} ∪ others; the law pins the endpoints byte-identical to them",

@@ -489,9 +489,8 @@ fn ranked_encoding_orders_like_ord(a: &Version, b: &Version) -> bool {
 /// as a pure function of the two causal comparisons, its per-kind
 /// coarsening to `placement_of`/`contains`, the nine-way
 /// [`Span::place`] verdict as a pure transcription of the two
-/// endpoint comparisons, its coarsenings to `dominance_of` and — on
-/// two-bounded ranges — to `bounded`, and the n-ary span's
-/// definitional pin at arity three.
+/// endpoint comparisons, and its coarsenings to `dominance_of` and —
+/// on two-bounded ranges — to `bounded`.
 pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("merge_associative", merge_associative),
     ("meet_associative", meet_associative),
@@ -516,11 +515,6 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
         span_dominance_coarsens_place,
     ),
     ("bounded_coarsens_span_place", bounded_coarsens_span_place),
-    ("span_all_is_the_lattice_hull", span_all_is_the_lattice_hull),
-    (
-        "fold_all_arity_five_matches_the_pair_folds",
-        fold_all_arity_five_matches_the_pair_folds,
-    ),
 ];
 
 /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
@@ -834,71 +828,6 @@ fn bounded_coarsens_span_place(a: &Version, b: &Version, c: &Version) -> bool {
         }
     }
     true
-}
-
-/// The n-ary span at arities three and five: endpoints definitionally
-/// the n-ary meet and join over `{receiver} ∪ items`, every input
-/// within.
-///
-/// The endpoints are [`Version::meet_all`] and
-/// [`Version::join_all`] over the same inputs — the accessors read
-/// exactly them back; which input rides as
-/// the receiver is irrelevant and so is item order (the fold laws'
-/// order-independence, observed through the door); and every input
-/// places within the hull — never
-/// [`Before`](Placement::Before) or [`After`](Placement::After), since
-/// the meet bounds each input from below and the join from above.
-///
-/// Arity five drives the hull fold's balanced counter through every
-/// combine arm — two leaf combines, one merged–merged combine, and the
-/// closing merged–input drain — where arity three reaches only the
-/// first two genres. The merged–merged arm is the one whose legs read
-/// two endpoints from *each* operand, so a fold that reads the wrong
-/// endpoint of a merged group agrees with the oracle at every smaller
-/// arity and diverges only here. The five inputs are `a, b, c, a, b`
-/// — repeats, not lattice derivatives: the counter's two weight-1
-/// groups are then `hull(a, b)` and `hull(c, a)`, each carrying
-/// information the other lacks in *both* lattice directions, so a
-/// misread endpoint loses a fresh operand rather than one absorption
-/// already supplied (items like `b ∧ c` or `b ∨ c` would be absorbed
-/// by `b` and `c` and leave a misread invisible).
-fn span_all_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
-    let hull = a.span_all([b, c]);
-    let meet = Version::meet_all([a, b, c]).expect("a triple is nonempty");
-    let join = Version::join_all([a, b, c]);
-    let definitional = hull == Span::new_unchecked(&meet, &join);
-    let accessors = *hull.meet() == meet && *hull.join() == join;
-    let permuted = hull == c.span_all([a, b]) && hull == b.span_all([c, a]);
-    let contained = [a, b, c]
-        .into_iter()
-        .all(|v| !matches!(hull.place(v), Placement::Before | Placement::After));
-    let wide = a.span_all([b, c, a, b]);
-    let every_arm = wide == Span::new_unchecked(&meet, &join);
-    definitional && accessors && permuted && contained && every_arm
-}
-
-/// The n-ary lattice folds at arity five: `join_all`/`meet_all` over
-/// `[a, b, c, a, b]` equal the sequential pair folds over `{a, b, c}`.
-///
-/// Idempotence collapses the repeats, so the wide feed may move the
-/// fold's grouping but never its value.
-///
-/// Arity five drives the balanced counter under both folds through
-/// every reachable combine arm: two leaf (input–input) combines, the
-/// in-counter merged–merged combine — first reachable at arity four,
-/// beyond every other triple law's reach — and the closing merged–input
-/// drain. The five inputs are `a, b, c, a, b` — repeats, not lattice
-/// derivatives: the counter's two weight-1 groups are then `a ∘ b` and
-/// `c ∘ a`, each carrying a raw input the other lacks, so an arm that
-/// drops or misreads a merged operand loses a fresh input and diverges
-/// (derived items like `b ∧ c` would be absorbed by `b` and `c` and
-/// leave the misread invisible). The right-hand sides are the bound
-/// pair operators, never the n-ary door, so the two sides of the
-/// compare cannot share a broken arm.
-fn fold_all_arity_five_matches_the_pair_folds(a: &Version, b: &Version, c: &Version) -> bool {
-    let join_wide = Version::join_all([a, b, c, a, b]);
-    let meet_wide = Version::meet_all([a, b, c, a, b]).expect("a five-input meet is nonempty");
-    join_wide == (&(a | b) | c) && meet_wide == (&(a & b) & c)
 }
 
 /// `place` against the degenerate span `[v, v]` is pairwise
@@ -1482,15 +1411,10 @@ fn party_eq_implies_hash_eq(a: &Party, b: &Party) -> bool {
 /// Laws over a triple of live parties.
 ///
 /// The covering order's incidental transitivity and the partial monoid's
-/// associativity — outcome-quantified, with `join_all`'s acceptance tied to
-/// pairwise disjointness.
+/// associativity, outcome-quantified.
 pub static PARTY_TRIPLE: &[Law<fn(&Party, &Party, &Party) -> bool>] = &[
     ("covers_transitive_incidental", covers_transitive_incidental),
     ("join_associative_outcomes", join_associative_outcomes),
-    (
-        "join_all_defined_iff_pairwise_disjoint",
-        join_all_defined_iff_pairwise_disjoint,
-    ),
 ];
 
 /// Covering is transitive: whenever three arbitrary parties happen to chain
@@ -1529,17 +1453,6 @@ fn join_associative_outcomes(a: &Party, b: &Party, c: &Party) -> bool {
         (None, None) => true,
         _ => false,
     }
-}
-
-/// `join_all` accepts exactly the pairwise-disjoint families: folding `b`
-/// and `c` into `a` succeeds if and only if all three regions are pairwise
-/// disjoint.
-fn join_all_defined_iff_pairwise_disjoint(a: &Party, b: &Party, c: &Party) -> bool {
-    let mut acc = a.dangerously_alias();
-    let accepted = acc
-        .join_all([b.dangerously_alias(), c.dangerously_alias()])
-        .is_ok();
-    accepted == (a.is_disjoint(b) && a.is_disjoint(c) && b.is_disjoint(c))
 }
 
 // ───────────────────── Party: a receiver and items ─────────────────────
