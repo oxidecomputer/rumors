@@ -137,16 +137,50 @@ fn laws_chunk<'d>(data: &mut &'d [u8]) -> &'d [u8] {
     bytes
 }
 
+/// Carve one list script — `[arity: u8][pool indices]` — off a `fuzz_laws`
+/// seed, exactly as the target's framing does, asserting the seed's bytes
+/// are in-band as written: the arity below the target's fold and every
+/// index below its pool, so no seed byte silently aliases a smaller value
+/// than it was written to represent.
+fn laws_script(name: &str, data: &mut &[u8], pool: usize) -> usize {
+    const ARITY_SPAN: usize = 18; // the target's arity band, per its framing
+    let (&arity, rest) = data
+        .split_first()
+        .unwrap_or_else(|| panic!("{name}: input exhausted before a list script's arity byte"));
+    *data = rest;
+    assert!(
+        usize::from(arity) < ARITY_SPAN,
+        "{name}: script arity {arity} is out of the target's arity band"
+    );
+    for _ in 0..arity {
+        let (&index, rest) = data
+            .split_first()
+            .unwrap_or_else(|| panic!("{name}: input exhausted inside a list script"));
+        *data = rest;
+        assert!(
+            usize::from(index) < pool,
+            "{name}: script index {index} is outside its pool of {pool}"
+        );
+    }
+    usize::from(arity)
+}
+
 /// Every `fuzz_laws` seed decodes positionally per the target's framing —
-/// three versions, two parties, a clock, nothing left over.
+/// three versions, two parties, a clock, then the three variadic list
+/// scripts (version, party, clock pools), nothing left over.
 ///
 /// So no chunk silently falls back to a default and stops representing the
-/// value it was written for. And the wide-gamma seed really is wide: its
-/// first version is a magnitude past `u64::MAX` (a 21+-digit leaf), the
-/// decode tier random bytes essentially never reach.
+/// value it was written for. And the corpus keeps its deliberate tails: the
+/// wide-gamma seed's first version is a magnitude past `u64::MAX` (a
+/// 21+-digit leaf, the decode tier random bytes essentially never reach),
+/// some version script crosses the balanced counter's merged–merged carry
+/// inside the first octave (arity 4..=9), and some crosses the second
+/// octave (arity 15+).
 #[test]
 fn laws_seeds_decode_per_framing_and_stay_wide() {
     let mut saw_wide = false;
+    let mut saw_carry = false;
+    let mut saw_second_octave = false;
     for seed in fuzz_seed_set::seed_set() {
         if seed.target != "fuzz_laws" {
             continue;
@@ -170,15 +204,28 @@ fn laws_seeds_decode_per_framing_and_stay_wide() {
         }
         Clock::decode(laws_chunk(data))
             .unwrap_or_else(|err| panic!("{}: clock chunk fails decode: {err}", seed.name));
+        let version_arity = laws_script(seed.name, data, 4);
+        laws_script(seed.name, data, 3);
+        laws_script(seed.name, data, 3);
         assert!(
             data.is_empty(),
-            "{}: bytes past the framed chunks",
+            "{}: bytes past the framed chunks and scripts",
             seed.name
         );
 
         // A version leaf displays as its bare magnitude; 21+ digits is past
         // u64::MAX (20 digits), i.e. the wide-gamma decode tier.
         saw_wide |= versions[0].to_string().len() >= 21;
+        saw_carry |= (4..=9).contains(&version_arity);
+        saw_second_octave |= version_arity >= 15;
     }
     assert!(saw_wide, "no fuzz_laws seed reaches the wide-gamma tier");
+    assert!(
+        saw_carry,
+        "no fuzz_laws seed crosses the merged–merged carry in the first octave"
+    );
+    assert!(
+        saw_second_octave,
+        "no fuzz_laws seed crosses the second arity octave"
+    );
 }
