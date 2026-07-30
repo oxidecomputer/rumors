@@ -581,3 +581,72 @@ proptest! {
         prop_assert_eq!(sa == sb, a == b, "byte equality is version identity");
     }
 }
+
+/// A [`Span`](crate::causally::Span) composite composes inside a
+/// larger borsh stream, and its rejection genres cross the borsh
+/// boundary intact.
+///
+/// A `(Span, Party, Rank)` concatenation deserializes field by field,
+/// each read consuming exactly its own bytes. A cut anywhere
+/// mid-composite surfaces the reader's own `UnexpectedEof`; a crossed
+/// composite crosses as `InvalidData` carrying
+/// [`Decode::NotCanonical`] (the fused pair validation
+/// `Span::decode` documents).
+#[test]
+fn span_borsh_composes_and_keeps_its_genres() {
+    use crate::causally::Span;
+    let mut clock = Clock::seed();
+    let older = clock.tick().clone();
+    let newer = clock.tick().clone();
+    let span = Span::new(&older, &newer).unwrap();
+    let mut party = Party::seed();
+    let _ = party.fork();
+    let rank = Version::try_from(5).unwrap().rank();
+    let mut stream = Vec::new();
+    borsh::BorshSerialize::serialize(&span, &mut stream).unwrap();
+    borsh::BorshSerialize::serialize(&party, &mut stream).unwrap();
+    borsh::BorshSerialize::serialize(&rank, &mut stream).unwrap();
+    let mut reader: &[u8] = &stream;
+    assert_eq!(Span::deserialize_reader(&mut reader).unwrap(), span);
+    assert_eq!(Party::deserialize_reader(&mut reader).unwrap(), party);
+    assert_eq!(crate::Rank::deserialize_reader(&mut reader).unwrap(), rank);
+    assert!(reader.is_empty(), "every byte belonged to some field");
+
+    let composite = borsh::to_vec(&span).unwrap();
+    assert_eq!(
+        composite,
+        span.encode(),
+        "borsh is the one wire form, unframed"
+    );
+    for cut in 0..composite.len() {
+        let err = Span::try_from_slice(&composite[..cut]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnexpectedEof, "cut at byte {cut}");
+    }
+    let crossed = [newer.encode(), older.encode()].concat();
+    let err = Span::try_from_slice(&crossed).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::NotCanonical)),
+        "expected NotCanonical, got: {inner:?}"
+    );
+}
+
+proptest! {
+    /// [`Span`](crate::causally::Span) composites round-trip through
+    /// borsh: the raw framing carries exactly `Span::encode`'s bytes,
+    /// and the fused wire validation accepts every hull the borrowing
+    /// constructor admits.
+    #[test]
+    fn span_borsh_roundtrips(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        use crate::causally::Span;
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let span = a.span(&b);
+        let bytes = borsh::to_vec(&span).unwrap();
+        prop_assert_eq!(&bytes, &span.encode(), "borsh is the one wire form, unframed");
+        prop_assert_eq!(Span::try_from_slice(&bytes).unwrap(), span);
+    }
+}
