@@ -1394,7 +1394,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ),
     },
     Claim {
-        op: "Ranked / Rank comparisons and From conversions (the total order, all operand mixes)",
+        op: "Ranked comparisons and the Ranked / Rank From conversions (the total order)",
         checks: &[Check {
             site: Site::TypeDoc("src/version/ranked.rs", "Ranked"),
             bound: Bound::MulBoundPair,

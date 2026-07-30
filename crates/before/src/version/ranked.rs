@@ -60,15 +60,16 @@ use crate::error::Decode;
 ///
 /// # Comparing against a bare [`Rank`]
 ///
-/// The heterogeneous comparisons — every mix of `Ranked`, `&Ranked`,
-/// [`Rank`], and `&Rank` — answer the **rank question only**: a `Rank`
-/// carries no version to tiebreak with. One consequence to hold in
-/// mind: two rank-equal `Ranked` views each compare equal to the same
-/// [`Rank`] while comparing unequal to each other, so equality is not
-/// transitive *across* the family (the one deliberate deviation from
-/// [`PartialEq`]'s cross-type recommendation; the strict order `<` does
-/// chain soundly, since the rank leg decides it). Read a cross-type
-/// verdict as "how does the view's rank compare?", never as identity.
+/// `Ranked` compares only with `Ranked`, and [`Rank`] only with `Rank`:
+/// equality means something different on each side — version identity
+/// here, rank equality there — and one rank class holds many versions,
+/// so no `==` between the two types could satisfy [`PartialEq`]'s
+/// transitivity contract (two rank-equal distinct views would each
+/// have to equal their shared rank while comparing unequal to each
+/// other). Ask the rank question explicitly instead: materialize with
+/// [`to_rank`](Self::to_rank) and compare ranks — `a.to_rank() == k`,
+/// `a.to_rank().cmp(&k)` — one rank fold, then [`Rank`]'s own
+/// comparison.
 ///
 /// # Cost shape
 ///
@@ -83,11 +84,9 @@ use crate::error::Decode;
 ///
 /// Construction and [`version`](Self::version) are `O(1)`.
 /// [`to_rank`](Self::to_rank) and the encodes are one rank fold
-/// ([`Version::rank`]'s three-part claim). A `Ranked` vs `Ranked`
-/// comparison is the fused pair co-sweep at the distance/lag bound,
-/// plus — only on rank ties — one byte comparison of the two versions;
-/// a `Ranked` vs [`Rank`] comparison is one rank fold plus a rank
-/// comparison.
+/// ([`Version::rank`]'s three-part claim). A comparison is the fused
+/// pair co-sweep at the distance/lag bound, plus — only on rank ties —
+/// one byte comparison of the two versions.
 ///
 /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded parked drifts.
 ///
@@ -98,7 +97,8 @@ use crate::error::Decode;
 /// // Borrowing views: no fold has run yet.
 /// let (rh, ro) = (Ranked::from(&half), Ranked::from(&one));
 /// assert!(rh < ro); // one fused co-walk, no Rank built
-/// assert!(rh == half.rank() && &one.rank() > &rh); // rank-only mixes
+/// // The rank question is explicit: materialize, then compare ranks.
+/// assert!(rh.to_rank() < one.rank());
 /// // Equal rank, distinct concurrent versions: ordered, never equal.
 /// let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
 /// assert_eq!(half.rank(), peaks.rank());
@@ -433,20 +433,14 @@ fn total_cmp(a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {
         .then_with(|| a.version.as_bytes().cmp(b.version.as_bytes()))
 }
 
-/// A view against a materialized rank: one rank fold, then the rank
-/// comparison (`O(1)` across magnitude classes, linear on ties).
-///
-/// No version tiebreak exists on this side — a `Rank` carries no
-/// version — so the verdict is rank-only.
-fn cmp_rank(a: &Ranked<'_>, b: &Rank) -> Ordering {
-    a.to_rank().cmp(b)
-}
-
-// The homogeneous family is the total order: rank first, version bytes
+// The comparison family is the total order: rank first, version bytes
 // on rank ties, so `Equal` is version identity and `Eq`/`Ord`/`Hash`
 // all speak about one value — the version. Equality itself never runs
 // the walk: byte equality of canonical forms IS version identity, at
-// one memcmp.
+// one memcmp. `Ranked` compares only with `Ranked`: an `==` against a
+// bare `Rank` would have to mean rank class on one side and version
+// identity on the other, which cannot chain transitively — the type
+// docs carry the explicit `to_rank` spelling of the rank question.
 impl PartialEq<Ranked<'_>> for Ranked<'_> {
     fn eq(&self, other: &Ranked<'_>) -> bool {
         self.version() == other.version()
@@ -473,61 +467,4 @@ impl PartialOrd<Ranked<'_>> for Ranked<'_> {
     fn partial_cmp(&self, other: &Ranked<'_>) -> Option<Ordering> {
         Some(total_cmp(self, other))
     }
-}
-
-// The heterogeneous comparison matrix: `Ranked` and `Rank`, both
-// directions, owned and borrowed operand mixes, every cell the rank
-// question alone (a `Rank` carries no version to tiebreak with). Rank
-// equality is an equivalence and rank order a total order, so each
-// cross-type cell is honest in isolation; what the family deliberately
-// gives up is cross-type equality chaining THROUGH a `Rank` — two
-// rank-equal views each equal the same `Rank` yet differ from each
-// other (the type docs carry the hazard). The strict order still
-// chains: `<` verdicts are decided on the rank leg, which is
-// transitive. The macro fans each (lhs, rhs) cell out over the
-// owned×owned and owned×ref spellings (`&L vs &R` comes from std's
-// blanket forwarding over `L: PartialEq<R>`), the `OwnVersion`
-// matrix's idiom.
-macro_rules! rank_cmp_impls {
-    ($($lhs:ty, $rhs:ty, $cmp:expr, ($($lt:lifetime),*));* $(;)?) => {
-        $(
-            impl<$($lt),*> PartialEq<$rhs> for $lhs {
-                fn eq(&self, o: &$rhs) -> bool {
-                    $cmp(self, o) == Ordering::Equal
-                }
-            }
-            impl<$($lt),*> PartialOrd<$rhs> for $lhs {
-                fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    Some($cmp(self, o))
-                }
-            }
-            impl<$($lt),*> PartialEq<$rhs> for &$lhs {
-                fn eq(&self, o: &$rhs) -> bool {
-                    $cmp(*self, o) == Ordering::Equal
-                }
-            }
-            impl<$($lt),*> PartialOrd<$rhs> for &$lhs {
-                fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    Some($cmp(*self, o))
-                }
-            }
-            impl<$($lt),*> PartialEq<&$rhs> for $lhs {
-                fn eq(&self, o: &&$rhs) -> bool {
-                    $cmp(self, *o) == Ordering::Equal
-                }
-            }
-            impl<$($lt),*> PartialOrd<&$rhs> for $lhs {
-                fn partial_cmp(&self, o: &&$rhs) -> Option<Ordering> {
-                    Some($cmp(self, *o))
-                }
-            }
-        )*
-    };
-}
-
-rank_cmp_impls! {
-    Ranked<'a>, Rank, cmp_rank, ('a);
-    Rank, Ranked<'a>,
-        (|r: &Rank, v: &Ranked<'_>| cmp_rank(v, r).reverse()),
-        ('a);
 }
