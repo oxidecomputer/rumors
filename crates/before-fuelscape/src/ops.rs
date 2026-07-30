@@ -53,9 +53,19 @@ pub enum Inputs {
     /// rejected at draw time (whole-sample rejection, so the measure is
     /// exactly uniform on the distinct pairs).
     PackedDistinct(&'static [Operand]),
-    /// A version slice: arity drawn uniformly from [`SLICE_ARITIES`]
-    /// capped by the column size, then the total split uniformly over
-    /// the compositions into one exact size per operand.
+    /// A version slice: arity drawn uniformly from every count the
+    /// column's budget can feed (`1..=size`, one byte per operand), then
+    /// the total split uniformly over the compositions into one exact
+    /// size per operand.
+    ///
+    /// Arity is stratified deliberately, not left to the composition
+    /// count: uniform over whole compositions would concentrate nearly
+    /// all mass at many-tiny-operand slices (the compositions of `N`
+    /// into `k` parts peak at `k ≈ N/2`), starving the thin-and-wide
+    /// and thick-and-narrow shapes a fold's cost actually turns on. The
+    /// stratified draw represents every arity equally per column; the
+    /// committed fold-cure families mark the adversarial arity ramps on
+    /// top of this bulk measure.
     VersionSlice,
 }
 
@@ -65,15 +75,11 @@ impl Inputs {
     pub fn min_bytes(&self) -> usize {
         match self {
             Inputs::Packed(operands) | Inputs::PackedDistinct(operands) => operands.len().max(1),
-            // The smallest slice arity.
-            Inputs::VersionSlice => 2,
+            // One one-byte operand: the smallest slice is unary.
+            Inputs::VersionSlice => 1,
         }
     }
 }
-
-/// The arity set a slice row draws from (uniformly, capped by the
-/// column's total size: arity `k` needs `k` one-byte operands).
-pub const SLICE_ARITIES: &[usize] = &[2, 4, 8, 16];
 
 /// The share count of the `party_forks` row: the size axis is the
 /// party's packed bytes, the arity a declared constant.
@@ -115,7 +121,7 @@ const M_UNARY: &str = "exact packed bytes, uniform per size";
 const M_BINARY: &str = "total packed bytes; split uniform across the two operands";
 /// The size measure of a slice row.
 const M_SLICE: &str =
-    "total packed bytes; arity uniform over {2, 4, 8, 16} capped by size, split uniform";
+    "total packed bytes; arity uniform over 1..=size, split uniform over the compositions";
 /// The size measure of a composed-clock unary row.
 const M_CLOCK: &str = "total packed bytes of the clock's party and version parts, split uniform";
 /// The size measure of the fork-split disjoint-clock rows.
@@ -432,8 +438,8 @@ pub const ROSTER: &[OpSpec] = &[
         name: "version_span_all",
         inputs: Inputs::VersionSlice,
         covers: &["Version::span_all"],
-        size_measure: "total packed bytes; arity uniform over {2, 4, 8, 16} capped by \
-             size, split uniform (the first drawn operand rides as the hull fold's \
+        size_measure: "total packed bytes; arity uniform over 1..=size, split uniform \
+             over the compositions (the first drawn operand rides as the hull fold's \
              receiver, feed order preserved)",
         measure: |g, inputs| {
             let n = load_slice(g, inputs);
