@@ -49,7 +49,7 @@ mod tests;
 pub(crate) const SOURCES: &[SourceSpec] = &[SourceSpec {
     path: "src/lib.rs",
     module_prefix: None,
-    type_override: None,
+    type_overrides: &[],
 }];
 
 /// The committed backing of one claim: named test evidence, or the

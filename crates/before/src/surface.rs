@@ -101,6 +101,20 @@ const fn causally_row(op: &'static str) -> SurfaceRow {
     }
 }
 
+/// Shorthand for a `causally` interval row: the same disposition as
+/// [`causally_row`], with the interval placement law as the pin.
+const fn interval_row(op: &'static str) -> SurfaceRow {
+    const REASON: &str = "semantically a combinator over the bound causal order \
+         (partial_cmp), law-pinned to it (interval_place_matches_relations); \
+         unit-tested in causally/tests.rs";
+    SurfaceRow {
+        op,
+        prod_tree: Leg::Excluded(REASON),
+        prod_fs: Leg::Excluded(REASON),
+        tree_fs: Leg::Excluded(REASON),
+    }
+}
+
 /// The n-ary hand-back exclusion, shared by the `join_all`/`forks`
 /// family of rows; the reason carries the half-binding rationale.
 const HANDBACK: &str = "hand-back value identity and order against the fixed accumulator \
@@ -529,6 +543,10 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     causally_row("causally::Range::contains"),
     causally_row("causally::Range::placement_of"),
     causally_row("causally::Range::bounded"),
+    interval_row("causally::Interval::new"),
+    interval_row("causally::Interval::ordered"),
+    interval_row("causally::Interval::place"),
+    interval_row("causally::Interval::dominance_of"),
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot

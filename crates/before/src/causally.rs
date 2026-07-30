@@ -49,6 +49,34 @@
 //! that version to the coarsening. [`Bounded`]'s variant docs carry the
 //! exact case analysis, including the coincident-bounds corner.
 //!
+//! # Interval placement
+//!
+//! Two concrete versions `lo <= hi` form an [`Interval`] — a genuinely
+//! different object from a [`Range`]: where a range's bounds are
+//! down-set cut-points with inclusivity kinds, an interval is the
+//! ordered pair itself and the chain segment between its versions, and
+//! its verdicts are raw order facts with no inclusivity to fold.
+//! [`Interval::place`] answers the placement question at the finest
+//! resolution the partial order admits — the nine [`Placement`] regions
+//! — and [`Interval::dominance_of`] coarsens it to the three-way
+//! [`Dominance`] verdict a filter over version-bounded regions consumes.
+//!
+//! The module's placement questions have exactly two semantic roots:
+//! pairwise comparison ([`partial_cmp`](PartialOrd::partial_cmp) on
+//! [`Version`]s) and interval placement. Every other verdict is a
+//! lawful coarsening of one of the two, each pinned as a named law in
+//! [`laws`](crate::laws): [`bounded`](Range::bounded) on a two-bounded
+//! range coarsens `place` (`bounded_coarsens_interval_place`), and on a
+//! single-bounded range transcribes the one pairwise comparison
+//! (`bounded_matches_bound_relations`);
+//! [`placement_of`](Range::placement_of) and
+//! [`contains`](Range::contains) coarsen `bounded` by bound kind
+//! (`bounded_coarsens_to_placement`); [`dominance_of`](Interval::dominance_of)
+//! coarsens `place` to the dominance question
+//! (`interval_dominance_coarsens_place`); and `place` against the
+//! degenerate interval `[v, v]` is pairwise comparison itself
+//! (`degenerate_interval_place_is_partial_cmp`).
+//!
 //! # Complexity
 //!
 //! Every constructor in this module is `O(1)` time and space: a [`Range`]
@@ -440,6 +468,16 @@ impl<'a> Range<'a> {
 /// bound* is [`Between`](Self::Between) — start bounds subtract only
 /// their causal past, so versions concurrent to a start are kept, the
 /// module's deliberate keep-concurrent-versions behavior.
+///
+/// **Vocabulary kinship, divergent semantics**: interval placement's
+/// [`Placement`] reuses `Before`, `Between`, and `After` — the same
+/// question against a different object. There the words are raw
+/// strict-order facts against two concrete versions (a version
+/// concurrent to the interval's start is `Concurrent(Start)`, never
+/// `Between`); here the region variants fold the range semantics above.
+/// On a two-bounded range this verdict is exactly a coarsening of the
+/// nine-state placement, pinned by the `bounded_coarsens_interval_place`
+/// law in [`laws`](crate::laws).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bounded {
     /// Strictly inside the start bound's causal past: `v < start`.
@@ -479,6 +517,240 @@ pub enum Bounded {
     /// *start* bound but within the end is [`Between`](Self::Between),
     /// not `Concurrent`.
     Concurrent,
+}
+
+/// A causal interval: an ordered pair of versions `lo <= hi` and the
+/// chain segment between them.
+///
+/// A genuinely different object from [`Range`]: a range's bounds are
+/// down-set cut-points with inclusivity kinds, so its verdicts fold
+/// range semantics; an interval is two *concrete versions*, and every
+/// verdict about it is a raw order fact against the endpoints, with no
+/// inclusivity to fold. [`place`](Self::place) answers the placement
+/// question at full resolution — the nine [`Placement`] regions — and
+/// [`dominance_of`](Self::dominance_of) coarsens it to the three-way
+/// [`Dominance`] verdict.
+///
+/// Construction has two doors: [`new`](Self::new) validates the pair,
+/// rejecting a reversed or incomparable one with [`Crossed`];
+/// [`ordered`](Self::ordered) trusts a caller who already holds
+/// `lo <= hi` structurally and skips the validating comparison.
+///
+/// ```
+/// use before::{Clock, causally::{Dominance, Endpoint, Interval, Placement}};
+///
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let a3 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's whole line
+///
+/// let interval = Interval::new(&a1, &a3).unwrap();
+/// assert_eq!(interval.place(&a2), Placement::Between);
+/// assert_eq!(interval.place(&b1), Placement::Concurrent(Endpoint::Both));
+/// // A reversed or incomparable pair is not an interval.
+/// assert!(Interval::new(&a3, &a1).is_err());
+/// assert!(Interval::new(&a1, &b1).is_err());
+/// // The dominance coarsening: a3 dominates the whole interval, a2
+/// // only its start, and b1 not even that.
+/// assert_eq!(interval.dominance_of(&a3), Dominance::Whole);
+/// assert_eq!(interval.dominance_of(&a2), Dominance::StartOnly);
+/// assert_eq!(interval.dominance_of(&b1), Dominance::Neither);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Interval<'a> {
+    lo: &'a Version,
+    hi: &'a Version,
+}
+
+impl<'a> Interval<'a> {
+    /// The validating door: the interval `[lo, hi]`, checking that the
+    /// pair is ordered.
+    ///
+    /// # Errors
+    ///
+    /// [`Crossed`] unless `lo <= hi` — a reversed pair is rejected, and
+    /// so is an incomparable one, where neither version bounds the
+    /// other and no chain segment exists between them.
+    pub fn new(lo: &'a Version, hi: &'a Version) -> Result<Self, Crossed> {
+        match lo.partial_cmp(hi) {
+            Some(Ordering::Less | Ordering::Equal) => Ok(Self { lo, hi }),
+            Some(Ordering::Greater) | None => Err(Crossed),
+        }
+    }
+
+    /// The trusted door: the interval `[lo, hi]` from a caller who
+    /// already holds `lo <= hi`, skipping [`new`](Self::new)'s
+    /// validating comparison.
+    ///
+    /// For callers whose pairs are ordered *structurally* — a floor and
+    /// ceiling maintained as meet and join of one underlying set, say —
+    /// where re-validating per construction would pay a causal
+    /// comparison for a fact already invariant. Everyone else should
+    /// use [`new`](Self::new).
+    ///
+    /// The caller **must** guarantee `lo <= hi`. On a pair that
+    /// violates it, every verdict of [`place`](Self::place) and
+    /// [`dominance_of`](Self::dominance_of) is unspecified and
+    /// meaningless.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds assert `lo <= hi` and panic when it fails; release
+    /// builds construct the interval unchecked.
+    pub fn ordered(lo: &'a Version, hi: &'a Version) -> Self {
+        debug_assert!(
+            lo <= hi,
+            "Interval::ordered requires lo <= hi: the caller's structural guarantee failed"
+        );
+        Self { lo, hi }
+    }
+
+    /// Places `probe` against this interval at full resolution: the
+    /// nine-way [`Placement`] verdict, the finest partition of the
+    /// question the partial order admits.
+    ///
+    /// The name deliberately echoes
+    /// [`placement_of`](Range::placement_of) — the same question,
+    /// asked of a different object. The verdict is a pure transcription
+    /// of the two causal comparisons against the endpoints; the
+    /// `interval_place_matches_relations` law in [`laws`](crate::laws)
+    /// pins it on every law consumer, and
+    /// `degenerate_interval_place_is_partial_cmp` pins the coincident
+    /// interval `[v, v]` to pairwise comparison itself.
+    pub fn place(&self, probe: &Version) -> Placement {
+        match probe.partial_cmp(self.lo) {
+            Some(Ordering::Less) => Placement::Before,
+            Some(Ordering::Equal) => match probe.partial_cmp(self.hi) {
+                Some(Ordering::Equal) => Placement::At(Endpoint::Both),
+                _ => Placement::At(Endpoint::Start),
+            },
+            Some(Ordering::Greater) => match probe.partial_cmp(self.hi) {
+                Some(Ordering::Less) => Placement::Between,
+                Some(Ordering::Equal) => Placement::At(Endpoint::End),
+                Some(Ordering::Greater) => Placement::After,
+                None => Placement::Concurrent(Endpoint::End),
+            },
+            None => match probe.partial_cmp(self.hi) {
+                None => Placement::Concurrent(Endpoint::Both),
+                _ => Placement::Concurrent(Endpoint::Start),
+            },
+        }
+    }
+
+    /// How much of this interval `probe` dominates: the three-way
+    /// [`Dominance`] verdict, [`place`](Self::place) coarsened to the
+    /// dominance question.
+    ///
+    /// The coarsening table, pinned by the
+    /// `interval_dominance_coarsens_place` law in
+    /// [`laws`](crate::laws):
+    ///
+    /// - [`Whole`](Dominance::Whole) ⟸ `At(End)`, `At(Both)`, `After`.
+    /// - [`StartOnly`](Dominance::StartOnly) ⟸ `At(Start)`, `Between`,
+    ///   `Concurrent(End)`.
+    /// - [`Neither`](Dominance::Neither) ⟸ `Before`,
+    ///   `Concurrent(Start)`, `Concurrent(Both)`.
+    pub fn dominance_of(&self, probe: &Version) -> Dominance {
+        match self.place(probe) {
+            Placement::At(Endpoint::End | Endpoint::Both) | Placement::After => Dominance::Whole,
+            Placement::At(Endpoint::Start)
+            | Placement::Between
+            | Placement::Concurrent(Endpoint::End) => Dominance::StartOnly,
+            Placement::Before | Placement::Concurrent(Endpoint::Start | Endpoint::Both) => {
+                Dominance::Neither
+            }
+        }
+    }
+}
+
+/// An [`Interval`] endpoint, as a verdict payload: *which* endpoint an
+/// at- or beside-the-interval verdict speaks about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Endpoint {
+    /// The interval's lower endpoint, `lo`.
+    Start,
+    /// The interval's upper endpoint, `hi`.
+    End,
+    /// Both endpoints at once. What that means is the carrying
+    /// verdict's: see [`Placement::At`] and [`Placement::Concurrent`].
+    Both,
+}
+
+/// Where a version sits relative to an [`Interval`]: the placement
+/// family's finest verdict.
+///
+/// In a partial order, a point sits in exactly one of nine regions
+/// relative to an interval — below, within, above, at either or both
+/// endpoints, or beside it in one of three ways distinguished by which
+/// endpoint still bounds it. The enum's shape is the proof of that
+/// count: three bare variants for the regions on the chain through the
+/// interval, and two endpoint-qualified variants times three
+/// [`Endpoint`] payloads for the rest — `3 + 2×3 = 9` — while the
+/// combinations `lo <= hi` forbids (equal to `lo` yet above `hi`,
+/// concurrent to `lo` yet at or above `hi`) have no spelling at all.
+/// Each variant's doc states the raw relations it reports and the
+/// relations its payload forces.
+///
+/// **Vocabulary kinship, divergent semantics**: `Before`, `Between`,
+/// and `After` deliberately echo [`Bounded`]'s words — the same
+/// question, asked of a different object. `Bounded`'s region verdicts
+/// fold range semantics (a version concurrent to the start bound is
+/// `Bounded::Between`, because start bounds keep concurrent versions);
+/// `Placement`'s variants are raw strict-order facts against two
+/// concrete versions (a version concurrent to `lo` is
+/// `Concurrent(Start)`, never `Between`). On a two-bounded range,
+/// [`bounded`](Range::bounded) is exactly a coarsening of this verdict,
+/// pinned by the `bounded_coarsens_interval_place` law in
+/// [`laws`](crate::laws).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Placement {
+    /// Strictly below the whole interval: `p < lo`, hence `p < hi`.
+    Before,
+    /// Exactly at an endpoint:
+    ///
+    /// - `At(Start)`: `p == lo < hi`.
+    /// - `At(End)`: `lo < p == hi`.
+    /// - `At(Both)`: `p == lo == hi`. Equality to one endpoint of a
+    ///   coincident interval is equality to both, so on `lo == hi`
+    ///   every at-endpoint verdict is `At(Both)` — the coincident
+    ///   interval is the common single-version case, not a corner.
+    At(Endpoint),
+    /// Strictly inside: `lo < p < hi`.
+    Between,
+    /// Beside the interval: incomparable to the endpoint(s) the payload
+    /// names, with the opposite relation forced by `lo <= hi`:
+    ///
+    /// - `Concurrent(Start)`: `p ∥ lo`, forcing `p < hi` (at or above
+    ///   `hi` would put `p` above `lo`).
+    /// - `Concurrent(End)`: `p ∥ hi`, forcing `p > lo` (at or below
+    ///   `lo` would put `p` below `hi`).
+    /// - `Concurrent(Both)`: `p ∥ lo` and `p ∥ hi`.
+    Concurrent(Endpoint),
+    /// Strictly above the whole interval: `p > hi`, hence `p > lo`.
+    After,
+}
+
+/// How much of an [`Interval`] a probe dominates:
+/// [`Placement`] coarsened to the dominance question, "is the probe
+/// causally at or after the interval's content?"
+///
+/// The three verdicts a filter over version-bounded regions consumes: a
+/// probe dominating the whole interval has seen everything the interval
+/// spans; one dominating only the start has seen some of it; one
+/// dominating not even the start has seen none of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Dominance {
+    /// The probe dominates the whole interval: `hi <= p`, and with it
+    /// every version the interval spans.
+    Whole,
+    /// The probe dominates the start but not the whole: `lo <= p`,
+    /// while `hi` is above or beside the probe.
+    StartOnly,
+    /// The probe does not dominate even the start: `lo` is above or
+    /// beside the probe — and with it `hi`.
+    Neither,
 }
 
 impl RangeBounds<Version> for Range<'_> {

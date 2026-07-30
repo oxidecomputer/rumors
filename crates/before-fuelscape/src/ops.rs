@@ -1017,6 +1017,26 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "the fused placement walk, law-pinned to the causal comparisons against \
          the bounds; the version_cmp panel prices the same per-stream sweep",
     ),
+    (
+        "causally::Interval::new",
+        "interval constructor whose validity check is one causal comparison; \
+         the version_cmp panel prices the walk",
+    ),
+    (
+        "causally::Interval::ordered",
+        "O(1) interval constructor over two borrowed versions (the trusted \
+         door performs no comparison)",
+    ),
+    (
+        "causally::Interval::place",
+        "interval placement, law-pinned to the causal comparisons against the \
+         endpoints; the version_cmp panel prices the same per-stream sweep",
+    ),
+    (
+        "causally::Interval::dominance_of",
+        "interval placement, law-pinned to the causal comparisons against the \
+         endpoints; the version_cmp panel prices the same per-stream sweep",
+    ),
     // ── not operations ──
     (
         "unbounded depth (beyond the differential grids)",

@@ -341,6 +341,128 @@ fn coincident_bounds_canonicalize_to_at_start() {
     assert!(keeping.contains(&low));
 }
 
+/// The interval witness fixture: an alice chain `a[0] < ... < a[4]`
+/// and `b1` concurrent to every version of it.
+fn interval_fixtures() -> ([Version; 5], Version) {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let chain = [(); 5].map(|()| alice.tick().clone());
+    let b1 = bob.tick().clone();
+    for v in &chain {
+        assert!(v.concurrent(&b1), "the lines diverge");
+    }
+    (chain, b1)
+}
+
+/// Every one of the nine [`Placement`] verdicts on a constructed
+/// witness — the five chain regions on `[a2, a4]`, the coincident
+/// `At(Both)` on `[a2, a2]`, and all three `Concurrent` payloads on
+/// intervals whose endpoints straddle the divergent line.
+#[test]
+fn interval_place_places_every_witness() {
+    let ([a1, a2, a3, a4, a5], b1) = interval_fixtures();
+    let genesis = Version::new();
+
+    // The chain verdicts, on a proper interval.
+    let interval = Interval::new(&a2, &a4).unwrap();
+    assert_eq!(interval.place(&genesis), Placement::Before);
+    assert_eq!(interval.place(&a1), Placement::Before);
+    assert_eq!(interval.place(&a2), Placement::At(Endpoint::Start));
+    assert_eq!(interval.place(&a3), Placement::Between);
+    assert_eq!(interval.place(&a4), Placement::At(Endpoint::End));
+    assert_eq!(interval.place(&a5), Placement::After);
+    // Concurrent to both endpoints of the same interval.
+    assert_eq!(interval.place(&b1), Placement::Concurrent(Endpoint::Both));
+
+    // Equality to one endpoint of a coincident interval is equality to
+    // both: always `At(Both)`, never `At(Start)` or `At(End)`.
+    let coincident = Interval::new(&a2, &a2).unwrap();
+    assert_eq!(coincident.place(&a2), Placement::At(Endpoint::Both));
+
+    // Concurrent to the start only: `hi = a2 | b1` dominates both
+    // lines, so `b1 ∥ a2` while `b1 < hi`.
+    let top = &a2 | &b1;
+    let straddling = Interval::new(&a2, &top).unwrap();
+    assert_eq!(
+        straddling.place(&b1),
+        Placement::Concurrent(Endpoint::Start)
+    );
+
+    // Concurrent to the end only: `a2 > a1` while `a2 ∥ a1 | b1`.
+    let side_top = &a1 | &b1;
+    let sideways = Interval::new(&a1, &side_top).unwrap();
+    assert_eq!(sideways.place(&a2), Placement::Concurrent(Endpoint::End));
+}
+
+/// Every [`Dominance`] verdict on the nine placement witnesses: the
+/// coarsening's three fibers, each exercised through all its members.
+#[test]
+fn interval_dominance_coarsens_every_witness() {
+    let ([a1, a2, a3, a4, a5], b1) = interval_fixtures();
+
+    let interval = Interval::new(&a2, &a4).unwrap();
+    // Whole: At(End), After, and the coincident At(Both).
+    assert_eq!(interval.dominance_of(&a4), Dominance::Whole);
+    assert_eq!(interval.dominance_of(&a5), Dominance::Whole);
+    let coincident = Interval::new(&a2, &a2).unwrap();
+    assert_eq!(coincident.dominance_of(&a2), Dominance::Whole);
+    // StartOnly: At(Start), Between, Concurrent(End).
+    assert_eq!(interval.dominance_of(&a2), Dominance::StartOnly);
+    assert_eq!(interval.dominance_of(&a3), Dominance::StartOnly);
+    let side_top = &a1 | &b1;
+    let sideways = Interval::new(&a1, &side_top).unwrap();
+    assert_eq!(sideways.dominance_of(&a2), Dominance::StartOnly);
+    // Neither: Before, Concurrent(Start), Concurrent(Both).
+    assert_eq!(interval.dominance_of(&a1), Dominance::Neither);
+    let top = &a2 | &b1;
+    let straddling = Interval::new(&a2, &top).unwrap();
+    assert_eq!(straddling.dominance_of(&b1), Dominance::Neither);
+    assert_eq!(interval.dominance_of(&b1), Dominance::Neither);
+}
+
+/// The validating door admits exactly the ordered pairs: `lo <= hi`
+/// composes (coincident included), while reversed and incomparable
+/// pairs are rejected with `Crossed`.
+#[test]
+fn interval_new_rejects_unordered_pairs() {
+    let ([_, a2, _, a4, _], b1) = interval_fixtures();
+    assert!(Interval::new(&a2, &a4).is_ok());
+    assert!(Interval::new(&a2, &a2).is_ok(), "coincident is ordered");
+    assert_eq!(Interval::new(&a4, &a2), Err(Crossed), "reversed crosses");
+    assert_eq!(
+        Interval::new(&a2, &b1),
+        Err(Crossed),
+        "an incomparable pair bounds nothing"
+    );
+    assert_eq!(Interval::new(&b1, &a2), Err(Crossed));
+}
+
+/// The trusted door constructs the identical interval the validating
+/// door does on an ordered pair — it skips only the check.
+#[test]
+fn interval_ordered_is_the_validated_interval() {
+    let ([_, a2, _, a4, _], _) = interval_fixtures();
+    assert_eq!(
+        Interval::ordered(&a2, &a4),
+        Interval::new(&a2, &a4).unwrap()
+    );
+    assert_eq!(
+        Interval::ordered(&a2, &a2),
+        Interval::new(&a2, &a2).unwrap()
+    );
+}
+
+/// The trusted door's debug assertion catches a violated guarantee: an
+/// unordered pair panics in debug builds rather than constructing an
+/// interval whose verdicts would be meaningless.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "Interval::ordered requires lo <= hi")]
+fn interval_ordered_asserts_the_guarantee_in_debug() {
+    let ([_, a2, _, a4, _], _) = interval_fixtures();
+    let _ = Interval::ordered(&a4, &a2);
+}
+
 /// `a <= b` under the impl causal order (`None` means concurrent, so not
 /// ordered).
 fn le(a: &Version, b: &Version) -> bool {
@@ -413,6 +535,28 @@ proptest! {
                     "contains is exactly the Equal arm"
                 );
             }
+        }
+    }
+
+    /// The interval gate's family claim, differentially against
+    /// `partial_cmp`: `Interval::new` admits exactly the pairs the
+    /// causal order deems ordered, and on every admitted pair the
+    /// trusted door builds the identical interval.
+    #[test]
+    fn interval_gate_admits_exactly_the_ordered(
+        lo in arb_oracle_version(),
+        hi in arb_oracle_version(),
+    ) {
+        let lo = from_oracle_version(&lo);
+        let hi = from_oracle_version(&hi);
+        let admitted = Interval::new(&lo, &hi);
+        prop_assert_eq!(
+            admitted.is_ok(),
+            le(&lo, &hi),
+            "the gate admits exactly the ordered pairs"
+        );
+        if let Ok(interval) = admitted {
+            prop_assert_eq!(interval, Interval::ordered(&lo, &hi));
         }
     }
 }
