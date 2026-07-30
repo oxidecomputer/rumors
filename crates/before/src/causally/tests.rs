@@ -1076,11 +1076,12 @@ proptest! {
 
 // ─────────────────── the coincident span's storage dedup ───────────────────
 
-/// A wire-loaded coincident span stores one buffer twice: the admission
-/// walk detects `hi == lo` in the pass that proves dominance, so the
-/// decoded endpoints share storage (clone identity holds) exactly as a
-/// computed coincident hull's do — and the span still re-encodes
-/// byte-identically and equals the computed form.
+/// A wire-loaded coincident span stores one buffer twice.
+///
+/// The admission walk detects `hi == lo` in the pass that proves
+/// dominance, so the decoded endpoints share storage (clone identity
+/// holds) exactly as a computed coincident hull's do — and the span
+/// still re-encodes byte-identically and equals the computed form.
 #[test]
 fn decoded_coincident_span_shares_one_buffer() {
     let mut clock = Clock::seed();
@@ -1105,10 +1106,12 @@ fn decoded_coincident_span_shares_one_buffer() {
     );
 }
 
-/// A strictly-dominating wire span keeps two distinct endpoint streams —
-/// the dedup fires only on coincidence — and both endpoints adopt slices
-/// of the one read buffer (no per-endpoint copy), observable as the
-/// decode reproducing both components byte-for-byte.
+/// A strictly-dominating wire span keeps two distinct endpoint streams:
+/// the dedup fires only on coincidence.
+///
+/// Both endpoints adopt slices of the one read buffer (no per-endpoint
+/// copy), observable as the decode reproducing both components
+/// byte-for-byte.
 #[test]
 fn decoded_strict_span_keeps_distinct_endpoints() {
     let mut clock = Clock::seed();
@@ -1126,11 +1129,13 @@ fn decoded_strict_span_keeps_distinct_endpoints() {
 
 proptest! {
     /// The coincident span's fast rungs agree with the fused walk across
-    /// buffer identity: `place` and `dominance_of` against `[v, v]`
-    /// return identical verdicts whether the endpoints share one buffer
-    /// (the clone-identity rung: hull doors, wire decode) or sit in
-    /// distinct byte-equal buffers (the fused three-stream walk), and
-    /// both transcribe `probe.partial_cmp(v)` exactly — the
+    /// buffer identity.
+    ///
+    /// `place` and `dominance_of` against `[v, v]` return identical
+    /// verdicts whether the endpoints share one buffer (the
+    /// clone-identity rung: hull doors, wire decode) or sit in distinct
+    /// byte-equal buffers (the fused three-stream walk), and both
+    /// transcribe `probe.partial_cmp(v)` exactly — the
     /// `degenerate_span_place_is_partial_cmp` law's table.
     #[test]
     fn coincident_span_rungs_agree_across_buffer_identity(

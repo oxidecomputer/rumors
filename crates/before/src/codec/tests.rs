@@ -106,10 +106,12 @@ fn gamma_truncated() {
 
 // ───────────────────────── frozen storage (Bits) ─────────────────────────
 
-/// `Bits::freeze` canonicalizes storage: a build buffer whose `truncate`
-/// left stale bits in the final partial byte freezes to a raw slice with
-/// the dead bits zero, covering exactly the live bits' bytes, with the
-/// live length and bit content preserved.
+/// `Bits::freeze` canonicalizes storage.
+///
+/// A build buffer whose `truncate` left stale bits in the final partial
+/// byte freezes to a raw slice with the dead bits zero, covering
+/// exactly the live bits' bytes, with the live length and bit content
+/// preserved.
 #[test]
 fn freeze_canonicalizes_storage() {
     // Write a byte of ones, then truncate to 3 live bits: the shed ones
@@ -123,11 +125,12 @@ fn freeze_canonicalizes_storage() {
     assert_eq!(&*frozen, &buf[..]);
 }
 
-/// `Bits::ptr_eq` recognizes clones and only clones: a clone shares the
-/// frozen buffer (`ptr_eq` true), while two independent freezes of the
-/// same content are equal (`canonical_eq`) but not pointer-identical —
-/// so `ptr_eq` is a fast path *into* byte equality, never a substitute
-/// for it.
+/// `Bits::ptr_eq` recognizes clones and only clones.
+///
+/// A clone shares the frozen buffer (`ptr_eq` true), while two
+/// independent freezes of the same content are equal (`canonical_eq`)
+/// but not pointer-identical — so `ptr_eq` is a fast path *into* byte
+/// equality, never a substitute for it.
 #[test]
 fn ptr_eq_recognizes_clones_and_only_clones() {
     let build = || super::Bits::freeze(bitvec![u8, Msb0; 1, 0, 1, 1, 0]);
@@ -140,10 +143,11 @@ fn ptr_eq_recognizes_clones_and_only_clones() {
     assert!(super::canonical_eq(&a, &b));
 }
 
-/// The two freeze doors agree: adopting already-canonical bytes
-/// (`from_canonical`, the decode side) yields a stream equal to the
-/// build-side freeze of the same bits, and the empty constructor is the
-/// freeze of the empty buffer.
+/// The two freeze doors agree.
+///
+/// Adopting already-canonical bytes (`from_canonical`, the decode side)
+/// yields a stream equal to the build-side freeze of the same bits, and
+/// the empty constructor is the freeze of the empty buffer.
 #[test]
 fn from_canonical_matches_freeze() {
     let frozen = super::Bits::freeze(bitvec![u8, Msb0; 1, 0, 1]);

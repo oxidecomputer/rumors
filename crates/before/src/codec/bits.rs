@@ -1,3 +1,10 @@
+// The storage forms' docs name crate-private machinery by intra-doc
+// link (`ptr_eq`, `canonical_eq`) so a rename cannot rot the prose (the
+// internal doc build resolves every link); on the public build those
+// links render as plain code spans — the items are private — which this
+// allow accepts.
+#![allow(rustdoc::private_intra_doc_links)]
+
 use bitvec::domain::Domain;
 use bitvec::prelude::*;
 use bytes::Bytes;
@@ -7,13 +14,11 @@ use crate::error::Decode;
 /// The mutable build-side form of a packed bit stream: a
 /// most-significant-bit-first bit vector over bytes.
 ///
-/// Every emitter and builder writes into one of these ([`PackedBuilder`]
-/// wraps one with the metered move set); a finished stream freezes into
-/// the at-rest [`Bits`] at the storage seam. The `Bytes`/`BytesMut`
-/// naming echo is deliberate: `BitsMut` is where mutation happens,
-/// [`Bits`] is the shared, immutable result.
-///
-/// [`PackedBuilder`]: super::PackedBuilder
+/// Every emitter and builder writes into one of these (the crate's
+/// packed-stream builder wraps one with the metered move set); a
+/// finished stream freezes into the at-rest [`Bits`] at the storage
+/// seam. The `Bytes`/`BytesMut` naming echo is deliberate: `BitsMut` is
+/// where mutation happens, [`Bits`] is the shared, immutable result.
 pub type BitsMut = BitVec<u8, Msb0>;
 
 /// A borrowed view of a packed bit stream, mutable or frozen.

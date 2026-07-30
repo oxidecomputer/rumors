@@ -146,9 +146,9 @@ use crate::error::Decode;
 #[cfg(any(test, feature = "meter"))]
 use crate::Version;
 
-// The storage aliases, re-exported so the resource-envelope suite can
+// The storage forms, re-exported so the resource-envelope suite can
 // name the streams this module's entry points exchange.
-pub use crate::codec::{BitsMut, BitsSlice};
+pub use crate::codec::{Bits, BitsMut, BitsSlice};
 
 // The admission walk: the span wire form's fused second-component
 // parse, consumed by `causally::Span::decode` and the borsh span leg.
