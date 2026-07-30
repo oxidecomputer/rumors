@@ -99,9 +99,9 @@ pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 ///
 /// Calibrated against the benign control and the green adversarial
 /// families: a single walk over packed operands scans ~8 bits per byte,
-/// multi-walk operations (`distance` runs join, meet, and two rank folds;
-/// `sync` joins in both directions) scan a small multiple, and the text
-/// parsers re-scan their packed output through the strict validator. The
+/// multi-walk operations (`distance` runs join, meet, and two rank
+/// folds) scan a small multiple, and the text parsers re-scan their
+/// packed output through the strict validator. The
 /// worst honest reader measured is well under 64; the ceiling sits at 96 so
 /// only a walk that re-scans state growing with the input — the fold genre —
 /// goes red on this column.

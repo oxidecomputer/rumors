@@ -494,6 +494,19 @@ pub(super) fn render_map(
 ///   the sum row's transient is near-flat in absolute terms, so its
 ///   share per denominator byte rises as the operand shrinks, lifting
 ///   PP's intercept past hugeleaf's reading.
+///
+/// Movement 2026-07-29 (the fused sync sum-split walk; 2 entries
+/// re-pinned from the live release fold, every non-sync cell's reading
+/// byte-identical to the parent renders at both scales):
+///
+/// - **the clock_sync scan argmax falls back to the organic control**
+///   (mirror-narrow → benign, both scales): the fused walk splices any
+///   party subtree owned by one side alone without reading its nodes,
+///   so the disjoint-mounted adversarial pairs' sync scans collapsed
+///   (mirror-narrow 22.5 → 5.1 bits/B at the default scale) and the
+///   argmax lands on benign, whose organic interleaved pair still runs
+///   the full merge at composition parity (19.4 bits/B, byte-identical
+///   to the parent reading; runner-up id-pair ×1.21).
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_decode", ["hugeleaf", "dense", "staircase", "staircase"]),
     ("default", "version_encode", ["promo-rearm", "-", "-", "-"]),
@@ -538,7 +551,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "clock_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("default", "clock_fork", ["promo-rearm", "-", "mirror-narrow,nested-full", "-"]),
     ("default", "clock_join", ["hugeleaf", "dense", "id-pair", "lone-freeze"]),
-    ("default", "clock_sync", ["hugeleaf", "dense", "mirror-narrow", "lone-freeze"]),
+    ("default", "clock_sync", ["hugeleaf", "dense", "benign", "lone-freeze"]),
     ("default", "clock_recv", ["wide-arming", "id-pair", "hugeleaf", "staircase"]),
     ("default", "clock_own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "lone-freeze"]),
     ("default", "clock_display", ["tooth-tail", "mirror-wide", "jump-pair", "-"]),
@@ -605,7 +618,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "clock_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("acceptance", "clock_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "clock_join", ["hugeleaf", "dense", "id-pair", "lone-freeze"]),
-    ("acceptance", "clock_sync", ["hugeleaf", "dense", "mirror-narrow", "lone-freeze"]),
+    ("acceptance", "clock_sync", ["hugeleaf", "dense", "benign", "lone-freeze"]),
     ("acceptance", "clock_recv", ["id-pair", "id-pair", "hugeleaf", "staircase"]),
     ("acceptance", "clock_own_version_to_version", ["hugeleaf", "dense", "dense-suffix", "lone-freeze"]),
     ("acceptance", "clock_display", ["tooth-tail", "mirror-wide", "jump-pair", "-"]),
