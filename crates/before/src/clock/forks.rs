@@ -18,13 +18,14 @@ use crate::{party, Clock, Party, Version};
 ///
 /// # Complexity
 ///
-/// A full drain is `O(S + n·|v|)` time and space: the party split's total
+/// A full drain is `O(S + n)` time and space: the party split's total
 /// packed share size `S` (see [`iter::Party`](crate::iter::Party)) plus
-/// one clone of the parent version per child. Each `next` pays one
-/// version clone plus its share of the split; an early drop rejoins as
-/// the party iterator does, cloning nothing.
+/// one `O(1)` clone of the parent version per child (a clone shares the
+/// stored buffer). Each `next` pays one version clone plus its share of
+/// the split; an early drop rejoins as the party iterator does, cloning
+/// nothing.
 ///
-/// **Complexity**: `O(S + n·|v|)`: the party split plus one version clone per child.
+/// **Complexity**: `O(S + n)`: the party split plus one `O(1)` version clone per child.
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.
@@ -75,10 +76,10 @@ impl ExactSizeIterator for Forks<'_> {}
 ///
 /// # Complexity
 ///
-/// `O(S + N·|v|)` time and space: the party split's total packed share
-/// size `S` plus one clone of the version per child.
+/// `O(S + N)` time and space: the party split's total packed share
+/// size `S` plus one `O(1)` clone of the version per child.
 ///
-/// **Complexity**: `O(S + n·|v|)`: the party split plus one version clone per child.
+/// **Complexity**: `O(S + n)`: the party split plus one `O(1)` version clone per child.
 ///
 /// ```
 /// use before::Clock;

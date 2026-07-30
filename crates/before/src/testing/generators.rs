@@ -197,7 +197,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 /// children take no bits), and the deep-left tip is a terminal (`00`). The
 /// result `(((…(1, 0)…), 0), 0)` is normal form (no node has two terminal
 /// children). Built with a flat loop: no recursion at any depth, in the builder
-/// or in `Drop` (the packed form is a flat `BitVec`).
+/// or in `Drop` (the packed forms are flat buffers).
 pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
     let mut bits = codec::BitsMut::with_capacity(2 * depth + 2);
     for _ in 0..depth {

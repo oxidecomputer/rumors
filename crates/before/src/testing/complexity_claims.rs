@@ -373,8 +373,11 @@ const PARTY_FORKS_TYPE_BOUND: Bound = Bound::Custom {
 /// The clock split's bound, shared by `Clock::forks`'s own doc and the
 /// clock `Forks` iterator's type doc: the party split plus one version
 /// clone per child.
+// 2026-07-30, the Bytes-backed at-rest form: was `O(S + n·|v|)` — a
+// version clone was a byte copy; it is now a refcount bump, so the
+// per-child term drops to a constant.
 const CLOCK_SPLIT_BOUND: Bound = Bound::Custom {
-    line: "`O(S + n·|v|)`: the party split plus one version clone per child.",
+    line: "`O(S + n)`: the party split plus one `O(1)` version clone per child.",
     reason: "an n-ary hand-out denominated in its shares and per-child clones, not one \
              packed operand",
 };
@@ -945,18 +948,17 @@ pub(crate) const CLAIMS: &[Claim] = &[
         // version, so the row of record is Version::rank's.
         cells: Cells::Board(&[("version_rank", Class::MulBound)]),
     },
+    // 2026-07-30, the Bytes-backed at-rest form: was `O(n)` when
+    // borrowed — settling a borrow cloned the version's bytes; a clone
+    // is now a refcount bump, so the settle is constant either way.
     Claim {
         op: "Ranked::into_owned",
         checks: &[Check {
             site: Site::Fn,
-            bound: Bound::Custom {
-                line: "`O(n)` when borrowed (one byte copy of the version); `O(1)` when owned.",
-                reason: "a borrow-settling move: at most one byte copy, no walk; no \
-                         template splits on the operand's borrow state",
-            },
+            bound: Bound::Constant,
         }],
         cells: Cells::Uncelled(
-            "at most one byte copy of the borrowed version (the board's coverage table)",
+            "one refcount bump when borrowed (the board's coverage table)",
         ),
     },
     Claim {
@@ -1068,33 +1070,31 @@ pub(crate) const CLAIMS: &[Claim] = &[
     ),
     constant("causally::Span::meet"),
     constant("causally::Span::join"),
+    // 2026-07-30, the Bytes-backed at-rest form: was `O(n)` when
+    // borrowed — settling a borrow cloned each endpoint's bytes; a
+    // clone is now a refcount bump, so the settle is constant either
+    // way.
     Claim {
         op: "causally::Span::into_parts",
         checks: &[Check {
             site: Site::Fn,
-            bound: Bound::Custom {
-                line: "`O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.",
-                reason: "a borrow-settling move: at most one byte copy per endpoint, no \
-                         walk; no template splits on the operands' borrow state",
-            },
+            bound: Bound::Constant,
         }],
         cells: Cells::Uncelled(
-            "at most one byte copy per borrowed endpoint (the board's coverage table)",
+            "one refcount bump per borrowed endpoint (the board's coverage table)",
         ),
     },
     constant("causally::Span::reborrow"),
+    // 2026-07-30, the Bytes-backed at-rest form: was `O(n)` when
+    // borrowed, as `into_parts`.
     Claim {
         op: "causally::Span::into_owned",
         checks: &[Check {
             site: Site::Fn,
-            bound: Bound::Custom {
-                line: "`O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.",
-                reason: "a borrow-settling conversion: at most one byte copy per endpoint, \
-                         no walk; no template splits on the operands' borrow state",
-            },
+            bound: Bound::Constant,
         }],
         cells: Cells::Uncelled(
-            "at most one byte copy per borrowed endpoint (the board's coverage table)",
+            "one refcount bump per borrowed endpoint (the board's coverage table)",
         ),
     },
     Claim {

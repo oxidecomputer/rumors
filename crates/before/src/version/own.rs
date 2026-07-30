@@ -93,6 +93,14 @@ impl OwnVersion<'_> {
     /// assert_eq!(owned, *a.version()); // the seed owns its whole history
     /// ```
     pub fn to_version(&self) -> Version {
+        // The whole-interval party is the projection identity — the
+        // `seed_projection_is_identity` law in [`laws`](crate::laws) —
+        // so the materialization is the version itself, handed back as
+        // an `O(1)` buffer-sharing clone (the seed test is one byte
+        // against the static seed stream).
+        if self.party.is_seed() {
+            return self.version.clone();
+        }
         Version::from_bits(skyline::query::project(self.version.view(), self.party))
     }
 }

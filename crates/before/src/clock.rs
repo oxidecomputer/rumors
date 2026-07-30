@@ -175,12 +175,12 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(S + n·|v|)` time and space for a full drain, where `S` is the
-    /// total packed size of the party shares and `|v|` the version each of
-    /// the `n` children clones; children are built on demand (see
-    /// [`Forks`]).
+    /// `O(S + n)` time and space for a full drain, where `S` is the
+    /// total packed size of the party shares and each of the `n`
+    /// children clones the version by sharing its stored buffer, `O(1)`
+    /// per child; children are built on demand (see [`Forks`]).
     ///
-    /// **Complexity**: `O(S + n·|v|)`: the party split plus one version clone per child.
+    /// **Complexity**: `O(S + n)`: the party split plus one `O(1)` version clone per child.
     ///
     /// ```
     /// use before::Clock;
