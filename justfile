@@ -142,10 +142,12 @@ readme-check:
 # deliberate path is a `just fuzzfit-calibrate` re-pin riding the same
 # commit), then fuelscape's sampler pins and pipeline smoke (which reuse
 # the guest fuzzfit just built), then the board's cross-process
-# determinism tripwire and the sharded-render byte-identity pin.
+# determinism tripwire and the sharded-render byte-identity pin, and
+# last the surface-totality leg (before's public surface, parsed from
+# nightly rustdoc JSON, held total against the operation roster).
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism amp-board-shard-pin worst-cases-pin
+gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism amp-board-shard-pin worst-cases-pin surface-totality
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -495,6 +497,43 @@ amp-board-shard-pin:
         cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- "$scale" > "$b"
         cmp "$a" "$b"
     done
+
+# The surface-totality leg: the operation roster in
+# crates/before/src/surface.rs (METHOD_SURFACE, the machine-readable
+# enumeration the surface-coverage suite enforces) is held total against
+# nightly rustdoc JSON — the compiler's own account of the public
+# surface — so a public fn or method added anywhere (a new file, a new
+# module, a feature-gated tree) fails the gate until it gains a roster
+# row or a named, dated exception in crates/before/surfacecheck. The
+# in-tree roster test scans a hand-named source-file list; this leg is
+# the other jaw of the pincer, with no file list to forget. The checker
+# lives in a detached workspace (the fuzzfit idiom), so ordinary
+# workspace builds never compile it; this recipe also runs its lints and
+# unit tests, which the workspace-wide gate legs cannot reach.
+#
+# Toolchain coupling: rustdoc JSON is an unstable format, versioned by
+# its `format_version` field, and the checker's `rustdoc-types`
+# dependency is pinned exact to the release speaking the installed
+# nightly's format. The checker refuses — loudly, naming both numbers —
+# any document whose format_version differs, so a nightly bump can fail
+# this recipe but can never make it silently wrong. After bumping the
+# nightly: run this recipe, and if it reports a format mismatch, move
+# the `rustdoc-types` pin in crates/before/surfacecheck/Cargo.toml to
+# the release whose FORMAT_VERSION matches the new nightly's output
+# (the rustdoc-types changelog maps releases to formats), then re-run
+# until green.
+
+# Build the nightly rustdoc JSON the surface-totality check parses.
+surface-json:
+    cargo +{{ nightly_toolchain }} rustdoc -p before --lib --all-features --target-dir target/surface-json -- -Z unstable-options --output-format json
+
+# Hold before's public surface (from rustdoc JSON) total against the roster.
+[working-directory("crates/before/surfacecheck")]
+surface-totality: surface-json
+    cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
+    {{ justfile_directory() }}/tools/memwatch cargo nextest run
+    cargo run -q -- {{ justfile_directory() }}/target/surface-json/doc/before.json
 
 # The worst-case map answers "which committed shape is worst for operation
 # X" mechanically: for every operation x currency it takes the argmax over
