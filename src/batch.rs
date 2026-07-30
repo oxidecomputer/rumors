@@ -75,9 +75,10 @@ impl<T: Send + Sync> Drop for Batch<'_, T> {
                 debug_assert!(false, "no party to tick in a `Batch` commit");
                 return false;
             };
-            let hash_before = inner.tree.hash();
-            inner.tree.act(party, actions);
-            inner.tree.hash() != hash_before
+            // Notify observers iff the batch changed the tree, straight from
+            // `act`'s changed flag: no root hash is read inside this critical
+            // section (`Tree::act` states the flag's contract).
+            inner.tree.act(party, actions)
         });
     }
 }
