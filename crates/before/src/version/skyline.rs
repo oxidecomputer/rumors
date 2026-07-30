@@ -148,7 +148,7 @@ use crate::Version;
 
 // The storage aliases, re-exported so the resource-envelope suite can
 // name the streams this module's entry points exchange.
-pub use crate::codec::{Bits, BitsSlice};
+pub use crate::codec::{BitsMut, BitsSlice};
 
 // The admission walk: the span wire form's fused second-component
 // parse, consumed by `causally::Span::decode` and the borsh span leg.
@@ -178,7 +178,7 @@ mod walk;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use admit::validate_dominating_from;
+pub(crate) use admit::{validate_dominating_from, Admission};
 #[cfg(any(test, feature = "meter"))]
 pub(crate) use decode::decode_bits;
 #[cfg(any(test, feature = "meter"))]
@@ -193,7 +193,7 @@ pub(crate) use validate::validate_from;
 /// Test- and meter-only: production callers reach the stored stream
 /// through [`Version::as_bytes`]/[`Version::encode`].
 #[cfg(any(test, feature = "meter"))]
-pub fn encode(version: &Version) -> Bits {
+pub fn encode(version: &Version) -> BitsMut {
     let mut bits = version.as_bits().to_bitvec();
     codec::zero_dead_bits(&mut bits);
     bits
@@ -296,8 +296,8 @@ fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
 }
 
 /// A value's gamma code as a fresh payload-code buffer.
-fn gamma_code(value: &Base) -> Bits {
-    let mut code = Bits::new();
+fn gamma_code(value: &Base) -> BitsMut {
+    let mut code = BitsMut::new();
     codec::encode_int(&mut code, value);
     code
 }

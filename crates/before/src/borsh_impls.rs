@@ -14,7 +14,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
     causally::Span,
-    codec::{self, Base, BitCursor, Bits},
+    codec::{self, Base, BitCursor, BitsMut},
     error::Decode,
     version::decode_rank_stream,
     Clock, Party, Rank, Ranked, Version,
@@ -58,8 +58,8 @@ impl<'a, R> ReaderCursor<'a, R> {
         }
     }
 
-    fn finish(self) -> Result<Bits, Decode> {
-        let mut bits = Bits::from_vec(self.bytes);
+    fn finish(self) -> Result<BitsMut, Decode> {
+        let mut bits = BitsMut::from_vec(self.bytes);
         codec::require_zero_padding(&bits, self.position)?;
         bits.truncate(self.position);
         Ok(bits)
@@ -107,14 +107,14 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
 }
 
 /// Read and validate one byte-aligned canonical id tree.
-fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<Bits> {
+fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<BitsMut> {
     let mut cursor = ReaderCursor::new(reader);
     codec::parse_id_from(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
 }
 
 /// Read and validate one byte-aligned canonical skyline event stream.
-fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<Bits> {
+fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<BitsMut> {
     let mut cursor = ReaderCursor::new(reader);
     crate::version::skyline::validate_from(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
@@ -249,17 +249,25 @@ impl BorshSerialize for Span<'_> {
 /// borsh field.
 impl BorshDeserialize for Span<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        use crate::version::skyline::Admission;
         let lo = Version::deserialize_reader(reader)?;
         let mut cursor = ReaderCursor::new(reader);
-        let dominates = crate::version::skyline::validate_dominating_from(lo.view(), &mut cursor)
+        let admission = crate::version::skyline::validate_dominating_from(lo.view(), &mut cursor)
             .map_err(decode_error)?;
         // The final byte's padding check outranks the pair verdict,
         // exactly as the byte-slice decode orders them.
         let bits = cursor.finish().map_err(decode_error)?;
-        if !dominates {
-            return Err(decode_error(Decode::NotCanonical));
-        }
-        Ok(Span::owned(lo, Version::from_bits(bits)))
+        let hi = match admission {
+            Admission::Refuted => return Err(decode_error(Decode::NotCanonical)),
+            // The coincident span stores one buffer twice: the admission
+            // walk proved the second stream byte-equal to the first, so
+            // the join is the meet's clone — an `O(1)` refcount bump the
+            // ptr_eq fast paths then recognize — and the parsed bits are
+            // dropped unstored.
+            Admission::Equal => lo.clone(),
+            Admission::Dominates => Version::from_bits(bits),
+        };
+        Ok(Span::owned(lo, hi))
     }
 }
 

@@ -270,6 +270,12 @@ impl Clock {
     /// parent.join_all(children).unwrap(); // reabsorb the three children
     /// assert_eq!(parent.party().to_string(), "1"); // the whole seed region again
     /// ```
+    // The combine closure's `Err` is the hand-back pair itself — both
+    // operands returned to the caller on an aliased input, the fold's
+    // drop-nothing policy — so its size is the two clocks it preserves.
+    // Boxing would spend an allocation on every refusal to dodge a
+    // by-value move, a trade against the policy the error exists for.
+    #[allow(clippy::result_large_err)]
     pub fn join_all<I: IntoIterator<Item = Clock>>(
         &mut self,
         iter: I,
@@ -619,9 +625,12 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|c|)` time and space: one copy of each part's stored bytes.
+    /// `O(1)` time and space: each part's alias shares its stored
+    /// buffer (the at-rest form is refcounted), which is safe *for
+    /// storage* because no operation mutates a stored stream in place —
+    /// the linearity hazard above is about causal identity, not bytes.
     ///
-    /// **Complexity**: `O(n)`.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::Clock;

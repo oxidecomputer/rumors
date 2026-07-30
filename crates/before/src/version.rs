@@ -88,14 +88,17 @@ mod tests;
 /// ```
 // At rest, a `Version` is its canonical skyline stream in a
 // length-carrying container ([`codec::Bits`]): the raw byte slice IS the
-// wire encoding (`from_bits` zeroes the dead pad bits at the seam), and
-// the live bit length is a cached parse product the wire legitimately
-// omits — the stream is self-delimiting at the bit level. Canonical
-// uniqueness makes byte equality exactly causal equality; `PartialEq` is
-// the macro's byte-level stream compare (see `causal_cmp_impls!` and
-// `codec::canonical_eq`), and the manual `Hash` below reads the same
-// (raw bytes, live length) pair, so their consistency holds by
-// construction.
+// wire encoding (`from_bits` zeroes the dead pad bits at the freeze
+// seam), and the live bit length is a cached parse product the wire
+// legitimately omits — the stream is self-delimiting at the bit level.
+// Canonical uniqueness makes byte equality exactly causal equality;
+// `PartialEq` is the macro's byte-level stream compare (see
+// `causal_cmp_impls!` and `codec::canonical_eq`), and the manual `Hash`
+// below reads the same (raw bytes, live length) pair, so their
+// consistency holds by construction. The container's backing store is
+// refcounted (`bytes::Bytes`), which is what makes the derived `Clone`
+// `O(1)`: a clone shares the buffer, and `codec::canonical_eq`'s
+// clone-identity rung recognizes the sharing.
 #[derive(Clone, Eq)]
 pub struct Version(codec::Bits);
 
@@ -116,7 +119,7 @@ impl Version {
     /// assert_eq!(before::Version::new().to_string(), "0");
     /// ```
     pub fn new() -> Self {
-        let mut bits = codec::Bits::new();
+        let mut bits = codec::BitsMut::new();
         bits.push(true); // topology: the single leaf
         codec::encode_int(&mut bits, &codec::Base::ZERO); // its absolute height, zero
         Version::from_bits(bits)
@@ -800,8 +803,9 @@ impl Version {
         }
         if skyline::is_empty_stream(&self.0) {
             // 0 ∨ v = v: adopt the incoming stream wholesale. Both streams
-            // are canonical, so the copy equals the merge byte for byte.
-            *self = Version::from_bits(incoming.clone());
+            // are canonical, so the shared buffer (an `O(1)` refcount
+            // clone) equals the merge byte for byte.
+            *self = Version::from_frozen(incoming.clone());
             return;
         }
         *self = Version::from_bits(skyline::emit::join(&self.0, incoming));
@@ -967,11 +971,14 @@ impl Version {
             codec::require_zero_padding(bits, end)?;
             end
         };
-        // Reuse the read buffer as the result's backing store (offset-0,
-        // canonical up to `end`), so decoding allocates no more than before.
-        let mut bits = codec::Bits::from_vec(buf);
-        bits.truncate(end);
-        Ok(Version::from_bits(bits))
+        // Adopt the read buffer as the result's backing store without
+        // copying: the padding check proved the buffer covers exactly the
+        // live bits' bytes with the dead bits zero — the canonical form
+        // the at-rest container stores.
+        Ok(Version::from_frozen(codec::Bits::from_canonical(
+            buf.into(),
+            end,
+        )))
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its zero-pad
@@ -1029,15 +1036,26 @@ impl Version {
         &self.0
     }
 
-    /// Wrap a normal-form skyline bit stream as a `Version`, canonicalizing
-    /// its storage. The single gate every built/parsed `Version` passes
-    /// through.
+    /// Freeze a normal-form skyline bit stream as a `Version`,
+    /// canonicalizing its storage. The single build-side gate every
+    /// built/parsed `Version` passes through.
     ///
-    /// Callers guarantee canonical skyline form; this zeroes the dead bits
-    /// past the live length so the stored bytes are canonical (see
-    /// [`codec::zero_dead_bits`]).
-    pub(crate) fn from_bits(mut bits: codec::Bits) -> Self {
-        codec::zero_dead_bits(&mut bits);
+    /// Callers guarantee canonical skyline form; the freeze zeroes the
+    /// dead bits past the live length so the stored bytes are canonical
+    /// (see [`codec::Bits::freeze`]).
+    pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
+        Version(codec::Bits::freeze(bits))
+    }
+
+    /// Adopt an already-frozen canonical skyline stream as a `Version`:
+    /// the decode-side gate, dual to the build-side
+    /// [`from_bits`](Self::from_bits).
+    ///
+    /// Callers guarantee the stream is canonical skyline form in
+    /// canonical storage — what a validated decode slice or another
+    /// version's stored stream already is — so no re-canonicalization
+    /// runs and adoption is `O(1)`.
+    pub(crate) fn from_frozen(bits: codec::Bits) -> Self {
         Version(bits)
     }
 }

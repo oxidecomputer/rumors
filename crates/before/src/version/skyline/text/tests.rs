@@ -274,7 +274,7 @@ mod parse_schoolbook {
     use suanpan::{touch_meter, Accumulator};
 
     use crate::codec::text::{parse_base, Cur};
-    use crate::codec::{Base, Bits};
+    use crate::codec::{Base, BitsMut};
     use crate::error::Parse;
     use crate::meter::registry::Shape;
     use crate::version::skyline::build::SkylineBuilder;
@@ -291,7 +291,7 @@ mod parse_schoolbook {
     /// the accumulator by subtracting the extracted magnitude, which
     /// zeroes the *value* but not the digit buffer's top — the
     /// high-water walk the wide-arming family prices.
-    fn parse_schoolbook(s: &str) -> Result<Bits, Parse> {
+    fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
         /// What a parsed subtree contributes to its parent's
         /// normal-form check.
         struct Child {
@@ -402,7 +402,7 @@ mod parse_schoolbook {
     /// One kernel run over `Shape::WideArming.packed2(s, s)`'s rendered text: text
     /// bytes and accumulator touches over the parse body alone,
     /// value-pinned against the stored stream.
-    fn run(s: usize, kernel: fn(&str) -> Result<Bits, Parse>) -> (u64, u64) {
+    fn run(s: usize, kernel: fn(&str) -> Result<BitsMut, Parse>) -> (u64, u64) {
         let v = Shape::WideArming.packed2(s, s).version();
         let enc = encode(&v);
         let text = render(&enc);

@@ -5,7 +5,7 @@
 use proptest::prelude::*;
 
 use crate::codec::cursor::Truncated;
-use crate::codec::{self, Base, BitCursor, Bits, SliceCursor};
+use crate::codec::{self, Base, BitCursor, BitsMut, SliceCursor};
 
 use super::DsiCursor;
 
@@ -34,7 +34,7 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
         Base::from((UBig::ONE << 100usize) + 12345u32),
     ];
     for value in &values {
-        let mut bits = Bits::new();
+        let mut bits = BitsMut::new();
         codec::encode_int(&mut bits, value);
         let (want, want_end) =
             codec::decode_int(&bits, 0).expect("the committed decoder reads its own encoding");
@@ -72,7 +72,7 @@ fn truncated_codes_reject_at_every_cut_point() {
         Base::from(u64::MAX),
         Base::from(UBig::ONE << 100usize),
     ] {
-        let mut bits = Bits::new();
+        let mut bits = BitsMut::new();
         codec::encode_int(&mut bits, &value);
         for cut in 0..bits.len() {
             let prefix = &bits[..cut];
@@ -103,7 +103,7 @@ fn truncated_codes_reject_at_every_cut_point() {
 #[test]
 fn unary_reads_match_the_per_bit_loop_across_word_seams() {
     for run in [0usize, 1, 7, 8, 31, 32, 33, 63, 64, 65, 200] {
-        let mut bits = Bits::new();
+        let mut bits = BitsMut::new();
         for _ in 0..run {
             bits.push(false);
         }
@@ -135,7 +135,7 @@ fn unary_reads_match_the_per_bit_loop_across_word_seams() {
 /// stream, at and off byte boundaries.
 #[test]
 fn mid_stream_opens_read_the_same_suffix() {
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     // A mixed stream: alternating flags and codes of assorted widths.
     for (flag, value) in [
         (true, 0u64),
@@ -190,7 +190,7 @@ proptest! {
             1..40,
         ),
     ) {
-        let mut bits = Bits::new();
+        let mut bits = BitsMut::new();
         for (unary, v) in &ops {
             if *unary {
                 for _ in 0..*v {

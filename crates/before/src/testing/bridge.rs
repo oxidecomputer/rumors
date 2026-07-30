@@ -11,7 +11,7 @@
 //! Recursive over bounded test trees (the impl's own traversals are
 //! iterative).
 
-use crate::codec::{self, Bits};
+use crate::codec::{self, BitsMut};
 use crate::oracle;
 use crate::recurse::descend;
 use crate::{Clock, Party, Version};
@@ -24,7 +24,7 @@ fn id_is_zero(t: &oracle::Party) -> bool {
     matches!(t, oracle::Party::Leaf(false))
 }
 
-fn emit_id(out: &mut Bits, t: &oracle::Party) {
+fn emit_id(out: &mut BitsMut, t: &oracle::Party) {
     match t {
         oracle::Party::Leaf(false) => {} // `0`: absence, no bits
         oracle::Party::Leaf(true) => {
@@ -42,7 +42,7 @@ fn emit_id(out: &mut Bits, t: &oracle::Party) {
     }
 }
 
-fn emit_ev(out: &mut Bits, t: &oracle::Version) {
+fn emit_ev(out: &mut BitsMut, t: &oracle::Version) {
     match t {
         oracle::Version::Leaf(n) => {
             out.push(false);
@@ -59,8 +59,8 @@ fn emit_ev(out: &mut Bits, t: &oracle::Version) {
 
 /// The min-lifted packed preorder stream of an oracle tree: the
 /// construction language the generators and the skyline transcoder share.
-pub(crate) fn packed_bits_of(t: &oracle::Version) -> Bits {
-    let mut bits = Bits::new();
+pub(crate) fn packed_bits_of(t: &oracle::Version) -> BitsMut {
+    let mut bits = BitsMut::new();
     emit_ev(&mut bits, t);
     bits
 }
@@ -68,7 +68,7 @@ pub(crate) fn packed_bits_of(t: &oracle::Version) -> Bits {
 /// Build the impl `Party` whose canonical bits encode `t`. Recursive over a bounded
 /// oracle tree (test-only; the impl's own traversals are iterative).
 pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     emit_id(&mut bits, t);
     Party::from_bits(bits)
 }
@@ -79,7 +79,7 @@ pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
 /// traversals are iterative): emits the min-lifted packed preorder stream,
 /// then transcodes it into the skyline coding the version stores.
 pub(crate) fn from_oracle_version(t: &oracle::Version) -> Version {
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     emit_ev(&mut bits, t);
     Version::from_bits(crate::version::skyline::encode_bits(&bits))
 }

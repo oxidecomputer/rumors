@@ -11,8 +11,6 @@
 
 use core::fmt::Display;
 
-use bitvec::prelude::*;
-
 use crate::codec::{self, BitsSlice};
 use crate::error::{Decode, Parse};
 use crate::idbits::IdReader;
@@ -67,7 +65,7 @@ mod tests;
 /// whole.join(half).unwrap();         // ... and reunite into the whole
 /// assert_eq!(whole.to_string(), "1");
 /// ```
-pub struct Party(BitVec<u8, Msb0>);
+pub struct Party(codec::Bits);
 
 // Equality and hashing are byte-level over the stored stream's raw bytes
 // plus its live length, resting on the canonical-raw-slice invariant:
@@ -106,7 +104,7 @@ impl Party {
     /// assert_eq!(before::Party::seed().to_string(), "1");
     /// ```
     pub fn seed() -> Self {
-        let mut bits = codec::Bits::with_capacity(2);
+        let mut bits = codec::BitsMut::with_capacity(2);
         bits.push(false); // terminal tag `00`: the whole interval, owned
         bits.push(false);
         Party::from_bits(bits)
@@ -499,9 +497,12 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|p|)` time and space: one copy of the stored bytes.
+    /// `O(1)` time and space: the alias shares the stored buffer (the
+    /// at-rest form is refcounted), which is safe *for storage* because
+    /// no operation mutates a stored stream in place — the linearity
+    /// hazard above is about causal identity, not bytes.
     ///
-    /// **Complexity**: `O(n)`.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::Party;
@@ -510,7 +511,7 @@ impl Party {
     /// assert!(!p.is_disjoint(&q));
     /// ```
     pub fn dangerously_alias(&self) -> Self {
-        Party::from_bits(self.0.clone())
+        Party(self.0.clone())
     }
 
     /// Encodes this [`Party`] to bytes.
@@ -595,14 +596,14 @@ impl Party {
             codec::require_zero_padding(bits, end)?;
             end
         };
-        // Reuse the read buffer as the result's backing store (it is offset-0
-        // and canonical up to `end`), so decoding allocates no more than before.
-        // The id grammar has no empty production (exhausted input rejects as
-        // `Truncated` above), so the parsed id is a nonzero share — the
-        // standalone-party invariant (paper §3: `i ≠ 0`) holds structurally.
-        let mut id = codec::Bits::from_vec(buf);
-        id.truncate(end);
-        Ok(Party::from_bits(id))
+        // Adopt the read buffer as the result's backing store without
+        // copying: the padding check proved the buffer covers exactly the
+        // live bits' bytes with the dead bits zero — the canonical form
+        // the at-rest container stores. The id grammar has no empty
+        // production (exhausted input rejects as `Truncated` above), so
+        // the parsed id is a nonzero share — the standalone-party
+        // invariant (paper §3: `i ≠ 0`) holds structurally.
+        Ok(Party(codec::Bits::from_canonical(buf.into(), end)))
     }
 
     /// The anonymous (zero) id: the empty bit stream, since a `0` is structural
@@ -616,7 +617,7 @@ impl Party {
     /// splitting iterator in [`forks`](Party::forks)), immediately
     /// overwritten by a real share.
     pub(crate) fn anonymous() -> Party {
-        Party::from_bits(codec::Bits::new())
+        Party(codec::Bits::empty())
     }
 
     /// A read-only [`IdReader`] cursor at the root of this party's packed id bits.
@@ -678,16 +679,16 @@ impl Party {
         &self.0
     }
 
-    /// Wrap a normal-form packed bit stream as a `Party`, canonicalizing its
-    /// storage. The single gate every built/parsed `Party` passes through.
+    /// Freeze a normal-form packed bit stream as a `Party`, canonicalizing
+    /// its storage. The single build-side gate every built/parsed `Party`
+    /// passes through.
     ///
-    /// Callers guarantee normal *tree* form (a nonempty, normalized id); this
-    /// zeroes the dead bits past the live length so the stored bytes are
-    /// canonical — see [`codec::zero_dead_bits`] for why a tree op can leave
-    /// them non-zero, and what byte-canonicity underpins.
-    pub(crate) fn from_bits(mut bits: codec::Bits) -> Self {
-        codec::zero_dead_bits(&mut bits);
-        Party(bits)
+    /// Callers guarantee normal *tree* form (a nonempty, normalized id);
+    /// the freeze zeroes the dead bits past the live length so the stored
+    /// bytes are canonical — see [`codec::Bits::freeze`] for why a tree op
+    /// can leave them non-zero, and what byte-canonicity underpins.
+    pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
+        Party(codec::Bits::freeze(bits))
     }
 }
 
@@ -744,7 +745,7 @@ impl core::str::FromStr for Party {
 
 /// Wrap validated id bits as a `Party`, rejecting the anonymous (empty) identity. The
 /// single gate through which every parsed/built top-level `Party` passes.
-fn finish_id(bits: codec::Bits) -> Result<Party, Parse> {
+fn finish_id(bits: codec::BitsMut) -> Result<Party, Parse> {
     if codec::id_is_empty(&bits) {
         Err(Parse::Anonymous)
     } else {
@@ -769,11 +770,11 @@ mod sealed {
 #[doc(hidden)]
 pub trait PartyLiteral: sealed::Sealed {
     #[doc(hidden)]
-    fn into_id_bits(self) -> Result<codec::Bits, Parse>;
+    fn into_id_bits(self) -> Result<codec::BitsMut, Parse>;
 }
 
 impl PartyLiteral for u8 {
-    fn into_id_bits(self) -> Result<codec::Bits, Parse> {
+    fn into_id_bits(self) -> Result<codec::BitsMut, Parse> {
         match self {
             0 => Ok(codec::id_leaf(false)),
             1 => Ok(codec::id_leaf(true)),
@@ -783,13 +784,13 @@ impl PartyLiteral for u8 {
 }
 
 impl PartyLiteral for bool {
-    fn into_id_bits(self) -> Result<codec::Bits, Parse> {
+    fn into_id_bits(self) -> Result<codec::BitsMut, Parse> {
         Ok(codec::id_leaf(self))
     }
 }
 
 impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
-    fn into_id_bits(self) -> Result<codec::Bits, Parse> {
+    fn into_id_bits(self) -> Result<codec::BitsMut, Parse> {
         let l = self.0.into_id_bits()?;
         let r = self.1.into_id_bits()?;
         codec::id_node(&l, &r) // assembles + validates normal form

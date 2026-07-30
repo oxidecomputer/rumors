@@ -1188,7 +1188,7 @@ fn rank_sum_mixed_envelope() {
 // carries the wire-bit-linear claim).
 
 /// The skyline stream of a packed family shape, built outside measurement.
-fn skyline_of(p: &meter::Packed) -> meter::skyline::Bits {
+fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsMut {
     meter::skyline::encode(&version_of(p))
 }
 
@@ -1510,12 +1510,12 @@ fn sweep_metered<R>(
 
 /// The empty version's two-bit skyline stream: the shallow operand of
 /// the family cmp scenarios.
-fn skyline_empty() -> meter::skyline::Bits {
+fn skyline_empty() -> meter::skyline::BitsMut {
     meter::skyline::encode(&Version::new())
 }
 
 /// The combined operand bytes of a sweep scenario.
-fn sweep_input_bytes(a: &meter::skyline::Bits, b: &meter::skyline::Bits) -> usize {
+fn sweep_input_bytes(a: &meter::skyline::BitsMut, b: &meter::skyline::BitsMut) -> usize {
     a.as_raw_slice().len() + b.as_raw_slice().len()
 }
 
@@ -1664,7 +1664,7 @@ mod emit_env {
 
 /// The one-tick version's skyline stream: the shallow operand of the
 /// family join/meet scenarios, mirroring the packed-form join rows.
-fn skyline_one_tick() -> meter::skyline::Bits {
+fn skyline_one_tick() -> meter::skyline::BitsMut {
     let one = Version::try_from(1u64).expect("a one-tick version is valid");
     meter::skyline::encode(&one)
 }
@@ -1672,7 +1672,10 @@ fn skyline_one_tick() -> meter::skyline::Bits {
 /// One family shape and the packed-form oracle's answer against the
 /// one-tick version, both as skyline streams built outside measurement,
 /// so every scenario asserts byte-identity after its sweep.
-fn skyline_oracle(p: &meter::Packed, join: bool) -> (meter::skyline::Bits, meter::skyline::Bits) {
+fn skyline_oracle(
+    p: &meter::Packed,
+    join: bool,
+) -> (meter::skyline::BitsMut, meter::skyline::BitsMut) {
     let v = version_of(p);
     let one = Version::try_from(1u64).expect("a one-tick version is valid");
     let out = if join { &v | &one } else { &v & &one };
@@ -5820,7 +5823,7 @@ mod query_env {
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(     3_240,        0,     7_855,    17_923,    13_273, 4_713, 7_964); // 49_752 -> 2_592 -> 3_168 (2026-07-28, the anchor-web fold's 19x drop, then the zero-run ledger's map nodes measured at the cure-round merge; the older ceiling stands), 8_258 -> 6_284, 70_962 -> 10_619 (2026-07-28, the anchor-web fold: the comb's wide F-relative pending offsets and their per-close folds are epoch-ledger counts now, touches 6.7x down; scan byte-identical), 0, 14_338
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (2026-07-25, single-record id tags), 35_939
     pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       488,        0,   317_380,   330_913,    63_347, 190_428, 38_007); // 73_216 -> 390 -> 294 (2026-07-26, the at-rest form is codec::Bits, the wire bytes in a length-carrying container) -> 390 (2026-07-29, the borrow-shaped fold face: the counter stack's entries carry the operand-form tag, ~8 B per level; work columns byte-identical), 0, 690_310 -> 253_904 (sequential 14_281_732) -> 253_902 (pre-existing drift, measured at round #123's base), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
-    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   322_068,         0, 0, 0); // 336, 0, 0, 292_432 -> 257_654 (2026-07-26, join_all answers its up-front tests through a per-call id index; the 292_432 was a mid-round reading, the C2 flag-day commit itself reads 276_044) (sequential 3_284_952), 0
+    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       780,        0,         0,   322_068,         0, 0, 0); // 336 -> 624 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: one refcount control block per frozen stream live in the fold's groups; work columns byte-identical), 0, 0, 292_432 -> 257_654 (2026-07-26, join_all answers its up-front tests through a per-call id index; the 292_432 was a mid-round reading, the C2 flag-day commit itself reads 276_044) (sequential 3_284_952), 0
     // Tick rows (2026-07-25, the #34 currency round): moved onto the
     // five-meter harness — the tick walk's cost currency is accumulator
     // digit touches, which the four-column table these rows came from

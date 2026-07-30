@@ -4,27 +4,27 @@
 //! canonical stream, so a bookkeeping error in absorb, re-anchor, or the
 //! cascade fails against bits a reader can re-derive in the margin.
 
-use crate::codec::{self, Base, Bits};
+use crate::codec::{self, Base, BitsMut};
 use crate::version::skyline::zigzag_signed;
 
 use super::SkylineBuilder;
 
 /// One leaf payload code: `gamma(value)` for absolutes.
-fn gamma(value: u64) -> Bits {
-    let mut code = Bits::new();
+fn gamma(value: u64) -> BitsMut {
+    let mut code = BitsMut::new();
     codec::encode_int(&mut code, &Base::from(value));
     code
 }
 
 /// One leaf payload code: `gamma(zigzag(delta))` for later leaves.
-fn delta(negative: bool, magnitude: u64) -> Bits {
-    let mut code = Bits::new();
+fn delta(negative: bool, magnitude: u64) -> BitsMut {
+    let mut code = BitsMut::new();
     codec::encode_int(&mut code, &zigzag_signed(negative, Base::from(magnitude)));
     code
 }
 
 /// Drive a builder over `(depth, code)` leaves and return the stream.
-fn built(leaves: Vec<(usize, Bits)>) -> Bits {
+fn built(leaves: Vec<(usize, BitsMut)>) -> BitsMut {
     let mut builder = SkylineBuilder::with_capacity(64);
     for (depth, code) in leaves {
         builder.leaf(depth, code);
@@ -33,7 +33,7 @@ fn built(leaves: Vec<(usize, Bits)>) -> Bits {
 }
 
 /// A stream literal from a `0`/`1` string, whitespace ignored.
-fn bits(s: &str) -> Bits {
+fn bits(s: &str) -> BitsMut {
     s.chars()
         .filter(|c| !c.is_whitespace())
         .map(|c| match c {
@@ -185,9 +185,9 @@ fn partial_equality_collapses_only_the_equal_pair() {
 fn continuation(
     root_depth: usize,
     first_depth: usize,
-    leaves: &[(usize, Bits)],
-) -> (Bits, usize, usize) {
-    let mut range = Bits::new();
+    leaves: &[(usize, BitsMut)],
+) -> (BitsMut, usize, usize) {
+    let mut range = BitsMut::new();
     // The within-subtree path to the previous leaf; the subtree's first
     // leaf is its leftmost, so the path starts all left branches.
     let mut path = vec![false; first_depth - root_depth];

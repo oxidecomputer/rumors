@@ -1,4 +1,4 @@
-use crate::codec::{Bits, BitsSlice, PackedBuilder, PopStack};
+use crate::codec::{BitsMut, BitsSlice, PackedBuilder, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -149,7 +149,7 @@ impl IdBuilder {
         self.terminal()
     }
 
-    pub(super) fn finish(self) -> Bits {
+    pub(super) fn finish(self) -> BitsMut {
         self.out.finish()
     }
 }
@@ -178,10 +178,10 @@ pub(super) struct IdSkylineBuilder {
     out: IdBuilder,
     /// Root-to-current branch directions: `false` inside a left child,
     /// `true` inside a right.
-    path: Bits,
+    path: BitsMut,
     /// Two bits per right-branch level: what the completed left sibling
     /// built (see [`push_kind`](Self::push_kind)).
-    left_kinds: Bits,
+    left_kinds: BitsMut,
     /// The open ancestors' reserved tag positions, innermost last.
     tags: PosStack,
     /// The whole tiling's result, set when the last plateau closes the
@@ -194,8 +194,8 @@ impl IdSkylineBuilder {
     pub(super) fn with_capacity(capacity: usize) -> Self {
         IdSkylineBuilder {
             out: IdBuilder::with_capacity(capacity),
-            path: Bits::new(),
-            left_kinds: Bits::new(),
+            path: BitsMut::new(),
+            left_kinds: BitsMut::new(),
             tags: PosStack::new(),
             root: None,
         }
@@ -270,7 +270,7 @@ impl IdSkylineBuilder {
 
     /// Take the finished canonical stream (empty for a wholly unowned
     /// tiling).
-    pub(super) fn finish(self) -> Bits {
+    pub(super) fn finish(self) -> BitsMut {
         debug_assert!(
             self.root.is_some(),
             "an id tiling closes its root exactly once"

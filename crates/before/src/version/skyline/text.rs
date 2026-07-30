@@ -66,7 +66,7 @@ use core::fmt::Write as _;
 use suanpan::Accumulator;
 
 use crate::codec::text::{parse_base, Cur};
-use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
+use crate::codec::{Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Parse;
 
 use super::build::SkylineBuilder;
@@ -240,8 +240,8 @@ pub fn render(bits: &BitsSlice) -> String {
     // parked left-child summary of each open node past its left phase —
     // parallel stacks, where an enum-of-frames layout would pad every
     // open level to its widest variant.
-    let mut topology = Bits::new();
-    let mut phase = Bits::new();
+    let mut topology = BitsMut::new();
+    let mut phase = BitsMut::new();
     let mut open: Vec<usize> = Vec::new();
     let mut lefts = ParkedStack::new();
     // The digit arena: every printed nonzero base, rendered at the merge
@@ -345,7 +345,7 @@ pub fn render(bits: &BitsSlice) -> String {
     // Emit: preorder over the finalized topology and arena, one phase bit
     // per open node.
     let mut out = String::with_capacity(exact);
-    let mut pending = Bits::new();
+    let mut pending = BitsMut::new();
     let mut next_entry = 0usize;
     for (node, internal) in topology.iter().by_vals().enumerate() {
         let digits: &str = match entries.get(next_entry) {
@@ -468,7 +468,7 @@ fn merge(
 /// reported after the whole syntax pass, so syntax errors — including
 /// trailing junk — outrank [`Parse::NotCanonical`]; the built stream is
 /// then gated through the strict validator.
-pub fn parse(s: &str) -> Result<Bits, Parse> {
+pub fn parse(s: &str) -> Result<BitsMut, Parse> {
     /// What a parsed subtree contributes to its parent's normal-form
     /// check: its written base and whether it is a single leaf.
     struct Child {
@@ -487,7 +487,7 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
     // holds an old and a new buffer at once while it doubles — on a
     // deep spine that padded coexistence alone is most of the parse's
     // transient.
-    let mut phase = Bits::new();
+    let mut phase = BitsMut::new();
     let mut bases: ParkedStack<Base> = ParkedStack::new();
     let mut lefts: ParkedStack<Child> = ParkedStack::new();
     // The signed height movement since the last emitted leaf.

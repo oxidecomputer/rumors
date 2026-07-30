@@ -166,7 +166,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, PopStack};
+use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
@@ -207,7 +207,7 @@ const REL_FOLLOWER: usize = 1;
 /// must own at least one region: an empty id leaves `fill` the identity,
 /// and the grow fallback requires an owning id (debug builds assert it;
 /// the result on an empty id is unspecified in release builds).
-pub fn tick(ev: &BitsSlice, id: &crate::Party) -> Bits {
+pub fn tick(ev: &BitsSlice, id: &crate::Party) -> BitsMut {
     // `n = 1` performs exactly one fused walk plus at most one splice:
     // the delta against a direct dispatch is two unmetered width tests
     // and one non-allocating `Base` construction. The committed
@@ -246,7 +246,7 @@ pub fn tick(ev: &BitsSlice, id: &crate::Party) -> Bits {
 /// `n >= 1` the id must own at least one region, exactly as [`tick`]
 /// (debug builds assert it; the result on an empty id is unspecified in
 /// release builds).
-pub fn ticks(ev: &BitsSlice, id: &crate::Party, n: &Base) -> Bits {
+pub fn ticks(ev: &BitsSlice, id: &crate::Party, n: &Base) -> BitsMut {
     // Width tests, not value compares: n = 0 has no bits, n = 1 is the
     // one-bit magnitude, and neither test touches the limb meter.
     if n.bits() == 0 {
@@ -277,7 +277,7 @@ pub fn ticks(ev: &BitsSlice, id: &crate::Party, n: &Base) -> Bits {
 /// the grow splice.
 pub(super) enum FillOutcome {
     /// `fill(id, e) ≠ e`: the canonical filled stream.
-    Changed(Bits),
+    Changed(BitsMut),
     /// `fill(id, e) = e`: the inflation route for
     /// [`grow::emit`](super::grow::emit).
     Unchanged(super::grow::Route),
@@ -1146,14 +1146,14 @@ enum Frame {
 /// few heap bits of transient per level, never a machine-word frame.
 struct Frames {
     /// Per frame: a consume-site (true) or an ordinary node (false).
-    site: Bits,
+    site: BitsMut,
     /// Ordinary frames: awaiting the left (false) or the right (true)
     /// child's cost. Site frames: false, unread.
-    phase: Bits,
+    phase: BitsMut,
     /// Ordinary frames: whether the right child is present. Site
     /// frames: whether the site launched the covering fresh pre-scan
     /// ([`FillWalk::pop_site`]'s argument).
-    aux: Bits,
+    aux: BitsMut,
     /// Key deltas (one per frame, against `reg`) and deferred left
     /// costs (two components per left-to-right flip), LIFO with the
     /// frames they serve.
@@ -1166,9 +1166,9 @@ struct Frames {
 impl Frames {
     fn new() -> Self {
         Frames {
-            site: Bits::new(),
-            phase: Bits::new(),
-            aux: Bits::new(),
+            site: BitsMut::new(),
+            phase: BitsMut::new(),
+            aux: BitsMut::new(),
             vals: PopStack::new(),
             reg: 0,
         }
@@ -1761,13 +1761,13 @@ enum PreFrame {
 /// word deltas in place of route keys and costs.
 struct PreFrames {
     /// Per frame: a left-full site (true) or an ordinary node (false).
-    site: Bits,
+    site: BitsMut,
     /// Ordinary frames: awaiting the left (false) or right (true)
     /// child's range. Site frames: false, unread.
-    phase: Bits,
+    phase: BitsMut,
     /// Ordinary frames: whether the right child is present. Site
     /// frames: false, unread.
-    aux: Bits,
+    aux: BitsMut,
     /// Per site frame: the ledger slot delta, then the collapse-range
     /// start delta — both against monotone registers, LIFO with the
     /// frames they serve.
@@ -1783,9 +1783,9 @@ struct PreFrames {
 impl PreFrames {
     fn new() -> Self {
         PreFrames {
-            site: Bits::new(),
-            phase: Bits::new(),
-            aux: Bits::new(),
+            site: BitsMut::new(),
+            phase: BitsMut::new(),
+            aux: BitsMut::new(),
             vals: PopStack::new(),
             reg_slot: 0,
             reg_pos: 0,

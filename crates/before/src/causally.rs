@@ -984,37 +984,44 @@ impl<'a> Span<'a> {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Span<'static>, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        // The meet is the byte-aligned self-delimiting prefix: parse
-        // its tree to find the split, check its padding, and adopt its
-        // bytes as the endpoint's storage.
-        let (lo, lo_bytes) = {
+        // Both components are validated against the borrowed buffer
+        // first; the endpoints then adopt slices of that one buffer, so
+        // the whole span shares a single allocation. The meet is the
+        // byte-aligned self-delimiting prefix: parse its tree to find
+        // the split and check its padding. The join's admission walk
+        // parses its stream while deciding, in the same pass, whether
+        // it dominates — or equals — the meet: never a parse and then a
+        // second comparison walk. The pair verdict is pronounced last,
+        // after the padding check, so a composite defective several
+        // ways rejects by its structural genre first, exactly as
+        // decoding the components would.
+        let (lo_end, lo_bytes, hi_end, admission) = {
             let bits = codec::bytes_as_bits(&buf);
-            let end = skyline::validate_prefix(bits)?;
-            let lo_bytes = end.div_ceil(8);
-            codec::require_zero_padding(&bits[..8 * lo_bytes], end)?;
-            let mut bits = codec::Bits::from_vec(buf[..lo_bytes].to_vec());
-            bits.truncate(end);
-            (Version::from_bits(bits), lo_bytes)
-        };
-        // The join: the admission walk parses its stream while
-        // deciding, in the same pass, whether it dominates the meet —
-        // never a parse and then a second comparison walk. The pair
-        // verdict is pronounced last, after the padding check, so a
-        // composite defective several ways rejects by its structural
-        // genre first, exactly as decoding the components would.
-        let hi = {
-            let tail = &buf[lo_bytes..];
-            let bits = codec::bytes_as_bits(tail);
-            let mut cursor = codec::DsiCursor::new(bits);
-            let dominates = skyline::validate_dominating_from(lo.view(), &mut cursor)?;
-            let end = codec::BitCursor::position(&cursor);
-            codec::require_zero_padding(bits, end)?;
-            if !dominates {
+            let lo_end = skyline::validate_prefix(bits)?;
+            let lo_bytes = lo_end.div_ceil(8);
+            codec::require_zero_padding(&bits[..8 * lo_bytes], lo_end)?;
+            let tail = &bits[8 * lo_bytes..];
+            let mut cursor = codec::DsiCursor::new(tail);
+            let admission = skyline::validate_dominating_from(&bits[..lo_end], &mut cursor)?;
+            let hi_end = codec::BitCursor::position(&cursor);
+            codec::require_zero_padding(tail, hi_end)?;
+            if admission == skyline::Admission::Refuted {
                 return Err(Decode::NotCanonical);
             }
-            let mut bits = codec::Bits::from_vec(tail.to_vec());
-            bits.truncate(end);
-            Version::from_bits(bits)
+            (lo_end, lo_bytes, hi_end, admission)
+        };
+        let buf = bytes::Bytes::from(buf);
+        let lo = Version::from_frozen(codec::Bits::from_canonical(buf.slice(..lo_bytes), lo_end));
+        let hi = match admission {
+            // The coincident span stores one buffer twice: the admission
+            // walk proved the second stream byte-equal to the first, so
+            // the join is the meet's clone — an `O(1)` refcount bump the
+            // ptr_eq fast paths then recognize.
+            skyline::Admission::Equal => lo.clone(),
+            skyline::Admission::Dominates => {
+                Version::from_frozen(codec::Bits::from_canonical(buf.slice(lo_bytes..), hi_end))
+            }
+            skyline::Admission::Refuted => unreachable!("refuted admissions rejected above"),
         };
         Ok(Span {
             lo: Cow::Owned(lo),

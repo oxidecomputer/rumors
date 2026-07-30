@@ -1,24 +1,159 @@
 use bitvec::domain::Domain;
 use bitvec::prelude::*;
+use bytes::Bytes;
 
 use crate::error::Decode;
 
-/// The packed storage form: a most-significant-bit-first bit stream over bytes.
+/// The mutable build-side form of a packed bit stream: a
+/// most-significant-bit-first bit vector over bytes.
 ///
-/// This is the at-rest form of a `Party`/`Version`: the canonical packed
-/// preorder bit stream together with its exact live length, in one
-/// container. The raw byte slice ([`BitVec::as_raw_slice`]) *is* the wire
-/// encoding — the final partial byte's dead bits are zeroed at every
-/// storage seam (`zero_dead_bits`) — and the live length is a cached parse
-/// product the wire legitimately omits, because the streams are
-/// self-delimiting at the bit level.
-pub type Bits = BitVec<u8, Msb0>;
+/// Every emitter and builder writes into one of these ([`PackedBuilder`]
+/// wraps one with the metered move set); a finished stream freezes into
+/// the at-rest [`Bits`] at the storage seam. The `Bytes`/`BytesMut`
+/// naming echo is deliberate: `BitsMut` is where mutation happens,
+/// [`Bits`] is the shared, immutable result.
+///
+/// [`PackedBuilder`]: super::PackedBuilder
+pub type BitsMut = BitVec<u8, Msb0>;
 
-/// A borrowed view of the packed storage form.
+/// A borrowed view of a packed bit stream, mutable or frozen.
 pub type BitsSlice = BitSlice<u8, Msb0>;
 
+/// The at-rest storage form of a `Party`/`Version`: the canonical packed
+/// preorder bit stream together with its exact live length, over a
+/// refcounted byte buffer.
+///
+/// The raw byte slice ([`as_raw_slice`](Self::as_raw_slice)) *is* the
+/// wire encoding — exactly `ceil(len/8)` bytes, the final partial byte's
+/// dead bits zeroed at the freeze seam — and the live length is a cached
+/// parse product the wire legitimately omits, because the streams are
+/// self-delimiting at the bit level.
+///
+/// The backing store is [`Bytes`], so [`Clone`] is a refcount bump: two
+/// clones share one buffer, cost `O(1)`, and that shared identity is
+/// observable through [`ptr_eq`](Self::ptr_eq) — the fast path the
+/// identity-law shortcuts (`x ∨ x`, `cmp(x, x)`, `distance(x, x)`)
+/// dispatch on. Reading is still `bitvec`'s: the struct
+/// [derefs](core::ops::Deref) to [`BitsSlice`], so every cursor and walk
+/// consumes the frozen form exactly as it consumes a [`BitsMut`].
+#[derive(Clone)]
+pub struct Bits {
+    /// The canonical packed bytes: exactly the live bits' bytes, dead
+    /// bits in the final partial byte zeroed.
+    bytes: Bytes,
+    /// The live bit length: `bytes` holds exactly `bit_len.div_ceil(8)`
+    /// bytes.
+    bit_len: usize,
+}
+
+impl Bits {
+    /// The frozen empty stream: no bits, no bytes, no allocation.
+    pub(crate) fn empty() -> Self {
+        Bits {
+            bytes: Bytes::new(),
+            bit_len: 0,
+        }
+    }
+
+    /// Freeze a built stream into the at-rest form, canonicalizing its
+    /// storage: the single gate between the mutable build-side world and
+    /// the shared frozen one.
+    ///
+    /// Zeroes the dead bits past the live length (see the type docs for
+    /// what byte-canonicity underpins: a collapsing `truncate` leaves
+    /// stale bits in the final partial byte, and `as_raw_slice` would
+    /// expose them), then adopts the buffer without copying:
+    /// [`BitVec::into_vec`] hands back the underlying allocation and
+    /// `Bytes::from(vec)` wraps it in place.
+    pub(crate) fn freeze(mut buf: BitsMut) -> Self {
+        buf.set_uninitialized(false);
+        let bit_len = buf.len();
+        Bits {
+            bytes: Bytes::from(buf.into_vec()),
+            bit_len,
+        }
+    }
+
+    /// Adopt already-canonical bytes as a frozen stream: the decode-side
+    /// door, for buffers whose padding a validator has already proven
+    /// zero.
+    ///
+    /// `bytes` must hold exactly `bit_len.div_ceil(8)` bytes with the
+    /// dead bits zero — what `require_zero_padding` accepts. Debug builds
+    /// assert both; release builds trust the validator.
+    pub(crate) fn from_canonical(bytes: Bytes, bit_len: usize) -> Self {
+        debug_assert_eq!(
+            bytes.len(),
+            bit_len.div_ceil(8),
+            "from_canonical: the buffer must cover exactly the live bits' bytes",
+        );
+        let bits = Bits { bytes, bit_len };
+        debug_assert!(
+            dead_bits_are_zero(&bits),
+            "from_canonical: dead bits past the live length must be zero",
+        );
+        bits
+    }
+
+    /// The live bit length of the stream.
+    pub fn len(&self) -> usize {
+        self.bit_len
+    }
+
+    /// Whether the stream holds no bits at all.
+    ///
+    /// This is emptiness of the *storage* (the anonymous id), not of the
+    /// value a stream spells: the empty `Version` is a 2-bit stream.
+    /// [`len`](Self::len)'s conventional partner; the walks ask the
+    /// question of slices, so only the tests reach it directly.
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.bit_len == 0
+    }
+
+    /// The canonical packed bytes: the wire encoding, borrowed without
+    /// copying.
+    pub fn as_raw_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Whether two frozen streams share one buffer: clone identity, the
+    /// `O(1)` entry of [`canonical_eq`]'s ladder.
+    ///
+    /// True only between clones of one freeze (same pointer, same byte
+    /// and bit lengths), which share every byte by construction — so
+    /// `ptr_eq` implies byte equality, never the converse: two
+    /// independently built equal streams live in distinct buffers and
+    /// fall through to the byte compare.
+    pub(crate) fn ptr_eq(&self, other: &Bits) -> bool {
+        self.bit_len == other.bit_len
+            && self.bytes.len() == other.bytes.len()
+            && self.bytes.as_ptr() == other.bytes.as_ptr()
+    }
+}
+
+/// Read the frozen stream as live bits: every cursor and walk consumes
+/// [`Bits`] through this view, exactly as it consumes a [`BitsMut`].
+impl core::ops::Deref for Bits {
+    type Target = BitsSlice;
+    fn deref(&self) -> &BitsSlice {
+        &self.bytes.view_bits::<Msb0>()[..self.bit_len]
+    }
+}
+
+/// Equality of frozen streams is [`canonical_eq`]: the clone-identity
+/// fast path, then the one-`memcmp` byte compare that canonical storage
+/// makes exactly bit equality.
+impl PartialEq for Bits {
+    fn eq(&self, other: &Self) -> bool {
+        canonical_eq(self, other)
+    }
+}
+
+impl Eq for Bits {}
+
 /// Borrow bytes as an MSB-first bit stream without first copying them into a
-/// [`Bits`].
+/// [`BitsMut`].
 pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
     bytes.view_bits::<Msb0>()
 }
@@ -32,30 +167,34 @@ pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
 /// shrinking the live length while leaving the bits it shed in the final
 /// partial byte. `as_raw_slice` exposes those stale bits, so two equal parties
 /// built different ways would serialize to different bytes and a joined party
-/// could fail to decode on the wire. Calling this before a [`Bits`] becomes a
-/// stored `Party`/`Version` restores the canonical-storage invariant that
-/// `as_bytes`, [`Hash`](core::hash::Hash), and the borsh wire form rest on.
-pub(crate) fn zero_dead_bits(bits: &mut Bits) {
+/// could fail to decode on the wire. [`Bits::freeze`] applies this at the
+/// storage seam; this standalone form canonicalizes buffers that stay
+/// build-side — all of them meter/test instruments, hence the gate.
+#[cfg(any(test, feature = "meter"))]
+pub(crate) fn zero_dead_bits(bits: &mut BitsMut) {
     bits.set_uninitialized(false);
 }
 
 /// Byte-level equality of two canonical stored streams: equal live
-/// lengths and equal raw bytes.
+/// lengths and equal raw bytes, entered through the clone-identity fast
+/// path.
 ///
-/// Rests on the canonical-raw-slice invariant — [`zero_dead_bits`] at
-/// every storage seam — under which raw-byte equality plus live-length
-/// equality is exactly bit equality, decided by one `memcmp` instead of
-/// a bit-domain-chunked compare (measured 2–54x faster on equal pairs
-/// from 23 bits to 32 Kbits, and 5x on a hash-map workload, in the
-/// 2026-07 storage-migration probe). The length check is load-bearing:
-/// two streams of different live length can share raw bytes (`01` vs
-/// `010` are both the byte `0x40`).
+/// The ladder: [`Bits::ptr_eq`] first — clones of one freeze share every
+/// byte by construction, `O(1)` — then the byte compare. The byte rung
+/// rests on the canonical-raw-slice invariant ([`Bits::freeze`] zeroes
+/// dead bits at every storage seam), under which raw-byte equality plus
+/// live-length equality is exactly bit equality, decided by one `memcmp`
+/// instead of a bit-domain-chunked compare (measured 2–54x faster on
+/// equal pairs from 23 bits to 32 Kbits, and 5x on a hash-map workload,
+/// in the 2026-07 storage-migration probe). The length check is
+/// load-bearing: two streams of different live length can share raw
+/// bytes (`01` vs `010` are both the byte `0x40`).
 pub(crate) fn canonical_eq(a: &Bits, b: &Bits) -> bool {
     debug_assert!(
         dead_bits_are_zero(a) && dead_bits_are_zero(b),
         "canonical_eq compares raw bytes: both operands' dead bits must be zero",
     );
-    a.len() == b.len() && a.as_raw_slice() == b.as_raw_slice()
+    a.ptr_eq(b) || (a.len() == b.len() && a.as_raw_slice() == b.as_raw_slice())
 }
 
 /// Byte-level hash of a canonical stored stream: the raw bytes, then the
@@ -79,9 +218,9 @@ pub(crate) fn canonical_hash<H: core::hash::Hasher>(bits: &Bits, state: &mut H) 
 /// Whether a stored stream's dead bits are zero: the canonical-storage
 /// check behind the `as_bytes` debug asserts.
 ///
-/// Only the final partial byte of [`BitVec::as_raw_slice`] can hold dead
-/// bits (the slice covers exactly the live bits' bytes), so this is one
-/// mask test — `O(1)`, cheap enough to assert on every raw-byte read.
+/// Only the final partial byte of the raw slice can hold dead bits (the
+/// slice covers exactly the live bits' bytes), so this is one mask test —
+/// `O(1)`, cheap enough to assert on every raw-byte read.
 pub(crate) fn dead_bits_are_zero(bits: &Bits) -> bool {
     let live_in_last = bits.len() % 8;
     live_in_last == 0

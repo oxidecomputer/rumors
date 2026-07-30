@@ -1244,7 +1244,7 @@ impl FamilyData {
 fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let shape = decode_party(id);
     let mount = |left: bool| -> Vec<u8> {
-        let mut bits = codec::Bits::with_capacity(shape.as_bits().len() + 2);
+        let mut bits = codec::BitsMut::with_capacity(shape.as_bits().len() + 2);
         bits.push(left);
         bits.push(!left);
         bits.extend_from_bitslice(shape.as_bits());
@@ -1288,7 +1288,7 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
         "the overlap-mount adapter needs a non-terminal shape: a full shape's mount would \
          not be normal form"
     );
-    let mut a = codec::Bits::with_capacity(bits.len() + 2 * path.len() + 4);
+    let mut a = codec::BitsMut::with_capacity(bits.len() + 2 * path.len() + 4);
     a.push(true); // root: both children present
     a.push(true);
     a.extend_from_bitslice(bits); // left: the shape
@@ -1300,7 +1300,7 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     a.push(false); // the marker's terminal, at the shape's last owned position
     a.push(false);
     codec::zero_dead_bits(&mut a);
-    let mut b = codec::Bits::with_capacity(bits.len() + 2);
+    let mut b = codec::BitsMut::with_capacity(bits.len() + 2);
     b.push(false); // root: right child only
     b.push(true);
     b.extend_from_bitslice(bits); // right: the shape
@@ -1356,7 +1356,7 @@ fn rightmost_terminal_path(bits: &codec::BitsSlice) -> Vec<bool> {
 /// the fold's per-call accumulator index answers the same test in
 /// O(probe), which is the separation the row watches.
 pub(super) fn overlap_fold_probe() -> Vec<u8> {
-    let mut probe = codec::Bits::with_capacity(4);
+    let mut probe = codec::BitsMut::with_capacity(4);
     probe.push(false); // root: right child only
     probe.push(true);
     probe.push(false); // the right child: a full leaf

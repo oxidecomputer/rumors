@@ -57,7 +57,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitCursor, Bits, BitsSlice};
+use crate::codec::{Base, BitCursor, BitsMut, BitsSlice};
 use crate::error::Decode;
 
 use super::sweep::{fold, LeafCursor, PlateauCursor, Side, Step};
@@ -82,10 +82,10 @@ struct CheckedCursor<'a, C> {
     cursor: &'a mut C,
     /// Root-to-leaf branch directions, root first (`false`: inside the
     /// left child, its right sibling still pending in the stream).
-    path: Bits,
+    path: BitsMut,
     /// Per open ancestor: whether its completed left child was a leaf
     /// (a placeholder `false` until that child completes).
-    left_was_leaf: Bits,
+    left_was_leaf: BitsMut,
     /// The count of `false` bits in `path`: zero exactly when the
     /// current leaf's plateau ends at the unit interval's right edge —
     /// the tree is whole and the stream's bits end here.
@@ -106,8 +106,8 @@ where
     fn open(cursor: &'a mut C) -> Result<(Self, Base), Decode> {
         let mut this = CheckedCursor {
             cursor,
-            path: Bits::new(),
-            left_was_leaf: Bits::new(),
+            path: BitsMut::new(),
+            left_was_leaf: BitsMut::new(),
             open_lefts: 0,
             last_delta_zero: false,
         };
@@ -225,18 +225,42 @@ where
     }
 }
 
-/// Strictly parse one skyline tree from `cursor`, deciding in the same
-/// pass whether its version dominates the canonical stream `lo`
-/// (`lo <= hi` pointwise over the unit id interval).
+/// The admission walk's pair verdict: how the parsed stream relates to
+/// the canonical `lo` it was co-swept against.
 ///
-/// Returns with the cursor just past the tree, carrying the dominance
-/// verdict: `true` exactly when the parsed version dominates `lo`. The
-/// walk never pronounces the pair rejection itself — the caller checks
-/// its own tail obligations first (the byte-slice decode its zero
-/// padding, the wire-side cursor its final byte's dead bits) and mints
-/// [`Decode::NotCanonical`] from a `false` verdict only after they
-/// pass, so every structural genre of the composite stays ahead of the
-/// pair rejection.
+/// Three-valued rather than the bare dominance bool because the same
+/// single sign read per elementary interval that proves `lo <= hi` also
+/// distinguishes equality (no interval read a strict `Less`), and the
+/// coincident span's storage dedup dispatches on exactly that: on
+/// [`Equal`](Admission::Equal) the caller materializes one buffer and
+/// clones it into both endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Admission {
+    /// The parsed stream equals `lo`: dominance with no strict interval.
+    /// Canonical uniqueness makes this exactly byte equality of the two
+    /// streams.
+    Equal,
+    /// The parsed stream strictly dominates `lo`: at least one
+    /// elementary interval sits strictly above.
+    Dominates,
+    /// Dominance refuted: some elementary interval has `lo` strictly
+    /// above the parsed stream. The pair is crossed or concurrent — no
+    /// span encodes it.
+    Refuted,
+}
+
+/// Strictly parse one skyline tree from `cursor`, deciding in the same
+/// pass whether its version dominates — or equals — the canonical
+/// stream `lo` (`lo <= hi` pointwise over the unit id interval).
+///
+/// Returns with the cursor just past the tree, carrying the
+/// [`Admission`] verdict. The walk never pronounces the pair rejection
+/// itself — the caller checks its own tail obligations first (the
+/// byte-slice decode its zero padding, the wire-side cursor its final
+/// byte's dead bits) and mints [`Decode::NotCanonical`] from a
+/// [`Refuted`](Admission::Refuted) verdict only after they pass, so
+/// every structural genre of the composite stays ahead of the pair
+/// rejection.
 ///
 /// # Errors
 ///
@@ -263,7 +287,7 @@ where
 pub(crate) fn validate_dominating_from<C: BitCursor>(
     lo: &BitsSlice,
     cursor: &mut C,
-) -> Result<bool, Decode>
+) -> Result<Admission, Decode>
 where
     Decode: From<C::Error>,
 {
@@ -276,19 +300,29 @@ where
     let mut diff = Accumulator::new();
     diff.add_magnitude(&lo_first);
     diff.sub_magnitude(&hi_first);
+    // Equality rides the same sign reads: the pair is equal exactly
+    // when no elementary interval reads a strict `Less` (and none reads
+    // `Greater`, which refutes outright) — canonical uniqueness then
+    // makes the verdict byte equality of the two streams.
+    let mut equal = true;
     loop {
         // One sign read per elementary interval, exactly as the sweep
-        // folds it.
-        if diff.sign() == Ordering::Greater {
-            // Dominance refuted, permanently: the verdict is fixed.
-            // Drop `lo`'s cursor and the difference, and complete the
-            // strict parse alone so a structural defect later in the
-            // stream still reports its own genre.
-            while !hi_cur.done() {
-                hi_cur.step()?;
+        // folds it; the three-way match keeps that single read while
+        // deciding both the dominance and the equality questions.
+        match diff.sign() {
+            Ordering::Greater => {
+                // Dominance refuted, permanently: the verdict is fixed.
+                // Drop `lo`'s cursor and the difference, and complete
+                // the strict parse alone so a structural defect later
+                // in the stream still reports its own genre.
+                while !hi_cur.done() {
+                    hi_cur.step()?;
+                }
+                hi_cur.finish()?;
+                return Ok(Admission::Refuted);
             }
-            hi_cur.finish()?;
-            return Ok(false);
+            Ordering::Less => equal = false,
+            Ordering::Equal => {}
         }
         if lo_cur.done() && hi_cur.done() {
             break;
@@ -296,7 +330,11 @@ where
         advance(&mut lo_cur, &mut hi_cur, &mut diff)?;
     }
     hi_cur.finish()?;
-    Ok(true)
+    Ok(if equal {
+        Admission::Equal
+    } else {
+        Admission::Dominates
+    })
 }
 
 /// Advance the overlay one boundary: the deeper cursor steps, and the

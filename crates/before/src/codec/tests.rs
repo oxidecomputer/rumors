@@ -11,7 +11,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::{
-    bytes_as_bits, decode_int, decode_int_from, encode_int, Base, BitCursor, Bits, BitsSlice,
+    bytes_as_bits, decode_int, decode_int_from, encode_int, Base, BitCursor, BitsMut, BitsSlice,
     DsiCursor, SliceCursor, PARSE_STACK_INLINE,
 };
 use crate::causally::Span;
@@ -34,7 +34,7 @@ proptest! {
     #[test]
     fn gamma_roundtrip(n in 0u64..1_000_000) {
         let n = Base::from(n);
-        let mut bits = Bits::new();
+        let mut bits = BitsMut::new();
         encode_int(&mut bits, &n);
         let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
         prop_assert_eq!(decoded, n);
@@ -52,7 +52,7 @@ proptest! {
         for limb in limbs {
             n = (n << 64) | Base::from(limb);
         }
-        let mut bits = Bits::new();
+        let mut bits = BitsMut::new();
         encode_int(&mut bits, &n);
         let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
         prop_assert_eq!(decoded, n);
@@ -70,7 +70,7 @@ proptest! {
 #[test]
 fn gamma_costs() {
     let cost = |n: u64| {
-        let mut bits = Bits::new();
+        let mut bits = BitsMut::new();
         encode_int(&mut bits, &Base::from(n));
         bits.len()
     };
@@ -86,7 +86,7 @@ fn gamma_costs() {
 #[test]
 fn gamma_roundtrip_just_above_u64_max() {
     let n = Base::from(u64::MAX) + Base::from(1u8);
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     encode_int(&mut bits, &n);
     let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
     assert_eq!(decoded, n);
@@ -98,10 +98,69 @@ fn gamma_roundtrip_just_above_u64_max() {
 /// end (empty input, or all-zeros with no terminating `1`).
 #[test]
 fn gamma_truncated() {
-    let empty = Bits::new();
+    let empty = BitsMut::new();
     assert!(matches!(decode_int(&empty, 0), Err(Decode::Truncated)));
-    let zeros: Bits = bitvec![u8, Msb0; 0, 0, 0, 0, 0];
+    let zeros: BitsMut = bitvec![u8, Msb0; 0, 0, 0, 0, 0];
     assert!(matches!(decode_int(&zeros, 0), Err(Decode::Truncated)));
+}
+
+// ───────────────────────── frozen storage (Bits) ─────────────────────────
+
+/// `Bits::freeze` canonicalizes storage: a build buffer whose `truncate`
+/// left stale bits in the final partial byte freezes to a raw slice with
+/// the dead bits zero, covering exactly the live bits' bytes, with the
+/// live length and bit content preserved.
+#[test]
+fn freeze_canonicalizes_storage() {
+    // Write a byte of ones, then truncate to 3 live bits: the shed ones
+    // linger in the buffer's final byte until the freeze zeroes them.
+    let mut buf: BitsMut = bitvec![u8, Msb0; 1; 8];
+    buf.truncate(3);
+    let frozen = super::Bits::freeze(buf.clone());
+    assert_eq!(frozen.len(), 3);
+    assert_eq!(frozen.as_raw_slice(), &[0b1110_0000]);
+    assert!(super::dead_bits_are_zero(&frozen));
+    assert_eq!(&*frozen, &buf[..]);
+}
+
+/// `Bits::ptr_eq` recognizes clones and only clones: a clone shares the
+/// frozen buffer (`ptr_eq` true), while two independent freezes of the
+/// same content are equal (`canonical_eq`) but not pointer-identical —
+/// so `ptr_eq` is a fast path *into* byte equality, never a substitute
+/// for it.
+#[test]
+fn ptr_eq_recognizes_clones_and_only_clones() {
+    let build = || super::Bits::freeze(bitvec![u8, Msb0; 1, 0, 1, 1, 0]);
+    let a = build();
+    let clone = a.clone();
+    assert!(a.ptr_eq(&clone));
+    assert!(super::canonical_eq(&a, &clone));
+    let b = build();
+    assert!(!a.ptr_eq(&b));
+    assert!(super::canonical_eq(&a, &b));
+}
+
+/// The two freeze doors agree: adopting already-canonical bytes
+/// (`from_canonical`, the decode side) yields a stream equal to the
+/// build-side freeze of the same bits, and the empty constructor is the
+/// freeze of the empty buffer.
+#[test]
+fn from_canonical_matches_freeze() {
+    let frozen = super::Bits::freeze(bitvec![u8, Msb0; 1, 0, 1]);
+    let adopted = super::Bits::from_canonical(
+        bytes::Bytes::copy_from_slice(frozen.as_raw_slice()),
+        frozen.len(),
+    );
+    assert!(super::canonical_eq(&frozen, &adopted));
+    assert!(!frozen.ptr_eq(&adopted)); // distinct buffers, equal content
+
+    let empty = super::Bits::empty();
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+    assert!(super::canonical_eq(
+        &empty,
+        &super::Bits::freeze(BitsMut::new())
+    ));
 }
 
 // ───────────────── word-window fast paths (differential) ─────────────────
@@ -117,7 +176,7 @@ fn gamma_truncated() {
 
 /// The per-bit reference emitter, the encode-side differential oracle:
 /// unary prefix then MSB-first mantissa, one push per bit.
-fn encode_int_bitwise(out: &mut Bits, n: &Base) {
+fn encode_int_bitwise(out: &mut BitsMut, n: &Base) {
     let m = n + 1u32;
     let k = m.bits() - 1;
     for _ in 0..k {
@@ -207,7 +266,7 @@ fn arb_boundary_u64() -> impl Strategy<Value = u64> {
 /// `pad` positions the read mid-byte, `zeros` spans prefix lengths across the
 /// 31/32 window split and the 63/64/65 word widths, and `rest` supplies — or,
 /// when short, truncates — the mantissa, plus trailing junk.
-fn arb_gamma_stream() -> impl Strategy<Value = (Bits, usize)> {
+fn arb_gamma_stream() -> impl Strategy<Value = (BitsMut, usize)> {
     (
         proptest::collection::vec(any::<bool>(), 0..17),
         prop_oneof![
@@ -222,7 +281,7 @@ fn arb_gamma_stream() -> impl Strategy<Value = (Bits, usize)> {
     )
         .prop_map(|(pad, zeros, rest)| {
             let pos = pad.len();
-            let mut bits = Bits::new();
+            let mut bits = BitsMut::new();
             bits.extend(pad);
             for _ in 0..zeros {
                 bits.push(false);
@@ -250,8 +309,8 @@ proptest! {
             value = (value << 64) | Base::from(limb);
         }
         let pos = prefix.len();
-        let mut word = Bits::new();
-        let mut bit = Bits::new();
+        let mut word = BitsMut::new();
+        let mut bit = BitsMut::new();
         for b in prefix {
             word.push(b);
             bit.push(b);
@@ -332,7 +391,7 @@ fn gamma_window_edge() {
 
     // k = 31: the widest code a 64-bit window proves.
     let n = (1u64 << 31) - 1;
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     encode_int(&mut bits, &Base::from(n));
     assert_eq!(bits.len(), 63);
     assert_eq!(decode_int_window(&bits, 0), Some((n, 63)));
@@ -343,7 +402,7 @@ fn gamma_window_edge() {
     // k = 32: a 65-bit code straddles the window edge — decline, and the
     // full decoder still reads it through the loop.
     let n = (1u64 << 32) - 1;
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     encode_int(&mut bits, &Base::from(n));
     assert_eq!(bits.len(), 65);
     assert_eq!(decode_int_window(&bits, 0), None);
@@ -352,7 +411,7 @@ fn gamma_window_edge() {
     assert_eq!(end, 65);
 
     // Junk after a short code must not leak into its mantissa.
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     encode_int(&mut bits, &Base::from(5u64));
     let code_len = bits.len();
     for _ in 0..64 {
@@ -368,7 +427,7 @@ fn gamma_window_edge() {
 fn gamma_window_declines_conservatively() {
     use super::gamma::decode_int_window;
 
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     bits.push(false);
     bits.push(true);
 
@@ -382,7 +441,7 @@ fn gamma_window_declines_conservatively() {
     assert_eq!(decode_int_window(&bits, 7), None);
 
     // All zeros: no terminating 1 in the stream (bit loop: `Truncated`).
-    let zeros = Bits::repeat(false, 70);
+    let zeros = BitsMut::repeat(false, 70);
     assert_eq!(decode_int_window(&zeros, 0), None);
 }
 
@@ -393,7 +452,7 @@ fn gamma_window_declines_conservatively() {
 fn gamma_roundtrip_wide_value() {
     // 2^1000 + 12345: a 1001-bit mantissa with live bits at both ends.
     let n = (Base::from(1u8) << 1000u32) + 12345u64;
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     encode_int(&mut bits, &n);
     let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
     assert_eq!(decoded, n);
@@ -406,7 +465,7 @@ fn gamma_roundtrip_wide_value() {
 #[test]
 fn gamma_truncated_inside_wide_mantissa() {
     let n = (Base::from(1u8) << 1000u32) + 12345u64;
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     encode_int(&mut bits, &n);
     // Cuts inside the unary prefix, at the leading mantissa 1, just after
     // it, at byte-scale offsets into the mantissa, and one bit short.
@@ -1229,7 +1288,10 @@ impl RefCur<'_> {
 /// error precedence: each token defect is a `Syntax` error at the point the
 /// token is demanded, and a node's collapsible-children check (`(0, 0)` /
 /// `(1, 1)` → `NotCanonical`) runs only after its closing paren parsed.
-fn ref_parse_id_node(cur: &mut RefCur, bits: &mut Bits) -> Result<RefIdKind, crate::error::Parse> {
+fn ref_parse_id_node(
+    cur: &mut RefCur,
+    bits: &mut BitsMut,
+) -> Result<RefIdKind, crate::error::Parse> {
     use crate::error::Parse;
     match cur.bump() {
         Some(b'(') => {
@@ -1266,12 +1328,12 @@ fn ref_parse_id_node(cur: &mut RefCur, bits: &mut Bits) -> Result<RefIdKind, cra
 
 /// The reference id-string parser: one tree, no trailing input, normal form
 /// revalidated on the emitted bits — `parse_id_str`'s exact contract.
-fn ref_parse_id_str(s: &str) -> Result<Bits, crate::error::Parse> {
+fn ref_parse_id_str(s: &str) -> Result<BitsMut, crate::error::Parse> {
     let mut cur = RefCur {
         bytes: s.as_bytes(),
         pos: 0,
     };
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     ref_parse_id_node(&mut cur, &mut bits)?;
     if cur.peek().is_some() {
         return Err(crate::error::Parse::Syntax);
@@ -1436,7 +1498,7 @@ fn id_text_parser_error_precedence_pins() {
     assert_eq!(super::parse_id_str("(1 0)"), Err(Parse::Syntax));
     assert_eq!(super::parse_id_str("(1, 0"), Err(Parse::Syntax));
     assert_eq!(super::parse_id_str("1"), Ok(bitvec![u8, Msb0; 0, 0]));
-    assert_eq!(super::parse_id_str("0"), Ok(Bits::new()));
+    assert_eq!(super::parse_id_str("0"), Ok(BitsMut::new()));
     let spaced = super::parse_id_str(" ( 1 ,\t( 0 ,\n1 ) )\r").expect("whitespace between tokens");
     assert_eq!(
         spaced,

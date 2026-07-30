@@ -305,6 +305,7 @@ dependencies = [
  "before",
  "bitvec",
  "borsh",
+ "bytes",
  "ciborium",
  "complexity-claims",
  "criterion",

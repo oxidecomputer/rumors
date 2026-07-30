@@ -20,7 +20,7 @@ use dashu_int::UBig;
 
 use crate::error::Decode;
 
-use super::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
+use super::{Base, BitCursor, BitsMut, BitsSlice, SliceCursor};
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
 /// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
@@ -28,7 +28,7 @@ use super::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
 /// Cost is `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and
 /// prefix-free, for an arbitrary-width non-negative `n` (there is no value
 /// cap).
-pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
+pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
     let m = n + 1u32;
     match m.to_u64() {
         // Word case: the mantissa fits a machine word, so append the whole

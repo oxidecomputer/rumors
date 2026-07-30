@@ -90,7 +90,7 @@ pub(super) fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
     let all = codec::bytes_as_bits(v.as_bytes());
     let bits = &all[..v.encoded_bits()];
     let leaf = last_leaf_flag_pos(v);
-    let mut out = codec::Bits::with_capacity(bits.len() + 4);
+    let mut out = codec::BitsMut::with_capacity(bits.len() + 4);
     out.extend_from_bitslice(&bits[..leaf]);
     out.push(false); // the old leaf's position becomes an internal node
     out.extend_from_bitslice(&bits[leaf..]); // left child: the old leaf verbatim
@@ -113,7 +113,7 @@ pub(super) fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
         !bits[end - 2] && !bits[end - 1],
         "a preorder id stream ends in a terminal tag"
     );
-    let mut out = codec::Bits::with_capacity(end + 4);
+    let mut out = codec::BitsMut::with_capacity(end + 4);
     out.extend_from_bitslice(&bits[..end - 2]);
     out.push(true); // the last terminal becomes a node with both children
     out.push(true);
