@@ -28,7 +28,12 @@
 //! [`Version`]s are any canonical versions, [`Party`]s are any *live*
 //! (non-anonymous) parties — exactly what `decode` accepts and the crate
 //! can construct — [`Rank`]s are any ranks, and [`Clock`]s are any
-//! canonical party/version pairings.
+//! canonical party/version pairings. The list groups take a slice of the
+//! same inputs at *any* arity — the length is a quantified variable, and
+//! every driver sweeps it across the balanced fold's structural
+//! boundaries (the drivers' strategies document the derivation) — and
+//! the receiver-and-items groups additionally distinguish the element
+//! the operation's receiver supplies.
 //!
 //! # Linearity
 //!
@@ -79,9 +84,12 @@ pub(crate) fn registered_names() -> Vec<&'static str> {
         .chain(VERSION_SOLO.iter().map(|(name, _)| *name))
         .chain(VERSION_PAIR.iter().map(|(name, _)| *name))
         .chain(VERSION_TRIPLE.iter().map(|(name, _)| *name))
+        .chain(VERSION_LIST.iter().map(|(name, _)| *name))
+        .chain(VERSION_AND_LIST.iter().map(|(name, _)| *name))
         .chain(PARTY_SOLO.iter().map(|(name, _)| *name))
         .chain(PARTY_PAIR.iter().map(|(name, _)| *name))
         .chain(PARTY_TRIPLE.iter().map(|(name, _)| *name))
+        .chain(PARTY_AND_LIST.iter().map(|(name, _)| *name))
         .chain(VERSION_PARTY.iter().map(|(name, _)| *name))
         .chain(VERSION_PAIR_PARTY.iter().map(|(name, _)| *name))
         .chain(VERSION_PARTY_PAIR.iter().map(|(name, _)| *name))
@@ -89,6 +97,7 @@ pub(crate) fn registered_names() -> Vec<&'static str> {
         .chain(RANK_TRIPLE.iter().map(|(name, _)| *name))
         .chain(CLOCK_SOLO.iter().map(|(name, _)| *name))
         .chain(CLOCK_VERSION.iter().map(|(name, _)| *name))
+        .chain(CLOCK_AND_LIST.iter().map(|(name, _)| *name))
         .collect()
 }
 
@@ -1000,6 +1009,144 @@ fn span_codec_roundtrip(a: &Version, b: &Version) -> bool {
     framed && round && coincident
 }
 
+// ───────────────────────────── Version: lists ─────────────────────────────
+
+/// Laws over a list of versions, at any arity.
+///
+/// The n-ary lattice folds against their sequential pair-operator
+/// oracles, and their order-independence. The list length is the
+/// quantified variable no fixed-arity group can reach: the drivers
+/// sweep it across every structural boundary of the balanced counter
+/// the folds run on — the identity and lone-input short-circuits, the
+/// first leaf combine, the closing drain, and the merged–merged
+/// carries that first fire at arity four — so no combine arm sits
+/// beyond the suite's reach under any future reshaping of the fold.
+pub static VERSION_LIST: &[Law<fn(&[Version]) -> bool>] = &[
+    (
+        "join_all_is_the_sequential_pair_fold",
+        join_all_is_the_sequential_pair_fold,
+    ),
+    (
+        "meet_all_is_the_sequential_pair_fold",
+        meet_all_is_the_sequential_pair_fold,
+    ),
+    ("fold_all_is_order_invariant", fold_all_is_order_invariant),
+];
+
+/// `join_all` is the sequential pair fold: at every arity, the n-ary
+/// door equals `|` folded left-to-right from the identity
+/// ([`Version::new`]).
+///
+/// The right-hand side is the bound pair operator, never the n-ary
+/// door, so the two sides cannot share a broken combine arm; the
+/// balanced regrouping inside the door is exactly what the equation
+/// quantifies away. At arity zero the equation *is* the empty edge
+/// (`join_all(∅) == new`), at one the lone input, at two the pair
+/// operator itself.
+fn join_all_is_the_sequential_pair_fold(xs: &[Version]) -> bool {
+    let sequential = xs.iter().fold(Version::new(), |acc, x| &acc | x);
+    Version::join_all(xs) == sequential
+}
+
+/// `meet_all` is the sequential pair fold: at every arity, the n-ary
+/// door equals `&` folded left-to-right from the first element — and
+/// [`None`] exactly on the empty list, where the identityless meet
+/// has no value to give.
+fn meet_all_is_the_sequential_pair_fold(xs: &[Version]) -> bool {
+    let sequential = xs
+        .split_first()
+        .map(|(first, rest)| rest.iter().fold(first.clone(), |acc, x| &acc & x));
+    Version::meet_all(xs) == sequential
+}
+
+/// The n-ary folds are order-independent at every arity: every
+/// rotation and the reversal of the list fold to the same join and
+/// the same meet.
+///
+/// Each rotation hands the balanced counter a different grouping of
+/// the same population (which elements coalesce at which weights
+/// depends only on arrival order), so an arm that favors one grouping
+/// diverges from the rest of the orbit. Together with the
+/// sequential-fold laws and the pair operators' commutativity and
+/// associativity, the full permutation orbit is pinned.
+fn fold_all_is_order_invariant(xs: &[Version]) -> bool {
+    let join = Version::join_all(xs);
+    let meet = Version::meet_all(xs);
+    Version::join_all(xs.iter().rev()) == join
+        && Version::meet_all(xs.iter().rev()) == meet
+        && (1..xs.len()).all(|r| {
+            let rotated = || xs[r..].iter().chain(&xs[..r]);
+            Version::join_all(rotated()) == join && Version::meet_all(rotated()) == meet
+        })
+}
+
+// ──────────────────── Version: a receiver and items ────────────────────
+
+/// Laws over a version (the receiver) and a list of versions (the
+/// items), at any arity.
+///
+/// The shape [`Version::span_all`] quantifies over: the receiver is
+/// the guaranteed first element that keeps the hull total, so the
+/// family under law is `{receiver} ∪ items` — never empty. The item
+/// count is swept across the same fold boundaries as the
+/// [`VERSION_LIST`] laws', the reach no fixed-arity group has.
+pub static VERSION_AND_LIST: &[Law<fn(&Version, &[Version]) -> bool>] = &[
+    ("span_all_is_the_family_hull", span_all_is_the_family_hull),
+    (
+        "span_all_is_rotation_invariant",
+        span_all_is_rotation_invariant,
+    ),
+];
+
+/// The n-ary span at every arity: endpoints definitionally the n-ary
+/// meet and join over `{receiver} ∪ items`, every input within.
+///
+/// The endpoints are [`Version::meet_all`] and [`Version::join_all`]
+/// over the same family — the accessors read exactly them back — and
+/// every input places within the hull: never
+/// [`Before`](Placement::Before) or [`After`](Placement::After),
+/// since the meet bounds each input from below and the join from
+/// above. At zero items the family is the receiver alone and the
+/// hull is the coincident `[receiver, receiver]`; at one item it is
+/// the pair hull ([`span_is_the_pair_hull`] pins those same edges
+/// from the binary door's side). The hull fold carries both lattice
+/// directions through one balanced counter, so a combine arm that
+/// reads the wrong endpoint of a merged group breaks exactly one
+/// side of this equation at exactly the arities that reach the arm.
+fn span_all_is_the_family_hull(receiver: &Version, items: &[Version]) -> bool {
+    let hull = receiver.span_all(items);
+    let family = || core::iter::once(receiver).chain(items);
+    let meet = Version::meet_all(family()).expect("the receiver makes the family nonempty");
+    let join = Version::join_all(family());
+    let definitional = hull == Span::new_unchecked(&meet, &join);
+    let accessors = *hull.meet() == meet && *hull.join() == join;
+    let contained =
+        family().all(|v| !matches!(hull.place(v), Placement::Before | Placement::After));
+    definitional && accessors && contained
+}
+
+/// The n-ary span is rotation-independent at every arity: which
+/// element rides as the receiver is irrelevant, and so is item order.
+///
+/// Every rotation of the family — each element taking one turn as the
+/// receiver, the rest following in rotated order — and the reversal
+/// build the same hull. Each rotation regroups the hull fold's
+/// balanced counter differently, so an arm wrong under one grouping
+/// diverges from the orbit.
+fn span_all_is_rotation_invariant(receiver: &Version, items: &[Version]) -> bool {
+    let family: Vec<&Version> = core::iter::once(receiver).chain(items).collect();
+    let hull = receiver.span_all(items);
+    let rotations = (1..family.len()).all(|r| {
+        let items = family[r + 1..].iter().chain(&family[..r]).copied();
+        family[r].span_all(items) == hull
+    });
+    let reversed = {
+        let (last, front) = family.split_last().expect("the receiver is always present");
+        last.span_all(front.iter().rev().copied()) == hull
+    };
+    rotations && reversed
+}
+
 // ───────────────────────────── Party: one value ─────────────────────────────
 
 /// Laws over one live party.
@@ -1393,6 +1540,115 @@ fn join_all_defined_iff_pairwise_disjoint(a: &Party, b: &Party, c: &Party) -> bo
         .join_all([b.dangerously_alias(), c.dangerously_alias()])
         .is_ok();
     accepted == (a.is_disjoint(b) && a.is_disjoint(c) && b.is_disjoint(c))
+}
+
+// ───────────────────── Party: a receiver and items ─────────────────────
+
+/// Laws over a live party (the receiver) and a list of live parties
+/// (the items), at any arity.
+///
+/// [`Party::join_all`]'s three faces, each quantified over the item
+/// count no fixed-width point law can sweep: acceptance is pairwise
+/// disjointness of the whole family, an accepted fold is the
+/// sequential pair joins, and rejection is per-input and lossless
+/// (best-effort). The constructed laws draw their families from the
+/// receiver's own fork tree, so the accepted arm is exercised at
+/// every width even though arbitrary parties rarely happen to be
+/// disjoint — while the arbitrary items (frequently aliased, since
+/// the drivers index small pools) keep the refusal arm under mass.
+pub static PARTY_AND_LIST: &[Law<fn(&Party, &[Party]) -> bool>] = &[
+    (
+        "party_join_all_accepts_iff_family_pairwise_disjoint",
+        party_join_all_accepts_iff_family_pairwise_disjoint,
+    ),
+    (
+        "party_join_all_reunites_forks_at_any_width",
+        party_join_all_reunites_forks_at_any_width,
+    ),
+    (
+        "party_join_all_is_best_effort_at_any_width",
+        party_join_all_is_best_effort_at_any_width,
+    ),
+];
+
+/// `join_all` accepts exactly the pairwise-disjoint families —
+/// receiver included — at every arity.
+///
+/// An accepted fold equals the sequential pair joins (the bound pair
+/// operation, never the n-ary door, so the two sides cannot share a
+/// broken arm); a refused one still absorbed every region it could —
+/// the accumulator covers its original region — and handed at least
+/// one input back.
+fn party_join_all_accepts_iff_family_pairwise_disjoint(p: &Party, items: &[Party]) -> bool {
+    let family: Vec<&Party> = core::iter::once(p).chain(items).collect();
+    let pairwise_disjoint = family
+        .iter()
+        .enumerate()
+        .all(|(i, a)| family[i + 1..].iter().all(|b| a.is_disjoint(b)));
+    let mut acc = p.dangerously_alias();
+    match acc.join_all(items.iter().map(Party::dangerously_alias)) {
+        Ok(()) => {
+            let mut seq = p.dangerously_alias();
+            let sequential = items
+                .iter()
+                .all(|item| seq.join(item.dangerously_alias()).is_ok());
+            pairwise_disjoint && sequential && acc == seq
+        }
+        Err(returned) => !pairwise_disjoint && !returned.is_empty() && acc.covers(p),
+    }
+}
+
+/// `join_all` reunites a balanced fork at every width: the shares of
+/// `forks(k)` fold back to the original region exactly.
+///
+/// Along the way, half the shares folded through the n-ary door must
+/// equal the same half folded through sequential pair joins — a value
+/// comparison on a genuinely proper subregion, so a fold that
+/// misplaces a group cannot hide behind the full reunion's fixed
+/// endpoint. Width zero is the empty-fold identity (`join_all(∅)`
+/// leaves the receiver unchanged).
+fn party_join_all_reunites_forks_at_any_width(p: &Party, items: &[Party]) -> bool {
+    let width = items.len();
+    let mut keeper = p.dangerously_alias();
+    let shares: Vec<Party> = keeper.forks(width).collect();
+    let half = &shares[..width / 2];
+    let mut seq = keeper.dangerously_alias();
+    if !half
+        .iter()
+        .all(|share| seq.join(share.dangerously_alias()).is_ok())
+    {
+        return false;
+    }
+    let mut balanced = keeper.dangerously_alias();
+    if balanced
+        .join_all(half.iter().map(Party::dangerously_alias))
+        .is_err()
+        || balanced != seq
+    {
+        return false;
+    }
+    keeper.join_all(shares).is_ok() && keeper == *p
+}
+
+/// `join_all`'s rejection is per-input and lossless at every width:
+/// one aliased input planted among `k` genuine shares costs exactly
+/// itself.
+///
+/// The clash — an alias of the accumulator's own region — rides
+/// mid-stream, so shares both before and after it must be absorbed
+/// around the rejection (fail-fast would abandon the tail): the fold
+/// reunites the region exactly, and the alias alone comes back,
+/// unchanged.
+fn party_join_all_is_best_effort_at_any_width(p: &Party, items: &[Party]) -> bool {
+    let width = items.len();
+    let mut keeper = p.dangerously_alias();
+    let mut fed: Vec<Party> = keeper.forks(width).collect();
+    let residual = keeper.dangerously_alias();
+    fed.insert(width / 2, keeper.dangerously_alias());
+    match keeper.join_all(fed) {
+        Err(returned) => returned.len() == 1 && returned[0] == residual && keeper == *p,
+        Ok(()) => false,
+    }
 }
 
 // ───────────────────────────── Version × Party ─────────────────────────────
@@ -2105,6 +2361,97 @@ fn anonymous_join_merges_versions(c: &Clock, msg: &Version) -> bool {
     clock_version.party() == c.party()
         && *clock_version.version() == (c.version() | msg)
         && version_clock == clock_version
+}
+
+// ───────────────────── Clock: a receiver and items ─────────────────────
+
+/// Laws over a clock (the receiver) and a list of clocks (the items),
+/// at any arity.
+///
+/// [`Clock::join_all`]'s two faces at swept widths: acceptance is
+/// pairwise disjointness of the parties (an accepted fold equals the
+/// sequential pair joins on both components, and the returned
+/// reference is the freshly folded version), and a constructed fork
+/// family — every child line ticked apart — reunites to the original
+/// region carrying the join of every line's history.
+pub static CLOCK_AND_LIST: &[Law<fn(&Clock, &[Clock]) -> bool>] = &[
+    (
+        "clock_join_all_accepts_iff_parties_pairwise_disjoint",
+        clock_join_all_accepts_iff_parties_pairwise_disjoint,
+    ),
+    (
+        "clock_join_all_reunites_forks_at_any_width",
+        clock_join_all_reunites_forks_at_any_width,
+    ),
+];
+
+/// `join_all` accepts exactly the families whose parties — the
+/// receiver's included — are pairwise disjoint, at every arity.
+///
+/// An accepted fold equals the sequential pair joins (party union and
+/// version join alike, through the bound pair operation, never the
+/// n-ary door) and returns the folded version; a refused one still
+/// absorbed every clock it could — the party covers its original
+/// region and the version dominates its original — and handed at
+/// least one input back.
+fn clock_join_all_accepts_iff_parties_pairwise_disjoint(c: &Clock, items: &[Clock]) -> bool {
+    let pairwise_disjoint = {
+        let family: Vec<&Party> = core::iter::once(c.party())
+            .chain(items.iter().map(Clock::party))
+            .collect();
+        family
+            .iter()
+            .enumerate()
+            .all(|(i, a)| family[i + 1..].iter().all(|b| a.is_disjoint(b)))
+    };
+    let mut acc = c.dangerously_alias();
+    match acc.join_all(items.iter().map(Clock::dangerously_alias)) {
+        Ok(returned) => {
+            let returned = returned.clone();
+            let mut seq = c.dangerously_alias();
+            let sequential = items
+                .iter()
+                .all(|item| seq.join(item.dangerously_alias()).is_ok());
+            pairwise_disjoint && sequential && acc == seq && returned == *acc.version()
+        }
+        Err(returned) => {
+            !pairwise_disjoint
+                && !returned.is_empty()
+                && acc.party().covers(c.party())
+                && le(c.version(), acc.version())
+        }
+    }
+}
+
+/// `join_all` reunites a fork family at every width: fork `k`
+/// children, tick each so every line carries history its siblings
+/// lack, and the fold restores the original region with the join of
+/// every line's version.
+///
+/// The expected version is the sequential pair fold of the lines'
+/// histories (the bound `|`, never the n-ary door); the returned
+/// reference and the folded clock's version must both realize it,
+/// and the party must come back exactly the receiver's. Width zero
+/// is the empty-fold identity.
+fn clock_join_all_reunites_forks_at_any_width(c: &Clock, items: &[Clock]) -> bool {
+    let width = items.len();
+    let mut keeper = c.dangerously_alias();
+    let mut children: Vec<Clock> = keeper.forks(width).collect();
+    for child in &mut children {
+        child.tick();
+    }
+    let expected = children
+        .iter()
+        .fold(keeper.version().clone(), |acc, child| {
+            &acc | child.version()
+        });
+    match keeper.join_all(children) {
+        Ok(returned) => {
+            let returned = returned.clone();
+            returned == expected && *keeper.version() == expected && keeper.party() == c.party()
+        }
+        Err(_) => false,
+    }
 }
 
 #[cfg(test)]

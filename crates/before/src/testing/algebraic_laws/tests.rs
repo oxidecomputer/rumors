@@ -11,7 +11,10 @@ use proptest::prelude::*;
 
 use crate::laws;
 use crate::oracle;
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{
+    arb_clock_family, arb_fold_arity, arb_oracle_party_nonempty, arb_oracle_version,
+    arb_party_family, arb_version_family,
+};
 use crate::testing::optrace::{run, step_impl, world_strategy};
 use crate::{Clock, Party, Version};
 
@@ -190,6 +193,55 @@ proptest! {
     }
 }
 
+proptest! {
+    /// Every [`laws::VERSION_LIST`] law holds on pool-indexed version
+    /// lists whose arities sweep the balanced fold's boundary band
+    /// (`arb_fold_arity` documents the derivation).
+    #[test]
+    fn version_list_laws((_, xs) in arb_version_family()) {
+        let xs: Vec<Version> = xs.iter().map(ver).collect();
+        assert_laws!(laws::VERSION_LIST, &xs);
+    }
+}
+
+proptest! {
+    /// Every [`laws::VERSION_AND_LIST`] law holds on pool-indexed
+    /// version families — a receiver plus boundary-swept items, repeats
+    /// and the empty version under mass at every arity.
+    #[test]
+    fn version_and_list_laws((r, xs) in arb_version_family()) {
+        let receiver = ver(&r);
+        let xs: Vec<Version> = xs.iter().map(ver).collect();
+        assert_laws!(laws::VERSION_AND_LIST, &receiver, &xs);
+    }
+}
+
+proptest! {
+    /// Every [`laws::PARTY_AND_LIST`] law holds on pool-indexed party
+    /// families — aliased repeats keep the refusal arm under mass, the
+    /// constructed laws' fork trees the accepted arm, at every
+    /// boundary-band arity.
+    #[test]
+    fn party_and_list_laws((r, items) in arb_party_family()) {
+        let receiver = party(&r);
+        let items: Vec<Party> = items.iter().map(party).collect();
+        assert_laws!(laws::PARTY_AND_LIST, &receiver, &items);
+    }
+}
+
+proptest! {
+    /// Every [`laws::CLOCK_AND_LIST`] law holds on pool-indexed clock
+    /// families — arbitrary canonical party/version pairings, aliased
+    /// parties under mass, at every boundary-band arity.
+    #[test]
+    fn clock_and_list_laws((r, items) in arb_clock_family()) {
+        let clock = |(p, v): &(oracle::Party, oracle::Version)| Clock::from_parts(party(p), ver(v));
+        let receiver = clock(&r);
+        let items: Vec<Clock> = items.iter().map(clock).collect();
+        assert_laws!(laws::CLOCK_AND_LIST, &receiver, &items);
+    }
+}
+
 // ───────────────────── organic op-trace populations ─────────────────────
 
 proptest! {
@@ -204,6 +256,8 @@ proptest! {
         i in 0usize..64,
         j in 0usize..64,
         k in 0usize..64,
+        list_picks in arb_fold_arity()
+            .prop_flat_map(|arity| proptest::collection::vec(0usize..64, arity)),
     ) {
         let cs = run(&ops);
         let n = cs.len();
@@ -227,6 +281,16 @@ proptest! {
         let (ra, rb, rc) = (ia.rank(), ib.rank(), ia.distance(&ib));
         assert_laws!(laws::RANK_TRIPLE, &ra, &rb, &rc);
 
+        // Variadic families over the same population: pool-indexed picks
+        // at fold-boundary arities. Repeated picks are repeated raw
+        // versions and *aliased* live parties/clocks — the input classes
+        // the list laws' fold and refusal arms exist for.
+        let vlist: Vec<Version> = list_picks.iter().map(|t| ver(cs[t % n].trees().1)).collect();
+        assert_laws!(laws::VERSION_LIST, &vlist);
+        assert_laws!(laws::VERSION_AND_LIST, &ia, &vlist);
+        let plist: Vec<Party> = list_picks.iter().map(|t| party(cs[t % n].trees().0)).collect();
+        assert_laws!(laws::PARTY_AND_LIST, &qa, &plist);
+
         // Clocks: replay the trace on the impl for real, reachable clocks.
         let mut imp = vec![Clock::seed()];
         for op in &ops {
@@ -235,5 +299,10 @@ proptest! {
         let ca = &imp[picks[0] % imp.len()];
         assert_laws!(laws::CLOCK_SOLO, ca);
         assert_laws!(laws::CLOCK_VERSION, ca, &ib);
+        let clist: Vec<Clock> = list_picks
+            .iter()
+            .map(|t| imp[t % imp.len()].dangerously_alias())
+            .collect();
+        assert_laws!(laws::CLOCK_AND_LIST, ca, &clist);
     }
 }
