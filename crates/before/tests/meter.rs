@@ -8151,35 +8151,41 @@ mod placement {
         let (s, v, e, div) = fixture();
         let top = &e | &div;
 
-        for (interval, probe, verdict, genre) in [
+        for (lo, hi, probe, verdict, genre) in [
             // div is concurrent to both v and e: the early return.
             (
-                causally::Interval::new(&v, &e).unwrap(),
+                &v,
+                &e,
                 &div,
                 causally::Placement::Concurrent(causally::Endpoint::Both),
                 "both",
             ),
             // v is past s but concurrent to div: the hi-drop path.
             (
-                causally::Interval::new(&s, &div).unwrap(),
+                &s,
+                &div,
                 &v,
                 causally::Placement::Concurrent(causally::Endpoint::End),
                 "end",
             ),
             // v is concurrent to div but under div|e: the lo-drop path.
             (
-                causally::Interval::new(&div, &top).unwrap(),
+                &div,
+                &top,
                 &v,
                 causally::Placement::Concurrent(causally::Endpoint::Start),
                 "start",
             ),
         ] {
+            let interval = causally::Interval::new(lo, hi).unwrap();
             let fused = scanned(|| {
                 assert_eq!(interval.place(probe), verdict);
             });
+            // The two-comparison composition on the interval's own
+            // endpoints: the operands the fused walk actually replaces.
             let composed = scanned(|| {
-                let _ = probe.partial_cmp(&s);
-                let _ = probe.partial_cmp(&e);
+                let _ = probe.partial_cmp(lo);
+                let _ = probe.partial_cmp(hi);
             });
             eprintln!("MEASURED interval_concurrent_{genre}: fused={fused} composed={composed}");
             assert!(
