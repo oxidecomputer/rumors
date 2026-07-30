@@ -1,3 +1,54 @@
+//! The packed bit-stream storage forms: the mutable build buffer
+//! ([`BitsMut`]), the refcounted frozen at-rest form ([`Bits`]), and
+//! the canonicality helpers both rest on.
+//!
+//! # The identity fast-path ladder, and where each rung belongs
+//!
+//! Equality of frozen streams is a three-rung ladder — clone identity
+//! ([`Bits::ptr_eq`]), then the one-`memcmp` byte compare
+//! ([`canonical_eq`]'s second rung), then whatever walk the operation
+//! would run anyway — and the operations choose deliberately how far
+//! down the ladder to look before walking. The decision rule, applied
+//! per call site (each site cites its law and states its choice):
+//!
+//! - **`ptr_eq` is free insurance**: `O(1)` on hit and miss alike
+//!   (three word compares), so every site where equality settles the
+//!   answer takes it. Clones share buffers, so the rung fires wherever
+//!   a value meets its own clone — fold accumulators, hull endpoints,
+//!   fork-descended versions.
+//! - **The `memcmp` rung pays for itself exactly where the walk it
+//!   replaces is expensive relative to a byte scan.** A miss costs an
+//!   early-exiting byte compare over the operands' shared prefix —
+//!   byte-parallel, roughly an order of magnitude cheaper per bit than
+//!   a decoding walk — and a hit deletes the walk whole. The
+//!   arithmetic and allocating walks take it: join/meet/span (an
+//!   emission plus its buffers), `distance`/`lag` (accumulator folds
+//!   and `Base` products), `Ranked`'s total order (the rank co-sweep).
+//!   Equal operands are also *common* at those seams: idempotent
+//!   re-joins, converged replicas, metric self-checks.
+//! - **The comparison sweep keeps ptr-only.** `causal_cmp`'s fallback
+//!   is itself a cheap early-exiting scan, and an *order* query's
+//!   common case is unequal operands — where a memcmp rung can only
+//!   answer `Equal`, so a miss double-reads the shared prefix (long,
+//!   for causally related versions) and still owes the sweep. The
+//!   equal case that matters in production is clone-borne, which the
+//!   ptr rung catches. (Byte-equal wire-decoded operands at gossip
+//!   convergence are the one workload where a memcmp rung in cmp
+//!   might win; adopt only with measurements in hand.)
+//! - **The party predicates take no rung at all.** `covers` and
+//!   `is_disjoint` are asked of *linear* values: a live clone-shared
+//!   party pair has no production witness (`dangerously_alias` is a
+//!   boundary hand-off, not a live operand pair), so a rung there
+//!   would dispatch only inside test harnesses — while costing the
+//!   fuel-band instrument its full-walk anchor samples.
+//!
+//! Two instruments hold the ladder honest: the `identity_fast_paths`
+//! pins in `tests/meter.rs` assert exactly zero walk work on every
+//! adopted rung beside walking legs on the same values (a lost rung or
+//! a dead meter both read red), and the fuzzfit fuel bands route
+//! identity-outcome samples out of their fits so the walked laws stay
+//! unimodal (`Step::identity` in the harness carries that argument).
+
 // The storage forms' docs name crate-private machinery by intra-doc
 // link (`ptr_eq`, `canonical_eq`) so a rename cannot rot the prose (the
 // internal doc build resolves every link); on the public build those
@@ -109,6 +160,10 @@ impl Bits {
     ///
     /// This is emptiness of the *storage* (the anonymous id), not of the
     /// value a stream spells: the empty `Version` is a 2-bit stream.
+    /// [`len`](Self::len)'s conventional partner; the walks ask the
+    /// question of slices, so only the meter surface and the tests
+    /// reach it.
+    #[cfg(any(test, feature = "meter"))]
     pub fn is_empty(&self) -> bool {
         self.bit_len == 0
     }

@@ -8830,7 +8830,7 @@ mod span_codec {
 // the walked path stays covered.
 #[cfg(feature = "scan-meter")]
 mod identity_fast_paths {
-    use before::{meter, Clock, Party, Version};
+    use before::{meter, Clock, Version};
 
     /// Scan bits of one closure run, on a fresh counter.
     fn scanned(f: impl FnOnce()) -> u64 {
@@ -8956,49 +8956,6 @@ mod identity_fast_paths {
                 read, 0,
                 "{name} over byte-equal operands must answer by the byte \
                  compare, not a walk ({read} bits scanned)"
-            );
-        }
-    }
-
-    /// The party identity fast paths fire on aliases and only aliases.
-    ///
-    /// An alias (shared buffer) answers `covers` (true:
-    /// `covers_reflexive`) and `is_disjoint` (false:
-    /// `never_disjoint_from_self`) without a walk, while a distinct
-    /// party pair walks — and a buffer-distinct re-decode of the same
-    /// party takes the walk to the same verdicts, keeping the walked
-    /// path covered.
-    #[test]
-    fn party_identity_fast_paths_fire_on_aliases_only() {
-        let mut p = Party::seed();
-        let q = p.fork();
-        let alias = p.dangerously_alias();
-        let redecoded = Party::decode(&p.encode()[..]).expect("a stored id re-decodes");
-
-        let alias_cells: &[(&str, &dyn Fn())] = &[
-            ("covers", &|| assert!(p.covers(&alias))),
-            ("is_disjoint", &|| assert!(!p.is_disjoint(&alias))),
-        ];
-        for (name, cell) in alias_cells {
-            let read = scanned(cell);
-            assert_eq!(
-                read, 0,
-                "{name} over an alias must answer by clone identity, not a \
-                 walk ({read} bits scanned)"
-            );
-        }
-        let walking: &[(&str, &dyn Fn())] = &[
-            ("covers", &|| assert!(p.covers(&redecoded))),
-            ("covers_distinct", &|| assert!(!p.covers(&q))),
-            ("is_disjoint", &|| assert!(!p.is_disjoint(&redecoded))),
-            ("is_disjoint_distinct", &|| assert!(p.is_disjoint(&q))),
-        ];
-        for (name, cell) in walking {
-            let read = scanned(cell);
-            assert!(
-                read > 0,
-                "{name} over distinct buffers must walk: a zero here is a \
-                 dead scan meter"
             );
         }
     }
