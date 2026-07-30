@@ -283,3 +283,132 @@ pub(crate) fn arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
         (arb_base(), inner.clone(), inner).prop_map(|(n, l, r)| oracle::Version::node(n, l, r))
     })
 }
+
+// ───────────────────────── variadic-law families ─────────────────────────
+
+/// A list arity for the variadic law drivers, swept past every
+/// structural boundary of the balanced binary counter every n-ary fold
+/// runs on ([`crate::fold`]).
+///
+/// The counter's behavior over `k` inputs changes only at these
+/// boundaries, derived from its structure:
+///
+/// - `k = 0` and `k = 1`: the identity and lone-input short-circuits —
+///   no combine runs at all;
+/// - `k = 2`: the first in-counter combine, of two raw inputs (the leaf
+///   arm);
+/// - `k = 3`: the first closing-drain combine (the drain performs
+///   `popcount(k) - 1` combines, so it first runs here), pairing a
+///   merged group with a lone raw input;
+/// - `k = 4`: the first merged–merged combine — two weight-1 groups
+///   carrying inside the counter — the arm beyond every fixed arity-3
+///   law signature;
+/// - `k = 6`: the first *drain* combine of two merged groups (surviving
+///   weights 2 and 1);
+/// - `k = 2^j` and `k = 2^j + 1`: each octave carries one weight deeper
+///   (a chain of `j` in-counter combines), then leaves a lone raw input
+///   under the deep group for the drain.
+///
+/// Every combine-arm *genre* the folds dispatch on (leaf,
+/// merged–input, merged–merged; in-counter and drain) is reachable by
+/// `k = 6`. The band `0..=9` covers each genre plus the first full
+/// octave boundary (8, 9); the band `15..=17` crosses the next octave
+/// (15 = 0b1111 drains four groups through three combines, 16 carries
+/// to a single weight-4 group, 17 leaves a lone input under it), so
+/// behavior keyed to a particular *weight* rather than a genre still
+/// meets two octaves of weights.
+pub(crate) fn arb_fold_arity() -> impl Strategy<Value = usize> {
+    prop_oneof![
+        3 => 0usize..=9,
+        1 => 15usize..=17,
+    ]
+}
+
+/// A small pool of arbitrary versions with the empty version always
+/// present.
+///
+/// Variadic-law lists are built by *indexing* into a pool this small,
+/// so repeats and shared-structure elements arise naturally at every
+/// arity. Repeats matter: repeated raw inputs coalesce into counter
+/// groups that each carry information their partners lack in both
+/// lattice directions, so an arm that drops or misreads a merged
+/// operand loses a fresh input and diverges — where lattice-derived
+/// items would be absorbed and leave the misread invisible. The empty
+/// version keeps the folds' `O(1)` identity short-circuits under mass.
+fn arb_version_pool() -> impl Strategy<Value = Vec<oracle::Version>> {
+    proptest::collection::vec(arb_oracle_version(), 1..=3).prop_map(|mut pool| {
+        pool.push(oracle::Version::new());
+        pool
+    })
+}
+
+/// Draws from `pool` for one receiver and a boundary-swept
+/// ([`arb_fold_arity`]) list of items.
+fn family_picks<T: Clone + core::fmt::Debug>(pool: Vec<T>) -> impl Strategy<Value = (T, Vec<T>)> {
+    (
+        any::<prop::sample::Index>(),
+        arb_fold_arity()
+            .prop_flat_map(|arity| proptest::collection::vec(any::<prop::sample::Index>(), arity)),
+    )
+        .prop_map(move |(receiver, picks)| {
+            (
+                pool[receiver.index(pool.len())].clone(),
+                picks
+                    .into_iter()
+                    .map(|pick| pool[pick.index(pool.len())].clone())
+                    .collect(),
+            )
+        })
+}
+
+/// A pool-indexed version family — a receiver and a boundary-swept
+/// list of items — for the variadic version-law drivers.
+///
+/// The receiver is drawn from the same pool as the items, so
+/// receiver-repeats (an input aliasing the fold's seed) arise
+/// naturally too. Arity per [`arb_fold_arity`]; pool per
+/// [`arb_version_pool`].
+pub(crate) fn arb_version_family() -> impl Strategy<Value = (oracle::Version, Vec<oracle::Version>)>
+{
+    arb_version_pool().prop_flat_map(family_picks)
+}
+
+/// A pool-indexed party family — a receiver and a boundary-swept list
+/// of items — for the variadic party-law drivers.
+///
+/// The pool holds live (non-anonymous) parties only, the admissible
+/// inputs of every party law. Repeats are *aliases* — regions
+/// overlapping byte-identically — which is exactly the input class the
+/// fallible folds' rejection paths exist for, so pool indexing keeps
+/// the refusal arm under mass at every arity.
+pub(crate) fn arb_party_family() -> impl Strategy<Value = (oracle::Party, Vec<oracle::Party>)> {
+    proptest::collection::vec(arb_oracle_party_nonempty(), 1..=3).prop_flat_map(family_picks)
+}
+
+/// A pool-indexed clock family — a receiver and a boundary-swept list
+/// of items, each a canonical party/version pairing — for the variadic
+/// clock-law drivers.
+///
+/// Parties and versions are drawn from independent small pools and
+/// paired combinatorially (every canonical pairing is a valid clock,
+/// including ones no op sequence reaches); party repeats give aliased
+/// clocks for the refusal arm, and the version pool's empty element
+/// keeps fresh-line clocks under mass.
+pub(crate) fn arb_clock_family() -> impl Strategy<
+    Value = (
+        (oracle::Party, oracle::Version),
+        Vec<(oracle::Party, oracle::Version)>,
+    ),
+> {
+    (
+        proptest::collection::vec(arb_oracle_party_nonempty(), 1..=3),
+        arb_version_pool(),
+    )
+        .prop_flat_map(|(parties, versions)| {
+            let pool: Vec<(oracle::Party, oracle::Version)> = parties
+                .iter()
+                .flat_map(|p| versions.iter().map(move |v| (p.clone(), v.clone())))
+                .collect();
+            family_picks(pool)
+        })
+}
