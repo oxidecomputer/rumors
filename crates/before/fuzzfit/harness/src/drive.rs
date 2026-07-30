@@ -54,12 +54,24 @@ pub fn run_program(program: &[Op]) -> Result<Vec<Sample>, Malformed> {
             "guest/native disagreement on {op:?}: guest returned {}, mirror expected {}",
             measured.ret, step.expect
         );
-        samples.push(Sample {
-            kernel: op.kernel(),
-            rejected: step.rejected(),
-            denom_bits: step.denom_bits,
-            fuel: measured.fuel,
-        });
+        // Identity-outcome steps (operands dispatching an identity-law
+        // fast path: one clone-shared buffer under a comparison, equal
+        // versions under a metric) are measured for the differential but
+        // never sampled. Their cost is O(1) by mechanism, not a size
+        // law, and fitting them alongside the walked cloud makes both
+        // bands decoration-wide; their liveness has its own instrument
+        // (before's `identity_fast_paths` meter pins assert exactly zero
+        // walk work on the fast paths, beside walking legs), so a lost
+        // fast path reads red there while a walk regression reads red
+        // here, on the samples that walk.
+        if !step.identity() {
+            samples.push(Sample {
+                kernel: op.kernel(),
+                rejected: step.rejected(),
+                denom_bits: step.denom_bits,
+                fuel: measured.fuel,
+            });
+        }
     }
     // The end-of-program differential: every live register must byte-match
     // between the two executions (the snapshot calls are unrecorded, so they

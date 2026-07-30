@@ -268,6 +268,9 @@ pub struct Step {
     /// predicted operation rejection, comparison codes for query ops, the
     /// actual value for i64 kernels).
     pub expect: i64,
+    /// Whether the step's operands dispatch an identity-law fast path
+    /// (see [`Step::identity`]).
+    pub identity: bool,
 }
 
 impl Step {
@@ -280,7 +283,31 @@ impl Step {
     pub fn rejected(&self) -> bool {
         self.expect == ERR_OP
     }
+
+    /// Whether this step's operands dispatch an identity-law fast path
+    /// in `before` — a comparison over one clone-shared buffer, or a
+    /// metric over equal versions — mirrored here by the same predicate
+    /// the fast path dispatches on.
+    ///
+    /// Identity steps are measured for the differential but never
+    /// sampled: their cost is `O(1)` by mechanism, not a size law, and
+    /// fitting them alongside the walked cloud makes both bands
+    /// decoration-wide (the driver's sampling carries the argument).
+    pub fn identity(&self) -> bool {
+        self.identity
+    }
 }
+
+/// Whether two versions read one clone-shared stored buffer — the
+/// mirror-side observation of the ptr-identity rungs' dispatch
+/// predicate, through the public byte view (clones share storage, so
+/// their byte borrows alias; the mirror's registers alias exactly when
+/// the guest's do, because both executions ran the same ops).
+fn version_buffers_alias(a: &Version, b: &Version) -> bool {
+    let (ab, bb) = (a.as_bytes(), b.as_bytes());
+    core::ptr::eq(ab.as_ptr(), bb.as_ptr()) && ab.len() == bb.len()
+}
+
 
 /// A mirrored execution error: the program is malformed (a generator bug,
 /// never a `before` bug).
@@ -403,6 +430,18 @@ impl Mirror {
             Ok(Step {
                 denom_bits: denom_bits.max(1),
                 expect,
+                identity: false,
+            })
+        }
+        // `done` for the pair ops with identity-law fast paths: the
+        // mirror evaluates the rung's own dispatch predicate so the
+        // driver can route the step to the instrument that owns its
+        // mechanism (see `Step::identity`).
+        fn done_pair(denom_bits: u64, expect: i64, identity: bool) -> Result<Step, Malformed> {
+            Ok(Step {
+                denom_bits: denom_bits.max(1),
+                expect,
+                identity,
             })
         }
         match *op {
@@ -572,8 +611,11 @@ impl Mirror {
                     return Err(malformed());
                 };
                 let vb = self.version(b).ok_or_else(malformed)?;
+                // The lattice op's rung is canonical equality
+                // (a ∨ a = a hands the operand back).
+                let identity = va == *vb;
                 self.put(dst, NVal::V(va | vb));
-                done(denom, OK)
+                done_pair(denom, OK, identity)
             }
             Op::VersionMeet { dst, a, b } => {
                 let denom = (self.version(a).ok_or_else(malformed)?.encoded_bits()
@@ -583,8 +625,10 @@ impl Mirror {
                     return Err(malformed());
                 };
                 let vb = self.version(b).ok_or_else(malformed)?;
+                // The lattice op's rung is canonical equality, as join.
+                let identity = va == *vb;
                 self.put(dst, NVal::V(va & vb));
-                done(denom, OK)
+                done_pair(denom, OK, identity)
             }
             Op::VersionProject { dst, v, p } => {
                 let version = self.version(v).ok_or_else(malformed)?;
@@ -608,13 +652,16 @@ impl Mirror {
                     Some(Ordering::Greater) => 2,
                     None => 3,
                 };
-                done(denom, expect)
+                // The comparison's rung is clone identity (equal values
+                // in distinct buffers walk the full sweep).
+                done_pair(denom, expect, version_buffers_alias(va, vb))
             }
             Op::VersionConcurrent { a, b } => {
                 let va = self.version(a).ok_or_else(malformed)?;
                 let vb = self.version(b).ok_or_else(malformed)?;
                 let denom = (va.encoded_bits() + vb.encoded_bits()) as u64;
-                done(denom, i64::from(va.concurrent(vb)))
+                let identity = version_buffers_alias(va, vb);
+                done_pair(denom, i64::from(va.concurrent(vb)), identity)
             }
             Op::VersionRank { dst, src } => {
                 let version = self.version(src).ok_or_else(malformed)?;
@@ -627,17 +674,22 @@ impl Mirror {
                 let va = self.version(a).ok_or_else(malformed)?;
                 let vb = self.version(b).ok_or_else(malformed)?;
                 let denom = (va.encoded_bits() + vb.encoded_bits()) as u64;
+                // The metric's rung is canonical equality: equal values
+                // answer zero whichever buffers carry them.
+                let identity = va == vb;
                 let rank = va.distance(vb);
                 self.put(dst, NVal::R(rank));
-                done(denom, OK)
+                done_pair(denom, OK, identity)
             }
             Op::VersionLag { dst, a, b } => {
                 let va = self.version(a).ok_or_else(malformed)?;
                 let vb = self.version(b).ok_or_else(malformed)?;
                 let denom = (va.encoded_bits() + vb.encoded_bits()) as u64;
+                // The metric's rung is canonical equality, as `distance`.
+                let identity = va == vb;
                 let rank = va.lag(vb);
                 self.put(dst, NVal::R(rank));
-                done(denom, OK)
+                done_pair(denom, OK, identity)
             }
             Op::VersionMinTicks { src } => {
                 let version = self.version(src).ok_or_else(malformed)?;

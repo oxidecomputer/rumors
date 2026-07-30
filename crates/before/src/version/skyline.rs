@@ -147,8 +147,12 @@ use crate::error::Decode;
 use crate::Version;
 
 // The storage forms, re-exported so the resource-envelope suite can
-// name the streams this module's entry points exchange.
-pub use crate::codec::{Bits, BitsMut, BitsSlice};
+// name the streams this module's entry points exchange. The frozen
+// form rides the meter gate: only the suite (and the public docs the
+// meter feature exposes) name it through this module.
+#[cfg(any(test, feature = "meter"))]
+pub use crate::codec::Bits;
+pub use crate::codec::{BitsMut, BitsSlice};
 
 // The admission walk: the span wire form's fused second-component
 // parse, consumed by `causally::Span::decode` and the borsh span leg.

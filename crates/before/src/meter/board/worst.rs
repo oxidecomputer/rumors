@@ -495,6 +495,58 @@ pub(super) fn render_map(
 ///   share per denominator byte rises as the operand shrinks, lifting
 ///   PP's intercept past hugeleaf's reading.
 ///
+/// Movement 2026-07-30 (the Bytes-backed at-rest form's Clock::decode:
+/// the id is parsed once against the borrowed buffer where handing byte
+/// ranges to the component decoders re-parsed it, so the id-heavy
+/// families' scan readings on the clock decode rows drop by one id
+/// parse and the version-heavy dense-suffix overtakes id-pair on the
+/// trailing rejection's scan column at the acceptance scale — the
+/// relative flip is the improvement's shape, not a regression):
+///
+/// - **the clock decode rows' scan worsts flip at both scales**
+///   (dense-suffix at acceptance, promo-rearm/pure-comb at default,
+///   over clock_decode and its truncated/trailing genres): the
+///   composite's scan is dominated by the whole-buffer read; with the
+///   id read once, the version-dominated families' per-byte scan now
+///   ranks first.
+///
+/// - **pure-comb overtakes id-pair on clock_decode_truncated × scan
+///   (acceptance)**: the same single-id-parse drop, read through the
+///   truncation genre's cut-point sweep.
+///
+/// - **version_span's worsts flip across all four columns, both
+///   scales**: the span ladder hands a comparable pair back at one
+///   comparison sweep with zero emission (`span_is_the_pair_hull`), so
+///   the comparable families' readings drop to the classifier's and
+///   the pair families — the ladder's only emitting case — rank first
+///   (jump-pair on scan and heap, concurrent-pair on limb and touch;
+///   the coincident lone-freeze's heap drops to its shared buffer's
+///   clones).
+///
+/// - **version_join/version_meet × heap: hugeleaf overtakes** (the
+///   lone-freeze/wide-arming pins): the `&a | &b` value cells' lhs
+///   clone is a refcount bump, not a byte copy, so the join's peak is
+///   the emission's alone and the payload-buffer-heavy hugeleaf ranks
+///   first.
+///
+/// - **clock_fork/clock_recv × heap: id-pair overtakes** (default):
+///   the composites' version hand-over is a refcount bump, so the
+///   party-copy-bound id-pair family's peak ranks first.
+///
+/// - **wide-arming overtakes weight-comb/freeze-parade on
+///   span_decode_truncated × heap (both scales)**: the span decode
+///   adopts slices of ONE read buffer for both endpoints (no
+///   per-endpoint copy), so the copy-bound families' peaks drop and
+///   the validation-transient-bound wide-arming ranks first.
+///
+/// - **clock_own_version_to_version's worsts flip across all four
+///   columns, both scales**: a seed-partied clock's projection is the
+///   identity (`seed_projection_is_identity`) and materializes as an
+///   `O(1)` clone with no fold and no stream walk, so the seed-partied
+///   families' readings vanish and the real-projection families rank
+///   first (staircase on touch, nested-wide on scan, id-pair on limb
+///   and heap).
+///
 /// Movement 2026-07-29 (the fused sync sum-split walk; 2 entries
 /// re-pinned from the live release fold, every non-sync cell's reading
 /// byte-identical to the parent renders at both scales):
@@ -651,9 +703,9 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_concurrent", ["hugeleaf", "staircase", "staircase", "staircase"]),
     ("default", "version_join", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
     ("default", "version_join_assign", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
-    ("default", "version_meet", ["wide-arming", "dense", "weight-comb", "staircase"]),
+    ("default", "version_meet", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("default", "version_meet_assign", ["hugeleaf", "dense", "weight-comb", "staircase"]),
-    ("default", "version_span", ["lone-freeze", "dense", "mirror-narrow", "dense"]),
+    ("default", "version_span", ["jump-pair", "concurrent-pair", "jump-pair", "concurrent-pair"]),
     ("default", "span_encode", ["promo-rearm", "-", "-", "-"]),
     ("default", "span_decode", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("default", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
@@ -692,14 +744,14 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "party_display", ["pure-comb", "-", "mirror-narrow,nested-full", "-"]),
     ("default", "party_from_str", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
     ("default", "party_hash", ["-", "-", "-", "-"]),
-    ("default", "clock_decode", ["id-pair", "dense", "id-pair", "lone-freeze"]),
+    ("default", "clock_decode", ["id-pair", "dense", "promo-rearm", "lone-freeze"]),
     ("default", "clock_encode", ["id-pair", "-", "-", "-"]),
     ("default", "clock_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
-    ("default", "clock_fork", ["promo-rearm", "-", "mirror-narrow,nested-full", "-"]),
+    ("default", "clock_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
     ("default", "clock_join", ["hugeleaf", "dense", "id-pair", "lone-freeze"]),
     ("default", "clock_sync", ["hugeleaf", "dense", "benign", "lone-freeze"]),
-    ("default", "clock_recv", ["wide-arming", "id-pair", "hugeleaf", "staircase"]),
-    ("default", "clock_own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "lone-freeze"]),
+    ("default", "clock_recv", ["id-pair", "id-pair", "hugeleaf", "staircase"]),
+    ("default", "clock_own_version_to_version", ["id-pair", "id-pair", "nested-wide", "staircase"]),
     ("default", "clock_display", ["tooth-tail", "mirror-wide", "jump-pair", "-"]),
     ("default", "clock_from_str", ["tooth-tail", "concurrent-pair", "jump-pair", "concurrent-pair"]),
     ("default", "clock_hash", ["-", "-", "-", "-"]),
@@ -708,7 +760,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_decode_noncanon", ["hugeleaf", "harmonic", "freeze-parade,reveal-hifloor", "staircase"]),
     ("default", "version_parse_trailing", ["tooth-tail", "staircase", "jump-pair", "staircase"]),
     ("default", "version_parse_noncanon", ["tooth-tail", "staircase", "jump-pair", "staircase"]),
-    ("default", "span_decode_truncated", ["freeze-parade", "dense", "jump-pair", "staircase"]),
+    ("default", "span_decode_truncated", ["wide-arming", "dense", "jump-pair", "staircase"]),
     ("default", "span_decode_trailing", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("default", "span_decode_crossed", ["hugeleaf", "dense", "hugeleaf", "ascend-plateau"]),
     ("default", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
@@ -716,8 +768,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "party_decode_noncanon", ["id-pair", "-", "benign,comb-scatter,staircase", "-"]),
     ("default", "party_parse_trailing", ["id-pair", "-", "-", "-"]),
     ("default", "party_parse_noncanon", ["id-pair", "-", "-", "-"]),
-    ("default", "clock_decode_truncated", ["id-pair", "harmonic", "id-pair", "lone-freeze"]),
-    ("default", "clock_decode_trailing", ["id-pair", "dense", "id-pair", "lone-freeze"]),
+    ("default", "clock_decode_truncated", ["id-pair", "harmonic", "pure-comb", "lone-freeze"]),
+    ("default", "clock_decode_trailing", ["id-pair", "dense", "promo-rearm", "lone-freeze"]),
     ("default", "clock_parse_trailing", ["tooth-tail", "concurrent-pair", "jump-pair", "concurrent-pair"]),
     ("default", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
     ("default", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
@@ -729,11 +781,11 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_cmp", ["hugeleaf", "staircase", "freeze-pos", "staircase"]),
     ("acceptance", "version_eq", ["-", "-", "-", "-"]),
     ("acceptance", "version_concurrent", ["hugeleaf", "staircase", "freeze-pos", "staircase"]),
-    ("acceptance", "version_join", ["lone-freeze", "dense", "mirror-wide", "staircase"]),
+    ("acceptance", "version_join", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
     ("acceptance", "version_join_assign", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
     ("acceptance", "version_meet", ["lone-freeze", "dense", "weight-comb", "staircase"]),
     ("acceptance", "version_meet_assign", ["lone-freeze", "dense", "weight-comb", "staircase"]),
-    ("acceptance", "version_span", ["lone-freeze", "dense", "mirror-narrow", "dense"]),
+    ("acceptance", "version_span", ["jump-pair", "concurrent-pair", "jump-pair", "concurrent-pair"]),
     ("acceptance", "span_encode", ["promo-rearm", "-", "-", "-"]),
     ("acceptance", "span_decode", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("acceptance", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
@@ -772,14 +824,14 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "party_display", ["pure-comb", "-", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "party_from_str", ["comb-scatter", "-", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "party_hash", ["-", "-", "-", "-"]),
-    ("acceptance", "clock_decode", ["id-pair", "dense", "id-pair", "lone-freeze"]),
+    ("acceptance", "clock_decode", ["id-pair", "dense", "dense-suffix", "lone-freeze"]),
     ("acceptance", "clock_encode", ["id-pair", "-", "-", "-"]),
     ("acceptance", "clock_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("acceptance", "clock_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "clock_join", ["hugeleaf", "dense", "id-pair", "lone-freeze"]),
     ("acceptance", "clock_sync", ["hugeleaf", "dense", "benign", "lone-freeze"]),
     ("acceptance", "clock_recv", ["id-pair", "id-pair", "hugeleaf", "staircase"]),
-    ("acceptance", "clock_own_version_to_version", ["hugeleaf", "dense", "dense-suffix", "lone-freeze"]),
+    ("acceptance", "clock_own_version_to_version", ["id-pair", "id-pair", "nested-wide", "staircase"]),
     ("acceptance", "clock_display", ["tooth-tail", "mirror-wide", "jump-pair", "-"]),
     ("acceptance", "clock_from_str", ["tooth-tail", "concurrent-pair", "jump-pair", "concurrent-pair"]),
     ("acceptance", "clock_hash", ["-", "-", "-", "-"]),
@@ -788,7 +840,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_decode_noncanon", ["hugeleaf", "harmonic", "reveal-hifloor", "staircase"]),
     ("acceptance", "version_parse_trailing", ["mirror-narrow", "staircase", "jump-pair", "staircase"]),
     ("acceptance", "version_parse_noncanon", ["tooth-tail", "staircase", "jump-pair", "staircase"]),
-    ("acceptance", "span_decode_truncated", ["weight-comb", "dense", "jump-pair", "staircase"]),
+    ("acceptance", "span_decode_truncated", ["wide-arming", "dense", "jump-pair", "staircase"]),
     ("acceptance", "span_decode_trailing", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("acceptance", "span_decode_crossed", ["hugeleaf", "dense", "hugeleaf", "ascend-plateau"]),
     ("acceptance", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
@@ -796,8 +848,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "party_decode_noncanon", ["id-pair", "-", "comb-scatter,staircase", "-"]),
     ("acceptance", "party_parse_trailing", ["comb-scatter", "-", "-", "-"]),
     ("acceptance", "party_parse_noncanon", ["comb-scatter", "-", "-", "-"]),
-    ("acceptance", "clock_decode_truncated", ["id-pair", "harmonic", "id-pair", "lone-freeze"]),
-    ("acceptance", "clock_decode_trailing", ["id-pair", "dense", "id-pair", "lone-freeze"]),
+    ("acceptance", "clock_decode_truncated", ["id-pair", "harmonic", "pure-comb", "lone-freeze"]),
+    ("acceptance", "clock_decode_trailing", ["id-pair", "dense", "dense-suffix", "lone-freeze"]),
     ("acceptance", "clock_parse_trailing", ["tooth-tail", "concurrent-pair", "jump-pair", "concurrent-pair"]),
     ("acceptance", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
     ("acceptance", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),

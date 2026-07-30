@@ -392,19 +392,12 @@ impl Party {
     /// let q = p.fork();
     /// assert!(p.is_disjoint(&q));
     /// ```
+    // Deliberately no clone-identity fast path here (or on `covers`):
+    // parties are linear, so a live clone-shared pair has no production
+    // witness — `dangerously_alias` is a boundary hand-off, not a live
+    // operand pair — and the lockstep walk stays the one mechanism the
+    // fuel bands price.
     pub fn is_disjoint(&self, other: &Party) -> bool {
-        // Clone identity: a party is never disjoint from itself — the
-        // `never_disjoint_from_self` law in [`laws`](crate::laws) (a
-        // party is a nonempty share) — and one shared stored buffer is
-        // one region, so the verdict needs no walk. The emptiness guard
-        // carries the law's own premise: the transient anonymous id
-        // (`Party::anonymous`, storage-empty, all instances sharing the
-        // one static empty buffer) owns nothing and is vacuously
-        // disjoint from everything, itself included. Equal regions in
-        // distinct buffers still take the lockstep walk below.
-        if !self.0.is_empty() && self.0.ptr_eq(&other.0) {
-            return false;
-        }
         self.view().is_disjoint(other.view())
     }
 
@@ -449,15 +442,9 @@ impl Party {
     /// p.join(q).unwrap();
     /// assert!(p.covers(&Party::seed())); // rejoined to the whole again
     /// ```
+    // No clone-identity fast path, as `is_disjoint`: linearity leaves a
+    // live clone-shared party pair no production witness.
     pub fn covers(&self, other: &Party) -> bool {
-        // Clone identity: a region covers itself — the
-        // `covers_reflexive` law in [`laws`](crate::laws) — and one
-        // shared stored buffer is one region, so the verdict needs no
-        // walk. Equal regions in distinct buffers still take the
-        // lockstep walk below.
-        if self.0.ptr_eq(&other.0) {
-            return true;
-        }
         self.view().covers(other.view())
     }
 
