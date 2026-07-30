@@ -162,6 +162,14 @@ use crate::codec::{Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
 /// running height negative) sweep silently, and the verdict is then
 /// unspecified.
 pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
+    // Clone identity decides reflexivity without a walk: one shared
+    // stored buffer read through two views is bit-for-bit one stream
+    // (`Version::clone` is a refcount bump), and a version compares
+    // `Equal` to itself — the `order_reflexive` law in `crate::laws`.
+    // Equal streams in distinct buffers still take the sweep below.
+    if crate::codec::slice_ptr_eq(a, b) {
+        return Some(Ordering::Equal);
+    }
     // At exhaustion every surviving combination is a verdict.
     sweep(a, b, order_exit, Directions::relation)
 }

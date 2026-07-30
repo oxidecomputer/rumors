@@ -2313,3 +2313,51 @@ proptest! {
         }
     }
 }
+
+proptest! {
+    /// The identity-law fast paths agree with the walked paths across
+    /// buffer identity: every equal-operand shortcut answers identically
+    /// on a clone (shared buffer, the clone-identity rung) and on a
+    /// byte-equal re-build in a distinct buffer (the byte compare or the
+    /// full walk) — comparison `Equal`, join and meet the value itself,
+    /// distance and lag zero, and the hull coincident.
+    #[test]
+    fn identity_fast_paths_agree_across_buffer_identity(oa in arb_oracle_version()) {
+        let a = from_oracle_version(&oa);
+        let clone = a.clone();
+        let distinct = from_oracle_version(&oa);
+        for b in [&clone, &distinct] {
+            prop_assert_eq!(a.partial_cmp(b), Some(Ordering::Equal));
+            prop_assert_eq!(&(&a | b), &a);
+            prop_assert_eq!(&(&a & b), &a);
+            prop_assert_eq!(a.distance(b), crate::Rank::ZERO);
+            prop_assert_eq!(a.lag(b), crate::Rank::ZERO);
+            let hull = a.span(b);
+            prop_assert_eq!(hull.meet(), &a);
+            prop_assert_eq!(hull.join(), &a);
+        }
+    }
+}
+
+proptest! {
+    /// The n-ary folds' adjacent clone collapse is value-invisible:
+    /// folding a population with each element expanded into an adjacent
+    /// run of clones equals folding the population itself, for
+    /// `join_all`, `meet_all`, and `span_all` (idempotence makes a run
+    /// one operand; the collapse must change no verdict).
+    #[test]
+    fn fold_clone_collapse_is_value_invisible(
+        ovs in proptest::collection::vec(arb_oracle_version(), 1..5),
+        reps in proptest::collection::vec(1usize..4, 5),
+    ) {
+        let vs: Vec<Version> = ovs.iter().map(from_oracle_version).collect();
+        let dup: Vec<Version> = vs
+            .iter()
+            .zip(reps.iter().cycle())
+            .flat_map(|(v, &r)| std::iter::repeat_with(|| v.clone()).take(r))
+            .collect();
+        prop_assert_eq!(Version::join_all(&dup), Version::join_all(&vs));
+        prop_assert_eq!(Version::meet_all(&dup), Version::meet_all(&vs));
+        prop_assert_eq!(vs[0].span_all(&dup), vs[0].span_all(&vs));
+    }
+}

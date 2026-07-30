@@ -2688,7 +2688,7 @@ fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
 }
 
 /// The meet-shade population `MS(d, k)`: one deep carrier, then
-/// `k − 1` identical plateau shades that dominate it — the meet
+/// `k − 1` byte-equal plateau shades that dominate it — the meet
 /// fold's non-shrinking-accumulator adversary.
 ///
 /// The dual of the join wedges, derived from the meet's actual walk:
@@ -2712,6 +2712,14 @@ fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
 /// `tests/meter.rs`) carry both measured readings; the population's
 /// semantic leg is exactness — the fold returns the carrier.
 ///
+/// Each shade is built independently: byte-equal streams in *distinct*
+/// buffers, so the equal-shade combines are answered by the byte
+/// compare the band describes — never by the folds' clone-identity
+/// collapse, which would drop the shades before the fold reads them
+/// and turn the flatness band into a measurement of the collapse
+/// instead. The collapse has its own liveness pin
+/// (`identity_fast_paths` in `tests/meter.rs`).
+///
 /// # Panics
 ///
 /// Panics if `d == 0` or `k < 2` (the fold needs the carrier and at
@@ -2720,10 +2728,11 @@ fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
     assert!(d >= 1, "the meet shade needs a nonzero carrier depth");
     assert!(k >= 2, "the meet shade needs at least one shade");
     let carrier = dense(d).version();
-    let shade = hugeleaf(2).version();
     let mut population = Vec::with_capacity(k);
     population.push(carrier);
-    population.resize(k, shade);
+    for _ in 1..k {
+        population.push(hugeleaf(2).version());
+    }
     population
 }
 

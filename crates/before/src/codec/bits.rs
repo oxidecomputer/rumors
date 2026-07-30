@@ -104,9 +104,6 @@ impl Bits {
     ///
     /// This is emptiness of the *storage* (the anonymous id), not of the
     /// value a stream spells: the empty `Version` is a 2-bit stream.
-    /// [`len`](Self::len)'s conventional partner; the walks ask the
-    /// question of slices, so only the tests reach it directly.
-    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.bit_len == 0
     }
@@ -156,6 +153,20 @@ impl Eq for Bits {}
 /// [`BitsMut`].
 pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
     bytes.view_bits::<Msb0>()
+}
+
+/// Whether two bit-slice views read one memory region: [`Bits::ptr_eq`]'s
+/// clone identity, observable at the slice level the walk kernels
+/// consume.
+///
+/// Two views of one frozen buffer — a [`Bits`] deref'd twice, through
+/// any number of `O(1)` clones — carry the same bit pointer and length,
+/// so view identity implies bit-for-bit equality and an identity-law
+/// fast path may answer without a walk. Never the converse: equal
+/// streams in distinct buffers fall through to the walk that reads
+/// them.
+pub(crate) fn slice_ptr_eq(a: &BitsSlice, b: &BitsSlice) -> bool {
+    a.as_bitptr() == b.as_bitptr() && a.len() == b.len()
 }
 
 /// Zero the dead bits past the live length, making the packed bytes

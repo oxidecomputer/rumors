@@ -104,10 +104,16 @@ impl Party {
     /// assert_eq!(before::Party::seed().to_string(), "1");
     /// ```
     pub fn seed() -> Self {
-        let mut bits = codec::BitsMut::with_capacity(2);
-        bits.push(false); // terminal tag `00`: the whole interval, owned
-        bits.push(false);
-        Party::from_bits(bits)
+        // The seed id is exactly the 2-bit terminal tag `00` (the whole
+        // interval, owned), so the stored form is one static zero byte:
+        // construction allocates nothing, and every seed shares the one
+        // static buffer. The codec round-trip and text laws pin the
+        // constant against the parsed form.
+        const SEED_STREAM: &[u8] = &[0x00];
+        Party(codec::Bits::from_canonical(
+            bytes::Bytes::from_static(SEED_STREAM),
+            2,
+        ))
     }
 
     /// Whether this party is the whole, undivided seed region: equal to
@@ -387,6 +393,18 @@ impl Party {
     /// assert!(p.is_disjoint(&q));
     /// ```
     pub fn is_disjoint(&self, other: &Party) -> bool {
+        // Clone identity: a party is never disjoint from itself — the
+        // `never_disjoint_from_self` law in [`laws`](crate::laws) (a
+        // party is a nonempty share) — and one shared stored buffer is
+        // one region, so the verdict needs no walk. The emptiness guard
+        // carries the law's own premise: the transient anonymous id
+        // (`Party::anonymous`, storage-empty, all instances sharing the
+        // one static empty buffer) owns nothing and is vacuously
+        // disjoint from everything, itself included. Equal regions in
+        // distinct buffers still take the lockstep walk below.
+        if !self.0.is_empty() && self.0.ptr_eq(&other.0) {
+            return false;
+        }
         self.view().is_disjoint(other.view())
     }
 
@@ -432,6 +450,14 @@ impl Party {
     /// assert!(p.covers(&Party::seed())); // rejoined to the whole again
     /// ```
     pub fn covers(&self, other: &Party) -> bool {
+        // Clone identity: a region covers itself — the
+        // `covers_reflexive` law in [`laws`](crate::laws) — and one
+        // shared stored buffer is one region, so the verdict needs no
+        // walk. Equal regions in distinct buffers still take the
+        // lockstep walk below.
+        if self.0.ptr_eq(&other.0) {
+            return true;
+        }
         self.view().covers(other.view())
     }
 
