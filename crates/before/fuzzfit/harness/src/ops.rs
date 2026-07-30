@@ -298,11 +298,12 @@ impl Step {
     }
 }
 
-/// Whether two versions read one clone-shared stored buffer — the
-/// mirror-side observation of the ptr-identity rungs' dispatch
-/// predicate, through the public byte view (clones share storage, so
-/// their byte borrows alias; the mirror's registers alias exactly when
-/// the guest's do, because both executions ran the same ops).
+/// Whether two versions read one clone-shared stored buffer.
+///
+/// The mirror-side observation of the ptr-identity rungs' dispatch
+/// predicate, through the public byte view: clones share storage, so
+/// their byte borrows alias — and the mirror's registers alias exactly
+/// when the guest's do, because both executions ran the same ops.
 fn version_buffers_alias(a: &Version, b: &Version) -> bool {
     let (ab, bb) = (a.as_bytes(), b.as_bytes());
     core::ptr::eq(ab.as_ptr(), bb.as_ptr()) && ab.len() == bb.len()
