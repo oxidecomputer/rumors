@@ -85,7 +85,7 @@
 //!
 //! [`validate`](fn@validate) runs one forward pass holding, per open ancestor, two
 //! bits — "is my left child complete" and "was that child a leaf" — on a
-//! packed bit stack, plus one [`Accumulator`](suanpan::Accumulator)
+//! packed bit stack, plus one [`Accumulator`]
 //! carrying the running leaf height for the nonnegativity check. The bit
 //! stack costs ~2 bits per level where machine-word parse frames would
 //! cost tens of bytes; the resource-envelope suite
@@ -97,7 +97,7 @@
 //! codes sitting exactly on a `2^k` carry boundary, so a plain big-integer
 //! running height pays a full `k`-bit carry per 3-bit delta — `Θ(W²)` limb
 //! work in skyline wire bits `W` (`meter::tier2`'s plain-sweep pin measures
-//! it). The balanced signed-digit [`Accumulator`](suanpan::Accumulator) applies a
+//! it). The balanced signed-digit [`Accumulator`] applies a
 //! small delta and answers the sign check in amortized O(1) digit touches
 //! on every input sequence, so validation stays linear per wire bit; the
 //! envelope suite pins the per-delta touch cost flat across size doublings
