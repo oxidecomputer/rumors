@@ -173,7 +173,7 @@ use crate::step;
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
 use self::watermark::{MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
-use super::walk::LeafWalk;
+use super::walk::{Extremum, LeafWalk};
 use super::{fold_signed, gamma_code, unzigzag, zigzag_signed};
 
 mod fuse;
@@ -1115,21 +1115,13 @@ impl FillWalk<'_> {
         // unmetered peek of the bit the scan is about to read as its
         // first flag.
         self.range_is_leaf = self.ev[self.pos()];
-        let mut above = self.stack.lease();
-        let mut armed = false;
+        let mut above = Extremum::max(self.stack.lease());
         let mut walk = LeafWalk::new();
         while walk.descend(&mut self.cursor).is_some() {
             let (neg, mag) = self.consume_payload();
-            if !armed {
-                armed = true;
-            } else {
-                fold_signed(&mut above, !neg, &mag);
-                if above.sign() == Ordering::Less {
-                    above.reset();
-                }
-            }
+            above.fold(neg, &mag);
         }
-        let result = self.stack.materialize(above);
+        let result = self.stack.materialize(above.into_offset());
         debug_assert!(!result.0, "the fold floors at zero");
         result
     }
@@ -1281,12 +1273,10 @@ impl Frames {
 fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
     let mut cursor = codec::DsiCursor::new_at(ev, pos);
     let mut first = first;
-    // The net movement `h − h_entry` and the minimum's offset from the
-    // *current* height (`min − h`), reset whenever the height crosses
-    // below it; the first leaf arms the offset at zero.
+    // The net movement `h − h_entry`, and the minimum's offset from
+    // the *current* height (`min − h`) on the streaming fold.
     let mut net = Accumulator::new();
-    let mut off = Accumulator::new();
-    let mut armed = false;
+    let mut off = Extremum::min(Accumulator::new());
     let mut walk = LeafWalk::new();
     while walk.descend(&mut cursor).is_some() {
         let code = cursor.read_int().expect("canonical skyline bits");
@@ -1297,15 +1287,9 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
             unzigzag(code)
         };
         fold_signed(&mut net, neg, &mag);
-        if !armed {
-            armed = true;
-        } else {
-            fold_signed(&mut off, !neg, &mag);
-            if off.sign() == Ordering::Greater {
-                off = Accumulator::new();
-            }
-        }
+        off.fold(neg, &mag);
     }
+    let off = off.into_offset();
     let (n_sign, n_mag) = net.sign_magnitude();
     let (o_sign, o_mag) = off.sign_magnitude();
     let net = (n_sign == Ordering::Less, Base::from(n_mag));
@@ -1549,22 +1533,13 @@ impl PreScan<'_, '_> {
         // it runs on its own cursor; the scan's forward cursor stays
         // where the sibling walk left it.
         let mut cursor = codec::DsiCursor::new_at(self.ev, pos);
-        let mut above = self.stack.lease();
-        let mut armed = false;
+        let mut above = Extremum::max(self.stack.lease());
         let mut walk = LeafWalk::new();
         while walk.descend(&mut cursor).is_some() {
             let code = cursor.read_int().expect("canonical skyline bits");
-            if !armed {
-                armed = true;
-            } else {
-                let (neg, mag) = unzigzag(code);
-                fold_signed(&mut above, !neg, &mag);
-                if above.sign() == Ordering::Less {
-                    above.reset();
-                }
-            }
+            above.fold_zigzag(code);
         }
-        let result = self.stack.materialize(above);
+        let result = self.stack.materialize(above.into_offset());
         debug_assert!(!result.0, "the fold floors at zero");
         result
     }
@@ -1759,22 +1734,14 @@ impl PreScan<'_, '_> {
     /// — the range's leaves vanish into the raise the caller decides.
     fn max_range(&mut self, first: bool) -> Signed {
         let mut first = first;
-        let mut above = self.stack.lease();
-        let mut armed = false;
+        let mut above = Extremum::max(self.stack.lease());
         let mut walk = LeafWalk::new();
         while walk.descend(&mut self.cursor).is_some() {
             let step = self.payload(first);
             first = false;
-            if !armed {
-                armed = true;
-            } else {
-                fold_signed(&mut above, !step.0, &step.1);
-                if above.sign() == Ordering::Less {
-                    above.reset();
-                }
-            }
+            above.fold(step.0, &step.1);
         }
-        let result = self.stack.materialize(above);
+        let result = self.stack.materialize(above.into_offset());
         debug_assert!(!result.0, "the fold floors at zero");
         result
     }
