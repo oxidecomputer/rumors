@@ -115,6 +115,20 @@ const fn interval_row(op: &'static str) -> SurfaceRow {
     }
 }
 
+/// The deriving interval door's row: the hull's endpoints are the two
+/// committed lattice folds, which are bound on all three legs.
+const fn spanning_row() -> SurfaceRow {
+    const REASON: &str = "semantically the composition of the two committed lattice \
+         folds (meet_all/join_all), law-pinned to them (spanning_is_the_lattice_hull); \
+         unit-tested in causally/tests.rs";
+    SurfaceRow {
+        op: "causally::Interval::spanning",
+        prod_tree: Leg::Excluded(REASON),
+        prod_fs: Leg::Excluded(REASON),
+        tree_fs: Leg::Excluded(REASON),
+    }
+}
+
 /// The n-ary hand-back exclusion, shared by the `join_all`/`forks`
 /// family of rows; the reason carries the half-binding rationale.
 const HANDBACK: &str = "hand-back value identity and order against the fixed accumulator \
@@ -547,6 +561,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     interval_row("causally::Interval::ordered"),
     interval_row("causally::Interval::place"),
     interval_row("causally::Interval::dominance_of"),
+    spanning_row(),
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot

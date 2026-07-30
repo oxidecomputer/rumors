@@ -464,6 +464,37 @@ fn interval_ordered_asserts_the_guarantee_in_debug() {
     let _ = Interval::ordered(&a4, &a2);
 }
 
+/// The deriving door on every input genre: empty yields no hull, and
+/// every nonempty genre its tightest containing interval.
+///
+/// A lone version's hull is the coincident interval; a comparable
+/// pair's is its validated interval in either orientation; a
+/// concurrent pair's is a hull whose fresh endpoints strictly bracket
+/// both inputs; and owned items feed the same door as references.
+#[test]
+fn spanning_derives_the_hull() {
+    let ([a1, a2, _, _, _], b1) = interval_fixtures();
+
+    // The hull of nothing does not exist: the lattice has no top.
+    assert!(Interval::spanning(Vec::<&Version>::new()).is_none());
+    // A lone version's hull is the coincident interval.
+    assert_eq!(
+        Interval::spanning([&a1]).unwrap(),
+        Interval::new(&a1, &a1).unwrap()
+    );
+    // Comparable pairs: the hull is the flip repair, both orientations.
+    let flat = Interval::new(&a1, &a2).unwrap();
+    assert_eq!(Interval::spanning([&a1, &a2]).unwrap(), flat);
+    assert_eq!(Interval::spanning([&a2, &a1]).unwrap(), flat);
+    // A concurrent pair has no reordering, but it has a hull: both
+    // inputs sit strictly inside it.
+    let hull = Interval::spanning([&a2, &b1]).unwrap();
+    assert_eq!(hull.place(&a2), Placement::Between);
+    assert_eq!(hull.place(&b1), Placement::Between);
+    // Owned items feed the same door (the Borrow calling convention).
+    assert_eq!(Interval::spanning([a1.clone(), a2.clone()]).unwrap(), flat);
+}
+
 /// `a <= b` under the impl causal order (`None` means concurrent, so not
 /// ordered).
 fn le(a: &Version, b: &Version) -> bool {

@@ -318,9 +318,11 @@ const fn constant(op: &'static str) -> Claim {
 }
 
 /// The `causally` module doc's shared line: eighteen rows price the same
-/// three facts, so they share one bound at one site.
+/// three facts, so they share one bound at one site. The one deriving
+/// constructor (`Interval::spanning`) is priced at its own fn doc, not
+/// here.
 const CAUSALLY_BOUND: Bound = Bound::Custom {
-    line: "constructors `O(1)`; validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
+    line: "borrowing constructors `O(1)` (`spanning`: two balanced folds, priced at the method); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
     reason: "one module-doc section prices every constructor and predicate together",
 };
 
@@ -1008,6 +1010,19 @@ pub(crate) const CLAIMS: &[Claim] = &[
         "causally::Interval::dominance_of",
         Cells::Board(&[("causally_contains", Class::Linear)]),
     ),
+    Claim {
+        op: "causally::Interval::spanning",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Fold,
+        }],
+        // The hull's endpoints are the two committed lattice folds;
+        // their rows witness the class.
+        cells: Cells::Board(&[
+            ("version_meet_all", Class::FoldLog),
+            ("version_join_all", Class::FoldLog),
+        ]),
+    },
     // ─────────────────────── operator/trait families ───────────────────────
     Claim {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",

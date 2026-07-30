@@ -270,9 +270,9 @@ fn version_encoded_bits_matches_encode_len(a: &Version) -> bool {
 /// Commutativity and the bound laws of the lattice operations, absorption,
 /// the partial order's pair laws and their coherence with `Eq`/`Hash` and
 /// `concurrent`, the valuation identity tying `rank` to the lattice, the
-/// `distance`/`lag` metric laws, [`Ranked`]'s rank order, and the
+/// `distance`/`lag` metric laws, [`Ranked`]'s rank order, the
 /// degenerate-interval identity tying interval placement back to
-/// pairwise comparison.
+/// pairwise comparison, and the pair form of the spanning hull.
 pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("merge_commutative", merge_commutative),
     ("meet_commutative", meet_commutative),
@@ -299,6 +299,7 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
         "degenerate_interval_place_is_partial_cmp",
         degenerate_interval_place_is_partial_cmp,
     ),
+    ("spanning_pair_is_the_hull", spanning_pair_is_the_hull),
 ];
 
 /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
@@ -457,7 +458,8 @@ fn ranked_orders_by_rank(a: &Version, b: &Version) -> bool {
 /// coarsening to `placement_of`/`contains`, the nine-way
 /// [`Interval::place`] verdict as a pure transcription of the two
 /// endpoint comparisons, its coarsenings to `dominance_of` and — on
-/// two-bounded ranges — to `bounded`.
+/// two-bounded ranges — to `bounded`, and the spanning hull's
+/// definitional pin at arity three.
 pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("merge_associative", merge_associative),
     ("meet_associative", meet_associative),
@@ -488,6 +490,7 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
         "bounded_coarsens_interval_place",
         bounded_coarsens_interval_place,
     ),
+    ("spanning_is_the_lattice_hull", spanning_is_the_lattice_hull),
 ];
 
 /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
@@ -803,6 +806,28 @@ fn bounded_coarsens_interval_place(a: &Version, b: &Version, c: &Version) -> boo
     true
 }
 
+/// The spanning hull at arity three: endpoints definitionally the
+/// n-ary meet and join, input order irrelevant, every input within.
+///
+/// The endpoints are [`Version::meet_all`] and
+/// [`Version::join_all`] over the inputs; permuting the inputs changes
+/// nothing (the fold laws' order-independence, observed through the
+/// door); and every input places within the hull — never
+/// [`Before`](Placement::Before) or [`After`](Placement::After), since
+/// the meet bounds each input from below and the join from above.
+fn spanning_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
+    let hull = Interval::spanning([a, b, c]).expect("a triple is nonempty");
+    let meet = Version::meet_all([a, b, c]).expect("a triple is nonempty");
+    let join = Version::join_all([a, b, c]);
+    let definitional = hull == Interval::ordered(&meet, &join);
+    let permuted = hull == Interval::spanning([c, a, b]).expect("a triple is nonempty")
+        && hull == Interval::spanning([b, c, a]).expect("a triple is nonempty");
+    let contained = [a, b, c]
+        .into_iter()
+        .all(|v| !matches!(hull.place(v), Placement::Before | Placement::After));
+    definitional && permuted && contained
+}
+
 /// `place` against the degenerate interval `[v, v]` is pairwise
 /// comparison itself.
 ///
@@ -826,6 +851,28 @@ fn degenerate_interval_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
         }
     }
     true
+}
+
+/// The spanning hull of a pair: endpoints the pair's meet and join,
+/// commutative, subsuming the flip repair on comparable pairs, and the
+/// coincident `[v, v]` on a lone version.
+///
+/// On a comparable pair the hull *is* the reordered pair (either
+/// orientation yields the validated interval); on a concurrent pair
+/// the meet/join bracket is the only interval containing both.
+fn spanning_pair_is_the_hull(a: &Version, b: &Version) -> bool {
+    let hull = Interval::spanning([a, b]).expect("a pair is nonempty");
+    let (meet, join) = (a & b, a | b);
+    let definitional = hull == Interval::ordered(&meet, &join);
+    let commutative = hull == Interval::spanning([b, a]).expect("a pair is nonempty");
+    let flip_subsumed = match a.partial_cmp(b) {
+        Some(Ordering::Less | Ordering::Equal) => hull == Interval::ordered(a, b),
+        Some(Ordering::Greater) => hull == Interval::ordered(b, a),
+        None => true, // no reordering exists; the bracket is definitional
+    };
+    let singleton =
+        Interval::spanning([a]).expect("a singleton is nonempty") == Interval::ordered(a, a);
+    definitional && commutative && flip_subsumed && singleton
 }
 
 // ───────────────────────────── Party: one value ─────────────────────────────
