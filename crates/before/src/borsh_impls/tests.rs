@@ -669,3 +669,27 @@ proptest! {
         prop_assert_eq!(Span::try_from_slice(&bytes).unwrap(), span);
     }
 }
+
+/// The borsh span door dedups the coincident span's storage exactly as
+/// the byte-slice decode does: the fused admission verdict detects
+/// `hi == lo` on the wire, so the deserialized endpoints share one
+/// buffer (clone identity holds) and the composite still re-serializes
+/// byte-identically.
+#[test]
+fn span_borsh_dedups_the_coincident_span() {
+    use crate::causally::Span;
+    let mut clock = crate::Clock::seed();
+    for _ in 0..12 {
+        clock.tick();
+    }
+    let v = clock.version().clone();
+    let span = v.span(&v);
+    let bytes = borsh::to_vec(&span).unwrap();
+    let decoded = Span::try_from_slice(&bytes).unwrap();
+    assert_eq!(decoded, span, "the wire round-trips the coincident span");
+    assert_eq!(borsh::to_vec(&decoded).unwrap(), bytes);
+    assert!(
+        decoded.meet().view().ptr_eq(decoded.join().view()),
+        "the borsh admission verdict must dedup the coincident span's storage"
+    );
+}

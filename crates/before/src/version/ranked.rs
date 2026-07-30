@@ -429,6 +429,16 @@ impl core::fmt::Debug for Ranked<'_> {
 /// materialized; the tiebreak runs only on rank ties, where the two
 /// sides are never causally ordered, so it is causally free.
 fn total_cmp(a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {
+    // Equal versions are one value under the total order — the
+    // `ranked_orders_by_rank_then_bytes` law in `crate::laws` pins the
+    // whole table, equal ranks and equal bytes reading `Equal` — and
+    // canonical equality answers in `O(1)` on a shared buffer (clone
+    // identity) or one byte compare, where the rank co-sweep would fold
+    // both streams whole only to tie and tiebreak `Equal`. Unequal
+    // operands pay only the compare's early-exiting prefix.
+    if crate::codec::canonical_eq(a.version.view(), b.version.view()) {
+        return Ordering::Equal;
+    }
     skyline::query::rank_cmp(a.version.view(), b.version.view())
         .then_with(|| a.version.as_bytes().cmp(b.version.as_bytes()))
 }

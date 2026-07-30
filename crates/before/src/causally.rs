@@ -750,6 +750,22 @@ impl<'a> Span<'a> {
     /// question is asked, [`dominance_of`](Self::dominance_of) bails
     /// earlier.
     pub fn place(&self, probe: &Version) -> Placement {
+        // The coincident span collapses placement to pairwise
+        // comparison — the `degenerate_span_place_is_partial_cmp` law
+        // in [`laws`](crate::laws) — and clone identity certifies
+        // `lo == hi` in `O(1)`: a coincident span built by the hull
+        // doors or the wire decode stores one buffer twice, so the
+        // fused three-stream walk would read that buffer twice where
+        // one pair sweep answers. Coincident endpoints in distinct
+        // buffers still take the fused walk below.
+        if self.lo.view().ptr_eq(self.hi.view()) {
+            return match probe.partial_cmp(self.meet()) {
+                Some(Ordering::Less) => Placement::Before,
+                Some(Ordering::Equal) => Placement::At(Endpoint::Both),
+                Some(Ordering::Greater) => Placement::After,
+                None => Placement::Concurrent(Endpoint::Both),
+            };
+        }
         place::span(probe.view(), self.lo.view(), self.hi.view())
     }
 
@@ -778,6 +794,26 @@ impl<'a> Span<'a> {
     /// [`Before`](Dominance::Before). On sweeps with no refutation the
     /// cost is [`place`](Self::place)'s exactly.
     pub fn dominance_of(&self, probe: &Version) -> Dominance {
+        // The coincident span collapses the dominance question to one
+        // containment — `degenerate_span_place_is_partial_cmp` composed
+        // with `span_dominance_coarsens_place` (both in
+        // [`laws`](crate::laws)): on `lo == hi` the `After` bucket is
+        // exactly `hi <= probe` and everything else is `Before`
+        // (`Between` needs the endpoints to differ). Clone identity
+        // certifies the coincidence in `O(1)` — the hull doors and the
+        // wire decode store a coincident span's one buffer twice — so
+        // one single-bound placement (each stream decoded once) answers
+        // where the fused walk would read the shared buffer twice.
+        // This is the compressed-subtree classification fast path: a
+        // node whose version bounds coincide is classified against one
+        // stream, not two.
+        if self.lo.view().ptr_eq(self.hi.view()) {
+            return if known_at(probe).contains(self.join()) {
+                Dominance::After
+            } else {
+                Dominance::Before
+            };
+        }
         place::dominance(probe.view(), self.lo.view(), self.hi.view())
     }
 

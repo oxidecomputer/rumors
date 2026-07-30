@@ -568,19 +568,30 @@ impl Clock {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        // The party is the byte-aligned prefix: parse its id to find its bit
-        // length, round up to the byte boundary the version starts on, then
-        // decode each part independently. `Party::decode` checks the party's
-        // canonicity and padding — its grammar has no empty production, so
+        // The party is the byte-aligned prefix: parse its id once to
+        // find the split, then validate both components against the
+        // borrowed buffer — the party's padding first, then the
+        // version's stream and padding, the order the component
+        // decoders check. The id grammar has no empty production, so
         // the party is a nonzero share (paper §3: a standalone share is
-        // `i ≠ 0`) and empty input is exhausted input; `Version::decode`
-        // checks the version.
-        let id_bytes = {
+        // `i ≠ 0`) and empty input is exhausted input. Both parts then
+        // adopt slices of the ONE read buffer as their storage: no
+        // per-component copy, and the id is parsed once where handing
+        // byte ranges to the component decoders re-parsed it.
+        let (id_end, id_bytes, v_end) = {
             let bits = codec::bytes_as_bits(&buf);
-            codec::parse_id(bits, 0)?.div_ceil(8)
+            let id_end = codec::parse_id(bits, 0)?;
+            let id_bytes = id_end.div_ceil(8);
+            codec::require_zero_padding(&bits[..8 * id_bytes], id_end)?;
+            let tail = &bits[8 * id_bytes..];
+            let v_end = crate::version::skyline::validate_prefix(tail)?;
+            codec::require_zero_padding(tail, v_end)?;
+            (id_end, id_bytes, v_end)
         };
-        let party = Party::decode(&buf[..id_bytes])?;
-        let version = Version::decode(&buf[id_bytes..])?;
+        let buf = bytes::Bytes::from(buf);
+        let party = Party::from_frozen(codec::Bits::from_canonical(buf.slice(..id_bytes), id_end));
+        let version =
+            Version::from_frozen(codec::Bits::from_canonical(buf.slice(id_bytes..), v_end));
         Ok(Clock::from_parts(party, version))
     }
 
