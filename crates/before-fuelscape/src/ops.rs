@@ -891,7 +891,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "hand-out mechanics over the balanced split the party_forks panel prices",
     ),
     (
-        "Ranked / Rank comparisons and From conversions (the total order, all operand mixes)",
+        "Ranked comparisons and the Ranked / Rank From conversions (the total order)",
         "the fused signed instance of the pair co-sweep the version_rank panel's \
          integrator runs (plus one byte compare on rank ties); no guest kernel \
          exports the rank view (adding kernels is a crates/before change outside \
