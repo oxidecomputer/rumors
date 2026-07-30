@@ -1,7 +1,7 @@
 use crate::ops::ROSTER;
 use crate::sample::cell_rng;
 
-use super::{run_op, split_budget, Plan, Samplers};
+use super::{run_op, slice_arity, split_budget, Plan, Samplers};
 
 /// A run is a pure function of (guest wasm, plan): two executions of the
 /// same plan read byte-identical fuel in the same cell order.
@@ -96,6 +96,28 @@ fn split_budget_yields_positive_compositions() {
             }
         }
     }
+}
+
+/// The slice arity draw reaches every count the budget can feed.
+///
+/// Uniform over `1..=total`, so at a small total every arity appears
+/// across a modest draw budget — a draw that silently skipped an arity
+/// band would skew every slice column's measure and hide the fold's
+/// boundary arities (the drain first combines at 3, the merged–merged
+/// carry at 4, the drain of two merged groups at 6: all reachable only
+/// if no count is skipped).
+#[test]
+fn slice_arity_reaches_every_count() {
+    let mut rng = cell_rng(0xc0de, "arity-reach", 9, 0);
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..2_000 {
+        seen.insert(slice_arity(9, &mut rng));
+    }
+    assert_eq!(
+        seen,
+        (1..=9).collect::<std::collections::BTreeSet<_>>(),
+        "every arity in 1..=9 must be reachable"
+    );
 }
 
 /// The split reaches every composition.

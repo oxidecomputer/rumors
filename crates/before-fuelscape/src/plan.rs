@@ -13,10 +13,10 @@
 //! exactly `N` packed bytes. A k-operand operation's column at *total*
 //! size `N` draws a split uniformly from the compositions of `N` into
 //! `k` positive parts, then each operand uniformly at its exact size; a
-//! slice row first draws its arity from the declared set. So the x-axis
-//! is total packed input bytes everywhere, and every rendered plot
-//! carries its row's exact declaration ([`crate::ops::OpSpec`]'s
-//! `size_measure`).
+//! slice row first draws its arity uniformly from every count the budget
+//! can feed (`1..=N`). So the x-axis is total packed input bytes
+//! everywhere, and every rendered plot carries its row's exact
+//! declaration ([`crate::ops::OpSpec`]'s `size_measure`).
 
 use rand::Rng;
 use rayon::prelude::*;
@@ -24,7 +24,7 @@ use rayon::prelude::*;
 use fuzzfit_harness::wasm::Guest;
 
 use crate::families::overlay_inputs;
-use crate::ops::{Inputs, OpSpec, Operand, SLICE_ARITIES};
+use crate::ops::{Inputs, OpSpec, Operand};
 use crate::sample::{cell_rng, PartySampler, VersionSampler};
 
 #[cfg(test)]
@@ -127,6 +127,19 @@ impl Samplers {
     }
 }
 
+/// The slice-row arity draw: uniform over every count the column's
+/// budget can feed (`1..=total`, one byte per operand).
+///
+/// Arity is stratified deliberately rather than left to the composition
+/// count — uniform over whole compositions would concentrate nearly all
+/// mass at many-tiny-operand slices (compositions of `total` into `k`
+/// parts peak at `k ≈ total/2`) — so every arity gets equal
+/// representation per column, and the split below stays exactly uniform
+/// at the drawn arity.
+fn slice_arity(total: usize, rng: &mut rand_chacha::ChaCha12Rng) -> usize {
+    rng.gen_range(1..=total)
+}
+
 /// Split `total` uniformly over its compositions into `parts` positive
 /// parts.
 ///
@@ -219,16 +232,7 @@ fn draw_inputs(
         Inputs::VersionSlice => {
             // Arity first, then the split, then the members, so the
             // stream is stable however the samplers consume randomness.
-            let allowed: Vec<usize> = SLICE_ARITIES
-                .iter()
-                .copied()
-                .filter(|&k| k <= size)
-                .collect();
-            assert!(
-                !allowed.is_empty(),
-                "slice columns start at the smallest declared arity"
-            );
-            let arity = allowed[rng.gen_range(0..allowed.len())];
+            let arity = slice_arity(size, rng);
             let sizes = split_budget(size, arity, rng);
             let mut rejected = 0;
             let inputs = sizes
