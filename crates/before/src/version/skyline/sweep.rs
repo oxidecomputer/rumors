@@ -110,7 +110,7 @@
 //! # Early exit
 //!
 //! The question asked decides the earliest stop, so each entry point
-//! passes its question to the shared sweep as an exit closure breaking
+//! passes its question to the shared sweep as an exit predicate breaking
 //! with the decided verdict: [`causal_cmp`] stops when both directions
 //! are excluded (the strict mix reading concurrent — any other verdict
 //! needs exhaustion), [`eq`] when either is (any nonzero `D` refutes
@@ -163,27 +163,8 @@ use crate::step;
 /// running height negative) sweep silently, and the verdict is then
 /// unspecified.
 pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
-    sweep(
-        a,
-        b,
-        // The full order stops early only at the strict mix: both
-        // directions refuted reads concurrent, and no other verdict is
-        // known before exhaustion.
-        |le, ge| {
-            if !le && !ge {
-                ControlFlow::Break(None)
-            } else {
-                ControlFlow::Continue(())
-            }
-        },
-        // At exhaustion every flag combination is a verdict.
-        |le, ge| match (le, ge) {
-            (true, true) => Some(Ordering::Equal),
-            (true, false) => Some(Ordering::Less),
-            (false, true) => Some(Ordering::Greater),
-            (false, false) => None,
-        },
-    )
+    // At exhaustion every surviving combination is a verdict.
+    sweep(a, b, order_exit, Directions::relation)
 }
 
 /// Whether two skyline streams denote the same version.
@@ -203,21 +184,8 @@ pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
 /// equality (canonical uniqueness makes them the same test).
 #[cfg(any(test, feature = "meter"))]
 pub fn eq(a: &BitsSlice, b: &BitsSlice) -> bool {
-    sweep(
-        a,
-        b,
-        // Equality stops the moment either direction is refuted: any
-        // nonzero difference refutes it.
-        |le, ge| {
-            if !le || !ge {
-                ControlFlow::Break(false)
-            } else {
-                ControlFlow::Continue(())
-            }
-        },
-        // Surviving both directions to exhaustion is equality.
-        |le, ge| le && ge,
-    )
+    // Surviving both directions to exhaustion is equality.
+    sweep(a, b, eq_exit, |dirs| dirs.le && dirs.ge)
 }
 
 /// Whether the versions two skyline streams denote are concurrent:
@@ -260,16 +228,83 @@ pub fn le(a: &BitsSlice, b: &BitsSlice) -> bool {
         b,
         // Domination `a <= b` stops the moment that one direction is
         // refuted; the other direction never matters.
-        |le, _| {
-            if le {
+        |dirs| {
+            if dirs.le {
                 ControlFlow::Continue(())
             } else {
                 ControlFlow::Break(false)
             }
         },
         // Surviving to exhaustion confirms the domination.
-        |le, _| le,
+        |dirs| dirs.le,
     )
+}
+
+/// The two surviving directions of a comparison walk: which of `a <= b`
+/// / `b <= a` no folded elementary interval has refuted yet.
+///
+/// Every comparison walk — this module's sweep, the masked co-walk, the
+/// placement walk's bound sides — folds one sign per elementary
+/// interval into this pair and asks its question of the survivors. A
+/// refuted direction stays refuted, which is what makes every early
+/// exit sound.
+#[derive(Clone, Copy)]
+pub(super) struct Directions {
+    /// `a <= b` still possible (no interval put `a`'s height above).
+    pub(super) le: bool,
+    /// `b <= a` still possible (no interval put `b`'s height above).
+    pub(super) ge: bool,
+}
+
+impl Directions {
+    /// Both directions open: nothing folded yet.
+    pub(super) fn new() -> Directions {
+        Directions { le: true, ge: true }
+    }
+
+    /// Fold one elementary interval's sign of `D = height_a − height_b`
+    /// into the surviving directions: a positive interval refutes
+    /// `a <= b`, a negative one `b <= a`.
+    pub(super) fn fold(&mut self, sign: Ordering) {
+        match sign {
+            Ordering::Greater => self.le = false,
+            Ordering::Less => self.ge = false,
+            Ordering::Equal => {}
+        }
+    }
+
+    /// The relation the folded directions decide, as the causal order:
+    /// both surviving is equality, one is the strict order, neither is
+    /// concurrent (`None`).
+    pub(super) fn relation(self) -> Option<Ordering> {
+        match (self.le, self.ge) {
+            (true, true) => Some(Ordering::Equal),
+            (true, false) => Some(Ordering::Less),
+            (false, true) => Some(Ordering::Greater),
+            (false, false) => None,
+        }
+    }
+}
+
+/// The full order's exit question: stop early only at the strict mix —
+/// both directions refuted reads concurrent, and no other verdict is
+/// known before exhaustion.
+pub(super) fn order_exit(dirs: Directions) -> ControlFlow<Option<Ordering>> {
+    if !dirs.le && !dirs.ge {
+        ControlFlow::Break(None)
+    } else {
+        ControlFlow::Continue(())
+    }
+}
+
+/// Equality's exit question: stop the moment either direction is
+/// refuted — any nonzero difference refutes equality.
+pub(super) fn eq_exit(dirs: Directions) -> ControlFlow<bool> {
+    if !dirs.le || !dirs.ge {
+        ControlFlow::Break(false)
+    } else {
+        ControlFlow::Continue(())
+    }
 }
 
 /// Which side of the difference `D = height_a − height_b` a stream feeds.
@@ -489,19 +524,20 @@ impl<'a> OpenedPair<'a> {
 }
 
 /// Run the merge, generic over the question asked of the surviving
-/// directions `(a <= b, b <= a)`.
+/// [`Directions`].
 ///
-/// After each interval's sign fold, `exit` sees the surviving flags and
-/// may declare the question decided — the `Break` payload carries the
-/// verdict, so the earliest stop and its answer are one value (an early
-/// exit leaves the direction the question does not need wherever the
-/// folded prefix left it, which is why flags are never handed back
-/// early). At exhaustion `finish` maps the fully-swept flags.
+/// After each interval's sign fold, `exit` sees the surviving
+/// directions and may declare the question decided — the `Break`
+/// payload carries the verdict, so the earliest stop and its answer are
+/// one value (an early exit leaves the direction the question does not
+/// need wherever the folded prefix left it, which is why directions are
+/// never handed back early). At exhaustion `finish` maps the
+/// fully-swept directions.
 fn sweep<V>(
     a_bits: &BitsSlice,
     b_bits: &BitsSlice,
-    exit: impl Fn(bool, bool) -> ControlFlow<V>,
-    finish: impl FnOnce(bool, bool) -> V,
+    exit: impl Fn(Directions) -> ControlFlow<V>,
+    finish: impl FnOnce(Directions) -> V,
 ) -> V {
     let OpenedPair {
         mut a,
@@ -509,21 +545,17 @@ fn sweep<V>(
         mut diff,
         ..
     } = OpenedPair::open(a_bits, b_bits);
-    let (mut le, mut ge) = (true, true);
+    let mut dirs = Directions::new();
     loop {
         // One fold per elementary interval: the interval starting at the
         // sweep point ends at the earlier plateau end, and `D` is
         // constant across it.
-        match diff.sign() {
-            Ordering::Greater => le = false,
-            Ordering::Less => ge = false,
-            Ordering::Equal => {}
-        }
-        if let ControlFlow::Break(verdict) = exit(le, ge) {
+        dirs.fold(diff.sign());
+        if let ControlFlow::Break(verdict) = exit(dirs) {
             return verdict;
         }
         if a.done() && b.done() {
-            return finish(le, ge);
+            return finish(dirs);
         }
         advance_diff(&mut a, &mut b, &mut diff);
     }

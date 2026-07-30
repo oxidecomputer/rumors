@@ -87,7 +87,9 @@ use suanpan::Accumulator;
 use crate::codec::BitsSlice;
 
 use super::query::IdLeafCursor;
-use super::sweep::{fold, LeafCursor, OpenedPair, PlateauCursor, Side};
+use super::sweep::{
+    eq_exit, fold, order_exit, Directions, LeafCursor, OpenedPair, PlateauCursor, Side,
+};
 
 /// The causal order of two projected skylines, `None` for concurrent.
 ///
@@ -105,25 +107,8 @@ pub fn causal_cmp(
     b: &BitsSlice,
     b_mask: Option<&BitsSlice>,
 ) -> Option<Ordering> {
-    Walk::open(a, a_mask, b, b_mask).run(
-        // The full order stops early only at the strict mix: both
-        // directions refuted reads concurrent, and no other verdict is
-        // known before exhaustion.
-        |le, ge| {
-            if !le && !ge {
-                ControlFlow::Break(None)
-            } else {
-                ControlFlow::Continue(())
-            }
-        },
-        // At exhaustion every flag combination is a verdict.
-        |le, ge| match (le, ge) {
-            (true, true) => Some(Ordering::Equal),
-            (true, false) => Some(Ordering::Less),
-            (false, true) => Some(Ordering::Greater),
-            (false, false) => None,
-        },
-    )
+    // At exhaustion every surviving combination is a verdict.
+    Walk::open(a, a_mask, b, b_mask).run(order_exit, Directions::relation)
 }
 
 /// Whether two projected skylines denote the same version.
@@ -143,19 +128,8 @@ pub fn eq(
     b: &BitsSlice,
     b_mask: Option<&BitsSlice>,
 ) -> bool {
-    Walk::open(a, a_mask, b, b_mask).run(
-        // Equality stops the moment either direction is refuted: any
-        // nonzero projected difference refutes it.
-        |le, ge| {
-            if !le || !ge {
-                ControlFlow::Break(false)
-            } else {
-                ControlFlow::Continue(())
-            }
-        },
-        // Surviving both directions to exhaustion is equality.
-        |le, ge| le && ge,
-    )
+    // Surviving both directions to exhaustion is equality.
+    Walk::open(a, a_mask, b, b_mask).run(eq_exit, |dirs| dirs.le && dirs.ge)
 }
 
 /// The cursor set and integrators of one masked comparison.
@@ -219,21 +193,22 @@ impl<'a> Walk<'a> {
     }
 
     /// Run the merge over the projected skylines, generic over the
-    /// question asked of the surviving directions `(a′ <= b′, b′ <= a′)`.
+    /// question asked of the surviving [`Directions`] (here `a′ <= b′`,
+    /// `b′ <= a′`: the projected heights).
     ///
-    /// After each interval's sign fold, `exit` sees the surviving flags
-    /// and may declare the question decided — the `Break` payload
-    /// carries the verdict, so the earliest stop and its answer are one
-    /// value (an early exit leaves the direction the question does not
-    /// need wherever the folded prefix left it, which is why flags are
-    /// never handed back early). At exhaustion `finish` maps the
-    /// fully-swept flags.
+    /// After each interval's sign fold, `exit` sees the surviving
+    /// directions and may declare the question decided — the `Break`
+    /// payload carries the verdict, so the earliest stop and its answer
+    /// are one value (an early exit leaves the direction the question
+    /// does not need wherever the folded prefix left it, which is why
+    /// directions are never handed back early). At exhaustion `finish`
+    /// maps the fully-swept directions.
     fn run<V>(
         mut self,
-        exit: impl Fn(bool, bool) -> ControlFlow<V>,
-        finish: impl FnOnce(bool, bool) -> V,
+        exit: impl Fn(Directions) -> ControlFlow<V>,
+        finish: impl FnOnce(Directions) -> V,
     ) -> V {
-        let (mut le, mut ge) = (true, true);
+        let mut dirs = Directions::new();
         loop {
             // One fold per elementary interval: the ownership case picks
             // which integrator's sign is the projected difference's.
@@ -255,16 +230,12 @@ impl<'a> Walk<'a> {
                 }
                 (false, false) => Ordering::Equal, // 0 vs 0
             };
-            match sign {
-                Ordering::Greater => le = false,
-                Ordering::Less => ge = false,
-                Ordering::Equal => {}
-            }
-            if let ControlFlow::Break(verdict) = exit(le, ge) {
+            dirs.fold(sign);
+            if let ControlFlow::Break(verdict) = exit(dirs) {
                 return verdict;
             }
             if self.done() {
-                return finish(le, ge);
+                return finish(dirs);
             }
             self.advance();
         }
