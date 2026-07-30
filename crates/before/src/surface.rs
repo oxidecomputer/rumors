@@ -251,6 +251,15 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("rank_realizes_riemann_sum"),
     },
     SurfaceRow {
+        op: "Version::ranked",
+        prod_tree: Leg::Law("ranked_carries_own_rank"),
+        prod_fs: Leg::Excluded(
+            "the method spelling of the borrowing Ranked view conversion; the law \
+             pins the delegation",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the delegation"),
+    },
+    SurfaceRow {
         op: "Version::distance",
         prod_tree: Leg::Bound("distance_and_lag_realize_both_oracles"),
         prod_fs: Leg::Bound("distance_and_lag_realize_both_oracles"),
