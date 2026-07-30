@@ -1887,7 +1887,7 @@ mod adequacy {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut integral = Integrator::new();
-        integral.open(&first);
+        integral.open(false, &first);
         loop {
             let weight_shift = (max_depth - cursor.depth()) as u64;
             integral.interval(weight_shift);
@@ -2113,7 +2113,7 @@ mod adequacy {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut integral = Integrator::new();
-        integral.open(&first);
+        integral.open(false, &first);
         loop {
             let weight_shift = (max_depth - cursor.depth()) as u64;
             integral.interval(weight_shift);

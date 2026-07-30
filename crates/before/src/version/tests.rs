@@ -1748,29 +1748,37 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
 
 // ─────────────────────────────── ranked ───────────────────────────────
 
-/// `Ranked` known values: a concurrent pair sharing a rank (half vs. the
-/// two-peak tree) is tiebroken by canonical bytes — unequal, ordered in
-/// exactly one direction — and `into_parts` returns the version with its
-/// own rank.
+/// `Ranked` known values: equality is rank equality, deliberately
+/// coarser than version identity — a concurrent pair sharing a rank
+/// (half vs. the two-peak tree) compares `Equal` through the fused
+/// walk's hardest arm (the exact total must cancel to zero), across
+/// every operand mix of the heterogeneous family.
+// The redundant-looking operand mixes are the point: each spelling
+// exercises a distinct heterogeneous impl (`Ranked` vs `&Rank`,
+// `&Ranked` vs `Rank`, ...).
+#[allow(clippy::nonminimal_bool, clippy::op_ref)]
 #[test]
-fn ranked_tiebreaks_equal_ranks_by_bytes() {
+fn ranked_equates_equal_rank_concurrent_pairs() {
     let half: Version = "(0, 1, 0)".parse().unwrap();
     let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
     assert!(half.concurrent(&peaks), "the tie under test is concurrent");
+    assert_eq!(half.rank(), peaks.rank(), "the pair shares a rank");
 
-    let (h, p) = (Ranked::from(half), Ranked::from(peaks));
-    assert_eq!(h.rank(), p.rank(), "the pair shares a rank");
-    assert_ne!(h, p, "equality is version equality, not rank equality");
-    assert!((h < p) ^ (p < h), "the byte tiebreak picks one direction");
-
-    let (version, rank) = h.into_parts();
-    assert_eq!(version.rank(), rank, "the carried rank is the version's");
+    let (h, p) = (Ranked::from(&half), Ranked::from(&peaks));
+    assert_eq!(h, p, "equality is rank equality: the views tie");
+    assert_eq!(h.cmp(&p), Ordering::Equal);
+    assert_ne!(*h.version(), *p.version(), "the versions stay distinct");
+    // The heterogeneous mixes answer the same question.
+    assert!(h == peaks.rank() && half.rank() == p);
+    assert!(h == &peaks.rank() && &half.rank() == p.clone());
+    assert!(&h == peaks.rank() && h <= p && p >= h);
 }
 
 proptest! {
     /// A plain sort of `Ranked` keys delivers causes before effects: in
     /// the sorted sequence, no version is causally dominated by an earlier
-    /// one.
+    /// one (rank order refines causality; equal-rank keys are concurrent
+    /// or identical, so any tie order is causally safe).
     // `Version` is a partial order: `!(later < earlier)` also admits
     // concurrent pairs, which `later >= earlier` would reject.
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
@@ -1789,6 +1797,23 @@ proptest! {
                 );
             }
         }
+    }
+
+    /// The fused `Ranked` comparison is the materialized rank order,
+    /// differentially: over arbitrary normal-form version pairs, the
+    /// one-walk signed co-sweep answers exactly what two independent
+    /// rank folds and a `Rank` comparison answer, in both argument
+    /// orders — and the fused encode emits `Rank::encode`'s bytes
+    /// byte-for-byte.
+    #[test]
+    fn ranked_fused_walk_matches_materialized(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let want = a.rank().cmp(&b.rank());
+        let (ra, rb) = (Ranked::from(&a), Ranked::from(&b));
+        prop_assert_eq!(ra.cmp(&rb), want, "fused disagrees: {} vs {}", a, b);
+        prop_assert_eq!(rb.cmp(&ra), want.reverse(), "antisymmetry: {} vs {}", b, a);
+        prop_assert_eq!(ra.encode(), a.rank().encode(), "fused encode: {}", a);
     }
 }
 
