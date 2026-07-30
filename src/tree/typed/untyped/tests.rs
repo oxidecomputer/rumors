@@ -859,13 +859,19 @@ mod memo_fold_cost {
 /// carry the branch variant's width, fan included.
 ///
 /// Measured on 64-bit: `Fan<()>` = 40 (8 capacity + 2 inline 16-byte
-/// entries), `Children<()>` = 128 (the bounds-span memo, the
+/// entries), `Children<()>` = 160 (the bounds-span memo, the
 /// version-bytes memo, the leaf count, and the fan), `NodeInner<()>` =
-/// 176 (prefix `Vec` + hash memo + children).
+/// 208 (prefix `Vec` + hash memo + children).
+// Children 128 -> 160 and NodeInner 176 -> 208 (2026-07-30, the
+// Bytes-backed at-rest form, parent-measured at the radix-fan merge:
+// a stored `Version` handle is 40 bytes where the owning bit-vector
+// was 24, so the branch variant's bounds-span memo — two
+// `Cow<Version>` endpoints — carries the growth; the handle cost that
+// buys the O(1) clone every memo fold and hand-back now rides on).
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn node_inner_stays_within_budget() {
     assert!(std::mem::size_of::<Fan<()>>() <= 40);
-    assert!(std::mem::size_of::<super::Children<()>>() <= 128);
-    assert!(std::mem::size_of::<super::NodeInner<()>>() <= 176);
+    assert!(std::mem::size_of::<super::Children<()>>() <= 160);
+    assert!(std::mem::size_of::<super::NodeInner<()>>() <= 208);
 }
