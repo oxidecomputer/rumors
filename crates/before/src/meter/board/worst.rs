@@ -610,6 +610,39 @@ pub(super) fn render_map(
 ///   allowance (stagger 0.72/B default, weave 0.94/B acceptance): the
 ///   two-sided accumulator carries both endpoints' intermediates at
 ///   once.
+///
+/// Movement 2026-07-31 (the span wire form: `span_encode` joins as the
+/// composite emission's row, `span_decode` as the fused
+/// parse-and-validate row, and `span_decode_truncated`/`_trailing`/
+/// `_crossed` as its rejection surface per the error-path precedent;
+/// ten new ranking entries — the five new rows at each scale — pinned
+/// from the live release fold, every pre-existing entry verified
+/// unmoved at both scales):
+///
+/// - **span_encode reads as version_encode** (promo-rearm heap at both
+///   scales, every other currency unranked): the composite emission is
+///   one byte copy per endpoint, so only the materialized output
+///   registers.
+/// - **span_decode takes hugeleaf heap / dense limb / weight-comb scan
+///   / staircase touch** (both scales): heap and limb are the decode
+///   genre (both endpoints materialize, every stored payload decodes
+///   once) and touch is the comparison walks' (the admission walk
+///   commits exactly the pair sweep's fold traffic on an accepted
+///   composite). The scan column saturates — the fused decode reads
+///   the first component twice (its parse, then the co-walk) and the
+///   second once — so the argmax among saturated families is a
+///   hairline constant, landing on weight-comb rather than the
+///   version_decode row's staircase.
+/// - **the rejection rows read as version_decode's rejection genre
+///   with pair operands** (dense limb / staircase touch everywhere:
+///   the fed composite still parses component streams and folds the
+///   co-walk up to its defect). The crossed row's distinctive columns
+///   are its own mechanism: hugeleaf scan (the whole composite is
+///   examined before the pair rejection is pronounced — no early
+///   defect shortens the scan as a placed cut does) and ascend-plateau
+///   touch (dominance refutes at the first excess interval, dropping
+///   the difference; what remains ranked is the first component's
+///   validation folds plus the walk's prefix).
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_decode", ["hugeleaf", "dense", "staircase", "staircase"]),
     ("default", "version_encode", ["promo-rearm", "-", "-", "-"]),
@@ -621,6 +654,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_meet", ["wide-arming", "dense", "weight-comb", "staircase"]),
     ("default", "version_meet_assign", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("default", "version_span", ["lone-freeze", "dense", "mirror-narrow", "dense"]),
+    ("default", "span_encode", ["promo-rearm", "-", "-", "-"]),
+    ("default", "span_decode", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("default", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("default", "version_ticks", ["ascend-cliff", "mirror-narrow", "reveal-comb", "mirror-narrow"]),
     ("default", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
@@ -673,6 +708,9 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_decode_noncanon", ["hugeleaf", "harmonic", "freeze-parade,reveal-hifloor", "staircase"]),
     ("default", "version_parse_trailing", ["tooth-tail", "staircase", "jump-pair", "staircase"]),
     ("default", "version_parse_noncanon", ["tooth-tail", "staircase", "jump-pair", "staircase"]),
+    ("default", "span_decode_truncated", ["freeze-parade", "dense", "jump-pair", "staircase"]),
+    ("default", "span_decode_trailing", ["hugeleaf", "dense", "weight-comb", "staircase"]),
+    ("default", "span_decode_crossed", ["hugeleaf", "dense", "hugeleaf", "ascend-plateau"]),
     ("default", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
     ("default", "party_decode_trailing", ["id-pair", "-", "id-pair", "-"]),
     ("default", "party_decode_noncanon", ["id-pair", "-", "benign,comb-scatter,staircase", "-"]),
@@ -696,6 +734,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_meet", ["lone-freeze", "dense", "weight-comb", "staircase"]),
     ("acceptance", "version_meet_assign", ["lone-freeze", "dense", "weight-comb", "staircase"]),
     ("acceptance", "version_span", ["lone-freeze", "dense", "mirror-narrow", "dense"]),
+    ("acceptance", "span_encode", ["promo-rearm", "-", "-", "-"]),
+    ("acceptance", "span_decode", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("acceptance", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("acceptance", "version_ticks", ["ascend-cliff", "comb-scatter", "comb-scatter", "mirror-narrow"]),
     ("acceptance", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
@@ -748,6 +788,9 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_decode_noncanon", ["hugeleaf", "harmonic", "reveal-hifloor", "staircase"]),
     ("acceptance", "version_parse_trailing", ["mirror-narrow", "staircase", "jump-pair", "staircase"]),
     ("acceptance", "version_parse_noncanon", ["tooth-tail", "staircase", "jump-pair", "staircase"]),
+    ("acceptance", "span_decode_truncated", ["weight-comb", "dense", "jump-pair", "staircase"]),
+    ("acceptance", "span_decode_trailing", ["hugeleaf", "dense", "weight-comb", "staircase"]),
+    ("acceptance", "span_decode_crossed", ["hugeleaf", "dense", "hugeleaf", "ascend-plateau"]),
     ("acceptance", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
     ("acceptance", "party_decode_trailing", ["id-pair", "-", "id-pair", "-"]),
     ("acceptance", "party_decode_noncanon", ["id-pair", "-", "comb-scatter,staircase", "-"]),
