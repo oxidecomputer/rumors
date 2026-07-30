@@ -211,13 +211,23 @@ fn seed_projection_is_identity(a: &Version) -> bool {
     (a / &Party::seed()) == *a
 }
 
-/// [`Ranked`] carries exactly its version's rank, and `into_parts` returns
-/// the version with that rank.
+/// [`Ranked`] carries exactly its version's rank: both constructors view
+/// the same version, `to_rank` (and the `From` materialization, and the
+/// fused `encode`) realize exactly `Version::rank`'s value, and settling
+/// the borrow (`into_owned`) changes nothing.
+// The owned-instance comparison is the point: the law exercises the
+// `From<Ranked> for Rank` materialization itself.
+#[allow(clippy::cmp_owned)]
 fn ranked_carries_own_rank(a: &Version) -> bool {
-    let ranked = Ranked::from(a.clone());
-    let carried = ranked.rank() == &a.rank() && ranked.version() == a;
-    let (version, rank) = ranked.into_parts();
-    carried && version == *a && rank == a.rank()
+    let ranked = Ranked::from(a);
+    ranked.version() == a
+        && ranked.to_rank() == a.rank()
+        && Rank::from(ranked.clone()) == a.rank()
+        && ranked.encode() == a.rank().encode()
+        && {
+            let owned = Ranked::from(a.clone()).into_owned();
+            owned.version() == a && owned.to_rank() == a.rank()
+        }
 }
 
 /// `decode ∘ encode == id`, and the round-tripped value re-encodes to the
@@ -253,7 +263,7 @@ fn version_encoded_bits_matches_encode_len(a: &Version) -> bool {
 /// Commutativity and the bound laws of the lattice operations, absorption,
 /// the partial order's pair laws and their coherence with `Eq`/`Hash` and
 /// `concurrent`, the valuation identity tying `rank` to the lattice, the
-/// `distance`/`lag` metric laws, and [`Ranked`]'s linear extension.
+/// `distance`/`lag` metric laws, and [`Ranked`]'s rank order.
 pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("merge_commutative", merge_commutative),
     ("meet_commutative", meet_commutative),
@@ -275,10 +285,7 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("lag_is_the_rank_gap", lag_is_the_rank_gap),
     ("version_eq_iff_bytes_eq", version_eq_iff_bytes_eq),
     ("version_eq_implies_hash_eq", version_eq_implies_hash_eq),
-    (
-        "ranked_linearly_extends_causality",
-        ranked_linearly_extends_causality,
-    ),
+    ("ranked_orders_by_rank", ranked_orders_by_rank),
 ];
 
 /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
@@ -397,16 +404,31 @@ fn version_eq_implies_hash_eq(a: &Version, b: &Version) -> bool {
     a != b || hash_of(a) == hash_of(b)
 }
 
-/// [`Ranked`]'s total order linearly extends causality: causally ordered
-/// versions compare the same way, concurrent versions are tiebroken (never
-/// `Equal`), and `Ranked` equality is version equality.
-fn ranked_linearly_extends_causality(a: &Version, b: &Version) -> bool {
-    let (ra, rb) = (Ranked::from(a.clone()), Ranked::from(b.clone()));
+/// [`Ranked`]'s comparisons are rank comparisons, exactly: the fused
+/// co-walk equals the materialized `Rank` order, equality is rank
+/// equality, every heterogeneous operand mix (`Ranked` vs [`Rank`],
+/// either direction, owned and borrowed) answers the same question —
+/// and the order therefore extends causality (causally ordered versions
+/// compare the same way, by rank strict monotonicity).
+// The "needless" borrows are the point: the law exercises the
+// `&Ranked` operand impls std would not derive.
+#[allow(clippy::needless_borrow)]
+fn ranked_orders_by_rank(a: &Version, b: &Version) -> bool {
+    let (ra, rb) = (Ranked::from(a), Ranked::from(b));
+    let want = a.rank().cmp(&b.rank());
+    let fused = ra.cmp(&rb) == want && rb.cmp(&ra) == want.reverse();
+    let eq = (ra == rb) == (want == Ordering::Equal);
+    let heterogeneous = ra.partial_cmp(&b.rank()) == Some(want)
+        && a.rank().partial_cmp(&rb) == Some(want)
+        && (ra == b.rank()) == (want == Ordering::Equal)
+        && (a.rank() == rb) == (want == Ordering::Equal)
+        && (&ra).partial_cmp(&b.rank()) == Some(want)
+        && ra.partial_cmp(&&b.rank()) == Some(want);
     let extends = match a.partial_cmp(b) {
-        Some(ord) => ra.cmp(&rb) == ord,
-        None => ra.cmp(&rb) != Ordering::Equal,
+        Some(ord) => want == ord,
+        None => true, // concurrent: the rank may order or tie them
     };
-    extends && (ra == rb) == (a == b)
+    fused && eq && heterogeneous && extends
 }
 
 // ───────────────────────────── Version: triples ─────────────────────────────

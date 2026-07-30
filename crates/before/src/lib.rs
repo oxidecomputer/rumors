@@ -66,7 +66,7 @@
 //! | [`Party`]           | a distinct entity which may emit events         | [`tick`](Party::tick), [`fork`](Party::fork)([`s`](Party::forks)), [`join`](Party::join), [`is_disjoint`](Party::is_disjoint)                                     |
 //! | [`Version`]         | a causal timestamp (history of known events)    | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), join (`\|`), meet (`&`), [`rank`](Version::rank)                        |
 //! | [`Clock`]           | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork)([`s`](Clock::forks)), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), join (`\|`, `\|=`) a [`Version`] |
-//! | [`Rank`]/[`Ranked`] | a total order extending the causal order       | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub)                                                                               |
+//! | [`Rank`]/[`Ranked`] | a total order extending the causal order       | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub), [`encode`](Rank::encode)/[`decode`](Rank::decode)                            |
 //!
 //! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)): moved, never
 //! duplicated, because duplicating identity is exactly what breaks a causal
@@ -271,9 +271,12 @@
 //!   [`implementation`] — so `v < w` implies
 //!   `v.rank() < w.rank()`: causes always sort before their effects. Only
 //!   concurrent versions can tie, and any deterministic tiebreak then
-//!   yields the same total order on every replica. [`Ranked`] packages a
-//!   version with its rank as a ready-made totally ordered key, tiebroken
-//!   by canonical bytes.
+//!   yields the same total order on every replica. [`Ranked`] views a
+//!   version by its rank — comparisons run fused over the packed
+//!   streams, no rank materialized — and [`Rank::encode`] emits a
+//!   canonical byte form whose plain byte-wise order *is* the rank
+//!   order, so a sorted KV store can use it as a causal-ordering key
+//!   with no rank-aware comparator on the store's side.
 //!
 //! ## How it works
 //!

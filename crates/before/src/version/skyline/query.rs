@@ -19,6 +19,11 @@
 //!   materialized and no per-operand rank recomputed (the pair-co-sweep
 //!   section below carries the algebra, the anchored-segment freeze
 //!   discipline, and the funding certification).
+//! - [`rank_cmp`](fn@rank_cmp) orders two versions' ranks with no
+//!   `Rank` materialized: the *signed* instance of the same co-sweep —
+//!   `rank(a) − rank(b) = ∫ (h_a − h_b)`, orientation constantly `+1`,
+//!   so no orientation change ever fires — keeping only the exact
+//!   total's sign.
 //! - [`min_ticks`](fn@min_ticks) folds the identity
 //!   `Σ bases = Σ leaf heights − Σ internal-node subtree minima` (each
 //!   normal-form base is its node's subtree minimum less its parent's)
@@ -396,7 +401,7 @@ pub fn rank(bits: &BitsSlice) -> Rank {
     // absolute (the plateau anchored at position zero) and folded
     // delta-by-delta thereafter.
     let mut integral = Integrator::new();
-    integral.open(&first);
+    integral.open(false, &first);
     loop {
         let weight_shift = (max_depth - cursor.depth()) as u64;
         integral.interval(weight_shift);
@@ -652,6 +657,27 @@ pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
     pair_integral(a, b, Measure::Lag)
 }
 
+/// Compare the exact ranks of the versions two skyline streams denote,
+/// with no `Rank` materialized: one fused co-sweep integrating the
+/// *signed* difference `h_a − h_b` and answering its total's sign.
+///
+/// The signed instance of the pair co-sweep (the module doc's
+/// pair-co-sweep section): `rank(a) − rank(b) = ∫ (h_a − h_b)`, so the
+/// integral's sign is the rank order, and the orientation is constantly
+/// `+1` — no orientation change ever fires, exactly as in the
+/// single-stream rank fold, whose funding certificate therefore covers
+/// this walk with both operand ledgers live. Equal to
+/// `a.rank().cmp(&b.rank())` on the decoded versions, which the
+/// differential suite pins.
+///
+/// # Panics
+///
+/// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
+/// levels, exactly as [`rank`](fn@rank) does.
+pub fn rank_cmp(a: &BitsSlice, b: &BitsSlice) -> Ordering {
+    pair_fold(a, b, Measure::Signed).0
+}
+
 /// The directed functional of the running height difference
 /// `D = h_a − h_b` that a pair co-sweep integrates.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -661,6 +687,9 @@ enum Measure {
     /// `∫ (−D)⁺ = ∫ (h_b − h_a)⁺`: the history the second operand
     /// records that the first does not.
     Lag,
+    /// `∫ D`, signed: the rank difference `rank(a) − rank(b)`, of which
+    /// the comparison keeps only the sign.
+    Signed,
 }
 
 impl Measure {
@@ -669,6 +698,9 @@ impl Measure {
     /// there.
     fn orientation(self, sign: Ordering) -> i8 {
         match (self, sign) {
+            // The signed integral keeps `D`'s own sign: constant
+            // orientation, so the interval where `D < 0` subtracts.
+            (Measure::Signed, _) => 1,
             (Measure::Distance, Ordering::Greater) => 1,
             (_, Ordering::Less) => -1,
             _ => 0,
@@ -676,15 +708,28 @@ impl Measure {
     }
 }
 
+/// Run the nonnegative pair co-sweep and normalize its raw total into a
+/// [`Rank`]: the distance/lag entry into [`pair_fold`].
+fn pair_integral(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> Rank {
+    debug_assert!(
+        !matches!(measure, Measure::Signed),
+        "the signed integral's total is an order, not a rank"
+    );
+    let (sign, total, scale) = pair_fold(a_bits, b_bits, measure);
+    debug_assert_ne!(sign, Ordering::Less, "both pair measures are nonnegative");
+    Rank::from_raw(Base::from(total), scale)
+}
+
 /// Run the pair co-sweep: one merge walk over both streams, integrating
 /// the measure's functional of the running difference on the
-/// anchored-segment split (the module doc's pair-co-sweep section).
+/// anchored-segment split (the module doc's pair-co-sweep section), and
+/// hand back the raw total as `(sign, magnitude, scale)`.
 ///
 /// # Panics
 ///
 /// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
 /// levels, exactly as [`rank`](fn@rank) does.
-fn pair_integral(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> Rank {
+fn pair_fold(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> (Ordering, UBig, u32) {
     // The overlay's scale: elementary intervals nest inside both
     // operands' leaves, so the deepest one sits at the deeper operand's
     // maximum depth.
@@ -700,11 +745,15 @@ fn pair_integral(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> Ra
     let mut orient = measure.orientation(diff.sign());
     let mut integral = Integrator::new();
     if orient != 0 {
-        // The opening plateau: `h* = σ·D = |D|` whenever `σ ≠ 0`,
-        // anchored at position zero and priced by the two absolute
-        // first codes (the sign read above has collapsed the spelling).
-        let (_, opening) = diff.sign_magnitude();
-        integral.open(&Base::from(opening));
+        // The opening plateau: `h* = σ·D` — `|D|` for the nonnegative
+        // measures (their nonzero orientation is `D`'s own sign, so
+        // the product is positive), `D` with its sign for the signed
+        // one — anchored at position zero and priced by the two
+        // absolute first codes (the sign read above has collapsed the
+        // spelling).
+        let (opening_sign, opening) = diff.sign_magnitude();
+        let negative = matches!(measure, Measure::Signed) && opening_sign == Ordering::Less;
+        integral.open(negative, &Base::from(opening));
     }
     loop {
         let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
@@ -741,8 +790,7 @@ fn pair_integral(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> Ra
         integral.boundary(funded);
     }
     let (sign, total) = integral.finish(overlay_depth as u64);
-    debug_assert_ne!(sign, Ordering::Less, "both pair measures are nonnegative");
-    Rank::from_raw(Base::from(total), scale)
+    (sign, total, scale)
 }
 
 /// The anchored-segment integral of the co-sweep's nonnegative integrand
@@ -1010,9 +1058,15 @@ impl Integrator {
         }
     }
 
-    /// Anchor the opening plateau at position zero.
-    fn open(&mut self, opening: &Base) {
-        self.base.add_magnitude(opening);
+    /// Anchor the opening plateau at position zero (signed: the signed
+    /// pair measure's integrand carries `D`'s own sign, every other
+    /// caller opens nonnegative).
+    fn open(&mut self, negative: bool, opening: &Base) {
+        if negative {
+            self.base.sub_magnitude(opening);
+        } else {
+            self.base.add_magnitude(opening);
+        }
     }
 
     /// Credit one elementary interval: the live component's contribution
