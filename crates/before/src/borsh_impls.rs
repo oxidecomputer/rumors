@@ -242,8 +242,10 @@ impl BorshSerialize for Span<'_> {
 
 /// Reads exactly one composite span: two byte-aligned canonical version
 /// streams, the second parsed and validated against the first in one
-/// fused pass ([`Span::decode`]'s contract, crossed and concurrent
-/// pairs rejected), with the bytes after the join belonging to the next
+/// fused pass.
+///
+/// [`Span::decode`]'s contract exactly — crossed and concurrent pairs
+/// rejected — with the bytes after the join belonging to the next
 /// borsh field.
 impl BorshDeserialize for Span<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {

@@ -926,11 +926,11 @@ impl<'a> Span<'a> {
     }
 
     /// Decodes a [`Span`] from a reader of canonical bytes, strictly
-    /// rejecting everything else — validity included: the one forward
-    /// pass that parses the second version also proves it dominates
-    /// the first, so every span this returns is valid by construction
-    /// and no separate validation step exists to forget.
+    /// rejecting everything else — validity included.
     ///
+    /// The one forward pass that parses the second version also proves
+    /// it dominates the first, so every span this returns is valid by
+    /// construction and no separate validation step exists to forget.
     /// Total over arbitrary input: every byte string either decodes to
     /// the one span that encodes to it, or is rejected. The fused
     /// second parse maintains the pair comparison's running difference
