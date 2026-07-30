@@ -57,6 +57,26 @@ use super::super::grow::{Cost, Route, COST_MAX};
 /// (`grow(1, n) = (n + 1, 0)`).
 pub(super) const COST_FREE: Cost = (0, 0);
 
+/// The [`PopStack`] encoding of one deferred route-DP quantity (a
+/// [`Cost`] component, or an expansion chain's distance): 0 =
+/// infeasible (a `u32::MAX` component), else the value + 1.
+pub(super) fn encode_cost_component(v: u32) -> u64 {
+    if v == u32::MAX {
+        0
+    } else {
+        u64::from(v) + 1
+    }
+}
+
+/// Invert [`encode_cost_component`].
+pub(super) fn decode_cost_component(v: u64) -> u32 {
+    if v == 0 {
+        u32::MAX
+    } else {
+        (v - 1) as u32
+    }
+}
+
 /// The fill walk's output, as the changed flag's realization
 /// (module doc): a verbatim reference over the matched input prefix, or
 /// a materialized builder after the first divergence.
@@ -304,22 +324,6 @@ impl RouteProbe {
     /// frame (the same discipline as the walk's other bit stacks); the
     /// depth-recursion guard is unneeded because nothing recurses.
     fn expand_subtree(&mut self, id: &mut IdReader) -> Cost {
-        /// The deferred-distance encoding on the value stack:
-        /// 0 = infeasible, else the distance + 1.
-        fn encode(d: u32) -> u64 {
-            if d == u32::MAX {
-                0
-            } else {
-                u64::from(d) + 1
-            }
-        }
-        fn decode(v: u64) -> u32 {
-            if v == 0 {
-                u32::MAX
-            } else {
-                (v - 1) as u32
-            }
-        }
         // Phase per frame: false = the left child's distance is
         // outstanding, true = the right child's.
         let mut phase = Bits::new();
@@ -364,7 +368,7 @@ impl RouteProbe {
                         // right (or rise its absence straight back).
                         let top = phase.len() - 1;
                         phase.set(top, true);
-                        vals.push(encode(d));
+                        vals.push(encode_cost_component(d));
                         if *right_present.last().expect("one presence bit per frame") {
                             break;
                         }
@@ -374,7 +378,7 @@ impl RouteProbe {
                         // Both children measured: pick, record, fold.
                         phase.pop();
                         right_present.pop();
-                        let left = decode(vals.pop());
+                        let left = decode_cost_component(vals.pop());
                         let right = d;
                         let key = reg;
                         reg = key - vals.pop() as usize;

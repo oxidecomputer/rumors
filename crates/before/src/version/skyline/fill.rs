@@ -170,7 +170,7 @@ use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 use crate::step;
 
-use self::fuse::{Out, RouteProbe, COST_FREE};
+use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
 use self::watermark::{MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
 use super::{fold_signed, gamma_code, unzigzag, zigzag_signed};
@@ -1203,25 +1203,6 @@ struct Frames {
     /// The top frame's route key (id positions only advance, so every
     /// pushed delta is nonnegative and a pop restores by subtraction).
     reg: usize,
-}
-
-/// The deferred-cost component encoding on the value stack:
-/// 0 = infeasible (a `u32::MAX` component), else the component + 1.
-fn encode_cost_component(v: u32) -> u64 {
-    if v == u32::MAX {
-        0
-    } else {
-        u64::from(v) + 1
-    }
-}
-
-/// Invert [`encode_cost_component`].
-fn decode_cost_component(v: u64) -> u32 {
-    if v == 0 {
-        u32::MAX
-    } else {
-        (v - 1) as u32
-    }
 }
 
 impl Frames {
