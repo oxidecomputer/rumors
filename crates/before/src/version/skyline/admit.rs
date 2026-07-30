@@ -59,7 +59,6 @@ use suanpan::Accumulator;
 
 use crate::codec::{Base, BitCursor, Bits, BitsSlice};
 use crate::error::Decode;
-use crate::step;
 
 use super::sweep::{fold, LeafCursor, PlateauCursor, Side, Step};
 use super::unzigzag;
@@ -120,7 +119,6 @@ where
     /// nodes: [`LeafCursor`]'s descent with the reads fallible and the
     /// validator's placeholder bits pushed alongside the path.
     fn descend(&mut self) -> Result<Base, Decode> {
-        step!();
         let k = self.cursor.read_unary()?;
         for _ in 0..k {
             self.path.push(false);

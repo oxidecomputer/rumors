@@ -27,7 +27,6 @@
 //! rather than subtree scans. Callers must only pass normal-form id bits.
 
 use crate::codec::BitsSlice;
-use crate::step;
 
 /// A decoded id node: the empty `0` leaf, the full `1` leaf, or an internal
 /// node tagged with which of its children are present.
@@ -115,7 +114,6 @@ impl<'a> IdReader<'a> {
         match self {
             IdReader::Empty => IdNode::Empty,
             IdReader::At { bits, pos } => {
-                step!();
                 crate::codec::scan::record_bits(2); // one 2-bit tag scanned
                 let node = Self::tag(bits, *pos);
                 *pos += 2;
@@ -134,7 +132,6 @@ impl<'a> IdReader<'a> {
         match self {
             IdReader::Empty => IdNode::Empty,
             IdReader::At { bits, pos } => {
-                step!();
                 crate::codec::scan::record_bits(2); // one 2-bit tag scanned
                 Self::tag(bits, *pos)
             }
@@ -148,7 +145,6 @@ impl<'a> IdReader<'a> {
         if let IdReader::At { bits, pos } = self {
             let bits = *bits;
             *pos = skip_subtree(*pos, |at| {
-                step!();
                 // One 2-bit tag scanned per skip step. Children present =
                 // the two tag bits; the tag is 2 bits wide.
                 crate::codec::scan::record_bits(2);

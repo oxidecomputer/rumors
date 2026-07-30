@@ -1,11 +1,12 @@
 //! Input generators for the property tests, in two families:
 //!
 //! - **Adversarial deep shapes** ([`Shape`], [`shape_party`]/[`shape_version`],
-//!   the stress-pair builders, [`deep_left_spine_party`]) — the deep, unbalanced
+//!   [`skip_stress_pair`], [`deep_left_spine_party`]) — the deep, unbalanced
 //!   trees that are the worst case for any traversal locating a right child by
-//!   re-scanning its left subtree. Each is parameterized by a `scale` knob linear
-//!   in the node count, so the complexity proptests can build at `scale` and `4 *
-//!   scale` and assert near-linear step growth.
+//!   re-scanning its left subtree. Each is parameterized by a `scale` knob
+//!   linear in the node count, so the deep differentials can drive real depth
+//!   at chosen sizes. (Asymptotic traversal cost itself is enforced elsewhere:
+//!   the amplification board's scan column and the fuzzfit fuel bands.)
 //!
 //! - **Arbitrary normal-form** ([`arb_base`], [`arb_oracle_party`],
 //!   [`arb_oracle_version`]) — random recursive shapes with random base
@@ -51,7 +52,7 @@ pub(crate) enum Shape {
     Bushy,
 }
 
-/// A random deep shape for the complexity proptests.
+/// A random deep shape for the deep-operand differentials.
 pub(crate) fn arb_shape() -> impl Strategy<Value = Shape> {
     prop_oneof![
         Just(Shape::LeftSpine),
@@ -95,14 +96,11 @@ fn bushy_party(lo: usize, leaves: usize) -> oracle::Party {
 
 /// A bushy id rooted beside one owned terminal: `(bushy(scale), 1)`.
 ///
-/// The expansion-cost complexity pin's shape: the bushy left subtree
-/// makes the tick walk's route fold weigh two feasible children at
-/// every branch, while the right terminal is the cheapest inflation at
-/// every scale — so the splice's chosen path (and its one skip of the
-/// whole off-path bushy subtree) is scale-independent, which a
-/// two-point step ratio needs: the splice walks only the chosen path,
-/// so a route that drifted with scale would swing the measured
-/// constant by up to the input's own size.
+/// The expansion-heavy shape: the bushy left subtree makes the tick
+/// walk's route fold weigh two feasible children at every branch, while
+/// the right terminal is the cheapest inflation at every scale — so the
+/// splice's chosen path (and its one skip of the whole off-path bushy
+/// subtree) is scale-independent.
 pub(crate) fn bushy_expand_party(scale: usize) -> Party {
     use oracle::Party as P;
     from_oracle_party(&P::node(bushy_party(0, scale + 1), P::Leaf(true)))
@@ -141,10 +139,8 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
 /// the `scale` levels `a`'s left `0`-leaf aligns against `b`'s left *subtree*,
 /// so that subtree is skipped once. The pair is disjoint (`a` owns only its
 /// deepest-right tip, `b` owns its left subtrees and deepest-left tip), so the
-/// walk runs to completion (no early `false`) and the cumulative skip cost is
-/// measured. Both ids are linear in `scale`. With a *bounded* skip the total is
-/// `O(scale)`; an *unbounded* (rescanning) skip would be `O(scale²)` — which
-/// the linear-scaling assertion would catch.
+/// walk runs to completion (no early `false`) and every level's skip is
+/// exercised. Both ids are linear in `scale`.
 pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
     use oracle::Party as P;
     // A 2-leaf subtree `(1, 0)`: a small node that owns its left half.
@@ -162,38 +158,6 @@ pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
     let mut a = P::seed();
     for _ in 0..scale {
         a = P::node(P::Leaf(false), a);
-    }
-    (from_oracle_party(&a), from_oracle_party(&b))
-}
-
-/// Build a *covering* "staircase" id pair `(a, b)` with `a ⊇ b`, driving the
-/// bounded lazy-skip in `covers` to its worst case: `Θ(scale)` distinct skips,
-/// each over a small subtree.
-///
-/// The covering analogue of [`skip_stress_pair`]: `b` is a right-spine whose
-/// every left child is a small owned subtree `(1, 0)`; `a` is a right-spine
-/// whose every left child is the *full* `1` leaf. At every level `a`'s left `1`
-/// leaf dominates `b`'s left subtree, so that subtree is skipped once, and the
-/// full leaf covers it — so the walk runs to completion (no early `false`) and
-/// the cumulative skip cost is measured. The shared empty deepest-right tip
-/// keeps both spines in normal form (no `(1, 1)` node collapses). With a
-/// *bounded* skip the total is `O(scale)`; an *unbounded* (rescanning) skip
-/// would be `O(scale²)`.
-pub(crate) fn covers_stress_pair(scale: usize) -> (Party, Party) {
-    use oracle::Party as P;
-    // A 2-leaf subtree `(1, 0)`: a small node that owns its left half.
-    let owned_left = || P::node(P::seed(), P::Leaf(false));
-    // `b`: right-spine, each left child a small owned subtree, deepest-right tip
-    // empty.
-    let mut b = P::Leaf(false);
-    for _ in 0..scale {
-        b = P::node(owned_left(), b);
-    }
-    // `a`: right-spine, each left child the full `1` leaf (covering `b`'s left
-    // subtree), deepest-right tip empty (so the `(1, 0)` spine never collapses).
-    let mut a = P::Leaf(false);
-    for _ in 0..scale {
-        a = P::node(P::seed(), a);
     }
     (from_oracle_party(&a), from_oracle_party(&b))
 }

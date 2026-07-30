@@ -33,9 +33,7 @@
 //!
 //! - **Parallelize.** The outer loop of every check runs on a `rayon` thread
 //!   pool; a failing `assert!` in a worker propagates as a panic when the
-//!   parallel region joins, so the test semantics are unchanged. The `step!()`
-//!   metric is a `thread_local`, so parallel traversals do not contend (and these
-//!   tests do not read it).
+//!   parallel region joins, so the test semantics are unchanged.
 //!
 //! The two entry points wire the helpers to decoupled id/event depth bounds
 //! (events grow far faster, so they are held a level shallower — see the parent

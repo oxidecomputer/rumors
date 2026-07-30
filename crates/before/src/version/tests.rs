@@ -1,9 +1,8 @@
 //! Version tests.
 //!
 //! The causal order and its comparison matrix, the join/meet operator
-//! matrices and lattice laws, complexity (linear-scaling) checks, grow
-//! optimality against the brute-force reference, `min_ticks`, and
-//! projection (`/`).
+//! matrices and lattice laws, grow optimality against the brute-force
+//! reference, `min_ticks`, and projection (`/`).
 
 use crate::meter::registry::Shape;
 use std::cmp::Ordering;
@@ -12,11 +11,7 @@ use proptest::prelude::*;
 
 use super::{skyline, Ranked, Version};
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
-use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
-use crate::testing::generators::{
-    arb_oracle_party_nonempty, arb_oracle_version, arb_shape, bushy_expand_party, shape_party,
-    shape_version,
-};
+use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
 use crate::{Clock, Party, Ticks};
@@ -27,34 +22,6 @@ fn le(a: &Version, b: &Version) -> bool {
 }
 
 // ───────────────────────────── causal order ─────────────────────────────
-
-proptest! {
-    /// Complexity. The causal order is `O(n + m)`.
-    ///
-    /// Comparing `a` against `b = a | extra` drives the bounded lazy-skip at
-    /// scale. `a <= b` always holds (so the walk traverses fully, no early
-    /// `false`), and where `extra` added structure that `a` lacks, `a`'s leaf
-    /// aligns with `b`'s subtree, so `b`'s dominated subtree is skipped once
-    /// under that leaf. Building `a` and `extra` from independent shapes
-    /// maximizes such misalignments. Steps stay linear from `scale` to
-    /// `4 * scale`.
-    #[test]
-    fn leq_is_linear(
-        shape_a in arb_shape(),
-        shape_b in arb_shape(),
-        scale in MIN_SCALE..256,
-    ) {
-        let measure = |s: usize| {
-            let a = shape_version(shape_a, s);
-            let extra = shape_version(shape_b, s);
-            let b = a.clone() | extra; // a <= b always; b has subtrees where a has leaves
-            steps_of(|| {
-                let _ = a.partial_cmp(&b);
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
 
 proptest! {
     /// Differential. The impl causal order agrees with the oracle's on every
@@ -504,86 +471,6 @@ proptest! {
 // `crate::laws` and are driven by the algebraic-laws suite over both
 // arbitrary normal forms and these same op-trace populations; this file
 // keeps the differential and mechanism-level tests.
-
-// ───────────────────────── complexity (linear scaling) ─────────────────────────
-
-proptest! {
-    /// Complexity. `tick` is `O(n + m)`: ticking a deep event tree against a deep id of
-    /// the same shape (walking both at once) grows linearly with size.
-    #[test]
-    fn tick_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let mut v = shape_version(shape, s);
-            let p = shape_party(shape, s);
-            steps_of(|| {
-                v.tick(&p);
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
-proptest! {
-    /// Complexity. The inflation's multi-region cost fold is `O(n + m)`.
-    ///
-    /// Ticking the empty history (`Leaf(0)`) against a deep *bushy* id takes
-    /// the grow branch (`fill` is a no-op: the id is a node over an event
-    /// leaf), and the bushy subtree's many owned regions at varying depths
-    /// make the walk's route fold genuinely weigh two feasible children at
-    /// each branch (`cl < cr` with neither a `COST_MAX` loser). The id roots
-    /// the bushy subtree beside one owned terminal
-    /// ([`bushy_expand_party`]), pinning the cheapest inflation — hence the
-    /// splice's one skip of the whole off-path bushy subtree — to the same
-    /// route at every scale: the splice walks only the chosen path, so a
-    /// scale-dependent route would swing a two-point step ratio by up to
-    /// the input's own size. Steps stay linear from `scale` to `4 * scale`.
-    #[test]
-    fn grow_bushy_is_linear(scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let p = bushy_expand_party(s);
-            let mut v = Version::new(); // Leaf(0): fill is a no-op, so grow runs
-            steps_of(|| {
-                v.tick(&p);
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
-proptest! {
-    /// Complexity. `merge` (`|`) is `O(n + m)`: joining two deep event trees of the same
-    /// shape stays linear.
-    #[test]
-    fn merge_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let a = shape_version(shape, s);
-            steps_of(|| {
-                let _ = a.clone() | a.clone();
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
-proptest! {
-    /// Complexity. `meet` (`&`) is `O(n + m)`.
-    ///
-    /// Meeting two deep event trees of the same shape stays linear, dual to
-    /// [`merge_is_linear`]. The operands are independent shapes so the walk
-    /// genuinely descends both sides (`a & a` would short-circuit on
-    /// `trivially_eq`).
-    #[test]
-    fn meet_is_linear(shape_a in arb_shape(), shape_b in arb_shape(), scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let a = shape_version(shape_a, s);
-            let b = shape_version(shape_b, s);
-            steps_of(|| {
-                let _ = a.clone() & b.clone();
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
 
 // ───────────────────────────── path-sum overflow regression ─────────────────────────────
 

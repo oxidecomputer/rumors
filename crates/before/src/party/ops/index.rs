@@ -39,7 +39,6 @@
 
 use crate::codec::BitsSlice;
 use crate::idbits::{IdNode, IdReader};
-use crate::step;
 
 /// A random-access view of one packed id operand: the operand's bits plus
 /// a table locating every both-present node's right child.
@@ -84,7 +83,6 @@ impl<'a> IdIndex<'a> {
         let mut count = 0usize;
         let mut p = 0;
         while p < bits.len() {
-            step!();
             if bits[p] && bits[p + 1] {
                 count += 1;
             }
@@ -105,7 +103,6 @@ impl<'a> IdIndex<'a> {
         let mut next_entry = 0usize;
         let mut p = 0;
         while p < bits.len() {
-            step!();
             let (left, right) = (bits[p], bits[p + 1]);
             p += 2;
             if left && right {
@@ -193,7 +190,6 @@ impl<'a> IdIndex<'a> {
                     other.skip_present_children(b);
                 }
                 Some(p) => {
-                    step!();
                     crate::codec::scan::record_bits(2); // one 2-bit tag read
                     let (al, ar) = (self.bits[p], self.bits[p + 1]);
                     match b {
@@ -278,7 +274,6 @@ impl<'a> IdIndex<'a> {
 fn metered_partition_point(rights: &[u32], target: u32) -> usize {
     let (mut lo, mut hi) = (0usize, rights.len());
     while lo < hi {
-        step!();
         crate::codec::scan::record_bits(32);
         let mid = lo + (hi - lo) / 2;
         if rights[mid] < target {

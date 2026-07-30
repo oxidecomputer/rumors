@@ -8,12 +8,14 @@ use super::Party;
 use crate::idbits::IdReader;
 use crate::oracle;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
-use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::generators::{
-    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, covers_stress_pair, shape_party,
-    skip_stress_pair, Shape,
+    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, shape_party, skip_stress_pair, Shape,
 };
 use crate::testing::optrace::{run, world_strategy};
+
+/// Smallest spine scale the deep-operand differentials drive; deep enough
+/// that the shapes leave the arbitrary generator's shallow regime.
+const DEEP_SCALE: usize = 64;
 
 // ───────────────────────────── the join fold ─────────────────────────────
 
@@ -241,100 +243,6 @@ proptest! {
     }
 }
 
-// ───────────────────────────── complexity (linear scaling) ─────────────────────────────
-
-proptest! {
-    /// Complexity. `split` is `O(n)`: over a random deep id shape, its
-    /// traversal steps grow linearly (not quadratically) from `scale` to `4 *
-    /// scale` — proving no re-scan to find a right child.
-    #[test]
-    fn split_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let p = shape_party(shape, s);
-            steps_of(|| {
-                IdReader::root(p.as_bits()).split();
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
-proptest! {
-    /// Complexity. `sum` is `O(n + m)`: on a deep disjoint pair (the halves of
-    /// a forked spine) its steps grow linearly with shape size.
-    #[test]
-    fn sum_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let mut keep = shape_party(shape, s);
-            let give = keep.fork(); // a deep disjoint pair; this build is not measured
-            steps_of(|| {
-                IdReader::root(keep.as_bits()).sum(IdReader::root(give.as_bits()));
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
-proptest! {
-    /// Complexity. `is_disjoint` is `O(n + m)`: a *misaligned* disjoint pair (a
-    /// shallow `0`-leaf on one side aligned with the other's whole deep
-    /// subtree) drives the bounded lazy-skip at scale.
-    ///
-    /// The pair is disjoint, so the walk runs to completion (no early `false`)
-    /// and the skip dominates; steps stay linear from `scale` to `4 * scale`,
-    /// proving each node is skipped at most once (no per-node re-scan).
-    #[test]
-    fn is_disjoint_is_linear(scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let (a, b) = skip_stress_pair(s);
-            steps_of(|| {
-                IdReader::root(a.as_bits()).is_disjoint(IdReader::root(b.as_bits()));
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
-proptest! {
-    /// Complexity. `covers` is `O(n + m)`: a *covering* misaligned pair (`a`'s
-    /// full `1` leaf at each level aligned against `b`'s small owned subtree)
-    /// drives the bounded lazy-skip at scale.
-    ///
-    /// `a` covers `b`, so the walk runs to completion (no early `false`) and the
-    /// skip dominates; steps stay linear from `scale` to `4 * scale`, proving
-    /// each node is skipped at most once (no per-node re-scan).
-    #[test]
-    fn covers_is_linear(scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let (a, b) = covers_stress_pair(s);
-            steps_of(|| {
-                IdReader::root(a.as_bits()).covers(IdReader::root(b.as_bits()));
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
-proptest! {
-    /// Complexity. `diff` is `O(n + m)`: on the misaligned disjoint pair, a
-    /// shallow unowned plateau on `a` overlays `b`'s whole deep subtree, so
-    /// the sweep consumes `b`'s covered subtrees as blocks, one tag per node.
-    ///
-    /// The pair is disjoint, so the walk runs to completion (nothing empties
-    /// early); steps stay linear from `scale` to `4 * scale`, proving each
-    /// tag is read at most once (no per-node re-scan).
-    #[test]
-    fn diff_is_linear(scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let (a, b) = skip_stress_pair(s);
-            steps_of(|| {
-                IdReader::root(a.as_bits()).diff(IdReader::root(b.as_bits()));
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
 // ───────────────────────────── covering (containment) ─────────────────────────────
 
 proptest! {
@@ -430,7 +338,7 @@ proptest! {
     fn indexed_disjointness_matches_the_cursor_walk_deep(
         shape_a in arb_shape(),
         shape_b in arb_shape(),
-        scale in MIN_SCALE..256,
+        scale in DEEP_SCALE..256,
     ) {
         let a = shape_party(shape_a, scale);
         let b = shape_party(shape_b, scale);
@@ -512,27 +420,6 @@ proptest! {
             .sum(IdReader::root(ib.as_bits()))
             .map(|union| IdReader::root(&union).split());
         prop_assert_eq!(fused, composed);
-    }
-}
-
-proptest! {
-    /// Complexity. `sum_split` is at most `O(n + m)`.
-    ///
-    /// On a deep disjoint pair (the halves of a forked spine — an
-    /// interleaved pair, so the delegated merge dominates) its steps grow
-    /// at most linearly with shape size. No lower bound is asserted: a
-    /// pair whose regions do not interleave is resolved by splices in
-    /// sublinear steps.
-    #[test]
-    fn sum_split_is_at_most_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let mut keep = shape_party(shape, s);
-            let give = keep.fork(); // a deep disjoint pair; this build is not measured
-            steps_of(|| {
-                IdReader::root(keep.as_bits()).sum_split(IdReader::root(give.as_bits()));
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
     }
 }
 
