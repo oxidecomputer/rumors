@@ -812,10 +812,11 @@ fn pair_fold(
 }
 
 /// The anchored-segment integral of the co-sweep's integrand
-/// `h* = B + P + L` — nonnegative for the directed measures, signed
-/// for the rank order, every component accumulator signed throughout
-/// (the module doc's pair-co-sweep section derives the split and
-/// certifies its funding).
+/// `h* = B + P + L`.
+///
+/// Nonnegative for the directed measures, signed for the rank order,
+/// every component accumulator signed throughout (the module doc's
+/// pair-co-sweep section derives the split and certifies its funding).
 struct Integrator {
     /// The running integral's raw numerator, at the overlay scale.
     total: Accumulator,
