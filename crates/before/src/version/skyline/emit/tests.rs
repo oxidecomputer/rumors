@@ -362,15 +362,22 @@ proptest! {
             .collect();
         for (ta, va, ea) in &pool {
             for (tb, vb, eb) in &pool {
+                let joined = encode(&from_oracle_version(&(ta.clone() | tb.clone())));
+                let met = encode(&from_oracle_version(&(ta.clone() & tb.clone())));
                 prop_assert_eq!(
                     join(ea, eb),
-                    encode(&from_oracle_version(&(ta.clone() | tb.clone()))),
+                    joined.clone(),
                     "join must match the oracle: {} vs {}", va, vb
                 );
                 prop_assert_eq!(
                     meet(ea, eb),
-                    encode(&from_oracle_version(&(ta.clone() & tb.clone()))),
+                    met.clone(),
                     "meet must match the oracle: {} vs {}", va, vb
+                );
+                prop_assert_eq!(
+                    hull(ea, eb),
+                    (met, joined),
+                    "the fused hull must match both single-op outputs: {} vs {}", va, vb
                 );
             }
         }
