@@ -37,20 +37,21 @@
 //! [`causal_cmp`](super::sweep::causal_cmp)'s (the resource pins in
 //! `tests/meter.rs`'s placement rows hold the identity).
 //!
-//! # Verdict modes
+//! # Verdict closures
 //!
 //! The walk carries the joint relation state; the verdict vocabulary
-//! decides how much of it each question needs. A [`Mode`] reacts to one
-//! side's surviving directions after every interval's sign fold —
-//! sweep on, drop the side's cursor (its stream is never scanned
-//! further), or return the whole verdict — and maps the decided
-//! relations to its vocabulary at exhaustion. A refuted direction stays
-//! refuted, so a mode acting only on refutations stops exactly when its
-//! target verdict is determined: every early exit is correct by
-//! construction, and each mode's exits land where its own verdict
-//! lattice says the answer is fixed.
+//! decides how much of it each question needs. Each entry point passes
+//! its question as a pair of per-side hooks reacting to the side's
+//! surviving directions after every interval's sign fold — `Break` with
+//! the determined verdict, or `Continue` with the side's fate: keep
+//! sweeping, or drop its cursor (its stream is never scanned further) —
+//! plus an exhaustion map over the decided relations. A refuted
+//! direction stays refuted, so hooks acting only on refutations stop
+//! exactly when their target verdict is determined: every early exit is
+//! correct by construction, and each question's exits land where its
+//! own verdict lattice says the answer is fixed.
 //!
-//! - [`RangeMode`], the six-way [`Ranged`] verdict under range
+//! - [`range`], the six-way [`Ranged`] verdict under range
 //!   semantics: **concurrent to the end bound** is the whole verdict
 //!   (on a validated range a probe concurrent to the end cannot be
 //!   below the start) — the walk returns at the deciding interval;
@@ -58,13 +59,13 @@
 //!   so the start cursor is dropped and the walk sweeps on over the
 //!   probe and end streams alone (with no end bound the verdict is
 //!   [`Ranged::Inside`] immediately).
-//! - [`IntervalMode`], the nine-way [`Placement`] verdict: no single
+//! - [`interval`], the nine-way [`Placement`] verdict: no single
 //!   concurrency is the whole verdict — `Concurrent(Start)` vs
 //!   `Concurrent(Both)` needs the other endpoint's relation — so a
 //!   concurrency-decided side is dropped, and the walk returns early
 //!   only when both endpoints have refuted, with
 //!   [`Placement::Concurrent`]`(Both)` at the second deciding interval.
-//! - [`DominanceMode`], the three-way [`Dominance`] verdict: the
+//! - [`dominance`], the three-way [`Dominance`] verdict: the
 //!   verdict reads only the bound-at-or-below-probe directions, so a
 //!   *single* refuted direction acts — `lo <= probe` refuted returns
 //!   [`Dominance::Neither`] at the refuting interval, the earliest
@@ -77,11 +78,11 @@
 //! way) is refutable early but confirmable only at exhaustion, again
 //! exactly as in the pair sweep.
 //!
-//! The interval modes speak the public vocabulary directly: the
+//! The interval walks speak the public vocabulary directly: the
 //! nine-state [`Placement`] and its [`Dominance`] coarsening are raw
 //! relation facts against two concrete versions — exactly this layer's
 //! vocabulary — so a stream-level duplicate would add a 1:1 mapping
-//! with no semantic content. The range mode keeps its own [`Ranged`]
+//! with no semantic content. The range walk keeps its own [`Ranged`]
 //! vocabulary because what its verdicts *mean* (what `Inside` keeps) is
 //! range semantics, stated by `causally`.
 //!
@@ -96,21 +97,21 @@
 //! streams' bits — `O(|v| + |s| + |e|)` against the two-walk
 //! composition's `O(2|v| + |s| + |e|)` — and the per-interval sign reads
 //! ride the accumulator's amortized-O(1) collapse ([`suanpan`]'s
-//! argument, unchanged). The mode hooks are branch-only: no mode adds
-//! stream, decode, or accumulator work, so the relational pins in
-//! `tests/meter.rs` hold every mode to the same identities — the fused
+//! argument, unchanged). The verdict hooks are branch-only: no question
+//! adds stream, decode, or accumulator work, so the relational pins in
+//! `tests/meter.rs` hold every question to the same identities — the fused
 //! walk to the composition minus one probe scan, and the one-bound
 //! degenerate form to the pair sweep byte for byte.
 //!
 //! # Testing
 //!
-//! The two-walk composition is the oracle, once per mode: the
+//! The two-walk composition is the oracle, once per question: the
 //! `bounded_matches_bound_relations`, `interval_place_matches_relations`,
 //! and `interval_dominance_coarsens_place` laws in [`crate::laws`] pin
 //! each verdict to the raw `partial_cmp` verdicts on every law consumer
 //! (generated, organic, exhaustive, and fuzzed populations), the
-//! stream-level proptests beside this module drive all three modes
-//! against composed pair sweeps, and `causally`'s witness-matrix tests
+//! stream-level proptests beside this module drive all three entry
+//! points against composed pair sweeps, and `causally`'s witness-matrix tests
 //! pin every verdict, bound-kind combination, and the coincident corner
 //! against constructed inputs. The resource identities are the meter
 //! rows named above.
@@ -122,6 +123,7 @@
 #![allow(rustdoc::private_intra_doc_links)]
 
 use core::cmp::Ordering;
+use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
@@ -157,187 +159,13 @@ pub(crate) enum Ranged {
     ConcurrentToEnd,
 }
 
-/// One verdict mode of the placement walk: which early exits its
-/// vocabulary admits, and how the decided relations map into it.
-///
-/// The hooks fire once per side per elementary interval, after the
-/// side's sign fold; they see only the side's surviving directions and
-/// whether the other side still sweeps, and they may act only on
-/// refutations — which are permanent — so an early [`Act::Return`] or
-/// [`Act::Drop`] never moves a verdict the completed sweep would have
-/// reached.
-pub(crate) trait Mode {
-    /// The walk's verdict.
-    type Verdict;
-
-    /// React to the start (lo) side's surviving directions.
-    fn on_start(le: bool, ge: bool, other_live: bool) -> Act<Self::Verdict>;
-
-    /// React to the end (hi) side's surviving directions.
-    fn on_end(le: bool, ge: bool, other_live: bool) -> Act<Self::Verdict>;
-
-    /// The verdict at exhaustion, from each side's decided relation:
-    /// `None` for a side that was absent or dropped mid-walk,
-    /// `Some(None)` for a side refuted in both directions at the last
-    /// interval (unreachable on canonical inputs — every mode keeps the
-    /// arm total so a non-canonical sweep stays a silent unspecified
-    /// verdict, per the panics contract).
-    fn finish(start: Option<Option<Ordering>>, end: Option<Option<Ordering>>) -> Self::Verdict;
-}
-
-/// A [`Mode`]'s reaction to one side's surviving directions.
-pub(crate) enum Act<V> {
-    /// The relation is still open for this verdict: keep sweeping.
+/// A side's disposition when a verdict hook leaves the walk running:
+/// keep sweeping its stream, or drop its cursor — the side's relation
+/// is decided as far as the verdict cares, and its stream is never
+/// scanned further.
+enum Fate {
     Sweep,
-    /// The side's relation is decided as far as this verdict cares:
-    /// stop scanning its stream (the other side sweeps on).
     Drop,
-    /// The whole verdict is determined.
-    Return(V),
-}
-
-/// The range mode: [`Ranged`] verdicts for `causally`'s range placement.
-pub(crate) struct RangeMode;
-
-impl Mode for RangeMode {
-    type Verdict = Ranged;
-
-    fn on_start(le: bool, ge: bool, other_live: bool) -> Act<Ranged> {
-        if le || ge {
-            Act::Sweep
-        } else if other_live {
-            // Concurrent to the start: the start relation is pinned, but
-            // the end relation is still open — drop the start cursor and
-            // sweep on.
-            Act::Drop
-        } else {
-            // No end bound left of the question: past or concurrent to
-            // the start is the contained region.
-            Act::Return(Ranged::Inside)
-        }
-    }
-
-    fn on_end(le: bool, ge: bool, _other_live: bool) -> Act<Ranged> {
-        if le || ge {
-            Act::Sweep
-        } else {
-            // Concurrent to the end is the whole verdict: on a validated
-            // range a probe concurrent to the end cannot be below the
-            // start.
-            Act::Return(Ranged::ConcurrentToEnd)
-        }
-    }
-
-    fn finish(start: Option<Option<Ordering>>, end: Option<Option<Ordering>>) -> Ranged {
-        // The start relation speaks first (the coincident-bounds
-        // canonicalization); a dropped start cursor is the concurrent
-        // case, which falls through to the end relation like `Greater`
-        // does.
-        match start.flatten() {
-            Some(Ordering::Less) => return Ranged::BelowStart,
-            Some(Ordering::Equal) => return Ranged::AtStart,
-            Some(Ordering::Greater) | None => {}
-        }
-        match end {
-            None => Ranged::Inside,
-            Some(Some(Ordering::Less)) => Ranged::Inside,
-            Some(Some(Ordering::Equal)) => Ranged::AtEnd,
-            Some(Some(Ordering::Greater)) => Ranged::AboveEnd,
-            // The total non-canonical arm (see `Mode::finish`).
-            Some(None) => Ranged::ConcurrentToEnd,
-        }
-    }
-}
-
-/// The interval mode: the public nine-way [`Placement`] verdict.
-pub(crate) struct IntervalMode;
-
-impl IntervalMode {
-    /// Both-refuted handling shared by the two sides: drop the decided
-    /// side while the other still sweeps; when it was the last side
-    /// standing, both endpoints are refuted and the verdict is fixed.
-    fn on_side(le: bool, ge: bool, other_live: bool) -> Act<Placement> {
-        if le || ge {
-            Act::Sweep
-        } else if other_live {
-            Act::Drop
-        } else {
-            Act::Return(Placement::Concurrent(Endpoint::Both))
-        }
-    }
-}
-
-impl Mode for IntervalMode {
-    type Verdict = Placement;
-
-    fn on_start(le: bool, ge: bool, other_live: bool) -> Act<Placement> {
-        Self::on_side(le, ge, other_live)
-    }
-
-    fn on_end(le: bool, ge: bool, other_live: bool) -> Act<Placement> {
-        Self::on_side(le, ge, other_live)
-    }
-
-    fn finish(start: Option<Option<Ordering>>, end: Option<Option<Ordering>>) -> Placement {
-        // A dropped side is a decided concurrency (the walk is always
-        // given both endpoint streams), and so is the total
-        // non-canonical `Some(None)` arm — `flatten` folds the two.
-        match (start.flatten(), end.flatten()) {
-            (Some(Ordering::Less), _) => Placement::Before,
-            (Some(Ordering::Equal), Some(Ordering::Equal)) => Placement::At(Endpoint::Both),
-            (Some(Ordering::Equal), _) => Placement::At(Endpoint::Start),
-            (Some(Ordering::Greater), Some(Ordering::Less)) => Placement::Between,
-            (Some(Ordering::Greater), Some(Ordering::Equal)) => Placement::At(Endpoint::End),
-            (Some(Ordering::Greater), Some(Ordering::Greater)) => Placement::After,
-            (Some(Ordering::Greater), None) => Placement::Concurrent(Endpoint::End),
-            (None, None) => Placement::Concurrent(Endpoint::Both),
-            (None, _) => Placement::Concurrent(Endpoint::Start),
-        }
-    }
-}
-
-/// The dominance mode: the public three-way [`Dominance`] verdict.
-pub(crate) struct DominanceMode;
-
-impl Mode for DominanceMode {
-    type Verdict = Dominance;
-
-    fn on_start(_le: bool, ge: bool, _other_live: bool) -> Act<Dominance> {
-        if ge {
-            Act::Sweep
-        } else {
-            // `lo <= probe` refuted: the probe dominates not even the
-            // start, whatever the end relation — the family's earliest
-            // bail.
-            Act::Return(Dominance::Neither)
-        }
-    }
-
-    fn on_end(_le: bool, ge: bool, _other_live: bool) -> Act<Dominance> {
-        if ge {
-            Act::Sweep
-        } else {
-            // `hi <= probe` refuted: `Whole` is off the table, and the
-            // verdict now rides the start relation alone — the end
-            // stream is never scanned further.
-            Act::Drop
-        }
-    }
-
-    fn finish(start: Option<Option<Ordering>>, end: Option<Option<Ordering>>) -> Dominance {
-        // `hi <= probe` surviving to exhaustion is domination of the
-        // whole interval; otherwise `lo <= probe` surviving is the
-        // start. `Neither` is unreachable here on canonical validated
-        // inputs (a refuted start direction returned from the loop) but
-        // keeps the map total.
-        if matches!(end.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
-            Dominance::Whole
-        } else if matches!(start.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
-            Dominance::StartOnly
-        } else {
-            Dominance::Neither
-        }
-    }
 }
 
 /// One bound's side of the walk: its cursor, its running difference
@@ -410,7 +238,54 @@ pub(crate) fn range(
     start: Option<&BitsSlice>,
     end: Option<&BitsSlice>,
 ) -> Ranged {
-    walk::<RangeMode>(probe, start, end)
+    walk(
+        probe,
+        start,
+        end,
+        // Concurrent to the start pins the start relation only: drop
+        // its cursor and sweep on for the end relation — and with no
+        // end bound left in the question, past-or-concurrent to the
+        // start is already the contained region.
+        |le, ge, end_live| {
+            if le || ge {
+                ControlFlow::Continue(Fate::Sweep)
+            } else if end_live {
+                ControlFlow::Continue(Fate::Drop)
+            } else {
+                ControlFlow::Break(Ranged::Inside)
+            }
+        },
+        // Concurrent to the end is the whole verdict: on a validated
+        // range a probe concurrent to the end cannot be below the
+        // start.
+        |le, ge, _| {
+            if le || ge {
+                ControlFlow::Continue(Fate::Sweep)
+            } else {
+                ControlFlow::Break(Ranged::ConcurrentToEnd)
+            }
+        },
+        // The start relation speaks first (the coincident-bounds
+        // canonicalization); a dropped start cursor is the concurrent
+        // case, which falls through to the end relation like `Greater`
+        // does, and an absent end keeps everything past the start
+        // `Inside`. The `Some(None)` arm is the total non-canonical
+        // corner.
+        |start, end| {
+            match start.flatten() {
+                Some(Ordering::Less) => return Ranged::BelowStart,
+                Some(Ordering::Equal) => return Ranged::AtStart,
+                Some(Ordering::Greater) | None => {}
+            }
+            match end {
+                None => Ranged::Inside,
+                Some(Some(Ordering::Less)) => Ranged::Inside,
+                Some(Some(Ordering::Equal)) => Ranged::AtEnd,
+                Some(Some(Ordering::Greater)) => Ranged::AboveEnd,
+                Some(None) => Ranged::ConcurrentToEnd,
+            }
+        },
+    )
 }
 
 /// Place a probe stream against an ordered interval's endpoint streams
@@ -423,7 +298,42 @@ pub(crate) fn range(
 ///
 /// The canonical-stream contract of [`range`], on all three operands.
 pub(crate) fn interval(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placement {
-    walk::<IntervalMode>(probe, Some(lo), Some(hi))
+    /// Either endpoint's decided concurrency drops its own cursor
+    /// while the other still sweeps.
+    ///
+    /// `Concurrent(Start)` vs `Concurrent(Both)` needs the other
+    /// endpoint's relation; when the refuted side was the last one
+    /// standing, both endpoints have refuted and the verdict is fixed.
+    fn on_side(le: bool, ge: bool, other_live: bool) -> ControlFlow<Placement, Fate> {
+        if le || ge {
+            ControlFlow::Continue(Fate::Sweep)
+        } else if other_live {
+            ControlFlow::Continue(Fate::Drop)
+        } else {
+            ControlFlow::Break(Placement::Concurrent(Endpoint::Both))
+        }
+    }
+    walk(
+        probe,
+        Some(lo),
+        Some(hi),
+        on_side,
+        on_side,
+        // A dropped side is a decided concurrency (the walk is always
+        // given both endpoint streams), and so is the total
+        // non-canonical `Some(None)` corner — `flatten` folds the two.
+        |lo, hi| match (lo.flatten(), hi.flatten()) {
+            (Some(Ordering::Less), _) => Placement::Before,
+            (Some(Ordering::Equal), Some(Ordering::Equal)) => Placement::At(Endpoint::Both),
+            (Some(Ordering::Equal), _) => Placement::At(Endpoint::Start),
+            (Some(Ordering::Greater), Some(Ordering::Less)) => Placement::Between,
+            (Some(Ordering::Greater), Some(Ordering::Equal)) => Placement::At(Endpoint::End),
+            (Some(Ordering::Greater), Some(Ordering::Greater)) => Placement::After,
+            (Some(Ordering::Greater), None) => Placement::Concurrent(Endpoint::End),
+            (None, None) => Placement::Concurrent(Endpoint::Both),
+            (None, _) => Placement::Concurrent(Endpoint::Start),
+        },
+    )
 }
 
 /// The dominance face of [`interval`]: the three-way verdict, with the
@@ -437,19 +347,72 @@ pub(crate) fn interval(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Pla
 ///
 /// The canonical-stream contract of [`range`], on all three operands.
 pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Dominance {
-    walk::<DominanceMode>(probe, Some(lo), Some(hi))
+    walk(
+        probe,
+        Some(lo),
+        Some(hi),
+        // `lo <= probe` refuted is the whole verdict — the probe
+        // dominates not even the start, whatever the end relation: the
+        // family's earliest bail.
+        |_le, ge, _| {
+            if ge {
+                ControlFlow::Continue(Fate::Sweep)
+            } else {
+                ControlFlow::Break(Dominance::Neither)
+            }
+        },
+        // `hi <= probe` refuted takes `Whole` off the table, and the
+        // verdict now rides the start relation alone — the end stream
+        // is never scanned further.
+        |_le, ge, _| {
+            if ge {
+                ControlFlow::Continue(Fate::Sweep)
+            } else {
+                ControlFlow::Continue(Fate::Drop)
+            }
+        },
+        // `hi <= probe` surviving to exhaustion is domination of the
+        // whole interval; otherwise `lo <= probe` surviving is the
+        // start. `Neither` is unreachable here on canonical validated
+        // inputs (a refuted start direction returned from the loop) but
+        // keeps the map total.
+        |lo, hi| {
+            if matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
+                Dominance::Whole
+            } else if matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
+                Dominance::StartOnly
+            } else {
+                Dominance::Neither
+            }
+        },
+    )
 }
 
 /// The placement walk: sweep the probe against the present bound
 /// streams, folding each elementary interval's signs and letting the
-/// mode act, to its verdict.
-fn walk<M: Mode>(
+/// verdict hooks act.
+///
+/// `on_start` and `on_end` see their side's surviving directions after
+/// its sign fold, plus whether the other side still sweeps: `Break`
+/// carries a determined verdict out of the walk, and `Continue` carries
+/// the side's [`Fate`]. The hooks act only on refutations — which are
+/// permanent — so an early break or drop never moves a verdict the
+/// completed sweep would have reached. `finish` maps the decided
+/// relations at exhaustion: `None` for a side absent or dropped,
+/// `Some(None)` for a side refuted in both directions at the last
+/// interval (unreachable on canonical inputs — every caller keeps the
+/// arm total so a non-canonical sweep stays a silent unspecified
+/// verdict, per the panics contract).
+fn walk<V>(
     probe: &BitsSlice,
     start: Option<&BitsSlice>,
     end: Option<&BitsSlice>,
-) -> M::Verdict {
+    on_start: impl Fn(bool, bool, bool) -> ControlFlow<V, Fate>,
+    on_end: impl Fn(bool, bool, bool) -> ControlFlow<V, Fate>,
+    finish: impl FnOnce(Option<Option<Ordering>>, Option<Option<Ordering>>) -> V,
+) -> V {
     if start.is_none() && end.is_none() {
-        return M::finish(None, None);
+        return finish(None, None);
     }
     let (mut probe, probe_first) = LeafCursor::open(probe);
     let mut start = start.map(|bits| BoundSide::open(bits, &probe_first));
@@ -457,23 +420,23 @@ fn walk<M: Mode>(
 
     loop {
         // One read per live bound per elementary interval, end first:
-        // the range mode's whole-verdict exit is an end-side fact, and
-        // the shared order keeps every mode's accumulator traffic
+        // the range walk's whole-verdict exit is an end-side fact, and
+        // the shared order keeps every question's accumulator traffic
         // identical.
         if let Some(side) = &mut end {
             side.read();
-            match M::on_end(side.le, side.ge, start.is_some()) {
-                Act::Sweep => {}
-                Act::Drop => end = None,
-                Act::Return(verdict) => return verdict,
+            match on_end(side.le, side.ge, start.is_some()) {
+                ControlFlow::Continue(Fate::Sweep) => {}
+                ControlFlow::Continue(Fate::Drop) => end = None,
+                ControlFlow::Break(verdict) => return verdict,
             }
         }
         if let Some(side) = &mut start {
             side.read();
-            match M::on_start(side.le, side.ge, end.is_some()) {
-                Act::Sweep => {}
-                Act::Drop => start = None,
-                Act::Return(verdict) => return verdict,
+            match on_start(side.le, side.ge, end.is_some()) {
+                ControlFlow::Continue(Fate::Sweep) => {}
+                ControlFlow::Continue(Fate::Drop) => start = None,
+                ControlFlow::Break(verdict) => return verdict,
             }
         }
         let exhausted = probe.done()
@@ -485,7 +448,7 @@ fn walk<M: Mode>(
         advance(&mut probe, &mut start, &mut end);
     }
 
-    M::finish(
+    finish(
         start.as_ref().map(BoundSide::relation),
         end.as_ref().map(BoundSide::relation),
     )

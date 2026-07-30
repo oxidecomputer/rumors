@@ -8076,14 +8076,15 @@ mod placement {
         }
     }
 
-    /// GREEN PIN: on a full sweep (every relation comparable), the fused
-    /// interval placement scans exactly the two-comparison composition
-    /// minus one probe scan — each stream decoded once. The dominance
-    /// coarsening never costs more: on a probe dominating the whole
-    /// interval nothing refutes and the walk is the placement walk to
-    /// the bit, while on a merely contained probe the end stream's
-    /// refuted domination drops that cursor and the coarser verdict
-    /// reads strictly cheaper.
+    /// GREEN PIN: one fused interval pass, each stream decoded once.
+    ///
+    /// On a full sweep (every relation comparable) the fused interval
+    /// placement scans exactly the two-comparison composition minus one
+    /// probe scan. The dominance coarsening never costs more: on a
+    /// probe dominating the whole interval nothing refutes and the walk
+    /// is the placement walk to the bit, while on a merely contained
+    /// probe the end stream's refuted domination drops that cursor and
+    /// the coarser verdict reads strictly cheaper.
     ///
     /// Stated relationally like the range walk's one-pass pin
     /// (`cmp(v, v)` prices one probe scan as half its reading), so no

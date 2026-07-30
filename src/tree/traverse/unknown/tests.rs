@@ -24,9 +24,11 @@ use crate::{
 use super::Unknown;
 
 /// The two-check classification the fused dominance face replaced, kept
-/// as this comparison's cost oracle: each check places one node bound
-/// against the counterparty's known-at range, so the probe stream is
-/// decoded once per check. Verdict-identical to [`Unknown`] by the
+/// as this comparison's cost oracle.
+///
+/// Each check places one node bound against the counterparty's
+/// known-at range, so the probe stream is decoded once per check.
+/// Verdict-identical to [`Unknown`] by the
 /// `interval_place_matches_relations` and
 /// `interval_dominance_coarsens_place` laws in `before::laws`; this
 /// suite additionally asserts the pruned trees match.
@@ -83,10 +85,12 @@ impl TwoPass for Z {
 }
 
 /// The trusted door's debug assertion, priced alone over the nodes the
-/// classifier classifies: dev builds re-validate `floor <= ceiling`
-/// once per constructed interval — a comparison release builds do not
-/// pay — so the shipping-shape comparison subtracts this reading from
-/// the measured fused walk.
+/// classifier classifies.
+///
+/// Dev builds re-validate `floor <= ceiling` once per constructed
+/// interval — a comparison release builds do not pay — so the
+/// shipping-shape comparison subtracts this reading from the measured
+/// fused walk.
 ///
 /// The traversal mirrors the classifier's descent (recursing exactly
 /// into the nodes it classifies) but accumulates only the scan-bit

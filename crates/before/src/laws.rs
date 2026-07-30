@@ -666,8 +666,9 @@ fn bounded_coarsens_to_placement(a: &Version, b: &Version, c: &Version) -> bool 
     true
 }
 
-/// The interval pairs the placement laws quantify over, from a version
-/// pair: the constructed always-ordered pair (`meet <= join`), the
+/// The interval pairs the placement laws quantify over, from a version pair.
+///
+/// The constructed always-ordered pair (`meet <= join`), the
 /// coincident pair (reaching `lo == hi` on every call), and the raw
 /// pair whenever it happens to order.
 fn interval_candidates(b: &Version, c: &Version) -> Vec<(Version, Version)> {
@@ -726,7 +727,9 @@ fn interval_place_matches_relations(a: &Version, b: &Version, c: &Version) -> bo
 }
 
 /// `dominance_of` is `place` coarsened to the dominance question, on
-/// every interval: `Whole` collects the verdicts with `hi <= p`
+/// every interval.
+///
+/// `Whole` collects the verdicts with `hi <= p`
 /// (`At(End)`, `At(Both)`, `After`), `StartOnly` those with `lo <= p`
 /// but not `hi <= p` (`At(Start)`, `Between`, `Concurrent(End)`), and
 /// `Neither` the rest (`Before`, `Concurrent(Start)`,
@@ -801,9 +804,11 @@ fn bounded_coarsens_interval_place(a: &Version, b: &Version, c: &Version) -> boo
 }
 
 /// `place` against the degenerate interval `[v, v]` is pairwise
-/// comparison itself: the four verdicts reachable with coincident
-/// endpoints transcribe `partial_cmp`'s four outcomes, and the five
-/// endpoint-splitting verdicts are unreachable.
+/// comparison itself.
+///
+/// The four verdicts reachable with coincident endpoints transcribe
+/// `partial_cmp`'s four outcomes, and the five endpoint-splitting
+/// verdicts are unreachable.
 fn degenerate_interval_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
     let Ok(interval) = Interval::new(b, b) else {
         // A version is always ordered with itself.

@@ -56,10 +56,12 @@ pub struct SourceSpec {
     /// none).
     pub module_prefix: Option<&'static str>,
     /// Public names for the file's inherent-impl types, keyed by local
-    /// type name — for types whose local name is not their public path
-    /// or that live under a public module. A type absent from the list
-    /// keeps its parsed name (and a roster's totality test is what
-    /// catches a mapping a new public type still needs).
+    /// type name.
+    ///
+    /// For types whose local name is not their public path or that live
+    /// under a public module. A type absent from the list keeps its
+    /// parsed name (and a roster's totality test is what catches a
+    /// mapping a new public type still needs).
     pub type_overrides: &'static [(&'static str, &'static str)],
 }
 
