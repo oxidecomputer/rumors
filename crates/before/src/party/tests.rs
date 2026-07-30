@@ -559,6 +559,228 @@ fn sum_split_collapsed_union_matches_terminal_split() {
     assert_eq!(Party::from_bits(fused.1), give, "the give half is (0, 1)");
 }
 
+/// Deep constructed id pairs hold `sum_split` to its composition beyond
+/// the arbitrary generator's reach.
+///
+/// `arb_oracle_party` recurses a handful of levels, so every genre here
+/// is otherwise unsampled: a kilolevel lockstep spine ending at the
+/// union-collapse seam (adjacent sibling cells at depth), whole-branch
+/// delegation whose merge cascade-collapses to the terminal level by
+/// level, a deep subtree spliced verbatim from one side alone, a
+/// targeted branch whose merged child collapses inside the delegated
+/// `sum`, overlap detected at depth (on the spine and inside the
+/// delegated merge), and the root-leaf/empty-operand arms. Each case
+/// asserts byte equality with `sum`-then-`split` (`None` arms
+/// included); the deep cases double as stack-safety proof for the
+/// fused walk's loop.
+mod sum_split_constructed {
+    use super::*;
+    use crate::codec::Bits;
+
+    /// The full `1` leaf: terminal tag `00`.
+    fn full() -> Bits {
+        let mut b = Bits::new();
+        b.push(false);
+        b.push(false);
+        b
+    }
+
+    /// An internal node over the present children (normal form is the
+    /// caller's obligation: at least one child, never two terminals).
+    fn node(left: Option<&Bits>, right: Option<&Bits>) -> Bits {
+        let mut b = Bits::new();
+        b.push(left.is_some());
+        b.push(right.is_some());
+        if let Some(l) = left {
+            b.extend_from_bitslice(l);
+        }
+        if let Some(r) = right {
+            b.extend_from_bitslice(r);
+        }
+        b
+    }
+
+    /// `levels` unary nodes toward `left_side` over `tail` (built
+    /// tags-first, so a deep spine costs one pass, not one per level).
+    fn spine(levels: usize, left_side: bool, tail: Bits) -> Bits {
+        let mut b = Bits::with_capacity(2 * levels + tail.len());
+        for _ in 0..levels {
+            b.push(left_side);
+            b.push(!left_side);
+        }
+        b.extend_from_bitslice(&tail);
+        b
+    }
+
+    /// The leftmost `2^-k` cell: a `k`-level left-unary spine over `1`.
+    fn leftmost(k: usize) -> Bits {
+        spine(k, true, full())
+    }
+
+    /// The complement of [`leftmost`]`(k)`: the right half owned at
+    /// every level.
+    ///
+    /// Built by one preorder pass — `k − 1` both-present nodes whose
+    /// left child continues and whose right child is full, then the
+    /// deepest right-only cell.
+    fn complement_leftmost(k: usize) -> Bits {
+        let mut b = Bits::with_capacity(4 * k);
+        for _ in 1..k {
+            b.push(true);
+            b.push(true);
+        }
+        b.push(false);
+        b.push(true);
+        b.extend_from_bitslice(&full());
+        for _ in 1..k {
+            b.extend_from_bitslice(&full());
+        }
+        b
+    }
+
+    /// The fused walk against its composition on one id pair, in both
+    /// operand orders (byte equality, `None` arms included).
+    fn assert_matches_composition(a: &Bits, b: &Bits) {
+        for (x, y) in [(a, b), (b, a)] {
+            let fused = IdReader::root(x).sum_split(IdReader::root(y));
+            let composed = IdReader::root(x)
+                .sum(IdReader::root(y))
+                .map(|union| IdReader::root(&union).split());
+            assert_eq!(fused, composed);
+        }
+    }
+
+    /// Levels enough that no recursive generator plausibly reaches them
+    /// and a per-level stack frame would overflow.
+    const DEEP: usize = 10_000;
+
+    /// Adjacent sibling cells at depth `DEEP`: the lockstep spine runs
+    /// the whole way down and the union collapses at the deepest branch
+    /// (both children full), the terminal-split seam far from the root.
+    #[test]
+    fn deep_adjacent_cells_collapse_at_the_branch() {
+        let a = leftmost(DEEP);
+        let b = spine(DEEP - 1, true, node(None, Some(&full())));
+        assert_matches_composition(&a, &b);
+    }
+
+    /// A cell and its exact complement under a shared spine: the walk
+    /// delegates the whole branch pair, and the delegated `sum`
+    /// cascade-collapses every level to the terminal.
+    #[test]
+    fn deep_delegated_merge_cascade_collapses() {
+        let a = spine(DEEP, false, leftmost(DEEP));
+        let b = spine(DEEP, false, complement_leftmost(DEEP));
+        assert_matches_composition(&a, &b);
+    }
+
+    /// One side owns the left half whole; the other owns a deep cell of
+    /// the right half: both branch children splice verbatim, the deep
+    /// subtree unread.
+    #[test]
+    fn deep_subtree_splices_verbatim() {
+        let a = node(Some(&full()), None);
+        let b = node(None, Some(&leftmost(DEEP)));
+        assert_matches_composition(&a, &b);
+    }
+
+    /// A both-present operand against a right-only one at a deep branch:
+    /// the kept child splices verbatim past the operand's paid skip, and
+    /// the merged child collapses inside the delegated `sum`.
+    #[test]
+    fn deep_targeted_branch_with_collapsing_merged_child() {
+        let quarter_left = node(Some(&full()), None);
+        let quarter_right = node(None, Some(&full()));
+        let a = spine(DEEP, true, node(Some(&quarter_left), Some(&quarter_left)));
+        let b = spine(DEEP, true, node(None, Some(&quarter_right)));
+        assert_matches_composition(&a, &b);
+    }
+
+    /// Overlap at depth is `None` exactly where the composition refuses:
+    /// an identical deep pair (full meets nonempty on the spine's
+    /// terminal), and an overlap buried inside a delegated merge.
+    #[test]
+    fn deep_overlap_is_refused() {
+        let a = leftmost(DEEP);
+        assert_matches_composition(&a, &a.clone());
+        let inner = node(Some(&leftmost(2)), Some(&full()));
+        let x = spine(DEEP, false, leftmost(2));
+        let y = spine(DEEP, false, inner);
+        assert_matches_composition(&x, &y);
+    }
+
+    /// The fused walk's scan never exceeds its composition's, and a
+    /// splice-resolved pair reads `O(1)` bits however deep the spliced
+    /// subtree.
+    ///
+    /// The method doc's cost claim, held by meter on the three
+    /// constructed regimes at two scales each: whole-branch delegation
+    /// (the composition's bytes minus the built union's spine), the
+    /// pure splice (constant root reads, the honest sub-linear arm the
+    /// `clock_sync` board floors are derived around), and the lockstep
+    /// spine to a targeted branch. A fused walk that re-reads a skipped
+    /// child or scans a spliced subtree moves the ratio above one.
+    #[cfg(feature = "scan-meter")]
+    #[test]
+    fn sum_split_scan_never_exceeds_the_composition() {
+        let scan = |f: &dyn Fn()| {
+            crate::codec::scan::reset();
+            f();
+            crate::codec::scan::scan_bits()
+        };
+        let compare = |name: &str, a: &Bits, b: &Bits| -> u64 {
+            let fused = scan(&|| {
+                IdReader::root(a).sum_split(IdReader::root(b));
+            });
+            let composed = scan(&|| {
+                IdReader::root(a)
+                    .sum(IdReader::root(b))
+                    .map(|u| IdReader::root(&u).split());
+            });
+            assert!(
+                0 < fused && fused <= composed,
+                "{name}: fused walk scanned {fused} bits against the \
+                 composition's {composed}",
+            );
+            fused
+        };
+        for k in [256usize, 4096] {
+            let quarter_left = node(Some(&full()), None);
+            let quarter_right = node(None, Some(&full()));
+            let a = spine(k, true, node(Some(&leftmost(k)), Some(&quarter_left)));
+            let b = spine(
+                k,
+                true,
+                node(Some(&complement_leftmost(k)), Some(&quarter_right)),
+            );
+            compare(&format!("delegated k={k}"), &a, &b);
+            let a = node(Some(&full()), None);
+            let b = node(None, Some(&leftmost(k)));
+            let spliced = compare(&format!("splice k={k}"), &a, &b);
+            assert_eq!(
+                spliced, 8,
+                "a splice-resolved pair reads exactly its two root tags \
+                 per operand (peeked, then read), at any depth",
+            );
+            let a = leftmost(k);
+            let b = spine(k - 1, true, node(None, Some(&full())));
+            compare(&format!("adjacent k={k}"), &a, &b);
+        }
+    }
+
+    /// The root-owning and empty operands ride the same equalities: the
+    /// full leaf overlaps every nonempty id, an empty side hands the
+    /// split of the other, and two empties split to empties.
+    #[test]
+    fn root_leaf_and_empty_operands_match_composition() {
+        let empty = Bits::new();
+        assert_matches_composition(&full(), &leftmost(3));
+        assert_matches_composition(&full(), &empty);
+        assert_matches_composition(&empty, &empty.clone());
+        assert_matches_composition(&empty, &leftmost(DEEP));
+    }
+}
+
 proptest! {
     /// `without` on arbitrary id pairs — typically *unrelated* and frequently
     /// *overlapping* — agrees with the oracle's `without`, mapping the oracle's
