@@ -499,6 +499,22 @@ pub(super) fn render_map(
 /// re-pinned from the live release fold, every non-sync cell's reading
 /// byte-identical to the parent renders at both scales):
 ///
+/// Movement 2026-07-29, second (the suffix-safe fraction framing and
+/// the streaming decode: group-framed fractions grow fraction-heavy
+/// encodings by 9⁄8, and the byte-at-a-time parser strips each
+/// magnitude's sink padding with one O(1) shift the old right-aligned
+/// assembly did not pay — right-alignment would trust the header's
+/// claimed width before the bits arrive, the allocation-bomb path the
+/// parser refuses):
+///
+/// - **benign rises into a tie with concurrent-pair on the
+///   rank_decode limb column** (default scale): the constant
+///   padding-strip shift weighs most against the organic pairs' tiny
+///   per-decode denominators, landing them exactly on the adversarial
+///   family's per-byte reading; concurrent-pair still co-holds the
+///   argmax, and the acceptance scale, where the constant is
+///   amortized, keeps it alone.
+///
 /// Movement 2026-07-29 (the rank wire form and the rank view: the
 /// rank_encode/rank_decode and ranked_cmp/ranked_encode rows join the
 /// table; 8 entries pinned from the live release fold, every
@@ -554,7 +570,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
     ("default", "rank_sum", ["plateau-puncture", "hugeleaf", "-", "freeze-pos"]),
     ("default", "rank_encode", ["hugeleaf", "concurrent-pair", "-", "-"]),
-    ("default", "rank_decode", ["freeze-parade", "concurrent-pair", "-", "-"]),
+    ("default", "rank_decode", ["freeze-parade", "benign,concurrent-pair", "-", "-"]),
     ("default", "version_distance", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("default", "version_lag", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("default", "ranked_cmp", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
