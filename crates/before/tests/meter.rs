@@ -7873,6 +7873,8 @@ mod width_circulation_cost {
 // bound is absent, and keep every early exit the composition had.
 #[cfg(feature = "scan-meter")]
 mod placement {
+    use std::cmp::Ordering;
+
     use before::causally;
     use before::{meter, Clock, Version};
 
@@ -8072,5 +8074,204 @@ mod placement {
                 "{genre}: an end-only placement must fold exactly as the pair sweep"
             );
         }
+    }
+
+    /// GREEN PIN: on a full sweep (every relation comparable), the fused
+    /// interval placement scans exactly the two-comparison composition
+    /// minus one probe scan — each stream decoded once. The dominance
+    /// coarsening never costs more: on a probe dominating the whole
+    /// interval nothing refutes and the walk is the placement walk to
+    /// the bit, while on a merely contained probe the end stream's
+    /// refuted domination drops that cursor and the coarser verdict
+    /// reads strictly cheaper.
+    ///
+    /// Stated relationally like the range walk's one-pass pin
+    /// (`cmp(v, v)` prices one probe scan as half its reading), so no
+    /// measured constant can rot.
+    #[test]
+    fn interval_place_scans_each_stream_once() {
+        let (s, v, e, _) = fixture();
+        let interval = causally::Interval::new(&s, &e).unwrap();
+
+        let fused = scanned(|| {
+            assert_eq!(interval.place(&v), causally::Placement::Between);
+        });
+        let dominance = scanned(|| {
+            assert_eq!(interval.dominance_of(&v), causally::Dominance::StartOnly);
+        });
+        let cmp_vs = scanned(|| assert!(v.partial_cmp(&s).is_some()));
+        let cmp_ve = scanned(|| assert!(v.partial_cmp(&e).is_some()));
+        let cmp_vv = scanned(|| assert!(v.partial_cmp(&v).is_some()));
+        eprintln!(
+            "MEASURED interval_one_pass: fused={fused} dominance={dominance} composed={} \
+             probe_scan={}",
+            cmp_vs + cmp_ve,
+            cmp_vv / 2,
+        );
+        assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+        assert_eq!(
+            fused + cmp_vv / 2,
+            cmp_vs + cmp_ve,
+            "the fused interval walk must cost the composition minus exactly one probe scan"
+        );
+        assert!(
+            dominance < fused,
+            "on a contained probe the end stream's refuted domination must drop \
+             that cursor: dominance ({dominance}) under full resolution ({fused})"
+        );
+
+        // A probe dominating the whole interval refutes nothing on
+        // either side: the dominance walk is the placement walk to the
+        // bit.
+        let whole = causally::Interval::new(&s, &v).unwrap();
+        let place_whole = scanned(|| {
+            assert_eq!(whole.place(&e), causally::Placement::After);
+        });
+        let dominance_whole = scanned(|| {
+            assert_eq!(whole.dominance_of(&e), causally::Dominance::Whole);
+        });
+        eprintln!("MEASURED interval_whole_sweep: place={place_whole} dominance={dominance_whole}");
+        assert_eq!(
+            dominance_whole, place_whole,
+            "with nothing refuted, the dominance walk is the placement walk to the bit"
+        );
+    }
+
+    /// GREEN PIN: the interval walk's concurrency exits fire per
+    /// endpoint, and every concurrent genre stays strictly under the
+    /// two-comparison composition.
+    ///
+    /// Concurrent to both endpoints: the walk returns at the second
+    /// deciding interval. Concurrent to one endpoint: that endpoint's
+    /// cursor is dropped at its deciding interval (its stream is never
+    /// scanned further) while the other relation sweeps on.
+    #[test]
+    fn interval_concurrent_exits_survive_the_fusion() {
+        let (s, v, e, div) = fixture();
+        let top = &e | &div;
+
+        for (interval, probe, verdict, genre) in [
+            // div is concurrent to both v and e: the early return.
+            (
+                causally::Interval::new(&v, &e).unwrap(),
+                &div,
+                causally::Placement::Concurrent(causally::Endpoint::Both),
+                "both",
+            ),
+            // v is past s but concurrent to div: the hi-drop path.
+            (
+                causally::Interval::new(&s, &div).unwrap(),
+                &v,
+                causally::Placement::Concurrent(causally::Endpoint::End),
+                "end",
+            ),
+            // v is concurrent to div but under div|e: the lo-drop path.
+            (
+                causally::Interval::new(&div, &top).unwrap(),
+                &v,
+                causally::Placement::Concurrent(causally::Endpoint::Start),
+                "start",
+            ),
+        ] {
+            let fused = scanned(|| {
+                assert_eq!(interval.place(probe), verdict);
+            });
+            let composed = scanned(|| {
+                let _ = probe.partial_cmp(&s);
+                let _ = probe.partial_cmp(&e);
+            });
+            eprintln!("MEASURED interval_concurrent_{genre}: fused={fused} composed={composed}");
+            assert!(
+                fused < composed,
+                "concurrent-to-{genre}: the fused interval walk ({fused}) must undercut \
+                 the composition ({composed})"
+            );
+        }
+    }
+
+    /// GREEN PIN: the dominance face's bail on a start the probe fails
+    /// to dominate, on both failure genres.
+    ///
+    /// A *concurrent* start refutes `lo <= probe` at its first opposing
+    /// interval — one interval before the pair sweep's two-flag
+    /// concurrency exit — so the walk returns strictly before full
+    /// resolution and strictly under the floor-first two-check shape it
+    /// replaces; against the old *first check alone* the earlier bail
+    /// buys back only part of the fused walk's end-stream prefix, so
+    /// that reading is printed, not bounded. A *dominating* start
+    /// (`probe < lo`, comparable) is where the bail changes class: the
+    /// old floor-first check could confirm `Greater` only at
+    /// exhaustion, while the single-flag refutation lands at the first
+    /// excess interval — strictly under even the first check.
+    #[test]
+    fn dominance_bails_at_the_refuted_start() {
+        let (s, v, e, div) = fixture();
+
+        // Genre 1: the start is concurrent to the probe.
+        let top = &e | &div;
+        let interval = causally::Interval::new(&div, &top).unwrap();
+        let fused = scanned(|| {
+            assert_eq!(interval.dominance_of(&v), causally::Dominance::Neither);
+        });
+        let place = scanned(|| {
+            assert_eq!(
+                interval.place(&v),
+                causally::Placement::Concurrent(causally::Endpoint::Start)
+            );
+        });
+        // The two-check shape the dominance face replaces: place the
+        // start version against the probe's known-at range (the
+        // floor-first check, which exits at the concurrency), then
+        // check the end version's containment (the second probe decode
+        // the fusion ends).
+        let known_at = causally::known_at(&v);
+        let first_check = scanned(|| {
+            assert_eq!(known_at.placement_of(&div), Ordering::Greater);
+        });
+        let two_check = first_check
+            + scanned(|| {
+                assert!(!known_at.contains(&top));
+            });
+        eprintln!(
+            "MEASURED dominance_bail_concurrent: fused={fused} place={place} \
+             first_check={first_check} two_check={two_check}"
+        );
+        assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+        assert!(
+            fused < place,
+            "the dominance bail ({fused}) must return before full resolution ({place})"
+        );
+        assert!(
+            fused < two_check,
+            "the dominance bail ({fused}) must undercut the two-check shape ({two_check})"
+        );
+
+        // Genre 2: the start strictly dominates the probe.
+        let interval = causally::Interval::new(&v, &e).unwrap();
+        let fused = scanned(|| {
+            assert_eq!(interval.dominance_of(&s), causally::Dominance::Neither);
+        });
+        let known_at = causally::known_at(&s);
+        let first_check = scanned(|| {
+            assert_eq!(known_at.placement_of(&v), Ordering::Greater);
+        });
+        let two_check = first_check
+            + scanned(|| {
+                assert!(!known_at.contains(&e));
+            });
+        eprintln!(
+            "MEASURED dominance_bail_dominating: fused={fused} \
+             first_check={first_check} two_check={two_check}"
+        );
+        assert!(
+            fused < first_check,
+            "on a dominating start the single-flag bail ({fused}) must undercut \
+             even the floor-first check ({first_check}), which confirms Greater \
+             only at exhaustion"
+        );
+        assert!(
+            fused < two_check,
+            "the dominance bail ({fused}) must undercut the two-check shape ({two_check})"
+        );
     }
 }

@@ -80,11 +80,14 @@
 //! # Complexity
 //!
 //! Every constructor in this module is `O(1)` time and space: a [`Range`]
-//! stores two borrows. Pairing a start with an end validates with at most
-//! one causal comparison, `O(|s| + |e|)` in the bounds' packed sizes. The
+//! or [`Interval`] stores two borrows. Pairing a start with an end — or
+//! validating an interval through [`Interval::new`] — costs at most
+//! one causal comparison, `O(|s| + |e|)` in the bounds' packed sizes
+//! ([`Interval::ordered`] skips even that). The
 //! placement family — [`bounded`](Range::bounded),
-//! [`contains`](Range::contains), and
-//! [`placement_of`](Range::placement_of) — runs one fused comparison
+//! [`contains`](Range::contains),
+//! [`placement_of`](Range::placement_of), [`Interval::place`], and
+//! [`Interval::dominance_of`] — runs one fused comparison
 //! pass over the version and the present bound versions, `O(|v| + |s| +
 //! |e|)` in the operands' packed sizes (see [`Version`]), each stream
 //! decoded once.
@@ -127,7 +130,7 @@ use std::ops::{Bound, RangeBounds};
 
 pub use crate::error::Crossed;
 
-use crate::version::skyline::bounded;
+use crate::version::skyline::place;
 use crate::Version;
 
 /// A causal version range: a pair of [`Bound`]s.
@@ -436,13 +439,13 @@ impl<'a> Range<'a> {
             Bound::Included(v) | Bound::Excluded(v) => Some(&**v.view()),
             Bound::Unbounded => None,
         };
-        match bounded::place(version.view(), stream(self.start), stream(self.end)) {
-            bounded::Placement::BelowStart => Bounded::Before,
-            bounded::Placement::AtStart => Bounded::AtStart,
-            bounded::Placement::Inside => Bounded::Between,
-            bounded::Placement::AtEnd => Bounded::AtEnd,
-            bounded::Placement::AboveEnd => Bounded::After,
-            bounded::Placement::ConcurrentToEnd => Bounded::Concurrent,
+        match place::range(version.view(), stream(self.start), stream(self.end)) {
+            place::Ranged::BelowStart => Bounded::Before,
+            place::Ranged::AtStart => Bounded::AtStart,
+            place::Ranged::Inside => Bounded::Between,
+            place::Ranged::AtEnd => Bounded::AtEnd,
+            place::Ranged::AboveEnd => Bounded::After,
+            place::Ranged::ConcurrentToEnd => Bounded::Concurrent,
         }
     }
 }
@@ -619,24 +622,20 @@ impl<'a> Interval<'a> {
     /// pins it on every law consumer, and
     /// `degenerate_interval_place_is_partial_cmp` pins the coincident
     /// interval `[v, v]` to pairwise comparison itself.
+    ///
+    /// One fused comparison pass answers both relations: the probe and
+    /// the endpoint streams are walked simultaneously, each decoded
+    /// once — against two probe decodes when the comparisons are
+    /// composed. An endpoint whose relation is decided (a detected
+    /// concurrency) stops being scanned, and once both endpoints have
+    /// refuted the verdict returns at the deciding interval; no earlier
+    /// exit exists at full resolution, because distinguishing
+    /// `Concurrent(Start)` from `Concurrent(Both)` needs the other
+    /// endpoint's relation to complete. When only the dominance
+    /// question is asked, [`dominance_of`](Self::dominance_of) bails
+    /// earlier.
     pub fn place(&self, probe: &Version) -> Placement {
-        match probe.partial_cmp(self.lo) {
-            Some(Ordering::Less) => Placement::Before,
-            Some(Ordering::Equal) => match probe.partial_cmp(self.hi) {
-                Some(Ordering::Equal) => Placement::At(Endpoint::Both),
-                _ => Placement::At(Endpoint::Start),
-            },
-            Some(Ordering::Greater) => match probe.partial_cmp(self.hi) {
-                Some(Ordering::Less) => Placement::Between,
-                Some(Ordering::Equal) => Placement::At(Endpoint::End),
-                Some(Ordering::Greater) => Placement::After,
-                None => Placement::Concurrent(Endpoint::End),
-            },
-            None => match probe.partial_cmp(self.hi) {
-                None => Placement::Concurrent(Endpoint::Both),
-                _ => Placement::Concurrent(Endpoint::Start),
-            },
-        }
+        place::interval(probe.view(), self.lo.view(), self.hi.view())
     }
 
     /// How much of this interval `probe` dominates: the three-way
@@ -652,16 +651,18 @@ impl<'a> Interval<'a> {
     ///   `Concurrent(End)`.
     /// - [`Neither`](Dominance::Neither) ⟸ `Before`,
     ///   `Concurrent(Start)`, `Concurrent(Both)`.
+    ///
+    /// The coarser question buys the placement family's earliest exit:
+    /// the verdict reads only the endpoint-at-or-below-probe
+    /// directions, so the moment `lo <= probe` is refuted the answer is
+    /// `Neither` regardless of `hi` and the fused walk returns at the
+    /// refuting interval — where [`place`](Self::place) must sweep on —
+    /// and the moment `hi <= probe` is refuted the `hi` stream stops
+    /// being scanned while `lo` decides `StartOnly` against `Neither`.
+    /// On sweeps with no refutation the cost is
+    /// [`place`](Self::place)'s exactly.
     pub fn dominance_of(&self, probe: &Version) -> Dominance {
-        match self.place(probe) {
-            Placement::At(Endpoint::End | Endpoint::Both) | Placement::After => Dominance::Whole,
-            Placement::At(Endpoint::Start)
-            | Placement::Between
-            | Placement::Concurrent(Endpoint::End) => Dominance::StartOnly,
-            Placement::Before | Placement::Concurrent(Endpoint::Start | Endpoint::Both) => {
-                Dominance::Neither
-            }
-        }
+        place::dominance(probe.view(), self.lo.view(), self.hi.view())
     }
 }
 
