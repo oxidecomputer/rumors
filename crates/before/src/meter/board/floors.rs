@@ -316,6 +316,11 @@ pub(super) const NA_TOUCH_GROW: &str =
 pub(super) const WHY_SCAN_REJECT_END: &str = "rejection with the defect at the stream's end by \
      construction: a self-delimiting stream's truncation, trailing bits, or non-canonical \
      tail is only discoverable by parsing to it";
+/// Scan floor (the span crossed row): the pair verdict is pronounced
+/// only over whole streams.
+pub(super) const WHY_SCAN_REJECT_CROSSED: &str = "rejection by the pair relation: the fused \
+     decode parses the whole composite before pronouncing non-dominance (structural genres \
+     win on multiply-defective input), so every fed byte is examined";
 /// Scan floor (overlap rejection rows): the witnessing overlap sits at
 /// the operands' preorder ends.
 pub(super) const WHY_SCAN_OVERLAP_END: &str = "the pair's one overlapping region sits at both \

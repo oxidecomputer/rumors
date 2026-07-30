@@ -1092,6 +1092,37 @@ pub(crate) const CLAIMS: &[Claim] = &[
             "at most one byte copy per borrowed endpoint (the board's coverage table)",
         ),
     },
+    Claim {
+        op: "causally::Span::encode",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Linear,
+        }],
+        cells: Cells::Board(&[("span_encode", Class::Linear)]),
+    },
+    Claim {
+        op: "causally::Span::encode_to",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Linear,
+        }],
+        // The identical composite emission with a writer sink; the
+        // span_encode cell prices it.
+        cells: Cells::Board(&[("span_encode", Class::Linear)]),
+    },
+    Claim {
+        op: "causally::Span::decode",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Linear,
+        }],
+        cells: Cells::Board(&[
+            ("span_decode", Class::Linear),
+            ("span_decode_truncated", Class::Linear),
+            ("span_decode_trailing", Class::Linear),
+            ("span_decode_crossed", Class::Linear),
+        ]),
+    },
     // ─────────────────────── operator/trait families ───────────────────────
     Claim {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",

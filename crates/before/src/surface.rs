@@ -644,6 +644,43 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
         tree_fs: Leg::Excluded("borrow-settling mechanics of the Rust API"),
     },
+    SurfaceRow {
+        op: "causally::Span::encode",
+        prod_tree: Leg::Law("span_codec_roundtrip"),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; the composite is law-pinned as \
+             the meet's encoding followed by the join's, with decode ∘ encode the \
+             identity (span_codec_roundtrip) and the composite's prefix-freedom \
+             pinned directly (span_encoding_is_prefix_free)",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
+        op: "causally::Span::encode_to",
+        prod_tree: Leg::Excluded(
+            "the identical composite emission as Span::encode with a writer sink; \
+             its doctest pins byte identity with encode, and the borsh suite drives \
+             it as the serializer",
+        ),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; representation is exactly what the \
+             semantic domain quotients away — ratified by owner, 2026-07-26",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
+        op: "causally::Span::decode",
+        prod_tree: Leg::Law("span_codec_roundtrip"),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; strict fused decode is pinned \
+             production-side (the decode ∘ encode identity clause of the law, the \
+             fused-validate verdict identity against the composed \
+             decode + decode + Span::new form over the exhaustive small scope and \
+             arbitrary pairs, the per-genre rejection witnesses, and the span \
+             decode meter rows' fusion pins)",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot

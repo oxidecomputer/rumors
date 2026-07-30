@@ -938,6 +938,22 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "a linear strict parse plus the verifying rank walk the version_rank panel \
          prices; no guest kernel exports the composite key",
     ),
+    (
+        "causally::Span::encode",
+        "one byte copy per endpoint; no guest kernel exports the span composite \
+         (queued for the guest-kernel census round)",
+    ),
+    (
+        "causally::Span::encode_to",
+        "the identical composite emission with a writer sink; priced as \
+         causally::Span::encode",
+    ),
+    (
+        "causally::Span::decode",
+        "one strict component parse plus the fused admission walk (the ff_version_cmp \
+         panel prices the same per-stream sweep); no guest kernel exports the span \
+         composite (queued for the guest-kernel census round)",
+    ),
     // ── representation mechanics ──
     (
         "Version Eq / Hash (canonical byte compare)",

@@ -38,7 +38,7 @@ use super::floors::{
     NA_TOUCH_NOT_FORCED, NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_REJECTION,
     NA_TOUCH_RENDER_SUMMARIES, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_DECODE,
     WHY_LIMB_RANK_ENCODE, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM, WHY_SCAN_EXAMINES,
-    WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
+    WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
 };
 use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_clock, radix_units_party,
@@ -308,6 +308,60 @@ pub(super) fn ops() -> Vec<Op> {
                 let touch = touch_pair_fold(&v, &w);
                 Some(Cell::new(n, walk_floors(n, touch), move || {
                     (v.span(&w), v, w)
+                }))
+            },
+        },
+        Op {
+            name: "span_encode",
+            group: OpGroup::Version,
+            prepare: |f| {
+                // The composite emission over the pair's hull (built at
+                // prepare, outside measurement): one byte copy per
+                // endpoint — the codec emission genre, denominated by
+                // the span's own packed size, which is exactly the
+                // output.
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let n = span.encode().len();
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: na(NA_LIMB_NOT_FORCED),
+                    segments: seg_ceiling_only(),
+                    scan: na(NA_SCAN_BYTE_COPY),
+                    touch: na(NA_TOUCH_NOT_FORCED),
+                };
+                Some(Cell::new(n, floors, move || (span.encode(), span)))
+            },
+        },
+        Op {
+            name: "span_decode",
+            group: OpGroup::Version,
+            prepare: |f| {
+                // The hull's composite, encoded at prepare, outside
+                // measurement. The fused decode parses the first
+                // component, then one admission walk parses the second
+                // while validating dominance against the first — so the
+                // floors are the first component's parse plus the pair
+                // comparison's: both endpoints materialize, every
+                // stored payload of both streams decodes once, the
+                // whole composite is examined, and the walk folds the
+                // pair's nonzero deltas. The second component's
+                // standalone validation accumulator is what the fusion
+                // deletes, so no floor may demand it.
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let bytes = span.encode();
+                let n = bytes.len();
+                let (lo, hi) = span.into_parts();
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: limb_stream(mandatory_limbs_stream(&lo) + mandatory_limbs_stream(&hi)),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: touch_pair_fold(&lo, &hi),
+                };
+                Some(Cell::new(n, floors, move || {
+                    causally::Span::decode(&bytes[..]).expect("a canonical composite decodes")
                 }))
             },
         },
@@ -1696,6 +1750,72 @@ pub(super) fn ops() -> Vec<Op> {
                     assert!(
                         matches!(err, Parse::NotCanonical),
                         "the placed defect is the equal-sibling tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "span_decode_truncated",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let bytes = v.span(&w).encode();
+                let fed = truncated_bytes(&bytes);
+                let n = fed.len();
+                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err = causally::Span::decode(&fed[..])
+                        .expect_err("a truncated composite is rejected");
+                    assert!(
+                        matches!(err, Decode::Truncated),
+                        "the placed defect is the cut, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "span_decode_trailing",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let bytes = v.span(&w).encode();
+                let fed = trailing_bytes(&bytes);
+                let n = fed.len();
+                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err = causally::Span::decode(&fed[..])
+                        .expect_err("a trailing-bits composite is rejected");
+                    assert!(
+                        matches!(err, Decode::TrailingBits),
+                        "the placed defect is the appended tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "span_decode_crossed",
+            group: OpGroup::Version,
+            prepare: |f| {
+                // The genre the span decode mints: the reversed
+                // composite — join first — is well-formed
+                // component-wise but the canonical spelling of no
+                // span. The hull of a distinct pair is strictly
+                // ordered, so the reversal is genuinely crossed.
+                let (v, w, _) = f.version_pair()?;
+                let (lo, hi) = v.span(&w).into_parts();
+                assert_ne!(lo, hi, "a crossed witness needs a strictly ordered hull");
+                let fed = [hi.encode(), lo.encode()].concat();
+                let n = fed.len();
+                let floors = rejection_floors(n, WHY_SCAN_REJECT_CROSSED);
+                Some(Cell::new(n, floors, move || {
+                    let err = causally::Span::decode(&fed[..])
+                        .expect_err("a crossed composite is rejected");
+                    assert!(
+                        matches!(err, Decode::NotCanonical),
+                        "the placed defect is the reversal, not {err:?}"
                     );
                     (err, fed)
                 }))
