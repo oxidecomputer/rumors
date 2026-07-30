@@ -251,7 +251,6 @@ fn error_display_strings() {
         format!("Decode::Truncated     {}", Decode::Truncated),
         format!("Decode::TrailingBits  {}", Decode::TrailingBits),
         format!("Decode::NotCanonical  {}", Decode::NotCanonical),
-        format!("Decode::Anonymous     {}", Decode::Anonymous),
         format!("Parse::Syntax         {}", Parse::Syntax),
         format!("Parse::NotCanonical   {}", Parse::NotCanonical),
         format!("Parse::Anonymous      {}", Parse::Anonymous),
@@ -263,7 +262,6 @@ fn error_display_strings() {
     Decode::Truncated     unexpected end of input
     Decode::TrailingBits  trailing or nonzero padding bits
     Decode::NotCanonical  input is not canonical
-    Decode::Anonymous     party is anonymous
     Parse::Syntax         input is not well-formed paper notation
     Parse::NotCanonical   input is not canonical
     Parse::Anonymous      party is anonymous
