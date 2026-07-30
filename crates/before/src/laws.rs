@@ -868,8 +868,9 @@ fn span_all_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
 }
 
 /// The n-ary lattice folds at arity five: `join_all`/`meet_all` over
-/// `[a, b, c, a, b]` equal the sequential pair folds over `{a, b, c}` —
-/// idempotence collapses the repeats, so the wide feed may move the
+/// `[a, b, c, a, b]` equal the sequential pair folds over `{a, b, c}`.
+///
+/// Idempotence collapses the repeats, so the wide feed may move the
 /// fold's grouping but never its value.
 ///
 /// Arity five drives the balanced counter under both folds through
