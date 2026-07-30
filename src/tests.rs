@@ -627,14 +627,13 @@ fn root_hash_read_meter_is_live() {
     );
 }
 
-/// Pins the root-hash reads a batch commit performs.
+/// Pins the root-hash reads a batch commit performs: zero.
 ///
-/// The commit decides "did the tree change?" by comparing the root hash
-/// before and after applying the batch, so every commit reads the root hash
-/// twice inside the watch critical section — and the post-`act` read hashes
-/// the freshly rebuilt copy-on-write spine (no memo yet) while the lock is
-/// held. Both the batch build and the commit run synchronously on this
-/// thread, so the bracketed count is exact.
+/// The commit decides "did the tree change?" from the changed flag
+/// [`Tree::act`] returns, so no root hash is read — and none *forced* over
+/// the freshly rebuilt, memo-less copy-on-write spine — inside the watch
+/// critical section. Both the batch build and the commit run synchronously
+/// on this thread, so the bracketed count is exact.
 #[test]
 fn batch_commit_root_hash_reads() {
     let peer = with_messages(Peer::<u64>::seed(), &[1, 2]);
@@ -644,20 +643,21 @@ fn batch_commit_root_hash_reads() {
     drop(batch);
     assert_eq!(
         crate::tree::meter::root_hash_reads() - before,
-        2,
-        "a batch commit reads the root hash twice in its critical section",
+        0,
+        "a batch commit reads no root hash in its critical section",
     );
 }
 
 /// Pins the root-hash reads a plain gossip session performs, across both
-/// sides.
+/// sides: zero.
 ///
-/// Each side's write-back commit decides "did the tree change?" by comparing
-/// the root hash before and after joining the reconciled tree — two reads per
-/// side inside the watch critical section, four across the session; the
-/// mirror exchange itself hashes nodes, never the root through
-/// [`Tree::hash`]. Both peers run on this thread (`pollster` drives the
-/// joined futures with no spawns), so the bracketed count is exact.
+/// Each side's write-back commit decides "did the tree change?" from the
+/// changed flag [`Tree::join`] returns, so no root hash is read — and none
+/// *forced* over the freshly merged, memo-less spine — inside the watch
+/// critical section; the mirror exchange itself hashes nodes, never the
+/// root through [`Tree::hash`]. Both peers run on this thread (`pollster`
+/// drives the joined futures with no spawns), so the bracketed count is
+/// exact.
 #[test]
 fn gossip_session_root_hash_reads() {
     let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
@@ -678,7 +678,7 @@ fn gossip_session_root_hash_reads() {
     });
     assert_eq!(
         crate::tree::meter::root_hash_reads() - before,
-        4,
-        "a gossip session reads the root hash twice per side in its commit",
+        0,
+        "a gossip session reads no root hash in either side's commit",
     );
 }
