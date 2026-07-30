@@ -626,6 +626,24 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
         tree_fs: Leg::Excluded("borrow-settling mechanics of the Rust API"),
     },
+    SurfaceRow {
+        op: "causally::Span::reborrow",
+        prod_tree: Leg::Law("span_is_the_pair_hull"),
+        prod_fs: Leg::Excluded(
+            "borrow-lending mechanics of the Rust API; the law pins the \
+             reborrowed endpoints byte-equal to the source's",
+        ),
+        tree_fs: Leg::Excluded("borrow-lending mechanics of the Rust API"),
+    },
+    SurfaceRow {
+        op: "causally::Span::into_owned",
+        prod_tree: Leg::Law("span_is_the_pair_hull"),
+        prod_fs: Leg::Excluded(
+            "borrow-settling mechanics of the Rust API; the law pins the \
+             settled endpoints byte-equal in both borrow states",
+        ),
+        tree_fs: Leg::Excluded("borrow-settling mechanics of the Rust API"),
+    },
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot
