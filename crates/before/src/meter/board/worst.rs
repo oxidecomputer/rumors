@@ -545,6 +545,38 @@ pub(super) fn render_map(
 ///   the honest denominator and the saturated-scan and touch
 ///   near-ties resolve as the walk's own, not an `n_io` rescale).
 ///
+/// Movement 2026-07-30 (the composite ranked key: `ranked_encode`
+/// becomes the composite emission — rank stream, then the version's
+/// bytes — `ranked_encode_rank` joins as the rank-only emission's row,
+/// and `ranked_decode` joins for the strict composite parse with its
+/// verifying rank fold; 8 entries pinned from the live release fold,
+/// parent-measured at both scales):
+///
+/// - **ranked_cmp is byte-identical to the parent** (both scales, all
+///   cells): the rank-tie byte tiebreak is one unmetered slice compare,
+///   so no counter moves.
+/// - **ranked_encode_rank inherits the parent's ranked_encode readings
+///   byte-for-byte** (both scales, all cells): the renamed row is the
+///   same fused emission.
+/// - **ranked_encode keeps every argmax** (heap wide-arming 6.40/B
+///   default, 6.58/B acceptance, unchanged; limb/scan/touch columns
+///   byte-identical to the parent): the composite's version tail adds
+///   at most one packed-input-sized output copy, which registers only
+///   on the families whose rank-only emission sat near the flat heap
+///   allowance (dense 0.0 → 0.4/B, jump-pair 0.0 → 0.9/B,
+///   freeze-pos 0.0 → 1.0/B at the default scale, and kin) — an order
+///   of magnitude under the argmax, so no ranking moves.
+/// - **ranked_decode pins wide-arming heap / staircase limb /
+///   jump-pair scan / staircase touch** (both scales): heap and limb
+///   read as the verifying rank fold plus the decoded materialization
+///   (limb roughly doubles ranked_encode_rank's constants — the parse
+///   assembles what the fold then recomputes); the scan argmax lands
+///   on jump-pair rather than the walk rows' hugeleaf because the
+///   strict version parse re-examines the packed tail that the
+///   composite denominator already counts once, weighting the
+///   widest-stream-per-content families (jump-pair 31.86/B over
+///   freeze-pos ×1.00 near-tie).
+///
 /// - **the clock_sync scan argmax falls back to the organic control**
 ///   (mirror-narrow → benign, both scales): the fused walk splices any
 ///   party subtree owned by one side alone without reading its nodes,
@@ -575,6 +607,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_lag", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("default", "ranked_cmp", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("default", "ranked_encode", ["wide-arming", "staircase", "hugeleaf", "harmonic"]),
+    ("default", "ranked_encode_rank", ["wide-arming", "staircase", "hugeleaf", "harmonic"]),
+    ("default", "ranked_decode", ["wide-arming", "staircase", "jump-pair", "staircase"]),
     ("default", "version_min_ticks", ["ascend-cliff", "staircase", "staircase", "staircase"]),
     ("default", "version_join_all", ["-", "stagger", "benign", "stagger"]),
     ("default", "version_meet_all", ["-", "stagger", "stagger", "stagger"]),
@@ -646,6 +680,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_lag", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("acceptance", "ranked_cmp", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("acceptance", "ranked_encode", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
+    ("acceptance", "ranked_encode_rank", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
+    ("acceptance", "ranked_decode", ["wide-arming", "staircase", "jump-pair", "staircase"]),
     ("acceptance", "version_min_ticks", ["ascend-cliff", "staircase", "dense-suffix", "staircase"]),
     ("acceptance", "version_join_all", ["weave", "stagger", "benign", "stagger"]),
     ("acceptance", "version_meet_all", ["weave", "stagger", "stagger", "stagger"]),

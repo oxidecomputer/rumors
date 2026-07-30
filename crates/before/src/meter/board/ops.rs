@@ -614,6 +614,40 @@ pub(super) fn ops() -> Vec<Op> {
             name: "ranked_encode",
             group: OpGroup::Measure,
             prepare: |f| {
+                // The composite key emission: the fused rank fold's
+                // floors plus the mandatory output (rank stream, then
+                // one copy of the version's packed bytes).
+                // Input-denominated: the provenance pin bounds the
+                // rank component within the packed input plus one
+                // byte, and the version tail is exactly the packed
+                // input again (asserted here, so the bound is enforced
+                // at every family and scale), which makes input bytes
+                // the honest, harder denominator — the codec rows'
+                // rule — and lets the flat-denominator shape's content
+                // exponent govern exactly as on the version_rank cell
+                // this row extends.
+                let (v, n) = f.version()?;
+                let encoded_len = Ranked::from(&v).encode().len();
+                assert!(
+                    encoded_len <= 2 * n + 1,
+                    "output honesty: a composite ranked key is the rank emission \
+                     (within the packed input plus one byte) plus the version's \
+                     packed bytes"
+                );
+                let floors = Floors {
+                    heap: heap_materializes(encoded_len),
+                    limb: limb_stream(mandatory_limbs_stream(&v)),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
+                };
+                Some(Cell::new(n, floors, move || (Ranked::from(&v).encode(), v)))
+            },
+        },
+        Op {
+            name: "ranked_encode_rank",
+            group: OpGroup::Measure,
+            prepare: |f| {
                 // The fused rank-to-bytes emission: the rank fold's
                 // floors plus the mandatory output. Input-denominated:
                 // the provenance pin bounds the output within the
@@ -624,7 +658,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // shape's content exponent govern exactly as on the
                 // version_rank cell this row extends.
                 let (v, n) = f.version()?;
-                let encoded_len = Ranked::from(&v).encode().len();
+                let encoded_len = Ranked::from(&v).encode_rank().len();
                 assert!(
                     encoded_len <= n + 1,
                     "output honesty: a version-derived rank encodes within its \
@@ -637,7 +671,35 @@ pub(super) fn ops() -> Vec<Op> {
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
-                Some(Cell::new(n, floors, move || (Ranked::from(&v).encode(), v)))
+                Some(Cell::new(n, floors, move || {
+                    (Ranked::from(&v).encode_rank(), v)
+                }))
+            },
+        },
+        Op {
+            name: "ranked_decode",
+            group: OpGroup::Measure,
+            prepare: |f| {
+                // The composite key of the family's version, encoded at
+                // prepare, outside measurement; the operand is the byte
+                // string itself, input-denominated like every codec row
+                // (the coding is canonical 1:1). The decode's dominant
+                // term is the verifying rank fold over the decoded
+                // version, so the row takes the fold's floors (the
+                // walk decodes the stream and folds every nonzero
+                // delta) plus the materialized owned version.
+                let (v, n) = f.version()?;
+                let bytes = Ranked::from(&v).encode();
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: limb_stream(mandatory_limbs_stream(&v)),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
+                };
+                Some(Cell::new(bytes.len(), floors, move || {
+                    Ranked::decode(&bytes[..]).expect("a canonical composite key decodes")
+                }))
             },
         },
         Op {
