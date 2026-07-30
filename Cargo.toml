@@ -36,6 +36,12 @@ conformance = []
 # crate's own tests always see it as streaming's behavioral oracle,
 # independent of this feature.)
 protocol-v1 = []
+# Lights `before`'s deterministic resource counters for this crate's own
+# metering tests (the branch bound memos' fold-cost comparison). Test-only
+# and off by default, in `before`'s limb-meter idiom: the counters add an
+# atomic bump per operation, so they stay out of the default test and
+# bench builds and are lit by `--all-features` runs (the gate's test-all).
+meter = ["before/limb-meter", "before/scan-meter"]
 
 [dependencies]
 before = { path = "crates/before", features = ["borsh"] }
