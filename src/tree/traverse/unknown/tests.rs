@@ -29,8 +29,8 @@ use super::Unknown;
 /// Each check places one node bound against the counterparty's
 /// known-at range, so the probe stream is decoded once per check.
 /// Verdict-identical to [`Unknown`] by the
-/// `interval_place_matches_relations` and
-/// `interval_dominance_coarsens_place` laws in `before::laws`; this
+/// `span_place_matches_relations` and
+/// `span_dominance_coarsens_place` laws in `before::laws`; this
 /// suite additionally asserts the pruned trees match.
 trait TwoPass: Height {
     /// The two-check spelling of [`Unknown::unknown`] at this height.
@@ -88,7 +88,7 @@ impl TwoPass for Z {
 /// classifier classifies.
 ///
 /// Dev builds re-validate `floor <= ceiling` once per constructed
-/// interval — a comparison release builds do not pay — so the
+/// span — a comparison release builds do not pay — so the
 /// shipping-shape comparison subtracts this reading from the measured
 /// fused walk.
 ///
@@ -118,8 +118,8 @@ where
         );
         *acc += meter::scan_bits() - before;
         assert!(ordered, "a memoized floor exceeds its ceiling");
-        let interval = causally::Interval::ordered(node.floor(), node.ceiling());
-        if interval.dominance_of(known) == causally::Dominance::StartOnly {
+        let span = causally::Span::ordered(node.floor(), node.ceiling());
+        if span.dominance_of(known) == causally::Dominance::Between {
             for (_, child) in node.clone().into_children() {
                 AssertCost::cost(&child, known, acc);
             }
@@ -132,7 +132,7 @@ impl AssertCost for Z {
     where
         T: Send + Sync,
     {
-        // Leaves build no interval: the leaf check is a single-bound
+        // Leaves build no span: the leaf check is a single-bound
         // range containment with no assertion to price.
     }
 }

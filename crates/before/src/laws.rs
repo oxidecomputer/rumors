@@ -59,7 +59,7 @@ use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
 use std::ops::{Bound, RangeBounds};
 
-use crate::causally::{self, Bounded, Dominance, Endpoint, Interval, Placement};
+use crate::causally::{self, Bounded, Dominance, Endpoint, Placement, Span};
 use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 
 /// A named law: the name a failure reports, and the predicate that must
@@ -280,8 +280,8 @@ fn version_encoded_bits_matches_encode_len(a: &Version) -> bool {
 /// the partial order's pair laws and their coherence with `Eq`/`Hash` and
 /// `concurrent`, the valuation identity tying `rank` to the lattice, the
 /// `distance`/`lag` metric laws, [`Ranked`]'s total order and its
-/// lexicographic key encoding, the degenerate-interval identity tying
-/// interval placement back to pairwise comparison, and the pair form
+/// lexicographic key encoding, the degenerate-span identity tying
+/// span placement back to pairwise comparison, and the pair form
 /// of the spanning hull.
 pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("merge_commutative", merge_commutative),
@@ -313,8 +313,8 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
         ranked_encoding_orders_like_ord,
     ),
     (
-        "degenerate_interval_place_is_partial_cmp",
-        degenerate_interval_place_is_partial_cmp,
+        "degenerate_span_place_is_partial_cmp",
+        degenerate_span_place_is_partial_cmp,
     ),
     ("spanning_pair_is_the_hull", spanning_pair_is_the_hull),
 ];
@@ -485,7 +485,7 @@ fn ranked_encoding_orders_like_ord(a: &Version, b: &Version) -> bool {
 /// and the [`causally`] placement laws: the six-way [`Bounded`] verdict
 /// as a pure function of the two causal comparisons, its per-kind
 /// coarsening to `placement_of`/`contains`, the nine-way
-/// [`Interval::place`] verdict as a pure transcription of the two
+/// [`Span::place`] verdict as a pure transcription of the two
 /// endpoint comparisons, its coarsenings to `dominance_of` and — on
 /// two-bounded ranges — to `bounded`, and the spanning hull's
 /// definitional pin at arity three.
@@ -507,18 +507,12 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
         "bounded_coarsens_to_placement",
         bounded_coarsens_to_placement,
     ),
+    ("span_place_matches_relations", span_place_matches_relations),
     (
-        "interval_place_matches_relations",
-        interval_place_matches_relations,
+        "span_dominance_coarsens_place",
+        span_dominance_coarsens_place,
     ),
-    (
-        "interval_dominance_coarsens_place",
-        interval_dominance_coarsens_place,
-    ),
-    (
-        "bounded_coarsens_interval_place",
-        bounded_coarsens_interval_place,
-    ),
+    ("bounded_coarsens_span_place", bounded_coarsens_span_place),
     ("spanning_is_the_lattice_hull", spanning_is_the_lattice_hull),
 ];
 
@@ -698,12 +692,12 @@ fn bounded_coarsens_to_placement(a: &Version, b: &Version, c: &Version) -> bool 
     true
 }
 
-/// The interval pairs the placement laws quantify over, from a version pair.
+/// The span pairs the placement laws quantify over, from a version pair.
 ///
 /// The constructed always-ordered pair (`meet <= join`), the
 /// coincident pair (reaching `lo == hi` on every call), and the raw
 /// pair whenever it happens to order.
-fn interval_candidates(b: &Version, c: &Version) -> Vec<(Version, Version)> {
+fn span_candidates(b: &Version, c: &Version) -> Vec<(Version, Version)> {
     let (meet, join) = (b & c, b | c);
     let mut out = vec![(meet.clone(), join), (meet.clone(), meet)];
     if le(b, c) {
@@ -735,22 +729,22 @@ fn place_from_relations(lo: &Version, hi: &Version, p: &Version) -> Placement {
     }
 }
 
-/// `Interval::place` is exactly the two causal comparisons against the
+/// `Span::place` is exactly the two causal comparisons against the
 /// endpoints: the nine-state verdict is a pure transcription of
 /// `(probe vs lo, probe vs hi)`.
 ///
 /// Checked over the constructed ordered, coincident, and incidental
-/// interval pairs, probing each operand and the pair's meet (which
+/// span pairs, probing each operand and the pair's meet (which
 /// reaches the at-endpoint and `lo == hi` corners on every call).
-fn interval_place_matches_relations(a: &Version, b: &Version, c: &Version) -> bool {
+fn span_place_matches_relations(a: &Version, b: &Version, c: &Version) -> bool {
     let meet = b & c;
-    for (lo, hi) in &interval_candidates(b, c) {
-        let Ok(interval) = Interval::new(lo, hi) else {
+    for (lo, hi) in &span_candidates(b, c) {
+        let Ok(span) = Span::new(lo, hi) else {
             // Every candidate is ordered by construction or admission.
             return false;
         };
         for probe in [a, b, c, &meet] {
-            if interval.place(probe) != place_from_relations(lo, hi, probe) {
+            if span.place(probe) != place_from_relations(lo, hi, probe) {
                 return false;
             }
         }
@@ -759,32 +753,32 @@ fn interval_place_matches_relations(a: &Version, b: &Version, c: &Version) -> bo
 }
 
 /// `dominance_of` is `place` coarsened to the dominance question, on
-/// every interval.
+/// every span.
 ///
-/// `Whole` collects the verdicts with `hi <= p`
-/// (`At(End)`, `At(Both)`, `After`), `StartOnly` those with `lo <= p`
-/// but not `hi <= p` (`At(Start)`, `Between`, `Concurrent(End)`), and
-/// `Neither` the rest (`Before`, `Concurrent(Start)`,
-/// `Concurrent(Both)`).
-fn interval_dominance_coarsens_place(a: &Version, b: &Version, c: &Version) -> bool {
+/// `Dominance::After` collects the verdicts with `hi <= p`
+/// (`At(End)`, `At(Both)`, `After`), `Dominance::Between` those with
+/// `lo <= p` but not `hi <= p` (`At(Start)`, `Between`,
+/// `Concurrent(End)`), and `Dominance::Before` the rest (`Before`,
+/// `Concurrent(Start)`, `Concurrent(Both)`).
+fn span_dominance_coarsens_place(a: &Version, b: &Version, c: &Version) -> bool {
     let meet = b & c;
-    for (lo, hi) in &interval_candidates(b, c) {
-        let Ok(interval) = Interval::new(lo, hi) else {
+    for (lo, hi) in &span_candidates(b, c) {
+        let Ok(span) = Span::new(lo, hi) else {
             return false;
         };
         for probe in [a, b, c, &meet] {
-            let coarse = match interval.place(probe) {
+            let coarse = match span.place(probe) {
                 Placement::At(Endpoint::End | Endpoint::Both) | Placement::After => {
-                    Dominance::Whole
+                    Dominance::After
                 }
                 Placement::At(Endpoint::Start)
                 | Placement::Between
-                | Placement::Concurrent(Endpoint::End) => Dominance::StartOnly,
+                | Placement::Concurrent(Endpoint::End) => Dominance::Between,
                 Placement::Before | Placement::Concurrent(Endpoint::Start | Endpoint::Both) => {
-                    Dominance::Neither
+                    Dominance::Before
                 }
             };
-            if interval.dominance_of(probe) != coarse {
+            if span.dominance_of(probe) != coarse {
                 return false;
             }
         }
@@ -792,7 +786,7 @@ fn interval_dominance_coarsens_place(a: &Version, b: &Version, c: &Version) -> b
     true
 }
 
-/// On a two-bounded range, `bounded` is `Interval::place` over the same
+/// On a two-bounded range, `bounded` is `Span::place` over the same
 /// version pair, coarsened — and bound *kinds* never enter, since both
 /// verdicts are pure functions of the raw relations.
 ///
@@ -802,23 +796,23 @@ fn interval_dominance_coarsens_place(a: &Version, b: &Version, c: &Version) -> b
 /// `Concurrent(End | Both)` into `Concurrent`, the end-bound verdict)
 /// and the coincident at-verdict's end half (`At(Both)` canonicalizes
 /// to `AtStart`, the start-speaks-first rule).
-fn bounded_coarsens_interval_place(a: &Version, b: &Version, c: &Version) -> bool {
+fn bounded_coarsens_span_place(a: &Version, b: &Version, c: &Version) -> bool {
     let meet = b & c;
     for (s, e) in &placement_bound_pairs(b, c) {
         for range in each_admitted_range(s, e) {
-            // Only two-bounded ranges carry an interval to coarsen from.
+            // Only two-bounded ranges carry a span to coarsen from.
             let (Bound::Included(lo) | Bound::Excluded(lo)) = range.start_bound() else {
                 continue;
             };
             let (Bound::Included(hi) | Bound::Excluded(hi)) = range.end_bound() else {
                 continue;
             };
-            let Ok(interval) = Interval::new(lo, hi) else {
+            let Ok(span) = Span::new(lo, hi) else {
                 // The range gate already validated the pair.
                 return false;
             };
             for probe in [a, b, c, &meet] {
-                let coarse = match interval.place(probe) {
+                let coarse = match span.place(probe) {
                     Placement::Before => Bounded::Before,
                     Placement::At(Endpoint::Start | Endpoint::Both) => Bounded::AtStart,
                     Placement::At(Endpoint::End) => Bounded::AtEnd,
@@ -845,26 +839,26 @@ fn bounded_coarsens_interval_place(a: &Version, b: &Version, c: &Version) -> boo
 /// [`Before`](Placement::Before) or [`After`](Placement::After), since
 /// the meet bounds each input from below and the join from above.
 fn spanning_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
-    let hull = Interval::spanning([a, b, c]).expect("a triple is nonempty");
+    let hull = Span::spanning([a, b, c]).expect("a triple is nonempty");
     let meet = Version::meet_all([a, b, c]).expect("a triple is nonempty");
     let join = Version::join_all([a, b, c]);
-    let definitional = hull == Interval::ordered(&meet, &join);
-    let permuted = hull == Interval::spanning([c, a, b]).expect("a triple is nonempty")
-        && hull == Interval::spanning([b, c, a]).expect("a triple is nonempty");
+    let definitional = hull == Span::ordered(&meet, &join);
+    let permuted = hull == Span::spanning([c, a, b]).expect("a triple is nonempty")
+        && hull == Span::spanning([b, c, a]).expect("a triple is nonempty");
     let contained = [a, b, c]
         .into_iter()
         .all(|v| !matches!(hull.place(v), Placement::Before | Placement::After));
     definitional && permuted && contained
 }
 
-/// `place` against the degenerate interval `[v, v]` is pairwise
+/// `place` against the degenerate span `[v, v]` is pairwise
 /// comparison itself.
 ///
 /// The four verdicts reachable with coincident endpoints transcribe
 /// `partial_cmp`'s four outcomes, and the five endpoint-splitting
 /// verdicts are unreachable.
-fn degenerate_interval_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
-    let Ok(interval) = Interval::new(b, b) else {
+fn degenerate_span_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
+    let Ok(span) = Span::new(b, b) else {
         // A version is always ordered with itself.
         return false;
     };
@@ -875,7 +869,7 @@ fn degenerate_interval_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
             Some(Ordering::Greater) => Placement::After,
             None => Placement::Concurrent(Endpoint::Both),
         };
-        if interval.place(probe) != expect {
+        if span.place(probe) != expect {
             return false;
         }
     }
@@ -887,20 +881,19 @@ fn degenerate_interval_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
 /// coincident `[v, v]` on a lone version.
 ///
 /// On a comparable pair the hull *is* the reordered pair (either
-/// orientation yields the validated interval); on a concurrent pair
-/// the meet/join bracket is the only interval containing both.
+/// orientation yields the validated span); on a concurrent pair
+/// the meet/join bracket is the only span containing both.
 fn spanning_pair_is_the_hull(a: &Version, b: &Version) -> bool {
-    let hull = Interval::spanning([a, b]).expect("a pair is nonempty");
+    let hull = Span::spanning([a, b]).expect("a pair is nonempty");
     let (meet, join) = (a & b, a | b);
-    let definitional = hull == Interval::ordered(&meet, &join);
-    let commutative = hull == Interval::spanning([b, a]).expect("a pair is nonempty");
+    let definitional = hull == Span::ordered(&meet, &join);
+    let commutative = hull == Span::spanning([b, a]).expect("a pair is nonempty");
     let flip_subsumed = match a.partial_cmp(b) {
-        Some(Ordering::Less | Ordering::Equal) => hull == Interval::ordered(a, b),
-        Some(Ordering::Greater) => hull == Interval::ordered(b, a),
+        Some(Ordering::Less | Ordering::Equal) => hull == Span::ordered(a, b),
+        Some(Ordering::Greater) => hull == Span::ordered(b, a),
         None => true, // no reordering exists; the bracket is definitional
     };
-    let singleton =
-        Interval::spanning([a]).expect("a singleton is nonempty") == Interval::ordered(a, a);
+    let singleton = Span::spanning([a]).expect("a singleton is nonempty") == Span::ordered(a, a);
     definitional && commutative && flip_subsumed && singleton
 }
 

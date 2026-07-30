@@ -101,11 +101,11 @@ const fn causally_row(op: &'static str) -> SurfaceRow {
     }
 }
 
-/// Shorthand for a `causally` interval row: the same disposition as
-/// [`causally_row`], with the interval placement law as the pin.
-const fn interval_row(op: &'static str) -> SurfaceRow {
+/// Shorthand for a `causally` span row: the same disposition as
+/// [`causally_row`], with the span placement law as the pin.
+const fn span_row(op: &'static str) -> SurfaceRow {
     const REASON: &str = "semantically a combinator over the bound causal order \
-         (partial_cmp), law-pinned to it (interval_place_matches_relations); \
+         (partial_cmp), law-pinned to it (span_place_matches_relations); \
          unit-tested in causally/tests.rs";
     SurfaceRow {
         op,
@@ -115,14 +115,14 @@ const fn interval_row(op: &'static str) -> SurfaceRow {
     }
 }
 
-/// The deriving interval door's row: the hull's endpoints are the two
+/// The deriving span door's row: the hull's endpoints are the two
 /// committed lattice folds, which are bound on all three legs.
 const fn spanning_row() -> SurfaceRow {
     const REASON: &str = "semantically the composition of the two committed lattice \
          folds (meet_all/join_all), law-pinned to them (spanning_is_the_lattice_hull); \
          unit-tested in causally/tests.rs";
     SurfaceRow {
-        op: "causally::Interval::spanning",
+        op: "causally::Span::spanning",
         prod_tree: Leg::Excluded(REASON),
         prod_fs: Leg::Excluded(REASON),
         tree_fs: Leg::Excluded(REASON),
@@ -591,10 +591,10 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     causally_row("causally::Range::contains"),
     causally_row("causally::Range::placement_of"),
     causally_row("causally::Range::bounded"),
-    interval_row("causally::Interval::new"),
-    interval_row("causally::Interval::ordered"),
-    interval_row("causally::Interval::place"),
-    interval_row("causally::Interval::dominance_of"),
+    span_row("causally::Span::new"),
+    span_row("causally::Span::ordered"),
+    span_row("causally::Span::place"),
+    span_row("causally::Span::dominance_of"),
     spanning_row(),
 ];
 

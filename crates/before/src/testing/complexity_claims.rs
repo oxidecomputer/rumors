@@ -319,7 +319,7 @@ const fn constant(op: &'static str) -> Claim {
 
 /// The `causally` module doc's shared line: eighteen rows price the same
 /// three facts, so they share one bound at one site. The one deriving
-/// constructor (`Interval::spanning`) is priced at its own fn doc, not
+/// constructor (`Span::spanning`) is priced at its own fn doc, not
 /// here.
 const CAUSALLY_BOUND: Bound = Bound::Custom {
     line: "borrowing constructors `O(1)` (`spanning`: two balanced folds, priced at the method); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
@@ -1020,26 +1020,26 @@ pub(crate) const CLAIMS: &[Claim] = &[
         Cells::Board(&[("causally_contains", Class::Linear)]),
     ),
     causally(
-        "causally::Interval::new",
+        "causally::Span::new",
         Cells::Uncelled(CAUSALLY_COMPOSITION),
     ),
     causally(
-        "causally::Interval::ordered",
+        "causally::Span::ordered",
         Cells::Uncelled(
             "stores two borrows and performs no comparison at all: the trusted \
              door's debug assertion sits outside the cost contract",
         ),
     ),
     causally(
-        "causally::Interval::place",
+        "causally::Span::place",
         Cells::Board(&[("causally_contains", Class::Linear)]),
     ),
     causally(
-        "causally::Interval::dominance_of",
+        "causally::Span::dominance_of",
         Cells::Board(&[("causally_contains", Class::Linear)]),
     ),
     Claim {
-        op: "causally::Interval::spanning",
+        op: "causally::Span::spanning",
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Fold,

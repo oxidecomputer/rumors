@@ -8076,12 +8076,12 @@ mod placement {
         }
     }
 
-    /// GREEN PIN: one fused interval pass, each stream decoded once.
+    /// GREEN PIN: one fused span pass, each stream decoded once.
     ///
-    /// On a full sweep (every relation comparable) the fused interval
+    /// On a full sweep (every relation comparable) the fused span
     /// placement scans exactly the two-comparison composition minus one
     /// probe scan. The dominance coarsening never costs more: on a
-    /// probe dominating the whole interval nothing refutes and the walk
+    /// probe dominating the whole span nothing refutes and the walk
     /// is the placement walk to the bit, while on a merely contained
     /// probe the end stream's refuted domination drops that cursor and
     /// the coarser verdict reads strictly cheaper.
@@ -8090,21 +8090,21 @@ mod placement {
     /// (`cmp(v, v)` prices one probe scan as half its reading), so no
     /// measured constant can rot.
     #[test]
-    fn interval_place_scans_each_stream_once() {
+    fn span_place_scans_each_stream_once() {
         let (s, v, e, _) = fixture();
-        let interval = causally::Interval::new(&s, &e).unwrap();
+        let span = causally::Span::new(&s, &e).unwrap();
 
         let fused = scanned(|| {
-            assert_eq!(interval.place(&v), causally::Placement::Between);
+            assert_eq!(span.place(&v), causally::Placement::Between);
         });
         let dominance = scanned(|| {
-            assert_eq!(interval.dominance_of(&v), causally::Dominance::StartOnly);
+            assert_eq!(span.dominance_of(&v), causally::Dominance::Between);
         });
         let cmp_vs = scanned(|| assert!(v.partial_cmp(&s).is_some()));
         let cmp_ve = scanned(|| assert!(v.partial_cmp(&e).is_some()));
         let cmp_vv = scanned(|| assert!(v.partial_cmp(&v).is_some()));
         eprintln!(
-            "MEASURED interval_one_pass: fused={fused} dominance={dominance} composed={} \
+            "MEASURED span_one_pass: fused={fused} dominance={dominance} composed={} \
              probe_scan={}",
             cmp_vs + cmp_ve,
             cmp_vv / 2,
@@ -8113,7 +8113,7 @@ mod placement {
         assert_eq!(
             fused + cmp_vv / 2,
             cmp_vs + cmp_ve,
-            "the fused interval walk must cost the composition minus exactly one probe scan"
+            "the fused span walk must cost the composition minus exactly one probe scan"
         );
         assert!(
             dominance < fused,
@@ -8121,24 +8121,24 @@ mod placement {
              that cursor: dominance ({dominance}) under full resolution ({fused})"
         );
 
-        // A probe dominating the whole interval refutes nothing on
+        // A probe dominating the whole span refutes nothing on
         // either side: the dominance walk is the placement walk to the
         // bit.
-        let whole = causally::Interval::new(&s, &v).unwrap();
+        let whole = causally::Span::new(&s, &v).unwrap();
         let place_whole = scanned(|| {
             assert_eq!(whole.place(&e), causally::Placement::After);
         });
         let dominance_whole = scanned(|| {
-            assert_eq!(whole.dominance_of(&e), causally::Dominance::Whole);
+            assert_eq!(whole.dominance_of(&e), causally::Dominance::After);
         });
-        eprintln!("MEASURED interval_whole_sweep: place={place_whole} dominance={dominance_whole}");
+        eprintln!("MEASURED span_whole_sweep: place={place_whole} dominance={dominance_whole}");
         assert_eq!(
             dominance_whole, place_whole,
             "with nothing refuted, the dominance walk is the placement walk to the bit"
         );
     }
 
-    /// GREEN PIN: the interval walk's concurrency exits fire per
+    /// GREEN PIN: the span walk's concurrency exits fire per
     /// endpoint, and every concurrent genre stays strictly under the
     /// two-comparison composition.
     ///
@@ -8147,7 +8147,7 @@ mod placement {
     /// cursor is dropped at its deciding interval (its stream is never
     /// scanned further) while the other relation sweeps on.
     #[test]
-    fn interval_concurrent_exits_survive_the_fusion() {
+    fn span_concurrent_exits_survive_the_fusion() {
         let (s, v, e, div) = fixture();
         let top = &e | &div;
 
@@ -8177,20 +8177,20 @@ mod placement {
                 "start",
             ),
         ] {
-            let interval = causally::Interval::new(lo, hi).unwrap();
+            let span = causally::Span::new(lo, hi).unwrap();
             let fused = scanned(|| {
-                assert_eq!(interval.place(probe), verdict);
+                assert_eq!(span.place(probe), verdict);
             });
-            // The two-comparison composition on the interval's own
+            // The two-comparison composition on the span's own
             // endpoints: the operands the fused walk actually replaces.
             let composed = scanned(|| {
                 let _ = probe.partial_cmp(lo);
                 let _ = probe.partial_cmp(hi);
             });
-            eprintln!("MEASURED interval_concurrent_{genre}: fused={fused} composed={composed}");
+            eprintln!("MEASURED span_concurrent_{genre}: fused={fused} composed={composed}");
             assert!(
                 fused < composed,
-                "concurrent-to-{genre}: the fused interval walk ({fused}) must undercut \
+                "concurrent-to-{genre}: the fused span walk ({fused}) must undercut \
                  the composition ({composed})"
             );
         }
@@ -8216,13 +8216,13 @@ mod placement {
 
         // Genre 1: the start is concurrent to the probe.
         let top = &e | &div;
-        let interval = causally::Interval::new(&div, &top).unwrap();
+        let span = causally::Span::new(&div, &top).unwrap();
         let fused = scanned(|| {
-            assert_eq!(interval.dominance_of(&v), causally::Dominance::Neither);
+            assert_eq!(span.dominance_of(&v), causally::Dominance::Before);
         });
         let place = scanned(|| {
             assert_eq!(
-                interval.place(&v),
+                span.place(&v),
                 causally::Placement::Concurrent(causally::Endpoint::Start)
             );
         });
@@ -8254,9 +8254,9 @@ mod placement {
         );
 
         // Genre 2: the start strictly dominates the probe.
-        let interval = causally::Interval::new(&v, &e).unwrap();
+        let span = causally::Span::new(&v, &e).unwrap();
         let fused = scanned(|| {
-            assert_eq!(interval.dominance_of(&s), causally::Dominance::Neither);
+            assert_eq!(span.dominance_of(&s), causally::Dominance::Before);
         });
         let known_at = causally::known_at(&s);
         let first_check = scanned(|| {
