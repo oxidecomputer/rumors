@@ -3,7 +3,7 @@ use std::{fmt::Debug, iter::Map, marker::PhantomData};
 use borsh::{BorshDeserialize, BorshSerialize};
 use imbl::{OrdMap, ordmap};
 
-use crate::{Version, message::Message};
+use crate::{Version, causally, message::Message};
 
 use super::hash::Hash;
 use super::height::{self, Height, S, Z};
@@ -191,6 +191,19 @@ impl<T, H: Height> Node<T, H> {
     /// Get the floor version of this node (the least version contained within).
     pub fn floor(&self) -> &Version {
         self.inner.floor()
+    }
+
+    /// How much of this subtree's memoized `[floor, ceiling]` bounds
+    /// `probe` dominates: the deletion-honoring classifiers' verdict,
+    /// answered from the memos without descending.
+    ///
+    /// A branch answers through its stored bounds span — ordered by
+    /// construction, so no validating comparison is paid at any
+    /// classification — and a leaf's coincident bounds collapse the
+    /// question to one containment check (see
+    /// [`untyped::Node::dominance_of`]).
+    pub fn dominance_of(&self, probe: &Version) -> causally::Dominance {
+        self.inner.dominance_of(probe)
     }
 
     /// Get the number of leaves under this node.

@@ -24,7 +24,7 @@ use std::pin::Pin;
 use futures::{Stream, stream};
 
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
         mirror::streaming::convert::Convert,
@@ -159,11 +159,42 @@ pub trait Node<T: Send + Sync + 'static> {
     /// The height of the node above the leaf level.
     type Height: Height;
 
-    /// The maximum version of any node under this one.
+    /// The maximum version of any node under this one: the join endpoint
+    /// of the node's version bounds.
     fn ceiling(&self) -> &Version;
 
-    /// The minimum version of any node under this one.
+    /// The minimum version of any node under this one: the meet endpoint
+    /// of the node's version bounds.
     fn floor(&self) -> &Version;
+
+    /// How much of this node's version bounds `known` dominates: the
+    /// three-way verdict the deletion-honoring filter classifies
+    /// subtrees by, without descending.
+    ///
+    /// The verdicts must be those of the causal span `[floor, ceiling]`
+    /// under [`causally::Span::dominance_of`]:
+    /// [`After`](causally::Dominance::After) iff the ceiling is within
+    /// `known`'s causal past (everything under the node is already known
+    /// there), [`Before`](causally::Dominance::Before) iff `known`
+    /// dominates not even the floor (the whole subtree is unknown), and
+    /// [`Between`](causally::Dominance::Between) otherwise (mixed, so
+    /// the filter descends).
+    ///
+    /// The span's ordering — `floor <= ceiling`, which every honest
+    /// meet/join pair over one leaf set satisfies — is the
+    /// implementor's obligation, priced at *construction* rather than
+    /// per classification: the in-memory backend stores each branch's
+    /// memoized bounds as one [`causally::Span`], ordered by
+    /// construction, and answers through it; a backend reading bounds
+    /// back from its own storage should validate the pair once at node
+    /// load ([`causally::Span::new`], surfacing
+    /// [`Crossed`](causally::Crossed) as the load-time storage-corruption
+    /// error it is) and answer thereafter through the trusted door
+    /// ([`causally::Span::ordered`]). A violated ordering is not a
+    /// detected fault: the verdicts become unspecified, which here means
+    /// silently wrong reconciliation — news withheld or re-sent — so the
+    /// check belongs at the load seam, where it is paid once.
+    fn dominance_of(&self, known: &Version) -> causally::Dominance;
 
     /// The merkle hash of this node.
     fn hash(&self) -> Hash;
@@ -297,8 +328,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Root<B, T> {
     /// The root node's [`version_bytes`](Node::version_bytes) aggregate
     /// — leaf versions and every interior ceiling and floor — or zero
     /// when empty. The first read materializes it: every branch's
-    /// ceiling and floor memo is forced tree-wide, `O(#branches)` bound
-    /// joins, once per tree lineage — the memos are shared through the
+    /// bounds memo is forced tree-wide, `O(#branches)` bound
+    /// folds, once per tree lineage — the memos are shared through the
     /// node handles across snapshots, and a mutation invalidates only
     /// its own spine. A fully converged pair pays this once, at
     /// greeting time.

@@ -55,7 +55,7 @@ use async_stream::stream;
 use futures::{StreamExt, stream as futures_stream};
 
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
         mirror::streaming::{
@@ -210,6 +210,10 @@ where
 
     fn floor(&self) -> &Version {
         self.inner().floor()
+    }
+
+    fn dominance_of(&self, known: &Version) -> causally::Dominance {
+        self.inner().dominance_of(known)
     }
 
     fn hash(&self) -> Hash {
