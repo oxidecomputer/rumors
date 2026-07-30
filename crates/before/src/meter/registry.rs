@@ -954,11 +954,13 @@ pub enum Coverage {
         /// The declared operation-row reach of this family's bundle.
         ///
         /// The version-only shapes (a version, its derived pairings,
-        /// and its rejection rows) supply 49 rows; the id pair
+        /// and its rejection rows) supply 50 rows; the id pair
         /// (parties only) 38; the cross shapes (version, mounted
-        /// party pair, clock, and the id-side rejections) 70; the
-        /// fold-only populations exactly the 3 fold rows; and the
-        /// benign control supplies every row.
+        /// party pair, clock, and the id-side rejections) 71; the
+        /// fold-only populations exactly the 4 fold rows their
+        /// operand bundles feed (`version_join_all`,
+        /// `version_meet_all`, `version_span_all`, `party_join_all`);
+        /// and the benign control supplies every row.
         cells: usize,
     },
     /// No board column: a kernel-seam probe (or an operand-tuple
