@@ -205,7 +205,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          identical comparison the causally_contains row prices",
     ),
     (
-        "causally::Span::ordered",
+        "causally::Span::new_unchecked",
         "stores two borrows and performs no comparison at all: the trusted \
          door's debug assertion sits outside the cost contract",
     ),

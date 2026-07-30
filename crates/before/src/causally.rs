@@ -88,7 +88,7 @@
 //! a [`Range`] or [`Span`] stores two borrows. Pairing a start with
 //! an end — or validating a span through [`Span::new`] — costs
 //! at most one causal comparison, `O(|s| + |e|)` in the bounds' packed
-//! sizes ([`Span::ordered`] skips even that). The deriving
+//! sizes ([`Span::new_unchecked`] skips even that). The deriving
 //! constructors live on [`Version`] ([`span`](Version::span) and
 //! [`span_all`](Version::span_all), priced at the methods). The
 //! placement family — [`bounded`](Range::bounded),
@@ -548,7 +548,7 @@ pub enum Bounded {
 ///
 /// Construction has three doors: [`new`](Self::new) validates the
 /// pair, rejecting a reversed or incomparable one with [`Crossed`];
-/// [`ordered`](Self::ordered) trusts a caller who already holds
+/// [`new_unchecked`](Self::new_unchecked) trusts a caller who already holds
 /// `lo <= hi` structurally and skips the validating comparison; and
 /// the derived constructors on [`Version`] — [`span`](Version::span)
 /// and [`span_all`](Version::span_all), beside the join/meet family
@@ -607,9 +607,9 @@ impl<'a> Span<'a> {
         }
     }
 
-    /// The trusted door: the span `[lo, hi]` from a caller who
-    /// already holds `lo <= hi`, skipping [`new`](Self::new)'s
-    /// validating comparison.
+    /// The trusted door — [`new`](Self::new) without the validating
+    /// comparison: the span `[lo, hi]` from a caller who already
+    /// holds `lo <= hi`.
     ///
     /// For callers whose pairs are ordered *structurally* — a floor and
     /// ceiling maintained as meet and join of one underlying set, say —
@@ -626,10 +626,10 @@ impl<'a> Span<'a> {
     ///
     /// Debug builds assert `lo <= hi` and panic when it fails; release
     /// builds construct the span unchecked.
-    pub fn ordered(lo: &'a Version, hi: &'a Version) -> Self {
+    pub fn new_unchecked(lo: &'a Version, hi: &'a Version) -> Self {
         debug_assert!(
             lo <= hi,
-            "Span::ordered requires lo <= hi: the caller's structural guarantee failed"
+            "Span::new_unchecked requires lo <= hi: the caller's structural guarantee failed"
         );
         Self {
             lo: Cow::Borrowed(lo),

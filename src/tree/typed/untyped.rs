@@ -522,7 +522,7 @@ impl<T> Node<T> {
     /// [`ceiling`](Self::ceiling) and [`floor`](Self::floor) share.
     pub fn span(&self) -> causally::Span<'_> {
         match &self.inner.children {
-            Children::Leaf { version, .. } => causally::Span::ordered(version, version),
+            Children::Leaf { version, .. } => causally::Span::new_unchecked(version, version),
             Children::Branch {
                 bounds, children, ..
             } => Self::bounds(bounds, children).reborrow(),
