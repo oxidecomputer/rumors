@@ -171,9 +171,9 @@ use crate::idbits::{IdNode, IdReader};
 use crate::step;
 
 use self::fuse::{Out, PopStack, RouteProbe, COST_FREE};
-use self::watermark::{fold, MinStack, Signed};
+use self::watermark::{MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
-use super::{gamma_code, unzigzag, zigzag_signed};
+use super::{fold_signed, gamma_code, unzigzag, zigzag_signed};
 
 mod fuse;
 mod watermark;
@@ -746,13 +746,13 @@ impl FillWalk<'_> {
         } else {
             unzigzag(code)
         };
-        fold(&mut self.h, neg, &mag);
+        fold_signed(&mut self.h, neg, &mag);
         self.stack.fold_height(neg, &mag);
         if !self.w_anchored {
-            fold(&mut self.gap, neg, &mag);
+            fold_signed(&mut self.gap, neg, &mag);
         }
         if let Corr::H(acc) = &mut self.corr {
-            fold(acc, neg, &mag);
+            fold_signed(acc, neg, &mag);
         }
         (neg, mag)
     }
@@ -834,13 +834,13 @@ impl FillWalk<'_> {
         // link); the link stays folded in, so acc then holds h − m_s
         // and the relation re-anchors to this site for free. The link
         // dies here — its one read.
-        fold(&mut acc, above.0, &above.1);
+        fold_signed(&mut acc, above.0, &above.1);
         if let Some(link) = link {
             acc.sub_accum(&link);
             self.stack.retire(link);
         }
         let sign = acc.sign();
-        fold(&mut acc, !above.0, &above.1);
+        fold_signed(&mut acc, !above.0, &above.1);
         if sign == Ordering::Less {
             // The minimum side: the raise lifts the emitted value
             // strictly above the consumed range's maximum, so a
@@ -1021,12 +1021,12 @@ impl FillWalk<'_> {
                 // the priced offset.
                 let mut d = self.stack.follower_take(OUT_FOLLOWER);
                 self.stack.bridge_add_t(&mut d);
-                fold(&mut d, off.0, &off.1);
+                fold_signed(&mut d, off.0, &off.1);
                 self.w_anchored = false;
                 self.stack.materialize(d)
             } else {
                 // d_out = (h + off) − prev_out = gap + off.
-                fold(&mut self.gap, off.0, &off.1);
+                fold_signed(&mut self.gap, off.0, &off.1);
                 self.gap.sign();
                 let (sign, magnitude) = self.gap.sign_magnitude();
                 (sign == Ordering::Less, Base::from(magnitude))
@@ -1036,7 +1036,7 @@ impl FillWalk<'_> {
         }
         // The new gap is h − (h + off) = −off exactly.
         self.gap.reset();
-        fold(&mut self.gap, !off.0, &off.1);
+        fold_signed(&mut self.gap, !off.0, &off.1);
     }
 
     /// Emit a leaf at exactly the enclosing frame's tracked minimum
@@ -1144,7 +1144,7 @@ impl FillWalk<'_> {
             if !armed {
                 armed = true;
             } else {
-                fold(&mut above, !neg, &mag);
+                fold_signed(&mut above, !neg, &mag);
                 if above.sign() == Ordering::Less {
                     above.reset();
                 }
@@ -1353,11 +1353,11 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
         } else {
             unzigzag(code)
         };
-        fold(&mut net, neg, &mag);
+        fold_signed(&mut net, neg, &mag);
         if !armed {
             armed = true;
         } else {
-            fold(&mut off, !neg, &mag);
+            fold_signed(&mut off, !neg, &mag);
             if off.sign() == Ordering::Greater {
                 off = Accumulator::new();
             }
@@ -1632,7 +1632,7 @@ impl PreScan<'_, '_> {
                 armed = true;
             } else {
                 let (neg, mag) = unzigzag(code);
-                fold(&mut above, !neg, &mag);
+                fold_signed(&mut above, !neg, &mag);
                 if above.sign() == Ordering::Less {
                     above.reset();
                 }
@@ -1785,7 +1785,7 @@ impl PreScan<'_, '_> {
         let (neg, mag) = if first { (false, code) } else { unzigzag(code) };
         self.stack.fold_height(neg, &mag);
         if let Some(net) = &mut self.entry_net {
-            fold(net, neg, &mag);
+            fold_signed(net, neg, &mag);
         }
         (neg, mag)
     }
@@ -1815,7 +1815,7 @@ impl PreScan<'_, '_> {
             .take()
             .expect("the entry net lives until the first arming");
         if let Some(off) = off {
-            fold(&mut rel, off.0, &off.1);
+            fold_signed(&mut rel, off.0, &off.1);
         }
         self.pending_rel = Some(rel);
     }
@@ -1875,7 +1875,7 @@ impl PreScan<'_, '_> {
             if !armed {
                 armed = true;
             } else {
-                fold(&mut above, !step.0, &step.1);
+                fold_signed(&mut above, !step.0, &step.1);
                 if above.sign() == Ordering::Less {
                     above.reset();
                 }

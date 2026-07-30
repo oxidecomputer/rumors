@@ -297,15 +297,11 @@ impl Side {
 /// the side its stream feeds: `a`'s height rising raises `D`, `b`'s
 /// lowers it.
 pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude: &Base) {
-    let raises_diff = match side {
-        Side::A => !negative,
-        Side::B => negative,
+    let lowers_diff = match side {
+        Side::A => negative,
+        Side::B => !negative,
     };
-    if raises_diff {
-        diff.add_magnitude(magnitude);
-    } else {
-        diff.sub_magnitude(magnitude);
-    }
+    super::fold_signed(diff, lowers_diff, magnitude);
 }
 
 /// A cursor over one dyadic tiling of the unit interval, yielding its

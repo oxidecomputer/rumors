@@ -138,6 +138,8 @@
 //!   segment, limb, and accumulator-touch envelopes on the adversarial
 //!   families.
 
+use suanpan::Accumulator;
+
 use crate::codec::{self, Base};
 #[cfg(any(test, feature = "meter"))]
 use crate::error::Decode;
@@ -271,6 +273,20 @@ fn unzigzag(code: Base) -> (bool, Base) {
         (true, (code + 1u32) >> 1u32)
     } else {
         (false, code >> 1u32)
+    }
+}
+
+/// Fold a signed magnitude into an accumulator: subtracted when negative,
+/// added otherwise.
+///
+/// The one home of the sign-magnitude fold every height walk applies —
+/// the exchange move between this module's sign-magnitude currency (the
+/// zigzag maps above) and the cliff-immune [`Accumulator`].
+fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
+    if negative {
+        acc.sub_magnitude(magnitude);
+    } else {
+        acc.add_magnitude(magnitude);
     }
 }
 
