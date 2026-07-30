@@ -891,10 +891,11 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "hand-out mechanics over the balanced split the party_forks panel prices",
     ),
     (
-        "Ranked / Rank comparisons and From conversions (rank order, all operand mixes)",
+        "Ranked / Rank comparisons and From conversions (the total order, all operand mixes)",
         "the fused signed instance of the pair co-sweep the version_rank panel's \
-         integrator runs; no guest kernel exports the rank view (adding kernels is a \
-         crates/before change outside this crate)",
+         integrator runs (plus one byte compare on rank ties); no guest kernel \
+         exports the rank view (adding kernels is a crates/before change outside \
+         this crate)",
     ),
     (
         "Ranked::to_rank",
@@ -903,6 +904,11 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "Ranked::encode",
+        "the rank walk plus a linear emission and one version byte copy; no guest \
+         kernel exports the composite key",
+    ),
+    (
+        "Ranked::encode_rank",
         "the rank walk plus a linear emission; no guest kernel exports the encoding",
     ),
     (
@@ -915,12 +921,22 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "Ranked::encode_to",
-        "the fused rank walk and emission with a writer sink; priced as Ranked::encode",
+        "the composite key emission with a writer sink; priced as Ranked::encode",
+    ),
+    (
+        "Ranked::encode_rank_to",
+        "the fused rank walk and emission with a writer sink; priced as \
+         Ranked::encode_rank",
     ),
     (
         "Rank::decode",
         "a linear strict parse into an in-memory rank; no guest kernel exports the \
          decoding",
+    ),
+    (
+        "Ranked::decode",
+        "a linear strict parse plus the verifying rank walk the version_rank panel \
+         prices; no guest kernel exports the composite key",
     ),
     // ── representation mechanics ──
     (

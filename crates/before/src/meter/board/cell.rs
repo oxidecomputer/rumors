@@ -88,11 +88,14 @@
 //! bits, so a padded
 //! output cannot inflate the denominator; `rank_decode`'s operand *is*
 //! the canonical bytes, input-denominated like every codec row; and
-//! `ranked_encode` stays input-denominated because its output is
-//! provenance-bounded within the packed input (asserted at prepare), so
-//! input bytes are the honest, harder denominator and the
-//! flat-denominator shape's content exponent governs it exactly as it
-//! governs `version_rank`.
+//! the ranked rows stay input-denominated: `ranked_encode_rank`'s
+//! output is provenance-bounded within the packed input and
+//! `ranked_encode`'s composite adds exactly the packed bytes as its
+//! version tail (both asserted at prepare), so input bytes are the
+//! honest, harder denominator and the flat-denominator shape's content
+//! exponent governs them exactly as it governs `version_rank`;
+//! `ranked_decode`'s operand *is* the composite key, the codec rows'
+//! rule again.
 
 use std::any::Any;
 
