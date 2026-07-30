@@ -26,7 +26,32 @@
 //!    lexicographically order-preserving as stored. Inverting the run
 //!    polarity (ones ended by a zero) is the minimal change that turns
 //!    the delta code prefix-ascending, and the payload layout is
-//!    otherwise dsi's own. Even under that transform dsi's own codecs
+//!    otherwise dsi's own.
+//!
+//!    *Why delta among its siblings.* The trade is size-pin margin
+//!    against proof surface. Gamma spends its unary run re-paying the
+//!    mantissa's whole width — `2N` bits for an `N`-bit integral —
+//!    and a [`Version`](crate::Version) already stores its counters
+//!    gamma-coded, so a gamma integral part would pay that doubled
+//!    width *again* and drive the worst committed provenance family
+//!    (the lone wide counter, measured at 0.56 encoded bits per
+//!    packed input bit) up against the 1.0-per-family
+//!    provenance-linearity pin; delta's `N + O(log N)` is what keeps
+//!    the canonical form a mild compression of its provenance. Omega,
+//!    one rung further, trims the header by only `O(log w)` bits —
+//!    noise against an `N`-bit mantissa — while every one of its
+//!    recursion levels is another length boundary owing its own
+//!    inverted-polarity monotonicity argument and its own boundary
+//!    goldens; on a frozen wire format the order argument's
+//!    auditability outranks a handful of header bits, and delta's
+//!    single nested length layer is why the argument stays short and
+//!    the golden matrix small. Byte-oriented varints are not
+//!    order-preserving as stored and are byte-granular where the
+//!    fraction below is bit-granular, and a flat one-byte length
+//!    header caps magnitudes — generalizing it recursively just
+//!    re-derives the Elias family.
+//!
+//!    Even under the polarity transform dsi's own codecs
 //!    cannot serve this seam: its code implementations take `u64`
 //!    arguments while a rank's integral part is arbitrary-precision,
 //!    and its decoders are documented non-total on untrusted input
@@ -62,9 +87,13 @@
 //! appended suffix can flip the order between distinct ranks — the
 //! laws the committed sweep and proptests pin.
 //!
-//! Every piece of the stream is forced: the header is bijective (each
-//! `(ρ, payload)` pair decodes to a width `w` whose own width is
-//! exactly `ρ + 1`, so non-minimal headers are unrepresentable), and
+//! Every piece of the stream is forced: the `I + 1` bias does two
+//! jobs — it gives zero (a codeless value in the delta family) the
+//! smallest codeword, and it keeps `m ≥ 1` so the leading bits of
+//! both `m` and `w` stay implied, which is what makes the header
+//! bijective (each `(ρ, payload)` pair decodes to a width `w` whose
+//! own width is exactly `ρ + 1`, so non-minimal headers are
+//! unrepresentable and no rejection genre exists for them) — and
 //! the fraction's depth is recovered from the final group's last set
 //! bit (a "fraction with trailing zeros" is not expressible — inside
 //! the final group those bits *are* the padding, and spilling them
