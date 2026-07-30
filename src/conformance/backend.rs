@@ -742,7 +742,7 @@ where
         leaves.push((Prefix::from(path), leaf));
     }
     leaves.sort_by_key(|(prefix, _)| *prefix);
-    let ceiling = Version::join_all(leaves.iter().map(|(_, leaf)| leaf.ceiling().clone()));
+    let ceiling = Version::join_all(leaves.iter().map(|(_, leaf)| leaf.ceiling()));
 
     let mut assembled = pin!(
         charged

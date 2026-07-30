@@ -1,5 +1,6 @@
 //! The interval-tree-clock event tree, [`Version`].
 
+use core::borrow::Borrow;
 use core::cmp::Ordering;
 use core::fmt::Display;
 use core::iter::Sum;
@@ -423,6 +424,11 @@ impl Version {
     /// always [`tick`](Self::tick) higher), so the empty meet has no value; see
     /// [`meet_all`](Self::meet_all), which returns [`Option`] for that reason.
     ///
+    /// The items may be owned versions or references — anything that
+    /// [borrows](Borrow) as a [`Version`]. Borrowed operands are read in
+    /// place, allocating only results, so folding a collection you keep
+    /// never copies it into an accumulator.
+    ///
     /// # Complexity
     ///
     /// `O(D log k)` time and `O(D)` space, where `D` is the inputs' total
@@ -438,12 +444,16 @@ impl Version {
     /// let mut b = a.fork();
     /// let va = a.tick().clone();
     /// let vb = b.tick().clone();
-    /// let all = Version::join_all([va.clone(), vb.clone()]);
+    /// let all = Version::join_all([&va, &vb]); // by reference: both stay usable
     /// assert!(all >= va && all >= vb);
     /// assert_eq!(Version::join_all(Vec::<Version>::new()), Version::new());
     /// ```
-    pub fn join_all<I: IntoIterator<Item = Version>>(iter: I) -> Version {
-        crate::fold::balanced_reduce(iter, |a, b| a | b).unwrap_or_default()
+    pub fn join_all<I>(iter: I) -> Version
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        Self::balanced_fold(iter, Self::join_refs, Self::join_view).unwrap_or_default()
     }
 
     /// The meet (greatest lower bound) of every version in `iter`, or [`None`]
@@ -454,6 +464,10 @@ impl Version {
     /// version dominating all others, but no such [`Version`] exists (every
     /// version can [`tick`](Self::tick) higher), so an empty iterator yields
     /// [`None`].
+    ///
+    /// As with [`join_all`](Self::join_all), the items may be owned
+    /// versions or references — anything that [borrows](Borrow) as a
+    /// [`Version`] — and borrowed operands are read in place.
     ///
     /// # Complexity
     ///
@@ -474,12 +488,67 @@ impl Version {
     /// let mut b = a.fork();
     /// let va = a.tick().clone();
     /// let vb = b.tick().clone();
-    /// let common = Version::meet_all([va.clone(), vb.clone()]).unwrap();
+    /// let common = Version::meet_all([&va, &vb]).unwrap(); // by reference
     /// assert!(common <= va && common <= vb);
     /// assert!(Version::meet_all(Vec::<Version>::new()).is_none()); // no top to return
     /// ```
-    pub fn meet_all<I: IntoIterator<Item = Version>>(iter: I) -> Option<Version> {
-        crate::fold::balanced_reduce(iter, |a, b| a & b)
+    pub fn meet_all<I>(iter: I) -> Option<Version>
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        Self::balanced_fold(iter, Self::meet_refs, Self::meet_view)
+    }
+
+    /// The balanced reduction under [`join_all`](Self::join_all) and
+    /// [`meet_all`](Self::meet_all): fold items that [borrow](Borrow) as
+    /// [`Version`] through [`crate::fold::balanced_reduce`] without
+    /// cloning them on entry.
+    ///
+    /// Each combiner comes in the two forms ownership demands — `refs`
+    /// combines two borrowed inputs into a fresh owned result
+    /// ([`join_refs`](Self::join_refs)/[`meet_refs`](Self::meet_refs)),
+    /// and `view` folds a borrowed stream into an owned group in place
+    /// ([`join_view`](Self::join_view)/[`meet_view`](Self::meet_view)) —
+    /// and [`Group`] carries which form each operand needs. `None` is the
+    /// empty fold; a lone input is cloned, the one place an input itself
+    /// must become an owned result.
+    fn balanced_fold<I>(
+        iter: I,
+        refs: fn(&Version, &Version) -> Version,
+        view: fn(&mut Version, &codec::Bits),
+    ) -> Option<Version>
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        let group = crate::fold::balanced_reduce(iter.into_iter().map(Group::Input), |a, b| {
+            Group::Merged(match (a, b) {
+                (Group::Input(a), Group::Input(b)) => refs(a.borrow(), b.borrow()),
+                (Group::Merged(mut a), Group::Input(b)) => {
+                    view(&mut a, b.borrow().view());
+                    a
+                }
+                (Group::Merged(mut a), Group::Merged(b)) => {
+                    view(&mut a, b.view());
+                    a
+                }
+                // Unreachable through the counter's weight discipline (a
+                // weight-0 lone input never sits below a merged group in
+                // the closing drain), but the match stays total rather
+                // than asserting: both combiners are commutative, so
+                // folding the borrowed side into the owned side is
+                // value-identical.
+                (Group::Input(a), Group::Merged(mut b)) => {
+                    view(&mut b, a.borrow().view());
+                    b
+                }
+            })
+        })?;
+        Some(match group {
+            Group::Input(input) => input.borrow().clone(),
+            Group::Merged(version) => version,
+        })
     }
 
     /// A read-only view of this version's stored skyline stream.
@@ -500,7 +569,8 @@ impl Version {
     /// tree untouched, and an empty current adopts the incoming stream
     /// wholesale (a copy, byte-identical to what the merge would emit). The
     /// identity path is the common seed pattern: folds seeded with
-    /// [`Version::new`] (`join_all`, `Sum`) hit it on their first join.
+    /// [`Version::new`] (the `|=` accumulation shape) hit it on their
+    /// first join.
     fn join_view(&mut self, incoming: &codec::Bits) {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∨ a = a
@@ -515,6 +585,28 @@ impl Version {
             return;
         }
         *self = Version::from_bits(skyline::emit::join(&self.0, incoming));
+    }
+
+    /// The borrowed-operands join: `a ∨ b` as a fresh [`Version`],
+    /// reading both operands in place.
+    ///
+    /// [`join_view`](Self::join_view) for the case where neither operand
+    /// is owned — the same short-circuits in the same order (keep the two
+    /// in lockstep), with each hand-back arm cloning the operand that is
+    /// itself the answer. The general path emits the merged stream
+    /// straight from the two views, so borrowing costs no clone and no
+    /// transcoding.
+    fn join_refs(a: &Version, b: &Version) -> Version {
+        if codec::canonical_eq(&a.0, &b.0) {
+            return a.clone(); // a ∨ a = a
+        }
+        if skyline::is_empty_stream(&b.0) {
+            return a.clone(); // v ∨ 0 = v
+        }
+        if skyline::is_empty_stream(&a.0) {
+            return b.clone(); // 0 ∨ v = v
+        }
+        Version::from_bits(skyline::emit::join(&a.0, &b.0))
     }
 
     /// The view-taking meet core, the dual of
@@ -541,6 +633,26 @@ impl Version {
             return;
         }
         *self = Version::from_bits(skyline::emit::meet(&self.0, incoming));
+    }
+
+    /// The borrowed-operands meet: `a ∧ b` as a fresh [`Version`],
+    /// reading both operands in place.
+    ///
+    /// [`meet_view`](Self::meet_view) for the case where neither operand
+    /// is owned, exactly as [`join_refs`](Self::join_refs) mirrors
+    /// [`join_view`](Self::join_view): the same short-circuits in the
+    /// same order — keep the two in lockstep.
+    fn meet_refs(a: &Version, b: &Version) -> Version {
+        if codec::canonical_eq(&a.0, &b.0) {
+            return a.clone(); // a ∧ a = a
+        }
+        if skyline::is_empty_stream(&a.0) {
+            return a.clone(); // 0 ∧ v = 0: `a` is already the answer
+        }
+        if skyline::is_empty_stream(&b.0) {
+            return Version::new(); // v ∧ 0 = 0, whatever `v` was
+        }
+        Version::from_bits(skyline::emit::meet(&a.0, &b.0))
     }
 
     /// Encodes this [`Version`] to bytes.
@@ -684,6 +796,21 @@ impl Version {
     }
 }
 
+/// One group in [`Version::balanced_fold`]'s counter: an input exactly as
+/// the caller supplied it (owned or borrowed through [`Borrow`], never
+/// cloned on entry), or the owned version a combine produced.
+///
+/// Weight-0 counter entries are always lone [`Input`](Group::Input)s and
+/// every combine's output is [`Merged`](Group::Merged), so the
+/// distinction lets each combine pick the operand form its combiner
+/// needs — in place for borrowed inputs, by view-fold for owned groups.
+enum Group<B> {
+    /// An input the fold has not yet combined, still in the caller's form.
+    Input(B),
+    /// The owned running result of one or more combines.
+    Merged(Version),
+}
+
 /// The empty [`Version`] (same as [`Version::new`]).
 ///
 /// ```
@@ -698,10 +825,10 @@ impl Default for Version {
 // `Version` under `|` is a commutative idempotent monoid with identity
 // [`Version::new`], so it folds from an iterator both ways std offers: `.sum()`
 // over an `Iterator` and `.collect()` into a `Version`. Both are
-// [`join_all`](Version::join_all) (the empty case is the empty version); the
-// borrowed forms clone each element into the running join. There is
-// deliberately no meet counterpart here — the meet has no identity, so its fold
-// is the `Option`-returning [`Version::meet_all`].
+// [`join_all`](Version::join_all) (the empty case is the empty version), which
+// takes the borrowed forms' references as they come. There is deliberately no
+// meet counterpart here — the meet has no identity, so its fold is the
+// `Option`-returning [`Version::meet_all`].
 
 /// Joins the iterator's versions; the empty sum is [`Version::new`].
 ///
@@ -721,13 +848,13 @@ impl Sum<Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], plus one
-/// clone of each element.
+/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
+/// it is: the borrowed elements are read in place, not cloned.
 ///
 /// **Complexity**: `O(D log k)` time, `O(D)` space.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
-        Version::join_all(iter.cloned())
+        Version::join_all(iter)
     }
 }
 
@@ -749,13 +876,13 @@ impl FromIterator<Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], plus one
-/// clone of each element.
+/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
+/// it is: the borrowed elements are read in place, not cloned.
 ///
 /// **Complexity**: `O(D log k)` time, `O(D)` space.
 impl<'a> FromIterator<&'a Version> for Version {
     fn from_iter<I: IntoIterator<Item = &'a Version>>(iter: I) -> Version {
-        Version::join_all(iter.into_iter().cloned())
+        Version::join_all(iter)
     }
 }
 
