@@ -13,7 +13,7 @@
 //! Contract with the harness (which is the only caller):
 //!
 //! - Registers are dense indices into a growable file; a slot holds a
-//!   `Version`, `Party`, `Clock`, or `Rank`. Ops that consume an operand
+//!   `Version`, `Party`, `Clock`, `Rank`, or `Span`. Ops that consume an operand
 //!   (`join`, `without`, fold drains) take it out of its slot — the register
 //!   file is linear exactly where the API is linear, so a generator that
 //!   replays a valid program here cannot alias a `Party`.
@@ -30,6 +30,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt::Write as _;
 
+use before::causally::{Dominance, Endpoint, Placement, Span};
 use before::{Clock, Party, Rank, Version};
 
 /// One register-file slot: any value the public surface produces.
@@ -38,6 +39,7 @@ enum Val {
     P(Party),
     C(Clock),
     R(Rank),
+    S(Span<'static>),
 }
 
 thread_local! {
@@ -147,6 +149,14 @@ fn with_p<T>(reg: u32, f: impl FnOnce(&Party) -> T) -> Option<T> {
 fn with_r<T>(reg: u32, f: impl FnOnce(&Rank) -> T) -> Option<T> {
     REGS.with_borrow(|regs| match regs.get(reg as usize) {
         Some(Some(Val::R(r))) => Some(f(r)),
+        _ => None,
+    })
+}
+
+/// Run `f` with a borrowed `Span` in `reg`.
+fn with_s<T>(reg: u32, f: impl FnOnce(&Span<'static>) -> T) -> Option<T> {
+    REGS.with_borrow(|regs| match regs.get(reg as usize) {
+        Some(Some(Val::S(s))) => Some(f(s)),
         _ => None,
     })
 }
@@ -585,6 +595,50 @@ pub extern "C" fn ff_version_meet_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
+/// `Version::span`: the pair's lattice hull `[a & b, a | b]` into a
+/// span register (one fused pair walk feeds both endpoints; the
+/// operands are read in place and the endpoints minted owned).
+#[no_mangle]
+pub extern "C" fn ff_version_span(dst: u32, a: u32, b: u32) -> i32 {
+    let span = with_v(a, |va| with_v(b, |vb| va.span(vb)));
+    match span {
+        Some(Some(s)) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        _ => ERR_REG,
+    }
+}
+
+/// `Version::span_all`: the lattice hull of the versions in
+/// `src..src + n` into `dst`.
+///
+/// The version in `src` is the receiver, the rest ride as the iterator,
+/// feed order preserved; every operand is borrowed — the hull fold
+/// reads them in place and mints its endpoints owned.
+#[no_mangle]
+pub extern "C" fn ff_version_span_all(dst: u32, src: u32, n: u32) -> i32 {
+    if n == 0 {
+        return ERR_REG;
+    }
+    let span = REGS.with_borrow(|regs| {
+        let version = |i: u32| match regs.get(i as usize) {
+            Some(Some(Val::V(v))) => Some(v),
+            _ => None,
+        };
+        let receiver = version(src)?;
+        let others: Vec<&Version> = (1..n).map(|i| version(src + i)).collect::<Option<_>>()?;
+        Some(receiver.span_all(others))
+    });
+    match span {
+        Some(s) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        None => ERR_REG,
+    }
+}
+
 /// The fused three-stream masked comparison `(v / p) ⋚ w`, no
 /// materialization: returns 0 `Less`, 1 `Equal`, 2 `Greater`,
 /// 3 concurrent (no ordering).
@@ -986,6 +1040,77 @@ pub extern "C" fn ff_rank_checked_sub(dst: u32, a: u32, b: u32) -> i32 {
         Some(Some(None)) => ERR_OP,
         _ => ERR_REG,
     }
+}
+
+// ─── Span operations (measured) ──────────────────────────────────────────────
+
+/// `Span::place`: the nine-way placement of the version in `probe`
+/// against the span in `s`, encoded 0..=8.
+///
+/// The encoding follows the variant order `Before, At(Start), At(End),
+/// At(Both), Between, Concurrent(Start), Concurrent(End),
+/// Concurrent(Both), After`.
+#[no_mangle]
+pub extern "C" fn ff_span_place(s: u32, probe: u32) -> i32 {
+    let r = with_s(s, |span| with_v(probe, |p| span.place(p)));
+    match r {
+        Some(Some(placement)) => match placement {
+            Placement::Before => 0,
+            Placement::At(Endpoint::Start) => 1,
+            Placement::At(Endpoint::End) => 2,
+            Placement::At(Endpoint::Both) => 3,
+            Placement::Between => 4,
+            Placement::Concurrent(Endpoint::Start) => 5,
+            Placement::Concurrent(Endpoint::End) => 6,
+            Placement::Concurrent(Endpoint::Both) => 7,
+            Placement::After => 8,
+        },
+        _ => ERR_REG,
+    }
+}
+
+/// `Span::dominance_of`: the three-way dominance coarsening of the
+/// version in `probe` against the span in `s`, encoded 0 `Before`,
+/// 1 `Between`, 2 `After`.
+///
+/// The placement family's earliest exits live in this verdict, so its
+/// fuel can undercut `ff_span_place`'s on refuting probes.
+#[no_mangle]
+pub extern "C" fn ff_span_dominance(s: u32, probe: u32) -> i32 {
+    let r = with_s(s, |span| with_v(probe, |p| span.dominance_of(p)));
+    match r {
+        Some(Some(dominance)) => match dominance {
+            Dominance::Before => 0,
+            Dominance::Between => 1,
+            Dominance::After => 2,
+        },
+        _ => ERR_REG,
+    }
+}
+
+/// Encode the `Span` in `src` into the staging buffer (the meet's
+/// canonical bytes, then the join's).
+#[no_mangle]
+pub extern "C" fn ff_span_encode(src: u32) -> i32 {
+    code(with_s(src, |s| {
+        let bytes = s.encode();
+        STAGE.with_borrow_mut(|stage| *stage = bytes);
+        OK
+    }))
+}
+
+/// Decode the staged bytes as a canonical `Span` into `dst` (the one
+/// forward pass whose second parse also proves, in the same walk, that
+/// the pair is ordered).
+#[no_mangle]
+pub extern "C" fn ff_span_decode(dst: u32) -> i32 {
+    STAGE.with_borrow(|stage| match Span::decode(stage.as_slice()) {
+        Ok(s) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        Err(_) => ERR_CODEC,
+    })
 }
 
 // ─── instrument self-test (measured, deliberately not a kernel) ──────────────

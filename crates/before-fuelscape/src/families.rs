@@ -156,6 +156,27 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
                 ])
             }));
         }
+        // The span placement rows (a hulled pair plus a probe): the
+        // committed pair shapes hulled into the span, crossed with a
+        // same-scale probe.
+        [Operand::Version, Operand::Version, Operand::Version] => {
+            out.extend(ramp("jump_pair × dense", max_bytes, |t| {
+                let (a, b) = Shape::JumpPair.packed_pair3(8, t, 1);
+                Some(vec![
+                    version_bytes(&a),
+                    version_bytes(&b),
+                    version_bytes(&Shape::Dense.packed1(t)),
+                ])
+            }));
+            out.extend(ramp("concurrent_pair × hugeleaf", max_bytes, |t| {
+                let (a, b) = Shape::ConcurrentPair.version_pair(2 * t);
+                Some(vec![
+                    a.encode(),
+                    b.encode(),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
+                ])
+            }));
+        }
         // The masked three-stream comparison row: the projected version
         // and its mask crossed with a compared version of the same shape.
         [Operand::Version, Operand::Party, Operand::Version] => {
@@ -308,6 +329,10 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
 /// - `version_meet_all` gets the meet-shade population ([`meet_shade`])
 ///   on the committed diagonal `d = k` (one dense carrier, `k − 1`
 ///   dominating plateau shades, carrier fed first).
+/// - `version_span_all` carries both hull endpoints through one fold, so
+///   it gets both sides' committed shapes: the staggered populations
+///   (the join endpoint's swell) and the meet shade (the meet endpoint's
+///   diagonal, carrier fed first — the first operand is the receiver).
 fn slice_overlays(name: &str, max_bytes: usize) -> Vec<FamilyInput> {
     match name {
         "version_join_all" => {
@@ -332,6 +357,26 @@ fn slice_overlays(name: &str, max_bytes: usize) -> Vec<FamilyInput> {
                     .collect(),
             )
         }),
+        "version_span_all" => {
+            let mut out = Vec::new();
+            out.extend(ramp("stagger arity (m=4)", max_bytes, |t| {
+                Some(stagger_versions(2 * t, 4))
+            }));
+            out.extend(ramp("stagger size (n=4)", max_bytes, |t| {
+                Some(stagger_versions(4, t))
+            }));
+            out.extend(ramp("meet_shade (d=k)", max_bytes, |t| {
+                let d = 2 * t;
+                Some(
+                    Shape::MeetShade
+                        .versions(d, d)
+                        .iter()
+                        .map(|v| v.encode())
+                        .collect(),
+                )
+            }));
+            out
+        }
         other => panic!("no committed slice families for {other}"),
     }
 }

@@ -121,6 +121,17 @@ const M_CLOCK: &str = "total packed bytes of the clock's party and version parts
 /// The size measure of the fork-split disjoint-clock rows.
 const M_CLOCK_PAIR: &str = "total packed bytes of one party and two versions, split uniform \
      three ways; the party fork-split into the clocks' disjoint parties";
+/// The size measure of the span rows whose span is composed in
+/// preparation as two sampled operands' pair hull.
+const M_SPAN_HULL: &str = "total packed bytes of the two operands whose pair hull is the \
+     span (hull composed in unmeasured preparation; the endpoints' sizes are on the \
+     operands' scale, not exactly their sum)";
+/// The size measure of the span placement rows: a hulled pair plus a
+/// probe.
+const M_SPAN_PROBE: &str = "total packed bytes of the two hull operands and the probe, \
+     split uniform three ways (the span composed in unmeasured preparation as the \
+     operands' pair hull, so the measured fused walk reads the probe against the \
+     hull's meet and join)";
 
 /// Stage packed bytes and decode them into a version register
 /// (unmeasured preparation; the decode's own fuel is discarded).
@@ -404,6 +415,29 @@ pub const ROSTER: &[OpSpec] = &[
         measure: |g, inputs| {
             let n = load_slice(g, inputs);
             g.call("ff_version_meet_all", &[n, 0, n])
+        },
+    },
+    OpSpec {
+        name: "version_span",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["Version::span"],
+        size_measure: M_BINARY,
+        measure: |g, inputs| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            g.call("ff_version_span", &[2, 0, 1])
+        },
+    },
+    OpSpec {
+        name: "version_span_all",
+        inputs: Inputs::VersionSlice,
+        covers: &["Version::span_all"],
+        size_measure: "total packed bytes; arity uniform over {2, 4, 8, 16} capped by \
+             size, split uniform (the first drawn operand rides as the hull fold's \
+             receiver, feed order preserved)",
+        measure: |g, inputs| {
+            let n = load_slice(g, inputs);
+            g.call("ff_version_span_all", &[n, 0, n])
         },
     },
     // ───────────────────────────── Party ─────────────────────────────
@@ -758,6 +792,60 @@ pub const ROSTER: &[OpSpec] = &[
             g.call("ff_rank_display", &[1])
         },
     },
+    // ───────────────────────────── causally::Span ─────────────────────────────
+    OpSpec {
+        name: "span_place",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Span::place"],
+        size_measure: M_SPAN_PROBE,
+        measure: |g, inputs| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_version_span", &[3, 0, 1]);
+            g.call("ff_span_place", &[3, 2])
+        },
+    },
+    OpSpec {
+        name: "span_dominance",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Span::dominance_of"],
+        size_measure: M_SPAN_PROBE,
+        measure: |g, inputs| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_version_span", &[3, 0, 1]);
+            g.call("ff_span_dominance", &[3, 2])
+        },
+    },
+    OpSpec {
+        name: "span_encode",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally::Span::encode"],
+        size_measure: M_SPAN_HULL,
+        measure: |g, inputs| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            prep(g, "ff_version_span", &[2, 0, 1]);
+            g.call("ff_span_encode", &[2])
+        },
+    },
+    OpSpec {
+        name: "span_decode",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally::Span::decode"],
+        size_measure: M_SPAN_HULL,
+        measure: |g, inputs| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            prep(g, "ff_version_span", &[2, 0, 1]);
+            // The unmeasured encode leaves the span's canonical composite
+            // in the staging buffer for the measured decode to read.
+            prep(g, "ff_span_encode", &[2]);
+            g.call("ff_span_decode", &[3])
+        },
+    },
 ];
 
 /// The coverage roster rows deliberately without a panel, each with its
@@ -939,20 +1027,9 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          prices; no guest kernel exports the composite key",
     ),
     (
-        "causally::Span::encode",
-        "one byte copy per endpoint; no guest kernel exports the span composite \
-         (queued for the guest-kernel census round)",
-    ),
-    (
         "causally::Span::encode_to",
-        "the identical composite emission with a writer sink; priced as \
-         causally::Span::encode",
-    ),
-    (
-        "causally::Span::decode",
-        "one strict component parse plus the fused admission walk (the ff_version_cmp \
-         panel prices the same per-stream sweep); no guest kernel exports the span \
-         composite (queued for the guest-kernel census round)",
+        "the identical composite emission with a writer sink; the span_encode panel \
+         prices the emission",
     ),
     // ── representation mechanics ──
     (
@@ -989,8 +1066,8 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "causally::all",
-        "O(1) unbounded-range constructor; no guest kernel exports the causally \
-         combinators",
+        "O(1) unbounded-range constructor: both bounds unbounded, no comparison, \
+         no walk",
     ),
     (
         "causally::since",
@@ -1020,54 +1097,51 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "causally::Range::since",
-        "O(1) bound replacement plus one causal comparison",
+        "O(1) bound replacement plus one causal comparison (the version_cmp panel \
+         prices the comparison)",
     ),
     (
         "causally::Range::not_before",
-        "O(1) bound replacement plus one causal comparison",
+        "O(1) bound replacement plus one causal comparison (the version_cmp panel \
+         prices the comparison)",
     ),
     (
         "causally::Range::known_at",
-        "O(1) bound replacement plus one causal comparison",
+        "O(1) bound replacement plus one causal comparison (the version_cmp panel \
+         prices the comparison)",
     ),
     (
         "causally::Range::before",
-        "O(1) bound replacement plus one causal comparison",
+        "O(1) bound replacement plus one causal comparison (the version_cmp panel \
+         prices the comparison)",
     ),
     (
         "causally::Range::contains",
-        "the fused placement walk, law-pinned to the causal comparisons against \
-         the bounds; the version_cmp panel prices the same per-stream sweep",
+        "placement_of's Equal arm: the identical fused walk under an O(1) verdict \
+         fold; the span_place and version_cmp panels price the walk",
     ),
     (
         "causally::Range::placement_of",
-        "the fused placement walk, law-pinned to the causal comparisons against \
-         the bounds; the version_cmp panel prices the same per-stream sweep",
+        "bounded's fused walk coarsened by bound kind, an O(1) fold over the \
+         verdict; the span_place and version_cmp panels price the walk",
     ),
     (
         "causally::Range::bounded",
-        "the fused placement walk, law-pinned to the causal comparisons against \
-         the bounds; the version_cmp panel prices the same per-stream sweep",
+        "the fused placement co-walk with range-verdict hooks (branch-only, no \
+         stream or accumulator work of their own): the span_place panel prices the \
+         two-bounded walk, and the one-bound form degenerates to the version_cmp \
+         panel's pair sweep — both identities meter-pinned",
     ),
     (
         "causally::Span::new",
-        "span constructor whose validity check is one causal comparison; \
-         the version_cmp panel prices the walk",
+        "validating constructor: the check is literally one Version PartialOrd \
+         call (the version_cmp panel's measured operation) around an O(1) \
+         construction, so a panel would re-measure version_cmp under another name",
     ),
     (
         "causally::Span::new_unchecked",
         "O(1) span constructor over two borrowed versions (the trusted \
          door performs no comparison)",
-    ),
-    (
-        "causally::Span::place",
-        "span placement, law-pinned to the causal comparisons against the \
-         endpoints; the version_cmp panel prices the same per-stream sweep",
-    ),
-    (
-        "causally::Span::dominance_of",
-        "span placement, law-pinned to the causal comparisons against the \
-         endpoints; the version_cmp panel prices the same per-stream sweep",
     ),
     (
         "causally::Span::meet",
@@ -1091,19 +1165,6 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "causally::Span::into_owned",
         "borrow-settling conversion: at most one byte copy per endpoint, \
          no walk",
-    ),
-    (
-        "Version::span",
-        "the fused pair hull: one emission sweep feeds both endpoints; the \
-         version_join/version_meet panels price the same walk, which the \
-         fused form undercuts (the span scan-identity pins in the envelope \
-         suite hold the undercut exact)",
-    ),
-    (
-        "Version::span_all",
-        "the hull fold: one balanced reduction carrying both endpoints, leaf \
-         combines fused; the version_join_all/version_meet_all panels price \
-         the same balanced reductions",
     ),
     // ── not operations ──
     (
