@@ -193,10 +193,12 @@ proptest! {
     }
 
     /// The fused interval and dominance walks equal their composed
-    /// two-sweep spellings, on every ordered stream pair (constructed
-    /// via meet/join, the coincident pair, and the generated pair when
-    /// it happens to order), for probes spanning the operands and their
-    /// lattice corners.
+    /// two-sweep spellings.
+    ///
+    /// Checked on every ordered stream pair (constructed via meet/join,
+    /// the coincident pair, and the generated pair when it happens to
+    /// order), for probes spanning the operands and their lattice
+    /// corners.
     #[test]
     fn interval_walks_match_the_composed_sweeps(
         a in arb_oracle_version(),

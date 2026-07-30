@@ -354,8 +354,9 @@ fn interval_fixtures() -> ([Version; 5], Version) {
     (chain, b1)
 }
 
-/// Every one of the nine [`Placement`] verdicts on a constructed
-/// witness — the five chain regions on `[a2, a4]`, the coincident
+/// Every one of the nine [`Placement`] verdicts on a constructed witness.
+///
+/// The five chain regions land on `[a2, a4]`, the coincident
 /// `At(Both)` on `[a2, a2]`, and all three `Concurrent` payloads on
 /// intervals whose endpoints straddle the divergent line.
 #[test]

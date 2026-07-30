@@ -22,8 +22,12 @@
 //! Per elementary interval the output equals one input — the *side*,
 //! `a` when `sign(D)` favors it, `b` when it favors the other, sticky
 //! at ties (`D = 0` keeps the current side, which both inputs then
-//! agree on). The output's delta across a boundary needs no absolute
-//! heights:
+//! agree on). Join and meet are this one sweep with the side selection
+//! reversed — pointwise max follows the higher side, pointwise min the
+//! lower — and the selection is everything that distinguishes them:
+//! each entry point passes its own picking closure and the sweep never
+//! consults which operation it is running. The output's delta across a
+//! boundary needs no absolute heights:
 //!
 //! - **Same side**: the output moves with its side, so the delta is
 //!   that side's own step delta — zero when the boundary belonged to
@@ -95,7 +99,12 @@ use super::{gamma_code, zigzag_signed};
 /// running height negative) sweep silently, and the output is then
 /// unspecified.
 pub fn join(a: &BitsSlice, b: &BitsSlice) -> Bits {
-    emit(a, b, Op::Join)
+    // Pointwise max: the higher side wins the interval, sticky at ties.
+    emit(a, b, |sign, current| match sign {
+        Ordering::Greater => Side::A,
+        Ordering::Less => Side::B,
+        Ordering::Equal => current,
+    })
 }
 
 /// The meet (pointwise min) of the versions two skyline streams denote,
@@ -108,32 +117,21 @@ pub fn join(a: &BitsSlice, b: &BitsSlice) -> Bits {
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output.
 pub fn meet(a: &BitsSlice, b: &BitsSlice) -> Bits {
-    emit(a, b, Op::Meet)
+    // Pointwise min: the lower side wins the interval, sticky at ties.
+    emit(a, b, |sign, current| match sign {
+        Ordering::Less => Side::A,
+        Ordering::Greater => Side::B,
+        Ordering::Equal => current,
+    })
 }
 
-/// Which pointwise operation the sweep emits.
-#[derive(Clone, Copy)]
-enum Op {
-    /// Pointwise max: the higher side wins.
-    Join,
-    /// Pointwise min: the lower side wins.
-    Meet,
-}
-
-impl Op {
-    /// The side the output follows on the next interval: the winner by
-    /// the difference's sign, sticky at ties.
-    fn pick(self, sign: Ordering, current: Side) -> Side {
-        match (self, sign) {
-            (Op::Join, Ordering::Greater) | (Op::Meet, Ordering::Less) => Side::A,
-            (Op::Join, Ordering::Less) | (Op::Meet, Ordering::Greater) => Side::B,
-            (_, Ordering::Equal) => current,
-        }
-    }
-}
-
-/// Run the emission sweep.
-fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
+/// Run the emission sweep, generic over the side selection.
+///
+/// `pick` selects the side the output follows on each interval, from
+/// the difference's sign and the current side — the winner by sign,
+/// sticky at ties, and the only point where join and meet differ (see
+/// the module doc's side-switch algebra).
+fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) -> Side) -> Bits {
     let OpenedPair {
         a: mut ca,
         b: mut cb,
@@ -150,7 +148,7 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
     // it — costing one reallocation, never correctness. The envelope
     // rows (`tests/meter.rs`, `skyline_join_*`/`skyline_meet_*`) pin the
     // measured peak heap, switch-heavy families included.
-    let mut side = op.pick(diff.sign(), Side::A);
+    let mut side = pick(diff.sign(), Side::A);
     let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
     let first = match side {
         Side::A => &a_first,
@@ -160,7 +158,7 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
 
     while !(ca.done() && cb.done()) {
         let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
-        let new_side = op.pick(diff.sign(), side);
+        let new_side = pick(diff.sign(), side);
         let (negative, magnitude) = if new_side == side {
             step_delta(side, &da, &db)
         } else {

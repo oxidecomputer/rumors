@@ -80,6 +80,7 @@
 //! The resource envelopes are the meter rows named above.
 
 use core::cmp::Ordering;
+use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
@@ -104,19 +105,32 @@ pub fn causal_cmp(
     b: &BitsSlice,
     b_mask: Option<&BitsSlice>,
 ) -> Option<Ordering> {
-    match Walk::open(a, a_mask, b, b_mask).run(Mode::Order) {
-        (true, true) => Some(Ordering::Equal),
-        (true, false) => Some(Ordering::Less),
-        (false, true) => Some(Ordering::Greater),
-        (false, false) => None,
-    }
+    Walk::open(a, a_mask, b, b_mask).run(
+        // The full order stops early only at the strict mix: both
+        // directions refuted reads concurrent, and no other verdict is
+        // known before exhaustion.
+        |le, ge| {
+            if !le && !ge {
+                ControlFlow::Break(None)
+            } else {
+                ControlFlow::Continue(())
+            }
+        },
+        // At exhaustion every flag combination is a verdict.
+        |le, ge| match (le, ge) {
+            (true, true) => Some(Ordering::Equal),
+            (true, false) => Some(Ordering::Less),
+            (false, true) => Some(Ordering::Greater),
+            (false, false) => None,
+        },
+    )
 }
 
 /// Whether two projected skylines denote the same version.
 ///
 /// Semantic equality of the projections (the gated step functions agree
-/// pointwise), decided by the same fused merge as [`causal_cmp`] with the
-/// equality mode's earlier exit: any nonzero projected difference refutes
+/// pointwise), decided by the same fused merge as [`causal_cmp`] with
+/// equality's earlier exit: any nonzero projected difference refutes
 /// it. No byte shortcut exists — the projections are never materialized,
 /// so there are no canonical bytes to compare.
 ///
@@ -129,28 +143,19 @@ pub fn eq(
     b: &BitsSlice,
     b_mask: Option<&BitsSlice>,
 ) -> bool {
-    let (le, ge) = Walk::open(a, a_mask, b, b_mask).run(Mode::Equality);
-    le && ge
-}
-
-/// The question a walk answers, hence the earliest point it may stop.
-#[derive(Clone, Copy)]
-enum Mode {
-    /// The full order: stop only when both directions are excluded.
-    Order,
-    /// Equality: stop when either direction is excluded.
-    Equality,
-}
-
-impl Mode {
-    /// Whether the surviving-direction flags already decide this mode's
-    /// question.
-    fn decided(self, le: bool, ge: bool) -> bool {
-        match self {
-            Mode::Order => !le && !ge,
-            Mode::Equality => !le || !ge,
-        }
-    }
+    Walk::open(a, a_mask, b, b_mask).run(
+        // Equality stops the moment either direction is refuted: any
+        // nonzero projected difference refutes it.
+        |le, ge| {
+            if !le || !ge {
+                ControlFlow::Break(false)
+            } else {
+                ControlFlow::Continue(())
+            }
+        },
+        // Surviving both directions to exhaustion is equality.
+        |le, ge| le && ge,
+    )
 }
 
 /// The cursor set and integrators of one masked comparison.
@@ -213,13 +218,21 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Run the merge, returning the surviving directions
-    /// `(a′ <= b′, b′ <= a′)` over the projected skylines.
+    /// Run the merge over the projected skylines, generic over the
+    /// question asked of the surviving directions `(a′ <= b′, b′ <= a′)`.
     ///
-    /// The pair is truthful only for the question `mode` asks: an early
-    /// exit leaves the direction the mode does not need wherever the
-    /// folded prefix left it.
-    fn run(mut self, mode: Mode) -> (bool, bool) {
+    /// After each interval's sign fold, `exit` sees the surviving flags
+    /// and may declare the question decided — the `Break` payload
+    /// carries the verdict, so the earliest stop and its answer are one
+    /// value (an early exit leaves the direction the question does not
+    /// need wherever the folded prefix left it, which is why flags are
+    /// never handed back early). At exhaustion `finish` maps the
+    /// fully-swept flags.
+    fn run<V>(
+        mut self,
+        exit: impl Fn(bool, bool) -> ControlFlow<V>,
+        finish: impl FnOnce(bool, bool) -> V,
+    ) -> V {
         let (mut le, mut ge) = (true, true);
         loop {
             // One fold per elementary interval: the ownership case picks
@@ -247,8 +260,11 @@ impl<'a> Walk<'a> {
                 Ordering::Less => ge = false,
                 Ordering::Equal => {}
             }
-            if mode.decided(le, ge) || self.done() {
-                return (le, ge);
+            if let ControlFlow::Break(verdict) = exit(le, ge) {
+                return verdict;
+            }
+            if self.done() {
+                return finish(le, ge);
             }
             self.advance();
         }
