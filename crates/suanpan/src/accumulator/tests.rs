@@ -167,7 +167,7 @@ proptest! {
     /// entry points against the oracle.
     ///
     /// A stream applied through `add_magnitude`/`sub_magnitude` — via the
-    /// [`Magnitude`](super::Magnitude) implementation on `UBig`,
+    /// [`Magnitude`](crate::Magnitude) implementation on `UBig`,
     /// word-scale and wide values both — matches the oracle at every
     /// sign and at the final value.
     #[test]
