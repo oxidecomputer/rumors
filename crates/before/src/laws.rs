@@ -281,8 +281,8 @@ fn version_encoded_bits_matches_encode_len(a: &Version) -> bool {
 /// `concurrent`, the valuation identity tying `rank` to the lattice, the
 /// `distance`/`lag` metric laws, [`Ranked`]'s total order and its
 /// lexicographic key encoding, the degenerate-span identity tying
-/// span placement back to pairwise comparison, and the pair form
-/// of the spanning hull.
+/// span placement back to pairwise comparison, and the pair span's
+/// definitional pin.
 pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("merge_commutative", merge_commutative),
     ("meet_commutative", meet_commutative),
@@ -316,7 +316,7 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
         "degenerate_span_place_is_partial_cmp",
         degenerate_span_place_is_partial_cmp,
     ),
-    ("spanning_pair_is_the_hull", spanning_pair_is_the_hull),
+    ("span_is_the_pair_hull", span_is_the_pair_hull),
 ];
 
 /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
@@ -487,7 +487,7 @@ fn ranked_encoding_orders_like_ord(a: &Version, b: &Version) -> bool {
 /// coarsening to `placement_of`/`contains`, the nine-way
 /// [`Span::place`] verdict as a pure transcription of the two
 /// endpoint comparisons, its coarsenings to `dominance_of` and — on
-/// two-bounded ranges — to `bounded`, and the spanning hull's
+/// two-bounded ranges — to `bounded`, and the n-ary span's
 /// definitional pin at arity three.
 pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("merge_associative", merge_associative),
@@ -513,7 +513,7 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
         span_dominance_coarsens_place,
     ),
     ("bounded_coarsens_span_place", bounded_coarsens_span_place),
-    ("spanning_is_the_lattice_hull", spanning_is_the_lattice_hull),
+    ("span_all_is_the_lattice_hull", span_all_is_the_lattice_hull),
 ];
 
 /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
@@ -829,22 +829,22 @@ fn bounded_coarsens_span_place(a: &Version, b: &Version, c: &Version) -> bool {
     true
 }
 
-/// The spanning hull at arity three: endpoints definitionally the
-/// n-ary meet and join, input order irrelevant, every input within.
+/// The n-ary span at arity three: endpoints definitionally the n-ary
+/// meet and join over `{receiver} ∪ items`, every input within.
 ///
 /// The endpoints are [`Version::meet_all`] and
-/// [`Version::join_all`] over the inputs; permuting the inputs changes
-/// nothing (the fold laws' order-independence, observed through the
-/// door); and every input places within the hull — never
+/// [`Version::join_all`] over all three inputs; which input rides as
+/// the receiver is irrelevant and so is item order (the fold laws'
+/// order-independence, observed through the door); and every input
+/// places within the hull — never
 /// [`Before`](Placement::Before) or [`After`](Placement::After), since
 /// the meet bounds each input from below and the join from above.
-fn spanning_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
-    let hull = Span::spanning([a, b, c]).expect("a triple is nonempty");
+fn span_all_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
+    let hull = a.span_all([b, c]);
     let meet = Version::meet_all([a, b, c]).expect("a triple is nonempty");
     let join = Version::join_all([a, b, c]);
     let definitional = hull == Span::ordered(&meet, &join);
-    let permuted = hull == Span::spanning([c, a, b]).expect("a triple is nonempty")
-        && hull == Span::spanning([b, c, a]).expect("a triple is nonempty");
+    let permuted = hull == c.span_all([a, b]) && hull == b.span_all([c, a]);
     let contained = [a, b, c]
         .into_iter()
         .all(|v| !matches!(hull.place(v), Placement::Before | Placement::After));
@@ -876,25 +876,27 @@ fn degenerate_span_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
     true
 }
 
-/// The spanning hull of a pair: endpoints the pair's meet and join,
-/// commutative, subsuming the flip repair on comparable pairs, and the
-/// coincident `[v, v]` on a lone version.
+/// The pair span: endpoints the pair's meet and join, commutative,
+/// subsuming the flip repair on comparable pairs, and coherent with
+/// the n-ary form at its edges (the empty iterator is the coincident
+/// `[self, self]`, one item is the binary span).
 ///
 /// On a comparable pair the hull *is* the reordered pair (either
 /// orientation yields the validated span); on a concurrent pair
 /// the meet/join bracket is the only span containing both.
-fn spanning_pair_is_the_hull(a: &Version, b: &Version) -> bool {
-    let hull = Span::spanning([a, b]).expect("a pair is nonempty");
+fn span_is_the_pair_hull(a: &Version, b: &Version) -> bool {
+    let hull = a.span(b);
     let (meet, join) = (a & b, a | b);
     let definitional = hull == Span::ordered(&meet, &join);
-    let commutative = hull == Span::spanning([b, a]).expect("a pair is nonempty");
+    let commutative = hull == b.span(a);
     let flip_subsumed = match a.partial_cmp(b) {
         Some(Ordering::Less | Ordering::Equal) => hull == Span::ordered(a, b),
         Some(Ordering::Greater) => hull == Span::ordered(b, a),
         None => true, // no reordering exists; the bracket is definitional
     };
-    let singleton = Span::spanning([a]).expect("a singleton is nonempty") == Span::ordered(a, a);
-    definitional && commutative && flip_subsumed && singleton
+    let empty_edge = a.span_all(core::iter::empty::<&Version>()) == Span::ordered(a, a);
+    let unary_edge = a.span_all([b]) == hull;
+    definitional && commutative && flip_subsumed && empty_edge && unary_edge
 }
 
 // ───────────────────────────── Party: one value ─────────────────────────────

@@ -62,8 +62,9 @@
 //! — and [`Span::dominance_of`] coarsens it to the three-way
 //! [`Dominance`] verdict a filter over version-bounded regions consumes.
 //! Every nonempty collection of versions has a tightest containing
-//! span — its lattice hull — derived by [`Span::spanning`], the
-//! one total construction door.
+//! span — its lattice hull — derived by [`Version::span`] and
+//! [`Version::span_all`], the total construction doors living beside
+//! the join/meet family they compose.
 //!
 //! The module's placement questions have exactly two semantic roots:
 //! pairwise comparison ([`partial_cmp`](PartialOrd::partial_cmp) on
@@ -87,9 +88,9 @@
 //! a [`Range`] or [`Span`] stores two borrows. Pairing a start with
 //! an end — or validating a span through [`Span::new`] — costs
 //! at most one causal comparison, `O(|s| + |e|)` in the bounds' packed
-//! sizes ([`Span::ordered`] skips even that). The one deriving
-//! constructor, [`Span::spanning`], mints its endpoints through two
-//! balanced lattice folds (its own doc prices them). The
+//! sizes ([`Span::ordered`] skips even that). The deriving
+//! constructors live on [`Version`] ([`span`](Version::span) and
+//! [`span_all`](Version::span_all), priced at the methods). The
 //! placement family — [`bounded`](Range::bounded),
 //! [`contains`](Range::contains),
 //! [`placement_of`](Range::placement_of), [`Span::place`], and
@@ -98,7 +99,7 @@
 //! |e|)` in the operands' packed sizes (see [`Version`]), each stream
 //! decoded once.
 //!
-//! **Complexity**: borrowing constructors `O(1)` (`spanning`: two balanced folds, priced at the method); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.
+//! **Complexity**: borrowing constructors `O(1)` (the deriving `span`/`span_all` priced on `Version`); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.
 //!
 //! ```
 //! use before::{Clock, causally};
@@ -131,7 +132,7 @@
 //! assert!(causally::delta(&b1, &a1).is_err());
 //! ```
 
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::ops::{Bound, RangeBounds};
 
@@ -549,9 +550,10 @@ pub enum Bounded {
 /// pair, rejecting a reversed or incomparable one with [`Crossed`];
 /// [`ordered`](Self::ordered) trusts a caller who already holds
 /// `lo <= hi` structurally and skips the validating comparison; and
-/// [`spanning`](Self::spanning) *derives* the span — the tightest
-/// one containing every version in a collection — total where the
-/// first two must reject or trust.
+/// the derived constructors on [`Version`] — [`span`](Version::span)
+/// and [`span_all`](Version::span_all), beside the join/meet family
+/// they compose — *derive* the span as a collection's lattice hull,
+/// total where the first two must reject or trust.
 ///
 /// ```
 /// use before::{Clock, causally::{Dominance, Endpoint, Span, Placement}};
@@ -630,91 +632,22 @@ impl<'a> Span<'a> {
         }
     }
 
-    /// The deriving door: the tightest span containing every
-    /// version in `items` — `[⋀ items, ⋁ items]`, the lattice hull —
-    /// or [`None`] for an empty iterator.
+    /// The crate-internal owned door: a span from endpoints the caller
+    /// derived as one collection's meet and join.
     ///
-    /// The one *total* door over arbitrary versions: where
-    /// [`new`](Self::new) must reject a pair no chain connects,
-    /// every nonempty collection has a hull, its endpoints the
-    /// collection's meet and join. On comparable versions the hull
-    /// *is* the reordered pair (the meet and join of comparable
-    /// versions are the smaller and the larger), so `spanning`
-    /// subsumes the flip repair [`new`](Self::new) declines to
-    /// perform — and it is deliberately the only repair offered:
-    /// silently reordering a caller's *stated* endpoints would hide
-    /// the caller bug [`Crossed`] surfaces, and no reordering exists
-    /// for a concurrent pair, whose hull's endpoints are fresh
-    /// versions bracketing both inputs.
-    ///
-    /// The items may be owned versions or references — anything that
-    /// [borrows](Borrow) as a [`Version`], the
-    /// [`join_all`](Version::join_all) calling convention. Borrowed
-    /// operands are read in place; the endpoints are minted owned, so
-    /// the hull borrows nothing from the collection.
-    ///
-    /// An empty iterator yields [`None`] for
-    /// [`meet_all`](Version::meet_all)'s reason: the empty join is
-    /// the empty version, but the lattice has no top, so the empty
-    /// meet — and with it the empty hull — has no value.
-    ///
-    /// The `spanning_pair_is_the_hull` and
-    /// `spanning_is_the_lattice_hull` laws in [`laws`](crate::laws)
-    /// pin the door: the endpoints are definitionally
-    /// [`meet_all`](Version::meet_all) and
-    /// [`join_all`](Version::join_all), input order is irrelevant,
-    /// every input places within the hull (never
-    /// [`Before`](Placement::Before) or [`After`](Placement::After)),
-    /// a lone version's hull is the coincident `[v, v]`, and a
-    /// comparable pair's hull is its validated span, either way
-    /// around.
-    ///
-    /// ```
-    /// use before::{Clock, Version, causally::{Span, Placement}};
-    ///
-    /// let mut alice = Clock::seed();
-    /// let mut bob = alice.fork();
-    /// let a1 = alice.tick().clone();
-    /// let a2 = alice.tick().clone();
-    /// let b1 = bob.tick().clone(); // concurrent to alice's line
-    ///
-    /// // Comparable versions: the hull is the pair, reordered.
-    /// let flat = Span::spanning([&a2, &a1]).unwrap();
-    /// assert_eq!(flat, Span::new(&a1, &a2).unwrap());
-    /// // A concurrent pair has no ordering to repair, but it has a
-    /// // hull: both inputs sit strictly inside it.
-    /// let hull = Span::spanning([&a1, &b1]).unwrap();
-    /// assert_eq!(hull.place(&a1), Placement::Between);
-    /// assert_eq!(hull.place(&b1), Placement::Between);
-    /// // The hull of nothing does not exist: the lattice has no top.
-    /// assert!(Span::spanning(Vec::<&Version>::new()).is_none());
-    /// ```
-    ///
-    /// # Complexity
-    ///
-    /// Two balanced folds over the buffered items — the meet and the
-    /// join — with `D` the items' total packed size and `k` their
-    /// number.
-    ///
-    /// **Complexity**: `O(D log k)` time, `O(D)` space.
-    pub fn spanning<I>(items: I) -> Option<Self>
-    where
-        I: IntoIterator,
-        I::Item: Borrow<Version>,
-    {
-        // Buffer once, fold twice: the hull needs both lattice
-        // directions and a one-shot iterator cannot feed two folds.
-        // Both folds read the buffered items in place; a paired
-        // single-pass fold would save the buffer but duplicate the
-        // balanced counter's ownership dance for a pair accumulator —
-        // machinery the two committed folds already carry singly.
-        let items: Vec<I::Item> = items.into_iter().collect();
-        let lo = Version::meet_all(items.iter().map(Borrow::borrow))?;
-        let hi = Version::join_all(items.iter().map(Borrow::borrow));
-        Some(Self {
+    /// [`Version::span`] and [`Version::span_all`] construct through
+    /// here — their endpoints are minted owned, so the span borrows
+    /// nothing. The caller's derivation must guarantee `lo <= hi`
+    /// (a meet/join pair over one nonempty collection always does).
+    pub(crate) fn owned(lo: Version, hi: Version) -> Span<'static> {
+        debug_assert!(
+            lo <= hi,
+            "Span::owned requires lo <= hi: the endpoints must be one collection's meet and join"
+        );
+        Span {
             lo: Cow::Owned(lo),
             hi: Cow::Owned(hi),
-        })
+        }
     }
 
     /// Places `probe` against this span at full resolution: the

@@ -6,6 +6,7 @@ use core::fmt::Display;
 use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div};
 
+use crate::causally;
 use crate::codec;
 use crate::error::{Decode, Parse};
 use crate::Party;
@@ -531,6 +532,183 @@ impl Version {
         Self::balanced_fold(iter, Self::meet_refs, Self::meet_view)
     }
 
+    /// The causal span from this version to `other`: the tightest
+    /// [`Span`](crate::causally::Span) containing both —
+    /// `[self & other, self | other]`, the pair's lattice hull.
+    ///
+    /// The binary form of [`span_all`](Self::span_all), and *total*
+    /// where the validating door
+    /// ([`Span::new`](crate::causally::Span::new)) must reject a pair
+    /// no chain connects. On comparable versions the hull *is* the
+    /// pair, reordered (the meet and join of comparable versions are
+    /// the smaller and the larger), so `span` subsumes the flip repair
+    /// `new` declines to perform — and it is deliberately the only
+    /// repair offered: silently reordering a caller's *stated*
+    /// endpoints would hide the caller bug
+    /// [`Crossed`](crate::error::Crossed) surfaces, and no reordering
+    /// exists for a concurrent pair, whose hull's endpoints are fresh
+    /// versions bracketing both inputs.
+    ///
+    /// Both operands are read in place; the endpoints are minted
+    /// owned, so the span borrows neither. The `span_is_the_pair_hull`
+    /// law in [`laws`](crate::laws) pins the door: the endpoints are
+    /// definitionally the pair's meet and join, operand order is
+    /// irrelevant, a comparable pair's hull is its validated span
+    /// either way around, and the n-ary form agrees at its edges.
+    ///
+    /// # Complexity
+    ///
+    /// One meet and one join over the pair.
+    ///
+    /// **Complexity**: `O(a + b)`.
+    ///
+    /// ```
+    /// use before::{Clock, causally::{Placement, Span}};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let va2 = a.tick().clone();
+    /// let vb = b.tick().clone(); // concurrent to alice's line
+    ///
+    /// // Comparable versions: the hull is the pair, reordered —
+    /// // the flip repair, from either operand order.
+    /// assert_eq!(va2.span(&va), Span::new(&va, &va2).unwrap());
+    /// assert_eq!(va.span(&va2), Span::new(&va, &va2).unwrap());
+    /// // A concurrent pair has no reordering to repair, but it has a
+    /// // hull: both inputs sit strictly inside it.
+    /// let hull = va.span(&vb);
+    /// assert_eq!(hull.place(&va), Placement::Between);
+    /// assert_eq!(hull.place(&vb), Placement::Between);
+    /// ```
+    pub fn span(&self, other: &Version) -> causally::Span<'static> {
+        causally::Span::owned(Self::meet_refs(self, other), Self::join_refs(self, other))
+    }
+
+    /// The causal span of this version and every version in `others`:
+    /// the tightest [`Span`](crate::causally::Span) containing them all
+    /// — `[⋀ ({self} ∪ others), ⋁ ({self} ∪ others)]`, the lattice
+    /// hull.
+    ///
+    /// The receiver is the guaranteed first element, and that is what
+    /// makes the construction *total*: the lattice has no top, so the
+    /// hull of *nothing* has no value
+    /// ([`meet_all`](Self::meet_all) returns [`Option`] for exactly
+    /// that reason) — seeded with `self`, the folds are never empty,
+    /// and an empty iterator yields the coincident `[self, self]`.
+    ///
+    /// The items may be owned versions or references — anything that
+    /// [borrows](Borrow) as a [`Version`], the
+    /// [`join_all`](Self::join_all) calling convention. Borrowed
+    /// operands are read in place; the endpoints are minted owned, so
+    /// the span borrows nothing from the collection.
+    ///
+    /// The `span_all_is_the_lattice_hull` and `span_is_the_pair_hull`
+    /// laws in [`laws`](crate::laws) pin the door: the endpoints are
+    /// definitionally [`meet_all`](Self::meet_all) and
+    /// [`join_all`](Self::join_all) over `{self} ∪ others`, which
+    /// element rides as the receiver is irrelevant and so is item
+    /// order, every input places within the hull (never
+    /// [`Before`](crate::causally::Placement::Before) or
+    /// [`After`](crate::causally::Placement::After)), the empty
+    /// iterator yields `[self, self]`, and at one item the n-ary form
+    /// is [`span`](Self::span).
+    ///
+    /// # Complexity
+    ///
+    /// One balanced fold over `{self} ∪ others`, the accumulator
+    /// carrying both hull endpoints through a single pass — the
+    /// iterator is never buffered, and a leaf combine derives its
+    /// pair hull directly — with `D` the inputs' total packed size
+    /// and `k` their number.
+    ///
+    /// **Complexity**: `O(D log k)` time, `O(D)` space.
+    ///
+    /// ```
+    /// use before::{Clock, Version, causally::{Placement, Span}};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let vb = b.tick().clone();
+    /// let va2 = a.tick().clone();
+    ///
+    /// // The hull of a collection: every input places within it.
+    /// let hull = va.span_all([&vb, &va2]);
+    /// for v in [&va, &vb, &va2] {
+    ///     assert!(!matches!(hull.place(v), Placement::Before | Placement::After));
+    /// }
+    /// // The empty iterator is the coincident single-version span:
+    /// // the receiver keeps the hull total.
+    /// assert_eq!(
+    ///     va.span_all(Vec::<Version>::new()),
+    ///     Span::new(&va, &va).unwrap(),
+    /// );
+    /// ```
+    pub fn span_all<I>(&self, others: I) -> causally::Span<'static>
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        // One balanced fold, two-sided accumulator: the hull needs both
+        // lattice directions, and carrying `(lo, hi)` through the
+        // counter feeds them from a single pass — the caller's iterator
+        // is never buffered, and each input is read at its combines
+        // alone. A leaf combine (two raw inputs) derives the pair hull;
+        // an interior combine folds per side, because its two legs read
+        // *different* operand pairs (`lo₁ ∧ lo₂` and `hi₁ ∨ hi₂`) — no
+        // shared pair walk exists there to fuse.
+        let inputs = core::iter::once(SpanInput::Receiver(self))
+            .chain(others.into_iter().map(SpanInput::Item))
+            .map(Hull::Input);
+        let group = crate::fold::balanced_reduce(inputs, |a, b| {
+            let (lo, hi) = match (a, b) {
+                // A leaf combine: two raw inputs derive their pair hull.
+                (Hull::Input(a), Hull::Input(b)) => {
+                    let (a, b) = (a.version(), b.version());
+                    (Self::meet_refs(a, b), Self::join_refs(a, b))
+                }
+                (Hull::Merged { mut lo, mut hi }, Hull::Input(b)) => {
+                    let b = b.version();
+                    lo.meet_view(b.view());
+                    hi.join_view(b.view());
+                    (lo, hi)
+                }
+                (
+                    Hull::Merged {
+                        lo: mut a_lo,
+                        hi: mut a_hi,
+                    },
+                    Hull::Merged { lo: b_lo, hi: b_hi },
+                ) => {
+                    a_lo.meet_view(b_lo.view());
+                    a_hi.join_view(b_hi.view());
+                    (a_lo, a_hi)
+                }
+                // Unreachable through the counter's weight discipline (a
+                // weight-0 lone input never sits below a merged group in
+                // the closing drain), but the match stays total rather
+                // than asserting: both sides' combiners are commutative,
+                // so folding the raw input into the owned hull is
+                // value-identical.
+                (Hull::Input(a), Hull::Merged { mut lo, mut hi }) => {
+                    let a = a.version();
+                    lo.meet_view(a.view());
+                    hi.join_view(a.view());
+                    (lo, hi)
+                }
+            };
+            Hull::Merged { lo, hi }
+        });
+        match group.expect("the fold is seeded with the receiver: never empty") {
+            // The receiver alone (an empty iterator): the coincident
+            // span, the one place an input itself becomes the hull.
+            Hull::Input(input) => {
+                let v = input.version();
+                causally::Span::owned(v.clone(), v.clone())
+            }
+            Hull::Merged { lo, hi } => causally::Span::owned(lo, hi),
+        }
+    }
+
     /// The balanced reduction under [`join_all`](Self::join_all) and
     /// [`meet_all`](Self::meet_all): fold items that [borrow](Borrow) as
     /// [`Version`] through [`crate::fold::balanced_reduce`] without
@@ -840,6 +1018,42 @@ enum Group<B> {
     Input(B),
     /// The owned running result of one or more combines.
     Merged(Version),
+}
+
+/// One raw input to [`Version::span_all`]'s fold: the receiver rides by
+/// borrow, the caller's items in their own form (owned or borrowed
+/// through [`Borrow`], never cloned on entry).
+enum SpanInput<'r, B> {
+    /// The receiver: the guaranteed first element that keeps the hull
+    /// total.
+    Receiver(&'r Version),
+    /// One of the caller's items.
+    Item(B),
+}
+
+impl<B: Borrow<Version>> SpanInput<'_, B> {
+    /// The borrowed version this input contributes.
+    fn version(&self) -> &Version {
+        match self {
+            SpanInput::Receiver(v) => v,
+            SpanInput::Item(b) => b.borrow(),
+        }
+    }
+}
+
+/// One group in [`Version::span_all`]'s counter: [`Group`]'s shape with
+/// the two-sided hull accumulator, so one balanced fold carries both
+/// lattice directions.
+enum Hull<'r, B> {
+    /// An input the fold has not yet combined.
+    Input(SpanInput<'r, B>),
+    /// The owned running hull of one or more combines.
+    Merged {
+        /// The running meet of every input combined so far.
+        lo: Version,
+        /// The running join of every input combined so far.
+        hi: Version,
+    },
 }
 
 /// The empty [`Version`] (same as [`Version::new`]).
