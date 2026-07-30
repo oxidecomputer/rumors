@@ -8442,12 +8442,23 @@ mod span {
         );
     }
 
-    /// GREEN PIN: the fused hull folds each crossing into the running
-    /// difference once — the accumulator-traffic face of the fusion.
+    /// GREEN PIN: the fused hull decodes the pair once at arithmetic
+    /// width, and folds each crossing into ONE shared running
+    /// difference — the two meter faces of the fusion, one leg each.
     ///
-    /// A two-accumulator spelling (each emission keeping its own
-    /// difference) would read exactly the composed sum; the strict
-    /// undercut is what pins the sharing.
+    /// The limb leg pins the decode sharing at arithmetic width: each
+    /// wide-gamma decode records one value-width limb count, and the
+    /// composed emitters decode every operand twice. Its witness is an
+    /// unfused hull that decodes per emission; it is blind to the
+    /// accumulator, whose folds record no limb ops.
+    ///
+    /// The touch leg pins the crossing-fold sharing: accumulator digit
+    /// touches are exactly the traffic the fusion halves, so a
+    /// two-accumulator spelling (each emission keeping its own
+    /// difference, operands still decoded once) reads the composed
+    /// folds back and fails the strict undercut — constructed and
+    /// verified red in review136; the limb leg alone read that fake
+    /// byte-identically to the true fusion.
     #[cfg(feature = "limb-meter")]
     #[test]
     fn span_shares_the_crossing_folds() {
@@ -8470,8 +8481,31 @@ mod span {
         assert!(fused > 0, "a live limb meter reads nonzero on a real walk");
         assert!(
             fused < met + joined,
-            "the fused hull must fold each crossing once: one shared \
-             difference, not one per emission ({fused} vs {} composed)",
+            "the fused hull must decode the pair once at arithmetic width \
+             ({fused} vs {} composed)",
+            met + joined
+        );
+
+        let touches = |f: &dyn Fn()| {
+            suanpan::touch_meter::reset();
+            f();
+            suanpan::touch_meter::touches()
+        };
+        let fused = touches(&|| {
+            let _ = s.span(&v);
+        });
+        let met = touches(&|| {
+            let _ = &s & &v;
+        });
+        let joined = touches(&|| {
+            let _ = &s | &v;
+        });
+        eprintln!("MEASURED span_pair_touches: fused={fused} meet={met} join={joined}");
+        assert!(fused > 0, "a live touch meter reads nonzero on a real walk");
+        assert!(
+            fused < met + joined,
+            "the fused hull must fold each crossing into one shared \
+             difference, not one per emission ({fused} vs {} composed touches)",
             met + joined
         );
     }
