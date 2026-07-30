@@ -507,6 +507,10 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ),
     ("bounded_coarsens_span_place", bounded_coarsens_span_place),
     ("span_all_is_the_lattice_hull", span_all_is_the_lattice_hull),
+    (
+        "fold_all_arity_five_matches_the_pair_folds",
+        fold_all_arity_five_matches_the_pair_folds,
+    ),
 ];
 
 /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
@@ -861,6 +865,29 @@ fn span_all_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
     let wide = a.span_all([b, c, a, b]);
     let every_arm = wide == Span::ordered(&meet, &join);
     definitional && accessors && permuted && contained && every_arm
+}
+
+/// The n-ary lattice folds at arity five: `join_all`/`meet_all` over
+/// `[a, b, c, a, b]` equal the sequential pair folds over `{a, b, c}` —
+/// idempotence collapses the repeats, so the wide feed may move the
+/// fold's grouping but never its value.
+///
+/// Arity five drives the balanced counter under both folds through
+/// every reachable combine arm: two leaf (input–input) combines, the
+/// in-counter merged–merged combine — first reachable at arity four,
+/// beyond every other triple law's reach — and the closing merged–input
+/// drain. The five inputs are `a, b, c, a, b` — repeats, not lattice
+/// derivatives: the counter's two weight-1 groups are then `a ∘ b` and
+/// `c ∘ a`, each carrying a raw input the other lacks, so an arm that
+/// drops or misreads a merged operand loses a fresh input and diverges
+/// (derived items like `b ∧ c` would be absorbed by `b` and `c` and
+/// leave the misread invisible). The right-hand sides are the bound
+/// pair operators, never the n-ary door, so the two sides of the
+/// compare cannot share a broken arm.
+fn fold_all_arity_five_matches_the_pair_folds(a: &Version, b: &Version, c: &Version) -> bool {
+    let join_wide = Version::join_all([a, b, c, a, b]);
+    let meet_wide = Version::meet_all([a, b, c, a, b]).expect("a five-input meet is nonempty");
+    join_wide == (&(a | b) | c) && meet_wide == (&(a & b) & c)
 }
 
 /// `place` against the degenerate span `[v, v]` is pairwise
