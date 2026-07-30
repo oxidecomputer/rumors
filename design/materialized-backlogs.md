@@ -20,17 +20,21 @@ number, independently consumed, resumable across restarts.
 ## Rulings (Finch, 2026-07-29/30)
 
 1. **`Rank::{encode, decode}` is the canonical wire representation of
-   `Rank`**, added to `before` on the **before-hardening branch** (its
-   eventual state; the addition cherry-picks into persistent-storage's
-   `crates/before` until the branches converge). Laws proptested beside
-   `Ord`: strict canonical decode, round-trip, byte-equality ≡ value
-   equality, **lexicographic order preservation** (x < y ⟺ encode(x) <lex
-   encode(y)), injectivity, **prefix-freeness** (sanctions mid-key
-   embedding). dsi-bitstream (already before-hardening's read-side dep)
-   supplies decode's bit reading (`DsiCursor`); writers stay in-house per
-   the existing pattern. The integer code is the *order-preserving*
-   length-recursive variant, NOT textbook Elias-ω (γ/δ/ω are prefix-free
-   but not memcomparable — ω(3)=110 > ω(4)=101000 bitwise).
+   `Rank`**, added to `before` on the **before-hardening branch**. Laws
+   proptested beside `Ord`: strict canonical decode, round-trip,
+   byte-equality ≡ value equality, **lexicographic order preservation**
+   (x < y ⟺ encode(x) <lex encode(y)), injectivity, **prefix-freeness**
+   (sanctions mid-key embedding).
+   *Status: done by convergence.* The wire form landed on
+   before-hardening and this branch has since been rebased onto it, so
+   one `crates/before` serves both and the cherry-pick interregnum this
+   ruling provided for never opens. The landed mechanism supersedes the
+   sketch the ruling was made against — the decoder is in-house end to
+   end (dsi-bitstream's decoders are documented non-total on untrusted
+   input, so none can serve a strict seam), and the integral code is an
+   inverted-polarity Elias delta rather than a length-recursive
+   variant; §A names the landed laws, and the rank rustdoc carries the
+   derivation.
 2. **Rows are pin-table references**: a backlog row holds a `NodeId`; a
    new **unswept** pin table keeps the referenced leaf record alive
    through tree-side redaction until acknowledged. (Both design slices
@@ -52,68 +56,53 @@ number, independently consumed, resumable across restarts.
 
 ## Design
 
-### A. `before`: `Rank::{encode, decode}` (branch off before-hardening)
+### A. `before`: the `Rank` wire form (landed)
 
-Value model (verified identical on both branches): `Rank { num: Base,
-exp: u32 }`, normalized (`num` odd, or zero with `exp` 0). Derive:
-integer part `I = num >> exp`; fraction bits `F` = the low `exp` bits of
-`num`, MSB-first — canonical: empty, or ending in 1.
+The canonical order-preserving byte encoding of `Rank` that this design
+requires landed in `before` during the before-hardening campaign and is
+in the tree this document sits in. This section is the
+requirements-of-record the backlog schema consumes, each requirement
+pinned by name in `before`'s law suite; the mechanism — the
+prefix-ascending bit stream, its integral and fraction layers, and the
+alternatives it refutes — lives in the rustdoc of record (the rank
+module documentation and `Rank::encode`), and this document
+deliberately does not restate it.
 
-- **Integer section** (byte-aligned, self-delimiting, order-preserving):
-  header byte `h = L` for magnitude byte-length `L ≤ 250` (BE, no
-  leading zero byte; `I = 0` ⇒ `L = 0`, no magnitude); headers
-  `251/252/253/254` mean the next `2/3/4/8` bytes are `L` BE (minimal
-  tier required; `255` reserved) — a completeness backstop, ordered
-  correctly since escalated headers sort after every direct `L`.
-- **Fraction section** (prefix-free group coding): F's bits packed 7 per
-  byte, high-to-low, each byte `[payload:7][continuation:1]` with the
-  continuation bit in the LOW bit — payload compares first. Final group
-  zero-padded, continuation 0. **Empty F emits one mandatory `0x00`
-  byte.** Order preservation: differing payload bits decide both orders
-  identically; a proper bit-prefix's final group has continuation 0
-  where the longer (numerically greater — canonical F ends in 1) has
-  continuation 1 or a payload 1 in the shadow. **Prefix-freedom is
-  proven, not assumed**: a proper byte-prefix truncates the integer
-  segment (header demands exact length), ends on a continuation-1 byte
-  (not a valid final group), or omits the mandatory fraction byte —
-  never valid. This is the law that licenses mid-key embedding.
-- **decode**: strict and canonical (house discipline) — reject
-  non-minimal headers/tiers, leading-zero magnitudes, a non-`0x00` final
-  group with all-zero payload; self-delimiting from a reader (no
-  external framing). Reconstruct `exp` from F's final 1; `num =
-  (I << exp) | F`. `Rank::ZERO` = `[0x00, 0x00]`, pinned as a byte
-  literal. dsi-bitstream's `DsiCursor` (already before-hardening's
-  read-side dep) for bit reading; writers in-house per the existing
-  pattern.
-- **API** (matching `Version`'s canonical surface at before-hardening
-  version.rs:565-656): `encode() -> Vec<u8>`, `encode_to<W: Write>`,
-  `decode<R: Read> -> Result<Self, Decode>`, `encoded_len()`. No
-  `as_bytes` (Version caches its bits; Rank is computed — stated as a
-  negative-space clause). Docs headline the ordering law, state
-  prefix-freedom as a guarantee, and carry the representation-
-  independence contract (the encoding is a function of the VALUE — the
-  Bytes repr refactor changes internals under it, law tests as
-  tripwire).
-- **Laws** (proptests beside `Ord`; adversarial `(num, exp)` via
-  pub(crate) `from_raw` + random `Version::rank()`s including forked
-  shapes so equal-rank pairs occur): round-trip both directions, order
-  preservation, injectivity, prefix-freedom, strict-decode rejection
-  witnesses, and **byte-literal pins** for ZERO/small integers/sample
-  dyadics — this is a canonical wire format now; its bytes are pinned
-  like Version's.
-- **Borsh**: yes — `borsh_impls.rs` gains the same transparent
-  passthrough Version uses (serialize = encode_to, deserialize = strict
-  decode; self-delimiting makes it sound). Serde deferred.
-- **Confluence**: one commit chain on a branch off before-hardening
-  (worktree /Users/oxide/src/rumors-before-hardening; verify base),
-  gate-clean there; **cherry-pick onto persistent-storage's
-  `crates/before`** — additive to rank.rs/error.rs/borsh_impls.rs +
-  tests; the byte pins compile identically on both sides, so interregnum
-  divergence is mechanically visible as a pin mismatch, never silent.
-  At branch convergence the duplicates resolve; pins prove
-  byte-identity. Implementer verifies `Decode`'s variant fit (adds one
-  only if none fits) and the law tests' home in before-hardening's
-  layout.
+- **Order preservation (lex == Ord)**: x < y ⟺ encode(x) <lex
+  encode(y), pinned four ways — `rank_lex_encoding_orders_like_ord`
+  (generated rank pairs, equal pairs included),
+  `rank_lex_encoding_orders_versions` (oracle-generated versions),
+  `rank_encoding_exhaustive_small_scope` (every rank in the small
+  scope), and the strictly ascending byte-literal battery
+  `rank_encoding_known_values`.
+- **Embedding safety (prefix-freedom)**: two encodings order correctly
+  even mid-key with arbitrary suffixes riding behind them — exactly
+  the `rumors:backlog-rows` composite-key contract (§B). Pinned by
+  `rank_lex_encoding_is_suffix_safe` (generated suffixes) and
+  `rank_encoding_is_suffix_safe_at_the_padding_seam` (the constructed
+  padding-boundary worst case). These pins are a ratchet from a
+  refuted draft, not decoration: the adversarial review of the wire
+  form constructed an embedding witness that caught a real
+  prefix-freedom defect before it froze.
+- **Strict canonical decode**: self-delimiting from a reader, with
+  every non-canonical genre rejected — witnessed genre by genre in
+  `rank_decoding_rejects_each_genre`.
+- **Byte-literal goldens**: the wire form is frozen by literal byte
+  pins (`rank_encoding_known_values`, `Rank::ZERO` included as a
+  pinned literal).
+- **Transports**: borsh (serialize is `encode_to`, deserialize is the
+  strict decode; self-delimiting is what makes the passthrough sound)
+  and serde impls both landed alongside the codec.
+- **The composite precedent**: `Ranked` — the rank-then-version-bytes
+  composite key whose byte order equals its `Ord` — landed with its
+  own embedding and rejection pins
+  (`ranked_composite_encoding_is_suffix_safe`,
+  `ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam`,
+  `ranked_decode_rejects_each_genre`); §B's row key applies the same
+  embedding discipline with a different fixed tail (the 32-byte
+  `Key`).
+- **Cost shape**: encoding size is provenance-linear, pinned by
+  `rank_encoding_size_is_provenance_linear`.
 
 ### B. Schema (`src/store/schema.rs`, house conventions: `rumors:` prefix,
 BE keys, panic-on-undecodable)
@@ -130,7 +119,8 @@ Four tables:
 - `rumors:backlog-rows` — key = `BacklogId(8) ‖ epoch(8 BE) ‖
   Rank::encode(var, prefix-free) ‖ Key(32)`; value = borsh
   `RowRecord { node: NodeId }`. Composite ordering is sound because
-  `Rank::encode` is prefix-free (law): the first differing position
+  `Rank::encode` is prefix-free (the suffix-safety laws named in §A):
+  the first differing position
   between two rank encodings lies inside both, so the fixed suffix never
   participates cross-rank; equal ranks compare the 32-byte keys —
   exactly the `(Rank, Key)` order of today's staged map, a linear
@@ -296,7 +286,7 @@ manager state on `Shared` beside `dedup`; budgets ≈ RELEASE_BUDGET = 64)
 - **Embedding adequacy**: the composite-key ordering law over generated
   rank pairs + keys, with the witness that a naive (non-prefix-free)
   fraction encoding fails it.
-- **before laws** (A) on before-hardening, gated there.
+- **before laws** (§A): landed with the wire form, gated in `before`.
 - **Measurement**: `bench_causal_replay`/`bench_causal_delta` vs a new
   backlog-drain bench, on ox-east-1 under `pset-run` — the memory claim
   (peak per pass = one stage budget, not the set) verified with a
@@ -319,9 +309,11 @@ persistent-storage; `just gate` (doc linters run on prose) before it.
 
 The implementation phases, recorded in the doc for whoever picks it up:
 
-- **B0** — before: `Rank::{encode, decode}` + laws + byte pins on a
-  branch off before-hardening; cherry-pick into persistent-storage's
-  `crates/before`; borsh passthrough. Gates on both.
+- **B0** — before: `Rank::{encode, decode}` + laws + byte pins; borsh
+  passthrough. *Done by convergence*: the wire form landed on
+  before-hardening, and this branch's rebase onto it is the
+  convergence the phase provided for — one `crates/before`, no
+  cherry-pick leg. §A names the landed pins.
 - **B1** — schema + custody: four tables, codecs, splitters, round-trip
   proptests; `pinned` probe, GC widening, recovery/vacuum drains
   (dropping + invisible epochs), audit extension; raw-schema crash
@@ -352,13 +344,11 @@ checks, gates) is specified inside the doc for the future implementer.
   controls boundaries explicitly.
 - The `T: BorshDeserialize` read bound is new; the not-chosen fallback
   (inline payload copies) must not drift back in silently.
-- Rank key length is linear in event-tree depth — a known linear cost,
+- Rank key size is provenance-linear (pinned by
+  `rank_encoding_size_is_provenance_linear`) — a known linear cost,
   stated in the codec docs, never a surprise.
 - `BacklogRecord` carries no format version (policy parity with
   `CanonicalRoot`); additive borsh evolution only.
-- Cherry-pick confluence: the before commit exists on two branches until
-  they merge; the rebase that reconciles them must verify the law tests
-  run identically on both (merge-seam discipline).
 - Open pre-merge item from the parent campaign still stands: task #16
   (A1 interning back-out call) blocks PR #8's merge, not this plan.
 
