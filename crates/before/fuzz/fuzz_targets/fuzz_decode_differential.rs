@@ -74,7 +74,6 @@ enum Genre {
     Truncated,
     TrailingBits,
     NotCanonical,
-    Anonymous,
 }
 
 /// The genre of a raw `Decode` rejection.
@@ -83,7 +82,6 @@ fn genre(error: &Decode) -> Genre {
         Decode::Truncated => Genre::Truncated,
         Decode::TrailingBits => Genre::TrailingBits,
         Decode::NotCanonical => Genre::NotCanonical,
-        Decode::Anonymous => Genre::Anonymous,
         Decode::Io(source) => unreachable!("slice reads never fail: {source}"),
     }
 }
