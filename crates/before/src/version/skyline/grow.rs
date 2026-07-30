@@ -346,7 +346,7 @@ fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, rep
         Repair::None => orig.to_bitvec(),
         // The successor is never the stream's first leaf (the grown
         // leaf precedes it), so its code is always a zigzag delta.
-        Repair::Minus(k) => recode(orig, false, false, k),
+        Repair::Minus(k) => recode(orig, Step::DownDelta, k),
     };
     out.leaf(depth + info.first_rel_depth, first_code);
     if info.first_rel_depth > 0 {
@@ -360,20 +360,39 @@ fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, rep
     ev.seek(info.end);
 }
 
-/// Re-code one leaf payload with its height stepped by `k`:
-/// `increment` up for the grown leaf, down for its successor.
+/// The three height steppings [`recode`] performs.
 ///
-/// `absolute` distinguishes the stream's first leaf (a plain gamma
-/// height) from every later one (a zigzag delta). One decode, one
-/// signed step, one re-encode — `O(the code's own width + the width of
-/// k)`, the only payload arithmetic in the whole emit.
-fn recode(code: &BitsSlice, increment: bool, absolute: bool, k: &Base) -> Bits {
+/// A stream's first leaf carries an absolute height and every later
+/// leaf a zigzag delta; only the grown leaf itself ever steps *up*. A
+/// down-stepped absolute height is therefore not a stepping at all —
+/// the variant does not exist, rather than being asserted away.
+#[derive(Clone, Copy)]
+enum Step {
+    /// The grown leaf as the stream's first: its absolute height rises
+    /// by `k`.
+    UpAbsolute,
+    /// The grown leaf behind a predecessor: its zigzag delta rises by
+    /// `k`.
+    UpDelta,
+    /// The grown leaf's successor: its zigzag delta drops by `k`,
+    /// undoing the raise the grown leaf's own step introduced.
+    DownDelta,
+}
+
+/// Re-code one leaf payload with its height stepped by `k`, per
+/// [`Step`].
+///
+/// One decode, one signed step, one re-encode — `O(the code's own
+/// width + the width of k)`, the only payload arithmetic in the whole
+/// emit.
+fn recode(code: &BitsSlice, step: Step, k: &Base) -> Bits {
     let (value, end) = codec::decode_int(code, 0).expect("canonical skyline bits");
     debug_assert_eq!(end, code.len(), "a payload range is exactly one code");
-    if absolute {
-        debug_assert!(increment, "only the grown leaf re-codes an absolute height");
-        return gamma_code(&(value + k));
-    }
+    let increment = match step {
+        Step::UpAbsolute => return gamma_code(&(value + k)),
+        Step::UpDelta => true,
+        Step::DownDelta => false,
+    };
     let (negative, magnitude) = unzigzag(value);
     let stepped = match (increment, negative) {
         // Stepping a nonnegative delta up, or a negative one further
@@ -541,7 +560,14 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
     let grown_code = if emitted_in_chain {
         gamma_code(&zigzag_signed(false, k.clone()))
     } else {
-        recode(orig, true, !fed_any, k)
+        // With nothing fed before it, the grown leaf is the output's
+        // first: its code is the absolute height, not a delta.
+        let step = if fed_any {
+            Step::UpDelta
+        } else {
+            Step::UpAbsolute
+        };
+        recode(orig, step, k)
     };
     out.leaf(d0 + chain, grown_code);
     // Fresh sibling leaves that follow the grown leaf, deepest first.
