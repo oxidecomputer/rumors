@@ -493,15 +493,15 @@ impl<T> Node<T> {
                 ceiling, children, ..
             } => ceiling.get_or_init(|| {
                 // The join (least upper bound) of the children's ceilings,
-                // accumulated from the empty version (the lattice bottom, the
-                // join identity). Path compression doesn't change which leaves
-                // the subtree contains, so the prefix plays no part. Join by
-                // reference so no child's version is cloned.
-                let mut version = Version::new();
-                for child in children.values() {
-                    version |= child.ceiling();
-                }
-                version
+                // through the balanced fold: every child passes through
+                // `O(log k)` joins of similarly sized operands instead of
+                // one join against the whole running result, and the
+                // children are borrowed in, so no child's version is
+                // cloned. Path compression doesn't change which leaves the
+                // subtree contains, so the prefix plays no part. The empty
+                // join (the empty version) cannot arise: a branch always
+                // has >= 2 children by the path-compression invariant.
+                Version::join_all(children.values().map(|child| child.ceiling()))
             }),
         }
     }
@@ -520,22 +520,18 @@ impl<T> Node<T> {
             Children::Branch {
                 floor, children, ..
             } => floor.get_or_init(|| {
-                // The meet (greatest lower bound) of the children's floors.
-                // Unlike the join, the meet has no identity element (there is
-                // no top version), so seed with the first child's floor and
-                // meet the rest in. A branch always has >= 2 children by the
-                // path-compression invariant, so `next()` cannot be empty.
-                // Meet by reference so no child's version is cloned.
-                let mut children = children.values();
-                let mut version = children
-                    .next()
+                // The meet (greatest lower bound) of the children's floors,
+                // through the balanced fold: every child passes through
+                // `O(log k)` meets of similarly sized operands instead of
+                // one meet against the whole running result (which a meet
+                // can keep full-size), and the children are borrowed in,
+                // so no child's version is cloned. Unlike the join, the
+                // meet has no identity element (there is no top version),
+                // so the fold is `None` exactly on an empty iterator —
+                // which the path-compression invariant (a branch always
+                // has >= 2 children) rules out.
+                Version::meet_all(children.values().map(|child| child.floor()))
                     .expect("a branch always has >= 2 children")
-                    .floor()
-                    .clone();
-                for child in children {
-                    version &= child.floor();
-                }
-                version
             }),
         }
     }

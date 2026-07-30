@@ -1351,10 +1351,11 @@ fn world_versions(ops: &[Op]) -> Vec<Version> {
 proptest! {
     /// The balanced `join_all` is the sequential fold on versions.
     ///
-    /// Over organic version populations in both orders, `join_all`, both
-    /// `Sum` forms, and both `FromIterator` forms all return exactly the
-    /// left fold's join — the reduction changes the grouping, never the
-    /// value.
+    /// Over organic version populations in both orders, `join_all` fed
+    /// owned versions, `join_all` fed references, both `Sum` forms, and
+    /// both `FromIterator` forms all return exactly the left fold's join —
+    /// the reduction changes the grouping and the borrowing changes the
+    /// operand form, never the value.
     #[test]
     fn join_all_equals_the_sequential_fold(ops in world_strategy()) {
         let pool = world_versions(&ops);
@@ -1362,6 +1363,7 @@ proptest! {
             .iter()
             .fold(Version::new(), |acc, v| acc | v);
         prop_assert_eq!(&Version::join_all(pool.clone()), &reference);
+        prop_assert_eq!(&Version::join_all(pool.iter()), &reference);
         let mut reversed = pool.clone();
         reversed.reverse();
         prop_assert_eq!(&Version::join_all(reversed), &reference);
@@ -1375,19 +1377,22 @@ proptest! {
 proptest! {
     /// The balanced `meet_all` is the sequential fold on versions.
     ///
-    /// Over organic version populations in both orders, `meet_all` returns
-    /// exactly the left fold of `&` — the reduction changes the grouping,
-    /// never the value — and `None` for the empty iterator, which has no
-    /// meet (the lattice has no top element).
+    /// Over organic version populations in both orders, `meet_all` fed
+    /// owned versions and `meet_all` fed references both return exactly
+    /// the left fold of `&` — the reduction changes the grouping and the
+    /// borrowing changes the operand form, never the value — and `None`
+    /// for the empty iterator, which has no meet (the lattice has no top
+    /// element).
     #[test]
     fn meet_all_equals_the_sequential_fold(ops in world_strategy()) {
         let pool = world_versions(&ops);
         let reference = pool.iter().cloned().reduce(|acc, v| acc & v);
         prop_assert_eq!(Version::meet_all(pool.clone()), reference.clone());
+        prop_assert_eq!(Version::meet_all(pool.iter()), reference.clone());
         let mut reversed = pool;
         reversed.reverse();
         prop_assert_eq!(Version::meet_all(reversed), reference);
-        prop_assert_eq!(Version::meet_all(Vec::new()), None);
+        prop_assert_eq!(Version::meet_all(Vec::<Version>::new()), None);
     }
 }
 
