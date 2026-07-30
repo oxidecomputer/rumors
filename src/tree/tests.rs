@@ -1084,6 +1084,155 @@ proptest! {
     }
 }
 
+proptest! {
+    /// The changed flag [`Tree::act`] returns tracks the root hash exactly
+    /// on honestly built trees: `false` iff the root hash is byte-identical
+    /// across the call, over batches mixing inserts, forgets of live keys,
+    /// and forgets of keys nothing holds (including the all-no-op and empty
+    /// batches, which must read `false`).
+    ///
+    /// The `false ⇒ hash-equal` direction is the flag's contract — a
+    /// watcher skipped on `false` must miss nothing. The converse direction
+    /// pins that honest commits never pay a spurious wakeup: every action
+    /// ticks strictly above the tree's ceiling, which bounds every leaf, so
+    /// the causally-prior skip (the flag's one conservative case, see
+    /// `act_changed_flag_is_conservative_only_in_a_poisoned_store`) is
+    /// unreachable here.
+    #[test]
+    fn act_changed_flag_tracks_the_root_hash(
+        base_values in distinct_bytes(6),
+        batch_values in distinct_bytes(4),
+        forget_live in proptest::collection::vec(any::<prop::sample::Index>(), 0..4),
+        forget_missing in proptest::collection::vec(any::<Key>(), 0..3),
+    ) {
+        let mut tree: Tree<Bytes> = Tree::new();
+        tree.act(
+            &party_of("A"),
+            base_values.iter().cloned().map(insert_action),
+        );
+        let live: Vec<Key> = tree.iter().map(|(k, ..)| k).collect();
+
+        let mut actions: Vec<Action<Bytes>> =
+            batch_values.iter().cloned().map(insert_action).collect();
+        for index in forget_live {
+            if !live.is_empty() {
+                actions.push(Action::Forget(live[index.index(live.len())]));
+            }
+        }
+        // A drawn key matching a live one is astronomically unlikely but
+        // harmless: the forget would then be effectual and both sides of
+        // the equality move together.
+        actions.extend(forget_missing.into_iter().map(Action::Forget));
+
+        let before = tree.hash();
+        let changed = tree.act(&party_of("A"), actions);
+        prop_assert_eq!(changed, tree.hash() != before);
+    }
+
+    /// The changed flag [`Tree::join`] returns tracks the root hash
+    /// exactly: `false` iff the merge left this tree's root hash
+    /// byte-identical, over divergent pairs covering one-sided novelty,
+    /// shared subtrees, and deletion honoring in both directions.
+    ///
+    /// The `false ⇒ hash-equal` direction is the flag's contract — a
+    /// watcher skipped on `false` must miss nothing. The converse pins
+    /// that a merge which nets nothing — the counterparty's novelty all
+    /// dropped by deletion honoring, or no novelty at all — never pays a
+    /// spurious wakeup, even while the causal ceiling advances.
+    #[test]
+    fn join_changed_flag_tracks_the_root_hash(
+        (a, b) in crate::tree::arb::arb_divergent_pair(),
+    ) {
+        let mut tree = Tree { root: a };
+        let before = tree.hash();
+        let changed = tree.join(Tree { root: b });
+        prop_assert_eq!(changed, tree.hash() != before);
+    }
+}
+
+/// A ceiling-only join reports unchanged: absorbing a counterparty whose
+/// every message we already hold or honor as deleted advances our causal
+/// ceiling but leaves the content — and the root hash — untouched, and the
+/// changed flag stays `false`, so watchers of the *set* are not woken for
+/// a merge that taught the set nothing.
+#[test]
+fn ceiling_only_join_reports_unchanged() {
+    let mut tree: Tree<Bytes> = Tree::new();
+    tree.act(&party_of("A"), [insert_action(Bytes::from_static(b"kept"))]);
+
+    // The counterparty: a tree that sent one message on its own disjoint
+    // party and then redacted it, leaving no content but an advanced
+    // ceiling. Its frontier is news to us; its (empty) content is not.
+    let mut other: Tree<Bytes> = Tree::new();
+    other.act(&party_of("B"), [insert_action(Bytes::from_static(b"gone"))]);
+    let key = other
+        .iter()
+        .map(|(k, ..)| k)
+        .next()
+        .expect("one live message");
+    other.act(&party_of("B"), [Action::Forget(key)]);
+    assert!(
+        other.is_empty(),
+        "the counterparty redacted its only message"
+    );
+
+    let before = tree.hash();
+    let ceiling_before = tree.latest().clone();
+    let changed = tree.join(other);
+    assert!(
+        !changed,
+        "a merge that teaches the set nothing reports unchanged",
+    );
+    assert_eq!(tree.hash(), before, "the root hash is byte-identical");
+    assert_ne!(
+        tree.latest(),
+        &ceiling_before,
+        "the causal ceiling did advance: the flag answers for content, not the frontier",
+    );
+}
+
+/// The changed flag's one conservative case, constructed: `Tree::act`
+/// reporting `true` while the root hash is byte-identical.
+///
+/// In a store poisoned by an escaped version (a leaf *above* the tree's
+/// ceiling — the shape only nonconforming gossip can plant, and which
+/// session ingestion rejects as `UncontainedSupply`), a forget of the
+/// escaped key ticks from the ceiling, lands causally *prior* to the leaf
+/// it targets, and is silently skipped — yet the traversal's observer
+/// fires, so the flag reads `true` with the hash untouched. The cost is
+/// one spurious watch wakeup, never a missed one: the flag's `false` stays
+/// exact even here. In an honestly built tree the ceiling bounds every
+/// leaf, so the skip is unreachable and the flag is exact both ways
+/// (pinned by `act_changed_flag_tracks_the_root_hash`).
+#[test]
+fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
+    let (receiver, poisoned, path, _escaped) = super::arb::uncontained_supply_pair();
+    let receiver_party = super::arb::nth_party(0);
+    let key = Key::from(path);
+
+    let mut tree = Tree { root: receiver };
+    assert!(
+        tree.join(Tree { root: poisoned }),
+        "planting the escaped leaf is a real change",
+    );
+
+    let before = tree.hash();
+    let changed = tree.act(&receiver_party, [Action::Forget(key)]);
+    assert!(
+        changed,
+        "the skipped forget reports changed: the conservative direction",
+    );
+    assert_eq!(
+        tree.hash(),
+        before,
+        "the skipped forget left the root hash byte-identical",
+    );
+    assert!(
+        tree.get(&key).is_some(),
+        "the escaped leaf survives the skipped forget",
+    );
+}
+
 /// An escaped version already resident in a store defeats redaction and
 /// survives every merge: the mechanism that session ingestion enforcement
 /// exists to keep out.

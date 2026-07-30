@@ -45,26 +45,40 @@ use height::{Height, Root, S, Z};
 /// `a_version` / `b_version` are the two roots' version vectors, used to honor
 /// deletions (a node one side lacks while its version is `<=` that side's vector
 /// was deleted there, and is dropped).
+///
+/// `changed` is set — never cleared — iff the merged result's content differs
+/// from `a`'s: some leaf was gained from `b`, or some leaf of `a` was dropped
+/// by deletion honoring. The recursion decides this exactly, with no hashing:
+/// a gain is a subtree of `b` surviving the deletion filter where `a` held
+/// nothing, and a drop moves a node's exact memoized leaf count. Gains and
+/// drops live at distinct content-addressed paths and each is monotone at its
+/// path, so they cannot cancel: an untouched flag really means the merged
+/// tree is `a`, content-identical, equal root hash.
 pub fn join<T>(
     a: Option<Node<T, Root>>,
     b: Option<Node<T, Root>>,
     a_version: &Version,
     b_version: &Version,
+    changed: &mut bool,
 ) -> Option<Node<T, Root>>
 where
     T: Send + Sync,
 {
-    Join::join(a, b, a_version, b_version)
+    Join::join(a, b, a_version, b_version, changed)
 }
 
 /// The inductive step of the merge, implemented per [`Height`]; see the
-/// module docs for the four-case analysis each level performs.
+/// module docs for the four-case analysis each level performs, and the
+/// [`join`] free function for the `changed` contract each step upholds:
+/// set on any gain from `b` or any deletion-honoring drop from `a`, left
+/// alone when the result is content-identical to `a`.
 pub trait Join: Unknown {
     fn join<T>(
         a: Option<Node<T, Self>>,
         b: Option<Node<T, Self>>,
         a_version: &Version,
         b_version: &Version,
+        changed: &mut bool,
     ) -> Option<Node<T, Self>>
     where
         T: Send + Sync;
@@ -79,6 +93,7 @@ where
         b: Option<Node<T, S<H>>>,
         a_version: &Version,
         b_version: &Version,
+        changed: &mut bool,
     ) -> Option<Node<T, S<H>>>
     where
         T: Send + Sync,
@@ -89,8 +104,22 @@ where
             // Filter it against the *other* side's version vector to honor
             // deletions: causally-known subtrees the other side lacks were
             // deleted there, and drop out.
-            (Some(ours), None) => Unknown::unknown(Some(ours), b_version),
-            (None, Some(theirs)) => Unknown::unknown(Some(theirs), a_version),
+            //
+            // On our side, the filter only ever *removes* leaves, so its
+            // memoized leaf count is an exact change detector: the count
+            // moved iff some leaf of ours was dropped. On their side, any
+            // survivor at all is a gain (we held nothing here).
+            (Some(ours), None) => {
+                let leaves = ours.len();
+                let kept = Unknown::unknown(Some(ours), b_version);
+                *changed |= kept.as_ref().map_or(0, Node::len) != leaves;
+                kept
+            }
+            (None, Some(theirs)) => {
+                let gained = Unknown::unknown(Some(theirs), a_version);
+                *changed |= gained.is_some();
+                gained
+            }
             (Some(ours), Some(theirs)) => {
                 // Identical subtrees: keep one. Equality short-circuits on
                 // shared backing (the common case for forked trees, hash-free)
@@ -147,7 +176,7 @@ where
                         continue;
                     }
 
-                    match Join::join(our_child, their_child, a_version, b_version) {
+                    match Join::join(our_child, their_child, a_version, b_version, changed) {
                         Some(child) => {
                             merged.insert(radix, child);
                         }
@@ -169,14 +198,26 @@ impl Join for Z {
         b: Option<Node<T, Z>>,
         a_version: &Version,
         b_version: &Version,
+        changed: &mut bool,
     ) -> Option<Node<T, Z>>
     where
         T: Send + Sync,
     {
         match (a, b) {
             (None, None) => None,
-            (Some(ours), None) => Unknown::unknown(Some(ours), b_version),
-            (None, Some(theirs)) => Unknown::unknown(Some(theirs), a_version),
+            // The leaf-level base of the asymmetric arms' change detection:
+            // our leaf dropped by deletion honoring is a change, and their
+            // leaf surviving the filter is a gain.
+            (Some(ours), None) => {
+                let kept = Unknown::unknown(Some(ours), b_version);
+                *changed |= kept.is_none();
+                kept
+            }
+            (None, Some(theirs)) => {
+                let gained = Unknown::unknown(Some(theirs), a_version);
+                *changed |= gained.is_some();
+                gained
+            }
             // Two leaves at the same path are the same leaf: the path is the
             // content-addressed hash of (version, value) (see
             // `Path::for_leaf`), so identical paths carry identical contents.
