@@ -1037,6 +1037,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "interval placement, law-pinned to the causal comparisons against the \
          endpoints; the version_cmp panel prices the same per-stream sweep",
     ),
+    (
+        "causally::Interval::spanning",
+        "the lattice hull's endpoints are the meet and join folds; the \
+         version_join_all/version_meet_all panels price the same balanced \
+         reductions",
+    ),
     // ── not operations ──
     (
         "unbounded depth (beyond the differential grids)",

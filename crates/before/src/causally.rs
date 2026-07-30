@@ -60,6 +60,9 @@
 //! resolution the partial order admits — the nine [`Placement`] regions
 //! — and [`Interval::dominance_of`] coarsens it to the three-way
 //! [`Dominance`] verdict a filter over version-bounded regions consumes.
+//! Every nonempty collection of versions has a tightest containing
+//! interval — its lattice hull — derived by [`Interval::spanning`], the
+//! one total construction door.
 //!
 //! The module's placement questions have exactly two semantic roots:
 //! pairwise comparison ([`partial_cmp`](PartialOrd::partial_cmp) on
@@ -79,11 +82,13 @@
 //!
 //! # Complexity
 //!
-//! Every constructor in this module is `O(1)` time and space: a [`Range`]
-//! or [`Interval`] stores two borrows. Pairing a start with an end — or
-//! validating an interval through [`Interval::new`] — costs at most
-//! one causal comparison, `O(|s| + |e|)` in the bounds' packed sizes
-//! ([`Interval::ordered`] skips even that). The
+//! Every borrowing constructor in this module is `O(1)` time and space:
+//! a [`Range`] or [`Interval`] stores two borrows. Pairing a start with
+//! an end — or validating an interval through [`Interval::new`] — costs
+//! at most one causal comparison, `O(|s| + |e|)` in the bounds' packed
+//! sizes ([`Interval::ordered`] skips even that). The one deriving
+//! constructor, [`Interval::spanning`], mints its endpoints through two
+//! balanced lattice folds (its own doc prices them). The
 //! placement family — [`bounded`](Range::bounded),
 //! [`contains`](Range::contains),
 //! [`placement_of`](Range::placement_of), [`Interval::place`], and
@@ -92,7 +97,7 @@
 //! |e|)` in the operands' packed sizes (see [`Version`]), each stream
 //! decoded once.
 //!
-//! **Complexity**: constructors `O(1)`; validation at most one causal comparison; placement one fused pass `O(v + s + e)`.
+//! **Complexity**: borrowing constructors `O(1)` (`spanning`: two balanced folds, priced at the method); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.
 //!
 //! ```
 //! use before::{Clock, causally};
@@ -125,6 +130,7 @@
 //! assert!(causally::delta(&b1, &a1).is_err());
 //! ```
 
+use std::borrow::{Borrow, Cow};
 use std::cmp::Ordering;
 use std::ops::{Bound, RangeBounds};
 
@@ -534,10 +540,13 @@ pub enum Bounded {
 /// [`dominance_of`](Self::dominance_of) coarsens it to the three-way
 /// [`Dominance`] verdict.
 ///
-/// Construction has two doors: [`new`](Self::new) validates the pair,
-/// rejecting a reversed or incomparable one with [`Crossed`];
+/// Construction has three doors: [`new`](Self::new) validates the
+/// pair, rejecting a reversed or incomparable one with [`Crossed`];
 /// [`ordered`](Self::ordered) trusts a caller who already holds
-/// `lo <= hi` structurally and skips the validating comparison.
+/// `lo <= hi` structurally and skips the validating comparison; and
+/// [`spanning`](Self::spanning) *derives* the interval — the tightest
+/// one containing every version in a collection — total where the
+/// first two must reject or trust.
 ///
 /// ```
 /// use before::{Clock, causally::{Dominance, Endpoint, Interval, Placement}};
@@ -561,10 +570,10 @@ pub enum Bounded {
 /// assert_eq!(interval.dominance_of(&a2), Dominance::StartOnly);
 /// assert_eq!(interval.dominance_of(&b1), Dominance::Neither);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interval<'a> {
-    lo: &'a Version,
-    hi: &'a Version,
+    lo: Cow<'a, Version>,
+    hi: Cow<'a, Version>,
 }
 
 impl<'a> Interval<'a> {
@@ -578,7 +587,10 @@ impl<'a> Interval<'a> {
     /// other and no chain segment exists between them.
     pub fn new(lo: &'a Version, hi: &'a Version) -> Result<Self, Crossed> {
         match lo.partial_cmp(hi) {
-            Some(Ordering::Less | Ordering::Equal) => Ok(Self { lo, hi }),
+            Some(Ordering::Less | Ordering::Equal) => Ok(Self {
+                lo: Cow::Borrowed(lo),
+                hi: Cow::Borrowed(hi),
+            }),
             Some(Ordering::Greater) | None => Err(Crossed),
         }
     }
@@ -607,7 +619,97 @@ impl<'a> Interval<'a> {
             lo <= hi,
             "Interval::ordered requires lo <= hi: the caller's structural guarantee failed"
         );
-        Self { lo, hi }
+        Self {
+            lo: Cow::Borrowed(lo),
+            hi: Cow::Borrowed(hi),
+        }
+    }
+
+    /// The deriving door: the tightest interval containing every
+    /// version in `items` — `[⋀ items, ⋁ items]`, the lattice hull —
+    /// or [`None`] for an empty iterator.
+    ///
+    /// The one *total* door over arbitrary versions: where
+    /// [`new`](Self::new) must reject a pair no chain connects,
+    /// every nonempty collection has a hull, its endpoints the
+    /// collection's meet and join. On comparable versions the hull
+    /// *is* the reordered pair (the meet and join of comparable
+    /// versions are the smaller and the larger), so `spanning`
+    /// subsumes the flip repair [`new`](Self::new) declines to
+    /// perform — and it is deliberately the only repair offered:
+    /// silently reordering a caller's *stated* endpoints would hide
+    /// the caller bug [`Crossed`] surfaces, and no reordering exists
+    /// for a concurrent pair, whose hull's endpoints are fresh
+    /// versions bracketing both inputs.
+    ///
+    /// The items may be owned versions or references — anything that
+    /// [borrows](Borrow) as a [`Version`], the
+    /// [`join_all`](Version::join_all) calling convention. Borrowed
+    /// operands are read in place; the endpoints are minted owned, so
+    /// the hull borrows nothing from the collection.
+    ///
+    /// An empty iterator yields [`None`] for
+    /// [`meet_all`](Version::meet_all)'s reason: the empty join is
+    /// the empty version, but the lattice has no top, so the empty
+    /// meet — and with it the empty hull — has no value.
+    ///
+    /// The `spanning_pair_is_the_hull` and
+    /// `spanning_is_the_lattice_hull` laws in [`laws`](crate::laws)
+    /// pin the door: the endpoints are definitionally
+    /// [`meet_all`](Version::meet_all) and
+    /// [`join_all`](Version::join_all), input order is irrelevant,
+    /// every input places within the hull (never
+    /// [`Before`](Placement::Before) or [`After`](Placement::After)),
+    /// a lone version's hull is the coincident `[v, v]`, and a
+    /// comparable pair's hull is its validated interval, either way
+    /// around.
+    ///
+    /// ```
+    /// use before::{Clock, Version, causally::{Interval, Placement}};
+    ///
+    /// let mut alice = Clock::seed();
+    /// let mut bob = alice.fork();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let b1 = bob.tick().clone(); // concurrent to alice's line
+    ///
+    /// // Comparable versions: the hull is the pair, reordered.
+    /// let flat = Interval::spanning([&a2, &a1]).unwrap();
+    /// assert_eq!(flat, Interval::new(&a1, &a2).unwrap());
+    /// // A concurrent pair has no ordering to repair, but it has a
+    /// // hull: both inputs sit strictly inside it.
+    /// let hull = Interval::spanning([&a1, &b1]).unwrap();
+    /// assert_eq!(hull.place(&a1), Placement::Between);
+    /// assert_eq!(hull.place(&b1), Placement::Between);
+    /// // The hull of nothing does not exist: the lattice has no top.
+    /// assert!(Interval::spanning(Vec::<&Version>::new()).is_none());
+    /// ```
+    ///
+    /// # Complexity
+    ///
+    /// Two balanced folds over the buffered items — the meet and the
+    /// join — with `D` the items' total packed size and `k` their
+    /// number.
+    ///
+    /// **Complexity**: `O(D log k)` time, `O(D)` space.
+    pub fn spanning<I>(items: I) -> Option<Self>
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        // Buffer once, fold twice: the hull needs both lattice
+        // directions and a one-shot iterator cannot feed two folds.
+        // Both folds read the buffered items in place; a paired
+        // single-pass fold would save the buffer but duplicate the
+        // balanced counter's ownership dance for a pair accumulator —
+        // machinery the two committed folds already carry singly.
+        let items: Vec<I::Item> = items.into_iter().collect();
+        let lo = Version::meet_all(items.iter().map(Borrow::borrow))?;
+        let hi = Version::join_all(items.iter().map(Borrow::borrow));
+        Some(Self {
+            lo: Cow::Owned(lo),
+            hi: Cow::Owned(hi),
+        })
     }
 
     /// Places `probe` against this interval at full resolution: the
