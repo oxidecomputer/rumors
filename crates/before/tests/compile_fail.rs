@@ -24,6 +24,16 @@
 //! failure is unchanged (still a missing `Clone` / a use-after-move / a missing
 //! `BitOr` / the `N >= 1` const assert).
 //!
+//! Reproducing them needs the `rust-src` component. Several snapshots quote std
+//! source — `core`'s `panic!` expansion, `BitOr::bitor`, `Into::into` — and
+//! rustc can only print those lines when the sources are installed; lacking
+//! them, `clock_into_empty_array`, `party_into_empty_array`, and
+//! `clock_use_after_move` mismatch on exactly those quotations, each collapsing
+//! to a bare `$RUST` path or a `= note:` line. Reach for
+//! `rustup component add rust-src`, never `TRYBUILD=overwrite`: blessing a run
+//! that cannot see std trades these diagnostics for weaker ones and leaves any
+//! machine that does have the sources failing.
+//!
 //! [`From<Party>`]: before::Party
 //! [`From<Clock>`]: before::Clock
 

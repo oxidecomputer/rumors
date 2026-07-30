@@ -1,7 +1,9 @@
 //! Executor-agnostic test support shared across protocol and API suites.
 
+mod memnet;
 mod transport;
 
+pub use memnet::{MemoryDial, MemoryListen, MemoryName, MemoryNet};
 pub use transport::{
     AdversarialAcceptor, AdversarialConnector, AdversarialRead, AdversarialWrite,
     FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan, IoReport, IoReportHandle,

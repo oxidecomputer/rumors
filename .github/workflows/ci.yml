@@ -49,16 +49,28 @@ jobs:
       - name: Install nightly toolchain (merged doctests and fuzz build)
         uses: dtolnay/rust-toolchain@nightly
 
+      # rust-src is here for the trybuild suite: several `.stderr` snapshots
+      # quote std source (core's `panic!` expansion, `BitOr::bitor`,
+      # `Into::into`), and rustc prints those lines only when the sources are
+      # installed. Without it three cases mismatch on the quoted lines alone,
+      # which invites a blessing that would degrade the snapshots rather than
+      # supply what they need.
       - name: Install stable toolchain (default)
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy, rustfmt, rust-src
           targets: wasm32-unknown-unknown
 
+      # cargo-rdme carries a version because it is the only tool here whose
+      # output is a committed artifact compared byte for byte: readme-check
+      # holds the READMEs against what it emits. Tracking the newest release
+      # would let an upstream change redefine that expectation with no commit
+      # in the repo, turning the sweep red on a tree nobody touched. The others
+      # report findings rather than generate bytes, so they track latest.
       - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, and wasm-pack
         uses: taiki-e/install-action@v2
         with:
-          tool: just,cargo-nextest,cargo-rdme,cargo-fuzz,wasm-pack
+          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,wasm-pack
 
       # The viz bundle (`just viz`) runs `npm install`, a strict TypeScript
       # typecheck, and an esbuild bundle.

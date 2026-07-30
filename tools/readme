@@ -12,12 +12,15 @@ GitHub and crates.io. cargo-rdme's own `--intralinks-strip-links` doesn't
 recognize these forms either, so we strip them here, down to the link *text*,
 leaving real (http/https) links untouched.
 
-    tools/readme write    regenerate every crate's README in place
-    tools/readme check    re-derive into a scratch copy and diff; nonzero on drift
+    tools/readme write      regenerate every crate's README in place
+    tools/readme check      re-derive into a scratch copy and diff; nonzero on drift
+    tools/readme self-test  pin the link forms the stripper rewrites and preserves
 
 `check` never touches the committed files — it generates into a temp copy of
 each README (preserving that README's exact preamble) and diffs. The justfile
-exposes both as `just readme` / `just readme-check`; the latter rides in the gate.
+exposes both as `just readme` / `just readme-check`; the latter rides in the
+gate, led by `self-test` so a stripping bug surfaces as a tool failure rather
+than as drift in a derived file.
 """
 
 from __future__ import annotations
@@ -84,7 +87,15 @@ RUST_PATH = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*"
 # path (`Link#what-a-session-promises`). Text is kept verbatim with its own
 # markup (it may be code, *italic*, or plain), so only the link wrapper is
 # removed. A bare in-page anchor (`(#section)`) has no leading path and stays.
-WITH_DEST = re.compile(r"\[([^\]]+)\]\((" + RUST_PATH + r"(?:#[\w.-]+)?)\)")
+#
+# The link text excludes `[` so that a half-open interval in the surrounding
+# prose (`{ [0, 1) }`) cannot serve as the opening bracket for a link further
+# on: with `[` allowed, the text run swallows the prose and everything up to
+# the real link's `]`, and the substitution eats the interval's bracket. Every
+# inline link supplies its own `[`, so excluding it always resettles the match
+# onto the true opening bracket. Newlines stay legal — rustdoc wraps prose, so
+# link text may straddle a line break.
+WITH_DEST = re.compile(r"\[([^\][]+)\]\((" + RUST_PATH + r"(?:#[\w.-]+)?)\)")
 
 # `[`code`]` shortcut link not continued by a destination `(` or another
 # reference `[`. Intra-doc shortcut links are always code-spanned, so keying
@@ -160,10 +171,54 @@ def check() -> int:
     return 1 if drift else 0
 
 
+def self_test() -> int:
+    """Pin the link forms the derivation strips and the ones it must preserve."""
+    cases = [
+        # A shortcut link goes down to its code-spanned text.
+        ("a [`Peer`] joins", "a `Peer` joins"),
+        # So does an inline link whose destination is a Rust path, with or
+        # without a rustdoc heading anchor.
+        ("call [`send`](Rumors::send) now", "call `send` now"),
+        (
+            "the [contract](Link#what-a-session-promises) holds",
+            "the contract holds",
+        ),
+        # Link text keeps its own markup, and may straddle a line break.
+        ("a [*fresh*](Party::seed) party", "a *fresh* party"),
+        ("the [session\ncontract](Link) holds", "the session\ncontract holds"),
+        # An interval in the prose is not an opening bracket for the link that
+        # follows it: both brackets survive, on the same line and across lines.
+        (
+            "is `{ [0, 1) }`; a [`fork`](Party::fork) splits",
+            "is `{ [0, 1) }`; a `fork` splits",
+        ),
+        (
+            "yields `{ [0, 1/2) }`.\nSets are [`join`](Party::join)ed by union",
+            "yields `{ [0, 1/2) }`.\nSets are `join`ed by union",
+        ),
+        # Real links, bare in-page anchors, and reference definitions stay put.
+        ("see [the paper](https://example.com/itc)", "see [the paper](https://example.com/itc)"),
+        ("jump to [the sketch](#a-conceptual-sketch)", "jump to [the sketch](#a-conceptual-sketch)"),
+        ("[`Peer`]: https://example.com/peer", "[`Peer`]: https://example.com/peer"),
+    ]
+    failures = 0
+    for source, expected in cases:
+        actual = strip_intra_doc_links(source, {})
+        if actual != expected:
+            failures += 1
+            print(
+                f"self-test: {source!r}\n  expected {expected!r}\n  got      {actual!r}",
+                file=sys.stderr,
+            )
+    return 1 if failures else 0
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 2 or argv[1] not in ("write", "check"):
-        print(f"usage: {argv[0]} <write|check>", file=sys.stderr)
+    if len(argv) != 2 or argv[1] not in ("write", "check", "self-test"):
+        print(f"usage: {argv[0]} <write|check|self-test>", file=sys.stderr)
         return 2
+    if argv[1] == "self-test":
+        return self_test()
     return write() if argv[1] == "write" else check()
 
 

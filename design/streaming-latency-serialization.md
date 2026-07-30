@@ -291,7 +291,7 @@ boundary; completion time is approximately
 so `K ≥ expected disputed scopes` recovers full pipelining, and any
 `K > 1` divides the latency term proportionally. Memory: worst case
 ~K·fan node handles per recursive boundary (handles, not nodes —
-`imbl` structural sharing keeps the bytes shared), which is exactly
+the per-node `Arc` sharing keeps the bytes shared), which is exactly
 the trade the assembly fan queue already makes at K = fan. A default
 of one full fan (256) is the natural unit: it collapses the
 pathology by 24×–30× here, costs at most one fan of `Query` values
@@ -698,9 +698,9 @@ session holds its pre-session root alive from handshake to output
 buffered `Query` or `Resolution` points into is resident *anyway*;
 K× more handles pin K× more refcounts, not K× more tree. And no path
 in the walk deep-copies: `Backend::children` iterates `Arc` clones
-out of the persistent map, and `Backend::parent` builds fresh spine
-nodes *from* shared children. The imbl `OrdMap` diff machinery the
-tree rests on prunes pointer-equal spans wholesale for the same
+out of the radix fan, and `Backend::parent` builds fresh spine
+nodes *from* shared children. The join's lockstep merge-walk prunes
+children equal by pointer-or-hash before descending for the same
 reason.
 
 ### 6.2 What K does not buy (paid identically at K = 1)

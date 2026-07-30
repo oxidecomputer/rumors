@@ -181,9 +181,9 @@ All per-round set operations are single linear merges over sorted flat
 vectors (\code{partition.rs:}\allowbreak\code{100-115, 197-203};
 \code{src/tree/typed/}\allowbreak\code{levels/level.rs:1-10}), so per-round work
 is linear in the
-frontier and message sizes --- no hidden log factors beyond the \code{imbl}
-\code{OrdMap} child maps (an $O(\log 256)$ constant per child operation,
-absorbed below).
+frontier and message sizes --- no hidden log factors beyond the sorted
+child fans (an $O(\log 256)$-bounded probe and $O(256)$-bounded rebuild
+per child operation, absorbed below).
 
 \textbf{Termination is in-band}: a side is done when its outgoing
 \code{requested} and \code{uncertain} are both empty

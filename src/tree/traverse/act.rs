@@ -103,7 +103,7 @@ where
                 .collect();
 
             // Mutably pull the existing child out of the parent:
-            let existing_child = existing_children.remove(&radix);
+            let existing_child = existing_children.remove(radix);
 
             // Short-circuit when solely trying to delete from a non-existent child:
             if existing_child.is_none()

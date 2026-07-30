@@ -199,3 +199,90 @@ fn mixed_empty_and_populated_converges() {
     assert_eq!(hash_of(&left), expected);
     assert_eq!(hash_of(&right), expected);
 }
+/// WITNESS (the gossip install must merge-walk clone-derived fans):
+///
+/// Two honest, overlapping sessions at one peer must not silently delete a
+/// message nobody redacted.
+///
+/// The shape: session S2 (with a peer converged at T0) forks at T0; equal
+/// handshake versions resolve without opening the descent, so S2's
+/// reconciled root is the fork-time root handle itself — its children fan
+/// is the very object M0. Meanwhile session S1 (with a peer that redacted
+/// one message at root radix `r_h`) installs first: the install's
+/// `Tree::join` builds its merged fan as `ours.clone()` + `remove(r_h)` —
+/// a clone-derived sibling M1 sharing every remaining child handle with
+/// M0. S2's install then joins M1 against M0: a wide pair, identical
+/// except at `r_h`, whose equal children form pointer-shared run after
+/// pointer-shared run. A shortcut walk that elides entries after a shared
+/// run — anything less than pairing the two fans radix by radix — desyncs
+/// onto *neighboring, unchanged* radixes, which version dominance then
+/// redacts as phantom deletions.
+///
+/// T0 is S2's causal past, so S2's install must be an identity on the
+/// tree: the assertion is total (post-install hash equals pre-install
+/// hash), swept over the redaction of each leaf in turn so every radix
+/// position plays the divergence point in some round. `Tree::join`
+/// merge-walks the two radix fans in lockstep, pruning equal pairs by
+/// pointer-or-hash before descending; this witness holds the join to
+/// that, and fails if a shortcut walk over shared runs ever returns.
+#[test]
+fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
+    use crate::tree::Action;
+
+    // T0: 25 unit messages. Hash-uniform keys give the root a wide fan
+    // (~25 children), every radix holding one leaf, so honoring one leaf's
+    // redaction empties its root radix — and sweeping the redacted leaf
+    // puts shared runs on both sides of every divergence point.
+    let p = nth_party(0);
+    let mut t0 = Tree::new();
+    t0.act(&p, (0..25).map(|_| Action::Insert(Message::new(()))));
+    let keys: Vec<_> = t0.iter().map(|(k, _, _)| k).collect();
+
+    // S2's wire session against a peer converged at T0, forked at T0:
+    // equal versions resolve to the fork-time root.
+    let (s2_reconciled, _) = wire_reconcile(t0.root.clone(), t0.root.clone());
+
+    let mut lost = Vec::new();
+    for k in &keys {
+        // S1's counterparty: converged at T0, then redacted the leaf at
+        // `k` (a local act rebuilds its own fans afresh; the sharing that
+        // matters is created by our install below, not here).
+        let mut twin = Tree {
+            root: t0.root.clone(),
+        };
+        twin.act(&nth_party(1), [Action::Forget(*k)]);
+
+        // S1's session and install: reconcile T0 against the redacting
+        // twin over the wire, then join the result into the live tree.
+        // Deletion honoring drops radix `r_h`: the live tree's root fan is
+        // now a clone-derived sibling of M0 missing one radix.
+        let (s1_reconciled, _) = wire_reconcile(t0.root.clone(), twin.root.clone());
+        let mut live = Tree {
+            root: t0.root.clone(),
+        };
+        live.join(Tree {
+            root: s1_reconciled,
+        });
+        let expected = live.hash();
+
+        // S2's install, after S1's: joining our own causal past must be an
+        // identity on the tree.
+        live.join(Tree {
+            root: s2_reconciled.clone(),
+        });
+
+        if live.hash() != expected {
+            let missing: Vec<_> = keys
+                .iter()
+                .filter(|k2| *k2 != k && live.get(k2).is_none())
+                .copied()
+                .collect();
+            lost.push((*k, missing));
+        }
+    }
+    assert!(
+        lost.is_empty(),
+        "S2's install lost innocent leaves after S1 honored a redaction \
+         (redacted key, innocent leaves missing): {lost:#?}",
+    );
+}
