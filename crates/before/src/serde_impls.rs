@@ -51,8 +51,9 @@ impl<'de> Deserialize<'de> for Clock {
     }
 }
 
-/// The canonical lexicographic bytes of [`Rank::encode`]: byte-wise
-/// order on the payload is still [`Ord`] on ranks, and the
+/// The canonical lexicographic bytes of [`Rank::encode`].
+///
+/// Byte-wise order on the payload is still [`Ord`] on ranks, and the
 /// numerator–exponent pair stays off the wire (the decompression-bomb
 /// hazard [`Rank::encode`] documents).
 impl Serialize for Rank {
@@ -95,10 +96,12 @@ impl Serialize for Span<'_> {
     }
 }
 
-/// Deserializes through [`Span::decode`]: the second component is
-/// parsed while its dominance over the first is validated in the same
-/// fused pass, so crossed and concurrent pairs are rejected and a
-/// deserialized span is valid by construction.
+/// Deserializes through [`Span::decode`].
+///
+/// The second component is parsed while its dominance over the first
+/// is validated in the same fused pass, so crossed and concurrent
+/// pairs are rejected and a deserialized span is valid by
+/// construction.
 impl<'de> Deserialize<'de> for Span<'static> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(d)?;

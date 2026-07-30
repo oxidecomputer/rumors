@@ -1,8 +1,9 @@
-//! The serde suite for the rank and span surfaces: round-trips through
-//! self-describing and binary formats, the canonical-bytes payload pin,
-//! strict rejection, and composition inside a larger serde value. The
-//! party/version/clock legs live beside the world fixture in
-//! `clock/tests.rs`.
+//! The serde suite for the rank and span surfaces.
+//!
+//! Round-trips through self-describing and binary formats, the
+//! canonical-bytes payload pin, strict rejection, and composition
+//! inside a larger serde value. The party/version/clock legs live
+//! beside the world fixture in `clock/tests.rs`.
 
 use proptest::prelude::*;
 
@@ -20,12 +21,14 @@ fn ordered_pair() -> (Version, Version) {
 }
 
 proptest! {
-    /// [`Rank`], [`Ranked`], and [`Span`] round-trip through serde on
-    /// both deserialization paths: the self-describing number-array
-    /// (`serde_json`), the non-self-describing length-prefixed bytes
-    /// (`postcard`), and CBOR's *typed* byte string (`ciborium`,
-    /// major type 2) — each serialized as the canonical encoding and
-    /// deserialized back through the strict decode.
+    /// [`Rank`], [`Ranked`], and [`Span`] round-trip through serde.
+    ///
+    /// Both deserialization paths are driven: the self-describing
+    /// number-array (`serde_json`), the non-self-describing
+    /// length-prefixed bytes (`postcard`), and CBOR's *typed* byte
+    /// string (`ciborium`, major type 2) — each serialized as the
+    /// canonical encoding and deserialized back through the strict
+    /// decode.
     #[test]
     fn serde_roundtrip_rank_and_span(
         oa in arb_oracle_version(),
@@ -71,10 +74,11 @@ proptest! {
         prop_assert_eq!(&s3, &span);
     }
 
-    /// The serde byte payload is exactly the canonical encoding: each
-    /// type serializes to the same stream as its own `encode()` bytes
-    /// handed to the format as a plain byte sequence — the wire form
-    /// is `encode()` with nothing added, reordered, or wrapped.
+    /// The serde byte payload is exactly the canonical encoding.
+    ///
+    /// Each type serializes to the same stream as its own `encode()`
+    /// bytes handed to the format as a plain byte sequence — the wire
+    /// form is `encode()` with nothing added, reordered, or wrapped.
     #[test]
     fn serde_bytes_pin_the_canonical_encoding_rank_and_span(
         oa in arb_oracle_version(),
@@ -101,12 +105,13 @@ proptest! {
     }
 }
 
-/// Serde deserialization runs the strict decoders: a defective payload
-/// is rejected through both the binary (typed-bytes) and the
-/// self-describing (number-array) paths, for every rejection genre the
-/// raw decodes mint — trailing bytes on each type, the rank-mismatch
-/// composite [`Ranked::decode`] rejects, and the crossed pair
-/// [`Span::decode`] rejects.
+/// Serde deserialization runs the strict decoders.
+///
+/// A defective payload is rejected through both the binary
+/// (typed-bytes) and the self-describing (number-array) paths, for
+/// every rejection genre the raw decodes mint — trailing bytes on each
+/// type, the rank-mismatch composite [`Ranked::decode`] rejects, and
+/// the crossed pair [`Span::decode`] rejects.
 #[test]
 fn serde_rejects_defective_rank_and_span_payloads() {
     let (older, newer) = ordered_pair();

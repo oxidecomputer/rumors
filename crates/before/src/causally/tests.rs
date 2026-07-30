@@ -1039,8 +1039,9 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
 }
 
 proptest! {
-    /// A single-bit mutation of a valid composite never aliases it:
-    /// the mutated bytes are rejected, or they decode to a *different*
+    /// A single-bit mutation of a valid composite never aliases it.
+    ///
+    /// The mutated bytes are rejected, or they decode to a *different*
     /// span whose canonical encoding is the mutated composite itself —
     /// the span-level face of the components' mutation sweeps, crossing
     /// the seam and both padding regions that only the composite has.
