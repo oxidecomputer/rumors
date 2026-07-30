@@ -227,32 +227,35 @@ where
     }
 }
 
-/// Strictly parse one skyline tree from `cursor`, validating in the
-/// same pass that its version dominates the canonical stream `lo`
-/// (`lo <= hi` pointwise over the unit id interval), and rejecting
-/// everything else.
+/// Strictly parse one skyline tree from `cursor`, deciding in the same
+/// pass whether its version dominates the canonical stream `lo`
+/// (`lo <= hi` pointwise over the unit id interval).
 ///
-/// Returns with the cursor just past the tree. The bits beyond it are
-/// the caller's business: the byte-slice decode checks the tail's zero
-/// padding, and the wire-side cursor leaves the next field's bytes
-/// unread.
+/// Returns with the cursor just past the tree, carrying the dominance
+/// verdict: `true` exactly when the parsed version dominates `lo`. The
+/// walk never pronounces the pair rejection itself — the caller checks
+/// its own tail obligations first (the byte-slice decode its zero
+/// padding, the wire-side cursor its final byte's dead bits) and mints
+/// [`Decode::NotCanonical`] from a `false` verdict only after they
+/// pass, so every structural genre of the composite stays ahead of the
+/// pair rejection.
 ///
 /// # Errors
 ///
 /// - [`Decode::Truncated`]: the cursor's bits end mid-tree or
 ///   mid-integer.
-/// - [`Decode::NotCanonical`]: a collapsible sibling pair, or a parsed
-///   version that does not dominate `lo` — a crossed or concurrent
-///   pair, which no encode produces, so the composite is the canonical
-///   spelling of no value. A stream whose running height dips negative
-///   lands here through the same verdict (the module doc's subsumption
-///   argument).
+/// - [`Decode::NotCanonical`]: a collapsible sibling pair. A stream
+///   whose running height dips negative surfaces as the `false`
+///   verdict instead (the module doc's subsumption argument), so on a
+///   structurally whole stream the caller's rejection carries the same
+///   genre the standalone validator would.
 /// - [`Decode::Io`]: the cursor's own reads fail (the wire-side
 ///   cursor's genre; a slice cursor reports truncation instead).
 ///
 /// On an input defective several ways at once, the structural genres
-/// win: the walk always parses the whole tree, and the dominance
-/// rejection is pronounced only over a structurally whole stream.
+/// win: the walk always parses the whole tree — a refuted verdict
+/// never cuts the parse short — and the errors above outrank the
+/// verdict at every caller.
 ///
 /// # Panics
 ///
@@ -262,7 +265,7 @@ where
 pub(crate) fn validate_dominating_from<C: BitCursor>(
     lo: &BitsSlice,
     cursor: &mut C,
-) -> Result<(), Decode>
+) -> Result<bool, Decode>
 where
     Decode: From<C::Error>,
 {
@@ -279,22 +282,23 @@ where
         // One sign read per elementary interval, exactly as the sweep
         // folds it.
         if diff.sign() == Ordering::Greater {
-            // Dominance refuted, permanently: only the rejection genre
-            // remains open. Drop `lo`'s cursor and the difference, and
-            // complete the strict parse alone so a structural defect
-            // later in the stream still reports its own genre.
+            // Dominance refuted, permanently: the verdict is fixed.
+            // Drop `lo`'s cursor and the difference, and complete the
+            // strict parse alone so a structural defect later in the
+            // stream still reports its own genre.
             while !hi_cur.done() {
                 hi_cur.step()?;
             }
             hi_cur.finish()?;
-            return Err(Decode::NotCanonical);
+            return Ok(false);
         }
         if lo_cur.done() && hi_cur.done() {
             break;
         }
         advance(&mut lo_cur, &mut hi_cur, &mut diff)?;
     }
-    hi_cur.finish()
+    hi_cur.finish()?;
+    Ok(true)
 }
 
 /// Advance the overlay one boundary: the deeper cursor steps, and the
