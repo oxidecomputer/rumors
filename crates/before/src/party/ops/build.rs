@@ -1,4 +1,4 @@
-use crate::codec::{Bits, BitsSlice, PackedBuilder};
+use crate::codec::{Bits, BitsSlice, PackedBuilder, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -327,49 +327,37 @@ impl IdSkylineBuilder {
     }
 }
 
-/// A pop-able stack of the open ancestors' reserved tag positions, held
-/// as bits rather than words.
+/// A pop-able stack of the open ancestors' reserved tag positions:
+/// delta-coded bits plus one absolute register.
 ///
-/// Each entry stores its delta from the entry under it — as value bits on
-/// one stack and the value's width in pop-able unary on another — with
-/// the top entry's absolute position in one register. Positions increase
-/// up the stack, and a descent chain reserves adjacent tags (delta 2), so
-/// an entry typically costs ~4 bits where a machine word would cost 64:
-/// depth costs bits here the same way it does in the path stacks.
+/// Each entry stores its delta from the entry under it on a [`PopStack`],
+/// with the top entry's absolute position in one register. Positions
+/// increase up the stack, and a descent chain reserves adjacent tags
+/// (delta 2), so an entry typically costs ~4 bits where a machine word
+/// would cost 64: depth costs bits here the same way it does in the path
+/// stacks.
 struct PosStack {
     /// The innermost entry's absolute position (0 when empty).
     top: usize,
-    /// Width markers: for each entry, one `false` under `w − 1` `true`s.
-    unary: Bits,
-    /// Value bits, most-significant pushed first so pops read the value
-    /// least-significant first.
-    value: Bits,
+    /// The entries' deltas from the entry under them, stored off by one
+    /// so the width is nonzero even at delta 0 (the first entry at
+    /// position 0).
+    deltas: PopStack,
 }
 
 impl PosStack {
     fn new() -> Self {
         PosStack {
             top: 0,
-            unary: Bits::new(),
-            value: Bits::new(),
+            deltas: PopStack::new(),
         }
     }
 
     /// Push a position at or above the current top.
     fn push(&mut self, pos: usize) {
         debug_assert!(pos >= self.top, "reserved tag positions never move left");
-        // Stored off by one so the width is nonzero even at delta 0 (the
-        // first entry at position 0).
-        let stored = pos - self.top + 1;
+        self.deltas.push((pos - self.top + 1) as u64);
         self.top = pos;
-        let width = usize::BITS - stored.leading_zeros();
-        for i in (0..width).rev() {
-            self.value.push(stored >> i & 1 == 1);
-        }
-        self.unary.push(false);
-        for _ in 1..width {
-            self.unary.push(true);
-        }
     }
 
     /// Pop the innermost position.
@@ -378,26 +366,8 @@ impl PosStack {
     ///
     /// Panics if the stack is empty.
     fn pop(&mut self) -> usize {
-        let mut width = 0u32;
-        loop {
-            let continuation = self.unary.pop().expect("position stack underflow");
-            width += 1;
-            if !continuation {
-                break;
-            }
-        }
-        let mut stored = 0usize;
-        for i in 0..width {
-            if self
-                .value
-                .pop()
-                .expect("position stack value bits underflow")
-            {
-                stored |= 1 << i;
-            }
-        }
         let pos = self.top;
-        self.top -= stored - 1;
+        self.top -= self.deltas.pop() as usize - 1;
         pos
     }
 }

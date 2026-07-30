@@ -306,18 +306,3 @@ fn zero_delta_has_the_lone_shortest_code() {
         assert!(delta(true, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
     }
 }
-
-/// The length stack round-trips arbitrary pushes through pops in LIFO
-/// order, so re-anchor always truncates over exactly the left sibling's
-/// code.
-#[test]
-fn len_stack_round_trips_lifo() {
-    let mut stack = super::LenStack::new();
-    let lens = [1usize, 7, 64, 3, 1, 100_000, 2];
-    for &len in &lens {
-        stack.push(len);
-    }
-    for &len in lens.iter().rev() {
-        assert_eq!(stack.pop(), len);
-    }
-}

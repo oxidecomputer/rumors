@@ -166,11 +166,11 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base, BitCursor, Bits, BitsSlice};
+use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 use crate::step;
 
-use self::fuse::{Out, PopStack, RouteProbe, COST_FREE};
+use self::fuse::{Out, RouteProbe, COST_FREE};
 use self::watermark::{MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
 use super::{fold_signed, gamma_code, unzigzag, zigzag_signed};
