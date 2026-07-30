@@ -264,6 +264,8 @@ impl<T> Tree<T> {
 
     /// Returns the root hash for the tree.
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
+        #[cfg(test)]
+        meter::record_root_hash_read();
         Node::root_hash(&self.root.clone().into()).into()
     }
 
@@ -376,7 +378,27 @@ impl<T> Tree<T> {
     /// version when several actions address the same key. In that case the
     /// version is incremented once per changed key, regardless of how many
     /// actions pertain to it.
-    pub fn act<I>(&mut self, party: &before::Party, actions: I)
+    ///
+    /// # The changed flag
+    ///
+    /// Returns whether the batch changed the tree, so the caller can answer
+    /// "did anything happen?" without reading the root hash — the answer the
+    /// traversal's effectual-action observer already produced. The two
+    /// directions carry different promises:
+    ///
+    /// - **`false` is exact**: the root hash is byte-identical to what it was
+    ///   before the call, and the causal ceiling did not move. Nothing about
+    ///   the tree changed. A watcher skipped on `false` misses nothing.
+    /// - **`true` is conservative**: the tree changed *or* an action was
+    ///   silently skipped as causally prior to the leaf it targeted. The skip
+    ///   is unreachable when every leaf's version is bounded by the tree's
+    ///   ceiling — which `act` and `join` both maintain, so every honestly
+    ///   built tree qualifies — because each action ticks strictly above the
+    ///   ceiling. Only a store poisoned by nonconforming gossip (a leaf
+    ///   *above* the ceiling; session ingestion rejects the shape) can
+    ///   produce `true` without a hash change, and then the cost is one
+    ///   spurious watch wakeup, never a missed one.
+    pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
     where
         T: Send + Sync,
         I: IntoIterator<Item = Action<T>>,
@@ -418,7 +440,7 @@ impl<T> Tree<T> {
                 }
             };
             (key, version, value)
-        }));
+        }))
     }
 
     /// Applies the specified *versioned* actions as a batch to the tree
@@ -436,7 +458,12 @@ impl<T> Tree<T> {
     /// As with [`act`](Self::act), a batch is applied in a single traversal,
     /// which is more efficient than applying its actions one at a time but
     /// semantically equivalent.
-    fn react<M, I>(&mut self, reactions: I)
+    ///
+    /// Returns whether the effectual-action observer fired at all — the
+    /// changed flag [`act`](Self::act) hands out, with the contract stated
+    /// there. `false` means no observation and therefore no ceiling
+    /// movement either: the tree is untouched.
+    fn react<M, I>(&mut self, reactions: I) -> bool
     where
         T: Send + Sync,
         M: Into<Option<Message<T>>>,
@@ -458,11 +485,17 @@ impl<T> Tree<T> {
         // Traverse the tree from the root, batch-applying the actions.
         // The version join is deferred to the effectual-action observer so
         // that zero-effect actions (e.g. forgetting a nonexistent key) do not
-        // bump the root version.
+        // bump the root version. The changed flag rides the same observer:
+        // no observation means no leaf was inserted, replaced, or removed
+        // and no version was joined, so the tree — hash and ceiling both —
+        // is exactly what it was.
+        let mut changed = false;
         let root_version = &mut self.root.ceiling;
         self.root.root = traverse::act(self.root.root.take(), actions, |v: &Version| {
             *root_version |= v;
+            changed = true;
         });
+        changed
     }
 
     /// Merges `other` into `self` by a single simultaneous recursion over
@@ -473,7 +506,22 @@ impl<T> Tree<T> {
     /// Deletions are honored by version dominance: a leaf one side lacks
     /// while its version is `<=` that side's version vector was deleted
     /// there and is dropped.
-    pub fn join(&mut self, other: Tree<T>)
+    ///
+    /// # The changed flag
+    ///
+    /// Returns whether the merge changed this tree's *content* — exactly
+    /// whether the root hash moved, decided by the traversal itself (each
+    /// leaf gained is a gain the recursion sees; each leaf dropped by
+    /// deletion honoring moves a node's exact leaf count) rather than by
+    /// hashing. `false` means the root hash is byte-identical to what it was
+    /// before the call; `true` means it differs.
+    ///
+    /// The flag deliberately does *not* cover the causal ceiling, which can
+    /// advance without any content change (absorbing the frontier of a peer
+    /// whose every message we already hold or honor as deleted): the flag
+    /// answers for what observers of the *set* can see, and a ceiling-only
+    /// join leaves the set untouched.
+    pub fn join(&mut self, other: Tree<T>) -> bool
     where
         T: Send + Sync,
     {
@@ -487,10 +535,49 @@ impl<T> Tree<T> {
         // root is written straight back below. Our version stays in place to be
         // read as the deletion filter, then joined with theirs.
         let our_root = std::mem::take(&mut self.root.root);
-        let merged = traverse::join(our_root, their_root, &self.root.ceiling, &their_version);
+        let mut changed = false;
+        let merged = traverse::join(
+            our_root,
+            their_root,
+            &self.root.ceiling,
+            &their_version,
+            &mut changed,
+        );
 
         self.root.ceiling |= their_version;
         self.root.root = merged;
+        changed
+    }
+}
+
+/// Test-only meter for root-hash reads through [`Tree::hash`].
+///
+/// A read may be answered from the node memos, but a *fresh* tree spine (the
+/// copy-on-write path every commit rebuilds) has no memo, so a read inside a
+/// commit's critical section re-hashes that spine while the watch lock is
+/// held. The pinned tests over this counter (`root_hash_read_meter_is_live`
+/// and the commit-path pins beside it in `crate::tests`) enforce how many
+/// such reads each commit path performs.
+///
+/// Thread-local, because every commit critical section runs synchronously on
+/// its caller's thread: a test brackets the operation on its own thread and
+/// reads a count no concurrent test can perturb.
+#[cfg(test)]
+pub(crate) mod meter {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ROOT_HASH_READS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// How many root hashes [`Tree::hash`](super::Tree::hash) has served on
+    /// this thread.
+    pub(crate) fn root_hash_reads() -> u64 {
+        ROOT_HASH_READS.with(Cell::get)
+    }
+
+    pub(super) fn record_root_hash_read() {
+        ROOT_HASH_READS.with(|c| c.set(c.get() + 1));
     }
 }
 
