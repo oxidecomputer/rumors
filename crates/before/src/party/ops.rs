@@ -31,7 +31,7 @@
 //! loop and splices the input on the branch. `sum_split`, the fused
 //! sum-then-split behind [`Clock::sync`](crate::Clock::sync), walks the
 //! *union's* spine as a two-cursor lockstep and delegates the branch
-//! children to `sum` or a verbatim splice — its module doc carries the
+//! children to `sum` or a verbatim splice — its method doc carries the
 //! argument that the two structures coincide.)
 //!
 //! Emptiness/fullness are `O(1)` leaf checks (see [`idbits`](crate::idbits)),

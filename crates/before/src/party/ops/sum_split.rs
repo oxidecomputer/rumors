@@ -120,7 +120,7 @@ impl<'a> IdReader<'a> {
                 return Some((keep, give));
             }
             // A unary union node: both operands are unary in the same
-            // direction (the module doc's spine argument), and the tag
+            // direction (the method doc's spine argument), and the tag
             // rides into both halves.
             self.read();
             other.read();
@@ -140,13 +140,6 @@ enum UnionChild<'a> {
 }
 
 impl UnionChild<'_> {
-    fn len(&self) -> usize {
-        match self {
-            UnionChild::Verbatim(bits) => bits.len(),
-            UnionChild::Merged(bits) => bits.len(),
-        }
-    }
-
     fn bits(&self) -> &BitsSlice {
         match self {
             UnionChild::Verbatim(bits) => bits,
@@ -198,7 +191,7 @@ fn union_child<'a>(a: Option<&'a BitsSlice>, b: Option<&'a BitsSlice>) -> Option
 /// Assemble one half: the spine, the branch retagged to its kept side,
 /// and the kept child's bits.
 fn half(spine: &BitsSlice, left: bool, right: bool, child: &UnionChild) -> Bits {
-    let mut out = Bits::with_capacity(spine.len() + 2 + child.len());
+    let mut out = Bits::with_capacity(spine.len() + 2 + child.bits().len());
     out.extend_from_bitslice(spine);
     out.push(left);
     out.push(right);

@@ -55,9 +55,9 @@
 //! reading is byte-identical to the parent at both scales):
 //! `ff_party_join` slope +0.0197 with intercept −0.0174 and its
 //! rejection arm's intercept +0.0809, `ff_clock_join` rejection slope
-//! +0.0216, the fork trio's intercepts +0.0106 to +0.0140, and
-//! everything else at the third decimal or below. The enforcement leg
-//! held green at the previous pin before the re-fit.
+//! +0.0216 with intercept +0.0119, the fork trio's intercepts +0.0106
+//! to +0.0140, and everything else at the third decimal or below. The
+//! enforcement leg held green at the previous pin before the re-fit.
 //!
 //! Re-pinned 2026-07-29 at the overlay migration (the remaining
 //! hand-rolled overlay advances — projection, the masked walk's n-ary
