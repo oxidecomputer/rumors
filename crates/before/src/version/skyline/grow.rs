@@ -287,19 +287,24 @@ struct Subtree {
 fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
     let mut cursor = codec::DsiCursor::new_at(bits, start);
     let mut path = Bits::new();
-    // Descend to the leftmost leaf: one unary read.
-    step!();
-    let k = cursor.read_unary().expect("canonical skyline bits");
-    for _ in 0..k {
-        path.push(false);
-    }
-    let code_start = cursor.position();
-    cursor.skip_int().expect("canonical skyline bits");
-    let first_code = code_start..cursor.position();
-    let first_rel_depth = path.len();
-    let mut last_code = first_code.clone();
-    let mut last_rel_depth = first_rel_depth;
+    // The first leaf's coordinates, recorded once; the last leaf's are
+    // whatever the loop recorded most recently when the path empties.
+    let mut first: Option<(core::ops::Range<usize>, usize)> = None;
+    let (mut last_code, mut last_rel_depth);
     loop {
+        // Descend to the next leaf: one unary read.
+        step!();
+        let k = cursor.read_unary().expect("canonical skyline bits");
+        for _ in 0..k {
+            path.push(false);
+        }
+        let code_start = cursor.position();
+        cursor.skip_int().expect("canonical skyline bits");
+        last_code = code_start..cursor.position();
+        last_rel_depth = path.len();
+        if first.is_none() {
+            first = Some((last_code.clone(), last_rel_depth));
+        }
         // Close the ancestors the consumed leaf completed; an emptied
         // path means it was the subtree's last leaf.
         let mut flipped = false;
@@ -313,17 +318,8 @@ fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
         if !flipped {
             break;
         }
-        // Descend to the next leaf.
-        step!();
-        let k = cursor.read_unary().expect("canonical skyline bits");
-        for _ in 0..k {
-            path.push(false);
-        }
-        let code_start = cursor.position();
-        cursor.skip_int().expect("canonical skyline bits");
-        last_code = code_start..cursor.position();
-        last_rel_depth = path.len();
     }
+    let (first_code, first_rel_depth) = first.expect("a subtree has at least one leaf");
     Subtree {
         end: cursor.position(),
         first_code,
@@ -460,12 +456,21 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
     // so its right sibling subtree is pending after the inflation point.
     let mut pending = Bits::new();
     let mut depth = 0usize;
+    // Whether any leaf has entered the output ahead of the grown leaf.
+    // The grown leaf's own code is absolute exactly when none has
+    // (Phase 2's UpAbsolute/UpDelta selection): the decision is the
+    // walk's, not recode's, because only the walk knows what it fed.
     let mut fed_any = false;
 
     // Phase 1: descend the chosen path, splicing left off-path subtrees
     // as they pass, until the inflation point: an event leaf under a
     // full id (increment in place) or under an id node (expansion
-    // chain, walked id-only).
+    // chain, walked id-only). A `loop { .. break (..) }` block rather
+    // than a helper function: the descent mutates the walk's whole
+    // local state (the event scan, the id position, the builder, the
+    // pending-sibling bits, the path depth, `fed_any`), all of which
+    // the later phases keep using, so a function boundary would thread
+    // every one of them.
     let (orig_code, chain_dirs) = loop {
         step!();
         let key = id_pos;
