@@ -167,6 +167,7 @@ features:
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
     cargo check -p rumors --features protocol-v1
+    cargo check -p rumors --features meter
 
 # The viz engine must keep compiling for its real target, not just the host.
 wasm-check:
