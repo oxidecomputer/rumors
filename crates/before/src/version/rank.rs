@@ -78,6 +78,31 @@
 //!    zero — the extension carries a further set bit, so it denotes
 //!    the larger value.
 //!
+//!    *Why framing, not a length header.* The integral part's trick —
+//!    a prefix-ascending length code ahead of the payload — is sound
+//!    only because integer order is graded by length: with the
+//!    leading bit implied, more mantissa bits is strictly larger, so
+//!    sorting by length first agrees with value order. Fraction order
+//!    has no such grading — the one-bit `0.1₂ = 1/2` exceeds the
+//!    four-bit `0.0111₂ = 7/16` — and a header-first stream orders by
+//!    length at the first differing header bit, before any expansion
+//!    bit is compared: ascending polarity sorts 1/2 below 7/16,
+//!    descending sorts 3/4 below 5/8, and no polarity can work,
+//!    because fraction comparison is positional — decided at the
+//!    first differing expansion bit, with end-of-stream sorting below
+//!    any continuation (a fraction precedes its proper extensions).
+//!    That is an in-band requirement, and the continuation bit is its
+//!    direct spelling — the same reason the FoundationDB tuple
+//!    encoding chunk-escapes its variable-length byte strings rather
+//!    than length-prefixing them. The cost runs opposite the usual
+//!    trade: a length header would be asymptotically cheaper
+//!    (`O(log k)` against `k⁄8`) if it were sound, so the 9⁄8 is the
+//!    minimum rent for in-band delimitation at byte granularity, not
+//!    a missed compression — and a fraction length header would put a
+//!    forgeable depth claim on the wire, recreating the
+//!    allocation-bomb rejection surface the framed form structurally
+//!    lacks (every allocation is fed by bits actually read).
+//!
 //! The closing bit makes every stream self-delimiting, so distinct
 //! ranks' streams are never prefixes of one another: they differ at a
 //! bit position **inside both**, the padded byte forms differ at that
