@@ -1,10 +1,12 @@
 //! `borsh` support (feature-gated).
 //!
 //! Each type's borsh representation is exactly its canonical byte encoding:
-//! [`Party::as_bytes`], [`Version::as_bytes`], or [`Clock::encode`]. The tree
-//! encodings are prefix-free, so a decoder finds their ends from the encoding
-//! itself; no borsh length prefix is needed. This also lets values compose
-//! inside a larger borsh stream while preserving their in-memory wire form.
+//! [`Party::as_bytes`], [`Version::as_bytes`], [`Clock::encode`], or
+//! [`Rank::encode`]. The encodings are self-delimiting — the tree codes
+//! prefix-free, the rank stream closed by its fraction's terminating bit —
+//! so a decoder finds their ends from the encoding itself; no borsh length
+//! prefix is needed. This also lets values compose inside a larger borsh
+//! stream while preserving their in-memory wire form.
 
 use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -12,7 +14,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::{
     codec::{self, Base, BitCursor, Bits},
     error::Decode,
-    Clock, Party, Version,
+    version::decode_rank_stream,
+    Clock, Party, Rank, Ranked, Version,
 };
 
 /// A bit cursor which reads only as far as one canonical tree requires.
@@ -161,6 +164,41 @@ impl BorshDeserialize for Clock {
         let party = Party::deserialize_reader(reader)?;
         let version = Version::deserialize_reader(reader)?;
         Ok(Clock::from_parts(party, version))
+    }
+}
+
+/// The canonical lexicographic bytes of [`Rank::encode`], unframed —
+/// borsh is a transport for the one wire form, never a second format —
+/// so byte-wise order on the serialized bytes is still [`Ord`] on
+/// ranks, and the numerator–exponent pair stays off the wire (the
+/// decompression-bomb hazard [`Rank::encode`] documents).
+impl BorshSerialize for Rank {
+    fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        self.encode_to(writer)
+    }
+}
+
+/// Reads exactly one canonical rank stream: self-delimiting, so the
+/// bytes after its closing bit belong to the next borsh field.
+impl BorshDeserialize for Rank {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        decode_rank_stream(|| {
+            let mut byte = [0];
+            reader.read_exact(&mut byte).map_err(Decode::Io)?;
+            Ok(byte[0])
+        })
+        .map_err(decode_error)
+    }
+}
+
+/// The identical bytes as the materialized rank's — one fused fold and
+/// emission ([`Ranked::encode`]). Serialize-only: a rank does not
+/// determine a version, so no `BorshDeserialize` exists for `Ranked`,
+/// exactly the asymmetry of [`Ranked::encode`] having no decode —
+/// deserialize a [`Rank`] instead.
+impl BorshSerialize for Ranked<'_> {
+    fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        self.encode_to(writer)
     }
 }
 

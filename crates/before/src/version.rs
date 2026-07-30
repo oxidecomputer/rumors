@@ -24,6 +24,8 @@ pub mod skyline;
 pub(crate) mod skyline;
 
 pub use own::OwnVersion;
+#[cfg(feature = "borsh")]
+pub(crate) use rank::decode_stream as decode_rank_stream;
 pub use rank::Rank;
 pub use ranked::Ranked;
 pub use ticks::Ticks;

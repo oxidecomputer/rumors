@@ -884,6 +884,19 @@ pub(crate) const CLAIMS: &[Claim] = &[
         cells: Cells::Board(&[("rank_encode", Class::LinearIo)]),
     },
     Claim {
+        op: "Rank::encode_to",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Custom {
+                line: "`O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` \
+                       bits.",
+                reason: "the identical emission with a writer sink; the rank_encode cell \
+                         prices it",
+            },
+        }],
+        cells: Cells::Board(&[("rank_encode", Class::LinearIo)]),
+    },
+    Claim {
         op: "Rank::decode",
         checks: &[Check {
             site: Site::Fn,
@@ -922,6 +935,16 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             bound: Bound::MulBound,
         }],
+        cells: Cells::Board(&[("ranked_encode", Class::MulBound)]),
+    },
+    Claim {
+        op: "Ranked::encode_to",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::MulBound,
+        }],
+        // The identical fused fold and emission with a writer sink;
+        // the ranked_encode cell prices it.
         cells: Cells::Board(&[("ranked_encode", Class::MulBound)]),
     },
     // ───────────────────────────── causally ─────────────────────────────

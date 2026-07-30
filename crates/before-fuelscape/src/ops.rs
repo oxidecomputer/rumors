@@ -910,6 +910,14 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "a linear emission over an in-memory rank; no guest kernel exports the encoding",
     ),
     (
+        "Rank::encode_to",
+        "the identical emission with a writer sink; priced as Rank::encode",
+    ),
+    (
+        "Ranked::encode_to",
+        "the fused rank walk and emission with a writer sink; priced as Ranked::encode",
+    ),
+    (
         "Rank::decode",
         "a linear strict parse into an in-memory rank; no guest kernel exports the \
          decoding",

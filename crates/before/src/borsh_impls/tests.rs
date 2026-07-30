@@ -411,3 +411,91 @@ fn deep_trees_roundtrip_through_borsh() {
     );
     assert_eq!(reader, TRAILING, "trailing bytes stay for the next field");
 }
+
+// ─────────────────────────────── rank ───────────────────────────────
+
+/// A [`Rank`]'s borsh bytes are exactly its canonical encoding — no
+/// length prefix, no second format — and the [`Ranked`] view
+/// serializes identically; the rank round-trips.
+///
+/// Zero, an integral-only rank, and a deep small fraction cover the
+/// stream's three shapes (empty fraction in one byte, empty fraction
+/// spilling its close bit, multi-group fraction).
+#[test]
+fn rank_borsh_is_the_canonical_encoding() {
+    let battery = [
+        crate::Rank::ZERO,
+        Version::try_from(7).unwrap().rank(),
+        crate::version::Rank::from_raw(crate::codec::Base::from(1u8), 40),
+    ];
+    for rank in &battery {
+        let bytes = borsh::to_vec(rank).unwrap();
+        assert_eq!(bytes, rank.encode(), "raw framing: the one wire form");
+        assert_eq!(&crate::Rank::try_from_slice(&bytes).unwrap(), rank);
+    }
+    let v = Version::try_from(7).unwrap();
+    assert_eq!(
+        borsh::to_vec(&v.ranked()).unwrap(),
+        v.rank().encode(),
+        "the view serializes the identical bytes"
+    );
+}
+
+/// A rank stream is self-delimiting inside a larger borsh stream: a
+/// `(Rank, Version, Rank)` concatenation deserializes field by field,
+/// each read consuming exactly its own bytes.
+#[test]
+fn rank_composes_in_a_borsh_stream() {
+    let a = crate::version::Rank::from_raw(crate::codec::Base::from(129u8), 8);
+    let v: Version = "(0, 1, 0)".parse().unwrap();
+    let b = Version::try_from(5).unwrap().rank();
+    let mut stream = Vec::new();
+    borsh::BorshSerialize::serialize(&a, &mut stream).unwrap();
+    borsh::BorshSerialize::serialize(&v, &mut stream).unwrap();
+    borsh::BorshSerialize::serialize(&b, &mut stream).unwrap();
+    let mut reader: &[u8] = &stream;
+    assert_eq!(crate::Rank::deserialize_reader(&mut reader).unwrap(), a);
+    assert_eq!(Version::deserialize_reader(&mut reader).unwrap(), v);
+    assert_eq!(crate::Rank::deserialize_reader(&mut reader).unwrap(), b);
+    assert!(reader.is_empty(), "every byte belonged to some field");
+}
+
+/// A borsh rank stream cut anywhere mid-stream surfaces the reader's
+/// own `UnexpectedEof`, and a set padding bit crosses the boundary as
+/// `InvalidData` carrying the exact [`Decode`] variant.
+#[test]
+fn rank_borsh_rejections_keep_their_genres() {
+    let deep = crate::version::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40);
+    let bytes = borsh::to_vec(&deep).unwrap();
+    assert!(bytes.len() >= 7, "the fraction spans several groups");
+    for cut in 0..bytes.len() {
+        let err = crate::Rank::try_from_slice(&bytes[..cut]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnexpectedEof, "cut at byte {cut}");
+    }
+    // The encoding of 1 ("10000") with a set bit in its padding.
+    let err = crate::Rank::try_from_slice(&[0x84]).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::TrailingBits)),
+        "expected TrailingBits, got: {inner:?}"
+    );
+}
+
+proptest! {
+    /// Version-derived ranks round-trip through borsh, and — the raw
+    /// framing's inheritance — byte-wise order on the serialized
+    /// bytes is rank order, the lexicographic law surviving the
+    /// transport unchanged.
+    #[test]
+    fn rank_borsh_roundtrips_and_orders(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let a = from_oracle_version(&oa).rank();
+        let b = from_oracle_version(&ob).rank();
+        let (sa, sb) = (borsh::to_vec(&a).unwrap(), borsh::to_vec(&b).unwrap());
+        prop_assert_eq!(&crate::Rank::try_from_slice(&sa).unwrap(), &a);
+        prop_assert_eq!(&crate::Rank::try_from_slice(&sb).unwrap(), &b);
+        prop_assert_eq!(sa.cmp(&sb), a.cmp(&b), "serialized order is rank order");
+    }
+}

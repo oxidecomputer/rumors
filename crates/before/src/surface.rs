@@ -443,6 +443,19 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
     SurfaceRow {
+        op: "Rank::encode_to",
+        prod_tree: Leg::Excluded(
+            "the identical emission as Rank::encode with a writer sink; its doctest \
+             pins byte identity with encode, and the borsh round-trip suite drives it \
+             as the serializer",
+        ),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; representation is exactly what the \
+             semantic domain quotients away — ratified by owner, 2026-07-26",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
         op: "Rank::decode",
         prod_tree: Leg::Excluded(
             "Rank is not a paper object and no wire form exists in the oracle; strict \
@@ -485,6 +498,19 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_fs: Leg::Excluded(
             "a function has no byte representation; the fused emission is law-pinned \
              byte-identical to Rank::encode over the materialized rank",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
+        op: "Ranked::encode_to",
+        prod_tree: Leg::Excluded(
+            "the identical fused emission as Ranked::encode with a writer sink; its \
+             doctest pins byte identity with encode, and the borsh suite drives it as \
+             the serializer",
+        ),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; representation is exactly what the \
+             semantic domain quotients away — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
