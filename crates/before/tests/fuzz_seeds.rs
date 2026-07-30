@@ -138,10 +138,11 @@ fn laws_chunk<'d>(data: &mut &'d [u8]) -> &'d [u8] {
 }
 
 /// Carve one list script — `[arity: u8][pool indices]` — off a `fuzz_laws`
-/// seed, exactly as the target's framing does, asserting the seed's bytes
-/// are in-band as written: the arity below the target's fold and every
-/// index below its pool, so no seed byte silently aliases a smaller value
-/// than it was written to represent.
+/// seed, exactly as the target's framing does.
+///
+/// Asserts the seed's bytes are in-band as written — the arity below the
+/// target's fold and every index below its pool — so no seed byte silently
+/// aliases a smaller value than it was written to represent.
 fn laws_script(name: &str, data: &mut &[u8], pool: usize) -> usize {
     const ARITY_SPAN: usize = 18; // the target's arity band, per its framing
     let (&arity, rest) = data
