@@ -28,7 +28,11 @@
 //!   module doc maps the correspondence).
 //!
 //! (`split` fits neither: it walks its unary spine by bit *position* in a
-//! loop and splices the input on the branch.)
+//! loop and splices the input on the branch. `sum_split`, the fused
+//! sum-then-split behind [`Clock::sync`](crate::Clock::sync), walks the
+//! *union's* spine as a two-cursor lockstep and delegates the branch
+//! children to `sum` or a verbatim splice — its module doc carries the
+//! argument that the two structures coincide.)
 //!
 //! Emptiness/fullness are `O(1)` leaf checks (see [`idbits`](crate::idbits)),
 //! valid because every `Party` — and every subtree of one — is in canonical
@@ -43,5 +47,6 @@ mod diff;
 mod index;
 mod split;
 mod sum;
+mod sum_split;
 
 pub(crate) use index::IdIndex;

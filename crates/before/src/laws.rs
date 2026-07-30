@@ -1629,10 +1629,14 @@ fn clock_encoded_bits_matches_encode_len(c: &Clock) -> bool {
 ///
 /// The receive laws (join-then-event: the result dominates both the old
 /// version and the message, strictly past their join, with the party
-/// untouched) and the anonymous-join operators.
+/// untouched), the composition laws (`recv` and `sync` equal the
+/// compositions of the public operations they fuse, value for value),
+/// and the anonymous-join operators.
 pub static CLOCK_VERSION: &[Law<fn(&Clock, &Version) -> bool>] = &[
     ("recv_learns_and_advances", recv_learns_and_advances),
     ("recv_fixes_party", recv_fixes_party),
+    ("recv_is_join_then_tick", recv_is_join_then_tick),
+    ("sync_is_join_then_fork", sync_is_join_then_fork),
     (
         "anonymous_join_merges_versions",
         anonymous_join_merges_versions,
@@ -1656,6 +1660,55 @@ fn recv_fixes_party(c: &Clock, msg: &Version) -> bool {
     let mut receiver = c.dangerously_alias();
     receiver.recv(msg);
     receiver.party() == c.party()
+}
+
+/// `recv` equals its stated composition — join the message into the
+/// version, then [`Clock::tick`] — value for value, returned reference
+/// included: reception is exactly the two public operations, however it
+/// is computed.
+fn recv_is_join_then_tick(c: &Clock, msg: &Version) -> bool {
+    let mut fused = c.dangerously_alias();
+    let returned = fused.recv(msg).clone();
+    let (party, version) = c.dangerously_alias().into_parts();
+    let mut composed = Clock::from_parts(party, version | msg);
+    composed.tick();
+    returned == *composed.version() && fused == composed
+}
+
+/// `sync` equals its stated composition — [`Clock::join`] then
+/// [`Clock::fork`] — outcome for outcome.
+///
+/// The disjoint arm is constructed by forking the clock and letting the
+/// sides diverge (one ticking, one receiving the message): it must
+/// reconcile to exactly the joined-then-reforked pair. The overlap arm
+/// is the clock against its own alias: it must be refused with neither
+/// side moved, exactly where `join` refuses.
+fn sync_is_join_then_fork(c: &Clock, msg: &Version) -> bool {
+    // The disjoint arm.
+    let mut a = c.dangerously_alias();
+    let mut b = a.fork();
+    a.tick();
+    b.recv(msg);
+    let mut fused_a = a.dangerously_alias();
+    let mut fused_b = b.dangerously_alias();
+    let Ok(returned) = fused_a.sync(&mut fused_b).cloned() else {
+        return false; // forked halves are disjoint: sync must accept
+    };
+    let mut composed_a = a.dangerously_alias();
+    if composed_a.join(b.dangerously_alias()).is_err() {
+        return false; // forked halves are disjoint: join must accept
+    }
+    let composed_b = composed_a.fork();
+    if fused_a != composed_a || fused_b != composed_b || returned != *composed_a.version() {
+        return false;
+    }
+    // The overlap arm: a clock shares its whole region with its alias.
+    let mut x = c.dangerously_alias();
+    let mut y = c.dangerously_alias();
+    x.sync(&mut y).is_err()
+        && c.dangerously_alias().join(c.dangerously_alias()).is_err()
+        && x == *c
+        && y == *c
 }
 
 /// The anonymous joins `Clock | Version` and `Version | Clock` merge the

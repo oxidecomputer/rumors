@@ -500,6 +500,47 @@ pub(super) fn scan_touch() -> Liveness {
     }
 }
 
+/// Scan floor (the `clock_sync` row): the version join is the only
+/// full-examination leg the fused reconciliation retains.
+const WHY_SCAN_SYNC_VERSIONS: &str = "the reconciliation's version join must read both \
+     version streams in full to emit their union; the party leg guarantees only its root \
+     tags — the fused sum-split splices a subtree owned by one side alone without \
+     scanning its nodes, so no party-bytes floor is honest";
+
+/// The `clock_sync` row's floors, derived from the reconciliation's two
+/// legs on the pair's own operands (outside any measurement).
+///
+/// The version join reads both streams in full whenever they are
+/// distinct and nonempty (a merge emission consumes both operands to
+/// the end; byte-equal and empty operands are answered by the join's
+/// `O(1)` short-circuits before any sweep, so they floor at the root
+/// codes alone). The party leg never floors above the root codes: the
+/// fused sum-split walks the union's spine and splices any subtree
+/// owned by one side alone without reading its nodes, so a pair whose
+/// regions do not interleave — the disjoint-mounted board pairs among
+/// them — legitimately scans `O(1)` party bits, and a party-bytes
+/// floor would ban the efficiency. Touch is the shared pair-fold
+/// premise ([`touch_pair_fold`]); the value columns are the walk
+/// convention (no forced materialization, no forced accumulator).
+pub(super) fn sync_floors(v: &Version, w: &Version) -> Floors {
+    let scan = if v == w || v.is_empty() || w.is_empty() {
+        scan_touch()
+    } else {
+        let version_bytes = v.encode().len() + w.encode().len();
+        Liveness::Floor {
+            min: (version_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
+            why: WHY_SCAN_SYNC_VERSIONS,
+        }
+    };
+    Floors {
+        heap: na(NA_HEAP_IN_PLACE),
+        limb: na(NA_LIMB_NOT_FORCED),
+        segments: seg_ceiling_only(),
+        scan,
+        touch: touch_pair_fold(v, w),
+    }
+}
+
 /// A stored-stream limb floor (one limb per 64 bits of every wide payload
 /// code), or NA when every code fits machine words.
 ///
