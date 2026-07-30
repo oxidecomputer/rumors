@@ -1,12 +1,13 @@
 //! `borsh` support (feature-gated).
 //!
 //! Each type's borsh representation is exactly its canonical byte encoding:
-//! [`Party::as_bytes`], [`Version::as_bytes`], [`Clock::encode`], or
-//! [`Rank::encode`]. The encodings are self-delimiting — the tree codes
-//! prefix-free, the rank stream closed by its fraction's terminating bit —
-//! so a decoder finds their ends from the encoding itself; no borsh length
-//! prefix is needed. This also lets values compose inside a larger borsh
-//! stream while preserving their in-memory wire form.
+//! [`Party::as_bytes`], [`Version::as_bytes`], [`Clock::encode`],
+//! [`Rank::encode`], or [`Ranked::encode`]. The encodings are
+//! self-delimiting — the tree codes prefix-free, the rank stream closed by
+//! its fraction's terminating bit — so a decoder finds their ends from the
+//! encoding itself; no borsh length prefix is needed. This also lets values
+//! compose inside a larger borsh stream while preserving their in-memory
+//! wire form.
 
 use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -192,16 +193,37 @@ impl BorshDeserialize for Rank {
     }
 }
 
-/// The identical bytes as the materialized rank's — one fused fold and
-/// emission ([`Ranked::encode`]).
+/// The canonical composite key of [`Ranked::encode`], unframed: the
+/// rank's self-delimiting stream, then the version's canonical bytes.
 ///
-/// Serialize-only: a rank does not determine a version, so no
-/// `BorshDeserialize` exists for `Ranked`, exactly the asymmetry of
-/// [`Ranked::encode`] having no decode — deserialize a [`Rank`]
-/// instead.
+/// Borsh is a transport for the one wire form, never a second format,
+/// so byte-wise order on the serialized bytes is still [`Ord`] on the
+/// views, ties included — the causal ordering survives the transport.
 impl BorshSerialize for Ranked<'_> {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         self.encode_to(writer)
+    }
+}
+
+/// Reads exactly one composite key: the self-delimiting rank stream,
+/// then one canonical version stream.
+///
+/// The parsed rank is verified against the version's own rank fold
+/// ([`Ranked::decode`]'s contract), and the bytes after the version
+/// belong to the next borsh field.
+impl BorshDeserialize for Ranked<'static> {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let rank = decode_rank_stream(|| {
+            let mut byte = [0];
+            reader.read_exact(&mut byte).map_err(Decode::Io)?;
+            Ok(byte[0])
+        })
+        .map_err(decode_error)?;
+        let version = Version::deserialize_reader(reader)?;
+        if version.rank() != rank {
+            return Err(decode_error(Decode::NotCanonical));
+        }
+        Ok(Ranked::from(version))
     }
 }
 

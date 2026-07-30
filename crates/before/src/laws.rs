@@ -211,12 +211,17 @@ fn seed_projection_is_identity(a: &Version) -> bool {
     (a / &Party::seed()) == *a
 }
 
-/// [`Ranked`] carries exactly its version's rank.
+/// [`Ranked`] carries exactly its version's rank, and its key encoding
+/// carries exactly the view.
 ///
 /// Every entry views the same version (both `From` constructors and
 /// the `Version::ranked` method spelling), `to_rank` (and the `From`
-/// materialization, and the fused `encode`) realize exactly
-/// `Version::rank`'s value, and settling the borrow (`into_owned`)
+/// materialization, and the fused `encode_rank`) realize exactly
+/// `Version::rank`'s value, the composite `encode` is the rank
+/// encoding followed by the version's canonical bytes,
+/// `decode ∘ encode` is the identity exactly (same version, equal
+/// view), `Hash` is the viewed version's hash (the delegation `Eq`
+/// coherence rides on), and settling the borrow (`into_owned`)
 /// changes nothing.
 // The owned-instance comparison is the point: the law exercises the
 // `From<Ranked> for Rank` materialization itself.
@@ -226,7 +231,11 @@ fn ranked_carries_own_rank(a: &Version) -> bool {
     ranked.version() == a
         && ranked.to_rank() == a.rank()
         && Rank::from(ranked.clone()) == a.rank()
-        && ranked.encode() == a.rank().encode()
+        && ranked.encode_rank() == a.rank().encode()
+        && ranked.encode() == [a.rank().encode(), a.as_bytes().to_vec()].concat()
+        && Ranked::decode(&ranked.encode()[..])
+            .is_ok_and(|decoded| decoded.version() == a && decoded == ranked)
+        && hash_of(&ranked) == hash_of(a)
         && {
             let owned = Ranked::from(a.clone()).into_owned();
             owned.version() == a && owned.to_rank() == a.rank()
@@ -270,9 +279,10 @@ fn version_encoded_bits_matches_encode_len(a: &Version) -> bool {
 /// Commutativity and the bound laws of the lattice operations, absorption,
 /// the partial order's pair laws and their coherence with `Eq`/`Hash` and
 /// `concurrent`, the valuation identity tying `rank` to the lattice, the
-/// `distance`/`lag` metric laws, [`Ranked`]'s rank order, the
-/// degenerate-interval identity tying interval placement back to
-/// pairwise comparison, and the pair form of the spanning hull.
+/// `distance`/`lag` metric laws, [`Ranked`]'s total order and its
+/// lexicographic key encoding, the degenerate-interval identity tying
+/// interval placement back to pairwise comparison, and the pair form
+/// of the spanning hull.
 pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("merge_commutative", merge_commutative),
     ("meet_commutative", meet_commutative),
@@ -294,7 +304,14 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("lag_is_the_rank_gap", lag_is_the_rank_gap),
     ("version_eq_iff_bytes_eq", version_eq_iff_bytes_eq),
     ("version_eq_implies_hash_eq", version_eq_implies_hash_eq),
-    ("ranked_orders_by_rank", ranked_orders_by_rank),
+    (
+        "ranked_orders_by_rank_then_bytes",
+        ranked_orders_by_rank_then_bytes,
+    ),
+    (
+        "ranked_encoding_orders_like_ord",
+        ranked_encoding_orders_like_ord,
+    ),
     (
         "degenerate_interval_place_is_partial_cmp",
         degenerate_interval_place_is_partial_cmp,
@@ -418,33 +435,45 @@ fn version_eq_implies_hash_eq(a: &Version, b: &Version) -> bool {
     a != b || hash_of(a) == hash_of(b)
 }
 
-/// [`Ranked`]'s comparisons are rank comparisons, exactly.
+/// [`Ranked`]'s total order is rank order completed by the version-byte
+/// tiebreak, exactly.
 ///
-/// The fused co-walk equals the materialized `Rank` order, equality is
-/// rank equality, every heterogeneous operand mix (`Ranked` vs
-/// [`Rank`], either direction, owned and borrowed) answers the same
-/// question — and the order therefore extends causality (causally
-/// ordered versions compare the same way, by rank strict
-/// monotonicity).
+/// The fused co-walk equals the materialized `Rank` order wherever the
+/// ranks differ, rank ties resolve by the versions' canonical bytes,
+/// equality is version identity, every heterogeneous operand mix
+/// (`Ranked` vs [`Rank`], either direction, owned and borrowed)
+/// answers the rank question alone — and the order therefore extends
+/// causality (causally ordered versions compare the same way, by rank
+/// strict monotonicity; only ties fall to the causally-free tiebreak).
 // The "needless" borrows are the point: the law exercises the
 // `&Ranked` operand impls std would not derive.
 #[allow(clippy::needless_borrow)]
-fn ranked_orders_by_rank(a: &Version, b: &Version) -> bool {
+fn ranked_orders_by_rank_then_bytes(a: &Version, b: &Version) -> bool {
     let (ra, rb) = (Ranked::from(a), Ranked::from(b));
-    let want = a.rank().cmp(&b.rank());
+    let rank_want = a.rank().cmp(&b.rank());
+    let want = rank_want.then_with(|| a.as_bytes().cmp(b.as_bytes()));
     let fused = ra.cmp(&rb) == want && rb.cmp(&ra) == want.reverse();
-    let eq = (ra == rb) == (want == Ordering::Equal);
-    let heterogeneous = ra.partial_cmp(&b.rank()) == Some(want)
-        && a.rank().partial_cmp(&rb) == Some(want)
-        && (ra == b.rank()) == (want == Ordering::Equal)
-        && (a.rank() == rb) == (want == Ordering::Equal)
-        && (&ra).partial_cmp(&b.rank()) == Some(want)
-        && ra.partial_cmp(&&b.rank()) == Some(want);
+    let eq = (ra == rb) == (a == b);
+    let heterogeneous = ra.partial_cmp(&b.rank()) == Some(rank_want)
+        && a.rank().partial_cmp(&rb) == Some(rank_want)
+        && (ra == b.rank()) == (rank_want == Ordering::Equal)
+        && (a.rank() == rb) == (rank_want == Ordering::Equal)
+        && (&ra).partial_cmp(&b.rank()) == Some(rank_want)
+        && ra.partial_cmp(&&b.rank()) == Some(rank_want);
     let extends = match a.partial_cmp(b) {
         Some(ord) => want == ord,
-        None => true, // concurrent: the rank may order or tie them
+        None => true, // concurrent: rank or tiebreak orders them
     };
     fused && eq && heterogeneous && extends
+}
+
+/// The composite key encoding is lexicographic, totally: byte order on
+/// [`Ranked::encode`] equals [`Ord`] on the views — ties included, so
+/// byte equality on keys is exactly `Eq` (version identity).
+fn ranked_encoding_orders_like_ord(a: &Version, b: &Version) -> bool {
+    let (ra, rb) = (Ranked::from(a), Ranked::from(b));
+    let (ea, eb) = (ra.encode(), rb.encode());
+    ea.cmp(&eb) == ra.cmp(&rb) && (ea == eb) == (ra == rb)
 }
 
 // ───────────────────────────── Version: triples ─────────────────────────────

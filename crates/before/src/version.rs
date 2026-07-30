@@ -323,14 +323,15 @@ impl Version {
     }
 
     /// Views this version by its causal rank: the borrowing [`Ranked`]
-    /// view, which compares, equates, and encodes by
-    /// [`rank`](Self::rank) without materializing one.
+    /// view, which compares by [`rank`](Self::rank) without
+    /// materializing one and keys by the composite rank-then-version
+    /// encoding.
     ///
     /// Equal to `Ranked::from(&self)` — this is the method spelling
     /// for chained call sites. Construction is `O(1)` and runs no
     /// fold; see [`Ranked`] for what the view's comparisons mean
-    /// (rank order, equality deliberately coarser than version
-    /// identity) and when to materialize a [`Rank`] instead.
+    /// (rank order completed by a deterministic tiebreak, equality as
+    /// version identity) and when to materialize a [`Rank`] instead.
     ///
     /// # Complexity
     ///

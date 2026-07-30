@@ -1895,32 +1895,40 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
 
 // ─────────────────────────────── ranked ───────────────────────────────
 
-/// `Ranked` known values: equality is rank equality, deliberately
-/// coarser than version identity.
+/// `Ranked` known values: a rank-equal concurrent pair is separated by
+/// the version-byte tiebreak, never conflated.
 ///
-/// A concurrent pair sharing a rank (half vs. the two-peak tree)
-/// compares `Equal` through the fused walk's hardest arm (the exact
-/// total must cancel to zero), across every operand mix of the
-/// heterogeneous family.
+/// A concurrent pair sharing a rank (half vs. the two-peak tree) drives
+/// the fused walk's hardest arm (the exact total must cancel to zero)
+/// into the tiebreak: the views compare non-`Equal`, ordered exactly as
+/// the versions' canonical bytes, while `to_rank` still ties and every
+/// rank-only heterogeneous mix still answers `Equal` — which also
+/// witnesses the documented cross-type hazard (each view equals the
+/// shared `Rank`; the views differ from each other).
 // The redundant-looking operand mixes are the point: each spelling
 // exercises a distinct heterogeneous impl (`Ranked` vs `&Rank`,
 // `&Ranked` vs `Rank`, ...).
 #[allow(clippy::nonminimal_bool, clippy::op_ref)]
 #[test]
-fn ranked_equates_equal_rank_concurrent_pairs() {
+fn ranked_orders_equal_rank_concurrent_pairs_by_bytes() {
     let half: Version = "(0, 1, 0)".parse().unwrap();
     let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
     assert!(half.concurrent(&peaks), "the tie under test is concurrent");
     assert_eq!(half.rank(), peaks.rank(), "the pair shares a rank");
 
     let (h, p) = (Ranked::from(&half), Ranked::from(&peaks));
-    assert_eq!(h, p, "equality is rank equality: the views tie");
-    assert_eq!(h.cmp(&p), Ordering::Equal);
-    assert_ne!(*h.version(), *p.version(), "the versions stay distinct");
-    // The heterogeneous mixes answer the same question.
+    assert_ne!(h, p, "equality is version identity: the views differ");
+    let byte_order = half.as_bytes().cmp(peaks.as_bytes());
+    assert_ne!(byte_order, Ordering::Equal, "distinct canonical bytes");
+    assert_eq!(h.cmp(&p), byte_order, "rank ties order by version bytes");
+    assert_eq!(p.cmp(&h), byte_order.reverse());
+    assert_eq!(h.to_rank(), p.to_rank(), "the ranks themselves still tie");
+    // The rank-only heterogeneous mixes still answer `Equal` — the
+    // documented non-transitive triangle, witnessed directly:
+    // h == rank, rank == p, yet h != p.
     assert!(h == peaks.rank() && half.rank() == p);
     assert!(h == &peaks.rank() && &half.rank() == p.clone());
-    assert!(&h == peaks.rank() && h <= p && p >= h);
+    assert!(&h == peaks.rank());
 }
 
 proptest! {
@@ -1949,22 +1957,26 @@ proptest! {
         }
     }
 
-    /// The fused `Ranked` comparison is the materialized rank order,
-    /// differentially.
+    /// The fused `Ranked` comparison is the materialized rank order
+    /// completed by the version-byte tiebreak, differentially.
     ///
     /// Over arbitrary normal-form version pairs, the one-walk signed
-    /// co-sweep answers exactly what two independent rank folds and a
-    /// `Rank` comparison answer, in both argument orders — and the
-    /// fused encode emits `Rank::encode`'s bytes byte-for-byte.
+    /// co-sweep with its tiebreak answers exactly what two independent
+    /// rank folds, a `Rank` comparison, and a byte comparison answer,
+    /// in both argument orders — and the fused rank-only encode emits
+    /// `Rank::encode`'s bytes byte-for-byte.
     #[test]
     fn ranked_fused_walk_matches_materialized(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
-        let want = a.rank().cmp(&b.rank());
+        let want = a
+            .rank()
+            .cmp(&b.rank())
+            .then_with(|| a.as_bytes().cmp(b.as_bytes()));
         let (ra, rb) = (Ranked::from(&a), Ranked::from(&b));
         prop_assert_eq!(ra.cmp(&rb), want, "fused disagrees: {} vs {}", a, b);
         prop_assert_eq!(rb.cmp(&ra), want.reverse(), "antisymmetry: {} vs {}", b, a);
-        prop_assert_eq!(ra.encode(), a.rank().encode(), "fused encode: {}", a);
+        prop_assert_eq!(ra.encode_rank(), a.rank().encode(), "fused encode: {}", a);
     }
 }
 
@@ -1975,14 +1987,15 @@ proptest! {
 /// A staircase and its mirror image share a rank by symmetry while
 /// their mass sits at opposite ends of the interval, so the signed
 /// co-sweep's running difference swings through every level's
-/// magnitude before the exact total cancels to `Equal` — the widest
-/// cancellation an 800-level walk can force through the freeze and
-/// promotion machinery. Splitting one mirror's core step then moves
-/// the total by `2⁻⁸⁰³` alone: every level above still cancels, and
-/// the verdict's sign rests entirely on the deepest contribution.
-/// Each verdict is checked against the
-/// materialized `Rank` order in both argument orders, and the fused
-/// encode against the materialized encode on the same deep shapes.
+/// magnitude before the exact total cancels — the widest cancellation
+/// an 800-level walk can force through the freeze and promotion
+/// machinery, handing the mirror pair's verdict to the version-byte
+/// tiebreak. Splitting one mirror's core step then moves the total by
+/// `2⁻⁸⁰³` alone: every level above still cancels, and the verdict's
+/// sign rests entirely on the deepest contribution. Each verdict is
+/// checked against the materialized rank-then-bytes order in both
+/// argument orders, and the fused rank-only encode against the
+/// materialized encode on the same deep shapes.
 #[test]
 fn ranked_fused_walk_survives_deep_cancellation() {
     // The staircase: one new unit plateau per level, mass leaning left
@@ -2008,15 +2021,235 @@ fn ranked_fused_walk_survives_deep_cancellation() {
     assert_ne!(left, right, "the mirrors are distinct versions");
     assert!(left.concurrent(&right), "and concurrent");
     for (a, b) in [(&left, &right), (&left, &shallower), (&right, &shallower)] {
-        let want = a.rank().cmp(&b.rank());
+        let want = a
+            .rank()
+            .cmp(&b.rank())
+            .then_with(|| a.as_bytes().cmp(b.as_bytes()));
         assert_eq!(Ranked::from(a).cmp(&Ranked::from(b)), want);
         assert_eq!(Ranked::from(b).cmp(&Ranked::from(a)), want.reverse());
-        assert_eq!(Ranked::from(a).encode(), a.rank().encode());
+        assert_eq!(Ranked::from(a).encode_rank(), a.rank().encode());
     }
+    assert_eq!(
+        Ranked::from(&left).cmp(&Ranked::from(&right)),
+        left.as_bytes().cmp(right.as_bytes()),
+        "the mirror pair's rank tie falls to the byte tiebreak"
+    );
     assert_eq!(left.rank(), right.rank(), "the mirrors tie by symmetry");
     assert!(
         shallower.rank() < right.rank(),
         "the split step decides alone"
+    );
+}
+
+// ─────────────────────── the composite ranked key ───────────────────────
+
+proptest! {
+    /// Version canonical byte encodings are prefix-free: distinct
+    /// versions' `as_bytes` are never byte prefixes of one another.
+    ///
+    /// The property the composite `Ranked` key's suffix safety rests
+    /// on for its version component, pinned directly rather than
+    /// inferred from the stream being bit-self-delimiting: a strict
+    /// bit-prefix that were itself canonical would make the longer
+    /// stream carry live bits past a complete tree, which the strict
+    /// decoder rejects — this pins that argument's conclusion over
+    /// arbitrary normal-form pairs.
+    #[test]
+    fn version_encoding_is_prefix_free(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        if a != b {
+            prop_assert!(
+                !a.as_bytes().starts_with(b.as_bytes())
+                    && !b.as_bytes().starts_with(a.as_bytes()),
+                "prefix-free: {} vs {}", a, b
+            );
+        }
+    }
+}
+
+/// Committed witnesses for version-encoding prefix-freedom at the
+/// growth seam: chains where one version's stream extends another's
+/// structure — the shapes most likely to share a long byte prefix.
+///
+/// A tick chain (each version one event past the last), a spine tower
+/// (each one level deeper), and the equal-rank concurrent pair are
+/// checked pairwise: no encoding is a byte prefix of any other's.
+#[test]
+fn version_encoding_is_prefix_free_on_growth_chains() {
+    let mut battery: Vec<Version> = Vec::new();
+    let mut clock = Clock::seed();
+    let mut b = clock.fork();
+    for _ in 0..4 {
+        clock.tick();
+        battery.push(clock.version().clone());
+        b.tick();
+        clock.join(b).unwrap();
+        battery.push(clock.version().clone());
+        b = clock.fork();
+    }
+    for depth in [0usize, 1, 2, 3, 8] {
+        let mut text = String::from("1");
+        for _ in 0..depth {
+            text = format!("(0, {text}, 0)");
+        }
+        battery.push(text.parse().unwrap());
+    }
+    battery.push("(0, 1, 0)".parse().unwrap());
+    battery.push("(0, (0, 1, 0), (0, 0, 1))".parse().unwrap());
+    battery.push(Version::new());
+    for (i, a) in battery.iter().enumerate() {
+        for b in &battery[i + 1..] {
+            if a == b {
+                continue;
+            }
+            assert!(
+                !a.as_bytes().starts_with(b.as_bytes()) && !b.as_bytes().starts_with(a.as_bytes()),
+                "prefix-free: {a} vs {b}"
+            );
+        }
+    }
+}
+
+proptest! {
+    /// The composite `Ranked` key is suffix-safe: distinct versions'
+    /// keys are never byte prefixes of one another.
+    ///
+    /// So a key built as `Ranked::encode ++ payload tag` orders by the
+    /// view's total order under every choice of appended bytes.
+    ///
+    /// Rank-unequal pairs are decided inside the rank component (its
+    /// own committed prefix-freedom), and rank-equal pairs fall
+    /// through byte-identical rank prefixes to the version component
+    /// (prefix-free above) — this pins the composition of the two
+    /// arguments over arbitrary normal-form pairs with arbitrary
+    /// suffix bytes on both keys.
+    #[test]
+    fn ranked_composite_encoding_is_suffix_safe(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+        suffix_a in proptest::collection::vec(any::<u8>(), 0..5),
+        suffix_b in proptest::collection::vec(any::<u8>(), 0..5),
+    ) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let (ra, rb) = (Ranked::from(&a), Ranked::from(&b));
+        let (ea, eb) = (ra.encode(), rb.encode());
+        if a != b {
+            prop_assert!(
+                !eb.starts_with(&ea) && !ea.starts_with(&eb),
+                "prefix-free: {} vs {}", a, b
+            );
+        }
+        let key_a = [ea, suffix_a].concat();
+        let key_b = [eb, suffix_b].concat();
+        match ra.cmp(&rb) {
+            Ordering::Less => prop_assert!(key_a < key_b, "{} vs {}", a, b),
+            Ordering::Greater => prop_assert!(key_a > key_b, "{} vs {}", a, b),
+            Ordering::Equal => {}
+        }
+    }
+}
+
+/// Committed witnesses for composite-key suffix safety at the tiebreak
+/// seam: pairs whose keys agree byte-for-byte through the whole rank
+/// component, so the order is decided inside the version tail.
+///
+/// The equal-rank concurrent pair (half vs. the two-peak tree), the
+/// empty version against half (the zero rank's one-byte stream against
+/// a fractional one — decided in the rank component, with the version
+/// tail present on both), and a tick chain pair. For each pair the
+/// full strength is asserted directly: neither key is a byte prefix of
+/// the other, byte order equals the views' total order, and the worst
+/// suffixes (`0xFF` on the smaller key, `0x00` on the larger) cannot
+/// flip it.
+#[test]
+fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
+    let half: Version = "(0, 1, 0)".parse().unwrap();
+    let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    assert_eq!(half.rank(), peaks.rank(), "the seam pair shares a rank");
+    let mut clock = Clock::seed();
+    let one = clock.tick().clone();
+    let two = clock.tick().clone();
+    let pairs: [(&Version, &Version); 3] =
+        [(&half, &peaks), (&Version::new(), &half), (&one, &two)];
+    for (a, b) in pairs {
+        let want = Ranked::from(a).cmp(&Ranked::from(b));
+        assert_ne!(want, Ordering::Equal, "the witness pair is ordered");
+        let (small, large) = match want {
+            Ordering::Less => (a, b),
+            _ => (b, a),
+        };
+        let (es, el) = (Ranked::from(small).encode(), Ranked::from(large).encode());
+        assert!(
+            !el.starts_with(&es) && !es.starts_with(&el),
+            "prefix-free: {small} vs {large}"
+        );
+        assert!(es < el, "byte order is the total order: {small} vs {large}");
+        let key_small = [es, vec![0xFF; 4]].concat();
+        let key_large = [el, vec![0x00; 4]].concat();
+        assert!(
+            key_small < key_large,
+            "no suffix flips the order: {small} vs {large}"
+        );
+    }
+}
+
+/// Committed witnesses, one per rejection genre `Ranked::decode` adds
+/// over its components' own.
+///
+/// Empty input; truncation at every byte boundary of a composite (cuts
+/// land in the rank stream, at the component seam, and inside the
+/// version); a trailing zero byte (the version component's whole-input
+/// strictness); a set bit in the version's padding; and a well-formed
+/// rank prefix paired with a version it does not measure (the
+/// composite's redundancy check — `NotCanonical`, the genre for
+/// well-formed structure that is the canonical spelling of no value).
+/// The components' interior genres are their own suites' business
+/// (`rank_decoding_rejects_each_genre` and the codec suite's
+/// rejection battery); the cuts here prove each component's rejection
+/// surfaces through the composite entry.
+#[test]
+fn ranked_decode_rejects_each_genre() {
+    use crate::error::Decode;
+    let half: Version = "(0, 1, 0)".parse().unwrap();
+    let key = Ranked::from(&half).encode();
+    assert!(
+        matches!(Ranked::decode(&[][..]), Err(Decode::Truncated)),
+        "empty input"
+    );
+    for cut in 0..key.len() {
+        assert!(
+            matches!(Ranked::decode(&key[..cut]), Err(Decode::Truncated)),
+            "cut at byte {cut}"
+        );
+    }
+    let padded = [key.clone(), vec![0]].concat();
+    assert!(
+        matches!(Ranked::decode(&padded[..]), Err(Decode::TrailingBits)),
+        "trailing zero byte"
+    );
+    assert_ne!(
+        half.encoded_bits() % 8,
+        0,
+        "the witness's version tail must end mid-byte, so its final \
+         byte carries padding"
+    );
+    let mut set_padding = key.clone();
+    *set_padding.last_mut().unwrap() |= 0x01;
+    assert!(
+        matches!(Ranked::decode(&set_padding[..]), Err(Decode::TrailingBits)),
+        "set bit in the version padding"
+    );
+    // A rank the version does not measure: rank(5) over half's bytes.
+    let mismatched = [
+        Version::try_from(5).unwrap().rank().encode(),
+        half.as_bytes().to_vec(),
+    ]
+    .concat();
+    assert!(
+        matches!(Ranked::decode(&mismatched[..]), Err(Decode::NotCanonical)),
+        "mismatched rank prefix"
     );
 }
 

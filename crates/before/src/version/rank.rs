@@ -165,7 +165,9 @@ use crate::error::Decode;
 /// the same version or concurrent). Any tiebreak between equal ranks — a
 /// content hash, [`as_bytes`](crate::Version::as_bytes) — therefore
 /// extends the causal order to a total one, which is what makes `Rank` fit
-/// for sorted-container keys that must deliver causes before effects.
+/// for sorted-container keys that must deliver causes before effects
+/// (the [`Ranked`](crate::Ranked) view builds exactly such a total
+/// order in, with the version's bytes as the tiebreak).
 ///
 /// [`min_ticks`](crate::Version::min_ticks) is the integer shadow of this
 /// measure (every width rounded up to the whole interval): a valid but
@@ -292,7 +294,12 @@ impl Rank {
     /// the rank prefix are concurrent or identical, and any
     /// deterministic tiebreak — the version's
     /// [`as_bytes`](crate::Version::as_bytes), a content hash — is
-    /// causally safe.
+    /// causally safe. Reach for this form when rank-*class* semantics
+    /// are the point (rank-equal versions sharing a key prefix under a
+    /// tiebreak of your own); where the version itself should be the
+    /// tiebreak and the key should determine the value,
+    /// [`Ranked::encode`](crate::Ranked::encode) is the ready-made
+    /// composite.
     ///
     /// The encoding is canonical and bijective: [`decode`](Rank::decode)
     /// accepts exactly the byte strings this method produces, and equal
