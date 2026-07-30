@@ -40,7 +40,7 @@ use crate::{
 /// A concurrent ceiling is beyond the known-at range and is *not* known:
 /// it carries history the counterparty has never seen.
 pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Version) -> bool {
-    causally::known_at(version).contains(node.ceiling())
+    causally::known_at(version).contains(node.span().join())
 }
 
 /// Classify a subtree from its memoized version bounds without
@@ -54,18 +54,18 @@ pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Ver
 /// [`Between`](causally::Dominance::Between) means mixed, so the
 /// caller descends.
 ///
-/// The backend answers it from its own stored bounds
-/// ([`Node::dominance_of`]) in one fused walk that decodes `known` once,
-/// where placing the two bounds separately would decode it once per
-/// bound; the span's ordering is the backend's construction-time
-/// obligation, so no validating comparison is paid per classification.
-/// The cheap unknown-subtree exit survives the fusion: `floor <= known`
-/// refuted is the whole verdict, decided at the first refuting interval.
+/// The backend hands out its own stored bounds ([`Node::span`]) and the
+/// span answers in one fused walk that decodes `known` once, where
+/// placing the two bounds separately would decode it once per bound;
+/// the span's ordering is the backend's construction-time obligation,
+/// so no validating comparison is paid per classification. The cheap
+/// unknown-subtree exit survives the fusion: `floor <= known` refuted
+/// is the whole verdict, decided at the first refuting interval.
 fn knowledge<T: Send + Sync + 'static>(
     node: &impl Node<T>,
     known: &Version,
 ) -> causally::Dominance {
-    node.dominance_of(known)
+    node.span().dominance_of(known)
 }
 
 /// Prune one subtree to what a counterparty at `known` is missing, honoring

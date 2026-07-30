@@ -511,6 +511,24 @@ impl<T> Node<T> {
         }
     }
 
+    /// This subtree's version bounds as one causal span: the memoized
+    /// `[floor, ceiling]` pair, borrowed.
+    ///
+    /// A branch answers by reborrowing its stored bounds span —
+    /// ordered by construction, so handing it out revalidates nothing —
+    /// and a leaf's bounds coincide at its version, the coincident span
+    /// through the trusted door (`version <= version` holds
+    /// reflexively). Reading either forces the same memo
+    /// [`ceiling`](Self::ceiling) and [`floor`](Self::floor) share.
+    pub fn span(&self) -> causally::Span<'_> {
+        match &self.inner.children {
+            Children::Leaf { version, .. } => causally::Span::ordered(version, version),
+            Children::Branch {
+                bounds, children, ..
+            } => Self::bounds(bounds, children).reborrow(),
+        }
+    }
+
     /// How much of this subtree's version bounds `probe` dominates: the
     /// deletion-honoring classifiers' verdict, answered from the memos
     /// without descending.

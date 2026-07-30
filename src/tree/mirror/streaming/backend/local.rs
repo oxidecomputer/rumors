@@ -37,19 +37,12 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
         self.hash()
     }
 
-    fn ceiling(&self) -> &Version {
-        self.ceiling()
-    }
-
-    fn floor(&self) -> &Version {
-        self.floor()
-    }
-
-    // Answered from the branch's stored bounds span, so the ordering the
-    // trait obligates is carried by construction — no per-classification
-    // validation anywhere in this backend.
-    fn dominance_of(&self, known: &Version) -> causally::Dominance {
-        self.dominance_of(known)
+    // Answered by reborrowing the branch's stored bounds span (a leaf's
+    // bounds coincide at its version), so the ordering the trait
+    // obligates is carried by construction — no per-read validation
+    // anywhere in this backend.
+    fn span(&self) -> causally::Span<'_> {
+        self.span()
     }
 
     fn len(&self) -> usize {

@@ -212,16 +212,8 @@ where
     type Backend = Materializing;
     type Height = H;
 
-    fn ceiling(&self) -> &Version {
-        self.inner.ceiling()
-    }
-
-    fn floor(&self) -> &Version {
-        self.inner.floor()
-    }
-
-    fn dominance_of(&self, known: &Version) -> causally::Dominance {
-        self.inner.dominance_of(known)
+    fn span(&self) -> causally::Span<'_> {
+        self.inner.span()
     }
 
     fn hash(&self) -> Hash {

@@ -193,6 +193,12 @@ impl<T, H: Height> Node<T, H> {
         self.inner.floor()
     }
 
+    /// This subtree's version bounds as one causal span: the memoized
+    /// `[floor, ceiling]` pair, borrowed (see [`untyped::Node::span`]).
+    pub fn span(&self) -> causally::Span<'_> {
+        self.inner.span()
+    }
+
     /// How much of this subtree's memoized `[floor, ceiling]` bounds
     /// `probe` dominates: the deletion-honoring classifiers' verdict,
     /// answered from the memos without descending.
