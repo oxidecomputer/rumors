@@ -45,12 +45,30 @@ use complexity_claims::{Bound, Check, Site, SourceSpec};
 #[cfg(test)]
 mod tests;
 
-/// The public-API source of record: the crate is one file.
-pub(crate) const SOURCES: &[SourceSpec] = &[SourceSpec {
-    path: "src/lib.rs",
-    module_prefix: None,
-    type_overrides: &[],
-}];
+/// The public-API sources of record: every module carrying `pub` items
+/// (the crate root re-exports them and declares no `pub fn` of its own).
+pub(crate) const SOURCES: &[SourceSpec] = &[
+    SourceSpec {
+        path: "src/accumulator.rs",
+        module_prefix: None,
+        type_overrides: &[],
+    },
+    SourceSpec {
+        path: "src/limbs.rs",
+        module_prefix: None,
+        type_overrides: &[],
+    },
+    SourceSpec {
+        path: "src/magnitude.rs",
+        module_prefix: None,
+        type_overrides: &[],
+    },
+    SourceSpec {
+        path: "src/touch_meter.rs",
+        module_prefix: Some("touch_meter"),
+        type_overrides: &[],
+    },
+];
 
 /// The committed backing of one claim: named test evidence, or the
 /// mechanism-based reason none is needed.
@@ -95,7 +113,7 @@ const DIGIT_DENOMINATED: &str =
      template carries it";
 
 /// Suanpan's own touch-metered pins.
-const OWN: &str = "src/tests.rs";
+const OWN: &str = "src/accumulator/tests.rs";
 
 /// The digit-touch stream bands committed beside the consumer.
 const BANDS: &str = "../before/tests/meter.rs";
@@ -557,7 +575,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
     Claim {
         op: "Limbs iteration (Iterator / DoubleEndedIterator)",
         checks: &[Check {
-            site: Site::TypeDoc("src/lib.rs", "Limbs"),
+            site: Site::TypeDoc("src/limbs.rs", "Limbs"),
             bound: LIMBS_TYPE,
         }],
         table_cost: None,
@@ -580,7 +598,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
     Claim {
         op: "Magnitude for UBig (the word-fit dispatch)",
         checks: &[Check {
-            site: Site::ImplDoc("src/lib.rs", "impl Magnitude for UBig"),
+            site: Site::ImplDoc("src/magnitude.rs", "impl Magnitude for UBig"),
             bound: UBIG_IMPL,
         }],
         table_cost: None,
@@ -593,7 +611,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
     Claim {
         op: "Accumulator Clone / Debug / Default (derived surface)",
         checks: &[Check {
-            site: Site::TypeDoc("src/lib.rs", "Accumulator"),
+            site: Site::TypeDoc("src/accumulator.rs", "Accumulator"),
             bound: ACC_TYPE,
         }],
         table_cost: None,
