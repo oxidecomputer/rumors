@@ -1077,6 +1077,21 @@ pub(crate) const CLAIMS: &[Claim] = &[
             "at most one byte copy per borrowed endpoint (the board's coverage table)",
         ),
     },
+    constant("causally::Span::reborrow"),
+    Claim {
+        op: "causally::Span::into_owned",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Custom {
+                line: "`O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.",
+                reason: "a borrow-settling conversion: at most one byte copy per endpoint, \
+                         no walk; no template splits on the operands' borrow state",
+            },
+        }],
+        cells: Cells::Uncelled(
+            "at most one byte copy per borrowed endpoint (the board's coverage table)",
+        ),
+    },
     // ─────────────────────── operator/trait families ───────────────────────
     Claim {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",

@@ -918,12 +918,17 @@ fn degenerate_span_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
 
 /// The pair span: endpoints the pair's meet and join, commutative,
 /// subsuming the flip repair on comparable pairs, coherent with the
-/// n-ary form at its edges, and read back exactly by the accessors.
+/// n-ary form at its edges, read back exactly by the accessors, and
+/// preserved exactly through the borrow mechanics.
 ///
 /// The n-ary edges: the empty iterator is the coincident
 /// `[self, self]`, one item is the binary span. The accessors:
 /// `meet`/`join` borrow the endpoints; `into_parts` hands them out
-/// owned, in `(meet, join)` order.
+/// owned, in `(meet, join)` order. The borrow mechanics: `reborrow`
+/// reads the same endpoints back byte-equal (`Version` equality *is*
+/// byte equality, pinned by `version_eq_iff_bytes_eq`), and
+/// `into_owned` settles the borrows with the endpoints byte-equal
+/// too — neither moves a value, so `lo <= hi` rides through both.
 ///
 /// On a comparable pair the hull *is* the reordered pair (either
 /// orientation yields the validated span); on a concurrent pair
@@ -936,6 +941,25 @@ fn span_is_the_pair_hull(a: &Version, b: &Version) -> bool {
         let (lo, hi) = a.span(b).into_parts();
         lo == meet && hi == join
     };
+    let reborrowed = {
+        let view = hull.reborrow();
+        view == hull && *view.meet() == meet && *view.join() == join
+    };
+    let settled = {
+        // The settling copy (borrowed endpoints) and the free
+        // passthrough (already-owned endpoints, the derived hull's
+        // state) both preserve the endpoints exactly.
+        let copied: Span<'static> = Span::new(&meet, &join)
+            .expect("a meet/join pair is ordered")
+            .into_owned();
+        let passed: Span<'static> = hull.clone().into_owned();
+        copied == hull
+            && *copied.meet() == meet
+            && *copied.join() == join
+            && passed == hull
+            && *passed.meet() == meet
+            && *passed.join() == join
+    };
     let commutative = hull == b.span(a);
     let flip_subsumed = match a.partial_cmp(b) {
         Some(Ordering::Less | Ordering::Equal) => hull == Span::ordered(a, b),
@@ -944,7 +968,14 @@ fn span_is_the_pair_hull(a: &Version, b: &Version) -> bool {
     };
     let empty_edge = a.span_all(core::iter::empty::<&Version>()) == Span::ordered(a, a);
     let unary_edge = a.span_all([b]) == hull;
-    definitional && accessors && commutative && flip_subsumed && empty_edge && unary_edge
+    definitional
+        && accessors
+        && reborrowed
+        && settled
+        && commutative
+        && flip_subsumed
+        && empty_edge
+        && unary_edge
 }
 
 // ───────────────────────────── Party: one value ─────────────────────────────

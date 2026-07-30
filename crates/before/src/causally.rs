@@ -553,7 +553,12 @@ pub enum Bounded {
 /// the derived constructors on [`Version`] — [`span`](Version::span)
 /// and [`span_all`](Version::span_all), beside the join/meet family
 /// they compose — *derive* the span as a collection's lattice hull,
-/// total where the first two must reject or trust.
+/// total where the first two must reject or trust. An existing span
+/// pays no door twice: [`reborrow`](Self::reborrow) hands out a
+/// shorter-lived span over the same endpoints, and
+/// [`into_owned`](Self::into_owned) settles the borrows so the span
+/// outlives them — both carry `lo <= hi` through from the source, so
+/// neither opens an unvalidated construction path.
 ///
 /// ```
 /// use before::{Clock, causally::{Dominance, Endpoint, Span, Placement}};
@@ -652,6 +657,42 @@ impl<'a> Span<'a> {
         Span {
             lo: Cow::Owned(lo),
             hi: Cow::Owned(hi),
+        }
+    }
+
+    /// A span borrowing this span's endpoints: the same `[lo, hi]`
+    /// with a fresh, shorter lifetime.
+    ///
+    /// The lending door for a span held long-term: a stored
+    /// `Span<'static>` answers each caller with a view of itself
+    /// instead of cloning an endpoint or re-entering a construction
+    /// door. No validation runs and none is needed — the source span
+    /// already carries `lo <= hi`, and the reborrowed span reads the
+    /// same endpoints, so the ordering rides through by construction
+    /// (the `span_is_the_pair_hull` law in [`laws`](crate::laws) pins
+    /// the endpoints byte-equal to the source's).
+    ///
+    /// ```
+    /// use before::{Clock, causally::Span};
+    ///
+    /// let mut alice = Clock::seed();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    ///
+    /// // A stored span lends a view of itself without being consumed.
+    /// let stored: Span<'static> = a1.span(&a2); // owned endpoints
+    /// let view: Span<'_> = stored.reborrow();
+    /// assert_eq!(view, stored); // the same endpoints, byte for byte
+    /// assert_eq!(view.dominance_of(&a2), stored.dominance_of(&a2));
+    /// ```
+    ///
+    /// # Complexity
+    ///
+    /// **Complexity**: `O(1)`.
+    pub fn reborrow(&self) -> Span<'_> {
+        Span {
+            lo: Cow::Borrowed(self.meet()),
+            hi: Cow::Borrowed(self.join()),
         }
     }
 
@@ -754,6 +795,43 @@ impl<'a> Span<'a> {
     /// **Complexity**: `O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.
     pub fn into_parts(self) -> (Version, Version) {
         (self.lo.into_owned(), self.hi.into_owned())
+    }
+
+    /// Settles this span onto owned endpoints, erasing the borrow
+    /// lifetime.
+    ///
+    /// [`into_parts`](Self::into_parts) that keeps the span a span:
+    /// the endpoints and the ordering they already carry are
+    /// preserved exactly (the `span_is_the_pair_hull` law in
+    /// [`laws`](crate::laws) pins the settled endpoints byte-equal),
+    /// so no construction door is re-entered. An inherent method in
+    /// [`Cow`]'s own vocabulary, following
+    /// [`Ranked::into_owned`](crate::Ranked::into_owned)
+    /// (a `ToOwned` impl cannot exist here, because std's blanket
+    /// `impl<T: Clone> ToOwned for T` already claims every `Clone`
+    /// type, `Span` included).
+    ///
+    /// ```
+    /// use before::{Clock, causally::Span};
+    ///
+    /// let mut alice = Clock::seed();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let owned: Span<'static> = {
+    ///     let borrowed = Span::new(&a1, &a2).unwrap();
+    ///     borrowed.into_owned() // outlives the borrows
+    /// };
+    /// assert_eq!((owned.meet(), owned.join()), (&a1, &a2));
+    /// ```
+    ///
+    /// # Complexity
+    ///
+    /// **Complexity**: `O(n)` when borrowed (one byte copy per endpoint); `O(1)` when owned.
+    pub fn into_owned(self) -> Span<'static> {
+        Span {
+            lo: Cow::Owned(self.lo.into_owned()),
+            hi: Cow::Owned(self.hi.into_owned()),
+        }
     }
 }
 

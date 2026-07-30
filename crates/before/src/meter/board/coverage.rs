@@ -222,6 +222,15 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "at most one byte copy per borrowed endpoint: no walk",
     ),
     (
+        "causally::Span::reborrow",
+        "stores two fresh borrows of the stored endpoints: no walk, no \
+         allocation, no comparison",
+    ),
+    (
+        "causally::Span::into_owned",
+        "at most one byte copy per borrowed endpoint: no walk",
+    ),
+    (
         "&Version / &Party (Div — the lazy projection view)",
         "O(1) view construction (two borrows); the materialization and fused \
          comparison costs are celled at the OwnVersion rows",
