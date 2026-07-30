@@ -626,11 +626,13 @@ impl Party {
 
     /// Reunites this party with `other` and re-splits the union, in one
     /// fused walk: the `(keep, give)` halves of [`join`](Party::join)
-    /// followed by [`fork`](Party::fork), byte-identical to that
-    /// composition (`IdReader::sum_split` carries the argument; the
-    /// `sync_is_join_then_fork` law and the `sum_split` differentials pin
-    /// it), without building the joined party. `None` if the parties
-    /// overlap; neither operand is moved either way.
+    /// followed by [`fork`](Party::fork), or `None` if the parties
+    /// overlap.
+    ///
+    /// Byte-identical to that composition (`IdReader::sum_split` carries
+    /// the argument; the `sync_is_join_then_fork` law and the
+    /// `sum_split` differentials pin it), without building the joined
+    /// party. Neither operand is moved, accepted or refused.
     ///
     /// `O(|a| + |b|)` worst case, and sublinear where the regions do not
     /// interleave — a subtree owned by one side alone is spliced into its

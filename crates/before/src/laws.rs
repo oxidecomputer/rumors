@@ -1552,11 +1552,13 @@ fn recv_is_join_then_tick(c: &Clock, msg: &Version) -> bool {
 }
 
 /// `sync` equals its stated composition — [`Clock::join`] then
-/// [`Clock::fork`] — outcome for outcome: a disjoint pair (constructed
-/// by forking the clock and letting the sides diverge, one ticking, one
-/// receiving the message) reconciles to exactly the joined-then-reforked
-/// pair, and an overlapping pair (the clock against its own alias) is
-/// refused with neither side moved, exactly where `join` refuses.
+/// [`Clock::fork`] — outcome for outcome.
+///
+/// The disjoint arm is constructed by forking the clock and letting the
+/// sides diverge (one ticking, one receiving the message): it must
+/// reconcile to exactly the joined-then-reforked pair. The overlap arm
+/// is the clock against its own alias: it must be refused with neither
+/// side moved, exactly where `join` refuses.
 fn sync_is_join_then_fork(c: &Clock, msg: &Version) -> bool {
     // The disjoint arm.
     let mut a = c.dangerously_alias();

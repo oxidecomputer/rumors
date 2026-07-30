@@ -493,14 +493,14 @@ proptest! {
 
 proptest! {
     /// The fused `sum_split` equals its composition — `sum`, then `split`
-    /// of the union — arm for arm on arbitrary id pairs: byte-identical
-    /// halves where the pair is disjoint, `None` exactly where `sum`
-    /// refuses (overlap), and the empty-operand identities included.
+    /// of the union — arm for arm on arbitrary id pairs.
     ///
-    /// This is the total oracle for the fusion (canonical uniqueness makes
-    /// byte equality the whole contract); the arbitrary pairs reach the
-    /// overlap arm and the union-collapse seam (both branch children
-    /// full) that seed-derived populations never produce.
+    /// Byte-identical halves where the pair is disjoint, `None` exactly
+    /// where `sum` refuses (overlap), the empty-operand identities
+    /// included. This is the total oracle for the fusion (canonical
+    /// uniqueness makes byte equality the whole contract); the arbitrary
+    /// pairs reach the overlap arm and the union-collapse seam (both
+    /// branch children full) that seed-derived populations never produce.
     #[test]
     fn sum_split_is_sum_then_split(
         oa in arb_oracle_party(),
@@ -516,11 +516,13 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `sum_split` is at most `O(n + m)`: on a deep disjoint
-    /// pair (the halves of a forked spine — an interleaved pair, so the
-    /// delegated merge dominates) its steps grow at most linearly with
-    /// shape size. (No lower bound is asserted: a pair whose regions do
-    /// not interleave is resolved by splices in sublinear steps.)
+    /// Complexity. `sum_split` is at most `O(n + m)`.
+    ///
+    /// On a deep disjoint pair (the halves of a forked spine — an
+    /// interleaved pair, so the delegated merge dominates) its steps grow
+    /// at most linearly with shape size. No lower bound is asserted: a
+    /// pair whose regions do not interleave is resolved by splices in
+    /// sublinear steps.
     #[test]
     fn sum_split_is_at_most_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -534,12 +536,13 @@ proptest! {
     }
 }
 
-/// The branch-collapse seam of `sum_split`, deterministically: summing the
-/// two halves of the seed makes both union children full, so the built
-/// union collapses to the seed's terminal and `split` lands in its
-/// terminal arm — the fused walk, which never builds the union, must emit
-/// those exact bytes from its branch arm. `(1, 0) + (0, 1)` re-splits to
-/// `((1, 0), (0, 1))`.
+/// The branch-collapse seam of `sum_split`, deterministically:
+/// `(1, 0) + (0, 1)` re-splits to `((1, 0), (0, 1))`.
+///
+/// Summing the two halves of the seed makes both union children full, so
+/// the built union collapses to the seed's terminal and `split` lands in
+/// its terminal arm — the fused walk, which never builds the union, must
+/// emit those exact bytes from its branch arm.
 #[test]
 fn sum_split_collapsed_union_matches_terminal_split() {
     let mut keep = Party::seed();

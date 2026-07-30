@@ -2,10 +2,12 @@ use crate::codec::{Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
 
 impl<'a> IdReader<'a> {
-    /// Sum `self` and `other` (normal-form ids) and split the union, in one
-    /// walk: the two non-overlapping halves of the disjoint union, or `None`
-    /// if the ids overlap. Byte-identical to [`sum`](IdReader::sum) followed
-    /// by [`split`](IdReader::split) of the union, with the union itself
+    /// Sum `self` and `other` (normal-form ids) and split the union, in
+    /// one walk: the two halves of the disjoint union, or `None` if the
+    /// ids overlap.
+    ///
+    /// Byte-identical to [`sum`](IdReader::sum) followed by
+    /// [`split`](IdReader::split) of the union, with the union itself
     /// never built.
     ///
     /// The fusion rests on where `split` cuts: it copies the union's unary
