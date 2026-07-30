@@ -277,7 +277,6 @@ mod parse_schoolbook {
     use crate::codec::{Base, Bits};
     use crate::error::Parse;
     use crate::meter::registry::Shape;
-    use crate::step;
     use crate::version::skyline::build::SkylineBuilder;
     use crate::version::skyline::{encode, gamma_code, validate_bits, zigzag_signed};
 
@@ -316,7 +315,6 @@ mod parse_schoolbook {
         let mut canonical = true;
 
         'nodes: loop {
-            step!();
             match cur.peek() {
                 Some(b'(') => {
                     cur.bump();
@@ -359,7 +357,6 @@ mod parse_schoolbook {
                 is_leaf: true,
             };
             loop {
-                step!();
                 match frames.pop() {
                     None => break 'nodes,
                     Some(EvFrame::NeedLeft { base }) => {

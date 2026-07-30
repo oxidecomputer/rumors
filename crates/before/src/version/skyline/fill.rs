@@ -168,7 +168,6 @@ use suanpan::Accumulator;
 
 use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
-use crate::step;
 
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
 use self::watermark::{MinStack, Signed};
@@ -731,7 +730,6 @@ impl FillWalk<'_> {
     /// interleaves with the id stream one node at a time here, so there
     /// is no run to batch.
     fn read_flag(&mut self) -> bool {
-        step!();
         self.cursor.read_bit().expect("canonical skyline bits")
     }
 
@@ -1405,7 +1403,6 @@ impl PreScan<'_, '_> {
                     }
                     IdNode::Internal { left, right } => (left, right),
                 };
-                step!();
                 let leaf = self.cursor.read_bit().expect("canonical skyline bits");
                 if leaf {
                     // A leaf under an id node stays: one virtual emission.

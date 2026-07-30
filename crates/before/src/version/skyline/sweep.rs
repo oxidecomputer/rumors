@@ -144,7 +144,6 @@ use core::ops::ControlFlow;
 use suanpan::Accumulator;
 
 use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
-use crate::step;
 
 /// The causal order of the versions two skyline streams denote; `None`
 /// is concurrent.
@@ -609,7 +608,6 @@ impl<'a> LeafCursor<'a> {
     ///
     /// Panics if the stream is not a canonical skyline encoding.
     fn descend(&mut self) -> Base {
-        step!();
         // One word-parallel unary read takes the whole descent: the run
         // of internal flags ends at the leaf's `1`. The scan meter
         // records the same run width the per-flag reads would.

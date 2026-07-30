@@ -68,7 +68,6 @@ use suanpan::Accumulator;
 use crate::codec::text::{parse_base, Cur};
 use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
 use crate::error::Parse;
-use crate::step;
 
 use super::build::SkylineBuilder;
 use super::emit::signed_sum;
@@ -253,7 +252,6 @@ pub fn render(bits: &BitsSlice) -> String {
     let mut entries: Vec<(usize, usize)> = Vec::new();
     let mut first_height: Option<Base> = None;
     let root_summary = 'tree: loop {
-        step!();
         // One whole descent per unary read: `k` internal nodes, then
         // the leaf whose flag terminates the run.
         let k = cursor.read_unary().expect("canonical skyline bits");
@@ -280,7 +278,6 @@ pub fn render(bits: &BitsSlice) -> String {
         };
         // Close every subtree this leaf completes.
         loop {
-            step!();
             match phase.pop() {
                 None => break 'tree summary,
                 Some(LEFT_PHASE) => {
@@ -351,7 +348,6 @@ pub fn render(bits: &BitsSlice) -> String {
     let mut pending = Bits::new();
     let mut next_entry = 0usize;
     for (node, internal) in topology.iter().by_vals().enumerate() {
-        step!();
         let digits: &str = match entries.get(next_entry) {
             Some(&(entry_node, start)) if entry_node == node => {
                 next_entry += 1;
@@ -500,7 +496,6 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
     let mut canonical = true;
 
     'nodes: loop {
-        step!();
         // Parse one node at the cursor.
         match cur.peek() {
             Some(b'(') => {
@@ -562,7 +557,6 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
             is_leaf: true,
         };
         loop {
-            step!();
             match phase.pop() {
                 None => break 'nodes,
                 Some(LEFT_PHASE) => {

@@ -1,6 +1,5 @@
 use crate::codec::{Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
-use crate::step;
 
 impl IdReader<'_> {
     /// Split this id (`self`) into two non-overlapping ids that sum to it.
@@ -47,7 +46,6 @@ enum SpineEnd {
 fn build_split(bits: &BitsSlice, start: usize) -> (Bits, Bits) {
     let mut pos = start;
     let (prefix_end, kind) = loop {
-        step!(); // one node-header read, counted for the complexity proptests
         match (bits[pos], bits[pos + 1]) {
             (false, false) => break (pos, SpineEnd::Terminal), // the `1` leaf
             (true, true) => break (pos, SpineEnd::Branch),     // both-present branch

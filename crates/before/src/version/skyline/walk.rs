@@ -17,7 +17,6 @@ use core::cmp::Ordering;
 use suanpan::Accumulator;
 
 use crate::codec::{Base, BitCursor, Bits, DsiCursor};
-use crate::step;
 
 use super::{fold_signed, unzigzag};
 
@@ -64,9 +63,6 @@ impl LeafWalk {
     /// it reads no bits — so a caller that stops mid-subtree (a
     /// position-bounded prefix pass) simply stops calling.
     ///
-    /// Metering: exactly one [`step!`] per descent (per unary read),
-    /// the whole skeleton's step budget; the backtrack is unmetered.
-    ///
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
@@ -86,7 +82,6 @@ impl LeafWalk {
         self.started = true;
         // One whole descent per unary read: `k` internal nodes, then
         // the leaf whose flag terminates the run.
-        step!();
         let k = cursor.read_unary().expect("canonical skyline bits");
         for _ in 0..k {
             self.path.push(false);

@@ -370,7 +370,6 @@ use core::cmp::Ordering;
 use suanpan::{Accumulator, Limbs, UBig};
 
 use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, SliceCursor};
-use crate::step;
 use crate::Rank;
 
 use super::build::SkylineBuilder;
@@ -1648,7 +1647,6 @@ impl<'a> IdLeafCursor<'a> {
     /// Panics if the stream is not a canonical packed id.
     fn descend(&mut self) {
         loop {
-            step!();
             // The two tag-bit reads below record themselves through the
             // cursor's recording `read_bit`: no separate tag record, or
             // every 2-bit tag would count twice.

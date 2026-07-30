@@ -50,7 +50,6 @@
 
 use crate::codec::{Bits, BitsSlice};
 use crate::idbits::IdReader;
-use crate::step;
 use crate::version::skyline::sweep::{self, PlateauCursor};
 
 use super::build::IdSkylineBuilder;
@@ -315,7 +314,6 @@ impl<'a> IdLeafCursor<'a> {
     /// left child is absent ([`Enter::Absent`]), unsettled atop the
     /// left subtree if present ([`Enter::Left`]).
     fn enter(&mut self) -> Enter {
-        step!();
         crate::codec::scan::record_bits(2); // one 2-bit tag read
         let (left, right) = (self.bits[self.pos], self.bits[self.pos + 1]);
         self.pos += 2;
@@ -357,7 +355,6 @@ impl<'a> IdLeafCursor<'a> {
     /// cover).
     fn consume(&mut self, splice: bool) {
         let start = self.pos;
-        step!();
         crate::codec::scan::record_bits(2); // the subtree top's 2-bit tag
         let (left, right) = (self.bits[self.pos], self.bits[self.pos + 1]);
         self.pos += 2;
@@ -367,7 +364,6 @@ impl<'a> IdLeafCursor<'a> {
         }
         let bits = self.bits;
         let scan = |at: usize| {
-            step!();
             // One 2-bit tag scanned per skipped node. Children present =
             // the two tag bits; the tag is 2 bits wide.
             crate::codec::scan::record_bits(2);

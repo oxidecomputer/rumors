@@ -3,9 +3,8 @@
 //!
 //! The scaffolding: the oracle⇄impl bridge ([`bridge`]), the proptest input
 //! strategies ([`generators`]), the deterministic RNG ([`rng`]), the
-//! op-trace history generator ([`optrace`]), the traversal step counter
-//! ([`metrics`]) and its step-scaling assertion helper ([`complexity`]),
-//! and the brute-force grow-optimality reference ([`grow_brute_force`]).
+//! op-trace history generator ([`optrace`]), and the brute-force
+//! grow-optimality reference ([`grow_brute_force`]).
 //!
 //! The cross-cutting suites: exhaustive small-scope enumeration
 //! ([`exhaustive`]), the function-space semantic oracle
@@ -29,10 +28,8 @@
 
 // The scaffolding.
 pub(crate) mod bridge;
-pub(crate) mod complexity;
 pub(crate) mod generators;
 pub(crate) mod grow_brute_force;
-pub(crate) mod metrics;
 pub(crate) mod optrace;
 pub(crate) mod rng;
 

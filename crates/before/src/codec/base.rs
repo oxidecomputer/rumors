@@ -11,8 +11,8 @@ use suanpan::Limbs;
 ///
 /// Arithmetic-width cost is invisible to every other meter: a magnitude
 /// blowup performs no extra allocations a peak-heap meter would see and
-/// visits no extra nodes a step counter would see — the work is wider, not
-/// more frequent. The proxy counted here is the operands' 64-bit limb counts
+/// scans no extra stream bits the scan meter would see — the work is
+/// wider, not more frequent. The proxy counted here is the operands' 64-bit limb counts
 /// per `Base` operation — arithmetic, comparison, equality, and hashing all
 /// record before they run, and the wide-gamma decode in `codec::gamma`
 /// records one value-width count per decoded value — so amortized-linear

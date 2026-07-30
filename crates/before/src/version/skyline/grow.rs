@@ -92,7 +92,6 @@
 //! spines swap the native-frame oracle for closed-form expected values.
 
 use crate::codec::{self, Base, BitCursor, Bits, BitsSlice};
-use crate::step;
 
 use super::build::SkylineBuilder;
 use super::walk::LeafWalk;
@@ -198,7 +197,6 @@ impl<'a> EvScan<'a> {
     ///
     /// Panics if the stream is not a canonical skyline encoding.
     fn read(&mut self) -> Option<core::ops::Range<usize>> {
-        step!();
         let leaf = self.cursor.read_bit().expect("canonical skyline bits");
         if !leaf {
             None
@@ -223,7 +221,6 @@ impl<'a> EvScan<'a> {
         // children each, and the terminating leaf closes one.
         let mut pending = 1usize;
         while pending > 0 {
-            step!();
             let k = self.cursor.read_unary().expect("canonical skyline bits");
             self.cursor.skip_int().expect("canonical skyline bits");
             pending = pending + k - 1;
@@ -236,7 +233,6 @@ impl<'a> EvScan<'a> {
 /// Neither present is the full `1` terminal; a canonical id has no
 /// `(0, 0)` node. `O(1)` random access into the packed id.
 fn id_tag(bits: &BitsSlice, pos: usize) -> (bool, bool) {
-    step!();
     codec::scan::record_bits(2);
     (bits[pos], bits[pos + 1])
 }
@@ -244,7 +240,6 @@ fn id_tag(bits: &BitsSlice, pos: usize) -> (bool, bool) {
 /// Position just past the id subtree whose tag sits at `pos`.
 fn id_skip(bits: &BitsSlice, pos: usize) -> usize {
     crate::idbits::skip_subtree(pos, |at| {
-        step!();
         codec::scan::record_bits(2);
         let children = usize::from(bits[at]) + usize::from(bits[at + 1]);
         (children, at + 2)
@@ -455,7 +450,6 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
     // the later phases keep using, so a function boundary would thread
     // every one of them.
     let (orig_code, chain_dirs) = loop {
-        step!();
         let key = id_pos;
         let (l, r) = id_tag(id_bits, id_pos);
         id_pos += 2;
@@ -494,7 +488,6 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
                 let mut dirs = Bits::new();
                 let mut cur = (key, l, r);
                 loop {
-                    step!();
                     let (key, l, r) = cur;
                     let left = route.descends_left(key);
                     if left {

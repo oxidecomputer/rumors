@@ -786,20 +786,3 @@ mod borsh_impls;
 
 #[cfg(test)]
 mod testing;
-
-/// Record one traversal step. Expands to a counter bump under `cfg(test)` (see the
-/// test-only [`metrics`](crate::testing::metrics) module) and to nothing otherwise.
-///
-/// This is used to deterministically test asymptotic traversal cost to prevent
-/// accidental quadraticity.
-#[cfg(test)]
-macro_rules! step {
-    () => {
-        $crate::testing::metrics::bump()
-    };
-}
-#[cfg(not(test))]
-macro_rules! step {
-    () => {};
-}
-pub(crate) use step;
