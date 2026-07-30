@@ -134,15 +134,11 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ("Clock::dangerously_alias", "one byte copy per part"),
     (
         "Ranked::version",
-        "a borrow of a stored part: no walk, no allocation",
+        "a borrow of the viewed version: no walk, no allocation",
     ),
     (
-        "Ranked::rank",
-        "a borrow of a stored part: no walk, no allocation",
-    ),
-    (
-        "Ranked::into_parts",
-        "two moves of the stored parts: no walk, no allocation",
+        "Ranked::into_owned",
+        "at most one byte copy of the borrowed version: no walk",
     ),
     (
         "causally::all",

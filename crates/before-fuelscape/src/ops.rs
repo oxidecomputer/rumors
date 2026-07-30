@@ -820,15 +820,11 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "Ranked::version",
-        "O(1) accessor over the precomputed (rank, version) pair",
+        "O(1) borrow of the viewed version",
     ),
     (
-        "Ranked::rank",
-        "O(1) accessor over the precomputed (rank, version) pair",
-    ),
-    (
-        "Ranked::into_parts",
-        "O(1) decomposition of the precomputed (rank, version) pair",
+        "Ranked::into_owned",
+        "at most one byte-copy clone of the borrowed version; no walk",
     ),
     // ── delegating wrappers priced at the operation they wrap ──
     (
@@ -893,8 +889,28 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "hand-out mechanics over the balanced split the party_forks panel prices",
     ),
     (
-        "Ranked Ord / From<Version> (byte tiebreak)",
-        "composition of the rank walk (version_rank panel) with byte comparison",
+        "Ranked / Rank comparisons and From conversions (rank order, all operand mixes)",
+        "the fused signed instance of the pair co-sweep the version_rank panel's \
+         integrator runs; no guest kernel exports the rank view (adding kernels is a \
+         crates/before change outside this crate)",
+    ),
+    (
+        "Ranked::to_rank",
+        "the identical rank walk as Version::rank, entered from the view (the \
+         version_rank panel prices it)",
+    ),
+    (
+        "Ranked::encode",
+        "the rank walk plus a linear emission; no guest kernel exports the encoding",
+    ),
+    (
+        "Rank::encode",
+        "a linear emission over an in-memory rank; no guest kernel exports the encoding",
+    ),
+    (
+        "Rank::decode",
+        "a linear strict parse into an in-memory rank; no guest kernel exports the \
+         decoding",
     ),
     // ── representation mechanics ──
     (

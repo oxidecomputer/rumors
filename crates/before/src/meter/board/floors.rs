@@ -159,6 +159,25 @@ pub(super) const WHY_LIMB_RANK_PAIR: &str =
 pub(super) const WHY_LIMB_RANK_SUM: &str =
     "the fold's sum carries a numerator as wide as its widest \
      summand's value content: one limb write per 64 content bits";
+/// Limb floor (deterministic-liveness): the rank encoder materializes
+/// the biased integral through numerator-wide arithmetic.
+pub(super) const WHY_LIMB_RANK_ENCODE: &str =
+    "deterministic-liveness: the encoder extracts and biases the integral part through \
+     one arithmetic pass over the numerator today, one op per 64 numerator bits; a \
+     pure bit-walk emission (riding the bias as a carry) would lower this floor \
+     deliberately";
+/// Limb floor (deterministic-liveness): the rank decoder materializes
+/// the numerator.
+pub(super) const WHY_LIMB_RANK_DECODE: &str =
+    "deterministic-liveness: the decoder materializes the numerator through \
+     width-recorded assembly and one shift-and-or pass today, one op per 64 numerator \
+     bits; an unmetered assembly would lower this floor deliberately";
+/// Scan NA: the canonical rank bytes are read outside the stream
+/// primitives.
+pub(super) const NA_SCAN_RANK_BYTES: &str =
+    "the canonical rank bytes are read through a plain slice walk, not the metered \
+     packed-stream primitives: no counter watches this read (the heap and limb floors \
+     carry the row's liveness)";
 /// Limb NA: every operand magnitude fits machine words.
 pub(super) const NA_LIMB_NARROW: &str =
     "no operand magnitude exceeds the machine-word bound: word arithmetic suffices";
