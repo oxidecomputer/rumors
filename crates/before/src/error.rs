@@ -30,7 +30,8 @@ pub struct Overlap;
 pub struct Crossed;
 
 /// Why a byte string failed to decode into a [`Party`](crate::Party),
-/// [`Version`](crate::Version), or [`Clock`](crate::Clock).
+/// [`Version`](crate::Version), [`Clock`](crate::Clock), or
+/// [`Rank`](crate::Rank).
 ///
 /// ```
 /// use before::Clock;
