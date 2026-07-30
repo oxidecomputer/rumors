@@ -140,15 +140,17 @@ impl<'a> Ranked<'a> {
         }
     }
 
-    /// Encodes the rank's canonical order-preserving bytes (the format,
-    /// the lexicographic law, and the KV-key use are [`Rank::encode`]'s
-    /// contract) straight from the rank fold: one walk over the packed
-    /// version, one emission from the fold's `(numerator, exponent)`
-    /// output, byte-identical to `self.to_rank().encode()` (a committed
-    /// law) without a second walk anywhere. Fusing deeper than the fold
-    /// is impossible in principle: the encoding's leading bits depend
-    /// on the fold's final total, so no bit can be emitted until the
-    /// walk completes.
+    /// Encodes the rank's canonical order-preserving bytes straight
+    /// from the rank fold, with no second walk anywhere.
+    ///
+    /// The format, the lexicographic law, and the KV-key use are
+    /// [`Rank::encode`]'s contract; this spelling runs one walk over
+    /// the packed version and one emission from the fold's
+    /// `(numerator, exponent)` output, byte-identical to
+    /// `self.to_rank().encode()` (a committed law). Fusing deeper than
+    /// the fold is impossible in principle: the encoding's leading
+    /// bits depend on the fold's final total, so no bit can be emitted
+    /// until the walk completes.
     ///
     /// Decoding lands on [`Rank::decode`]: the bytes carry exactly the
     /// rank, and a rank does not determine a version, so no `Ranked`

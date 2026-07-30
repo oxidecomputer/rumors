@@ -1862,10 +1862,12 @@ pub(super) fn ops() -> Vec<Op> {
     ]
 }
 
-/// A rank's numerator width in 64-bit limbs (minimum 1): the limb floors
-/// of the wire rows, which materialize the numerator whatever the
-/// exponent (a spine rank's exponent is wide while its numerator is one
-/// word — the exponent costs fraction *bits* on the wire, never limbs).
+/// A rank's numerator width in 64-bit limbs (minimum 1).
+///
+/// The limb floors of the wire rows, which materialize the numerator
+/// whatever the exponent (a spine rank's exponent is wide while its
+/// numerator is one word — the exponent costs fraction *bits* on the
+/// wire, never limbs).
 fn rank_numerator_limbs(rank: &Rank) -> u64 {
     rank.raw_parts().0.bits().div_ceil(64).max(1)
 }
