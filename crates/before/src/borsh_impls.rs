@@ -2,7 +2,7 @@
 //!
 //! Each type's borsh representation is exactly its canonical byte encoding:
 //! [`Party::as_bytes`], [`Version::as_bytes`], [`Clock::encode`],
-//! [`Rank::encode`], or [`Ranked::encode`]. The encodings are
+//! [`Rank::encode`], [`Ranked::encode`], or [`Span::encode`]. The encodings are
 //! self-delimiting — the tree codes prefix-free, the rank stream closed by
 //! its fraction's terminating bit — so a decoder finds their ends from the
 //! encoding itself; no borsh length prefix is needed. This also lets values
@@ -13,6 +13,7 @@ use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
+    causally::Span,
     codec::{self, Base, BitCursor, Bits},
     error::Decode,
     version::decode_rank_stream,
@@ -224,6 +225,34 @@ impl BorshDeserialize for Ranked<'static> {
             return Err(decode_error(Decode::NotCanonical));
         }
         Ok(Ranked::from(version))
+    }
+}
+
+/// The canonical composite of [`Span::encode`], unframed: the meet's
+/// canonical bytes, then the join's.
+///
+/// Borsh is a transport for the one wire form, never a second format;
+/// both components are byte-aligned and self-delimiting, so the
+/// composite needs no length prefix inside a larger stream.
+impl BorshSerialize for Span<'_> {
+    fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        self.encode_to(writer)
+    }
+}
+
+/// Reads exactly one composite span: two byte-aligned canonical version
+/// streams, the second parsed and validated against the first in one
+/// fused pass ([`Span::decode`]'s contract, crossed and concurrent
+/// pairs rejected), with the bytes after the join belonging to the next
+/// borsh field.
+impl BorshDeserialize for Span<'static> {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let lo = Version::deserialize_reader(reader)?;
+        let mut cursor = ReaderCursor::new(reader);
+        crate::version::skyline::validate_dominating_from(lo.view(), &mut cursor)
+            .map_err(decode_error)?;
+        let hi = Version::from_bits(cursor.finish().map_err(decode_error)?);
+        Ok(Span::owned(lo, hi))
     }
 }
 

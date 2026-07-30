@@ -150,6 +150,9 @@ use crate::Version;
 // name the streams this module's entry points exchange.
 pub use crate::codec::{Bits, BitsSlice};
 
+// The admission walk: the span wire form's fused second-component
+// parse, consumed by `causally::Span::decode` and the borsh span leg.
+mod admit;
 mod build;
 pub mod place;
 // The strict byte-level decode of one whole stream: consumed by this
@@ -175,6 +178,7 @@ mod walk;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use admit::validate_dominating_from;
 #[cfg(any(test, feature = "meter"))]
 pub(crate) use decode::decode_bits;
 #[cfg(any(test, feature = "meter"))]
