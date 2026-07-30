@@ -173,6 +173,7 @@ use crate::step;
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
 use self::watermark::{MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
+use super::walk::LeafWalk;
 use super::{fold_signed, gamma_code, unzigzag, zigzag_signed};
 
 mod fuse;
@@ -1091,26 +1092,10 @@ impl FillWalk<'_> {
     /// live); the watermark web absorbs each emission in amortized
     /// O(1).
     fn copy_subtree(&mut self, depth: usize) {
-        let mut path = Bits::new();
-        loop {
-            // One whole descent per unary read.
-            step!();
-            let k = self.cursor.read_unary().expect("canonical skyline bits");
-            for _ in 0..k {
-                path.push(false);
-            }
+        let mut walk = LeafWalk::new();
+        while let Some(d) = walk.descend(&mut self.cursor) {
             let (neg, mag) = self.consume_payload();
-            self.emit_step(depth + path.len(), neg, mag);
-            loop {
-                match path.pop() {
-                    Some(true) => continue,
-                    Some(false) => {
-                        path.push(true);
-                        break;
-                    }
-                    None => return,
-                }
-            }
+            self.emit_step(depth + d, neg, mag);
         }
     }
 
@@ -1130,16 +1115,10 @@ impl FillWalk<'_> {
         // unmetered peek of the bit the scan is about to read as its
         // first flag.
         self.range_is_leaf = self.ev[self.pos()];
-        let mut path = Bits::new();
         let mut above = self.stack.lease();
         let mut armed = false;
-        loop {
-            // One whole descent per unary read.
-            step!();
-            let k = self.cursor.read_unary().expect("canonical skyline bits");
-            for _ in 0..k {
-                path.push(false);
-            }
+        let mut walk = LeafWalk::new();
+        while walk.descend(&mut self.cursor).is_some() {
             let (neg, mag) = self.consume_payload();
             if !armed {
                 armed = true;
@@ -1149,21 +1128,10 @@ impl FillWalk<'_> {
                     above.reset();
                 }
             }
-            loop {
-                match path.pop() {
-                    Some(true) => continue,
-                    Some(false) => {
-                        path.push(true);
-                        break;
-                    }
-                    None => {
-                        let result = self.stack.materialize(above);
-                        debug_assert!(!result.0, "the fold floors at zero");
-                        return result;
-                    }
-                }
-            }
         }
+        let result = self.stack.materialize(above);
+        debug_assert!(!result.0, "the fold floors at zero");
+        result
     }
 }
 
@@ -1312,7 +1280,6 @@ impl Frames {
 /// whether the subtree's first payload is the stream's absolute first.
 fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
     let mut cursor = codec::DsiCursor::new_at(ev, pos);
-    let mut path = Bits::new();
     let mut first = first;
     // The net movement `h − h_entry` and the minimum's offset from the
     // *current* height (`min − h`), reset whenever the height crosses
@@ -1320,13 +1287,8 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
     let mut net = Accumulator::new();
     let mut off = Accumulator::new();
     let mut armed = false;
-    loop {
-        // One whole descent per unary read.
-        step!();
-        let k = cursor.read_unary().expect("canonical skyline bits");
-        for _ in 0..k {
-            path.push(false);
-        }
+    let mut walk = LeafWalk::new();
+    while walk.descend(&mut cursor).is_some() {
         let code = cursor.read_int().expect("canonical skyline bits");
         let (neg, mag) = if first {
             first = false;
@@ -1343,24 +1305,13 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
                 off = Accumulator::new();
             }
         }
-        loop {
-            match path.pop() {
-                Some(true) => continue,
-                Some(false) => {
-                    path.push(true);
-                    break;
-                }
-                None => {
-                    let (n_sign, n_mag) = net.sign_magnitude();
-                    let (o_sign, o_mag) = off.sign_magnitude();
-                    let net = (n_sign == Ordering::Less, Base::from(n_mag));
-                    let off = (o_sign == Ordering::Less, Base::from(o_mag));
-                    // `min = h + off = h_entry + net + off`.
-                    return signed_sum_base(net, &off);
-                }
-            }
-        }
     }
+    let (n_sign, n_mag) = net.sign_magnitude();
+    let (o_sign, o_mag) = off.sign_magnitude();
+    let net = (n_sign == Ordering::Less, Base::from(n_mag));
+    let off = (o_sign == Ordering::Less, Base::from(o_mag));
+    // `min = h + off = h_entry + net + off`.
+    signed_sum_base(net, &off)
 }
 
 /// The memoized pre-scan: one non-consuming pass over a left-full
@@ -1598,16 +1549,10 @@ impl PreScan<'_, '_> {
         // it runs on its own cursor; the scan's forward cursor stays
         // where the sibling walk left it.
         let mut cursor = codec::DsiCursor::new_at(self.ev, pos);
-        let mut path = Bits::new();
         let mut above = self.stack.lease();
         let mut armed = false;
-        loop {
-            // One whole descent per unary read.
-            step!();
-            let k = cursor.read_unary().expect("canonical skyline bits");
-            for _ in 0..k {
-                path.push(false);
-            }
+        let mut walk = LeafWalk::new();
+        while walk.descend(&mut cursor).is_some() {
             let code = cursor.read_int().expect("canonical skyline bits");
             if !armed {
                 armed = true;
@@ -1618,21 +1563,10 @@ impl PreScan<'_, '_> {
                     above.reset();
                 }
             }
-            loop {
-                match path.pop() {
-                    Some(true) => continue,
-                    Some(false) => {
-                        path.push(true);
-                        break;
-                    }
-                    None => {
-                        let result = self.stack.materialize(above);
-                        debug_assert!(!result.0, "the fold floors at zero");
-                        return result;
-                    }
-                }
-            }
         }
+        let result = self.stack.materialize(above);
+        debug_assert!(!result.0, "the fold floors at zero");
+        result
     }
 
     /// Reserve the next consumption-order queue slot for the site
@@ -1811,28 +1745,12 @@ impl PreScan<'_, '_> {
     /// Walk an untouched range (`fill(0, e) = e`) at the cursor: every
     /// leaf a virtual emission at its own height.
     fn copy_range(&mut self, first: bool) {
-        let mut path = Bits::new();
         let mut first = first;
-        loop {
-            // One whole descent per unary read.
-            step!();
-            let k = self.cursor.read_unary().expect("canonical skyline bits");
-            for _ in 0..k {
-                path.push(false);
-            }
+        let mut walk = LeafWalk::new();
+        while walk.descend(&mut self.cursor).is_some() {
             let _ = self.payload(first);
             first = false;
             self.emit_here();
-            loop {
-                match path.pop() {
-                    Some(true) => continue,
-                    Some(false) => {
-                        path.push(true);
-                        break;
-                    }
-                    None => return,
-                }
-            }
         }
     }
 
@@ -1840,17 +1758,11 @@ impl PreScan<'_, '_> {
     /// `max − h′` at exit as a nonnegative offset. No virtual emissions
     /// — the range's leaves vanish into the raise the caller decides.
     fn max_range(&mut self, first: bool) -> Signed {
-        let mut path = Bits::new();
         let mut first = first;
         let mut above = self.stack.lease();
         let mut armed = false;
-        loop {
-            // One whole descent per unary read.
-            step!();
-            let k = self.cursor.read_unary().expect("canonical skyline bits");
-            for _ in 0..k {
-                path.push(false);
-            }
+        let mut walk = LeafWalk::new();
+        while walk.descend(&mut self.cursor).is_some() {
             let step = self.payload(first);
             first = false;
             if !armed {
@@ -1861,21 +1773,10 @@ impl PreScan<'_, '_> {
                     above.reset();
                 }
             }
-            loop {
-                match path.pop() {
-                    Some(true) => continue,
-                    Some(false) => {
-                        path.push(true);
-                        break;
-                    }
-                    None => {
-                        let result = self.stack.materialize(above);
-                        debug_assert!(!result.0, "the fold floors at zero");
-                        return result;
-                    }
-                }
-            }
         }
+        let result = self.stack.materialize(above);
+        debug_assert!(!result.0, "the fold floors at zero");
+        result
     }
 }
 

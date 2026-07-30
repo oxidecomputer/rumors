@@ -378,6 +378,7 @@ use super::emit::signed_sum;
 use super::sweep::{
     advance, advance_diff, fold, Crossed, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
+use super::walk::LeafWalk;
 use super::{fold_signed, gamma_code, zigzag_signed};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
@@ -1733,16 +1734,10 @@ impl PlateauCursor for IdLeafCursor<'_> {
 /// Panics if the stream is not a canonical skyline encoding.
 fn max_depth(bits: &BitsSlice) -> usize {
     let mut cursor = codec::DsiCursor::new(bits);
-    let mut path = Bits::new();
     let mut deepest = 0usize;
-    loop {
-        // Descend to the next leaf: one unary read per descent.
-        step!();
-        let k = cursor.read_unary().expect("canonical skyline bits");
-        for _ in 0..k {
-            path.push(false);
-        }
-        deepest = deepest.max(path.len());
+    let mut walk = LeafWalk::new();
+    while let Some(depth) = walk.descend(&mut cursor) {
+        deepest = deepest.max(depth);
         // TODO-recalibrate: `skip_int` already records the skipped code's
         // width internally, so this caller-side record double-counts every
         // payload code (uniformly 2x, deterministic). Deleting it is a
@@ -1752,19 +1747,8 @@ fn max_depth(bits: &BitsSlice) -> usize {
         let code_start = cursor.position();
         cursor.skip_int().expect("canonical skyline bits");
         codec::scan::record_bits(cursor.position() - code_start);
-        // Close finished ancestors; the flip continues, no open left
-        // branch means the stream is complete.
-        loop {
-            match path.pop() {
-                Some(true) => continue,
-                Some(false) => {
-                    path.push(true);
-                    break;
-                }
-                None => return deepest,
-            }
-        }
     }
+    deepest
 }
 
 mod web;

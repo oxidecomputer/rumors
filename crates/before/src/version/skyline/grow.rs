@@ -95,6 +95,7 @@ use crate::codec::{self, Base, BitCursor, Bits, BitsSlice};
 use crate::step;
 
 use super::build::SkylineBuilder;
+use super::walk::LeafWalk;
 use super::{gamma_code, unzigzag, zigzag_signed};
 
 /// Lexicographic inflation cost `(expansions, depth)`: prefer fewer
@@ -286,37 +287,19 @@ struct Subtree {
 /// Panics if the stream is not a canonical skyline encoding.
 fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
     let mut cursor = codec::DsiCursor::new_at(bits, start);
-    let mut path = Bits::new();
     // The first leaf's coordinates, recorded once; the last leaf's are
-    // whatever the loop recorded most recently when the path empties.
+    // whatever the loop recorded most recently when the walk ends.
     let mut first: Option<(core::ops::Range<usize>, usize)> = None;
-    let (mut last_code, mut last_rel_depth);
-    loop {
-        // Descend to the next leaf: one unary read.
-        step!();
-        let k = cursor.read_unary().expect("canonical skyline bits");
-        for _ in 0..k {
-            path.push(false);
-        }
+    let mut last_code = 0..0;
+    let mut last_rel_depth = 0;
+    let mut walk = LeafWalk::new();
+    while let Some(depth) = walk.descend(&mut cursor) {
         let code_start = cursor.position();
         cursor.skip_int().expect("canonical skyline bits");
         last_code = code_start..cursor.position();
-        last_rel_depth = path.len();
+        last_rel_depth = depth;
         if first.is_none() {
             first = Some((last_code.clone(), last_rel_depth));
-        }
-        // Close the ancestors the consumed leaf completed; an emptied
-        // path means it was the subtree's last leaf.
-        let mut flipped = false;
-        while let Some(bit) = path.pop() {
-            if !bit {
-                path.push(true);
-                flipped = true;
-                break;
-            }
-        }
-        if !flipped {
-            break;
         }
     }
     let (first_code, first_rel_depth) = first.expect("a subtree has at least one leaf");
