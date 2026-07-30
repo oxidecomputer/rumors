@@ -208,12 +208,12 @@ const REL_FOLLOWER: usize = 1;
 /// and the grow fallback requires an owning id (debug builds assert it;
 /// the result on an empty id is unspecified in release builds).
 pub fn tick(ev: &BitsSlice, id: &crate::Party) -> Bits {
-    match fused_fill(ev, id) {
-        FillOutcome::Changed(bits) => bits,
-        FillOutcome::Unchanged(route) => {
-            super::grow::emit(ev, id.as_bits(), &route, &Base::from(1u8))
-        }
-    }
+    // `n = 1` performs exactly one fused walk plus at most one splice:
+    // the delta against a direct dispatch is two unmetered width tests
+    // and one non-allocating `Base` construction. The committed
+    // `tick_is_ticks_one` differential and the `ticks_one_is_tick` law
+    // pin the outputs equal.
+    ticks(ev, id, &Base::from(1u8))
 }
 
 /// Register `n` events on the version a skyline stream denotes, from
