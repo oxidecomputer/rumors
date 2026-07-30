@@ -209,9 +209,7 @@ impl<'a> Ranked<'a> {
     /// assert_eq!(Ranked::decode(&key[..]).unwrap().version(), &v);
     /// ```
     pub fn encode(&self) -> Vec<u8> {
-        let rank = self.version.rank();
-        let (num, exp) = rank.raw_parts();
-        let mut bytes = encode_parts(num, exp);
+        let mut bytes = self.encode_rank();
         bytes.extend_from_slice(self.version.as_bytes());
         bytes
     }
