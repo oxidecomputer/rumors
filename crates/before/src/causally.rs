@@ -688,9 +688,10 @@ pub enum Endpoint {
 /// endpoint still bounds it. The enum's shape is the proof of that
 /// count: three bare variants for the regions on the chain through the
 /// interval, and two endpoint-qualified variants times three
-/// [`Endpoint`] payloads for the rest — `3 + 2×3 = 9` — while the
-/// combinations `lo <= hi` forbids (equal to `lo` yet above `hi`,
-/// concurrent to `lo` yet at or above `hi`) have no spelling at all.
+/// [`Endpoint`] payloads for the rest — `3 + 2×3 = 9` — while the seven
+/// combinations `lo <= hi` forbids (below `lo` yet not strictly below
+/// `hi`; equal to `lo` yet above or beside `hi`; concurrent to `lo` yet
+/// at or above `hi`) have no spelling at all.
 /// Each variant's doc states the raw relations it reports and the
 /// relations its payload forces.
 ///
