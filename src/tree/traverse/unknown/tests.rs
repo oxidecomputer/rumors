@@ -84,59 +84,6 @@ impl TwoPass for Z {
     }
 }
 
-/// The trusted door's debug assertion, priced alone over the nodes the
-/// classifier classifies.
-///
-/// Dev builds re-validate `floor <= ceiling` once per constructed
-/// span — a comparison release builds do not pay — so the
-/// shipping-shape comparison subtracts this reading from the measured
-/// fused walk.
-///
-/// The traversal mirrors the classifier's descent (recursing exactly
-/// into the nodes it classifies) but accumulates only the scan-bit
-/// deltas of the assertion's own comparison, read in a window around
-/// it; the descent decisions happen outside every window.
-trait AssertCost: Height {
-    /// Sum the assertion windows over this subtree's classified nodes.
-    fn cost<T>(node: &Node<T, Self>, known: &Version, acc: &mut u64)
-    where
-        T: Send + Sync;
-}
-
-impl<H: AssertCost> AssertCost for S<H>
-where
-    S<H>: Height,
-{
-    fn cost<T>(node: &Node<T, Self>, known: &Version, acc: &mut u64)
-    where
-        T: Send + Sync,
-    {
-        let before = meter::scan_bits();
-        let ordered = matches!(
-            node.floor().partial_cmp(node.ceiling()),
-            Some(Ordering::Less | Ordering::Equal)
-        );
-        *acc += meter::scan_bits() - before;
-        assert!(ordered, "a memoized floor exceeds its ceiling");
-        let span = causally::Span::ordered(node.floor(), node.ceiling());
-        if span.dominance_of(known) == causally::Dominance::Between {
-            for (_, child) in node.clone().into_children() {
-                AssertCost::cost(&child, known, acc);
-            }
-        }
-    }
-}
-
-impl AssertCost for Z {
-    fn cost<T>(_node: &Node<T, Self>, _known: &Version, _acc: &mut u64)
-    where
-        T: Send + Sync,
-    {
-        // Leaves build no span: the leaf check is a single-bound
-        // range containment with no assertion to price.
-    }
-}
-
 /// A wide-divergence tree: `known_leaves` party-0 leaves whose join is
 /// the counterparty's `known` version, interleaved (by hash radix) with
 /// `divergent_leaves` party-1 leaves concurrent to all of it.
@@ -183,47 +130,37 @@ fn scanned<R>(body: impl FnOnce() -> R) -> (R, u64) {
 /// traversal over the same structurally-shared nodes (memo cells warmed
 /// by an unmetered first run), reach the same verdicts at every node —
 /// the pruned trees' root hashes are asserted equal — and pay the same
-/// reassembly. The measured fused reading additionally carries the
-/// trusted door's dev-build-only assertion (one `floor <= ceiling`
-/// comparison per classified node, absent from release builds), priced
-/// separately by [`AssertCost`] and subtracted, so the pinned
-/// inequality compares the walks themselves: one probe decode per
-/// classified node against the two-pass shape's two, with the dominance
-/// bail landing at the first refuting interval.
+/// reassembly. The measured readings are the walks themselves in every
+/// build: the memoized bounds are stored as one span, ordered by
+/// construction, so the fused classification pays no validating
+/// comparison anywhere — there is no dev-build assertion cost to
+/// subtract. The pinned inequality is one probe decode per classified
+/// node against the two-pass shape's two, with the dominance bail
+/// landing at the first refuting interval.
 #[test]
 fn fused_classifier_undercuts_the_two_pass_shape() {
     let (root, known) = wide_divergence(96, 96);
 
-    // Warm the shared floor/ceiling memo cells so neither measured run
-    // pays the lazy fold; clones are Arc bumps over the same cells.
+    // Warm the shared bounds memo cells so neither measured run pays
+    // the lazy fold; clones are Arc bumps over the same cells.
     let _ = Unknown::unknown(root.clone(), &known);
 
     let (two_pass, two_pass_scan) = scanned(|| TwoPass::unknown(root.clone(), &known));
     let (fused, fused_scan) = scanned(|| Unknown::unknown(root.clone(), &known));
-    let mut assert_cost = 0;
-    AssertCost::cost(
-        root.as_ref().expect("the tree has leaves"),
-        &known,
-        &mut assert_cost,
-    );
 
     assert_eq!(
         typed::Node::root_hash(&fused),
         typed::Node::root_hash(&two_pass),
         "the fused classifier and the two-pass shape must prune identically"
     );
-    let walk_scan = fused_scan - assert_cost;
-    eprintln!(
-        "MEASURED classifier_scan: fused={fused_scan} debug_assert={assert_cost} \
-         walk={walk_scan} two_pass={two_pass_scan}"
-    );
+    eprintln!("MEASURED classifier_scan: fused={fused_scan} two_pass={two_pass_scan}");
     assert!(
-        walk_scan > 0 && two_pass_scan > 0 && assert_cost > 0,
+        fused_scan > 0 && two_pass_scan > 0,
         "a live scan meter reads nonzero on every leg"
     );
     assert!(
-        walk_scan < two_pass_scan,
-        "the fused classifier walk ({walk_scan}) must scan strictly under the \
+        fused_scan < two_pass_scan,
+        "the fused classifier ({fused_scan}) must scan strictly under the \
          two-pass shape ({two_pass_scan})"
     );
 }

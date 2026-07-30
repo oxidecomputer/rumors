@@ -54,18 +54,18 @@ pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Ver
 /// [`Between`](causally::Dominance::Between) means mixed, so the
 /// caller descends.
 ///
-/// One fused walk answers it: the span is ordered structurally (the
-/// memos are the meet and join of the same leaf versions), so the
-/// trusted constructor skips a validating comparison per node, and the
-/// walk decodes `known` once where placing the two bounds separately
-/// would decode it once per bound. The cheap unknown-subtree exit
-/// survives the fusion: `floor <= known` refuted is the whole verdict,
-/// decided at the first refuting interval.
+/// The backend answers it from its own stored bounds
+/// ([`Node::dominance_of`]) in one fused walk that decodes `known` once,
+/// where placing the two bounds separately would decode it once per
+/// bound; the span's ordering is the backend's construction-time
+/// obligation, so no validating comparison is paid per classification.
+/// The cheap unknown-subtree exit survives the fusion: `floor <= known`
+/// refuted is the whole verdict, decided at the first refuting interval.
 fn knowledge<T: Send + Sync + 'static>(
     node: &impl Node<T>,
     known: &Version,
 ) -> causally::Dominance {
-    causally::Span::ordered(node.floor(), node.ceiling()).dominance_of(known)
+    node.dominance_of(known)
 }
 
 /// Prune one subtree to what a counterparty at `known` is missing, honoring

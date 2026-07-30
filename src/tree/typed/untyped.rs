@@ -6,7 +6,7 @@ use borsh::BorshSerialize;
 use imbl::OrdMap;
 use tinyvec::ArrayVec;
 
-use crate::{Version, message::Message, tree::typed::Hash};
+use crate::{Version, causally, message::Message, tree::typed::Hash};
 
 mod iter;
 pub use iter::{Iter, Leaf, Range, RangeOwned};
@@ -87,7 +87,7 @@ struct NodeInner<T> {
     /// The node's observable hash (the hash of the subtree as seen from the top
     /// of its compressed prefix), computed lazily on first read and memoized.
     ///
-    /// Unlike the ceiling/floor memos, this lives on `NodeInner` rather than
+    /// Unlike the bounds memo, this lives on `NodeInner` rather than
     /// inside [`Children::Branch`] so a path-compressed leaf memoizes its hash
     /// too: a deep single-leaf spine costs its preimage only once. The memo is
     /// a pure function of the subtree, so it is safe to share across the
@@ -131,18 +131,19 @@ enum Children<T> {
     /// A materialized branch point, with the invariant that there are always >=
     /// 2 branches (or else they should be path-compressed away).
     Branch {
-        /// The maximal version of any child of this node, computed lazily on
-        /// first read and memoized.
+        /// The tightest causal span containing every leaf version under
+        /// this branch — its floor (the meet) and ceiling (the join) as
+        /// one [`causally::Span`] — computed lazily on first read of
+        /// either bound and memoized.
         ///
-        /// This must be reset whenever the branch's children change, but not
-        /// when its prefix does.
-        ceiling: OnceLock<Version>,
-        /// The minimal version of any child of this node, computed lazily on
-        /// first read and memoized.
+        /// Storing the pair as a span makes `floor <= ceiling` a
+        /// property of the stored type: every consumer reads bounds
+        /// that are ordered by construction, and the classifiers place
+        /// versions against the span with no per-read validation.
         ///
-        /// This must be reset whenever the branch's children change, but not
-        /// when its prefix does.
-        floor: OnceLock<Version>,
+        /// This must be reset whenever the branch's children change, but
+        /// not when its prefix does.
+        bounds: OnceLock<causally::Span<'static>>,
         /// The number of total leaves under this branch.
         leaves: usize,
         /// The largest canonical [`Version`] encoding among every bound
@@ -150,8 +151,8 @@ enum Children<T> {
         /// branch's ceiling and floor, its own included — in bytes,
         /// computed lazily on first read and memoized.
         ///
-        /// Like `ceiling` and `floor` (which it forces), this must be
-        /// reset whenever the branch's children change, but not when its
+        /// Like the bounds span (which it forces), this must be reset
+        /// whenever the branch's children change, but not when its
         /// prefix does.
         version_bytes: OnceLock<usize>,
         /// The children of this branch.
@@ -170,14 +171,12 @@ impl<T> Clone for Children<T> {
             // cloning the `OnceLock`s carries any already-computed value over
             // to the copy-on-write clone rather than discarding it.
             Self::Branch {
-                ceiling,
-                floor,
+                bounds,
                 leaves,
                 version_bytes,
                 children,
             } => Self::Branch {
-                ceiling: ceiling.clone(),
-                floor: floor.clone(),
+                bounds: bounds.clone(),
                 leaves: *leaves,
                 version_bytes: version_bytes.clone(),
                 children: children.clone(),
@@ -213,8 +212,7 @@ impl<T> Node<T> {
                 prefix: Vec::new(),
                 hash: OnceLock::new(),
                 children: Children::Branch {
-                    ceiling: OnceLock::new(),
-                    floor: OnceLock::new(),
+                    bounds: OnceLock::new(),
                     leaves: children.values().map(Node::len).sum(),
                     version_bytes: OnceLock::new(),
                     children,
@@ -330,8 +328,7 @@ impl<T> Node<T> {
             prefix: first[depth..branch_at].iter().rev().copied().collect(),
             hash: OnceLock::new(),
             children: Children::Branch {
-                ceiling: OnceLock::new(),
-                floor: OnceLock::new(),
+                bounds: OnceLock::new(),
                 leaves: count,
                 version_bytes: OnceLock::new(),
                 children,
@@ -481,59 +478,125 @@ impl<T> Node<T> {
     /// Get the ceiling version of this node (the maximal version of all
     /// children).
     ///
-    /// Like [`hash`](Self::hash), the ceiling is computed lazily on first call
-    /// and memoized: a leaf's is set at construction, and a branch's is the
-    /// join of its children's ceilings, computed once on demand. The memo is a
-    /// pure function of the subtree, so it is safe to share across the
-    /// structurally-shared clones a forked tree produces.
+    /// Like [`hash`](Self::hash), the ceiling is computed lazily on first
+    /// call and memoized: a leaf's is set at construction, and a branch's
+    /// is the join endpoint of its memoized bounds span, so reading
+    /// either bound computes both. The memo is a pure function of the
+    /// subtree, so it is safe to share across the structurally-shared
+    /// clones a forked tree produces.
     pub fn ceiling(&self) -> &Version {
         match &self.inner.children {
             Children::Leaf { version, .. } => version,
             Children::Branch {
-                ceiling, children, ..
-            } => ceiling.get_or_init(|| {
-                // The join (least upper bound) of the children's ceilings,
-                // through the balanced fold: every child passes through
-                // `O(log k)` joins of similarly sized operands instead of
-                // one join against the whole running result, and the
-                // children are borrowed in, so no child's version is
-                // cloned. Path compression doesn't change which leaves the
-                // subtree contains, so the prefix plays no part. The empty
-                // join (the empty version) cannot arise: a branch always
-                // has >= 2 children by the path-compression invariant.
-                Version::join_all(children.values().map(|child| child.ceiling()))
-            }),
+                bounds, children, ..
+            } => Self::bounds(bounds, children).join(),
         }
     }
 
     /// Get the floor version of this node (the minimal version of all
     /// children).
     ///
-    /// Like [`hash`](Self::hash), the floor is computed lazily on first call
-    /// and memoized: a leaf's is set at construction, and a branch's is the
-    /// meet of its children's floors, computed once on demand. The memo is a
-    /// pure function of the subtree, so it is safe to share across the
-    /// structurally-shared clones a forked tree produces.
+    /// Like [`hash`](Self::hash), the floor is computed lazily on first
+    /// call and memoized: a leaf's is set at construction, and a branch's
+    /// is the meet endpoint of its memoized bounds span, so reading
+    /// either bound computes both. The memo is a pure function of the
+    /// subtree, so it is safe to share across the structurally-shared
+    /// clones a forked tree produces.
     pub fn floor(&self) -> &Version {
         match &self.inner.children {
             Children::Leaf { version, .. } => version,
             Children::Branch {
-                floor, children, ..
-            } => floor.get_or_init(|| {
-                // The meet (greatest lower bound) of the children's floors,
-                // through the balanced fold: every child passes through
-                // `O(log k)` meets of similarly sized operands instead of
-                // one meet against the whole running result (which a meet
-                // can keep full-size), and the children are borrowed in,
-                // so no child's version is cloned. Unlike the join, the
-                // meet has no identity element (there is no top version),
-                // so the fold is `None` exactly on an empty iterator —
-                // which the path-compression invariant (a branch always
-                // has >= 2 children) rules out.
-                Version::meet_all(children.values().map(|child| child.floor()))
-                    .expect("a branch always has >= 2 children")
-            }),
+                bounds, children, ..
+            } => Self::bounds(bounds, children).meet(),
         }
+    }
+
+    /// How much of this subtree's version bounds `probe` dominates: the
+    /// deletion-honoring classifiers' verdict, answered from the memos
+    /// without descending.
+    ///
+    /// [`After`](causally::Dominance::After) means the whole subtree is
+    /// within `probe`'s causal past; [`Before`](causally::Dominance::Before)
+    /// means `probe` dominates not even the floor;
+    /// [`Between`](causally::Dominance::Between) means mixed. A branch
+    /// answers through its stored bounds span — ordered by construction,
+    /// so no validating comparison is paid at any classification — in one
+    /// fused walk that decodes `probe` once and keeps the dominance
+    /// face's early exit at the first interval refuting `floor <= probe`.
+    ///
+    /// A leaf's bounds coincide at its version, where the dominance
+    /// question collapses to one containment check: a coincident span
+    /// admits no [`Between`](causally::Dominance::Between), and its
+    /// [`After`](causally::Dominance::After) bucket is exactly
+    /// `version <= probe` (the `degenerate_span_place_is_partial_cmp`
+    /// and `span_dominance_coarsens_place` laws in `before::laws` pin
+    /// the coarsening), so the single-bound range placement answers it
+    /// with one decode of each stream.
+    pub fn dominance_of(&self, probe: &Version) -> causally::Dominance {
+        match &self.inner.children {
+            Children::Leaf { version, .. } => {
+                if causally::known_at(probe).contains(version) {
+                    causally::Dominance::After
+                } else {
+                    causally::Dominance::Before
+                }
+            }
+            Children::Branch {
+                bounds, children, ..
+            } => Self::bounds(bounds, children).dominance_of(probe),
+        }
+    }
+
+    /// Force one branch's bounds memo: the tightest span containing every
+    /// leaf version beneath it, stored as a single [`causally::Span`] so
+    /// the interval ordering `floor <= ceiling` rides the stored type.
+    ///
+    /// Two fold regimes, split by what the children hand up:
+    ///
+    /// - **Fringe** (every child a leaf): one fused balanced hull
+    ///   ([`Version::span_all`]) over the leaf versions. Each leaf
+    ///   combine derives its pair hull in one fused walk, the meet and
+    ///   join legs sharing every operand decode — where the split folds
+    ///   this replaces decoded each version once per lattice direction.
+    /// - **Interior** (any child a branch): the children's bounds
+    ///   combine as `(meet ∧ meet, join ∨ join)` — one balanced fold per
+    ///   lattice direction, because the two legs read *different*
+    ///   operand pairs (no shared decode exists to fuse) — and the owned
+    ///   span assembles through [`Version::span`], the pair-hull door:
+    ///   the meet of the floors never exceeds the join of the ceilings,
+    ///   and a comparable pair's hull *is* the ordered pair, so the door
+    ///   is exact. Its one fused walk over the two results is the price
+    ///   of owned construction through the public hull doors, paid once
+    ///   per memo.
+    ///
+    /// Either fold makes every child pass through `O(log k)` combines of
+    /// similarly sized operands instead of one combine against the whole
+    /// running result, with the children borrowed in, so no child's
+    /// version is cloned. Path compression doesn't change which leaves
+    /// the subtree contains, so the prefix plays no part; and neither
+    /// fold is ever empty, because a branch always has >= 2 children by
+    /// the path-compression invariant.
+    fn bounds<'a>(
+        bounds: &'a OnceLock<causally::Span<'static>>,
+        children: &OrdMap<u8, Node<T>>,
+    ) -> &'a causally::Span<'static> {
+        bounds.get_or_init(|| {
+            if children.values().all(Node::is_leaf) {
+                let mut versions = children.values().map(|child| match &child.inner.children {
+                    Children::Leaf { version, .. } => version,
+                    Children::Branch { .. } => {
+                        unreachable!("every child of a fringe branch is a leaf")
+                    }
+                });
+                let first = versions.next().expect("a branch always has >= 2 children");
+                first.span_all(versions)
+            } else {
+                let lo = Version::meet_all(children.values().map(Node::floor))
+                    .expect("a branch always has >= 2 children");
+                let hi = Version::join_all(children.values().map(Node::ceiling));
+                lo.span(&hi)
+            }
+        })
     }
 
     /// The largest canonical encoding among every version this subtree

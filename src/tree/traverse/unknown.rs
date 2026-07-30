@@ -39,18 +39,16 @@ where
 
         // One fused walk classifies the node: the counterparty's version
         // is placed against the subtree's memoized `[floor, ceiling]`
-        // span — ordered structurally, since both memos are the meet
-        // and join of the same leaf versions, which is what lets the
-        // trusted constructor skip a validating comparison per node —
-        // and each verdict of the dominance face is one prune decision.
-        // The fused walk decodes `known` once where placing the two
-        // bounds separately would decode it once per bound, and it keeps
-        // the cheap unknown-subtree exit: `floor <= known` refuted is
-        // the whole verdict, decided at the first refuting interval
-        // (the floor, a meet, is likely the smallest stream, and whole
-        // divergent subtrees are the common case high in the tree).
-        let span = causally::Span::ordered(node.floor(), node.ceiling());
-        match span.dominance_of(known) {
+        // bounds — stored as a single span, ordered by construction, so
+        // no validating comparison is paid here — and each verdict of
+        // the dominance face is one prune decision. The fused walk
+        // decodes `known` once where placing the two bounds separately
+        // would decode it once per bound, and it keeps the cheap
+        // unknown-subtree exit: `floor <= known` refuted is the whole
+        // verdict, decided at the first refuting interval (the floor, a
+        // meet, is likely the smallest stream, and whole divergent
+        // subtrees are the common case high in the tree).
+        match node.dominance_of(known) {
             // `known` does not dominate even the floor (the floor is
             // beyond or beside it): the whole subtree is definitely
             // unknown (children are always in the causal future or

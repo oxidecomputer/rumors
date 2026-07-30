@@ -6,7 +6,7 @@ use async_stream::try_stream;
 use futures::{StreamExt, future, stream};
 
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
         self,
@@ -43,6 +43,13 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
 
     fn floor(&self) -> &Version {
         self.floor()
+    }
+
+    // Answered from the branch's stored bounds span, so the ordering the
+    // trait obligates is carried by construction — no per-classification
+    // validation anywhere in this backend.
+    fn dominance_of(&self, known: &Version) -> causally::Dominance {
+        self.dominance_of(known)
     }
 
     fn len(&self) -> usize {

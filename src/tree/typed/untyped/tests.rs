@@ -270,18 +270,18 @@ proptest! {
         prop_assert_eq!(met, root_floor);
     }
 
-    /// Every node's floor and ceiling — not just the root's — are
-    /// exactly the meet and join of its own descendant leaves'
-    /// versions.
+    /// Every node's stored bounds span — not just the root's — is
+    /// exactly the hull of its own descendant leaves' versions.
     ///
     /// The root projections above can mask an interior drift: a wrong
     /// child memo can meet/join away against its siblings'
-    /// contributions at the root. This walk holds both memos exact at
-    /// every layer, and exactness at every node is what makes the
-    /// memoized `[floor, ceiling]` pair an ordered interval everywhere
-    /// the deletion-honoring classifiers construct one from it — the
-    /// meet of a nonempty leaf set never exceeds its join, asserted
-    /// here per node alongside the exactness.
+    /// contributions at the root. This walk holds the memoized span's
+    /// endpoints exact at every layer against the independent split
+    /// folds (`meet_all`/`join_all`, not the fused hull the memo
+    /// itself runs), and re-checks the interval ordering the stored
+    /// span carries by construction — the meet of a nonempty leaf set
+    /// never exceeds its join — so a broken hull door would surface as
+    /// a violated oracle here rather than ride the type unchecked.
     #[test]
     fn bounds_are_the_leaf_fold_at_every_node(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
@@ -630,17 +630,21 @@ fn small_tree_hash_matches_byte_literal_preimage() {
     assert_eq!(tree.hash(), super::Hash::of(&preimage));
 }
 
-/// The branch bound memos' fold-cost comparison: the balanced fold the
-/// memos run must read strictly below the sequential by-reference fold
-/// shape, in deterministic counters, on a maximal-fanout branch.
+/// The branch bounds memo's fold-cost comparison, in deterministic
+/// counters, on a maximal-fanout branch.
+///
+/// The memo's one fold computes *both* bounds; its reading must sit
+/// strictly below the sequential by-reference two-fold shape.
 ///
 /// The populations are `before`'s committed fold adversaries, one per
 /// lattice direction: the staggered join population (every operand's
 /// teeth land in every other's gaps, so a sequential accumulator never
 /// coalesces) and the meet-shade population (one deep carrier under
-/// dominating shades, so a sequential running meet never shrinks). The
-/// counters are process-global and meaningful one scenario per process
-/// (nextest's model).
+/// dominating shades, so a sequential running meet never shrinks). Each
+/// population makes one direction adversarial; the sequential reference
+/// composes both directions, because that is what a memo delivering
+/// both bounds replaces. The counters are process-global and meaningful
+/// one scenario per process (nextest's model).
 #[cfg(feature = "meter")]
 mod memo_fold_cost {
     use before::meter::{self, registry::Shape};
@@ -677,93 +681,174 @@ mod memo_fold_cost {
         (out, meter::limb_ops(), meter::scan_bits())
     }
 
-    /// Assert one currency's balanced reading sits under the sequential
-    /// reading by at least `factor`, with both meters proven live.
-    fn assert_undercuts(name: &str, currency: &str, balanced: u64, sequential: u64, factor: u64) {
-        assert!(
-            balanced > 0 && sequential > 0,
-            "{name}: a zero {currency} reading means the fold left the metered kernels",
-        );
-        assert!(
-            balanced * factor <= sequential,
-            "{name}: the balanced fold's {currency} ({balanced}) is not {factor}x \
-             under the sequential fold's ({sequential})",
-        );
-    }
-
-    /// A maximal-fanout branch's ceiling memo costs strictly less than
-    /// the sequential by-reference join of its children's ceilings, and
-    /// computes the identical version.
+    /// The sequential by-reference two-fold reference over one child map.
     ///
-    /// The staggered population keeps the sequential accumulator
-    /// non-coalescing, so the left fold re-walks `O(k)` accumulated
-    /// teeth per child where the memo's balanced fold pays `O(log k)`
-    /// levels; the pinned x4 margin is conservative against the
-    /// measured gap so population drift cannot flake it.
-    #[test]
-    fn ceiling_memo_undercuts_the_sequential_join() {
-        let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
-        let versions: Vec<Version> = packed.iter().map(meter::Packed::version).collect();
-        let (node, children) = wide_branch(versions);
-
-        let (sequential, seq_limb, seq_scan) = metered(|| {
-            let mut version = Version::new();
+    /// The running join of the ceilings and the running meet of the
+    /// floors (seeded from the first child, the meet's own seed rule),
+    /// with the composed `(limb ops, scan bits)` reading.
+    fn sequential_bounds(children: &OrdMap<u8, Node<()>>) -> (Version, Version, u64, u64) {
+        let ((join, meet), limb, scan) = metered(|| {
+            let mut join = Version::new();
             for child in children.values() {
-                version |= child.ceiling();
+                join |= child.ceiling();
             }
-            version
-        });
-        let (ceiling, bal_limb, bal_scan) = metered(|| node.ceiling().clone());
-        assert_eq!(
-            &ceiling, &sequential,
-            "the memo is the sequential join's value"
-        );
-        eprintln!(
-            "MEASURED memo_ceiling_fold: sequential limb={seq_limb} scan={seq_scan} \
-             balanced limb={bal_limb} scan={bal_scan}",
-        );
-        assert_undercuts("ceiling_memo", "limb ops", bal_limb, seq_limb, 4);
-        assert_undercuts("ceiling_memo", "scan bits", bal_scan, seq_scan, 4);
-    }
-
-    /// A maximal-fanout branch's floor memo costs strictly less than the
-    /// sequential by-reference meet of its children's floors (seeded
-    /// from the first child, the shape's own seed rule), and computes
-    /// the identical version.
-    ///
-    /// The meet-shade population keeps the sequential running meet
-    /// carrier-sized at every step — a meet shrinks the value, never
-    /// necessarily the packed size — so the left fold re-sweeps the deep
-    /// carrier once per child where the memo's balanced fold sweeps it
-    /// once per level; the pinned x4 margin is conservative against the
-    /// measured gap so population drift cannot flake it.
-    #[test]
-    fn floor_memo_undercuts_the_sequential_meet() {
-        let versions = Shape::MeetShade.versions(512, FANOUT);
-        let (node, children) = wide_branch(versions);
-
-        let (sequential, seq_limb, seq_scan) = metered(|| {
             let mut values = children.values();
-            let mut version = values
+            let mut meet = values
                 .next()
                 .expect("a branch always has >= 2 children")
                 .floor()
                 .clone();
             for child in values {
-                version &= child.floor();
+                meet &= child.floor();
             }
-            version
+            (join, meet)
         });
-        let (floor, bal_limb, bal_scan) = metered(|| node.floor().clone());
+        (join, meet, limb, scan)
+    }
+
+    /// Assert one currency's memo reading sits under the sequential
+    /// reading by at least `factor`, with both meters proven live.
+    fn assert_undercuts(name: &str, currency: &str, memo: u64, sequential: u64, factor: u64) {
+        assert!(
+            memo > 0 && sequential > 0,
+            "{name}: a zero {currency} reading means the fold left the metered kernels",
+        );
+        assert!(
+            memo * factor <= sequential,
+            "{name}: the span memo's {currency} ({memo}) is not {factor}x \
+             under the sequential two-fold shape's ({sequential})",
+        );
+    }
+
+    /// A maximal-fanout fringe branch's whole bounds memo undercuts the
+    /// sequential two-fold shape on the join-adversarial population.
+    ///
+    /// The memo's one fused balanced hull over the leaf versions buys
+    /// floor and ceiling together, and computes the identical bounds.
+    /// The staggered population keeps the sequential join accumulator
+    /// non-coalescing, so the left fold re-walks `O(k)` accumulated
+    /// teeth per child where the memo's balanced fold pays `O(log k)`
+    /// levels — and the memo's reading buys both bounds, where the
+    /// sequential reference must fold each direction separately; the
+    /// pinned x4 margin is conservative against the measured gap so
+    /// population drift cannot flake it.
+    #[test]
+    fn bounds_memo_undercuts_sequential_folds_on_the_stagger_population() {
+        let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
+        let versions: Vec<Version> = packed.iter().map(meter::Packed::version).collect();
+        let (node, children) = wide_branch(versions);
+
+        let (join, meet, seq_limb, seq_scan) = sequential_bounds(&children);
+        // Forcing either bound computes the whole span; the reading
+        // covers both.
+        let (ceiling, memo_limb, memo_scan) = metered(|| node.ceiling().clone());
+        assert_eq!(&ceiling, &join, "the memo ceiling is the sequential join");
+        assert_eq!(node.floor(), &meet, "the memo floor is the sequential meet");
+        eprintln!(
+            "MEASURED memo_bounds_fold_stagger: sequential limb={seq_limb} scan={seq_scan} \
+             span-memo limb={memo_limb} scan={memo_scan}",
+        );
+        assert_undercuts("stagger_bounds_memo", "limb ops", memo_limb, seq_limb, 4);
+        assert_undercuts("stagger_bounds_memo", "scan bits", memo_scan, seq_scan, 4);
+    }
+
+    /// A maximal-fanout fringe branch's whole bounds memo costs a small
+    /// fraction of the sequential two-fold shape on the
+    /// meet-adversarial population, and computes the identical bounds.
+    ///
+    /// The meet-shade population keeps the sequential running meet
+    /// carrier-sized at every step — a meet shrinks the value, never
+    /// necessarily the packed size — so the left fold re-sweeps the
+    /// deep carrier once per child where the memo's balanced fold
+    /// sweeps it once per level; the pinned x4 margin is conservative
+    /// against the measured gap so population drift cannot flake it.
+    #[test]
+    fn bounds_memo_undercuts_sequential_folds_on_the_meet_shade_population() {
+        let versions = Shape::MeetShade.versions(512, FANOUT);
+        let (node, children) = wide_branch(versions);
+
+        let (join, meet, seq_limb, seq_scan) = sequential_bounds(&children);
+        let (floor, memo_limb, memo_scan) = metered(|| node.floor().clone());
+        assert_eq!(&floor, &meet, "the memo floor is the sequential meet");
         assert_eq!(
-            &floor, &sequential,
-            "the memo is the sequential meet's value"
+            node.ceiling(),
+            &join,
+            "the memo ceiling is the sequential join"
         );
         eprintln!(
-            "MEASURED memo_floor_fold: sequential limb={seq_limb} scan={seq_scan} \
-             balanced limb={bal_limb} scan={bal_scan}",
+            "MEASURED memo_bounds_fold_meet_shade: sequential limb={seq_limb} scan={seq_scan} \
+             span-memo limb={memo_limb} scan={memo_scan}",
         );
-        assert_undercuts("floor_memo", "limb ops", bal_limb, seq_limb, 4);
-        assert_undercuts("floor_memo", "scan bits", bal_scan, seq_scan, 4);
+        assert_undercuts("meet_shade_bounds_memo", "limb ops", memo_limb, seq_limb, 4);
+        assert_undercuts(
+            "meet_shade_bounds_memo",
+            "scan bits",
+            memo_scan,
+            seq_scan,
+            4,
+        );
+    }
+
+    /// An interior branch's bounds memo — children handing up their own
+    /// memoized spans — still undercuts the sequential two-fold shape,
+    /// with the owned span's assembly walk inside the measured reading.
+    ///
+    /// The interior regime has no fused pair decode to share: the meet
+    /// and join legs read different endpoint pairs, so the memo runs
+    /// one balanced fold per direction and assembles the stored span
+    /// through the pair-hull door — one extra fused walk over the two
+    /// results, priced inside the memo reading rather than hidden (the
+    /// bare split-fold reading is measured beside it, so the door's
+    /// share stays visible). The population pairs consecutive staggered
+    /// versions into two-leaf child branches (memos pre-forced, so the
+    /// reading isolates the root's own fold), keeping the sequential
+    /// join accumulator non-coalescing across the children's ceilings.
+    /// The gap is structurally narrower than the fringe tests' — half
+    /// the fanout, and the door inside the reading — so the pinned
+    /// margin is x3 against a measured ~3.2x.
+    #[test]
+    fn interior_bounds_memo_undercuts_sequential_folds() {
+        let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
+        let mut versions = packed.iter().map(|packed| packed.version());
+        let children: OrdMap<u8, Node<()>> = (0..FANOUT / 2)
+            .map(|radix| {
+                let pair: OrdMap<u8, Node<()>> = [0u8, 1u8]
+                    .into_iter()
+                    .map(|slot| {
+                        let version = versions.next().expect("one version per slot");
+                        (slot, Node::leaf(version, Message::new(())))
+                    })
+                    .collect();
+                let child = Node::branch(pair).expect("two leaves make a branch");
+                // Force the child memo outside the measured window: the
+                // reading isolates the root's interior fold.
+                let _ = child.ceiling();
+                (
+                    u8::try_from(radix).expect("radix fits: half the fanout"),
+                    child,
+                )
+            })
+            .collect();
+        let node = Node::branch(children.clone()).expect("128 children make a branch");
+
+        let (join, meet, seq_limb, seq_scan) = sequential_bounds(&children);
+        // The memo's two balanced legs alone, re-run bare: subtracting
+        // this from the memo reading below prices the pair-hull door.
+        let (_, fold_limb, fold_scan) = metered(|| {
+            let lo = Version::meet_all(children.values().map(Node::floor))
+                .expect("a branch always has >= 2 children");
+            let hi = Version::join_all(children.values().map(Node::ceiling));
+            (lo, hi)
+        });
+        let (ceiling, memo_limb, memo_scan) = metered(|| node.ceiling().clone());
+        assert_eq!(&ceiling, &join, "the memo ceiling is the sequential join");
+        assert_eq!(node.floor(), &meet, "the memo floor is the sequential meet");
+        eprintln!(
+            "MEASURED memo_bounds_fold_interior: sequential limb={seq_limb} scan={seq_scan} \
+             span-memo limb={memo_limb} scan={memo_scan} \
+             bare-folds limb={fold_limb} scan={fold_scan}",
+        );
+        assert_undercuts("interior_bounds_memo", "limb ops", memo_limb, seq_limb, 3);
+        assert_undercuts("interior_bounds_memo", "scan bits", memo_scan, seq_scan, 3);
     }
 }
