@@ -222,6 +222,21 @@ impl Base {
     pub(crate) fn to_bytes_le(&self) -> Vec<u8> {
         self.0.to_le_bytes().into_vec()
     }
+
+    /// Assemble a magnitude from big-endian bytes.
+    ///
+    /// The materialization point for values parsed out of a bit stream
+    /// (the rank decoder's integral and fraction reads), so it records
+    /// one width-proportional limb count — the wide-gamma decode and
+    /// `parse_decimal` convention: the backend materializes every limb
+    /// of the value, and a meter that missed it would let a decoder
+    /// build arbitrarily wide values while reading zero.
+    pub(crate) fn from_be_bytes(bytes: &[u8]) -> Base {
+        let value = UBig::from_be_bytes(bytes);
+        #[cfg(feature = "limb-meter")]
+        limb_meter::record_wide(&value);
+        Base(value)
+    }
 }
 
 /// The 64-bit windows of a magnitude's bit string, most-significant first.

@@ -1337,6 +1337,293 @@ fn seeded_rank(seed: u64) -> super::Rank {
     stream_rank(&mut crate::testing::rng::word_stream(seed))
 }
 
+// ─────────────────────── the rank wire form ───────────────────────
+
+/// Committed witnesses for the lexicographic law's boundary genres:
+/// zero, the smallest fractions, integral-only vs fractional at a shared
+/// integral part, every step of the integral header (the mantissa-width
+/// steps at `I + 1` crossing a power of two, and the width-of-width
+/// steps where the unary run itself lengthens), and equal integral
+/// parts separated only deep in the fraction. Each byte string is
+/// pinned exactly — the wire form is canonical, so these are format
+/// goldens — and the whole battery must be strictly ascending in byte
+/// order exactly as it is ascending in rank order.
+#[test]
+fn rank_encoding_known_values() {
+    let rank_of = |text: &str| text.parse::<Version>().unwrap().rank();
+    let int = |n: u64| Version::try_from(n).unwrap().rank();
+    // (value, its pinned canonical bytes), in strictly ascending order.
+    let battery: Vec<(super::Rank, Vec<u8>)> = vec![
+        (super::Rank::ZERO, vec![0x00]),
+        // 1/4 = "0" ++ "01": the fraction's shortest deep form.
+        (rank_of("(0, (0, 1, 0), 0)"), vec![0x20]),
+        // 1/2 = "0" ++ "1".
+        (rank_of("(0, 1, 0)"), vec![0x40]),
+        // 3/4 = "0" ++ "11": a strict bit-extension of 1/2's stream.
+        (rank_of("(0, 1, (0, 1, 0))"), vec![0x60]),
+        // 1 = "100" ++ "0": the first integral header step.
+        (int(1), vec![0x80]),
+        // 3/2 = 1's stream extended by the fraction "1".
+        (
+            super::Rank::from_raw(crate::codec::Base::from(3u8), 1),
+            vec![0x88],
+        ),
+        (int(2), vec![0x90]),
+        (int(3), vec![0xA0]),
+        (int(4), vec![0xA8]),
+        // 5, then 5 + 2⁻⁴⁰ and 5 + 2⁻⁴⁰ + 2⁻⁴¹: an integral-only
+        // encoding that is a strict byte prefix of its deep-fraction
+        // extensions, and equal integral parts with equal fraction
+        // prefixes separated only at the 41st fraction bit.
+        (int(5), vec![0xB0]),
+        (
+            super::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40),
+            vec![0xB0, 0x00, 0x00, 0x00, 0x00, 0x08],
+        ),
+        (
+            super::Rank::from_raw(crate::codec::Base::from(5u128 << 41 | 3), 41),
+            vec![0xB0, 0x00, 0x00, 0x00, 0x00, 0x0C],
+        ),
+        // 6 and 7: the last mantissa of width 2 against the first of
+        // width 3 — the header's width-of-width (unary run) step.
+        (int(6), vec![0xB8]),
+        (int(7), vec![0xC0]),
+        (int(8), vec![0xC1]),
+        // 15 and 16: the next mantissa-width step inside one run width
+        // (16's content spills exactly one bit into a second byte).
+        (int(15), vec![0xC8, 0x00]),
+        (int(16), vec![0xC8, 0x80]),
+    ];
+    for (i, (rank, bytes)) in battery.iter().enumerate() {
+        assert_eq!(&rank.encode(), bytes, "case {i}: pinned bytes for {rank}");
+        assert_eq!(
+            &super::Rank::decode(&bytes[..]).unwrap(),
+            rank,
+            "case {i}: round-trip for {rank}"
+        );
+    }
+    for pair in battery.windows(2) {
+        assert!(pair[0].0 < pair[1].0, "battery is ascending in rank order");
+        assert!(
+            pair[0].1 < pair[1].1,
+            "byte order agrees: {} vs {}",
+            pair[0].0,
+            pair[1].0
+        );
+    }
+}
+
+proptest! {
+    /// THE LAW on adversarial in-memory ranks: byte-wise lexicographic
+    /// order on canonical encodings equals `Ord` on the ranks, over
+    /// pairs mixing far-apart magnitude classes, forced class ties, and
+    /// exact duplicates — and every encoding round-trips exactly.
+    #[test]
+    fn rank_lex_encoding_orders_like_ord(sa in any::<u64>(), sb in any::<u64>(), dup in any::<bool>()) {
+        let a = seeded_rank(sa);
+        let b = if dup { a.clone() } else { seeded_rank(sb) };
+        let (ea, eb) = (a.encode(), b.encode());
+        prop_assert_eq!(ea.cmp(&eb), a.cmp(&b), "lex order disagrees: {} vs {}", a, b);
+        prop_assert_eq!(&super::Rank::decode(&ea[..]).unwrap(), &a);
+        prop_assert_eq!(&super::Rank::decode(&eb[..]).unwrap(), &b);
+    }
+
+    /// THE LAW on rank-bearing versions: over arbitrary normal-form
+    /// version pairs, the ranks' encodings compare byte-wise exactly as
+    /// the ranks compare — so the encodings order causally related
+    /// versions cause-first when used as KV keys — and round-trip.
+    #[test]
+    fn rank_lex_encoding_orders_versions(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let a = from_oracle_version(&oa).rank();
+        let b = from_oracle_version(&ob).rank();
+        let (ea, eb) = (a.encode(), b.encode());
+        prop_assert_eq!(ea.cmp(&eb), a.cmp(&b), "lex order disagrees: {} vs {}", a, b);
+        prop_assert_eq!(&super::Rank::decode(&ea[..]).unwrap(), &a);
+        prop_assert_eq!(&super::Rank::decode(&eb[..]).unwrap(), &b);
+    }
+}
+
+/// The exhaustive small-scope sweep: over **every** byte string of zero,
+/// one, and two bytes, decode is total (accepts or rejects, never
+/// panics); every accepted string re-encodes byte-identically (the
+/// format is bijective on accepted strings, so no value has a second
+/// spelling — the strict-canonicality statement that subsumes the
+/// per-genre rejections); the accepted strings in byte order carry
+/// strictly ascending ranks (the lexicographic law, total at this
+/// scope); every decoded rank's numeric size is linear in its input
+/// bytes (no decompression bomb); and both live rejection genres
+/// (truncation, non-minimal packing) actually fire.
+#[test]
+fn rank_encoding_exhaustive_small_scope() {
+    let mut accepted: Vec<(Vec<u8>, super::Rank)> = Vec::new();
+    let (mut truncated, mut trailing) = (0u32, 0u32);
+    let mut sweep = |bytes: Vec<u8>| match super::Rank::decode(&bytes[..]) {
+        Ok(rank) => {
+            assert_eq!(rank.encode(), bytes, "canonical: re-encodes to itself");
+            assert!(
+                rank.content_bits() <= 16 * bytes.len() as u64,
+                "decoded size is input-linear"
+            );
+            accepted.push((bytes, rank));
+        }
+        Err(crate::error::Decode::Truncated) => truncated += 1,
+        Err(crate::error::Decode::TrailingBits) => trailing += 1,
+        Err(e) => panic!("unexpected rejection genre at this scope: {e}"),
+    };
+    sweep(vec![]);
+    for b0 in 0..=255u8 {
+        sweep(vec![b0]);
+        for b1 in 0..=255u8 {
+            sweep(vec![b0, b1]);
+        }
+    }
+    accepted.sort();
+    for pair in accepted.windows(2) {
+        assert!(
+            pair[0].1 < pair[1].1,
+            "byte order must be rank order: {:02x?} ({}) vs {:02x?} ({})",
+            pair[0].0,
+            pair[0].1,
+            pair[1].0,
+            pair[1].1
+        );
+    }
+    // Liveness: the scope actually exercises acceptance and both
+    // reachable rejection genres.
+    assert!(
+        accepted.len() > 1_000,
+        "acceptance is live: {}",
+        accepted.len()
+    );
+    assert!(truncated > 0, "the truncation genre fires");
+    assert!(trailing > 0, "the non-minimal-packing genre fires");
+}
+
+/// Committed witnesses, one per rejection genre the decoder can reach:
+/// empty input, an unterminated unary run, a truncated header payload,
+/// a truncated integral mantissa, a trailing zero byte, and the one
+/// spelling a trailing-zero fraction could take (spilling its zeros
+/// into a further byte — inside the final byte such bits *are* the
+/// padding, so no distinct non-canonical string exists there, and the
+/// bijectivity half of the exhaustive sweep is the committed proof).
+/// The remaining documented genre — a non-minimal integral header — is
+/// structurally unrepresentable (every `(run, payload)` pair decodes to
+/// a width whose own width matches the run exactly), which the same
+/// sweep witnesses mechanically at small scope.
+#[test]
+#[allow(clippy::type_complexity)]
+fn rank_decoding_rejects_each_genre() {
+    use crate::error::Decode;
+    let genres: [(&[u8], fn(&Decode) -> bool, &str); 6] = [
+        (&[], |e| matches!(e, Decode::Truncated), "empty input"),
+        (
+            &[0xFF],
+            |e| matches!(e, Decode::Truncated),
+            "unary run to the end",
+        ),
+        // 11111101: run 6, payload needs 6 bits, 1 remains.
+        (
+            &[0xFD],
+            |e| matches!(e, Decode::Truncated),
+            "truncated header payload",
+        ),
+        // 11011111: run 2, w = 7, mantissa needs 6 bits, 3 remain.
+        (
+            &[0xDF],
+            |e| matches!(e, Decode::Truncated),
+            "truncated mantissa",
+        ),
+        // The encoding of 1, then a whole padding byte.
+        (
+            &[0x80, 0x00],
+            |e| matches!(e, Decode::TrailingBits),
+            "trailing zero byte",
+        ),
+        // "0" ++ "10101010": the 8-bit fraction .10101010 ends in a
+        // zero bit, so its content spills nothing into byte two — the
+        // canonical spelling of the value is the 7-bit fraction packed
+        // in one byte, and the spilled form is non-minimal packing.
+        (
+            &[0x55, 0x00],
+            |e| matches!(e, Decode::TrailingBits),
+            "trailing-zero fraction",
+        ),
+    ];
+    for (bytes, is_genre, what) in genres {
+        let err = super::Rank::decode(bytes).expect_err(what);
+        assert!(is_genre(&err), "{what}: wrong genre: {err}");
+    }
+}
+
+/// The provenance size bound, measured and pinned per committed family:
+/// every rank reachable through a version fold encodes linearly in the
+/// version's packed bytes. The families white-box the encoder's two
+/// axes — numerator width (wide counters, answer-embedding products)
+/// and exponent depth (spines), plus the dense-fraction staircase that
+/// maximizes set bits per level — and the pin holds each family's
+/// encoded size at or under 1.0 bit per packed input bit. Measured
+/// \[2026-07-29, this test instrumented\]: wide counter 0.56 (the worst
+/// — a lone counter's version pays gamma's doubled width where the
+/// encoding pays the width once), deep spine 0.34, dense staircase
+/// 0.34, deep wide counter 0.24, plateau puncture 0.16; the 1.0 pin
+/// leaves headroom for packing drift while sitting an order under the
+/// exponential blowup arbitrary in-memory ranks can reach.
+#[test]
+fn rank_encoding_size_is_provenance_linear() {
+    // A deep spine holding one unit leaf: rank 2⁻ᵏ, the exponent axis.
+    fn spine(depth: usize) -> Version {
+        let mut text = String::from("1");
+        for _ in 0..depth {
+            text = format!("(0, {text}, 0)");
+        }
+        text.parse().unwrap()
+    }
+    // The dense staircase: one new unit plateau per level, so every
+    // level contributes a set fraction bit — the set-bits-per-level
+    // maximum the white-box attack found.
+    fn staircase(depth: usize) -> Version {
+        let mut text = String::from("(0, 1, 0)");
+        for _ in 0..depth {
+            text = format!("(0, {text}, 1)");
+        }
+        text.parse().unwrap()
+    }
+    // A wide counter behind a spine: both axes at once.
+    fn deep_counter(depth: usize, counter: &str) -> Version {
+        let mut text = String::from(counter);
+        for _ in 0..depth {
+            text = format!("(0, {text}, 0)");
+        }
+        text.parse().unwrap()
+    }
+    let wide = "340282366920938463463374607431768211455"; // 2¹²⁸ − 1
+    let families: [(&str, Version); 5] = [
+        ("wide counter", wide.parse().unwrap()),
+        ("deep spine", spine(800)),
+        ("dense staircase", staircase(800)),
+        ("deep wide counter", deep_counter(400, wide)),
+        // The answer-embedding shape's essence at test scale: a wide
+        // plateau over dense puncturing turns, keeping the numerator
+        // wide *and* dense.
+        ("plateau puncture", {
+            let mut text = String::from(wide);
+            for _ in 0..100 {
+                text = format!("(0, (1, {text}, 0), 0)");
+            }
+            text.parse().unwrap()
+        }),
+    ];
+    for (name, version) in families {
+        let input_bits = version.encoded_bits() as f64;
+        let encoded_bits = (version.rank().encode().len() * 8) as f64;
+        assert!(
+            encoded_bits <= input_bits,
+            "{name}: encoded rank ({encoded_bits} bits) exceeds the pinned \
+             1.0 ratio over packed input ({input_bits} bits)"
+        );
+    }
+}
+
 // ─────────────────────────────── the join fold ───────────────────────────────
 
 /// Build one organic history's version population.
