@@ -632,6 +632,26 @@ fn span_borsh_composes_and_keeps_its_genres() {
         matches!(inner.downcast_ref::<Decode>(), Some(Decode::NotCanonical)),
         "expected NotCanonical, got: {inner:?}"
     );
+
+    // A crossed composite whose join also carries a set padding bit:
+    // the structural genre crosses the borsh boundary ahead of the
+    // pair verdict, exactly as the raw decode orders them.
+    let mut crossed_padding = crossed.clone();
+    assert_ne!(
+        older.encoded_bits() % 8,
+        0,
+        "the join witness ends mid-byte"
+    );
+    *crossed_padding.last_mut().unwrap() |= 0x01;
+    let err = Span::try_from_slice(&crossed_padding).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::TrailingBits)),
+        "expected TrailingBits, got: {inner:?}"
+    );
 }
 
 proptest! {

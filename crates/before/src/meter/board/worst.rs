@@ -611,7 +611,7 @@ pub(super) fn render_map(
 ///   two-sided accumulator carries both endpoints' intermediates at
 ///   once.
 ///
-/// Movement 2026-07-31 (the span wire form: `span_encode` joins as the
+/// Movement 2026-07-30 (the span wire form: `span_encode` joins as the
 /// composite emission's row, `span_decode` as the fused
 /// parse-and-validate row, and `span_decode_truncated`/`_trailing`/
 /// `_crossed` as its rejection surface per the error-path precedent;
