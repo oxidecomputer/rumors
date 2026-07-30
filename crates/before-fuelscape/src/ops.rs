@@ -978,13 +978,18 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "causally::Range::contains",
-        "definitional combination of causal comparisons against the bounds; the \
-         version_cmp panel prices the walk",
+        "the fused placement walk, law-pinned to the causal comparisons against \
+         the bounds; the version_cmp panel prices the same per-stream sweep",
     ),
     (
         "causally::Range::placement_of",
-        "definitional combination of causal comparisons against the bounds; the \
-         version_cmp panel prices the walk",
+        "the fused placement walk, law-pinned to the causal comparisons against \
+         the bounds; the version_cmp panel prices the same per-stream sweep",
+    ),
+    (
+        "causally::Range::bounded",
+        "the fused placement walk, law-pinned to the causal comparisons against \
+         the bounds; the version_cmp panel prices the same per-stream sweep",
     ),
     // ── not operations ──
     (
