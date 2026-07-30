@@ -119,10 +119,18 @@ impl Version {
     /// assert_eq!(before::Version::new().to_string(), "0");
     /// ```
     pub fn new() -> Self {
-        let mut bits = codec::BitsMut::new();
-        bits.push(true); // topology: the single leaf
-        codec::encode_int(&mut bits, &codec::Base::ZERO); // its absolute height, zero
-        Version::from_bits(bits)
+        // The canonical empty version is exactly the 2-bit stream `11`
+        // (the single-leaf topology flag, then gamma(0), the single bit
+        // `1` — see `is_empty`), so the stored form is one static byte:
+        // construction allocates nothing, and every empty version
+        // shares the one static buffer (clone identity holds even
+        // across separate `new()` calls). The codec round-trip and
+        // text laws pin the constant against the built form.
+        const EMPTY_STREAM: &[u8] = &[0b1100_0000];
+        Version::from_frozen(codec::Bits::from_canonical(
+            bytes::Bytes::from_static(EMPTY_STREAM),
+            2,
+        ))
     }
 
     /// Whether this version records no events: equal to [`Version::new`].
@@ -404,6 +412,15 @@ impl Version {
     /// assert_eq!(va.distance(&vb).to_string(), "1");
     /// ```
     pub fn distance(&self, other: &Version) -> Rank {
+        // Equal operands sit at distance zero — the
+        // `distance_to_self_is_zero` law in [`laws`](crate::laws) —
+        // and canonical equality answers in `O(1)` on a shared buffer
+        // (clone identity) or one byte compare, where the fused sweep
+        // would fold the whole pair through the accumulator. Unequal
+        // operands pay only the compare's early-exiting prefix.
+        if codec::canonical_eq(&self.0, &other.0) {
+            return Rank::ZERO;
+        }
         skyline::query::distance(&self.0, &other.0)
     }
 
@@ -444,6 +461,12 @@ impl Version {
     /// assert_eq!(va.lag(&vb) + vb.lag(&va), va.distance(&vb)); // halves sum
     /// ```
     pub fn lag(&self, other: &Version) -> Rank {
+        // A version lags itself by zero — the `lag_to_self_is_zero` law
+        // in [`laws`](crate::laws) — with the same `O(1)`-on-clone
+        // equality rung as [`distance`](Self::distance).
+        if codec::canonical_eq(&self.0, &other.0) {
+            return Rank::ZERO;
+        }
         skyline::query::lag(&self.0, &other.0)
     }
 
@@ -672,9 +695,16 @@ impl Version {
         // endpoints; an interior combine folds per side, because its
         // two legs read *different* operand pairs (`lo₁ ∧ lo₂` and
         // `hi₁ ∨ hi₂`) — no shared pair walk exists there to fuse.
-        let inputs = core::iter::once(SpanInput::Receiver(self))
-            .chain(others.into_iter().map(SpanInput::Item))
-            .map(Hull::Input);
+        // Adjacent clone-identical inputs (the receiver included)
+        // collapse before the counter reads them ([`DedupRuns`]): both
+        // hull directions are idempotent, so a run of one shared buffer
+        // is one input.
+        let inputs = DedupRuns::new(
+            core::iter::once(SpanInput::Receiver(self))
+                .chain(others.into_iter().map(SpanInput::Item)),
+            SpanInput::version,
+        )
+        .map(Hull::Input);
         let group = crate::fold::balanced_reduce(inputs, |a, b| {
             let (lo, hi) = match (a, b) {
                 // A leaf combine: two raw inputs derive their pair hull
@@ -736,6 +766,11 @@ impl Version {
     /// and [`Group`] carries which form each operand needs. `None` is the
     /// empty fold; a lone input is cloned, the one place an input itself
     /// must become an owned result.
+    ///
+    /// Adjacent clone-identical inputs collapse before the counter
+    /// reads them ([`DedupRuns`], citing the idempotence laws): both
+    /// combiners are idempotent, so a run of one shared buffer is one
+    /// operand.
     fn balanced_fold<I>(
         iter: I,
         refs: fn(&Version, &Version) -> Version,
@@ -745,7 +780,8 @@ impl Version {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        let group = crate::fold::balanced_reduce(iter.into_iter().map(Group::Input), |a, b| {
+        let inputs = DedupRuns::new(iter.into_iter(), Borrow::borrow);
+        let group = crate::fold::balanced_reduce(inputs.map(Group::Input), |a, b| {
             Group::Merged(match (a, b) {
                 (Group::Input(a), Group::Input(b)) => refs(a.borrow(), b.borrow()),
                 (Group::Merged(mut a), Group::Input(b)) => {
@@ -880,15 +916,24 @@ impl Version {
     }
 
     /// The borrowed-operands hull: `(a ∧ b, a ∨ b)` as fresh
-    /// [`Version`]s from **one** fused emission sweep, reading both
-    /// operands in place.
+    /// [`Version`]s, emitting only when it must.
     ///
-    /// The short-circuits are [`meet_refs`](Self::meet_refs) and
+    /// The first three rungs are [`meet_refs`](Self::meet_refs) and
     /// [`join_refs`](Self::join_refs)'s in the same order — keep the
-    /// three in lockstep — each settling both endpoints at once. The
-    /// general path runs one pair walk feeding both output builders
-    /// (`skyline::emit::hull`), where composing the two emitters would
-    /// decode each operand twice and fold every crossing twice.
+    /// three in lockstep — each settling both endpoints at once, and
+    /// the equal rung's two clones share one buffer (the coincident
+    /// hull stores its stream once). The span ladder then adds the
+    /// comparable rung the pair operations don't have: a comparable
+    /// pair's hull IS the pair, reordered (the `span_is_the_pair_hull`
+    /// law in [`laws`](crate::laws) — the meet and join of comparable
+    /// versions are the smaller and the larger), so one comparison
+    /// sweep hands the operands back as the endpoints, `O(1)` clones,
+    /// zero emission. Only a concurrent pair reaches the fused
+    /// emission walk (`skyline::emit::hull`, one pair walk feeding
+    /// both output builders where composing the two emitters would
+    /// decode each operand twice); the comparison it paid first is the
+    /// sweep's early-exiting prefix, which stops at the second
+    /// refuting interval.
     fn span_refs(a: &Version, b: &Version) -> (Version, Version) {
         if codec::canonical_eq(&a.0, &b.0) {
             return (a.clone(), a.clone()); // a ∧ a = a = a ∨ a
@@ -900,6 +945,15 @@ impl Version {
         if skyline::is_empty_stream(&b.0) {
             // v ∧ 0 = 0, v ∨ 0 = v.
             return (Version::new(), a.clone());
+        }
+        match skyline::sweep::causal_cmp(&a.0, &b.0) {
+            // The comparable case's answer IS an operand pair.
+            Some(Ordering::Less) => return (a.clone(), b.clone()),
+            Some(Ordering::Greater) => return (b.clone(), a.clone()),
+            Some(Ordering::Equal) => unreachable!(
+                "equal versions have byte-equal canonical streams, settled by the first rung"
+            ),
+            None => {}
         }
         let (lo, hi) = skyline::emit::hull(&a.0, &b.0);
         (Version::from_bits(lo), Version::from_bits(hi))
@@ -1057,6 +1111,65 @@ impl Version {
     /// runs and adoption is `O(1)`.
     pub(crate) fn from_frozen(bits: codec::Bits) -> Self {
         Version(bits)
+    }
+}
+
+/// An iterator adapter collapsing adjacent runs of one shared stored
+/// buffer before a lattice fold reads them.
+///
+/// A run of clones is one operand under idempotence — the
+/// `merge_idempotent` and `meet_idempotent` laws in
+/// [`laws`](crate::laws) (both at once for the hull fold, whose
+/// accumulator carries one endpoint per direction) — and clone identity
+/// (`codec::Bits::ptr_eq`, through the items' views) certifies the
+/// duplication in `O(1)` without reading either stream. Only *adjacent*
+/// duplicates collapse: the window is one item, so the collapse costs
+/// `O(1)` state and the fold stays single-pass; scattered duplicates
+/// still fold — correctly, at the combine's own equality rung.
+///
+/// `last` holds a **clone** of the last yielded item's version, not a
+/// raw address: the clone keeps the run's buffer alive, so no freed
+/// allocation can be reused at the same address mid-iteration and
+/// masquerade as a duplicate.
+struct DedupRuns<I, F> {
+    inner: I,
+    /// Projects each item to the version it contributes.
+    view: F,
+    /// A clone of the last yielded item's version (see above).
+    last: Option<Version>,
+}
+
+impl<I, F> DedupRuns<I, F> {
+    fn new(inner: I, view: F) -> Self {
+        DedupRuns {
+            inner,
+            view,
+            last: None,
+        }
+    }
+}
+
+impl<I, F> Iterator for DedupRuns<I, F>
+where
+    I: Iterator,
+    F: for<'a> Fn(&'a I::Item) -> &'a Version,
+{
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<I::Item> {
+        loop {
+            let item = self.inner.next()?;
+            let version = (self.view)(&item);
+            if self
+                .last
+                .as_ref()
+                .is_some_and(|prev| prev.0.ptr_eq(&version.0))
+            {
+                continue; // an adjacent clone: idempotence drops it
+            }
+            self.last = Some(version.clone());
+            return Some(item);
+        }
     }
 }
 

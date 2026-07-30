@@ -139,6 +139,8 @@ pub static VERSION_SOLO: &[Law<fn(&Version) -> bool>] = &[
     ("is_empty_iff_new", is_empty_iff_new),
     ("never_concurrent_with_self", never_concurrent_with_self),
     ("distance_to_self_is_zero", distance_to_self_is_zero),
+    ("lag_to_self_is_zero", lag_to_self_is_zero),
+    ("span_with_self_is_coincident", span_with_self_is_coincident),
     ("rank_zero_iff_empty", rank_zero_iff_empty),
     ("min_ticks_zero_iff_empty", min_ticks_zero_iff_empty),
     ("seed_projection_is_identity", seed_projection_is_identity),
@@ -199,6 +201,21 @@ fn never_concurrent_with_self(a: &Version) -> bool {
 /// The metric point law at the diagonal: `d(a, a) == 0`.
 fn distance_to_self_is_zero(a: &Version) -> bool {
     a.distance(a) == Rank::ZERO
+}
+
+/// The directed metric's point law at the diagonal: `a.lag(a) == 0` —
+/// a version lags itself by nothing (`rank(a | a) == rank(a)` by
+/// idempotence).
+fn lag_to_self_is_zero(a: &Version) -> bool {
+    a.lag(a) == Rank::ZERO
+}
+
+/// The hull at the diagonal: a version's span with itself is the
+/// coincident span `[a, a]` — both endpoints equal `a`, and the empty
+/// n-ary hull (`span_all` of nothing) agrees with it.
+fn span_with_self_is_coincident(a: &Version) -> bool {
+    let span = a.span(a);
+    span.meet() == a && span.join() == a && a.span_all(core::iter::empty::<Version>()) == span
 }
 
 /// `rank` separates the bottom: zero area exactly for the empty version

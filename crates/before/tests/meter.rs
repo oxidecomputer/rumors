@@ -7931,8 +7931,10 @@ mod placement {
     /// composition minus one probe scan — each stream decoded once.
     ///
     /// Stated relationally against the pair sweep on the same operands
-    /// (`cmp(v, v)` prices one probe scan as half its reading), so the
-    /// identity self-normalizes and no measured constant can rot.
+    /// (`cmp(v, v')` prices one probe scan as half its reading, `v'` a
+    /// buffer-distinct re-decode of `v`: a shared buffer would answer
+    /// by clone identity without a walk), so the identity
+    /// self-normalizes and no measured constant can rot.
     #[test]
     fn placement_fused_walk_scans_each_stream_once() {
         let (s, v, e, _) = fixture();
@@ -7941,9 +7943,10 @@ mod placement {
         let fused = scanned(|| {
             assert_eq!(range.bounded(&v), causally::Bounded::Between);
         });
+        let v_redecoded = Version::decode(&v.encode()[..]).expect("a stored stream re-decodes");
         let cmp_vs = scanned(|| assert!(v.partial_cmp(&s).is_some()));
         let cmp_ve = scanned(|| assert!(v.partial_cmp(&e).is_some()));
-        let cmp_vv = scanned(|| assert!(v.partial_cmp(&v).is_some()));
+        let cmp_vv = scanned(|| assert!(v.partial_cmp(&v_redecoded).is_some()));
         eprintln!(
             "MEASURED placement_one_pass: fused={fused} composed={} probe_scan={} \
              encoded_bits: v={} s={} e={}",
@@ -8090,8 +8093,10 @@ mod placement {
     /// the coarser verdict reads strictly cheaper.
     ///
     /// Stated relationally like the range walk's one-pass pin
-    /// (`cmp(v, v)` prices one probe scan as half its reading), so no
-    /// measured constant can rot.
+    /// (`cmp(v, v')` prices one probe scan as half its reading, `v'` a
+    /// buffer-distinct re-decode of `v`: a shared buffer would answer
+    /// by clone identity without a walk), so no measured constant can
+    /// rot.
     #[test]
     fn span_place_scans_each_stream_once() {
         let (s, v, e, _) = fixture();
@@ -8103,9 +8108,10 @@ mod placement {
         let dominance = scanned(|| {
             assert_eq!(span.dominance_of(&v), causally::Dominance::Between);
         });
+        let v_redecoded = Version::decode(&v.encode()[..]).expect("a stored stream re-decodes");
         let cmp_vs = scanned(|| assert!(v.partial_cmp(&s).is_some()));
         let cmp_ve = scanned(|| assert!(v.partial_cmp(&e).is_some()));
-        let cmp_vv = scanned(|| assert!(v.partial_cmp(&v).is_some()));
+        let cmp_vv = scanned(|| assert!(v.partial_cmp(&v_redecoded).is_some()));
         eprintln!(
             "MEASURED span_one_pass: fused={fused} dominance={dominance} composed={} \
              probe_scan={}",
@@ -8343,48 +8349,70 @@ mod span {
         (s, v, div, population)
     }
 
-    /// GREEN PIN: the fused hull decodes the pair once — the pair
-    /// regime's scan identity.
+    /// GREEN PIN: the span ladder's two walking regimes, one scan
+    /// identity each.
     ///
-    /// Scan counts both stream reads and builder writes, and the fused
-    /// sweep's writes are the two single-op outputs exactly, so the
-    /// saving is precisely one decode of both operands:
-    /// `span + decode(a) + decode(b) == meet + join`, with each
-    /// operand's decode priced as half its self-comparison
-    /// (`cmp(x, x)` reads `x` twice and writes nothing — the placement
-    /// suite's self-normalizing witness, immune to the early exit a
-    /// cross-operand comparison takes on concurrent pairs). Stated
-    /// relationally, so no measured constant can rot; checked on a
-    /// comparable and a concurrent pair — emission sweeps never exit
-    /// early, so the identity is genre-independent.
+    /// A *comparable* pair's hull is the pair handed back
+    /// (`span_is_the_pair_hull`): the span costs exactly one comparison
+    /// sweep — `span == cmp(a, b)` — with zero emission, so the pin is
+    /// scan identity with the pair sweep itself. A *concurrent* pair is
+    /// the only emitting case: the fused hull decodes the pair once
+    /// (scan counts both stream reads and builder writes, and the fused
+    /// sweep's writes are the two single-op outputs exactly), after
+    /// paying the ladder's classifying comparison — its early-exiting
+    /// concurrent prefix — up front:
+    /// `span + decode(a) + decode(b) == meet + join + cmp(a, b)`. Each
+    /// operand's decode is priced as half its self-comparison against a
+    /// buffer-distinct re-decode (`cmp(x, x')` reads `x` twice and
+    /// writes nothing; a shared buffer would answer by clone identity
+    /// without a walk). Stated relationally, so no measured constant
+    /// can rot.
     #[test]
     fn span_fuses_the_pair_walk() {
         let (s, v, div, _) = fixture();
-        for (a, b, genre) in [(&s, &v, "comparable"), (&v, &div, "concurrent")] {
-            let fused = scanned(|| {
-                let _ = a.span(b);
-            });
-            let met = scanned(|| {
-                let _ = a & b;
-            });
-            let joined = scanned(|| {
-                let _ = a | b;
-            });
-            let decode_a = scanned(|| assert!(a.partial_cmp(a).is_some())) / 2;
-            let decode_b = scanned(|| assert!(b.partial_cmp(b).is_some())) / 2;
-            eprintln!(
-                "MEASURED span_pair_{genre}: fused={fused} meet={met} join={joined} \
-                 pair_decode={}",
-                decode_a + decode_b,
-            );
-            assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
-            assert_eq!(
-                fused + decode_a + decode_b,
-                met + joined,
-                "{genre}: the fused hull must cost the composed emissions minus \
-                 exactly one decode of the pair"
-            );
-        }
+
+        // The comparable regime: hand-back at the cost of the pair sweep.
+        let fused = scanned(|| {
+            let _ = s.span(&v);
+        });
+        let cmp_sv = scanned(|| assert!(s.partial_cmp(&v).is_some()));
+        eprintln!("MEASURED span_pair_comparable: fused={fused} cmp={cmp_sv}");
+        assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+        assert_eq!(
+            fused, cmp_sv,
+            "comparable: the hull is the pair handed back at exactly one \
+             comparison sweep, zero emission"
+        );
+
+        // The concurrent regime: the one emitting case, the fused hull's
+        // decode saving intact, the classifying comparison accounted.
+        let (a, b) = (&v, &div);
+        let fused = scanned(|| {
+            let _ = a.span(b);
+        });
+        let met = scanned(|| {
+            let _ = a & b;
+        });
+        let joined = scanned(|| {
+            let _ = a | b;
+        });
+        let cmp_ab = scanned(|| assert!(a.partial_cmp(b).is_none()));
+        let redecode = |x: &Version| Version::decode(&x.encode()[..]).expect("re-decodes");
+        let (a2, b2) = (redecode(a), redecode(b));
+        let decode_a = scanned(|| assert!(a.partial_cmp(&a2).is_some())) / 2;
+        let decode_b = scanned(|| assert!(b.partial_cmp(&b2).is_some())) / 2;
+        eprintln!(
+            "MEASURED span_pair_concurrent: fused={fused} meet={met} join={joined} \
+             cmp={cmp_ab} pair_decode={}",
+            decode_a + decode_b,
+        );
+        assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+        assert_eq!(
+            fused + decode_a + decode_b,
+            met + joined + cmp_ab,
+            "concurrent: the fused hull must cost the composed emissions minus \
+             one decode of the pair, plus the ladder's classifying comparison"
+        );
     }
 
     /// GREEN PIN: `span_all`'s leaf combines ride the fused pair walk —
@@ -8465,20 +8493,24 @@ mod span {
     #[cfg(feature = "limb-meter")]
     #[test]
     fn span_shares_the_crossing_folds() {
-        let (s, v, _, _) = fixture();
+        // The concurrent pair: the ladder's only emitting case, so this
+        // is the pair that still reaches the fused emission walk these
+        // pins are about (a comparable pair hands its operands back at
+        // one comparison sweep — `span_fuses_the_pair_walk`'s regime).
+        let (_, v, div, _) = fixture();
         let limbs = |f: &dyn Fn()| {
             meter::reset_limb_ops();
             f();
             meter::limb_ops()
         };
         let fused = limbs(&|| {
-            let _ = s.span(&v);
+            let _ = v.span(&div);
         });
         let met = limbs(&|| {
-            let _ = &s & &v;
+            let _ = &v & &div;
         });
         let joined = limbs(&|| {
-            let _ = &s | &v;
+            let _ = &v | &div;
         });
         eprintln!("MEASURED span_pair_limbs: fused={fused} meet={met} join={joined}");
         assert!(fused > 0, "a live limb meter reads nonzero on a real walk");
@@ -8495,20 +8527,32 @@ mod span {
             suanpan::touch_meter::touches()
         };
         let fused = touches(&|| {
-            let _ = s.span(&v);
+            let _ = v.span(&div);
         });
         let met = touches(&|| {
-            let _ = &s & &v;
+            let _ = &v & &div;
         });
         let joined = touches(&|| {
-            let _ = &s | &v;
+            let _ = &v | &div;
         });
-        eprintln!("MEASURED span_pair_touches: fused={fused} meet={met} join={joined}");
+        let cmp = touches(&|| assert!(v.partial_cmp(&div).is_none()));
+        eprintln!("MEASURED span_pair_touches: fused={fused} meet={met} join={joined} cmp={cmp}");
         assert!(fused > 0, "a live touch meter reads nonzero on a real walk");
+        // The fused walk maintains ONE shared difference (it reads that
+        // difference's sign once per crossing per pick, so its traffic
+        // is not a single emission's to the digit, but every crossing
+        // is folded exactly once); the ladder's classifying comparison
+        // adds its early-exiting prefix on top, measured separately and
+        // subtracted. A two-accumulator spelling (each emission keeping
+        // its own difference, constructed and verified red in
+        // review136) folds every crossing twice and reads the composed
+        // emissions back exactly, so the strict undercut keeps it
+        // failing.
         assert!(
-            fused < met + joined,
-            "the fused hull must fold each crossing into one shared \
-             difference, not one per emission ({fused} vs {} composed touches)",
+            fused - cmp < met + joined,
+            "the fused hull's own folds must undercut the composed \
+             emissions' two accumulators ({} vs {} composed touches)",
+            fused - cmp,
             met + joined
         );
     }
@@ -8713,6 +8757,230 @@ mod span_codec {
             "a parse-then-validate spelling reads the composed sum exactly \
              ({} here); the fusion must undercut it (read {fused})",
             decode_lo + decode_hi + cmp
+        );
+    }
+}
+
+// ─── identity fast paths (clone-identity liveness) ───────────────────────────
+//
+// The at-rest form's refcounted backing store makes clone identity
+// observable (`ptr_eq`), and the identity-law fast paths dispatch on it:
+// clone-then-op answers without a walk, each shortcut citing its law in
+// `before::laws` at the code site. These pins hold the fast paths LIVE —
+// every clone-operand cell must read zero walk work, and every cell rides
+// beside a walking leg on the same operands' values in distinct buffers,
+// so a dead meter (which also reads zero) cannot green the section and
+// the walked path stays covered.
+#[cfg(feature = "scan-meter")]
+mod identity_fast_paths {
+    use before::{meter, Clock, Party, Version};
+
+    /// Scan bits of one closure run, on a fresh counter.
+    fn scanned(f: impl FnOnce()) -> u64 {
+        meter::reset_scan_bits();
+        f();
+        meter::scan_bits()
+    }
+
+    /// The fixture: one multi-party snapshot `v` with real structure, a
+    /// buffer-distinct byte-equal re-decode `v'`, and a concurrent
+    /// divergence `w` for the walking legs.
+    fn fixture() -> (Version, Version, Version) {
+        let mut main = Clock::seed();
+        let mut others: Vec<Clock> = (0..6).map(|_| main.fork()).collect();
+        let mut rounds = |main: &mut Clock, n: usize| {
+            let k = others.len();
+            for i in 0..n {
+                main.tick();
+                let msg = others[i % k].send().clone();
+                main.recv(&msg);
+            }
+        };
+        rounds(&mut main, 24);
+        let mut diverged = main.fork();
+        rounds(&mut main, 24);
+        let v = main.version().clone();
+        for _ in 0..24 {
+            diverged.tick();
+        }
+        let w = diverged.version().clone();
+        assert!(v.concurrent(&w), "the walking legs need a real walk");
+        let redecoded = Version::decode(&v.encode()[..]).expect("a stored stream re-decodes");
+        (v, redecoded, w)
+    }
+
+    /// Clone operands answer every identity-law fast path without a
+    /// walk: comparison (`order_reflexive`), join and meet idempotence
+    /// (`merge_idempotent`/`meet_idempotent`), the coincident hull
+    /// (`span_with_self_is_coincident`), and the n-ary folds' adjacent
+    /// clone collapse — all zero scanned bits over operands that share
+    /// one buffer, while the same operations walk (nonzero) on a
+    /// concurrent pair, so the zeros are fast paths, not a dead meter.
+    #[test]
+    fn clone_operands_answer_without_a_walk() {
+        let (v, _, w) = fixture();
+        let c = v.clone();
+
+        let cells: &[(&str, &dyn Fn())] = &[
+            ("cmp", &|| assert!(v.partial_cmp(&c).is_some())),
+            ("join", &|| assert_eq!(&(&v | &c), &v)),
+            ("meet", &|| assert_eq!(&(&v & &c), &v)),
+            ("span", &|| assert_eq!(v.span(&c).meet(), &v)),
+            ("join_all", &|| {
+                assert_eq!(Version::join_all([&v, &c, &v]), v);
+            }),
+            ("meet_all", &|| {
+                assert_eq!(Version::meet_all([&v, &c, &v]), Some(v.clone()));
+            }),
+            ("span_all", &|| {
+                assert_eq!(v.span_all([&c, &v]).join(), &v);
+            }),
+        ];
+        for (name, cell) in cells {
+            let read = scanned(cell);
+            assert_eq!(
+                read, 0,
+                "{name} over clone operands must answer by clone identity, \
+                 not a walk ({read} bits scanned)"
+            );
+        }
+
+        // The walking legs: the same operations on a concurrent pair
+        // read nonzero, so the zeros above are fast paths firing, not a
+        // dead scan meter.
+        let walking: &[(&str, &dyn Fn())] = &[
+            ("cmp", &|| assert!(v.partial_cmp(&w).is_none())),
+            ("join", &|| assert!((&v | &w) >= v)),
+            ("span", &|| assert!(v.span(&w).join() >= v)),
+        ];
+        for (name, cell) in walking {
+            let read = scanned(cell);
+            assert!(
+                read > 0,
+                "{name} over a concurrent pair must walk: a zero here is a \
+                 dead scan meter"
+            );
+        }
+    }
+
+    /// Byte-equal operands in distinct buffers keep the walked paths
+    /// covered: comparison takes the full sweep (the clone-identity
+    /// rung must not fire across buffers), while the byte-compare rung
+    /// answers join/meet/span/distance/lag with no bit-stream walk —
+    /// and every verdict equals the clone-operand fast path's.
+    #[test]
+    fn distinct_buffers_keep_the_walked_paths_covered() {
+        let (v, redecoded, _) = fixture();
+
+        // The comparison sweep runs whole: equal streams survive both
+        // directions to exhaustion, so the read is both streams' bits.
+        let cmp =
+            scanned(|| assert_eq!(v.partial_cmp(&redecoded), Some(core::cmp::Ordering::Equal)));
+        assert!(
+            cmp > 0,
+            "cmp over byte-equal distinct buffers must take the sweep: \
+             clone identity must not fire across buffers"
+        );
+
+        // The byte-compare rung (canonical_eq) answers the lattice ops:
+        // no bit-stream walk, verdicts identical to the clone legs'.
+        let byte_rung: &[(&str, &dyn Fn())] = &[
+            ("join", &|| assert_eq!(&(&v | &redecoded), &v)),
+            ("meet", &|| assert_eq!(&(&v & &redecoded), &v)),
+            ("span", &|| assert_eq!(v.span(&redecoded).meet(), &v)),
+        ];
+        for (name, cell) in byte_rung {
+            let read = scanned(cell);
+            assert_eq!(
+                read, 0,
+                "{name} over byte-equal operands must answer by the byte \
+                 compare, not a walk ({read} bits scanned)"
+            );
+        }
+    }
+
+    /// The party identity fast paths: an alias (shared buffer) answers
+    /// `covers` (true: `covers_reflexive`) and `is_disjoint` (false:
+    /// `never_disjoint_from_self`) without a walk, while a distinct
+    /// party pair walks — and a buffer-distinct re-decode of the same
+    /// party takes the walk to the same verdicts, keeping the walked
+    /// path covered.
+    #[test]
+    fn party_identity_fast_paths_fire_on_aliases_only() {
+        let mut p = Party::seed();
+        let q = p.fork();
+        let alias = p.dangerously_alias();
+        let redecoded = Party::decode(&p.encode()[..]).expect("a stored id re-decodes");
+
+        let alias_cells: &[(&str, &dyn Fn())] = &[
+            ("covers", &|| assert!(p.covers(&alias))),
+            ("is_disjoint", &|| assert!(!p.is_disjoint(&alias))),
+        ];
+        for (name, cell) in alias_cells {
+            let read = scanned(cell);
+            assert_eq!(
+                read, 0,
+                "{name} over an alias must answer by clone identity, not a \
+                 walk ({read} bits scanned)"
+            );
+        }
+        let walking: &[(&str, &dyn Fn())] = &[
+            ("covers", &|| assert!(p.covers(&redecoded))),
+            ("covers_distinct", &|| assert!(!p.covers(&q))),
+            ("is_disjoint", &|| assert!(!p.is_disjoint(&redecoded))),
+            ("is_disjoint_distinct", &|| assert!(p.is_disjoint(&q))),
+        ];
+        for (name, cell) in walking {
+            let read = scanned(cell);
+            assert!(
+                read > 0,
+                "{name} over distinct buffers must walk: a zero here is a \
+                 dead scan meter"
+            );
+        }
+    }
+
+    /// The metric fast paths at arithmetic width: `distance` and `lag`
+    /// over clone or byte-equal operands fold nothing through the
+    /// accumulator (`distance_to_self_is_zero`/`lag_to_self_is_zero`),
+    /// where the same pair walked whole at the parent — and a real pair
+    /// still folds, so the zeros are the equality rung, not a dead
+    /// touch meter.
+    #[cfg(feature = "limb-meter")]
+    #[test]
+    fn metric_fast_paths_skip_the_fold() {
+        let (v, redecoded, w) = fixture();
+        let c = v.clone();
+        let touches = |f: &dyn Fn()| {
+            suanpan::touch_meter::reset();
+            f();
+            suanpan::touch_meter::touches()
+        };
+
+        let equal_cells: &[(&str, &dyn Fn())] = &[
+            ("distance_clone", &|| {
+                assert_eq!(v.distance(&c), before::Rank::ZERO)
+            }),
+            ("distance_redecoded", &|| {
+                assert_eq!(v.distance(&redecoded), before::Rank::ZERO)
+            }),
+            ("lag_clone", &|| assert_eq!(v.lag(&c), before::Rank::ZERO)),
+            ("lag_redecoded", &|| {
+                assert_eq!(v.lag(&redecoded), before::Rank::ZERO)
+            }),
+        ];
+        for (name, cell) in equal_cells {
+            let read = touches(cell);
+            assert_eq!(
+                read, 0,
+                "{name}: equal operands must skip the fold entirely \
+                 ({read} digit touches)"
+            );
+        }
+        assert!(
+            touches(&|| assert!(v.distance(&w) > before::Rank::ZERO)) > 0,
+            "distance over a real pair must fold: a zero here is a dead \
+             touch meter"
         );
     }
 }
