@@ -270,6 +270,54 @@ proptest! {
         prop_assert_eq!(met, root_floor);
     }
 
+    /// Every node's floor and ceiling — not just the root's — are
+    /// exactly the meet and join of its own descendant leaves'
+    /// versions.
+    ///
+    /// The root projections above can mask an interior drift: a wrong
+    /// child memo can meet/join away against its siblings'
+    /// contributions at the root. This walk holds both memos exact at
+    /// every layer, and exactness at every node is what makes the
+    /// memoized `[floor, ceiling]` pair an ordered interval everywhere
+    /// the deletion-honoring classifiers construct one from it — the
+    /// meet of a nonempty leaf set never exceeds its join, asserted
+    /// here per node alongside the exactness.
+    #[test]
+    fn bounds_are_the_leaf_fold_at_every_node(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
+    ) {
+        fn check(node: &Node<()>) -> Result<Vec<Version>, TestCaseError> {
+            let floor = node.floor().clone();
+            let ceiling = node.ceiling().clone();
+            let leaves = match node.clone().into_children() {
+                Ok(children) => {
+                    let mut all = Vec::new();
+                    for (_, child) in children {
+                        all.extend(check(&child)?);
+                    }
+                    all
+                }
+                Err(leaf) => vec![leaf.ceiling().clone()],
+            };
+            prop_assert_eq!(
+                &Version::meet_all(&leaves).expect("every subtree holds a leaf"),
+                &floor,
+                "a node's floor must be its own leaves' meet"
+            );
+            prop_assert_eq!(
+                &Version::join_all(&leaves),
+                &ceiling,
+                "a node's ceiling must be its own leaves' join"
+            );
+            prop_assert!(
+                floor <= ceiling,
+                "the memoized bounds are an ordered interval at every node"
+            );
+            Ok(leaves)
+        }
+        check(&tree)?;
+    }
+
     /// Wrapping a child in N nested singleton branches accumulates an
     /// N-byte compressed prefix above it, committed in the child's own
     /// single preimage.
