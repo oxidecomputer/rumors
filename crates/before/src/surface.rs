@@ -596,7 +596,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     causally_row("causally::Range::placement_of"),
     causally_row("causally::Range::bounded"),
     span_row("causally::Span::new"),
-    span_row("causally::Span::ordered"),
+    span_row("causally::Span::new_unchecked"),
     span_row("causally::Span::place"),
     span_row("causally::Span::dominance_of"),
     SurfaceRow {

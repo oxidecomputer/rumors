@@ -189,7 +189,7 @@ pub trait Node<T: Send + Sync + 'static> {
     /// ([`causally::Span::new`], surfacing
     /// [`Crossed`](causally::Crossed) as the load-time storage-corruption
     /// error it is) and answer thereafter through the trusted door
-    /// ([`causally::Span::ordered`]) or its own stored span's reborrow.
+    /// ([`causally::Span::new_unchecked`]) or its own stored span's reborrow.
     /// A violated ordering is not a detected fault: every verdict read
     /// off the span becomes unspecified, which here means silently
     /// wrong reconciliation — news withheld or re-sent — so the check

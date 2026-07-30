@@ -441,10 +441,10 @@ fn span_new_rejects_unordered_pairs() {
 /// The trusted door constructs the identical span the validating
 /// door does on an ordered pair — it skips only the check.
 #[test]
-fn span_ordered_is_the_validated_span() {
+fn span_new_unchecked_is_the_validated_span() {
     let ([_, a2, _, a4, _], _) = span_fixtures();
-    assert_eq!(Span::ordered(&a2, &a4), Span::new(&a2, &a4).unwrap());
-    assert_eq!(Span::ordered(&a2, &a2), Span::new(&a2, &a2).unwrap());
+    assert_eq!(Span::new_unchecked(&a2, &a4), Span::new(&a2, &a4).unwrap());
+    assert_eq!(Span::new_unchecked(&a2, &a2), Span::new(&a2, &a2).unwrap());
 }
 
 /// The trusted door's debug assertion catches a violated guarantee: an
@@ -452,10 +452,10 @@ fn span_ordered_is_the_validated_span() {
 /// span whose verdicts would be meaningless.
 #[test]
 #[cfg(debug_assertions)]
-#[should_panic(expected = "Span::ordered requires lo <= hi")]
-fn span_ordered_asserts_the_guarantee_in_debug() {
+#[should_panic(expected = "Span::new_unchecked requires lo <= hi")]
+fn span_new_unchecked_asserts_the_guarantee_in_debug() {
     let ([_, a2, _, a4, _], _) = span_fixtures();
-    let _ = Span::ordered(&a4, &a2);
+    let _ = Span::new_unchecked(&a4, &a2);
 }
 
 /// The deriving doors on every input genre: the receiver keeps the
@@ -584,7 +584,7 @@ proptest! {
             "the gate admits exactly the ordered pairs"
         );
         if let Ok(span) = admitted {
-            prop_assert_eq!(span, Span::ordered(&lo, &hi));
+            prop_assert_eq!(span, Span::new_unchecked(&lo, &hi));
         }
     }
 }

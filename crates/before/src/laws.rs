@@ -856,14 +856,14 @@ fn span_all_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
     let hull = a.span_all([b, c]);
     let meet = Version::meet_all([a, b, c]).expect("a triple is nonempty");
     let join = Version::join_all([a, b, c]);
-    let definitional = hull == Span::ordered(&meet, &join);
+    let definitional = hull == Span::new_unchecked(&meet, &join);
     let accessors = *hull.meet() == meet && *hull.join() == join;
     let permuted = hull == c.span_all([a, b]) && hull == b.span_all([c, a]);
     let contained = [a, b, c]
         .into_iter()
         .all(|v| !matches!(hull.place(v), Placement::Before | Placement::After));
     let wide = a.span_all([b, c, a, b]);
-    let every_arm = wide == Span::ordered(&meet, &join);
+    let every_arm = wide == Span::new_unchecked(&meet, &join);
     definitional && accessors && permuted && contained && every_arm
 }
 
@@ -918,8 +918,8 @@ fn degenerate_span_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
 
 /// The pair span: endpoints the pair's meet and join, commutative,
 /// subsuming the flip repair on comparable pairs, coherent with the
-/// n-ary form at its edges, read back exactly by the accessors, and
-/// preserved exactly through the borrow mechanics.
+/// n-ary form at its edges, and preserved exactly by the accessors
+/// and the borrow mechanics.
 ///
 /// The n-ary edges: the empty iterator is the coincident
 /// `[self, self]`, one item is the binary span. The accessors:
@@ -936,7 +936,7 @@ fn degenerate_span_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
 fn span_is_the_pair_hull(a: &Version, b: &Version) -> bool {
     let hull = a.span(b);
     let (meet, join) = (a & b, a | b);
-    let definitional = hull == Span::ordered(&meet, &join);
+    let definitional = hull == Span::new_unchecked(&meet, &join);
     let accessors = *hull.meet() == meet && *hull.join() == join && {
         let (lo, hi) = a.span(b).into_parts();
         lo == meet && hi == join
@@ -962,11 +962,11 @@ fn span_is_the_pair_hull(a: &Version, b: &Version) -> bool {
     };
     let commutative = hull == b.span(a);
     let flip_subsumed = match a.partial_cmp(b) {
-        Some(Ordering::Less | Ordering::Equal) => hull == Span::ordered(a, b),
-        Some(Ordering::Greater) => hull == Span::ordered(b, a),
+        Some(Ordering::Less | Ordering::Equal) => hull == Span::new_unchecked(a, b),
+        Some(Ordering::Greater) => hull == Span::new_unchecked(b, a),
         None => true, // no reordering exists; the bracket is definitional
     };
-    let empty_edge = a.span_all(core::iter::empty::<&Version>()) == Span::ordered(a, a);
+    let empty_edge = a.span_all(core::iter::empty::<&Version>()) == Span::new_unchecked(a, a);
     let unary_edge = a.span_all([b]) == hull;
     definitional
         && accessors

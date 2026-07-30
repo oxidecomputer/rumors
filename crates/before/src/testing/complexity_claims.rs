@@ -1047,7 +1047,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         Cells::Uncelled(CAUSALLY_COMPOSITION),
     ),
     causally(
-        "causally::Span::ordered",
+        "causally::Span::new_unchecked",
         Cells::Uncelled(
             "stores two borrows and performs no comparison at all: the trusted \
              door's debug assertion sits outside the cost contract",

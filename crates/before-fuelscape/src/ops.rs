@@ -1039,7 +1039,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          the version_cmp panel prices the walk",
     ),
     (
-        "causally::Span::ordered",
+        "causally::Span::new_unchecked",
         "O(1) span constructor over two borrowed versions (the trusted \
          door performs no comparison)",
     ),
@@ -1064,6 +1064,16 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     (
         "causally::Span::into_parts",
         "borrow-settling destructure: at most one byte copy per endpoint, \
+         no walk",
+    ),
+    (
+        "causally::Span::reborrow",
+        "O(1) span over two fresh borrows of the stored endpoints: no walk, \
+         no comparison",
+    ),
+    (
+        "causally::Span::into_owned",
+        "borrow-settling conversion: at most one byte copy per endpoint, \
          no walk",
     ),
     (
