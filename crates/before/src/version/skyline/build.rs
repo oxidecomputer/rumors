@@ -48,12 +48,12 @@
 //! Bits per open ancestor, and nothing per node: the branch-direction
 //! path, one is-the-left-sibling-a-leaf bit per level, and — for the
 //! levels where that left sibling *is* a leaf — its code's length on a
-//! pop-able bit stack ([`LenStack`], ~2·log₂(length) bits per entry), the
+//! pop-able bit stack ([`PopStack`], ~2·log₂(length) bits per entry), the
 //! coordinate re-anchor truncates to. The resource-envelope suite
 //! (`tests/meter.rs`, the `skyline_join_*` rows) pins the whole
 //! emission's transient against these bounds.
 
-use crate::codec::{Bits, BitsSlice, PackedBuilder};
+use crate::codec::{Bits, BitsSlice, PackedBuilder, PopStack};
 
 /// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
 ///
@@ -95,7 +95,7 @@ pub(super) struct SkylineBuilder {
     left_leaf: Bits,
     /// Code lengths of the left-sibling leaves, one entry per
     /// right-branch level whose `left_leaf` bit is set, deepest last.
-    lens: LenStack,
+    lens: PopStack,
 }
 
 impl SkylineBuilder {
@@ -106,7 +106,7 @@ impl SkylineBuilder {
             held: None,
             path: Bits::new(),
             left_leaf: Bits::new(),
-            lens: LenStack::new(),
+            lens: PopStack::new(),
         }
     }
 
@@ -178,7 +178,8 @@ impl SkylineBuilder {
         self.path.push(true);
         self.left_leaf.push(left_is_leaf);
         if left_is_leaf {
-            self.lens.push(flushed_len);
+            debug_assert!(flushed_len > 0, "payload codes are never empty");
+            self.lens.push(flushed_len as u64);
         }
         debug_assert!(
             depth >= self.path.len(),
@@ -304,7 +305,7 @@ impl SkylineBuilder {
             // leaf flag, left leaf code. The merged leaf keeps the left
             // code — same height, same predecessor — and the pair leaves
             // the stream; each copied bit is one being truncated.
-            let code_len = self.lens.pop();
+            let code_len = self.lens.pop() as usize;
             let code = self.out.extract(self.out.len() - code_len);
             self.out.truncate(self.out.len() - code_len - 2);
             self.path.pop();
@@ -321,66 +322,6 @@ impl SkylineBuilder {
             self.path.push(false);
             self.left_leaf.push(false);
         }
-    }
-}
-
-/// A pop-able stack of code lengths, held as bits rather than words.
-///
-/// Each entry costs `2·w` bits for a `w`-bit length: the value's bits on
-/// one stack, and `w` in pop-able unary — a terminator under `w − 1`
-/// continuation bits — on the other. Depth therefore costs bits here the
-/// same way it does in the path stacks, keeping the builder's transient
-/// state free of a per-level machine word.
-struct LenStack {
-    /// Width markers: for each entry, one `false` under `w − 1` `true`s.
-    unary: Bits,
-    /// Value bits, most-significant pushed first so pops read the value
-    /// least-significant first.
-    value: Bits,
-}
-
-impl LenStack {
-    fn new() -> Self {
-        LenStack {
-            unary: Bits::new(),
-            value: Bits::new(),
-        }
-    }
-
-    /// Push a nonzero length.
-    fn push(&mut self, len: usize) {
-        debug_assert!(len > 0, "payload codes are never empty");
-        let width = usize::BITS - len.leading_zeros();
-        for i in (0..width).rev() {
-            self.value.push(len >> i & 1 == 1);
-        }
-        self.unary.push(false);
-        for _ in 1..width {
-            self.unary.push(true);
-        }
-    }
-
-    /// Pop the most recently pushed length.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the stack is empty.
-    fn pop(&mut self) -> usize {
-        let mut width = 0u32;
-        loop {
-            let continuation = self.unary.pop().expect("length stack underflow");
-            width += 1;
-            if !continuation {
-                break;
-            }
-        }
-        let mut len = 0usize;
-        for i in 0..width {
-            if self.value.pop().expect("length stack value bits underflow") {
-                len |= 1 << i;
-            }
-        }
-        len
     }
 }
 

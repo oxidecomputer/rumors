@@ -4,6 +4,7 @@
 //! (`bits`), the sequential read cursors (`cursor`, `dsi`), the Elias-gamma
 //! integer code (`gamma`), the arbitrary-precision [`Base`] the payloads
 //! decode into (`base`), the append-truncate output builder (`build`), the
+//! pop-able bit stack the deep walks hold word values in (`stack`), the
 //! packed-stream write meter (`scan`), the text-notation parsers (`text`),
 //! and the *id* tree's parse and strict validation (`tree`, with `literal`
 //! and `display`). The event coding — the skyline — and its validation are
@@ -24,6 +25,7 @@ mod dsi;
 mod gamma;
 mod literal;
 pub(crate) mod scan;
+mod stack;
 pub(crate) mod text;
 mod tree;
 
@@ -51,6 +53,7 @@ pub(crate) use gamma::{decode_int, decode_int_from, encode_int};
 #[cfg(feature = "borsh")]
 pub(crate) use gamma::decode_int_window;
 pub(crate) use literal::{id_is_empty, id_leaf, id_node};
+pub(crate) use stack::PopStack;
 pub(crate) use text::{parse_clock_str, parse_id_str};
 pub(crate) use tree::{parse_id, validate_id};
 // The mid-stream parser entry is consumed only by the borsh wire format

@@ -46,7 +46,7 @@
 //! is first trips on topology (the replaced range was not a single
 //! leaf) before any code comparison is reached.
 
-use crate::codec::{BitCursor, Bits, BitsSlice};
+use crate::codec::{BitCursor, Bits, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 use crate::step;
 
@@ -388,71 +388,5 @@ impl RouteProbe {
                 }
             }
         }
-    }
-}
-
-/// A pop-able stack of nonnegative integers held as bits.
-///
-/// Each entry costs `2·w` bits for a `w`-bit value: the value's bits on
-/// one stack, and `w` in pop-able unary — a terminator under `w − 1`
-/// continuation bits — on the other. Depth therefore costs bits here
-/// the same way it does in the phase stacks, keeping the expansion DP's
-/// transient free of a per-level machine word. The fill walk's and the
-/// pre-scan's explicit frame stacks carry their per-frame words (route
-/// keys, deferred costs, replay positions, ledger slots) as deltas on
-/// the same shape.
-pub(super) struct PopStack {
-    /// Width markers: for each entry, one `false` under `w − 1` `true`s.
-    unary: Bits,
-    /// Value bits, most-significant pushed first so pops read the value
-    /// least-significant first.
-    value: Bits,
-}
-
-impl PopStack {
-    pub(super) fn new() -> Self {
-        PopStack {
-            unary: Bits::new(),
-            value: Bits::new(),
-        }
-    }
-
-    /// Push a value (zero included: it stores one value bit).
-    pub(super) fn push(&mut self, v: u64) {
-        let width = (u64::BITS - v.leading_zeros()).max(1);
-        for i in (0..width).rev() {
-            self.value.push(v >> i & 1 == 1);
-        }
-        self.unary.push(false);
-        for _ in 1..width {
-            self.unary.push(true);
-        }
-    }
-
-    /// Pop the most recently pushed value.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the stack is empty.
-    pub(super) fn pop(&mut self) -> u64 {
-        let mut width = 0u32;
-        loop {
-            let continuation = self.unary.pop().expect("expansion value stack underflow");
-            width += 1;
-            if !continuation {
-                break;
-            }
-        }
-        let mut v = 0u64;
-        for i in 0..width {
-            if self
-                .value
-                .pop()
-                .expect("expansion value stack value bits underflow")
-            {
-                v |= 1 << i;
-            }
-        }
-        v
     }
 }
