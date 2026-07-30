@@ -297,6 +297,20 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "version_span",
+            group: OpGroup::Version,
+            prepare: |f| {
+                // The fused pair hull: one sweep feeds both endpoints,
+                // so the cell carries the same walk floors as the
+                // single-op join/meet rows it undercuts.
+                let (v, w, n) = f.version_pair()?;
+                let touch = touch_pair_fold(&v, &w);
+                Some(Cell::new(n, walk_floors(n, touch), move || {
+                    (v.span(&w), v, w)
+                }))
+            },
+        },
+        Op {
             name: "version_tick",
             group: OpGroup::Tick,
             prepare: |f| {
@@ -764,6 +778,29 @@ pub(super) fn ops() -> Vec<Op> {
                 Some(
                     Cell::new(n, walk_floors(n, touch), move || {
                         Version::meet_all(versions)
+                    })
+                    .with_fold_arity(arity),
+                )
+            },
+        },
+        Op {
+            name: "version_span_all",
+            group: OpGroup::Fold,
+            prepare: |f| {
+                // The hull fold: one balanced reduction carrying both
+                // endpoints, its leaf combines fused (each first-level
+                // pair decoded once for both directions), so the same
+                // declared fold model and first-level touch floor as
+                // the single-direction fold rows apply.
+                let (versions, _) = f.fold.as_ref()?;
+                let n = versions.iter().map(Vec::len).sum();
+                let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
+                let arity = versions.len() as u64;
+                let touch = touch_fold_first_merges(&versions);
+                Some(
+                    Cell::new(n, walk_floors(n, touch), move || {
+                        let hull = versions[0].span_all(&versions[1..]);
+                        (hull, versions)
                     })
                     .with_fold_arity(arity),
                 )

@@ -588,6 +588,27 @@ pub(super) fn render_map(
 ///   argmax lands on benign, whose organic interleaved pair still runs
 ///   the full merge at composition parity (19.4 bits/B, byte-identical
 ///   to the parent reading; runner-up id-pair ×1.21).
+/// Movement 2026-07-31 (the fused span hull: `version_span` joins as
+/// the fused pair-hull row and `version_span_all` as the two-sided
+/// hull fold's row; four new ranking entries — the two new rows at
+/// each scale — pinned from the live release fold, every pre-existing
+/// entry verified unmoved at both scales):
+///
+/// - **version_span reads under the join+meet sum on the shared
+///   currencies** (both scales): limb lands on dense at 26.66/B
+///   against the single-op rows' 16.00 + 16.00 — the one shared
+///   crossing fold is the fusion's saving — while heap's argmax moves
+///   to lone-freeze (both output builders live simultaneously, where
+///   each single-op row holds one) and scan's to mirror-narrow (each
+///   input read once, so the density ranks by emitted output per
+///   input byte, which the interleaved narrow mirrors maximize).
+/// - **version_span_all rides the fold populations** (stagger, benign,
+///   weave — both scales) at densities near the meet_all + join_all
+///   sums less the leaf level's shared decodes; heap gains a real
+///   reading where the single-direction folds sat inside the flat
+///   allowance (stagger 0.72/B default, weave 0.94/B acceptance): the
+///   two-sided accumulator carries both endpoints' intermediates at
+///   once.
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_decode", ["hugeleaf", "dense", "staircase", "staircase"]),
     ("default", "version_encode", ["promo-rearm", "-", "-", "-"]),
@@ -598,6 +619,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_join_assign", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
     ("default", "version_meet", ["wide-arming", "dense", "weight-comb", "staircase"]),
     ("default", "version_meet_assign", ["hugeleaf", "dense", "weight-comb", "staircase"]),
+    ("default", "version_span", ["lone-freeze", "dense", "mirror-narrow", "dense"]),
     ("default", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("default", "version_ticks", ["ascend-cliff", "mirror-narrow", "reveal-comb", "mirror-narrow"]),
     ("default", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
@@ -615,6 +637,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_min_ticks", ["ascend-cliff", "staircase", "staircase", "staircase"]),
     ("default", "version_join_all", ["-", "stagger", "benign", "stagger"]),
     ("default", "version_meet_all", ["-", "stagger", "stagger", "stagger"]),
+    ("default", "version_span_all", ["stagger", "stagger", "benign", "stagger"]),
     ("default", "own_version_to_version", ["hugeleaf", "dense", "promo-rearm", "lone-freeze"]),
     ("default", "own_version_cmp", ["hugeleaf", "dense", "promo-rearm", "lone-freeze"]),
     ("default", "own_version_pair_cmp", ["hugeleaf", "dense", "jump-pair", "dense"]),
@@ -671,6 +694,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_join_assign", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
     ("acceptance", "version_meet", ["lone-freeze", "dense", "weight-comb", "staircase"]),
     ("acceptance", "version_meet_assign", ["lone-freeze", "dense", "weight-comb", "staircase"]),
+    ("acceptance", "version_span", ["lone-freeze", "dense", "mirror-narrow", "dense"]),
     ("acceptance", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("acceptance", "version_ticks", ["ascend-cliff", "comb-scatter", "comb-scatter", "mirror-narrow"]),
     ("acceptance", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
@@ -688,6 +712,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_min_ticks", ["ascend-cliff", "staircase", "dense-suffix", "staircase"]),
     ("acceptance", "version_join_all", ["weave", "stagger", "benign", "stagger"]),
     ("acceptance", "version_meet_all", ["weave", "stagger", "stagger", "stagger"]),
+    ("acceptance", "version_span_all", ["weave", "stagger", "benign", "stagger"]),
     ("acceptance", "own_version_to_version", ["hugeleaf", "dense", "dense-suffix", "lone-freeze"]),
     ("acceptance", "own_version_cmp", ["hugeleaf", "dense", "freeze-pos", "lone-freeze"]),
     ("acceptance", "own_version_pair_cmp", ["hugeleaf", "dense", "jump-pair", "dense"]),
