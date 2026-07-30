@@ -147,8 +147,8 @@ use crate::Version;
 // name the streams this module's entry points exchange.
 pub use crate::codec::{Bits, BitsSlice};
 
-pub mod bounded;
 mod build;
+pub mod place;
 // The strict byte-level decode of one whole stream: consumed by this
 // module's `decode` entry, which only the meter surface and the tests
 // reach (production decode paths run `validate_prefix` + `from_bits`).
