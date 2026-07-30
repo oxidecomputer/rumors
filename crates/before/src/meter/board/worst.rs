@@ -549,8 +549,9 @@ pub(super) fn render_map(
 /// becomes the composite emission — rank stream, then the version's
 /// bytes — `ranked_encode_rank` joins as the rank-only emission's row,
 /// and `ranked_decode` joins for the strict composite parse with its
-/// verifying rank fold; 8 entries pinned from the live release fold,
-/// parent-measured at both scales):
+/// verifying rank fold; four new ranking entries — the two new rows at
+/// each scale — pinned from the live release fold, parent-measured at
+/// both scales):
 ///
 /// - **ranked_cmp is byte-identical to the parent** (both scales, all
 ///   cells): the rank-tie byte tiebreak is one unmetered slice compare,
@@ -564,8 +565,10 @@ pub(super) fn render_map(
 ///   at most one packed-input-sized output copy, which registers only
 ///   on the families whose rank-only emission sat near the flat heap
 ///   allowance (dense 0.0 → 0.4/B, jump-pair 0.0 → 0.9/B,
-///   freeze-pos 0.0 → 1.0/B at the default scale, and kin) — an order
-///   of magnitude under the argmax, so no ranking moves.
+///   freeze-pos 0.0 → 1.0/B at the default scale, and kin) — every
+///   mover stays at or under 1.2/B default and 1.8/B acceptance
+///   against the 6.40/6.58 argmax, a ×3.6 margin at the tightest, so
+///   no ranking moves.
 /// - **ranked_decode pins wide-arming heap / staircase limb /
 ///   jump-pair scan / staircase touch** (both scales): heap and limb
 ///   read as the verifying rank fold plus the decoded materialization

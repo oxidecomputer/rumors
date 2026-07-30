@@ -954,9 +954,9 @@ pub enum Coverage {
         /// The declared operation-row reach of this family's bundle.
         ///
         /// The version-only shapes (a version, its derived pairings,
-        /// and its rejection rows) supply 43 rows; the id pair
+        /// and its rejection rows) supply 49 rows; the id pair
         /// (parties only) 38; the cross shapes (version, mounted
-        /// party pair, clock, and the id-side rejections) 64; the
+        /// party pair, clock, and the id-side rejections) 70; the
         /// fold-only populations exactly the 3 fold rows; and the
         /// benign control supplies every row.
         cells: usize,
