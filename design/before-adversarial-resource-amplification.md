@@ -1,17 +1,22 @@
 # `before`: adversarial resource amplification in Version and Party computation
 
-Status: execution in progress on branch `before-hardening`. Complete:
-the audit, the Tier 2 decision, the pre-flip kernel window, C0, C2
-(the flag day), the tick limb cure and fusion (#34), and C3's
-denomination and classification round. The campaign stands at C3's
-bench-harness remainder (§17.2's queue of record, items 11–13), then
-the materializing emitters, the P4.2 residual audit, and P5 closeout.
-This document is the single canonical source for the criteria the
+Status (2026-07-30): the campaign is at its tail on branch
+`before-hardening`. The audit's amplifier classes and every
+adversarial round's findings are cured or owner-modeled: the board's
+red-triage buffer (`BOARD_EXPECTED_REDS`, `meter::board`) is empty and
+asserted empty at acceptance, with every former standing red resolved
+to a cure or a dated owner-declared model at its declaration site
+(`meter::board`'s ceilings module). What remains is the tail this
+document plans: the in-flight review and instrument rounds, the
+decided representation and law rounds, the survey/soak and benchmark
+legs, the final adversarial review, and the go-criteria for merging
+to main (§14, with per-item acceptance contracts in §17.2). This
+document is the single canonical source for the criteria the
 instrumentation enforces and the work that remains, written to the
 current state of the tree; the compact history is the decision record
-(§12) and the phase ledger (§14), and everything else — landed-work
-narratives, superseded amendment chains, measurement logs whose
-conclusions are pinned in code — lives in git history
+(§12), and everything else — landed-work narratives, superseded
+amendment chains, measurement logs whose conclusions are pinned in
+code — lives in git history
 (`git log design/before-adversarial-resource-amplification.md`).
 
 Scope: `rumors`' model of record is authenticated-honest-peer, so
@@ -40,253 +45,184 @@ to the packed size, **without bounding inputs** and **without
 losing the compactness of the representation or the `O(n + m)`
 operation costs**? Answer: yes — the audit found seven amplifier
 classes and the campaign's adversarial rounds a further set (§3's
-ledger), all cured, because every quantity the algorithms need at a
-node is either one of two global accumulators or bounded by that
-node's own coded size. The fix of record is the Tier 2 skyline
-representation (§10), the shipped production coding since C2.
+ledger), all cured or owner-modeled, because every quantity the
+algorithms need at a node is either one of two global accumulators
+or bounded by that node's own coded size. The fix of record is the
+Tier 2 skyline representation (§10), the shipped production coding
+since C2.
 
 ## 2. Input families
 
-The adversarial constructions live as committed generators
-(`meter::` and `testing::generators`); their bit-layout derivations
-are in the generators' rustdoc. The family vocabulary, which the
-board (§13), the envelopes (`tests/meter.rs`), and the benches all
-share:
+The adversarial constructions are single-sourced in the family
+registry (`before::meter::registry`): every family is a `FamilyId`
+variant carrying its row of record (`FamilySpec` — shapes, operand
+bundle, board-coverage answer, band roster), and `Shape` is the one
+public construction door — the raw generators are private, so no
+instrument, bench, example, or downstream crate can mint an
+adversarial shape outside the registry. Every instrument derives its
+family axis from that roster: the board's columns
+(`FamilyId::board`), the envelope suite's flatness and adequacy
+bands, the bench mirror, and the fuelscape atlas's coverage-parity
+test. A family existing outside an instrument's coverage is
+therefore structurally impossible, and family membership is
+committed data (the board smoke suite holds the rendered matrix to
+each spec's declared reach), never a prose tally. Each family's
+bit-layout derivation, normal-form argument, and closed-form size
+live on its generator's rustdoc.
 
-| family | shape | witnesses |
-|---|---|---|
-| dense | zero-base left spine, depth ~n/4 | node count + recursion depth |
-| bigroot | B-bit magnitude over a dense spine | per-frame magnitude clones (V1) |
-| hugeleaf | one leaf, value `2^B − 1` | width-quadratic decode (V3) |
-| cliff (boundary comb) | teeth `(2^k − 1, 0, 1)`, leaf values oscillating `2^k − 1 ↔ 2^k` | carry-cliff crossings paid by their own codes; delta-coded value content exceeding wire bits (§10.6) |
-| wide-tooth comb | teeth `±2^192` across a `2^k` cliff, `k ≫ 192` | two-zone accumulator refutation; freeze-discipline funding |
-| unpaid-crossing fan | `(1, 0, 1)` teeth under one stored `2^k − 1` root | cliff excursions NOT paid by local codes |
-| cancelling-prefix / static-prefix | wide cancelling setup, then unit writes / sign reads | the accumulator's collapse rule |
-| jump_comb | low tooth, one mid-stream `2^k` jump, cheap teeth after | exactly one freeze eviction |
-| harmonic H(d) | `(0, ·, 1)` spine, rank `(2^d − 1)/2^d` | the rank fold's width ramp (V6) |
-| alternating spine | deep alternating-binary topology | frame-count adversaries (grow) |
-| id spine I(d) / id-pair | unary chains, shared prefix, divergent tips | two-operand id walks at full lockstep depth (P1) |
-| scatter | n single-tick organic versions, evens before odds | fold accumulator growth (V7) |
-| comb-scatter | cliff comb × scattered party | output-dominated projection; the flat-denominator exponent rule (§6) |
-| benign | small organic values | the control; the parity floor's referent |
-| nested-full-sibling | `(x,1)` repeated down a spine × matching event spine | the paired tick walk at maximal shortcut depth (the fill linearization's family; pinned scan-linear) |
-| nested-wide | bigroot magnitude × the nested-full id | the wide right-full return chain (#34's genre; pinned limb-flat) |
-| mirror / wide tail | `(1,x)` down a right spine × a zero spine with one wide tail leaf | the memoized pre-scan at full depth with wide minima per level (#34's genre); the unit-tail cross is the memo machinery's own cell |
-| descending staircase | monotone-descending unit-delta leaves × the unary id spine | full-penetration minimum updates at every level, width-independent (the anchor-web walk's propagation witness) |
-| memo chain | `k` consumption-sibling single-leaf left-full sites under one covering site, minima distinct or shared | the frame ledger's resolution cost, pinned flat ×2.00 across the doubling (the shared twin is the flat control) |
-| memo comb | shallow and covering left-full sites interleaved per level | consumption order Θ(d) from recording order — refutes chain-walking resolutions under every record-to-record anchoring; pinned flat |
-| memo fan-out / oscillation | one wide minimum shared by k sites over a unit plateau; minima alternating wide/narrow | the fan-out's k-independent wide cost (absolute touch ceiling) and its funding control |
-| memo churn / descending raises | in-flight records under full-penetration drops; raises landing below the frame minimum | one live ledger head; the decide-then-emit ordering's oracle tripwire |
-| reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's width-circulation genre (the spec's §9 rounds 5–6), pinned flat ×2.00 across the joint doubling; the narrow-gap control is flat — the wide gap is the driver, not the shape |
-| pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop cycle in isolation, pinned flat per byte — the layer the frame ledger amplified ~10× before the round-6 cure |
-| ascending cliff / plateau | `k` ascending wide left leaves `2^b + i` down a right spine over a terminal 0-cliff, id descending to the cliff; the control's leaves leveled at `2^b + 1` | the undercut cascade's fold direction (the spec's §9 round 7), pinned flat ×2.00 across the joint doubling; the leveled control is flat — the nonzero hop schedule is the axis, not the undercut or the spine |
-| two-operand jump comb | a version pair on one shared spine turning right every 33rd level (`d` isolated position digits), then `m` comb levels: bare `2^k + 3` teeth over `(1, 0)` gaps on one operand, a hoisted `2^k + 1` plateau with unit bumps on the other | wide height-difference crests over a dense-position spine: `2m` freezes per distance, each fired by the operand that did not pay for the drift, every absolute position `d` incompressible digits while every per-crest segment mass compacts to O(1) — the family that separates absolute-position freeze accounting (superlinear here) from the co-sweep's anchored-segment accounting (pinned flat), either operand's own rank flat |
-| concurrent pair | a balanced fork of `n` single-leaf parties, both operands ticked on every leaf, dominance alternating by parity, adjacent plateaus never equal | the emit side switch at every one of the `n − 1` overlay boundaries, join and meet alike (the ticked-counterpart pairing reaches at most one switch corpus-wide) |
+The genres, as a reading map (each name below is a registry family
+or its generator; its spec states which operations it stresses):
+
+- **Depth and frame genres** — dense spines, alternating-binary
+  spines, id spines and id pairs at full lockstep depth: recursion
+  frames and per-level state (the V2/P1 cures; the iterative-walk
+  discipline).
+- **Width genres** — bigroot magnitudes over spines, hugeleaf single
+  wide values: per-frame magnitude clones and width-quadratic decode
+  (V1/V3).
+- **Carry-cliff and delta genres** — cliff/boundary combs, wide-tooth
+  combs, unpaid-crossing fans, cancelling/static prefixes, jump
+  combs, harmonic rank ramps, scattered populations: value content
+  exceeding wire bits (§10.6), accumulator collapse and freeze
+  discipline, fold accumulator growth (V6/V7).
+- **Tick-walk and memo genres** — nested-full-sibling,
+  nested-wide, mirror/wide-tail, descending staircase, memo
+  chain/comb/fan-out/oscillation/churn, reveal comb and hifloor,
+  pure comb, ascending cliff/plateau: the fill walk's pre-scan and
+  watermark stack, the frame ledger, width circulation, and fold
+  direction (the tick cost spec's §9 rounds).
+- **Freeze, promotion, and settle genres** — freeze-position,
+  promotion re-arm (and its mate), dense-suffix (and mate),
+  wide-arming, arming trains, puncture-product/plateau-puncture,
+  lone-freeze, weight comb, freeze parade, tooth-tail: the query
+  folds' anchored-segment integrator, the promotion ledger, the
+  cluster-delegated settle products, and the accumulator's three
+  skip mechanisms (§3's F-genre entries).
+- **Two-operand and pair genres** — jump-pair, concurrent-pair,
+  tooth-tail: cross-stream funding, emit side-switch density, and
+  boundary-aligned pair floors.
+- **Population genres** — scatter, stagger (comb/id/population),
+  meet-shade, the weave fold family: n-ary fold correlation against
+  the balanced counter, non-shrinking meet accumulators, and
+  both-present-rich overlap testing.
+- **Projection and mask genres** — comb-scatter crosses,
+  mask-drift triple/quadruple: output-dominated materialization and
+  the fused masked comparisons.
+- **The control** — benign small organic values: the parity floor's
+  referent.
 
 ## 3. Findings ledger
 
-Every finding is cured, closed, or landed as a ratchet; each family
-above witnesses at least one. Mechanism detail and pre-cure
-measurements are in git history at the commits §14 names; the tick
-genres' refutation-and-cure records are
-`design/before-tick-cost-spec.md` §9. The cures are pinned by the
-enforced envelopes and board cells named.
+Every finding is cured, closed as a ratchet, or resolved to a dated
+owner-declared model; each genre above witnesses at least one. The
+entries here are the map — mechanism, cure, and where the cure is
+pinned; mechanism detail and pre-cure measurements are in git
+history at the commits §12's entries name, and the tick genres'
+refutation-and-cure records are `design/before-tick-cost-spec.md`
+§9.
 
 - **V1** (quadratic memory+time; per-frame owned path sums in
   compare/combine): cured by the difference accumulator + the
   skyline sweeps. ×6,668 at 29 KiB when found.
 - **V2** (linear ×782 stack; recursion frames in every event walk):
   cured by iterative sweeps/bit-stacks (kernels), explicit compact
-  stacks elsewhere.
+  stacks elsewhere; the P4.2 round finished the residue (no
+  library-path depth recursion remains; envelope segments pinned 0).
 - **V3** (quadratic decode of wide gammas): cured by limb-wise
-  mantissa accumulation (P1/T0.1); 14.5 s → linear on hugeleaf(4M).
-- **V4** (linear ×98–198 working form + Builder pre-size): the
-  working form is deleted (C2); push-growth (T0.2).
-- **V5** (linear ×118 parse stack): the skyline validator needs ~2
+  mantissa accumulation; linear on hugeleaf.
+- **V4** (linear working form + Builder pre-size): the working form
+  is deleted (C2); push-growth builders.
+- **V5** (linear parse stack): the skyline validator needs ~2
   bits/level and no values.
-- **P1** (id-side linear ×357–456 recursion frames): iterative
-  walks (P4.1), segments → 0.
-- **V6** (quadratic rank fold on H(d); 134.7M → 1,025 limbs):
-  digit-routed merge + relative freeze trigger + summation-by-parts
-  (the freeze cure's honest residual: a stream re-arming wide drift
-  under cheap codes at a *dense* compacted position is the one
-  shape the funding argument does not certify; every committed
-  family's freeze positions are ones-runs). `RANK_HARMONIC` and the
-  jump/wide-tooth bands enforce it.
-- **V7** (quadratic join-direction folds; 156M → 3,908 limbs on
-  `Sum<Rank>`): balanced binary-counter reduction on all five fold
-  surfaces + the raw-accumulator `Sum`. The reduction's own
-  n·log n reads marginally red against flat ceilings on the
-  benign/scatter fold cells — owned by §17.2's fold-marginals item
-  (the n-cursor merge).
-- **Fill's lookahead/pre-scan terms** (2026-07-25): worst case
-  O(|ev| × local-id-depth), quadratic on matched spines with zero
-  shortcut sites — the multiplier is the LOCAL id's depth, not
-  wire-suppliable by a hostile peer. Cured under the nested-full
-  red pin: the right-full arm deferred to an O(1) peek at the
-  cursor's arrival, the left-full pre-scan memoized (no position
-  scanned twice). Scan e 1.00 both arms; the recursion-depth
-  segments residual retired at P4.2 (explicit stacks, segments → 0).
-  A pricing obligation under §6, not an exploit.
-- **Fill/tick's limb-dimension re-touching** (#34, 2026-07-25/26):
-  materialized per-subtree `(min, net)` magnitudes cost Θ(width)
-  limb work per ancestor — quadratic on wide × deep crosses through
-  BOTH shortcut arms — and the memo's site resolution read Θ(k²)
-  accumulator digit touches on consumption-order adversaries, in a
-  currency the limb column cannot see. Cured by the anchor-web
-  watermark discipline plus the frame ledger of the tick cost spec
-  (its §9 rounds 3–4): the wide crosses read limb and touch e 1.00
-  at flat constants; memo-chain and memo-comb read ×2.00 touch
-  growth across the doubling (×3.94/×3.92 under the refuted chain),
-  the pins re-pinned never deleted. Four ledger adversaries guard
-  the cure: the wide fan-out (k-independence by absolute touch
-  ceiling), the oscillating funding control, the churn family (one
-  live head through full-penetration drops), and the descending
-  raises (the decide-then-emit ordering's oracle tripwire, verified
-  live). The same machinery had carried a semantic staleness bug
-  the families' first differential crossing caught (fixed,
-  minimized seed committed) — cost families and the semantic suite
-  must cross. A pricing obligation under §6 (local-depth
-  multiplier).
-- **Tick's width-circulation cycle** (found 2026-07-25 by the
-  ledger cure's adversarial review; cured 2026-07-26, the spec's §9
-  rounds 5–6): on the reveal comb, the consume/close cycle
-  circulated a width-`b` boundary difference through
-  per-object-legal moves with no input delta, no output code, and
-  no funded descent — Θ(k·b) accumulator touches on Θ(k + b) input
-  AND output (×3.91 across the joint doubling), with the base
-  watermark stack alone paying ~2 wide folds per site and the frame
-  ledger's follower ferry amplifying that ~10×. Cured by the latent
-  boundary register (the spec's I4′ width conservation): reveal-comb
-  reads ×2.00 exactly across the joint doubling and pure-comb flat
-  per byte, both re-pinned with absolute bands; the high-floor
-  control pins green, flat, and width-independent — the wide gap
-  was the driver, not the site forest or the schedule. Semantics
-  exact throughout (oracle differentials plus closed-form
-  witnesses). A pricing obligation under §6, not an exploit.
-- **Propagate's fold direction** (found and cured 2026-07-26, the
-  spec's §9 round 7): the undercut cascade folded the wide
-  surviving residue into each popped narrow dying difference —
-  Θ(k·b) touches on Θ(k + b) input and output on the ascending
-  cliff (×3.89 across the joint doubling), and a heap amplifier
-  (each popped difference's buffer widened to residue width,
-  heap e 1.82). Cured by inverting the hop to the spec's I4′
-  rule 2: top-index domination decides each hop's direction in O(1)
-  before any fold, the dying side funds the fold that consumes it,
-  width guards keep comparable-scale hops at zero extra touches.
-  ×2.00 exactly re-pinned flat; heap e 1.00; every other committed
-  MEASURED reading byte-identical across the cure; the leveled
-  control flat and byte-identical — the nonzero hop schedule is the
-  axis. A pricing obligation under §6, not an exploit.
-- **Plateau projection output-domination** (closed at C3,
-  2026-07-26, under the owner's pre-approved §6 ruling):
-  `version_project`/`clock_own_version` × {reveal-comb,
-  reveal-hifloor, pure-comb} re-materialize a wide absolute value
-  per kept site — mandatory output Θ(k·b) on a Θ(k + b) input —
-  and are `n_io`-denominated like the comb-scatter cross. The
-  owner's O(`n_io`)-tightness rider is met [measured, release,
-  both scales: output ×4.0 per input doubling; limb e 0.96–0.99 at
-  ≤ 0.2/B, scan e 1.00 at 8 bits/B, touch e 0.99 at ≤ 0.1/B, heap
-  e 1.00 at 2.1 B/B]; the six `n_io` board cells are the committed
-  check. A denomination gap, not a kernel finding.
-- **Profile-dependent meter readings** (2026-07-26; resolved by the
-  owner's ratification, §12): the 103 `debug_assert!` sites in the
-  production kernels perform metered work (`Base` comparisons
-  through the limb shim, skyline grow probes consuming metered
-  cursors), so dev and release builds measure different programs.
-  **Release is the board's measurement of record** — it prices the
-  production work alone, the honest denominator; dev runs are a
-  debugging view, never pinned; assertion-scoped meter suspension
-  REJECTED on doctrine (a metering-pause mechanism is an F2
-  hazard). `id_is_empty` spot-checks the O(1) consequences of its
-  contract; the diff kernel's emission normal form is held by its
-  differential suites (`without_arbitrary`, the exhaustive
-  small-scope diff leg, the function-space realization) rather than
-  by any shadow re-parse, so no owned dev-profile scan divergence
-  remains at that seam (the oracle-end-state entry, §12). The
-  record-scale segments columns were profile-dependent by codegen
-  (release frames are smaller, so onset shifts) until P4.2 made the
-  walks iterative: both profiles now read zero.
-- **The join_all up-front re-scan** (found and cured 2026-07-26).
-  `Party::join_all` and `Clock::join_all` test every input against
-  the *fixed* accumulator up front — semantically load-bearing for
-  the best-effort hand-back granularity — and each test as a cursor
-  walk re-scanned the accumulator: Θ(inputs × accumulator) scan on
-  a Θ(accumulator + inputs) operand set, e 2.00–2.14 at 47–2,954
-  bits/B across the overlap families [measured at the parent tip].
-  The landed cure is `IdIndex` (`party/ops/index.rs`): built once
-  per fold call in two linear passes (one `u32` per both-present
-  node — transient state strictly under the operand; a
-  `u32`-overflow operand ≥ 512 MiB falls back to the cursor walk),
-  answering each up-front test in O(input) node visits plus one
-  O(log accumulator) table search per both-present visit. A pure
-  predicate-mechanism swap: hand-back contents, order, and
-  accumulator bytes are decided by the identical fold, pinned
-  differentially against the recursive oracle's `join_all`
-  (`oracle::Party`/`oracle::Clock` — the transcribed hand-back
-  contract; a deliberate wrong-child mutation trips the
-  differentials on exactly the committed fold seeds), with the
-  predicate seam itself pinned by
-  `indexed_disjointness_matches_the_cursor_walk[_deep]`. The
-  coalesce-first candidate was REJECTED by
-  probe: on the witnessing population nothing coalesces, so it
-  degenerates to the same per-input tests while reordering the
-  hand-back vector the contract documents — not curative where
-  priced, semantics-breaking everywhere. Pins:
-  `join_all_overlap_upfront_test_reads_flat` — ×2.00 measured
-  across the joint doubling (was ×4), ceiling ≤ ×2.05 over a
-  liveness floor of one full accumulator pass; the board row reads
-  scan e 1.00 at 15.7–15.9 bits/B on every family at both scales,
-  heap at most 10.6/B under the 16 ceiling.
-- **The instrumentation census's blind spots** (#39, 2026-07-26; a
-  read-only census hunting the F2 genre — work routed through a
-  meter that exists but is not pinned on that surface, or through
-  no meter at all; every unpinned surface probed measured
-  touch-linear, so all items were missing ratchets, not live
-  amplifiers). Landed: **the touch column** as the board's fifth
-  judged currency, ceiling + floor-or-NA on every cell (the tick F2
-  quadratic would otherwise have been board-invisible); **emit and
-  text-parse touch pins** (board per-delta floors, gate-side
-  cliff-comb flatness pins over one-touch-per-delta liveness
-  floors, a render zero-touch conservation pin so accumulator work
-  cannot migrate between the text directions silently); **decode
-  touch floors** stream-derived (the validator batches word-scale
-  deltas in the accumulator's lazy zone, so a per-delta floor
-  over-demands); **cmp per-delta floors**; **covers/disjoint
-  absolute scan ceilings** ×1.25 over full-examination floors;
-  **fork's first envelope row** (heap prices the materialized
-  halves; the split kernel's deliberately raw 2-bit scan recorded
-  so wiring it into the metered primitives is a deliberate re-pin)
-  and the board `party_fork` heap declaration corrected to the
-  fork-child floor; **the Shl width re-denomination** (the shim
-  records output width; the rank-pair envelope re-pinned
-  54,704 → 70,328 limb ops with the movement annotated). DEFERRED
-  with reasons: metering fork's raw writes (O(n) copies, low risk,
-  wiring moves board scan readings — a deliberate future
-  re-denomination); collapsing the four envelope harnesses into one
-  five-column shape with per-column floor-or-NA (the #35 totality
-  mechanism applied to the gate suite — named for a future round;
-  until then the board's tick × scan floors and touch column carry
-  the cross-op cover). Ratchets against the F2 migration genre, not
-  exploits.
-- **Iterated-operation size trajectories** (#38, 2026-07-26; no
-  amplification found — six committed deterministic pins, one per
-  orbit genre): the board prices single calls, and a single-call
-  bound does not preclude compounding across calls. **Fork
-  orbits**: chain and fan exactly affine — both halves read exactly
-  `2 + 2k` bits at the k-th fork over 512 steps, the fan unwinding
-  to a byte-identical seed. **Fork+join round trips**: the untick'd
-  trip byte-stationary over 256 rounds; the ticked variant's party
-  byte-identical every round, the version one fixed two-leaf
-  scaffold costing exactly `7 + 2⌊log2 k⌋` bits over 512 rounds.
-  **The paper's §6 churn scenario** (4096 rounds): max id bits
-  plateau in a fixed band; max version bits logarithmic per octave.
-  **The paper's §6 static scenario**: ids byte-identical forever;
-  max version bits exactly `8i − 4` at the octave ending `2^i`.
-  The paper's "stabilizes with a minor logarithmic component" is a
-  committed criterion, not a chart. Board and judge roster
-  untouched: orbits are a test-surface pin genre — single-call
-  denomination stays the board's job, trajectory shape the orbits'.
+- **P1** (id-side linear recursion frames): iterative walks,
+  segments pinned 0.
+- **V6** (quadratic rank fold on the harmonic ramp): digit-routed
+  merge + relative freeze trigger + summation-by-parts; the
+  `RANK_HARMONIC` envelope and the jump/wide-tooth bands enforce it.
+- **V7** (quadratic join-direction folds): balanced binary-counter
+  reduction on every fold surface; the fold rows are judged under
+  the reduction's own declared `O(D log k)` model (§13).
+- **Fill's lookahead/pre-scan terms**: worst case O(|ev| ×
+  local-id-depth) on matched spines; cured under the
+  nested-full red pin — the right-full arm defers to an O(1) peek,
+  the left-full pre-scan memoizes. A §6 pricing obligation, not an
+  exploit.
+- **Fill/tick's limb-dimension re-touching** (#34): materialized
+  per-subtree magnitudes cost Θ(width) limb work per ancestor, and
+  the memo's site resolution read Θ(k²) digit touches on
+  consumption-order adversaries. Cured by the anchor-web watermark
+  discipline plus the frame ledger (the tick spec's §9 rounds 3–4);
+  the memo families guard the cure. The same machinery had carried
+  a semantic staleness bug the families' first differential
+  crossing caught — cost families and the semantic suite must
+  cross.
+- **Tick's width-circulation cycle** (the reveal comb): Θ(k·b)
+  touches on Θ(k + b) input and output; cured by the latent
+  boundary register (the spec's I4′ width conservation), pinned
+  flat with absolute bands.
+- **Propagate's fold direction** (the ascending cliff): the wide
+  surviving residue folded into each popped narrow difference;
+  cured by top-index domination deciding each hop in O(1), the
+  dying side funding the fold.
+- **Plateau projection output-domination**: materialization
+  re-creates a wide absolute value per kept site — mandatory output
+  Θ(k·b) on a Θ(k + b) input — so the materialization rows
+  (`own_version_to_version`/`clock_own_version_to_version`) are
+  `n_io`-denominated with the O(`n_io`)-tightness rider measured.
+  Projection itself is lazy at every spelling (`OwnVersion`); the
+  product-growth path is only the explicit `.to_version()`.
+- **Profile-dependent meter readings**: dev `debug_assert!`s
+  perform metered work, so dev and release measure different
+  programs. **Release is the board's measurement of record**
+  (§12's ratification); assertion-scoped meter suspension REJECTED
+  on doctrine.
+- **The join_all up-front re-scan**: Θ(inputs × accumulator) overlap
+  testing; cured by the per-fold-call `IdIndex`
+  (`party/ops/index.rs`), its partition-point searches metered and
+  priced by a declared search allowance, with the weave family (the
+  both-present-rich population) as the honest stressor.
+- **The instrumentation census's blind spots** (#39, the F2 genre —
+  work routed through a meter that is not pinned on that surface):
+  landed the touch column as the board's fifth judged currency,
+  emit/text-parse/decode/cmp floors, and the fork envelope row —
+  ratchets against meter migration, not exploits.
+- **Iterated-operation size trajectories** (#38): no amplification —
+  deterministic orbit pins per genre (fork chains/fans affine,
+  round trips stationary, the paper's §6 churn/static scenarios
+  banded); single-call denomination stays the board's job.
+- **The query folds' F-genre series** (the #37/#79/#82 reviews and
+  their cure rounds): `min_ticks`' pending-minima circulation →
+  the range-minimum anchor web plus epoch ledger (`query/web.rs`);
+  rank's freeze-position span reads → the anchored-segment
+  integrator (the pair co-sweep's single-stream instance); the
+  promotion re-arm's absolute-position re-read → the promotion
+  ledger settled once at the close; the dense-suffix per-arming
+  walk → the mass-balanced product tree; the settle products'
+  schoolbook quadratic → cluster-wise delegation to the backend at
+  the integer-multiplication bound (rank/distance/lag are
+  `Class::MulBound`, with the answer-embedded-product reduction as
+  the Ω(M(|v|)) floor witness). Each cure's retired kernel stays
+  committed and failing beside it (the adequacy ratchet), and each
+  family is a registry member with flatness bands.
+- **suanpan's zero-gap maintenance** (the alternating shifted
+  pair): top maintenance walked an unfunded zero gap; cured by the
+  zero-run ledger (certificates created O(1) by jump writes,
+  consumed O(1) by scans), with the cost table verified row by row
+  and the three skip mechanisms (ledger, `bottom` watermark, exact
+  `top`) each witnessed load-bearing by a public-API family that is
+  superlinear without it (weight comb, freeze parade, tooth-tail).
+- **`Version::meet_all`'s non-shrinking accumulator** (the shade
+  population): sequential reduce read Θ(k·d); cured by the shared
+  balanced binary-counter fold (`crate::fold`), the sequential
+  reduce committed and failing beside it.
+- **The wide-arming text-parse quadratic** (found at the board
+  promotion of the settle families): cured by settled-top
+  extraction in the parse pipeline; the board column lands green.
+- **The render merge's wide-summary re-fold** (mirror-wide
+  display): a genuine kernel superlinearity, documented as the
+  display impls' `SuperlinearTime` class, judge-rostered red, and
+  owner-declared as the mirror-wide render limb model at the
+  ceilings module — the one standing cure candidate (§17.3).
 
 ## 6. The design invariant and the denomination criterion
 
@@ -296,6 +232,13 @@ Adopted as the crate's contract, enforced by §13:
 > than its packed operands, and every operation remains amortized
 > `O(n + m)` in the packed input bits — with no bound on value
 > magnitude, tree depth, or encoded size.**
+
+Fundamentally-superlinear problems satisfy the bar at their
+problem's own optimum, stated and priced (§14's asymptotic bar):
+radix conversion, the multiplication-bound query folds
+(`Class::MulBound`), and the n-ary folds' `O(D log k)` are the
+committed classes, each bound to its witnesses by the
+complexity-claims roster.
 
 Denomination (the criterion of record; Gate B): "packed operands"
 denominates every operation *except* the three classes whose
@@ -315,30 +258,32 @@ there and would degenerate into exemption holes:
   C3, release, record scale: the production kernels spend 5–9
   limb ops per spelled value across the small-value families,
   both directions]; id tokens contribute nothing) — at
-  κ = 0.75 limb/`R` unit [measured at C3: honest cells read
-  ≤ 0.59, the staircase pipeline; digit-by-digit schoolbook reads
-  ~1, still excluded] — and the *exponent* leg against `n_io`
-  (never `R`, on which any schoolbook converter reads a flat ~1)
-  at the unchanged 1.15. Two legs because each catches what the
-  other cannot: the chunked-schoolbook refutation (2026-07-23)
-  demonstrated a still-quadratic converter slipping under κ, so
-  the exponent leg enforces the complexity class and κ the
-  constant. Both anti-softening tripwires are committed in
+  κ = 0.75 limb/`R` unit (`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`)
+  [measured at C3: honest cells read ≤ 0.59, the staircase
+  pipeline; digit-by-digit schoolbook reads ~1, still excluded] —
+  and the *exponent* leg against `n_io` (never `R`, on which any
+  schoolbook converter reads a flat ~1). Two legs because each
+  catches what the other cannot: the chunked-schoolbook refutation
+  (2026-07-23) demonstrated a still-quadratic converter slipping
+  under κ, so the exponent leg enforces the complexity class and κ
+  the constant. Both anti-softening tripwires are committed in
   `meter::board`'s suite (the digit-by-digit parser must exceed
   κ; the chunked probe, driven through `evaluate` itself, must
   slip under κ and read red on exactly the limb exponent). An
   output-honesty ceiling closes the pad-the-output door, asserted
-  against the conversion units alone (the pipeline term must not
-  loosen it; radix units, forced by the delta coding, derivation
-  at the constant, tripwire pinned). The pipeline term's decision
-  record is §12's C3 entry (ratified by owner, 2026-07-26).
-- **Output-dominated projection** (`version_project`/
-  `clock_own_version` on comb × scattered-party and on the plateau
-  crosses reveal-comb/reveal-hifloor/pure-comb, per the owner's
-  pre-approved ruling applied at C3): judged against
-  `n_io` = packed input + packed output (canonical coding cannot
-  be padded), with the sweep measured O(`n_io`)-tight — the
-  owner's rider — on every declared cross.
+  against the conversion units alone (`TEXT_BYTES_PER_RADIX_UNIT`;
+  the pipeline term must not loosen it; radix units, forced by the
+  delta coding, derivation at the constant, tripwire pinned). The
+  pipeline term's decision record is §12's C3 entry.
+- **Output-dominated materialization** (`OwnVersion::to_version`,
+  priced on the `own_version_to_version`/
+  `clock_own_version_to_version` rows, on comb × scattered-party
+  and the plateau crosses, per the owner's pre-approved ruling
+  applied at C3): judged against `n_io` = packed input + packed
+  output (canonical coding cannot be padded), with the sweep
+  measured O(`n_io`)-tight — the owner's rider — on every declared
+  cross. Projection and its comparisons stay lazy and
+  input-denominated (§12's OwnVersion entry).
 - **Balanced share splitting** (`Party::forks(n)`): its mandatory
   output is `n` packed parties, so it is judged against
   `n_io` = packed input + Σ packed share bits (canonical coding
@@ -383,12 +328,11 @@ against the bundle's value content (event-side leaf-height bits +
 id-side packed bytes; row-disclosed as `expd[content ...]`);
 constants and floors stay per packed byte; I/O cells keep `n_io`;
 the bench mirror's denominators follow. Tripwires in
-`meter::board::tests`: the packed fit must stay broken on
+`meter::board`'s suite: the packed fit must stay broken on
 measured-flat work over the intercept premise, and a
 quadratic-in-teeth probe must read red against content. The
 column's work is linear on its honest denominator; no cell exceeds
-it. The rule's decision record is §12's C3 entry (ratified by
-owner, 2026-07-26).
+it. The rule's decision record is §12's C3 entry.
 
 Statement-faithfulness (the user's standing bar) applies to every
 claim in this document and the code's prose: never weaker than
@@ -408,8 +352,9 @@ plain-sweep pin]). Byte-equality remains `Eq`/`Hash`. All
 operations are single forward passes over packed streams; depth
 costs bits. The module docs in `src/version/skyline/` are the
 documentation of record for the kernels (sweep, emit, query, grow,
-fill, text) and the builder; `codec::accum` for the balanced
-signed-digit accumulator.
+fill, text) and the builder; the workspace crate `suanpan`
+(`suanpan::Accumulator`) for the balanced signed-digit accumulator
+and its cost table.
 
 **The subadditivity lemma of record** (proven 2026-07-23; full
 derivation in git history; pinned emitter-parameterized in
@@ -435,7 +380,7 @@ running-value sweep — strict decode included — runs on the
 cliff-immune balanced signed-digit accumulator (amortized O(1) per
 small delta at every width; the two-zone alternative is REFUTED,
 §12); the linear functionals (`rank`/`distance`/`lag`/
-`min_ticks`/`max`/`project`) use delta algebra (telescoped
+`min_ticks`/`max`) use delta algebra (telescoped
 `v₁·W + Σ δⱼ·suffix-weight`), never reconstructing absolute
 values; and the §6 invariant for content-materializing operations
 (text) is denominated over content bits — which is exactly the
@@ -448,6 +393,11 @@ every sample (comb-tight, max ratio 1.9966, monotone toward 2 from
 below); realistic gossip median 0.9888, skyline smaller on 61.6%.
 
 ## 12. Decisions ledger (DECIDED / REJECTED / RETIRED, dated)
+
+The campaign's compact history: every ruling, refutation, and
+landed shape, dated. Entries speak about decisions; measurement
+narratives and per-round board movements live in git history at
+the commits the entries name.
 
 - **DECIDED 2026-07-23 (Finch): Tier 2 — the skyline encoding — as
   a flag day.** Ratified with it: the identity/persistence break
@@ -464,8 +414,8 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   through its normalized prefix every tooth, quadratic [measured].
   Any two-zone design has a boundary the input can oscillate
   across. The balanced base-2^32 signed-digit form is the
-  representation of record (`codec::accum`), flat on every family
-  [measured, enforced].
+  representation of record (today `suanpan::Accumulator`), flat on
+  every family [measured, enforced].
 - **REFUTED 2026-07-23: κ-only text judgment** — the chunked
   schoolbook slips under κ while quadratic; hence the two-legged
   criterion (§6) with committed tripwires.
@@ -498,15 +448,33 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   unnormalized sums, and shared-exponent containers REJECTED
   (reasons in git history); the compact inline/spill form HELD
   until bulk-memory pressure is observed (spill canonicality would
-  become load-bearing for Eq/Hash); a serialized Rank encoding
-  DEFERRED — if ever minted, strict decode must reject
-  non-normalized forms so byte equality keeps implying value
-  equality.
+  become load-bearing for Eq/Hash). The serialized Rank encoding
+  landed 2026-07-29 under exactly the deferred entry's condition:
+  strict decode rejects non-normalized forms (the wire-form digest
+  entry below).
 - **Gate A (subadditivity) resolution policy (user ruling
   2026-07-23)**: the existing bound stays unless falsified;
   resolved GO — the lemma of record (§10).
 - **GO-WITH-SHAPE 2026-07-24: boolean-skyline unification probe**
-  (§17.5; the user's decision, post-C3).
+  (the user's decision, post-C3); **landed 2026-07-26
+  (`2cd73716`), with the construction/predicate split reversed on
+  cost evidence.** Under the skyline coding a `Party` is a boolean
+  skyline: `diff` rides the sweep — an id leaf cursor per operand
+  presenting absent children as synthetic unowned plateaus, the
+  event sweep's advance/tie rule transferred verbatim (no boolean
+  carve-out; each cursor's one owned bit replaces the running
+  difference), one output plateau per elementary interval into a
+  leaf-driven collapsing id builder — dissolving the id family's
+  one depth recursion and the two-pass complement retagging. The
+  probe verdict's predicate leg was reversed with evidence:
+  `covers`/`is_disjoint` stay on the lockstep walk (a verdict-only
+  walk carries no per-level state, and a leaf-enumerating sweep
+  would pay two path-bit stacks per operand depth for interval
+  geometry a predicate never reads — multiplying a pinned
+  near-zero envelope to retire no red); `sum` stays on its frames
+  walk (copy-splice has no sweep analogue). The re-metered
+  green→green cells are the enumerated verdict-neutral class
+  (ratified by owner, 2026-07-26).
 - **DECIDED 2026-07-25 (Finch): the tick/fill cost effort runs
   spec-first under an adversarial design loop** — attack/fix
   rounds on the design document itself until convergence, a
@@ -517,10 +485,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   conditions: a superlinear honest optimum; a §6 denomination
   change; linear achievable only via an at-rest representation
   change. The spec of record: `design/before-tick-cost-spec.md`;
-  its design-loop record (seven adversarial rounds plus the fusion
-  landing) is that document's §9; Finch's ratification lands there
-  as a dated amendment (the formal campaign's Phase 0 schedules
-  the ratification read).
+  its design-loop record is that document's §9.
 - **DECIDED 2026-07-26 (owner, at the fusion landing)**: no
   composed fill/compare/grow path retained — the differentials of
   record pin the fused `tick` directly to the recursive oracle —
@@ -549,10 +514,11 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   stays a *semantic* safety rule (nothing crashes if violated).
   Rejection rows denominate against the fed stream alone (§6); the
   rejection surface's enumeration and conventions are §13's.
-- **DECIDED 2026-07-26 (C3, the pre-approved arm applied): the six
+- **DECIDED 2026-07-26 (C3, the pre-approved arm applied): the
   plateau projection cells are `n_io`-denominated**, the
-  O(`n_io`)-tightness rider measured and met (§3's closed entry;
-  commit `1c32bb56`).
+  O(`n_io`)-tightness rider measured and met (commit `1c32bb56`;
+  the rows later re-denominated onto the explicit materialization
+  door by the OwnVersion entry below).
 - **DECIDED 2026-07-26 (C3): the judgment layer's exponent guards**
   — exponent legs are fitted only where the cell's denominator pair
   scales (≥ ×1.5 between probes) and, on heap, where a reading
@@ -579,2661 +545,639 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
 - **DECIDED 2026-07-26 (P4.2): the residual depth recursion
   converts to explicit stacks; the route-fold seam stays per-bit**
   (`3431ec60` pin, `68eda2e3` parser, `330e058a` walks).
-  Attribution measured before converting: every tick segment came
-  from the fused fill walk (grow's splice contributed zero; the
-  pre-scan 4 of 15 dev-profile segments on mirror-narrow, zero on
-  the no-site shapes), the parser cells from the id text parser
-  alone. Landed shape: the id text parser parses on a SmallVec
-  frame stack (the `codec::tree` discipline, differential-pinned
-  against a recursive reference first); the fill walk and pre-scan
-  carry suspended ancestors as control bits plus pop-able word
-  deltas (`Frames`/`PreFrames` on the route fold's `PopStack`),
-  and the one wide per-site quantity — a left-full site's collapse
-  maximum, alive across its sibling walk — is re-derived by one
-  bounded replay of the site's disjoint collapse range rather than
-  parked per frame, keeping nested-site chains word-free (frames
-  of materialized magnitudes would have tripled mirror-narrow's
-  heap constant past its ceiling). With no library recursion left,
-  `recurse::descend!` compiles only for the test surface (the
-  oracle bridge); the segment meter's liveness witness is a
-  test-local guarded descent and the deep fill's zero reading is
-  the committed ratchet (`meter::tests`), with the envelope rows'
-  segments pinned to 0 (`tests/meter.rs`). Board movement, both
-  scales enumerated at `board-p42-{lo,hi}.txt` vs the unify24
-  renders: the 17 ×4 segments cells read 0 (15 flip green; the
-  ascend-cliff tick pair stays red on its owned heap constant,
-  65.3 → 66.3 B/B with the frame bits); frame bits price
-  ≤ 8.1 B/B on the text rows and ≤ 1.3 B/B on the tick rows; the
-  site-close replay adds ≤ 2.3 scan bits/B and ≤ 3.5 touches/B on
-  the memo-site crosses (comb-scatter limb +0.5 ops/B, the
-  replayed codes' decodes) — every reading inside its ceiling,
-  work columns byte-identical on all other converted rows, and no
-  movement on any unconverted cell at either scale.
+  Attribution measured before converting. Landed shape: the id
+  text parser parses on a SmallVec frame stack (the `codec::tree`
+  discipline, differential-pinned against a recursive reference
+  first); the fill walk and pre-scan carry suspended ancestors as
+  control bits plus pop-able word deltas on the route fold's
+  `PopStack`, with a left-full site's collapse maximum re-derived
+  by one bounded replay of its disjoint range rather than parked
+  per frame. With no library recursion left, `recurse::descend!`
+  compiles only for the test surface (the oracle bridge); the deep
+  fill's zero segment reading is the committed ratchet
+  (`meter::tests`), envelope segments pinned 0.
 - **DECIDED 2026-07-26 (#50): the oracle end-state — three
   implementations, one committed roster.** The recursive oracle is
-  the semantic definition of record and now carries the `join_all`
-  hand-back contract (`oracle::Party`/`oracle::Clock`) and
-  `meet_all` (`0ab5bf23`, seeds red through the new differentials
-  before any retirement); `testing::fold_oracle` RETIRED under the
-  ratchet (`f4ed32ed`), the test-local min_ticks/rank oracle
-  duplicates dissolved into the oracle's own methods (`8ac7c0db`),
-  and the three shadow-recompute `debug_assert`s deleted with
-  covering differentials cited per site (`e277ca97`, the 2026-07-26
-  assertions doctrine). The triangle suite
-  (`testing::triangle`, `066623f6`) commits the op × three-leg
-  roster, total against the extracted public-fn surface with live
-  citation checks and per-leg adequacy tripwires. Rationale: one
-  reference spelling per contract, every public op's binding (or
-  exclusion) named in a diff a reviewer sees. Function-space-leg
-  dispositions stemming from the FS boundary are marked in-roster
-  (ratified by owner, 2026-07-26); no FS differential was added or
-  removed.
-- **DECIDED 2026-07-27 (P5 measurement closeout): envelopes
-  re-pinned, item 11 realized, record sampling retired from the
-  standing cadence.** (i) The envelope suite re-measured whole
-  (one dev run, all 96 scenarios green): three rows moved and were
-  tightened — `ID_WITHOUT` heap 518,219 → 416,888 (`e277ca97`, no
-  dev shadow re-parse of the diff emission; ceiling 647,774 →
-  521,110, the P5.1 final ratchet), `FOLD_VERSION_SCATTER` heap
-  390 → 294 (`8181247a`; ceiling 488 → 368),
-  `FOLD_PARTY_SCATTER` scan 292,432 → 257,654 (`5aabc765`, the
-  fold's per-call id index; ceiling 365,540 → 322,068 — the
-  292,432 record was a mid-round reading, the C2 flag-day commit
-  measures 276,044); every other row byte-identical to its
-  record, so §17.2's item 12 closes with no further movement.
-  (ii) Item 11 realized and judge-verified under both sampling
-  regimes (246 green / 3 red / 54 sub-floor over the 303-cell
-  pinned subset, roster satisfied; riders e 0.93–1.18; bigroot
-  sweeps e 0.92–1.04; the hugeleaf display pair STAYS red at
-  e ≈ 1.4 over general 1.3 — the κ hand-off did not cure it, the
-  class question stays open with the text column). (iii) Owner
-  decision: record-sampling judge runs are not a standing
-  closeout step — quick mode judges the wall leg (the two regimes
-  agreed cell for cell; record wall cost measured 33 min 27 s),
-  and record sampling belongs to the acceptance sweep alone.
-  (iv) `exhaustive_deep` (#24's follow-up) is measured
-  combinatorially blown: a fully parallel release run had not
-  completed after 8 h 55 m against its committed ~4.5-minute
-  annotation; the annotations are re-denominated to the measured
-  open state and the runtime attribution is a filed follow-up
-  (#53), owned outside this closeout.
+  the semantic definition of record and carries the `join_all`
+  hand-back contract and `meet_all` (seeds red through the new
+  differentials before any retirement); the fold oracle and the
+  test-local min_ticks/rank oracle duplicates RETIRED under the
+  ratchet; the three shadow-recompute `debug_assert`s deleted with
+  covering differentials cited per site (the 2026-07-26 assertions
+  doctrine). The triangle suite (`testing::triangle`) commits the
+  op × three-leg roster, total against the extracted public-fn
+  surface with live citation checks and per-leg adequacy tripwires.
+  Function-space-leg dispositions marked in-roster (ratified by
+  owner, 2026-07-26).
+- **DECIDED 2026-07-27 (P5 measurement closeout)**: the envelope
+  suite re-measured whole, moved rows tightened as final ratchets;
+  the judge-roster realization verified under both sampling
+  regimes; owner decision: record-sampling judge runs are not a
+  standing closeout step — quick mode judges the wall leg, record
+  sampling belongs to the acceptance sweep alone. `exhaustive_deep`
+  measured combinatorially blown against its committed annotation;
+  re-denominated and attributed at #53 below.
 - **DECIDED 2026-07-27 (owner): the fuzz-fit instrument joins
-  `just gate`** (`fuzzfit-build` then `fuzzfit`; measured basis
-  8.6 s warm build + 59.9 s run). The #24/P4.2 kernel work moved
-  guest fuel and the stale bands sat red for a day because no
+  `just gate`** (`fuzzfit-build` then `fuzzfit`): kernel work had
+  moved guest fuel and stale bands sat red for a day because no
   standing tier executed the harness; in the gate, fuel movement
   fails the commit that carries it, with `fuzzfit-calibrate` as
-  the deliberate re-pin path. Companion entry in the instrument's
-  own decision record (`design/before-fuzzfit-asymptotics.md` §9).
+  the deliberate re-pin path. Companion entry in
+  `design/before-fuzzfit-asymptotics.md` §9.
 - **Landed 2026-07-27 (#47): uniform `# Complexity` rustdoc,
   board-bound.** Every public operation carries a `# Complexity`
-  section led by Big-O tokens over user-held denominators (packed
-  sizes, text bytes, result sizes; per-fn, or per the owner's
-  ruling one type/module-level note where a whole family shares a
-  bound), and `testing/complexity_claims` binds prose to
-  measurement: a 95-row claims roster (78 method ops from the
-  triangle extractor + 17 family rows, totality both directions)
-  pins each op's tokens at its scanned doc site and its witness
-  rows on the board's own op axis (`board::bench_cells`);
-  superlinear-time claims must equal the bench judge's committed
-  red set (`tools/benchjudge-expected.json`) in both directions;
-  and the two non-linear classes keep deterministic liveness pins
-  that read red when their cures land — the render merge
-  (`Display` limb growth ×2.93 across a doubling on the wide
-  left-full shape, floor 2.45, linear ~2.0) and the fold log
-  factor (`join_all` scan growth ×5.16 across a ×4 scatter
-  population, floor 4.6, linear ~4.0), both measured 2026-07-27.
-  Dispute-the-seed corrections to the charter's summary,
-  transcribed from the boards and this document rather than the
-  charter sentence: the `join_all` family is documented
-  `O(D log k)` (the balanced reduction's log factor, §17.2's
-  fold-marginals item — cure or ratify, either moves the pin and
-  the prose together), and both text directions carry the
-  radix-conversion caveat (superlinear-though-subquadratic per
-  wide value; the dashu decision entry above is the measurement
-  of record), with `Display` alone claimed superlinear outright
-  on the render-merge and conversion-dominated mechanisms the
-  judge's red set owns.
-- **DECIDED 2026-07-27 (#53): `exhaustive_deep` attributed, cut
-  to the ratified leg split, rewired to the public ops; the
-  verdict pair product measured above proportion and reported.**
-  Attribution (stride-sampled leg toggles, release, 16 cores):
-  the id pair worker prices at ~91 ns/pair wall — is_disjoint
-  6.3, covers +5.8, sum +12.2, diff +66.2 — so the
-  allocate-convert-compare legs are ~87% of the worker, the
-  region-difference leg alone ~73%, confirming the filed
-  mechanism in ratio. The filed hours-scale runtime is *mostly
-  not those legs' sampled cost*: sampled extrapolation
-  (linearity checked 16.8M → 268M pairs, +4%) prices even the
-  full four-leg worker at ~7 min, but the full 65536² product
-  runs its *verdict-only* trim past a 45-minute cap twice (one
-  row-major, one cache-tiled, quiet machine, 2026-07-27) — the
-  expensive verdict pairs are structurally *similar* trees,
-  dense in the full product's near-diagonal blocks and
-  quadratically thinned by any strided sample; cache tiling
-  bought no measurable relief, so the cost is walk compute, not
-  misses. Cure landed as ratified: deep = codec + fork +
-  verdict legs + tick with the brute-force grow-minimality pin
-  (its irreplaceable value, ~1 min of the run); `join`/`without`
-  structural pair legs run exhaustively at the small bound, deep
-  structural reach riding on the sampled differentials; the
-  anonymous id leaves the corpus at lowering (never a standalone
-  `Party`; its per-pair emptiness test was two boxed-tree walks
-  × 4.3G pairs in a first, abandoned run). Annotations
-  re-denominated to the measured state (hour-scale bound, dated,
-  with the sampling caveat written down). Rewired to the public
-  surface: `IdReader::split → Party::fork`, `IdReader::sum →
-  Party::join` (Result contract, receiver-unmodified/hand-back
-  on overlap now asserted), `IdReader::diff → Party::without`
-  (Option contract); `id_join_is_commutative` replaces the
-  reader-level sum law; event checks verified already-public; no
-  internal entries kept. Oracle operating envelope written into
-  `oracle.rs` (small-scope only; harnesses bound inputs — the
-  oracle is never hardened; fidelity outranks robustness);
-  envelope audit: every oracle-facing suite bounded (arb
-  generators depth 4, op-traces ≤ 120 ops, family grids scale
-  ≤ 64, exhaustive depth ≤ 4; the 4096-spine and 100k-spine
-  suites are impl-only with closed-form witnesses). DECIDED
-  2026-07-27 (owner): the hour-scale verdict-pair totality test
-  stays, and stays out of the gate — `#[ignore]`d, run detached
-  on demand, its budget and machine annotation the contract for
-  whoever runs it.
+  section led by Big-O tokens over user-held denominators, and
+  `testing/complexity_claims` binds prose to measurement: a claims
+  roster pinning each op's tokens at its scanned doc site and its
+  witness rows on the board's own op axis; superlinear-time claims
+  must equal the bench judge's committed red set in both
+  directions; non-linear classes keep deterministic liveness pins
+  that read red when their cures land. Dispute-the-seed corrections
+  transcribed from the boards rather than the charter sentence.
+- **DECIDED 2026-07-27 (#53): `exhaustive_deep` attributed, cut to
+  the ratified leg split, rewired to the public ops.** The
+  hour-scale cost is verdict-pair walk compute on structurally
+  similar trees dense in the near-diagonal (quadratically thinned
+  by any strided sample; cache tiling bought nothing). Landed:
+  deep = codec + fork + verdict legs + tick with the brute-force
+  grow-minimality pin; structural pair legs exhaustive at the
+  small bound; the anonymous id leaves the corpus at lowering.
+  Rewired to the public surface (`Party::fork`/`join`/`without`,
+  Result/Option contracts asserted); no internal entries kept.
+  Oracle operating envelope written into `oracle.rs` (small-scope
+  only; the oracle is never hardened; fidelity outranks
+  robustness); every oracle-facing suite bounded. DECIDED (owner):
+  the hour-scale verdict-pair totality test stays, and stays out
+  of the gate — `#[ignore]`d, run detached on demand, its budget
+  and machine annotation the contract for whoever runs it.
 - **DECIDED 2026-07-27 (#54): the diff sweep settles covered
   subtrees as blocks — the early-exit constants recovered, both
-  arms linear.** Mechanism (`ac10e61b`): dyadic nesting makes
-  "does the other operand's current plateau cover this subtree" a
-  depth comparison at every subtree entry, so the sweep settles
-  covered intervals whole — an unowned `other` cover splices the
-  `self` subtree verbatim (`IdSkylineBuilder::subtree`, closing
-  upward as `Built::Node`, which is exactly what plateau-by-plateau
-  re-derivation closes as; a terminal-collapse across a splice
-  boundary is region-theoretically unreachable, since a terminal
-  sibling would mean `other` was empty over the parent and the
-  parent itself would have spliced), an owned `other` or unowned
-  `self` cover consumes the subtree in one iterative skip scan as a
-  single unowned plateau; owned `self` over an `other` subtree
-  remains the plateau-walked complement arm, and same-interval
-  subtree pairs descend in lockstep. Every tag still read at most
-  once; segments 0; heap transient unchanged (path bits). Fuel at
-  1000 bits, per arm (pre-sweep pin → sweep pin → this pin):
-  success 4.63 → 5.81 → 4.72 fitted decades — the +1.18-decade
-  regression cured to within +0.09 of the pre-sweep line, and the
-  10^3-bit bucket median (42 fuel/bit vs the pre-sweep fitted 43)
-  reads parity; emptiness 5.07 → 5.64 → 5.47, top-decade medians
-  flat at ~430 fuel/bit (the full-scan rejections are unchanged at
-  scale). The emptiness arm's pooled envelope tilts to 1.41: the
-  charter's ≤1.05 expectation is disputed with evidence — restoring
-  early exits necessarily re-creates the rejection-mixture genre
-  (cf. `party_join` 1.48), covered rejections now settle in one
-  block scan and undercut the small buckets while `bin/diag`
-  medians and the within-case shape leg (max healthy excess +0.005,
-  unchanged) carry the linearity claim. Differential evidence: all
-  diff differentials, the exhaustive pair leg, and the envelope
-  rows green; a planted wrong-kind splice mutant
-  (`close_up(Built::Empty)`) reddened `without_arbitrary` and
-  `exhaustive_small` before revert. Boards: both scales
-  row-for-row byte-identical to the boards of record — the
-  board's two `without` cells exercise the complement arm
-  (`seed().without(b)`) and the identical-operand rejection, the
-  two paths with no coverable span, so the expected scan-constant
-  movement rightly does not appear there; the fuzzfit corpus, whose
-  fork-derived operand pairs do have coverable spans, is where the
-  cure is priced. Re-pin `d9325886`.
+  arms linear** (`ac10e61b`). Dyadic nesting makes cover testing a
+  depth comparison at every subtree entry, so covered intervals
+  settle whole (splice, skip-scan, or lockstep per arm); every tag
+  still read at most once; segments 0. The emptiness arm's pooled
+  fuel envelope tilts to 1.41: the charter's ≤1.05 expectation
+  disputed with evidence — restoring early exits necessarily
+  re-creates the rejection-mixture genre; medians and the
+  within-case shape leg carry the linearity claim. A planted
+  wrong-kind splice mutant reddened the differentials before
+  revert.
 - **Landed 2026-07-27 (#58, owner-ruled): `causally` composition
-  validates; `Decode::Io` displays.** (1) `causally::Range`
-  (`1b7a6d97`): pairing a start with an end passes a
-  well-formedness gate — the start version must lie within the
-  end bound (`start <= end` under `known_at`, `start < end` under
-  `before`) — and a crossed pair returns the new `error::Crossed`,
-  so every range that exists has a total `placement_of` trichotomy
-  and the crossed-range case is unrepresentable rather than
-  documented around. Consequence class: typed error, the crate's
-  convention for compositions that violate a relational invariant
-  (`Overlap` from `Party::join`/`Clock::join`/`sync`); panics and
-  debug_asserts stay reserved for internal infallibility. Free
-  single-bound constructors remain infallible `O(1)`; two-bound
-  compositions cost at most one validating causal comparison (the
-  claims roster re-denominates them; the `causally_contains` row
-  prices the comparison). Family pin:
-  `gate_admits_exactly_the_uncrossed_and_they_cohere` — the
-  composition verdict differentially against `partial_cmp`, plus
-  trichotomy coherence over lattice probes (bottom, bounds, join,
-  meet), all four bound pairings in both composition orders. The
-  rumors tree differential restates its naive-filter oracle inline
-  over raw `Bound` pairs: `Tree::range`'s `RangeBounds` surface
-  still accepts the crossed pairs the generator deliberately
-  drives. (2) `Decode::Io` (`42aca1f2`) renders its wrapped
-  `std::io::Error` by `Display` (`{0}`), not its Debug form; the
-  committed prefix pin (`error_display_strings`) asserts only the
-  crate-owned `read error: ` prefix and did not move, and no wire
-  snapshot was touched.
+  validates; `Decode::Io` displays.** Pairing a start with an end
+  passes a well-formedness gate; a crossed pair returns
+  `error::Crossed`, so every range that exists has a total
+  `placement_of` trichotomy. Consequence class: typed error, the
+  crate's convention for compositions that violate a relational
+  invariant; panics and debug_asserts stay reserved for internal
+  infallibility. Free single-bound constructors remain infallible
+  `O(1)`; two-bound compositions cost at most one validating
+  causal comparison. `Decode::Io` renders its wrapped
+  `std::io::Error` by `Display`, not Debug.
 - **FINDING 2026-07-27 (the presize-61 cure attempt; charter
-  premise disputed with evidence): reserve-once pre-sizing is
-  already landed at every builder site, and the capacity-phase
-  pair is owned by the one op whose output is not size-derivable —
-  no reserve change exists to make, and no cell moved.** The
-  frontier's §2.3(b) move ("a two-line reserve change per builder;
-  dissolves the capacity-phase red as a side effect") has no site
-  to land on: all six output builders reserve once from operand
-  sizes at construction and have since the commits that created
-  them — the join/meet sweep (a+b bits), grow (ev+id+64), the
-  projection (ev+id), the text parse (the text's own length), the
-  fused tick fill (ev), and the id diff sweep (self+other). The
-  artifact's mechanism, probed at release on a fine tooth sweep
-  (`cliff_comb(1_000, t)` × `scattered_id(t/2)`, t = 96..1152
-  step 32): projection output is mandatorily Θ(|v|·|p|) bits on a
-  Θ(|v|+|p|) input (the `/` operator rustdoc's documented product
-  growth; output/input reads 45–119 across the four board probe
-  points), so the honest-as-a-floor ev+id reserve under-runs by
-  that ratio and the builder walks a 6–7-step doubling chain
-  anchored at the input size. Peak transient is the last
-  realloc's old+new coexistence, ≈ 3·(n+m)·2^(k−1) with
-  k = ⌈log2(output/(n+m))⌉ — every probed point fits within 2%,
-  the residual the walk's cursor/accumulator/code transients
-  (t = 224: model 166,272 B, measured 167,432) — and the board's
-  default probe pair straddles
-  the k 6→7 step (e 1.38) while the ×4 pair sits inside k = 7
-  (e 0.70, peak tracking the input side, which grows slower than
-  `n_io`). Refuted alongside: a finish-time shrink discipline
-  cannot stabilize this reading — the peak is mid-walk, already
-  set when finish runs (§17.2's projection sub-bullet and §17.3's
-  owner note re-attributed to this entry). Candidate cures,
-  priced but not landed under this charter's no-pre-scan rule:
-  (i) a size pre-walk — the overlay sweep minus emission — feeding
-  one exact reserve (peak → output plus walk transients, both
-  cells flip; price ≈ ×2 on the input-side scan/limb/touch
-  columns, ~+0.3 scan bits per `n_io` byte on this shape against
-  the 96/B ceiling, no output-side re-scan; the text render's
-  two-pass exact-sized discipline is the in-tree precedent);
-  (ii) a segmented output assembled once at finish (peak →
-  ~2×output, phase-free; price one extra copy of the output,
-  +8 scan bits per output byte, and the builder's
-  truncate/extract moves crossing segment boundaries). An
-  un-anchored (organic) growth chain is REJECTED on doctrine: it
-  reads e ≈ 1.0 only because ×2 probe pairs cancel the
-  power-of-two sawtooth in the two-point fit — tuning the point,
-  not fixing the shape. Disposition OPEN to the owner: land (i)
-  or (ii), or ratify the pair as a stated-band residual (the
-  constant leg reads 2.6 B/B at default and 1.6 B/B at ×4 against
-  the 16 B/B ceiling; the exponent leg is the only red). Boards at both scales:
-  byte-identical to the boards of record, 966/23 and 969/20 — no
-  movement, no change landed. (Resolved 2026-07-27, owner ruling:
-  RATIFIED as the stated-band residual — neither cure lands; the
-  band is the documented honest profile of a non-derivable output.
-  §17.3's capacity-phase entry carries the standing owner, and the
-  decided lazy projection view, `design/own-version-view.md`, will
-  make the materialization explicit-only.)
-- **DECIDED 2026-07-27 (#67, owner-ruled): the skyline topology flag
-  inverts (0 internal, 1 leaf) and the version-stream reader
+  premise disputed with evidence)**: reserve-once pre-sizing is
+  already landed at every builder site; the capacity-phase pair is
+  owned by the one op whose output is not size-derivable — the
+  materialization's output is mandatorily Θ(|v|·|p|) on a
+  Θ(|v|+|p|) input, so the honest-as-a-floor reserve under-runs
+  and the builder walks a doubling chain anchored at the input
+  size, peak ≈ 3·(n+m)·2^(k−1) with k = ⌈log2(output/(n+m))⌉
+  (every probed point within 2%). A size pre-walk and a segmented
+  output were priced, not landed; an un-anchored growth chain
+  REJECTED on doctrine (tuning the probe pair, not fixing the
+  shape). Resolved 2026-07-27 (owner): RATIFIED as the stated-band
+  residual — the band is the documented honest profile of a
+  non-derivable output, later encoded as the declared capacity
+  model at the cell (§17.3), and the lazy projection view makes
+  the materialization explicit-only.
+- **DECIDED 2026-07-27 (#67, owner-ruled): the skyline topology
+  flag inverts (0 internal, 1 leaf) and the version-stream reader
   dissolves into `dsi-bitstream`.** The unshipped-window argument
-  carries the protocol change: main still holds the pre-skyline
-  format, so the inversion folds into the same revision that first
-  ships skyline and no second protocol version is burned. Mechanism:
-  a descent is now a unary run (zeros ended by the leaf's 1), read
-  word-parallel by `codec::DsiCursor` (BufBitReader, BE, u32 words,
-  safe zero-copy word source); payload values ride the in-house
-  wide-arm wrapper (9-bit table tier, machine arm `k < 64`, `UBig`
-  arm `k >= 64`), never dsi's `u64`-capped `read_gamma`, with
-  word-seam witnesses at `k = 63/64/65/~100`. The bijection is
-  pinned by transcode differentials (`topology_flag_bijection_*`:
-  an independent inverted-flag encoder, flipped flag-by-flag onto
-  the stored stream, both directions), and the rejection corpus
-  re-pins with the same error classes at the same cut points.
-  Dissolved: the sweeps' per-bit `LeafCursor` reads, the
-  validator's and every skyline walk's per-bit topology loops,
-  `codec::skip_int`. Kept hand-rolled, stated: the id-stream
-  readers (party coding unchanged), the borsh `ReaderCursor`
-  (incremental `io::Read`; dsi wants a materialized word source),
-  writers (dsi's writer wants word sinks), and `decode_int` over
-  mid-byte code sub-slices. Board identity: both scales
-  cell-for-cell byte-identical to the boards of record except the
-  two `*_decode_truncated hugeleaf` reject rows, whose heap drops
-  0.5 B/B (still green, exponents unchanged) — the new reader
-  proves a code's length before its wide arm allocates, so a
-  truncated wide code no longer sizes the value it will never
-  return; the truncation scan floors stayed enforced by recording
-  the examined tail at every reject. Fuel: version-walking arms
-  drop ×0.81–0.98 (`version_cmp` ×0.81, `version_rank` ×0.83,
-  `version_decode` ×0.84); `clock_tick`/`clock_send` rise ×1.035/
-  ×1.020 — the fill walk's id-interleaved single-flag reads pay the
-  buffered reader's constant with no run to batch; slopes and the
-  board's tick rows are unmoved. rumors rides the revision: content
-  addresses move, wire/trace snapshots re-accepted (topology bits
-  and hashes only; framing and sizes identical), searched fixture
-  constants re-searched, and the role-sensitive proxy tests now
-  arrange sides through the initiator election itself instead of a
-  version-byte proxy the coding change falsified. Flip
-  `40744605`; re-pin rides the same branch.
-- **Landed 2026-07-27 (suanpan-64, phase 1 of the owner-decided
-  extraction): the accumulator is the workspace crate `suanpan`,
-  type `suanpan::Accumulator`; before consumes it through a pure
-  re-export shim.** Dependency decision: suanpan speaks dashu-int's
-  `UBig` directly (re-exported as `suanpan::UBig`; the IBig
-  differential suite moved with the crate) and the small-helper
-  half moved *as a trait* — a public `suanpan::Magnitude`
-  (word-scale fast path + borrowed wide view) keeps the
-  width-dispatched `*_base` entry points inherent generic methods,
-  which is the only shape under which the shim can stay a bare
-  `pub use suanpan::Accumulator as Accum;` with zero call-site
-  edits (an alias cannot add inherent methods; an extension trait
-  would need imports in the frozen files). Shim shape:
-  `codec::accum` = the re-export, `touch_meter` under
-  `limb-meter → suanpan/touch-meter`, `impl Magnitude for Base`,
-  plus seam-differential tests of the Base dispatch;
-  `meter::accum` re-exports unchanged; zero edits under
-  `version/skyline`, `version/rank.rs`, `party/ops`. Ratchet
-  triple through the new home: all 543 before tests green with the
-  rank touch columns bit-identical to the annotated measured
-  values (125,007 / 17,194 / 198,659 / 17,814 — ceilings and
-  liveness floors both), and the tier-2 plain-sweep known-bad pin
-  still reads quadratic. Fuzzfit: all 18 suites green with NO
-  `#[inline]` annotations and no re-pin — cross-crate codegen
-  parity held on its own (one parity-motivated choice: `sub_accum`
-  keeps its own loop rather than delegating through the new
-  `sub_accum_shl`). Boards byte-identical to the 86e85420 parent
-  at both scales (`board-suanpan64-{before,after}-{lo,hi}.txt`).
-  Docs protocol: four fresh-eyes Fable rounds (47 → 25 → 19 → 24
-  findings; round 4 zero HIGH = convergence; raw reports
-  `suanpan-review-r{1..4}.md` in the job dir). **FINDING (round 1,
-  verified against code): `is_zero` was documented "exact" but
-  reads false on a zero spelled by cancelling digits**
-  (`add_wide(2^32); sub_small(2^32)`); behavior unchanged — the
-  one call site (`skyline/query.rs` rank sweep) uses it as a
-  skip-work fast path where a false negative only costs touches
-  the envelopes pin — the doc now states the one-sided contract,
-  a committed test pins the spelling behavior, and the sweep-rewrite
-  track should read the note before leaning on it. Round 2
-  refuted the ops table's per-call classification of wide writes
-  (digit runs parked near the zone edge make every write bound
-  amortized; table and derivation corrected). New API beyond the
-  move: `sub_wide_shl`, `sub_accum_shl` (subtractive twins,
-  oracle-covered), `Magnitude for UBig`, the `UBig` re-export.
-  Build surface: workspace member added; justfile `clippy-default`
-  and `features` gained suanpan lines; README derived via
-  `tools/readme` (crate added to its roster). Phase 2 (recorded
-  follow-up, post-protocol-pass): rename the call sites
-  `Accum → Accumulator`, delete the shim, and take the API-shape
-  candidates deferred from review — `*_base → *_magnitude`-style
-  names, a possible `merge_into_wider` rename or spare-buffer
-  newtype, an owner call on MSRV/`no_std` statements, and
-  dissolving before's private `U64Limbs` twin into the crate seam.
-  (Landed: this ledger's 2026-07-27 suanpan2-76 entry.)
-- **INSTRUMENTS LANDED 2026-07-27 (the distance/lag co-sweep's
-  gating families; instruments before cures).** Two committed
-  pair families close the coverage gaps the materialization probe
-  named (§2.4 of the constants frontier), with the CURRENT
-  architecture's cost pinned before any cure:
-  (i) **Two-operand jump comb** (`meter::jump_pair(k, m, d)`,
-  family `jump-pair`): both operands share a descent spine that
-  turns right every 33rd level — `d` isolated freeze-position
-  bits the balanced signed compaction cannot merge — then an
-  `m`-level comb where the teeth operand stores bare `2^k + 3`
-  leaves over `(1, 0)` gaps and the band operand rides a
-  once-paid `2^k + 1` plateau with unit bumps. Their meet
-  interleaves them (`+W, −1, −W, −1` per level), so the rank fold
-  freezes `2m` times, every eviction triggered by a cheap code
-  from the operand that did NOT pay for the drift, at a
-  `d`-digit freeze position. **FINDING, red-pinned: the
-  cross-stream funding hole is real and quadratic-class.**
-  `version_distance × jump-pair` reads limb/touch exponents
-  1.67/1.76 at the default scale pair and 1.89/1.93 at ×4
-  (envelope scale: 7.23 → 12.42 limb-ops per packed byte across
-  one (m, d) doubling, ×1.72); either operand's own rank is flat
-  (board `version_rank` green; the envelope band's two operand
-  controls flat at ×1.00 and ×1.07), and `lag` — no meet leg;
-  the join collapses every comb level because the band shades the
-  gaps — is linear at ~0.95 limb-ops/B: the wedge is exactly the
-  meet-side rank fold, reached only through the two-operand
-  public surface with each input individually innocuous. Pinned
-  red in four instruments: the board cell (both scales), the
-  `DISTANCE_JUMP_PAIR` envelope + the `skyline_flatness` growth
-  floor (per-byte limb work must rise ≥ ×1.5 across the doubling
-  — the cure trips it deliberately and flips it to a flatness
-  bound), the bench judge roster (`version_distance/jump-pair`
-  red; a green time leg before the cure means the leg went dark),
-  and `Version::distance`'s `# Complexity` re-classed to
-  superlinear worst-case time (claims roster moved in the same
-  change — the prose was factually wrong against the measured
-  code).
-  (ii) **Concurrent pair** (`meter::concurrent_pair(n)`, family
-  `concurrent-pair`): a balanced fork of `n` single-leaf parties,
-  both operands ticked on every leaf with dominance alternating
-  by parity and adjacent plateaus never equal, so the emit side
-  switch fires at every one of the `n − 1` overlay boundaries —
-  join and meet alike — where the corpus-of-record pairing
-  (`w = v + one seed tick`) reached at most one switch
-  corpus-wide. Achieved density at the envelope scale
-  (n = 4,096): 4,095 switches per emission over 5,889 packed
-  bytes ≈ 0.70 switches per input byte per emission (distance
-  runs two emissions: ~1.39/B). The realized-schedule witness is
-  semantic: distance = the integer rank 2 exactly, at every `n`,
-  pinned beside exact join/meet plateau counts. Honest linear
-  pins: `DISTANCE_CONCURRENT`/`LAG_CONCURRENT` envelopes, board
-  cells green at both scales.
-  Board wiring: two `FamilyKind`s (both `designed` against the
-  Measure group), the `version2` bundle slot now family-fillable
-  (the post-pass derives the ticked counterpart only where a
-  build arm left it empty), 1071 cells (the smoke pin moved:
-  41 × 7 version-bearing + 36 + 62 × 11 + 2 + 64). Two floor
-  derivations were corrected — forced honestly by the first
-  operands that reach the early exits, all readings untouched:
-  the comparison rows floor at the root codes exactly when the
-  pair is concurrent (a comparable pair keeps the full floor),
-  and `version_min_ticks` floors at the root codes exactly when
-  the stream stores a payload code wider than a machine word
-  (the fold may saturate and stop). Boards of record
-  (`board-dlfam66-{lo,hi}.txt`): default 1047/24, record
-  1050/21 — every pre-existing cell byte-identical to 966/23 and
-  969/20 except the `flr` scan column of `version_min_ticks` on
-  the eleven wide-code families (the corrected declaration;
-  every reading, exponent, constant, and verdict identical).
-  Cross-checked against the relayed one-sided `is_zero`
-  contract: neither family's pins assume zero detection fires —
-  the fold's live component is freshly reset at each eviction,
-  and every pinned number is measured, so the pins price the
-  general path.
-  Recorded for later phases, not touched here: the fuzzfit
-  corpus could gain a concurrent-pair operand arm (its fuel
-  bands are an in-flight seam; phase-2 item), and the cure phase
-  owes the overlay-scale freeze re-derivation plus digit-exact
-  differential pins against the composed forms and the oracle —
-  its improvement must move five committed readings at once: the
-  `DISTANCE_JUMP_PAIR` envelope, the growth-floor band (to
-  flat), the board cell (to green), the judge roster entry, and
-  the distance complexity class.
+  carries the protocol change: the inversion folds into the same
+  revision that first ships skyline, so no second protocol version
+  is burned. A descent is a unary run read word-parallel by
+  `codec::DsiCursor`; payload values ride the in-house wide-arm
+  wrapper, never dsi's `u64`-capped gamma, with word-seam
+  witnesses. The bijection is pinned by transcode differentials
+  and the rejection corpus re-pins at the same cut points. Kept
+  hand-rolled, stated: the id-stream readers, the borsh
+  `ReaderCursor`, writers, and `decode_int` over mid-byte
+  sub-slices. rumors rides the revision (content addresses move,
+  wire/trace snapshots re-accepted, role-sensitive proxy tests
+  arrange sides through the initiator election).
+- **Landed 2026-07-27 (suanpan extraction, two phases,
+  owner-decided): the accumulator is the workspace crate
+  `suanpan`.** Phase 1: `suanpan::Accumulator` behind a pure
+  re-export shim, `suanpan::Magnitude` carrying the width-dispatch
+  as a trait, IBig differential suites moved with the crate, the
+  ratchet triple green through the new home before anything
+  retired. Phase 2: the shim dissolved — every call site names
+  `suanpan::Accumulator` directly; `suanpan::Limbs` is the one
+  home of cross-target words-per-limb packing; the
+  `*_magnitude` names TAKEN (the old names carried one consumer's
+  concrete type into the generic crate's API); a spare-buffer
+  newtype DEFERRED (no decided target shape; one consumer; the
+  drained-buffer contract documented with a doctest). Fresh-eyes
+  docs rounds to convergence; one verified finding — the zero
+  probe reads false on a zero spelled by cancelling digits — led
+  to the one-sided contract in name and rustdoc
+  (`is_literally_zero`, owner ruling 2026-07-27). Standing policy:
+  unpublished until a second consumer stabilizes the API.
+- **INSTRUMENTS LANDED 2026-07-27 (the distance/lag families;
+  instruments before cures).** The two-operand jump comb — wide
+  height-difference crests over a dense-position spine, each
+  freeze fired by the operand that did not pay for the drift —
+  red-pinned `version_distance` quadratic-class in four
+  instruments at once (board cell, envelope + growth floor, judge
+  roster, `# Complexity` re-class), with either operand's own rank
+  flat. The concurrent pair — emit side switches at every overlay
+  boundary — landed as the honest linear density witness.
 - **CURED 2026-07-27 (#66 phase 2): the fused distance/lag
-  co-sweep — the cross-stream funding hole is closed and the five
-  committed readings moved in one commit.**
-  `Version::distance`/`Version::lag` integrate their measures
-  directly over the overlay (`∫|h_a − h_b|`, `∫(h_b − h_a)⁺`) in
-  one merge walk on the accumulator: no join/meet stream
-  materialized, no per-operand rank recomputed, the boundary
-  algebra `dh* = (σ′ − σ)·D′ + σ·dD` with `|D′| ≤ |dD|` at every
-  orientation change. The freeze discipline is re-derived for the
-  overlay's access pattern as an anchored-segment split
-  (`h* = B + P + L`): parked drift settles against per-segment
-  masses (compacted span = within-segment depth variation; the
-  spine's shared prefix cancels), promotions to the zero-anchored
-  base pay the sweep's only absolute-position product once per
-  wide arming, and the funding certificate is a **two-ledger
-  potential, one per operand, every charge naming its deposit**
-  (the potential-arity census: the composed form's per-stream
-  argument failed exactly at the emission seam). Derivation and
-  certificate live in `version/skyline/query.rs`'s pair-co-sweep
-  section; `suanpan` gained the write-watermark scaled read
-  (`sign_magnitude_shl`, O(written span)) the segment masses
-  need, and `Accumulator::is_zero` was renamed
-  `is_literally_zero` with the one-sided contract in name and
-  rustdoc (owner ruling 2026-07-27) — the co-sweep never relies
-  on exact zero detection. The five readings, before → after,
-  parent-measured for attribution: (1) board
-  `version_distance × jump-pair` red → green at both scales
-  (default limb/touch e 1.67/1.76 → 1.00/1.00, 7.0/7.6 → 0.4/1.4
-  per byte; record e 1.89/1.93 → 1.00/1.00, 22.5/26.4 →
-  0.4/1.4); boards default 1046/25 → 1047/24, record 1049/22 →
-  1050/21, the red-set delta exactly this cell at both scales,
-  every other verdict identical (note: the §17.3 sums of record
-  had drifted — `version_min_ticks × jump-pair` reads a
-  scan-floor red at the parent already, both scales,
-  un-enumerated; carried into §17.3 with an open disposition.
-  Resolved 2026-07-27 at this branch's merge: the ticks(n)
-  landing's exact fold cures it — see §17.3's dated resolution).
-  (2) `DISTANCE_JUMP_PAIR` re-pinned tight: heap 138,809 → 5,008,
-  limb 973,702 → 53,905, scan 6,464,538 → 3,218,320, touch
-  1,029,327 → 184,494; the lag/concurrent rows re-pinned with it
-  (lag-jump-pair touch 87,148 → 163,509 is the one rise — lag
-  walks the full overlay now — bought with heap −96%, limb −60%,
-  scan −25%). (3) the `skyline_flatness` growth floor tripped
-  deliberately (per-byte limb 7.23 → 12.42 across the doubling
-  before; 0.40 → 0.40 after) and flipped to a flatness bound
-  with ceilings tightened ~18× limb / ~5.6× touch. (4) the judge
-  roster: `version_distance/jump-pair` out of the red set, the
-  time leg's liveness witnessed by the schoolbook tripwire's
-  required red in the same run. Judge-run disclosure (quick
-  mode, 2026-07-27 evening): the first run surfaced and fixed a
-  flag-day breakage before any timing (the board bench built its
-  wide-display operand by decoding a construction-language
-  stream as wire bytes — Truncated since the topology-flag
-  inversion; it now lifts through `Packed::version()`), then ran
-  under a concurrent agent build storm (15-min load ~50) and
-  flagged 22 unrostered noise reds; the re-run on a
-  checked-quiet machine (no other cargo/rustc; ambient
-  Backblaze/mediaanalysisd churn disclosed) flagged 4, disjoint
-  from the first set but for `version_parse_noncanon/hugeleaf`
-  (e 1.31/1.42). In BOTH runs the wedge cell read green under
-  its ceiling and the tripwire read its required red; every
-  flagged cell's deterministic work columns are exponent-flat on
-  the board and the flagged sets do not reproduce across runs —
-  the load-noise signature, left for a record-mode pass on a
-  quiet machine rather than a third quick-mode fish. (5) `Version::distance`'s
-  `# Complexity` re-classed superlinear → linear
-  `O(|a| + |b|)`, the claims roster moved in the same change.
-  Differential coverage landed ahead of the cure: distance/lag
-  digit-exact vs the paper oracle AND the composed rank-of-meet
-  arithmetic on the crate's own kernels, deterministic and
-  proptest legs over the pair families, plus (with the cure) the
-  exhaustive small scope's every *ordered pair* of normal-form
-  trees against the composed forms — the total check over the
-  boundary genres crossed with the orientation schedules; the
-  concurrent-pair semantic witness (distance = the integer rank
-  2 at every `n`) held throughout. Honest residual, documented at the code:
-  promotion at position density once per wide arming, settles at
-  within-segment depth variation — both mandatory-class (the
-  measure's exact value embeds the product). Fuzzfit: bands held
-  as pinned, staleness cross-check green — per the phase-2
-  contract, no recalibration and no concurrent-pair operand arm
-  was added (the condition demanding them did not arise). Side
-  effect, priced: the accumulator's +8 B watermark field moves
-  five tick-cell board heap constants by ~0.1 B/B (verdicts
-  unchanged, work columns byte-identical).
-- **DECIDED 2026-07-27 (#73, owner-ruled): the mirror proxy's error
-  selection prefers a deposited root cause over a racing consequence,
-  and the transport-fault attribution pin is universal again.** The
-  flip-67 pass had bounded one arrangement (an Accept fault on the
-  elected initiator whose cut fails the endpoint's own flush with a
-  bare BrokenPipe before attribution) as a carve-out in
-  `transport_failures_are_exact_and_fail_fast`, its committed seed
-  replaying green about half the time. Mechanism found: the race was
-  never deposit-vs-consequence — the accept driver deposits the supply
-  failure's I/O cause in the same poll that observes the cut, strictly
-  before any in-process consequence can become ready — but
-  deposit-vs-*claim*: the first `SupplyClosed` reporter drained the
-  deposit slot into a report that then lost the terminal's biased
-  select to the consequence error, stranding the injected identity in
-  an unread channel. Fix at the selection seam (`Work::execute`):
-  reporters never touch the slot (`read_frames` reports `SupplyClosed`
-  with no source); the session terminal is the slot's sole consumer
-  and, on any failed selection, surfaces the deposit as `SupplyClosed`
-  (keeping the reporting stream's origin when the selected symptom
-  already named the dead supply, direction granularity otherwise);
-  plus one final non-waiting poll of the accept driver flushes a
-  supply failure whose readiness lost the biased race inside a single
-  wave — the external-cut genre a real transport can produce,
-  witnessed by `deposited_supply_failure_outranks_a_racing_consequence`
-  (red without that poll). No waiting added anywhere: the flush is one
-  poll (the driver deposits-and-parks or is pending), so the link
-  contract's no-deadline liveness posture stands. Determinism proof:
-  carve-out deleted, then 150 runs of the failures property (the
-  committed seed plus 32 fresh generated cases per run) all green,
-  where the pre-fix seed flipped roughly 50/50; a 30-run replay with
-  the flush poll disabled also all green, attributing the in-harness
-  fix to the slot discipline alone, exactly as the happens-before
-  analysis predicts. The universal pin (surface + injected identity
-  asserted on every injected fault, no carve-outs) is restored; the
-  seed stays committed as the regression witness for the fix.
-  Semantics scope: which error a failed session reports in one race;
-  success paths, wire bytes, and snapshots unmoved.
-- **Landed 2026-07-27 (suanpan2-76, phase 2 of the owner-decided
-  extraction): the shim is dissolved — every call site names
-  `suanpan::Accumulator` directly.** The rename sweep moved the
-  skyline walks (fill/watermark/sweep/emit/text/validate/query),
-  the rank fold, the board runner, and the resource-envelope suite
-  onto the direct paths (the suite reads `suanpan::touch_meter`
-  itself; feature unification keeps it the same counter before's
-  code bumps); the `Magnitude` impl for `Base` and its
-  seam-differential tests live in `codec::base`. Ratchet order
-  held: the envelope ceilings and liveness floors, the rank touch
-  columns (bit-identical at 125,007 / 17,194 / 198,659 / 17,814),
-  and the tier-2 plain-sweep known-bad pin read green through the
-  direct paths at the sweep commit, and again after `codec::accum`
-  and the `meter::accum` re-export were deleted. `U64Limbs`
-  dissolved into the crate seam as `suanpan::Limbs` — a public,
-  named, double-ended borrow iterator over a magnitude's 64-bit
-  limbs, the unit the crate's wide-operand costs are denominated
-  in — now feeding the wide entry points, `Base::msb_cmp`'s
-  streamed windows, and the query fold's digit compaction, so the
-  cross-target words-per-limb packing lives in exactly one place.
-  API-shape candidates: `*_base → *_magnitude` TAKEN (the old
-  names carried one consumer's concrete type into the generic
-  crate's API, propped by a minted "*base*" gloss whose only job
-  was justifying them). `merge_into_wider` rename / spare-buffer
-  newtype DEFERRED: no decided target shape exists, the only
-  in-tree consumer is the watermark pool, and the drained-buffer
-  contract is documented with a doctest — a newtype would add
-  surface to encode a discipline the docs already state; revisit
-  if a second pooling consumer appears. MSRV/`no_std` statements
-  untouched (owner policy). Parity: boards byte-identical to the
-  c1eb3428 parent at both scales
-  (`board-suanpan2-{before,after}-{lo,hi}.txt`); fuzzfit all 18
-  suites green with no `#[inline]` additions and no re-pin.
-  Design-doc note, dated here: the tick-cost spec
-  (`before-tick-cost-spec.md`) and the formal-tick notes
-  denominate costs in "Accum digit touches"; that unit's type now
-  spells `suanpan::Accumulator`. The spec text itself is
-  untouched — it is a statement of record, and the rename amends
-  no claim; this entry is the dated cross-reference.
-- **DECIDED 2026-07-27 (#75, owner-commissioned): the algebraic laws
-  factor into `before::laws` — one named-predicate collection, every
-  consumer.** Shape: 12 signature-grouped slices of
-  `(&'static str, fn(...) -> bool)` (`VERSION_{SOLO,PAIR,TRIPLE}`,
-  `PARTY_{SOLO,PAIR,TRIPLE}`, `VERSION_PARTY`, `VERSION_PAIR_PARTY`,
-  `VERSION_PARTY_PAIR`, `RANK_TRIPLE`, `CLOCK_SOLO`, `CLOCK_VERSION`),
-  ~100 laws, predicates private behind public statics (the triangle
-  roster's pub-fn totality is untouched; rows re-cite by predicate
-  name where a bespoke test dissolved). Linearity: predicates take
-  shared borrows and materialize consumable working copies via
-  `dangerously_alias`, confined to the predicate's scope; fallible
-  ops are outcome-quantified (arm and payload both). Visibility:
-  `laws` cargo feature in the `oracle`/`meter` idiom
-  (`#[cfg(any(test, feature = "laws"))] pub mod laws`). Consumers:
-  the algebraic-laws suite's per-group drivers (arbitrary normal
-  forms and organic op-trace populations), the version suite's
-  seeded-adversarial-rank driver, and the `fuzz_laws` target
-  (length-prefixed chunk framing, default fallback per failed chunk,
-  committed seeds including wide-gamma bases — 2^64/2^128 — whose
-  64+-zero unary prefixes random bytes never reach; a gate test pins
-  the seeds' framing and wideness). Dissolved into the collection
-  name-for-name: the bespoke algebraic_laws tests, version/tests'
-  `order_laws`/`lattice_laws`/`meet_lattice_laws`/`monotone_tick`/
-  `div_by_party_laws`/`div_is_additive_over_fork`/
-  `rank_monoid_and_order_laws`/`rank_cross_path_normalization_and_hash`/
-  `ranked_linearly_extends_causality`, clock/tests'
-  `fork_preserves_version`/`peek_does_not_advance`/`own_receive_is_tick`,
-  party/tests' `covers_tracks_fork_join`/`d_join_overlap_hands_back`/
-  `dangerously_alias_aliases_region`/`without_inverts_fork`, and the
-  law-only assertion lines inside `covers_arbitrary`/
-  `disjoint_arbitrary` (their differentials stay). Kept deliberately
-  outside: the exhaustive small-scope suite's four point laws (a
-  totality instrument over enumerations, not a sampled driver), the
-  population/fold laws (`join_all`/`meet_all`/`Sum` folds,
-  `ranked_sort_respects_causality` — not fixed-arity), and the
-  internal-seam `byte_equality_matches_bit_equality`. Recorded
-  future addition: post-ticks laws (`ticks`/`min_ticks`) join the
-  collection with the ticks landing (fulfilled 2026-07-27: eight
-  laws across four existing groups; the #71 entry below).
-
+  co-sweep.** `Version::distance`/`lag` integrate their measures
+  directly over the overlay in one merge walk on the accumulator:
+  no join/meet stream materialized, no per-operand rank
+  recomputed. The freeze discipline re-derived for the overlay as
+  an anchored-segment split; the funding certificate is a
+  two-ledger potential, one per operand, every charge naming its
+  deposit (the composed form's per-stream argument failed exactly
+  at the emission seam). Derivation and certificate live in
+  `version/skyline/query.rs`; `suanpan` gained the
+  write-watermark scaled read (`sign_magnitude_shl`). All five
+  committed readings moved in one commit, parent-measured;
+  differential coverage (paper oracle, composed forms, exhaustive
+  ordered pairs) landed ahead of the cure.
+- **DECIDED 2026-07-27 (#73, owner-ruled): the mirror proxy's
+  error selection prefers a deposited root cause over a racing
+  consequence.** Reporters never touch the deposit slot; the
+  session terminal is its sole consumer and surfaces the deposit
+  as `SupplyClosed` on any failed selection, plus one final
+  non-waiting poll of the accept driver (no waiting added; the
+  link contract's no-deadline liveness posture stands). The
+  universal transport-fault attribution pin is restored with no
+  carve-outs; determinism demonstrated by seed replay campaigns.
+- **DECIDED 2026-07-27 (#75, owner-commissioned): the algebraic
+  laws factor into `before::laws`** — one named-predicate
+  collection, signature-grouped statics, predicates private behind
+  public slices, every consumer wired (the per-group proptest
+  drivers, the seeded-adversarial-rank driver, the `fuzz_laws`
+  target with committed wide-gamma seeds). Linearity: predicates
+  take shared borrows and materialize working copies via
+  `dangerously_alias`, confined to predicate scope. Bespoke law
+  tests dissolved name-for-name; kept deliberately outside: the
+  exhaustive small-scope point laws, the population/fold laws
+  (later reached by the arity-five clauses; §17.2's variadic
+  item), and the internal byte-equality seam law.
 - **DECIDED 2026-07-27 (Finch; landed #71, probed #68):
   `ticks(n)` — the fused multi-tick — is a first-class public
-  operation, and every count-of-ticks surface is denominated in one
-  opaque unbounded newtype, `Ticks`.** The probe
-  (`design/probe-ticks-68.md`, branch `tickby-68` @ dbb8e53f) proved
-  the mechanism: `n` sequential ticks = at most two fused walks plus
-  one `+n` splice, byte-identical to the iterated public tick
-  (fill is idempotent; grow preserves fill-fixedness; the route is
-  value-blind and its site stable), at `O(|v| + |p| + log n)`.
-  Landed shape: `grow::emit` generalized to the `+k` splice (one
-  splice path — the probe's `emit_by` twin retired with the merge),
-  `fill::ticks` the two-branch conditional, three public surfaces
-  (`Version::ticks`, `Party::ticks`, `Clock::ticks`, all
-  `impl Into<Ticks>`; the batch mirrors deliberately not built —
-  the Batch API is dissolving on a parallel track), and
-  `Version::min_ticks` returning `Ticks` exactly at any magnitude
-  (u64 became partial the moment `ticks(2^100)` exists). The `k = 1`
-  splice performs tick's exact metered operation sequence in both
-  profiles: all five tick envelope rows read byte-identical to their
-  pre-landing baselines [measured 2026-07-27: dense
-  47_052/250_008/125_017/375_012 heap/limb/touch/scan, expand-cross
-  488_989/750_010/250_013/2_875_025, expand-spine, nested-wide,
-  mirror-wide — all equal to the captured baseline]. The exact
-  `min_ticks` rides rank's frozen/live split (minima as narrow
-  F-relative offsets, `F` by counting, epoch-tagged lazy re-basing);
-  its envelopes re-pinned with the movement owned: dense limb
-  250_002 → 500_002 (one signed offset compare per closing node),
-  cliff heap 560 → 49_752 / scan 2_052 → 14_338 (the early
-  saturation exit is retired, so the comb reads every leaf — its
-  scan-floor carve-out in the board dissolved with it). Board
-  movement (default scale, 25 → 31 reds): the exact fold CURES the
-  `version_min_ticks/jump-pair` dead-meter red (the saturating exit
-  left the scan counter below its floor) and joins the counter-red
-  genres the honest work now meters — heap constants on
-  mirror-wide/ascend-cliff/ascend-plateau (the tick rows' standing
-  genre) and the close-reveal/undercut circulation on
-  cliff/pure-comb/reveal-comb (limb/touch e 1.5–1.95; the rank
-  fold reads the same reveal rows red at sub-default scales — the
-  watermark anchor-web is the known cure for both, out of this
-  landing's scope and named in the query module's cost section).
-  `version_ticks/ascend-cliff` reads exactly `version_tick`'s
-  standing heap-constant red (identical readings). OPEN for the
-  owner: whether the four untimed new reds (`version_min_ticks` ×
-  reveal-comb/pure-comb/ascend-cliff/ascend-plateau) join
-  `BOARD_RED_BENCH_RIDERS` — their bench time legs are unmeasured,
-  and the rider census (2026-07-26) already lagged the base board
-  (base read 25 default reds against the census's 23), so the next
-  realization should be one owner-reviewed sweep. New
-  instruments: `version_ticks` board cells (fixed count 512; smoke
-  pin 1071 → 1090), ticks envelope rows on the tick-designated
-  families, and the flatness pin — `ticks(512) → ticks(4096)` moves
-  scan by exactly the count codes' gamma delta [measured: 6 bits on
-  all three families, bands 12/8/8] with liveness floors on the
-  envelope rows; exhaustive small scope at n ∈ 0..=4; `Op::Ticks`
-  in the organic vocabulary (oracle side literally iterated);
-  `fuzz_decode_ops` gains the fused op at a `2^100` count (seed
-  regenerated by its derivation; `fuzz_laws` framing untouched —
-  the new laws ride the existing groups and draw wide counts from
-  `min_ticks` of the decoded operands). Laws: eight named
-  predicates across `VERSION_SOLO`/`VERSION_PARTY`/
-  `VERSION_PAIR_PARTY`/`CLOCK_SOLO`, wide-count composition
-  included. rumors: the bootstrap dominance seam
-  (`NetworkMismatch`/`BootstrapHistoryConflict` min-events) carries
-  `Ticks` — totally ordered at any magnitude, no conversion and no
-  error arm between `min_ticks` and the rule — and re-exports the
-  type; wire bytes unmoved (counts were always derived locally from
-  the declared version, and the V1 wire snapshots stand unchanged
-  under fused fixture construction, the byte-identity guarantee
-  read back through the protocol pins).
-
+  operation, and every count-of-ticks surface is denominated in
+  one opaque unbounded newtype, `Ticks`.** The probe
+  (`design/probe-ticks-68.md`) proved the mechanism: `n`
+  sequential ticks = at most two fused walks plus one `+n` splice,
+  byte-identical to the iterated public tick, at
+  `O(|v| + |p| + log n)`. `grow::emit` generalized to the `+k`
+  splice (one splice path); three public surfaces
+  (`Version::ticks`, `Party::ticks`, `Clock::ticks`);
+  `Version::min_ticks` returns `Ticks` exactly at any magnitude.
+  The k = 1 splice performs tick's exact metered operation
+  sequence in both profiles. Laws, exhaustive small scope, orbit
+  vocabulary, and fuzz coverage landed with it; rumors' bootstrap
+  dominance seam carries `Ticks` with wire bytes unmoved.
 - **DECIDED 2026-07-27 (owner, #72): the batch API is removed from
-  `before`** — `Version::batch`/`Clock::batch`, the two `Batch`
-  handles, and the `batch` re-export module — as "a footgun waiting
-  to be accidentally discharged": the surface looked like it
-  amortizes work and amortized nothing. The accretion story is the
-  dissolution doctrine's textbook case: the original `Batch` held a
-  deferred `work` state and its docs claimed multi-op efficiency;
-  C2 (§12's flag-day entry) moved the operation kernels onto the
-  packed stream, every op commits as it runs, and the working form
-  ceased to exist — the handle survived its justification as pure
-  chaining sugar priced as an economy. The honest replacement for
-  repeated ticks is the ticks(n) surface (landed, #71; probed in
-  `design/probe-ticks-68.md`). Landed shape: the `|`/`&`/comparison
-  matrices collapse to owned/borrowed `Version` cells (the
-  `join_view`/`meet_view` cores now live on `Version`; `Clock`'s
-  join/sync/recv inline their part-wise bodies); the roster
-  totality tests were the removal's mechanical proof — the
-  `pub fn` extraction and both rosters fail on either side's
-  leftovers — with 2 method rows, 9 batch-module rows, and the two
-  batch `SURFACE_SOURCES` dropped from the triangle suite, 10
-  claim rows from the complexity roster, and the
-  `version_batch_snapshot` board row retired (the board pin moved
-  1090 → 1071 cells with the diff; bench mirror 1073 judged cells,
-  pinned subset 321). Tests whose entire subject was the handle
-  were deleted, not rewritten into vacuity
-  (`representation_parity`, `batch_equals_value_level`,
-  `no_arith_batch_preserves_version`, `commit_on_drop`); the
-  operator-matrix differentials were re-scoped to the surviving
-  cells. rumors refactor (its own public `Batch` — a real
-  amortizer at the rumors layer, batching sends/redactions into
-  one commit — is untouched): the C2-era census of ~8 production
-  call sites had already collapsed to one — `tree.rs::act`'s
-  per-action version chain, now a plain `tick`-and-`clone` loop —
-  plus three test-side ticks (`tree/tests.rs`); every other
-  `.batch()` in the workspace is rumors' own surviving API. No
-  wire snapshot moved.
-- **FINDING 2026-07-27 (#72, at the removal's gate): the
-  `ff_clock_join` rejection band under-prices the full-scan
-  overlap genre at small denominators; pre-existing, not the
-  removal's movement.** The enforcement sentry drew a program
-  whose `Clock::join` overlap rejection at 139 denominated bits
-  consumed 6805 fuel against a pinned ceiling of
-  ~10^(3.156+0.335) plus the 0.2 enforcement margin (~4.9k
-  fuel): +0.68 decades of residual against a +0.335 width.
-  Attribution measured both sides: the identical committed seed
-  reads 6820 fuel at the parent (21f99a7c) and 6805 at the
-  removal tip (−0.2%; the guest kernels drive public ops only
-  and never held a batch handle), so the removal is fuel-neutral
-  and the escape is the band's. Mechanism: the rejection band is
-  one line over a bimodal arm — cheap early overlap detections
-  dominate its small buckets (146 corpus samples, intercept
-  0.22) while full-scan rejections hold the top (the bands
-  module doc's own mixture note) — and a legitimate full-scan
-  rejection at small n (~49 fuel/bit, consistent with the band's
-  own top decade at ~66 fuel/bit) sits above the small-n line.
-  The shrunk program is committed as the finding of record
-  (`enforce.proptest-regressions`, `cc f858383f958c…`), which
-  makes the enforcement leg deterministically red on this branch
-  until the band learns the genre; band re-pins are the protocol
-  pass's seam, so no calibration landed here — a probe run
-  (discarded, not committed) confirmed the fix is evidential,
-  not structural: a 4096-program corpus triples the arm's
-  evidence (146 → 409 samples) and prices the genre in-band
-  (width_above 0.335 → 0.550) with no slope movement
-  (1.370 → 1.374). Sequencing (resolved 2026-07-27, at the merge
-  round): the recalibration landed with the merge itself — the
-  landing entry below carries the numbers, and the committed seed
-  prices in-band under the re-pin.
-- **LANDED 2026-07-27 (#77): `OwnVersion`, the lazy projection view
-  — projection is lazy at every spelling, and Θ(|v|·|p|)
-  materialization is only ever the explicit call.** The charter is
-  `design/own-version-view.md` (every DECIDED entry an owner
-  ruling); the landed shape follows it exactly. `&v / &p` and
-  `Clock::own_version()` both return the ref-owning view
-  `OwnVersion<'a>` in O(1); the comparison matrix (vs `Version` in
-  both directions and vs `OwnVersion`, owned and borrowed, `==`
-  semantic, no `Hash`) fuses projection and comparison into one
-  linear co-walk (`skyline::masked`: the pair sweep's overlay
-  bookkeeping at up to four cursors, with the trichotomy's
-  zero-check answered by per-side running-height integrators at
-  amortized O(1) per boundary — measured, not asserted, per the
-  charter's semantic note); `.to_version()` / `From` are the one
-  product-growth path. By-value `Div` and `DivAssign` are dropped
-  (the census found only their own law and tests; those
-  re-denominated through the public composition). Differential
-  laws: `own_version_cmp_matches_materialized` and
-  `own_version_seed_mask_coherence` (three-stream) join
-  `VERSION_PAIR_PARTY`, and the new `VERSION_PAIR_PARTY_PAIR`
-  group carries `own_version_pair_cmp_matches_materialized`
-  (four-stream), all wired to the three law consumers; the
-  projection laws re-denominated along the grain (comparison-shaped
-  laws ride the fused ops lazily, laws about the materialized
-  object grow `.to_version()`), and the public-surface proptests
-  bind both fused walks to the recursive oracle's composed
-  projection-and-compare. Instruments: the board's projection rows
-  re-denominate — `version_project` → `own_version_to_version`,
-  `clock_own_version` → `clock_own_version_to_version` (same
-  bodies under the honest new owner; the ratified doubling-band
-  cells move with them) — and the fused rows `own_version_cmp` /
-  `own_version_pair_cmp` join the Projection group,
-  input-denominated on every shape, the output-domination crosses
-  included (comparing a projection never pays its
-  materialization); smoke pin 1071 → 1111 by its per-shape
-  derivation, bench mirror 1073 → 1113 full / 321 → 335 pinned
-  (320 diagonal + 13 riders + the wide-display pair,
-  `--list`-verified), expected-verdict roster unchanged. The
-  correlated families landed as the charter's relational genre at
-  higher arity: `mask_drift_triple` (cliff comb × scattered id ×
-  wide plateau; owned teeth read the difference mid-cancel,
-  unowned intervals the zero-check on a wide height) and
-  `mask_drift_quadruple` (sparse comb under the even mask vs full
-  comb under the offset mask: the parities interleave tooth for
-  tooth, and the even teeth read the zero-check on a
-  semantically-zero height spelled by cancelling `2^k`-wide
-  digits), both full-walk `Less` by construction (generator-pinned)
-  so no early exit shortens a measurement. Envelope pins
-  [measured 2026-07-27, k=512, n=1024]: the triple reads 1_032
-  heap / 0 segments / 6_187 limb / 16_390 scan / 4_192 touches on
-  2_051 input bytes (~2 touches per stored delta, one pass), the
-  quadruple 2_176 / 0 / 31_778 / 1_073_674 / 67_157 on 134_212
-  bytes (~8 scan bits per input byte); ceilings ×1.25, limb/touch
-  floors ×0.75, plus flatness bands across a tooth doubling
-  (per-delta touches 2.05 → 2.02 and 21.86 → 21.85; per-byte limb
-  3.02 → 3.32 and 0.236 → 0.236) over one-touch-per-delta
-  liveness floors. **No superlinear wedge: both families landed as
-  green pins** — the balanced signed-digit integrators hold the
-  fused walks linear, so there was nothing to red-pin. rumors:
-  `bookmark.rs` moved to the fused comparisons with zero code
-  change — `reclaim`'s `extract_if` predicate
-  (`clock.own_version() <= *version`, the charter's cited seam,
-  verified at src/bookmark.rs:451) and additionally `is_current`'s
-  suppression test (`v / p == version / p`, a second projection
-  comparison the charter did not enumerate — the doc correction of
-  this entry) now fuse, so the reclamation path's product-growth
-  materialization is gone. Eager call sites (the additive/
-  homomorphism/idempotence laws' objects, the `own_version` meet
-  doctest, the oracle differentials) grew `.to_version()`; the
-  paper oracle keeps its eager `Div`, as chartered.
-- **LANDED 2026-07-27 (#72, the merge round): the batch
-  elimination is on the tree, with the owner-approved fuzz-fit
-  recalibration.** The merge integrated the removal across the
-  epochs that landed since its base (the prose/protocol/suanpan
-  passes, the meter families, `before::laws`, ticks(n)): the
-  smoke pin moved 1090 → 1071 (its per-shape derivation
-  re-stated and test-verified), the bench mirror 1092 → 1073
-  full / 326 → 321 pinned (both `--list`-verified; the pinned
-  split is 306 diagonal + 13 riders + the wide-display pair,
-  and the mirror verification also caught the wide-display and
-  amplify benches still decoding generator construction-language
-  bytes as wire bytes — stale since the skyline transcode, fixed
-  by routing through `Packed::version`). Recalibration: the
-  corpus of record widened 1536 → 4096 programs (~985k → ~2.64M
-  steps; bands byte-identical across two sweeps), the
-  `ff_clock_join` rejection band learned the full-scan genre
-  (samples 146 → 409, width_above 0.335 → 0.550, slope
-  1.370 → 1.374), and the committed sentry seed prices in-band
-  (residual +0.675 against the 0.550 width + 0.2 margin) — the
-  acceptance criterion met with no seed tuning and no exclusion.
-  Constants re-derived from the sweep's evidence:
-  `ENFORCE_MARGIN_BELOW` 1.0 → 0.8 (at 1.0 the widened
-  `ff_rank_cmp` floor dipped 0.087 decades under nop, voiding
-  the liveness claim on that key; at 0.8 the narrowest gap is
-  +0.113 decades with the honest 0.29-decade cheap tail still
-  absorbed); `ENFORCE_MARGIN`, `REFIT_TOLERANCE`, and
-  `SLOPE_ALLOWANCE` re-evidenced unchanged (worst replay ceiling
-  excess +0.023, prefix divergence 0.489 over 48 of 49 keys
-  covered, max healthy within-case excess +0.081).
-
+  `before`** — the handle surface looked like it amortizes work
+  and amortized nothing ("a footgun waiting to be accidentally
+  discharged"): C2 moved the operation kernels onto the packed
+  stream, every op commits as it runs, and the handle survived its
+  justification as pure chaining sugar priced as an economy — the
+  dissolution doctrine's textbook case. The honest replacement for
+  repeated ticks is `ticks(n)`. The roster totality tests were the
+  removal's mechanical proof; tests whose entire subject was the
+  handle were deleted, not rewritten into vacuity. rumors' own
+  public `Batch` (a real amortizer at that layer) is untouched.
+  The merge round widened the fuzz-fit corpus of record and
+  re-derived the enforcement constants from the sweep's evidence;
+  the one gate finding (a rejection band under-pricing the
+  full-scan overlap genre at small denominators) was recalibrated
+  with the merge, the committed sentry seed pricing in-band.
+- **LANDED 2026-07-27 (#77): `OwnVersion`, the lazy projection
+  view — projection is lazy at every spelling, and Θ(|v|·|p|)
+  materialization is only ever the explicit call.** Charter of
+  record `design/own-version-view.md` (every DECIDED entry an
+  owner ruling). `&v / &p` and `Clock::own_version()` return the
+  ref-owning view in O(1); the comparison matrix fuses projection
+  and comparison into one linear co-walk (`skyline::masked`);
+  `.to_version()`/`From` are the one product-growth path. By-value
+  `Div`/`DivAssign` dropped (census: only their own laws and
+  tests). The board's projection rows re-denominate onto the
+  materialization door (`own_version_to_version`,
+  `clock_own_version_to_version`); the fused comparison rows are
+  input-denominated on every shape, output-domination crosses
+  included. The correlated mask-drift families landed green — the
+  balanced signed-digit integrators hold the fused walks linear,
+  so there was nothing to red-pin. rumors' bookmark reclamation
+  and suppression seams fuse with zero code change.
 - **REVIEW 2026-07-28 (task #37, the whole-state adversarial
-  review; branch `advrev-37` @ f08cae75).** Charter: falsify the
-  amelioration claim — wrong committed claims, new amplification
-  families, test blind spots, Goodhart constructions — with
-  committed demonstrators; instruments only, no cures. All
-  measurements below are exact deterministic counters (dev and
-  release read identically on every quoted number unless noted);
-  the one wall-clock claim is disclosed as single runs on a
-  checked-quiet machine. Findings by severity, then seed
-  dispositions, the attacked-and-sound map, and residual risks.
-
-  **F1 (wrong committed claim + roster-binding hole, the highest
-  severity): `Version::min_ticks` is documented `O(|v|)` time and
-  space, roster-bound `Class::Linear`, and measured superlinear on
-  three committed board families through the public API.**
-  [measured, release and dev identical: touch per-byte cost growth
-  ×1.88 across the pure-comb doubling and ×1.66 (touch) / ×1.68
-  (limb) across the reveal-comb doubling, local exponents 1.82–1.93
-  at s = 4000 and still rising; ascend-cliff touch e 1.87.] The
-  excess is unbounded — the pending-minima merge circulates the
-  full plateau width per closing node, which the freeze allowance
-  does not cap (unlike rank's per-leaf adds, which the allowance
-  bounds at 8 digits) — so this is a class defect, not a constant.
-  The query module's own cost section says "the excess is not
-  contractual": by statement-faithfulness the public claim is
-  wrong TODAY, and every committed binding leg is structurally
-  blind to it — `linear_claims_cite_no_judge_red_row` consults
-  only the bench judge's red set (wall exponents), the
-  version_min_ticks bench time legs are unmeasured (this entry's
-  ticks(n) OPEN item), and no test reads the board's counter
-  verdicts against the roster classes. The worst artifact that
-  passes: any counter-superlinear kernel whose wall constant is
-  small enough to stay under the judge's fit at bench scales keeps
-  a Linear rustdoc claim with every gate green. Pins landed:
-  `min_ticks_pure_comb_touches_read_superlinear` and
-  `min_ticks_reveal_comb_reads_superlinear_in_both_width_currencies`
-  (`tests/meter.rs`, `query_superlinearity_pins`): per-byte
-  growth bands (floor midway between linear and measured — only a
-  class change crosses it; ceiling = measured ×1.10) over
-  closed-form semantic legs (`min_ticks = k·2^b` on both combs)
-  and touch liveness floors. The cure (anchor-web) or the re-class
-  must move the pins, the `# Complexity` section, and the roster
-  row in one change. **Categorical seal proposed**: board reds
-  carry a mechanism tag (constant vs exponent), and the claims
-  roster gains a third binding leg — a `Class::Linear` claim may
-  cite no exponent-mechanism red cell; the §17.3 constant reds
-  remain citable.
-
-  **F2 (new adversarial family; `Version::rank`'s `O(|v|)` claim
-  falsified where the board reads green): the freeze-position
-  family FP(k)** — a right spine of 2k descending leaves whose
-  deltas alternate a 10-digit-wide drop (over the 8-digit freeze
-  allowance) and a unit drop, so the fold freezes Θ(k) times;
-  every committed family fires O(1) freezes, which is exactly the
-  hole. Each freeze reads the position accumulator's full digit
-  span (`sign_magnitude` walks digit 0 through the top digit —
-  including the never-written zero prefix below the shallowest
-  leaf's mass, and the span read survives even a
-  `sign_magnitude_shl`-style bottom skip since the written span
-  itself grows) against the O(1)-digit compacted ones-run the
-  correction product actually consumes: Θ(k²) touches on a
-  Θ(k)-byte operand, built through `FromStr` alone. [measured:
-  touch per-byte growth ×1.50 and limb ×1.43 across
-  FP(1,000) → FP(2,000) at 73–147 KB operands, local exponent
-  1.74 at FP(4,000) and rising; every committed rank family reads
-  e 1.00–1.01 at the same scales.] Pin landed:
-  `rank_freeze_position_touches_read_superlinear` (same module,
-  bands on touch and limb, `min_ticks` closed form as the
-  cross-fold semantic leg). **This also disputes the query module
-  doc's residual defense (seed 3 below): on FP(k) the measure's
-  value embeds no wide×dense product — the family's positions
-  compact to O(1) digits and an O(|v|) accounting exists (fold the
-  ones-run product without materializing the position) — so the
-  work is span-read overhead, not mandatory-class.** Categorical
-  seal: FP joins the board family roster (the structural product
-  then prices every operation against the many-freezes genre);
-  the pin carries rank until then.
-
-  **F3 (dependency cost-table refutation, seed 1 CONFIRMED):
-  suanpan's `*_shl` rows claim "amortized O(operand limbs),
-  independent of the shift", and `digit_count`'s doc claims the
-  top-zeroing scan is paid "inside that write's own budget"; both
-  are false at the alternating shifted pair.** [measured, exact:
-  1,000 `sub_wide_shl(&1, s)`/`add_wide_shl(&1, s)` pairs cost
-  1,004,000 touches at s = 32,000; 2,004,000 at 64,000; 4,004,000
-  at 128,000; 8,004,000 at 256,000 — exactly (s/32 + 4) per pair,
-  sustained, and (s/32 + 2) on the `*_magnitude_shl` word path.]
-  Mechanism: the subtraction zeroes the only nonzero digit and
-  `add_at`'s exact-`top` maintenance walks the zero gap to digit
-  0, funded by no operand limb and no earlier deposit; the
-  matching add re-raises `top` in O(1), so the pair repeats
-  forever at the same price. Exposed surface: every shifted
-  subtractive entry whose operand is narrower than the gap under
-  it (`sub_wide_shl`, `sub_magnitude_shl`, `sub_accum_shl`, and
-  the add twins against a negative held value). Pin landed:
-  `alternating_shifted_writes_pay_the_zero_gap_per_pair`
-  (`suanpan/src/tests.rs`, exact totals at two shifts + value
-  legs). Can `before` be driven onto it through the public API?
-  Not demonstrated: the query folds' shifted subtractions target
-  accumulators whose top is maintained by ongoing deposits, and
-  the board's touch column would price a hit on any committed
-  family; constructing a stream that oscillates a fold total's
-  top digit across a wide gap remains a residual risk (below).
-  The cure (a lazy top watermark or gap-aware maintenance) must
-  re-pin the test and re-derive the crate page's `*_shl` rows and
-  the `digit_count` scan claim in one change.
-
-  **F4 (wrong prose + unmetered work, the fold index):
-  `Party::join_all`'s `# Complexity` says each input is
-  overlap-tested "in `O(input)`", and the `IdIndex` module doc
-  says "the fold's total is linear in its operands" one clause
-  after granting "one `O(log n)` table search per both-present
-  node visited" — self-contradictory as written; on
-  both-present-rich populations the up-front tests cost
-  Θ(Σ inputs × log |self|), which `O(D log k)` does not bound
-  (k = 2 already exceeds it). The searches are `step!`-free and
-  scan-unmetered — the #39 F2 genre — so no committed counter can
-  see the term. [measured, wall, single runs, quiet machine,
-  release: on the parity-halves pair (every internal node
-  both-present in both operands) at d = 16 → 18, the cursor
-  predicate `is_disjoint` reads 416 µs → 1.69 ms (×4.05 on ×4
-  input) while join_all's index-build + indexed test reads
-  495 µs → 2.81 ms (×5.67), i.e. ×1.66 the cursor walk at d = 18
-  and growing — the indexed test is also a per-test regression
-  against the walk it replaced on exactly this population.]
-  Correlated deep both-present populations are in no fold family
-  (the #76 gap, hereby confirmed and concretized). No red pin
-  landed: without a meter on the search there is no deterministic
-  reading to pin — the instrument gap IS the finding. Categorical
-  seal: meter the partition-point search (one scan record per
-  probed entry), add a both-present-rich fold family, then the
-  board's exponent leg carries it; the `O(input)` clause and the
-  module doc's linearity sentence must be re-derived against the
-  metered reading.
-
-  **F5 (tamper hole, seed 4 CONFIRMED): the triangle roster's
-  citation check accepts any same-named `fn` anywhere under
-  `src/`** — `declared_fn_names` harvests every declaration
-  (helpers, kernels, unrelated tests) and
-  `every_cited_binding_test_exists` demands bare membership, so a
-  deleted binding test whose name collides with any helper leaves
-  the roster green. Witness pin landed:
-  `citation_scan_accepts_helper_fns_as_binding_tests`
-  (`triangle/tests.rs`) — the haystack contains named non-test
-  helpers today; the seal (resolve citations to `#[test]`/proptest
-  items, ideally module-qualified) flips the witness, which
-  leaves with the hole.
-
-  **Seed dispositions** (owner's rule: evaluate, don't confirm):
-  seed 1 (suanpan table) CONFIRMED and extended — the refutation
-  is exact and shift-linear, the exposed surface is the six
-  shifted entries, and the word path differs only by the two limb
-  reads (F3). Seed 2 (min_ticks `O(|v|)` vs kernel 1.5–1.95)
-  CONFIRMED as a wrong claim, not a contractual excess — the
-  circulation is allowance-uncapped, so no constant re-derivation
-  can save the class (F1). Seed 3 (query.rs mandatory-class
-  residual) CONFIRMED as a non-sequitur where it is load-bearing —
-  the defense argues the *value* embeds a wide×dense product, but
-  the value's bit-length is width + log(mass), not their product,
-  and FP(k) realizes superlinear fold work on a family whose exact
-  value is computable in O(|v|) (F2); the defense's true content
-  is one sentence — "no committed family fires ω(1) freezes" —
-  which is a coverage gap, not a lower bound. Seed 4 (triangle
-  bare-name scan) CONFIRMED (F5).
-
-  **Attacked and sound** (the negative space of the findings):
-  rank on every committed family is genuinely linear at and above
-  the board scales — the sub-default reveal-comb readings are the
-  freeze allowance's bounded constant regime (per-leaf adds capped
-  at 8 digits), collapsing at b > 256 bits, measured non-monotone
-  then flat e 1.00 to s = 4000, so the board's green there is
-  honest; min_ticks on FP(k) is flat (e 1.00 both counters — the
-  two folds' defects are disjoint, and each family catches exactly
-  one); `meet_all`'s uncelled shrink argument holds (the
-  accumulator never exceeds the smallest operand seen, so every
-  step is bounded by its own input); the fold subadditivity
-  escape is closed (join outputs ≤ sum − 2, so no
-  composition-driven operand blowup exists); op-schedule attacks
-  reduce to the family axis — the only inter-call state is the
-  value, the #38 orbit pins bound value trajectories, and any
-  reachable value shape is a single-call family instance;
-  `OwnVersion`'s claims denominate the materialization by `|r|`
-  explicitly (read, not probed); the suanpan sign-fold collapse
-  amortization and the domination certificates verified sound by
-  code reading against their stated invariants; the text κ
-  two-leg criterion and the board's determinism tripwires were
-  read and not re-attacked (each already carries a
-  constructed-adversary refutation history). Not attacked:
-  `before-viz`, the wasm demo surface, `rumormill`, and rumors'
-  session layer beyond the bookmark seam (out of the charter's
-  claim basis).
-
-  **Residual risks (open, no demonstrator):** (1) a public-API
-  stream driving a query fold's own accumulator onto F3's top-gap
-  oscillation (the shifted subtractions exist on the rank/distance
-  paths; not constructed); (2) the distance/lag co-sweep's settle
-  and promotion charges under a many-freezes family — FP(k)'s
-  two-operand analogue against the anchored-segment accounting —
-  untested (the jump-pair wedge covered crest freezes, not
-  span-read growth); (3) the bench judge's 10 µs floor plus
-  fit-noise band could hide a superlinear term whose constant is
-  below resolution at both bench scales on cells with no counter
-  leg (`version_eq`'s byte-equality NA row is time-leg-only);
-  (4) F4's unmetered searches generalize: any future index-shaped
-  structure inherits the blind spot until search probes are a
-  metered primitive.
-
-- **LANDED 2026-07-28 (cure78-suanpan, the F3 cure): suanpan's
-  cost table stands as written — the zero-run ledger prices top
-  maintenance by the operand, not the gap.** Owner ruling: fix the
-  code so the shifted rows' "amortized O(operand limbs),
-  independent of the shift" is true; weakening the table was
-  rejected. Mechanism: the accumulator keeps a *zero-run ledger*
-  (`BTreeMap<usize, usize>`) of certificates `(lo, hi)`, each
-  stating every digit strictly between is zero — created O(1) by
-  any write landing above `top + 1` (the run it jumps), split by
-  writes whose carries land inside a run, consumed O(1) by the
-  settlement scan and by zero-partial sign folds, which skip a
-  certified run whole for one touch. The third amortization
-  argument (the ledger potential: every position at or below top
-  is certificate-covered or carries one scan credit from the
-  metered write that last touched it) is written in full on the
-  crate page beside the lazy zone and the collapsing fold.
-  **Charter dispute, resolved toward the goal**: the suggested
-  single write-watermark discipline (`bottom`, the
-  `sign_magnitude_shl` precedent) was evaluated and refuted before
-  implementation — park any value on digit 0 and the watermark
-  pins there while the oscillation runs at `shift/32`, leaving the
-  gap walk unfunded — so the mechanism generalizes to one
-  certificate per run; the green pin's second scenario commits
-  that refutation. **A dissolution inside the cure**: the sign
-  collapse's old post-zeroing top-walk was dead work — on the
-  `partial == 0` path it never ran (top is already 0), and on the
-  nonzero path the floor re-deposit always re-raised `top` to at
-  least the walked-from index — so it is deleted, not metered; the
-  one real settlement scan (shared by `add_at` and both folds) is
-  metered with liveness pins. Bookkeeping honesty: ledger upkeep
-  is O(log ledger size) machine-word operations per write, never
-  digit touches; disclosed on the crate page's ledger and metering
-  sections, with memory bounded at one entry per jump-write and
-  half the held digit positions.
-
-  **The pin flip (same commit as the cure)**:
-  `alternating_shifted_writes_pay_the_zero_gap_per_pair` (red:
-  1,000 one-limb pairs cost 1,004,000 touches at shift 32,000,
-  2,004,000 at 64,000 — (s/32 + 4)/pair; word-magnitude path
-  1,002,000 — (s/32 + 2)/pair) is replaced by
-  `alternating_shifted_writes_cost_the_operand_not_the_gap`
-  (green: 5,000 at both shifts — 5/pair, exact: 2 limb reads + 2
-  deposits + 1 certificate skip; identical with digit 0 occupied;
-  word-magnitude 3,000 — 3/pair), value legs retained. The
-  exactness is the skip's liveness floor: an uncounted skip would
-  read 4/pair. New meter-liveness pins:
-  `top_settlement_steps_are_metered` (a sub zeroing digits 6..=10
-  over a never-written prefix costs exactly 16 = 6 limb reads + 5
-  deposits + 5 settlement steps; a scan that stopped counting
-  reads 11) and `sign_fold_skips_certified_runs` (a cancellation
-  spelled across two digits above a 1,000-digit never-written run
-  reads `Equal` in exactly 6 touches and still canonicalizes).
-  New row witnesses: `accumulator_operand_rows_cost_the_operand`
-  (`add_accum`/`sub_accum`/`add_accum_shl`/`merge_into_wider` on a
-  2-digit operand: exactly 4 touches, receiver-width- and
-  shift-independent) and `held_width_rows_cost_the_held_digits`
-  (`negate` 64, `sign_magnitude` 64, `shl` 128, `reset` 65 at 64
-  held digits). New differential proptest:
-  `run_forming_shift_streams_match_the_bigint_oracle` (shifts to
-  4,096 bits, certificate create/split/consume on every drawn
-  schedule, sign read per step). The `is_literally_zero` one-sided
-  contract and its tests are untouched. IBig/UBig differential
-  suites green (27 suanpan tests; full `before` suite 567 green).
-
-  **Cost table verified row by row (witnesses)**:
-  `add_small`/`sub_small`/`add_u64`/`sub_u64` amortized O(1) —
-  `accum_comb_touches_flat` and `accum_static_prefix_touches_flat`
-  (tests/meter.rs, measured per-delta constants unchanged by this
-  cure); `add_wide`/`sub_wide` — `accum_wide_tooth_touches_flat`,
-  `accum_cancelling_touches_flat` (unchanged);
-  `add_wide_shl`/`sub_wide_shl` — the green pin's exact 5/pair at
-  two shifts; `add_magnitude`/`sub_magnitude` — dispatch onto the
-  previous two rows (`magnitude_entry_points_match_the_oracle`
-  value leg); `*_magnitude_shl` — the green pin's word path,
-  3/pair; `add_accum`/`sub_accum`, `*_accum_shl`,
-  `merge_into_wider` — `accumulator_operand_rows_cost_the_operand`
-  exact 4s; `sign`/`is_negative`/`sign_dominates_*` —
-  `accum_static_prefix_touches_flat` (collapse amortization) plus
-  `sign_fold_skips_certified_runs` (zero-run leg);
-  `is_literally_zero`/`digit_count` O(1) — loop-free by
-  inspection, `digit_count` exactness re-derived on the zero-run
-  ledger argument; `shl`/`negate`/`reset`/`sign_magnitude` O(held
-  digits) — `held_width_rows_cost_the_held_digits` exact counts;
-  `sign_magnitude_shl` — `scaled_read_costs_the_written_span`
-  (unchanged).
-
-  **Envelope re-pins (before → after, mechanism per number)**.
-  Touch drops, all one mechanism (certificate skips replace the
-  accumulator's funded-by-nothing zero-run walks):
-  `skyline_rank_wide_tooth` 26,864 → 21,749 (ceiling 33,580 →
-  27,187, floor 20,148 → 16,311); `version_distance_jump_pair`
-  184,494 → 170,128 (230,618 → 212,660, floor 138,370 → 127,596;
-  the two-scale stream ceilings (230,618, 461,198) → (212,660,
-  425,320) on measured 170,128/340,256, 1.37 → 1.26 per byte);
-  `version_lag_jump_pair` 163,509 → 141,463 (204,387 → 176,829,
-  floor 122,631 → 106,097); freeze-band over-threshold touches
-  6,182/12,390 → 5,166/10,350 (ceilings (7,728, 15,488) →
-  (6,458, 12,938)); `ascend_cliff` tick 10,495/20,975 →
-  10,432/20,848 (ceiling 26,219 → 26,060, floor 15,731 → 15,636);
-  `ascend_cliff_plateau` 8,981 → 8,854 (11,227 → 11,068, floor
-  6,735 → 6,640); `min_ticks_pure_comb` 18,210/68,413 →
-  18,180/68,352 (growth ×1.88 unchanged — the F1 red band holds).
-  Heap rises, all one mechanism (the ledger's B-tree map nodes,
-  +96 B to +768 B per scenario): red-and-repinned
-  `skyline_rank_cliff` 2,540 → 3,116 (ceiling 3,075 → 3,895),
-  `skyline_rank_wide_tooth` 2,820 → 3,588 (3,095 → 4,485),
-  `own_version_cmp_mask_drift` 1,032 → 1,384 (1,290 → 1,730),
-  `skyline_cmp_wide_tooth` 1,032 → 1,224 (the deliberate
-  change-detector margin re-tightened 1,050 → 1,250); moved under
-  standing ceilings (records updated, ceilings stand):
-  `own_version_pair_cmp_mask_drift` 2,176 → 2,368,
-  `rank_bigroot`/`skyline_rank_bigroot` 61,516 → 61,708,
-  `rank_sum_mixed` 62,512 → 62,704, `skyline_join_wide_tooth`
-  102,777 → 102,969, `skyline_meet_wide_tooth` 102,249 → 102,441,
-  `skyline_validate_wide_tooth` 1,216 → 1,408,
-  `version_distance/lag_jump_pair` heap 5,008 → 5,776, and the
-  tick rows with pre-existing drift separated at the cure's base
-  (dense 47,052 → 47,084 unowned → 47,180; nested-wide 11,286 →
-  11,350 unowned → 11,542; mirror-wide 31,605 → 31,701 unowned →
-  31,989). All other measured meter rows byte-identical between
-  base and tip (142-line MEASURED sweep diffed at both).
-
-  **Boards (rendered at base 395f0e72 and tip, both scales,
-  diffed)**: not byte-identical — every moved number is one of the
-  two mechanisms above, and no cell's GREEN/RED status flips at
-  either scale (verified column-wise on both diffs). Headline
-  movers: `version_tick`/`version_ticks`/`clock_tick` ascend-cliff
-  heap constant 78.9 → 123.8 B/B (certificates accumulate on
-  monotone climbs until a scan consumes them — the rows were
-  already red on heap constant and stay red); scattered heap
-  constants +0.1 B/B and heap exponents 1.00 → 0.96–0.99 on
-  rank/join/meet/distance families (one-to-few map nodes);
-  scattered touch constants down (e.g. `version_decode`
-  ascend-plateau touch e 0.95 → 0.88, jump-pair touch columns
-  0.3 → 0.2/B) from certificate skips. The F1/F2 board reds are
-  untouched (`version_min_ticks` touch exponents 1.91/1.81/1.88
-  before and after): this cure is F3's, not theirs. Review #37's
-  residual risk (1) — a public-API stream driving a fold
-  accumulator onto the top-gap oscillation — is closed as a
-  genre: the gap walk no longer exists on any schedule. New
-  residual, priced and bounded: certificates on monotone-ascending
-  workloads occupy memory until consumed (at most one entry per
-  jump-write, half the held digit positions; the ascend-cliff heap
-  constant above is the visible price), and ledger upkeep adds
-  unmetered O(log ledger) word work per write — both disclosed on
-  the crate page.
-- **CURED 2026-07-28 (cure round #78, track 1: the query folds;
-  branch `cure78-folds`).** Charter: cure everything superlinear
-  in `Version::min_ticks` and `Version::rank` (#37's F1/F2), land
-  FP as a board family, and return both `# Complexity` claims to
-  unqualified `O(|v|)` honestly. All numbers exact deterministic
-  counters, dev profile for pins, release for board renders;
-  every movement attributed by measuring at the parent
-  (395f0e72) on the same machine.
-
-  **F2 cured — rank on the anchored-segment integral.** The rank
-  fold is now the single-stream instance of the pair co-sweep's
-  `Integrator` (orientation constantly +1): no freeze reads an
-  absolute position — a settle pays the parked width times
-  within-segment depth variation, and the absolute position is
-  banked one compacted segment mass per freeze (read only at
-  promotions), so a sweep that never freezes never touches it.
-  Pin flipped: `rank_freeze_position_touches_read_superlinear`
-  (red band, per-byte touch growth ×1.50 / limb ×1.43 across
-  FP(1,000) → FP(2,000)) →
-  `skyline_flatness::skyline_rank_freeze_position_is_flat_per_unit`
-  (green band ×1.25 with absolute ceilings; measured 87,489 →
-  175,206 touches and 35,436 → 70,872 limb ops on 73,328 →
-  146,579 B, per-byte ×1.002/×1.000 — and 30% *fewer* touches
-  than the old fold's small scale). Every pre-existing rank
-  envelope row read back byte-identical or better at the cure
-  tip (jump 5,138/10,268 touches, over-threshold 6,182/12,390,
-  freeze-band and jump-eviction ceilings untouched): the
-  attribution is clean — the rewrite moved only what it claimed.
-  The pair rows dropped one touch per interval (the position add
-  left the per-interval path): distance jump-pair 184,494 →
-  181,531 touches, limb byte-identical at 53,905.
-
-  **F1 cured — min_ticks on a range-minimum anchor web plus an
-  epoch ledger** (`skyline/query/web.rs`; its module doc carries
-  the potential function and its one-ledger arity, per charter).
-  Subtree spans nest LIFO, so each closing node's minimum is the
-  innermost open range's — the fill watermark's problem,
-  re-derived for the fold: differences stacked with zero runs
-  compressed and a latent register (wide content shuttles by
-  moves), machine-word boundaries held inline, and the folded
-  minima batched as *reigns* — one value record per distinct
-  minimum, closes counted against it, one `offset × count`
-  settle at the record's death, so an interrupted reign never
-  re-reads its width. The frozen component is per-epoch drifts
-  settled once at the end by summation by parts
-  (`Σ_e refs_e·F_e = Σ_f drift_f · suffix-refs_f`) — no event is
-  ever re-based across a freeze. Pins flipped:
-  `min_ticks_pure_comb_touches_read_superlinear` (×1.88/byte,
-  rising) →
-  `skyline_flatness::skyline_min_ticks_pure_comb_is_flat_per_unit`
-  (×1.00; 18,210 → 2,228 touches at the small scale, 8.2×
-  lighter);
-  `min_ticks_reveal_comb_reads_superlinear_in_both_width_currencies`
-  (×1.66 touch / ×1.68 limb) →
-  `skyline_min_ticks_reveal_comb_is_flat_per_unit` (×1.00 both;
-  24,273 → 13,397 touches, 23,467 → 12,101 limb). Envelope
-  re-pins with derivations at the rows: cliff 49,752 → 2,592 B
-  heap (19×), 70,962 → 10,619 touches (6.7×), 8,258 → 6,284
-  limb; dense trades a 2× touch constant (125,005 → 250,008:
-  every delta now folds into the live height *and* the web's
-  gap) for the class cure, with limb halved (500,002 → 250,006)
-  and heap and scan byte-identical.
-
-  **FP landed as a board family** (`freeze-pos`, FAMILIES 21 →
-  22, cells 1111 → 1154, version-only bundle, designed against
-  the Measure group). All 43 cells GREEN at both scales;
-  `version_rank`/`version_min_ticks` × freeze-pos read e 1.00 in
-  every currency. Adequacy per the ratchet: the known-bad
-  absolute-position kernel stays committed
-  (`query::tests::adequacy::absolute_position_accounting_reads_superlinear_on_freeze_position`),
-  value-exact against the shipped rank and asserted RED on the
-  family (124,368 → 372,859 touches, ×1.50/byte, floor 1.25),
-  so the green flatness band is never decoration. One
-  measurement-shape finding en route: the family's rank exponent
-  is `2s − 1` exactly, and `rank_sum` lands its small summands at
-  bit remainder `exp mod 32` — a remainder near the digit top
-  makes most landings span two digits (an honest amortized-O(1)
-  constant, 1.0 → 1.57 per summand at remainders 15 → 31), and an
-  exponent fitted across two scales with different remainders
-  reads the flip as growth (e 1.65). The base is 1,024 blocks so
-  `2s ≡ 0 (mod 32)` and every doubling compares like against
-  like; the derivation lives on `FREEZE_POS_BASE_BLOCKS`.
-
-  **Board delta (parent → tip, same-machine release renders):
-  default 30 → 24 red, ×4 27 → 20 red** (cells 1071 → 1154, the
-  43 freeze-pos cells all green). Cured at default:
-  `version_min_ticks` × {cliff, pure-comb, reveal-comb,
-  ascend-plateau (exponent mechanism), mirror-narrow, mirror-wide
-  (heap constants)}; at ×4 additionally × comb-scatter (heap
-  constant) — parent ×4 read touch exponents 1.82–1.98 and heap
-  constants up to 173.4 B/B (mirror-narrow) on this row, all now
-  e 1.00 under the ceilings (mirror-narrow heap 173.4 → 0.0/B:
-  the zero-run compression annihilated the per-level pending
-  entries). No cell outside `version_min_ticks` moved at either
-  scale.
-
-  **The residual and the disputes** (charter item 3, the
-  heap-constant reds):
-  - `version_min_ticks × ascend-cliff` stays red on the heap
-    constant alone: the parent read it red on TWO mechanisms
-    (heap 40.5 B/B + touch e 1.81 at default; + touch constant
-    116.6/B at ×4); the cure removed the exponent mechanism and
-    the constant moved 40.5 → 105.9 B/B (e 1.00, honest and
-    linear). Mechanism named: the family arms `k` simultaneously
-    open ranges with `k` *distinct* minima — no zero run
-    compresses and no reign batches across them — so any
-    one-pass exact fold holds Θ(k) live state (the parent's
-    pending stack did too); the per-frame constant is the reign
-    record (offset + epoch + count) and the inline word boundary,
-    ~119 B/frame with `Vec` doubling slack, the state that buys
-    the exponent cure. Proposed disposition (owner accepts
-    evidence-backed disputes): an accepted stated-band residual
-    in §17.3, same genre and owner as the ascending-cliff tick
-    pair's round-7 record, with the small-buffer/packed-frame
-    representation the candidate cure if one is ever warranted.
-  - **The tick-family ascend-cliff constants are not this
-    track's code region — disputed with evidence.** The charter
-    assigned `version_tick`/`version_ticks`/`clock_tick` ×
-    ascend-cliff (`~64–66 B/B`) here as "same code region";
-    measured, they are the fill walk's watermark stack
-    (`skyline/fill/watermark.rs`), not the query folds, and they
-    read **byte-identical across this track's entire change**
-    (78.9 B/B, e 1.00, at parent and tip, both scales' default
-    render) — the fold rewrite provably does not reach them.
-    The `~64–66 B/B` figure is also stale: the parent of this
-    track already reads 78.9 B/B at the default scale, so that
-    drift (66.3 → 78.9) belongs to commits between the merge72
-    renders and this track's base, not to this cure. Their §17.3
-    stated-band record (91.3 B per armed nonzero difference plus
-    a 2,905 B floor, exponent axis-invariant) stands unamended.
-
-  **Co-sweep recheck (review residual 2): no wedge — landed as
-  coverage.** The two-operand FP analogue — `distance`/`lag` on
-  `(FP(k), unit-descending mate)`, one operand's cheap codes
-  firing Θ(k) freezes of drift only the other's wide codes
-  deposited, at ever-deeper positions — reads ×1.00 per byte in
-  both currencies (258,676 → 517,516 touches on 73 → 146 KiB
-  pairs), promotion never fires, and the three rank-identity
-  value legs are exact. Committed as
-  `skyline_flatness::skyline_distance_freeze_position_is_flat_per_unit`.
-
-  **Claims closed in the same change**: both `# Complexity`
-  sections back to unqualified `O(|v|)` time and space, the
-  claims-roster tokens re-pinned to `` `O(|v|)` ``, both
-  TODO-cure comments resolved (`Class::Linear` is true against
-  the tree), and the query module doc re-derived — the
-  frozen/live section is now the shared trigger discipline, the
-  anchored-segment section carries rank as its single-stream
-  instance, and the min_ticks cost paragraph cites the web's
-  certificate instead of a non-contractual excess.
-- **DECIDED 2026-07-28 (cure round #78, Track 3 — instruments and
-  constant-reds; branch `cure78-instr`).** Six landings, each with its
-  tripwire, closing the #37 review's F4/F5 instrument holes and the
-  owned constant-reds:
-  (1) *The F5 citation seal*: the triangle roster's citation haystack is
-  `#[test]`-attributed items (proptest properties included) unioned with
-  the law names read from the `laws` tables themselves; the #37 witness
-  pin flipped into the seal's two-direction test, and the nine citations
-  that had resolved through same-named law-predicate `fn`s now resolve
-  through the law-table leg explicitly.
-  (2) *The render finalize cure* (the materializing-emitters heap
-  genre): digits render at the merge that finalizes them into a
-  node-keyed arena (zero bases take no bytes), the frame enum became
-  parallel open-node stacks with the parked left summaries in a
-  fixed-chunk stack (no realloc coexistence), and finalize state drops
-  before emit. All 14 display heap-constant reds flipped green at both
-  scales (dense 22.0 → 1.9 B/B, mirror-narrow 33.0 → ~13 B/B); no
-  limb/scan/touch reading moved anywhere (κ untouched); render
-  envelopes re-pinned tighter (dense heap 23.6 MB → 1.6 MB measured).
-  The mirror-wide limb-exponent pair stays red deliberately: it is the
-  render merge's judge-rostered SuperlinearTime mechanism, and
-  `render_merge_superlinearity_is_alive` pins it red-alive.
-  (3) *Declared per-cell models* (board mechanism): a ratified cost law
-  derived at the cell, disclosed on the row face (`decl[...]`), banded
-  both sides (an improved kernel trips the stale-model floor and forces
-  a re-declaration), each with a committed wrong-artifact tripwire. The
-  fold rows declare the reduction's `O(D log k)` (exponent ceilings at
-  the model's predicted exponent plus the linear slack; scan constant
-  12 bits/B per `log2(2k)` level, measured honest range 9.1–10.0); the
-  comb-scatter projection pair declares the ratified capacity chain
-  `3(n+m)2^(k−1)` (measured/model 1.005–1.017 at teeth 128–1024, band
-  ±10%, the heap exponent fit retired as unjudgeable across the chain's
-  quantization). The three fold-marginal reds and the Bucket D pair
-  flipped green as the models' own price.
-  (4) *The F4 decision — the index stays, priced*: the `IdIndex`
-  partition-point searches are metered (one table word per probe, 32
-  scan bits), the weave family landed (16 fixed groups over one fork
-  expansion's leaves dealt round-robin — per-operand benign,
-  both-present-rich at the whole shared skeleton; the #76 gap), and the
-  index-vs-cursor measurement ran on the honest family plus the
-  committed corpus. Deterministic scan (whole fold, index/cursor):
-  weave ×3.0→×3.9 across scales, parity-halves d=16 ×9.8, scatter
-  ×0.93, benign ×0.94. Wall (release, unmetered, medians of 5; load
-  disclosed ~100–150 from parallel-track builds): weave 0.98–1.00,
-  scatter 0.58–0.93, benign 0.95–0.98, parity-halves d=16 ×1.11 (the
-  #37 quiet-machine d=18 reading ×1.66 stands as the adversary bound).
-  The granted cursor revert is DECLINED with evidence: the committed
-  overlap instruments (`party_join_all_overlap` rows,
-  `join_all_overlap_upfront_test_reads_flat`) pin the index's
-  asymptotic win — a per-input cursor walk reads quadratic there and
-  trips the flatness pin, and the coverage ratchet forbids weakening
-  them — while on every committed fold population the index ties or
-  wins wall. The correlated-population search term is instead priced:
-  the party fold cells carry a declared search allowance
-  (`32·⌈log2(t+1)⌉` bits per input both-present node, computed from
-  the operands at prepare; weave reads ~7% under it — tight), a
-  regressed search trips the over-searched probe, the parity-halves
-  liveness floor (135_196 bits measured, floor ×0.75, cursor co-walk
-  6_140 on the same pair) trips if the searches go unmetered, and the
-  `join_all` prose is re-derived exactly (`O(D log k + B log |p|)`,
-  the module doc's self-contradiction excised).
-  (5) *The class-binding seal* (F1's categorical fix): board reds carry
-  mechanism tags (`mech[exponent/constant/floor]` on the render,
-  `BOARD_EXPECTED_REDS` as committed data), the claims roster gains
-  `Class::SuperlinearCounter` (min_ticks moves onto it), and no
-  linear-class claim may cite a standing exponent-mechanism red while
-  every SuperlinearCounter claim must keep one — verified by mutation
-  against the pre-cure state (min_ticks as `Linear` fails the seal
-  naming the contradiction). The rider census re-realized against the
-  post-cure board (the owner-approved re-realization): the eleven
-  cured display riders left, the ticks-landing min_ticks cells joined
-  (comb-scatter plus the five tick-cross shapes), the mirror-wide
-  display pair stays; judge verification of the new riders lands at
-  the next bench-judge run.
-  (6) *The smoke pin on the family axis*: per-family expected cell
-  counts as data (a drifted family fails by name), retiring the
-  hand-counted prose total; the board sweeps 1113 cells.
-  Boards at the track tip (release): default 1101 green / 12 red, ×4
-  1100 green / 13 red — every red is a `BOARD_EXPECTED_REDS` member
-  (the tick trio's and min_ticks' stated-band constants, the min_ticks
-  exponent cells, the mirror-wide display pair), and every red this
-  track owns is green.
-
-- **REVIEW 2026-07-28 (task #79, the round-2 adversarial review of
-  the cure round; branch `advrev-79` @ base 826e8e50).** Charter:
-  construct a wrong artifact the post-cure criteria bless — the new
-  fold code, the declared models, the merge seams, the fuzzfit
-  sentry, and round 1's residuals as seeds, evaluated not confirmed.
-  All measurements exact deterministic counters (dev profile;
-  release reads the same code paths); no wall-clock judgment run.
-  Findings by severity, then the attacked-and-sound map and residual
-  risks.
-
-  **F1 (wrong committed claim + committed-blind path, the highest
-  severity): `Version::rank`'s promotion re-reads the absolute
-  position accumulator over its full written span once per re-arm —
-  the fold is counter-superlinear through the public API while its
-  `# Complexity` section claims unqualified `O(|v|)` and the roster
-  binds `Class::Linear`.** Mechanism (`Integrator::promote`,
-  `src/version/skyline/query.rs`): the `position` accumulator is
-  never reset, `promote()` reads it whole
-  (`sign_magnitude_shl` → `read_magnitude` walks every digit from
-  the write watermark to the top, one metered touch each), and a
-  promotion re-arms at O(1) stored codes — any freeze whose parked
-  drift is more than the allowance wider than a later freeze's own
-  drift (a `2^608` climb, a unit, a `2^288` climb, a unit: four
-  leaves). No committed family fires a single promotion — FP's
-  parked drift is monotone, which the co-sweep flatness band's own
-  doc records — so the board, both freeze-position flatness bands,
-  and the value suites are structurally blind to the path; the
-  worst artifact blessed today is exactly the shipped one. Pin
-  landed: `rank_promotion_rearm_touches_read_superlinear`
-  (`tests/meter.rs`, `query_promotion_pin`): the ascending
-  promotion re-arm spine `PR(p)` (32p unit climbs stacking a
-  Θ(p)-digit position span, then p four-leaf re-arm blocks; heights
-  ascend so the packed tree stores exactly the deltas, and
-  `min_ticks = 32p + p(2^608 + 2^288 + 2) + 1` is the semantic leg)
-  reads [measured 2026-07-28, dev, exact]: touches
-  1,485,588 → 5,098,162 on 246,501 B → 493,001 B (×1.72/byte), limb
-  ops 705,623 → 2,473,747 (×1.75/byte), next doubling ×1.83/×1.86 —
-  local exponent ~1.9 and rising, a class defect. Both-currency
-  red band (floor ×1.36, midway; ceilings measured ×1.10) over the
-  closed-form leg and the touch liveness floor. Three claims fall
-  together: the rustdoc `O(|v|)`; the module doc's funding clause
-  ("promotion pays … at the position's *compacted density*" — the
-  implementation reads the *written span*, so the code does not
-  achieve even the claimed denomination); and the mandatory-class
-  residual ("the measure's exact value embeds the product of a
-  genuinely wide plateau and its genuinely dense mass") — on PR the
-  position is an all-ones run compacting to O(1) digits and an
-  O(|v|) accounting exists (batch armings per anchor: the
-  epoch-ledger discipline the `web` submodule itself implements —
-  "no event is ever re-based across a freeze" is violated by
-  exactly one charge in the tree, this one), the same non-sequitur
-  genre as #37 seed 3. `distance`/`lag` inherit the path verbatim
-  (`pair_integral` drives the same `Integrator`; one shared
-  `freeze()` → `promote()`), so the cure flips one function and
-  three claims; the pin carries rank until then.
-
-  **F2 (dispute, review residual 3 as seeded): the co-sweep
-  freeze-position green covers the family, not the discipline.**
-  `skyline_distance_freeze_position_is_flat_per_unit` was committed
-  as the two-operand analogue's coverage, but its mate was chosen
-  unit-descending, keeping the parked drift monotone — the test's
-  own doc sentence "the parked component's monotone descent never
-  triggers promotion" concedes the promotion path is unreached. The
-  flat mate is exactly the non-adversarial one; the adversarial mate
-  drives re-arms over a growing span (F1's family, two-operand). The
-  band is sound for what it measures; its implied "no charge reads
-  an absolute position" holds only family-wise. F1's pin is the
-  wedge; a pair-form family lands with the cure.
-
-  **F3 (instrument characterization, seed 4 CONFIRMED with the
-  closing criterion): the fuzzfit sentry point-judges only sampled
-  draws; the deterministic corpus it already executes is judged by
-  line fit alone.** Coverage as committed: 48 random programs per
-  gate plus two fixed escalation replays are the only runs through
-  `judge()` (point leg + shape leg); the 256-program deterministic
-  prefix runs every gate but feeds only the refit comparison
-  (`REFIT_TOLERANCE` over fitted lines — a localized out-of-band
-  region shifts a whole-line fit negligibly, so it cannot catch
-  what the merge gates missed). Escape probability: a region of
-  per-case draw measure q survives a gate at (1−q)^48 — at q ≈ 2%
-  (a kernel × size-decade region like the tiny-operand `min_ticks`
-  band), ~38% per gate, ~14% for two consecutive greens: the
-  observed two-gate escape was the expected behavior, not bad luck.
-  Criterion proposed (not implemented): run the sentry's own
-  `judge()` over the deterministic prefix every gate — the programs
-  already execute, so the cost is the verdict, not the runtime —
-  making every known kernel × decade region total while the 48
-  random draws keep probing novel shapes. Fit-time in-band-ness of
-  the pin corpus makes the check green at pin time by construction.
-
-  **F4 (merge-seam hygiene, minor): eight review-number provenance
-  references landed in code prose.** `#37`/`review #37` citations
-  in `src/party/ops/index.rs`, `src/party/tests.rs`,
-  `src/testing/complexity_claims.rs` (+ its tests),
-  `src/testing/triangle/tests.rs`, `src/meter/board.rs` (×2):
-  provenance belongs to git history and this ledger, never code
-  comments; each site already states its constraint inline, so the
-  citation halves delete cleanly. Cosmetic sibling: `fold_signed`
-  is defined twice (`query.rs`, `query/web.rs`), verbatim.
-
-  **Seed dispositions**: surface 1 (new code worst cases) — one
-  class defect found (F1); the suanpan ledger and the min-ticks web
-  survived construction attempts (below). Surface 2 (declared
-  models) — no blessing hole constructed; one flake risk noted:
-  `capacity_chain_peak`'s `k = ceil(log2(output/anchor))` can flip
-  a step on float error at exact power-of-two ratios, landing on
-  the floor side (a false red, not a false green). The fold scan
-  constant's 20% headroom and the search allowance's ~7% weave
-  margin are disclosed slack, not holes. Surface 3 (seams) — grep
-  for every retired pin and cured-red name is clean; the red
-  roster, riders, and smoke pins agree with §17.3 at 1150 + 6;
-  F4 is the one seam finding. Surface 4 — F3. Surface 5(c) — F2.
-  Surface 6 (stated bands) — the ascend-cliff ~119 B/frame is
-  consistent with the web's `Frame` layout (a `Boundary::Wide`
-  accumulator plus a `Reign` record, ~112–120 B); the certificate
-  memory bound re-derives from disjoint interiors (each run owns
-  ≥ 2 positions exclusively, so ≤ half); the tick trio's
-  constant-vs-axis documentation is exact to the renders.
-
-  **Attacked and sound** (the negative space): the suanpan zero-run
-  ledger's potential argument held against every schedule
-  constructed — certificate churn (alternating create/split at O(1)
-  writes) stays funded by each write's own carry run; raising the
-  top past a spent-credit position requires either a jump write
-  (whose fresh certificate re-covers the run) or per-digit writes
-  (fresh credits), so no unfunded plain scan step exists; a
-  collapse can strand a certificate above the settled top
-  (violating the letter of the `hi ≤ top` structural invariant)
-  but every interior-zero claim stays true and both consumers
-  remain sound — a doc-tightening candidate, not a defect.
-  \[AMENDED 2026-07-28 (verify #82): the stranding clause is
-  retracted by its author after completing the case split it had
-  left unfinished — a collapsing fold's break index is always the
-  first interior digit of the run it enters (a nonzero partial
-  shifts past the decision bound over a zero digit; a zero partial
-  consumes the run before stepping in; the empty-value terminal arm
-  clears the ledger), so the re-deposit's crop keeps only the lower
-  remnant and `hi ≤ top` holds through collapse as a standing
-  invariant. Mechanically confirmed at exhaustive small scope by
-  suanpan's `ledger_invariants_hold_exhaustively`; the soundness
-  and consumer-reliance clauses of the original sentence stand.\] The
-  min-ticks anchor web is immune to F1's genre: no absolute
-  position exists anywhere in it, reigns settle once at the dying
-  record's own funded width, the comparable-top latent merge is
-  funded by the wide fold that widened the gap, and the epoch
-  ledger settles one product per freeze exactly as certified. The
-  F5 citation seal resolves through `#[test]` items and law tables
-  both ways; the class-binding seal correctly rejects a Linear
-  min_ticks by mutation. The declared search allowance is computed
-  two-way (the checker re-derives both-present counts from the
-  operands). Not attacked: the render finalize arena's keying
-  (read, no collision candidate constructed), `before-viz`, the
-  wasm surface, the bench judge's fit internals.
-
-  **Residual risks (open, no demonstrator)**: (1) the class-binding
-  seal binds `Class::Linear` only against board reds, so rank keeps
-  its Linear roster row while F1's pin stands red in `tests/meter.rs`
-  — landing PR as a board family at cure time (the FP precedent)
-  closes it; (2) the pair-form promotion family (F2) is uncommitted;
-  (3) `mul_into`'s digit iteration is unmetered (only the products
-  and the `read_magnitude` walk record), so a kernel whose sole
-  superlinear term is that walk over a compacted-sparse operand
-  would be invisible to every counter — F1 was visible only because
-  the span read is metered; (4) #37's residuals (3) judge
-  sub-resolution and (4) index-shaped generality stand unchanged —
-  `metered_partition_point` is `IdIndex`-local, an instrument for
-  the one search, not a metered primitive.
-
-- **CURED 2026-07-28 (cure round #81, the round-2 cures; branch
-  `cure81` @ base 2189214d).** Charter: linearize the promotion path
-  (#79 F1), land the re-arm spine as a board family (residual 1) and
-  the pair-form analogue (F2), totalize the fuzzfit sentry over the
-  deterministic prefix (F3), and the F4 hygiene items. All numbers
-  exact deterministic counters (dev for pins, release for boards),
-  every movement attributed at the parent 2189214d on this machine.
-
-  **F1 cured — the promotion ledger, settled once at the sweep's
-  close.** A promotion no longer debits `P × position` against an
-  absolute position accumulator read across its full written span
-  (never reset, `Θ(p)` digits per arming on the re-arm spine). It
-  now performs two funded-width reads and no product — the parked
-  component at the width its arming deposited, and the *position
-  window* (the interval mass banked since the previous promotion,
-  one compacted segment mass per freeze, read at its watermark span)
-  — recorded as one ledger entry; the base keeps only the opening
-  plateau. The ledger settles once, at the close: suffix masses
-  assemble newest-first as sparse balanced signed digits (each
-  window's digits merged exactly once; an all-ones prefix — a long
-  climb's consumed mass — compacts to O(1) terms, exactly the
-  compaction `mul_into`'s per-UBig walk could not exploit), and
-  each arming pays one charge at its parked width times its own
-  suffix's balanced density. Nothing anywhere in the sweep or its
-  close multiplies by an absolute position — the discipline is the
-  epoch ledger's ("no event is ever re-based across a freeze"),
-  with suffix masses where min_ticks has reference counts.
-  `distance`/`lag` ride the same `Integrator`, so one change cures
-  all three claims, which stay `O(|v|)`/`Class::Linear` and are now
-  true of the code as every committed instrument measures it. Every
-  pre-existing envelope and flatness reading is byte-identical at
-  the parent (55 MEASURED lines diffed clean): a non-promoting
-  sweep runs the exact op sequence it ran before.
-
-  **The #79 pin flipped** (same change): rank on PR(1,000 → 2,000)
-  reads touches 1,485,588 → 388,694 at the small scale (3.8×
-  lighter) with per-byte growth ×1.72 → ×1.003, limb ops
-  705,623 → 150,871 (4.7×), ×1.75 → ×1.000 — measured on the pin's
-  own ascending family before the reshape below; the committed band
-  (`skyline_flatness::skyline_rank_promotion_rearm_is_flat_per_unit`)
-  carries the reshaped family's record: 343,864 → 687,739 touches,
-  182,871 → 365,745 limb on 246,501 → 493,001 B, ×1.000/byte both
-  currencies, ×1.25 ceilings, one-touch-per-byte liveness floor,
-  and the `min_ticks` closed form as the semantic leg.
-
-  **The family reshape (a charter deviation, resolved toward the
-  goal and reported).** The #79 pin family's span builder was `32p`
-  unit *climbs*; an ascending right spine arms `Θ(p)` distinct
-  nested minima, so `version_min_ticks × promo-rearm` read RED at
-  40.5 B/B heap (e 1.00) on the first board render — the
-  ascend-cliff stated-band genre on an unrelated row, which would
-  have parked a seventh red the charter forbids. The span builder
-  now alternates leaf heights 1, 0, 1, 0 (base 0, ±1 drift, never
-  freezing): the consumed-mass span the blocks re-arm across is
-  identical (it is depth, not height), the block schedule and
-  promotion count are identical, the span-reading kernel still
-  reads ×1.74/byte red on the reshaped family — and the running
-  minima are all zero, so the min-ticks web rides the prefix as one
-  zero run and the cell reads 5.4 B/B green. The promotion payload
-  is untouched; the ascending prefix survives in git history at the
-  pin commit.
-
-  **PR landed as the board family `promo-rearm`** (FAMILIES 23 →
-  24, cells 1156 → 1199, version-only bundle, designed against the
-  Measure group, `PROMO_REARM_BASE_BLOCKS` = 512 with the `8 | s`
-  remainder-alignment derivation on the constant). All 43 cells
-  GREEN at both scales; boards read **default 1193 + 6, record
-  1193 + 6**, the red set exactly `BOARD_EXPECTED_REDS` at both
-  scales — this closes #79 residual 1: the class-binding seal is
-  live for the promotion mechanism because the column exists.
-  Adequacy per the ratchet: the retired span-reading integrator
-  stays committed and failing
-  (`query::tests::adequacy::span_promotion_accounting_reads_superlinear_on_rearm_spine`,
-  1,440,756 → 5,006,506 touches, ×1.74/byte, floor 1.36),
-  value-exact against the shipped rank.
-
-  **F2 closed — the pair-form family** (#79 residual 2):
-  `skyline_distance_promotion_rearm_is_flat_per_unit` overlays
-  PR(p) against its small twin `PRM(p)` (same 36p-node topology,
-  the 1, 0 alternation running the whole spine): heights agree leaf
-  for leaf on the prefix and every block boundary folds the mate's
-  unit against the other operand's wide climb, so freezes and
-  promotions fire at boundaries where the mate's cheap codes set
-  the funded width — the two-operand arming genre the
-  freeze-position analogue's monotone mate could not reach. Reads
-  975,024 → 1,949,774 touches and 819,783 → 1,639,531 limb on a
-  263 → 525 KiB pair (×1.000/byte both), with exact dominance value
-  legs (distance = rank gap, lag zero/whole) and the touch liveness
-  floor. The committed proof the pair drives promotions is its own
-  tripwire: the span-reading co-sweep reads 1,504,885 → 5,134,635
-  touches (×1.71/byte red) on the same pair, value-exact against
-  the shipped distance.
-
-  **F3 closed — the sentry judges the deterministic prefix, every
-  run.** The enforcement `judge()` now runs over all 256 prefix
-  programs in the same pass as the staleness refit
-  (`the_deterministic_prefix_is_judged_total_and_matches_the_pin`),
-  in addition to the 48 random draws: every kernel × size-decade
-  region the corpus reaches is an enforced verdict, not a sampled
-  one. Gate cost: the shared-pass test reads 2.48 → 2.41 s wall
-  (the judging is arithmetic over samples already collected).
-  Adequacy by documented replay (checked out nothing; the old band
-  inlined as a constant in a scratch test, run once, not
-  committed): under the pre-re-pin bands (`15357855`'s
-  `ff_version_min_ticks`: slope 1.122748, intercept 2.175574,
-  +0.356/−0.404) the prefix holds 101 min_ticks steps in the
-  128–256-bit decade of which **4 judge ABOVE, worst excess 0.205
-  decades** — the two-green-gate escape reads deterministically red
-  under this leg. Kernel fuel did not move past tolerance (the
-  staleness leg and every band stayed green through the cure), so
-  no recalibration rides this round.
-
-  **F4 hygiene**: the seven standing review-number citation halves
-  deleted (each site keeps its constraint inline; the index
-  disposition's design-doc pointer went with it);
-  `Class::SuperlinearCounter`'s stale membership sentence
-  re-denominated to the present (currently unpopulated, seal
-  mutation-tested); `fold_signed` has one home (`query`, the `web`
-  submodule imports it); suanpan's zero-run ledger invariant
-  restated to what the code guarantees — disjointness plus
-  creation-time containment, with unconditional soundness (every
-  digit write crops; other rewrites only zero digits) as the only
-  claim consumers rely on.
-
-  **The residual and the open questions** (for the owner):
-  - *The ledger's honest funding statement* (the re-derived module
-    doc): a suffix's balanced density is deposited once, by the
-    topology whose depth variation spelled its masses — not once
-    per arming — so a stream pairing `Θ(p)` wide re-arms against a
-    suffix that *stays* dense (a deep varied-depth region built
-    once, then cheap re-arm blocks against it) would pay that
-    density per arming: constructible and superlinear in the same
-    genre F1 was, though every committed family and instrument
-    reads flat (dense suffixes on the committed shapes compact to
-    O(1) balanced terms). The forward dual (batching armings into a
-    running promoted sum) trades this for width-per-window
-    re-reads; a scheme linear in both duals needs lazy product
-    trees. Owner to rule: accept as the module doc's stated
-    residual (the doc states it exactly), or commission the
-    dense-suffix family as a committed red pin with the claims
-    moved to a qualified class.
-  - *The suanpan stranding*: this round could not independently
-    reconstruct #79's collapse-strands-a-certificate schedule —
-    every collapse path traced re-establishes `hi ≤ top` through
-    `crop_runs`' remnant logic (a break one step inside a run
-    splits it and drops the upper remnant). If the reviewer's
-    witness exists, one further step looks live: a stranded run
-    plus a later above-top jump write inserts an overlapping
-    (containing) certificate, and `crop_runs`' disjointness-derived
-    early stop could then leave the container stale over a written
-    digit — a soundness question, not a doc question. Owner to
-    request the #79 witness schedule; the doc tightening landed
-    states only what both readings agree on.
-  - Residuals 3 and 4 of #79 (the unmetered `mul_into`/merge walks
-    — the ledger settle's sparse-vec merge sits behind the same
-    boundary, bounded by its metered charges on every family — and
-    the judge's sub-resolution) stand unchanged.
-
-- **VERIFIED 2026-07-28 (round #82, the two open evidence questions;
-  branch `verify82` @ base 91c4a81c).** Charter: settle by
-  construction, adversarial on both — the dense-suffix residual vs
-  rank's unqualified claim, and the suanpan certificate stranding
-  plus its soundness follow-on. All numbers exact deterministic
-  counters, dev profile.
-
-  **Q1 verdict: CONSTRUCTED — the ledger settle's dense-suffix
-  charge is reachable through the public API and quadratic; rank's
-  unqualified `O(|v|)` was a wrong committed claim.** The family
-  `DS(p, d)` (built via `FromStr`, the #79 pin's route): a *gap
-  spine* of `33d` levels turning right every 33rd (each turn's
-  before-swept leaf punctures the trailing interval mass one
-  isolated gap, gaps a full base-2^32 digit apart so balanced
-  compaction can never merge them — the suffix every close-time
-  charge walks stays `Θ(d)` digits), then the re-arm blocks'
-  promotion schedule verbatim at the spine's bottom. Rank reads
-  [measured 2026-07-28, dev, exact] touches 3,417,450 → 13,357,237
-  and limb 2,837,934 → 11,175,881 across DS(500) → DS(1,000) on
-  119,593 B → 239,030 B (×1.96/×1.97 per byte); the next doubling
-  reads ×1.98/×1.98 — local exponent ~2.0, a class defect. The pair
-  form on (DS, DSM) reads ×1.96 touch / ×1.94 limb through the
-  distance/lag triple: one shared integrator, three claims fall
-  together, exactly as the residual paragraph had predicted
-  (`constructible and superlinear in the same genre F1 was` — the
-  round-2 prediction is confirmed, not disputed). Landed in one
-  commit, the #37→#78 precedent's shape: both-currency red pins
-  with min_ticks closed-form semantic legs and touch liveness
-  floors (`ledger_dense_suffix_pin`, `tests/meter.rs`, floors ×1.48
-  midway); rank/distance/lag `# Complexity` re-stated (linear
-  space, **superlinear** worst case with the family named, excess
-  non-contractual); roster tokens moved with TODO-cure records —
-  rows stay `Class::Linear` under the class-binding seal because
-  the family is tests-only (no board red backs a
-  `SuperlinearCounter` move), the documented #37 constraint. The
-  board, the judge roster, and every flatness band are untouched
-  and green: the module doc, the public claims, and the committed
-  instruments now agree exactly. Cure options stand as the module
-  doc states: a settle linear in arming count and suffix density at
-  once (lazy product trees), or the family lands on the board and
-  the class moves with it.
-
-  **Q2 verdict: NOT REPRODUCED — no schedule strands a certificate;
-  `hi ≤ top` is a standing invariant, collapse included, and the
-  soundness follow-on's precondition is unreachable.** The #79
-  reviewer retracted the stranding claim mid-round after completing
-  its case split (relayed by the coordinator; this round's
-  independent trace agrees clause for clause): the collapsing
-  fold's break index is always the first interior digit of the run
-  it enters, the re-deposit's written range therefore always
-  intersects the containing certificate, and the upper remnant is
-  unsatisfiable — only the lower remnant survives, contained. The
-  mechanical settlement is committed as the instrument the seam
-  lacked (suanpan `tests.rs`): a differential driver checking,
-  after every step of every schedule, exact `IBig` value agreement
-  plus every structural clause read from the private state (lazy
-  zone, exact top, write watermark, and per certificate nonempty
-  all-zero interior, `hi ≤ top`, pairwise disjointness).
-  Exhaustive prefix-tree sweep over an 11-op alphabet — word-scale
-  deltas, recentering `u64::MAX` deltas, one-limb jumps to digits 3
-  and 7 in both signs (above-top inserts, stacks, splits), raw
-  `±2^32` deposits at digit 6 (the cancelling under-digit that
-  walks a fold into a certified run with a small nonzero partial or
-  to an exact-zero partial at its edge), and collapsing sign
-  reads — all schedules of length ≤ 6: 1,948,716 states, every one
-  green (~4 s dev, committed); the length-≤ 7 sweep's 21,435,888
-  states also ran green once at pin time (48 s, not committed).
-  Complement: a run-forming proptest (shifts to 4,096 bits,
-  schedules to 150 ops, sign reads interleaved) with the same
-  per-step checker, no seeds appeared. The #79 REVIEW entry's
-  stranding sentence carries its dated amendment above; suanpan's
-  `zero_runs` field doc now states the stronger standing-containment
-  truth the code supports, consumers still bound to soundness alone.
-  The recommended per-op disjointness + containment debug_assert is
-  DECLINED under the assertion doctrine: a full-ledger walk per
-  `add_at` (the per-digit hot path) samples the same
-  schedule-shaped space the exhaustive driver now covers
-  systematically — the invariant's failure modes are per-transition
-  and scale-independent, so production-scale schedules add no new
-  transition the small scope lacks — at O(ledger) per write forever;
-  no constructible witness names an input the committed instruments
-  miss. Same instrument, worse price.
-
+  review): five findings, all landed as instruments.** F1:
+  `Version::min_ticks` documented linear while
+  counter-superlinear on committed families through the public
+  API — a wrong committed claim plus a roster-binding hole (no
+  test read the board's counter verdicts against the roster
+  classes); red-pinned with closed-form semantic legs. F2: the
+  freeze-position family FP(k) — Θ(k) freezes each reading the
+  position accumulator's full span — falsified rank's linear
+  claim where the board read green (every committed family fired
+  O(1) freezes: the hole). F3: suanpan's shifted rows' claimed
+  shift-independence falsified exactly by the alternating shifted
+  pair (the zero-gap walk funded by nothing). F4: the fold
+  index's searches were scan-unmetered (the #39 F2 genre) and its
+  linearity prose self-contradictory; the instrument gap was the
+  finding. F5: the triangle roster's citation check accepted any
+  same-named `fn` as a binding test (tamper hole). Attacked and
+  sound: rank on every committed family at board scales,
+  `meet_all`'s shrink argument, the fold subadditivity escape,
+  op-schedule reduction to the family axis, the κ two-leg
+  criterion.
+- **LANDED 2026-07-28 (the F3 cure): suanpan's cost table stands
+  as written — the zero-run ledger prices top maintenance by the
+  operand, not the gap.** Owner ruling: fix the code so the
+  shifted rows' "amortized O(operand limbs), independent of the
+  shift" is true; weakening the table was rejected. The
+  accumulator keeps a zero-run ledger of certificates — created
+  O(1) by any write landing above `top + 1`, split by interior
+  carries, consumed O(1) by the settlement scan and zero-partial
+  sign folds, which skip a certified run whole for one touch —
+  with the ledger-potential amortization argument written in full
+  on the crate page. Charter dispute resolved toward the goal: the
+  suggested single write-watermark discipline was refuted before
+  implementation (a value parked on digit 0 pins the watermark
+  while the oscillation runs unfunded). A dissolution inside the
+  cure: the sign collapse's post-zeroing top-walk was dead work,
+  deleted not metered. The red pin flipped to exact green
+  witnesses; the cost table verified row by row with named
+  witnesses.
+- **CURED 2026-07-28 (cure round #78): the query folds and the
+  instruments, three tracks.** Track 1: rank moved onto the
+  anchored-segment integrator (the pair co-sweep's single-stream
+  instance — no freeze reads an absolute position), and
+  `min_ticks` onto a range-minimum anchor web plus an epoch
+  ledger (`skyline/query/web.rs`; reigns settle once at the dying
+  record's own funded width, frozen drifts settle once by
+  summation-by-parts). FP landed as a board family with the
+  known-bad absolute-position kernel committed and failing beside
+  it (the adequacy ratchet). Track 3, six landings: the F5
+  citation seal (citations resolve to `#[test]` items and law
+  tables, two directions); the render finalize cure (digits
+  render at the merge that finalizes them into a node-keyed
+  arena; the display heap-constant genre cured); declared
+  per-cell models (a ratified cost law derived at the cell,
+  disclosed on the row face, banded both sides, each with a
+  committed wrong-artifact tripwire — the fold `O(D log k)` model
+  and the capacity chain the first two); the F4 decision — the
+  fold index stays, its searches metered and priced by a declared
+  search allowance, the weave family landed, the granted cursor
+  revert DECLINED with evidence (the committed overlap
+  instruments pin the index's asymptotic win); the class-binding
+  seal (board reds carry mechanism tags; no linear-class claim
+  may cite a standing exponent-mechanism red); the smoke pin on
+  the family axis (per-family expected cell counts as data,
+  retiring the hand-counted prose total).
+- **REVIEW 2026-07-28 (task #79, round 2): the promotion re-arm.**
+  F1: rank's promotion re-read the absolute position accumulator
+  over its full written span once per re-arm — counter-superlinear
+  through the public API with no committed family firing a single
+  promotion (the board structurally blind); red-pinned on the
+  re-arm spine PR(p). F2: the co-sweep's freeze-position green
+  covered the family, not the discipline (its mate was chosen
+  monotone). F3: the fuzz-fit sentry point-judged only sampled
+  draws — the deterministic corpus it already executes was judged
+  by line fit alone, so a localized region escaped two gates at
+  the expected probability; criterion proposed and landed at #81.
+  F4: review-number provenance citations in code prose (hygiene;
+  deleted). The suanpan ledger and the min-ticks web survived
+  construction attempts; a conjectured certificate-stranding
+  schedule was retracted by its author after completing the case
+  split (dated amendment; the #82 exhaustive driver is the
+  committed settlement).
+- **CURED 2026-07-28 (cure round #81): the promotion ledger.** A
+  promotion performs two funded-width reads and no product,
+  recorded as one ledger entry; the ledger settles once at the
+  close, suffix masses assembled newest-first as sparse balanced
+  signed digits, each arming paying one charge at its parked width
+  times its own suffix's balanced density — the epoch ledger's
+  discipline with suffix masses where min_ticks has reference
+  counts. One change cured rank/distance/lag. PR landed as the
+  board family `promo-rearm` (with a charter deviation resolved
+  toward the goal: the span builder reshaped so the family
+  isolates the promotion mechanism instead of parking an
+  unrelated stated-band red; the promotion payload untouched).
+  The pair-form family landed (freezes and promotions fired at
+  boundaries where the mate's cheap codes set the funded width).
+  F3 closed: the sentry judges the deterministic prefix, every
+  run, in the same pass as the staleness refit; adequacy shown by
+  documented replay under the pre-re-pin bands.
+- **VERIFIED 2026-07-28 (round #82, both evidence questions
+  settled by construction).** Q1: the ledger settle's
+  dense-suffix charge is reachable through the public API and
+  quadratic — DS(p, d) (a gap spine of isolated,
+  compaction-immune digits, then the re-arm schedule) read local
+  exponent ~2.0 through public rank; rank's unqualified `O(|v|)`
+  was a wrong committed claim; red pins landed, claims re-stated,
+  the module doc, public claims, and committed instruments
+  agreeing exactly. Q2: NOT REPRODUCED — no schedule strands a
+  suanpan certificate; `hi ≤ top` is a standing invariant,
+  collapse included; the mechanical settlement is a committed
+  per-step differential driver with an exhaustive prefix-tree
+  sweep over an 11-op alphabet. The recommended per-op ledger
+  debug_assert DECLINED under the assertion doctrine: the
+  exhaustive driver samples the same transition space
+  systematically; same instrument, worse price.
 - **PROBED 2026-07-28 (round #85, the skip-mechanism dissolution
-  question; branch `probe85` @ base 6bb2305e). Verdict:
-  LOAD-BEARING, all three.** Charter: the owner's suspicion that
-  suanpan's zero-run ledger — extended mid-round to all three of
-  the accumulator's skip/extent mechanisms (the ledger, the
-  `bottom` write watermark, exact-`top` maintenance) — defends a
-  documented generality (`shift-independent amortized cost`) that
-  no `before` usage pattern exercises; adversarial stance,
-  witness-construction win condition, dissolution authorized on an
-  earned refutation. The suspicion is refuted by construction:
-  each mechanism has a public-API family that is superlinear
-  without it and flat with it, committed as three green flatness
-  bands (`tests/meter.rs`, `skyline_flatness`) whose ceiling docs
-  carry both readings.
-
-  **Method.** Per-mechanism kill switches in a local, uncommitted
-  probe build: certificate consumption returns none (scans step
-  digit by digit); scaled reads start at digit 0; loop bounds and
-  fold starts read the buffer's high water, with the settlement
-  scan and the collapse's top-lowering disabled. Value-identical
-  verified before any cost reading was trusted: all 467 `before`
-  value tests and every suanpan differential suite green under all
-  8 on/off combinations; the failures under each combination are
-  exactly that mechanism's own cost pins and structural drivers
-  (`alternating_shifted_writes_cost_the_operand_not_the_gap` +
-  `sign_fold_skips_certified_runs` under ledger-off,
-  `scaled_read_costs_the_written_span` under bottom-off,
-  `held_width_rows_cost_the_held_digits` under top-off — each row
-  witness reads red under exactly its mechanism's absence, a
-  liveness check of the probe itself). One contract casualty,
-  top-off only: `redundant_zero_reads_nonzero_until_collapsed` —
-  "a sign read canonicalizes zero into an O(1)
-  `is_literally_zero`" is genuinely forfeited by a dissolved top.
-  A contract narrowing, not a value error, and itself evidence:
-  the O(1) literal-zero read is priced by exact-top maintenance.
-
-  **The witnesses** [all measured 2026-07-28, dev, exact counters,
-  two doublings; per-byte figures in milli-touches/byte]:
-  - *Zero-run ledger* — the weight comb `WC(n)` (a depth-`32n`
-    unit spine parking one digit-0 unit, then `2n` shallow leaves
-    oscillating heights 0/2): public `Version::rank` reads 21,512
-    → 43,016 touches (3,055 → 3,054/B, flat) with the ledger;
-    282,632 → 1,089,544 (40,140 → 77,376/B, ×1.93, `n² + O(n)`
-    exact) without. The public-API lift of #37's F3: the position
-    weight is topology, so the stream buys a `Θ(n)`-digit gap once
-    and re-crosses it at O(1) stored bits per event; the parked
-    unit forecloses value-emptiness and watermark shortcuts (the
-    cure78 charter-dispute geometry, now a committed family). #37
-    residual risk (1) is hereby settled in the affirmative: the
-    fold-total oscillation IS constructible through public rank —
-    the ledger is why it never mattered.
-  - *`bottom` watermark* — the freeze parade `FZ(k)` (the spine at
-    depth `64k`, then `k` shallow wide-drop blocks each firing one
-    freeze): rank reads 81,080 → 162,140 touches (1,625/B, flat)
-    with the watermark; 864,953 → 3,302,749 touches and 345,605 →
-    1,215,493 limb ops (×1.91 per byte, both currencies) without —
-    every settle's segment read walks the `Θ(k)`-digit
-    never-written prefix and the zero-padded magnitudes drag the
-    limb column with it.
-  - *Exact `top`* — the tooth-tail pair `TT(g, m)` (same-shape
-    unit spines whose second leaves spike `2^(32g)` in both
-    operands, `b` one tick above `a`): public comparison reads
-    4,239 → 8,463 touches (827/B, flat) with the settled top;
-    536,590 → 2,121,742 (×1.98 per byte, `2(g+1)` per boundary
-    exact) with a high-water bound — the cancelled spike's dead
-    digits re-walked by every subsequent `sign(D)` read, `Θ(m·g)`
-    on `Θ(m + g)` input.
-
-  **The census (the negative space).** Classified by mechanism,
-  robust to the concurrent rank-settle redesign. Cheap gap
-  creators — writes landing above `top + 1` whose position is not
-  paid by the operand's own coded width — exist in exactly one
-  place `before` reaches: the query integrator's weight-shifted
-  deposits (`total`, `seg`, `pos_local`; position = `2^(S−depth)`,
-  topology-priced), plus `Rank` exponent alignment
-  (`version/rank.rs`), which creates a funded gap once and scans
-  it at most once per public call (no loop exists; linear). Every
-  other accumulator write in `before` enters at digit 0 or at the
-  width its own delta code paid for, so a settle walk after a
-  code-funded cancellation costs at most the code's own bits —
-  constant-factor, which is exactly why the ledger's landing
-  moved no board verdict and bought only 8–19% on wide-tooth
-  cells. Repeat-scanners over a persistent gap: `total`'s
-  settlement after live-sign oscillation (WC, witnessed);
-  `seg`/`pos_local` are monotone-positive (the top never cancels,
-  no settlement scan ever descends) — their exposure is the read
-  side, which is the watermark's row (FZ, witnessed). The
-  co-sweep's `diff` and the folds' `live` see cancellations only
-  at code-funded widths (no lift, argued above); distance/lag
-  reach `total` through the same integrator, so WC's mechanism
-  covers the pair queries without a separate family. min_ticks'
-  web and the fill/emit/masked/watermark accumulators use no
-  shifted entry point (grep-verified) — their gap creation is
-  bit-funded, their exposure is `digit_count`/domination floors,
-  which is the top row (TT genre). Settle-implementation
-  dependence, stated: WC and TT are settle-design-independent
-  (interval deposits and the sweep predate any settle); FZ's
-  freeze *schedule* tracks the current per-boundary funded-width
-  trigger, but its mechanism claim — parked mass read at scale
-  must be span-priced — binds any settle that reads segment mass,
-  product-tree or not.
-
-  **Coupling, priced both directions.** WC under top-off reads
-  *below* real (2,982 vs 3,055 milli/B): with no settlement scan
-  there is nothing for certificates to skip — the ledger's
-  dominant consumer is exact-top maintenance, so the two stand or
-  dissolve together, and dissolving both still loses to TT (×127
-  absolute at the small scale). The three mechanisms are one
-  system: reads price the settled width (top), settlement prices
-  the gap by certificate (ledger), scaled reads price the written
-  span (bottom). Maintenance direction: O(1) amortized settle
-  touches per write, O(log ledger) unmetered map words, two usize
-  updates; memory one certificate per jump write, capped at half
-  the held positions. Absence direction: the three red readings
-  above. The asymmetry is the verdict. The one redesign that could
-  re-open the ledger question — a lazy top settled only at fold
-  collapses — was steelmanned and declined without a build: it
-  forfeits `digit_count` exactness (a public O(1) contract
-  consumed by the freeze/promotion triggers and the min_ticks
-  web's and fill watermark's domination floors) and hands stale
-  width to read paths that never heal (`sub_accum`,
-  `read_magnitude` are `&self`), a `Θ(nodes · w)` genre one wide
-  code arms; anyone reviving it owes that witness campaign.
-
-  **Consequences.** Nothing dissolves; no envelope reverts; no pin
-  re-realizes. The cost-table sentence stands as written, now with
-  before-level adequacy witnesses rather than crate-local ones
-  alone. New instruments: the three bands with ×1.25 ceilings and
-  liveness floors (small-scale wall cost ~1 s total), plus one
-  appeared suanpan seed (`proptest-regressions/tests.txt`,
-  committed per policy: the structural driver's shrunk
-  shifted-subtraction cancellation schedule, found under the
-  patched build, green on the real tree and riding along in the
-  differential suite).
-
-- **CURED 2026-07-28 (cure round #83, the balanced product-tree
-  settle; branch `cure83` @ base 6bb2305e).** Charter: make the
-  ledger settle achieve worst-case `O(|v| log |v|)` against every
-  arming/suffix adversary via the balanced product tree, flip the #82
-  dense-suffix red pins, restate the claims, and close out. All
-  numbers exact deterministic counters (dev for pins, release for
-  boards), every movement attributed at the parent 6bb2305e.
-
-  **The settle landed.** `settle_armings` is now a balanced
-  product-tree reduction (a binary counter, `join_all`'s fold shape,
-  iterative per the recursion rule) over the ledger's entry sequence —
-  entry `i` pairing `P_i` with the window behind it, closed by a
-  virtual entry carrying the final window. Each merge contributes
-  exactly one aggregate product, the left half's parked sum (an
-  `Accumulator`, so opposing armings cancel digit-wise before any
-  product reads a width) times the right half's window sum (sparse
-  balanced signed digits, the #81 suffix representation generalized to
-  a two-operand `absorb`), so every arming-window cross term of the
-  exact debt `Σ_{i<j} P_i · w_j` rides exactly one product and nothing
-  in the ledger is re-read more than `⌈log₂ n⌉` times: the
-  accounting-direction game is over — a shared dense suffix cannot be
-  walked once per arming, a promoted prefix cannot be re-read once per
-  window. Value-exactness held everything: the differential and
-  exhaustive suites (small-scope pairs, arbitrary trees, organic
-  histories, the composed forms) passed untouched, and the
-  freeze-position bands read byte-identical to the parent (a
-  non-promoting sweep runs the exact op sequence it ran before).
-
-  **The #82 pins flipped** (the headline): rank on
-  DS(500, 500) → DS(1,000, 1,000) reads touches
-  3,417,450 → 219,764 at the small scale (15.6× lighter) with
-  per-byte growth ×1.96 → ×1.00, limb ops 2,837,934 → 116,853 (24×)
-  at ×1.97 → ×1.00; the pair triple reads 12,900,786 → 710,692 (18×)
-  at ×1.96 → ×1.00 both currencies. The pins are now
-  `skyline_flatness` bands under the declared log model (the band doc
-  derives the model's worst admissible doubling growth at the
-  family's shape, ×log₂(2p)/log₂(p) ≈ ×1.11 even if the settle
-  dominated, inside the ×1.25 slack; measured ×1.00 — the settle's
-  log term is a small share of the fold's linear work), ceilings
-  ×1.25 over measured, liveness floors and `min_ticks` closed-form
-  legs carried over. DS/DSM moved into `src/meter` as bit-exact
-  generators (`dense_suffix`, `134d + 1812p + 4` bits pinned, spelled
-  text-form equality in the generator tests) so the src-side
-  tripwire below shares them. Adequacy per the ratchet: the retired
-  per-arming suffix walk is committed and failing beside the kernel
-  (`suffix_walk_settle_reads_superlinear_on_dense_suffix{,_pair}`,
-  query `tests.rs`: ×1.96/byte on DS and the pair, floors 1.48,
-  value-exact against the shipped folds), and the #81 span-reading
-  tripwires stay red on PR unchanged. The promotion re-arm bands
-  re-pinned at the tree's readings with the movement annotated:
-  +17% touch (rank) and +12% (pair) at ×1.00 exponent, +0.7%/+0.3%
-  limb — the tree's per-level window rewrites, bought for the
-  dense-suffix cure.
-
-  **The discrepancy (charter goal vs mechanism, resolved toward
-  honest claims and reported).** The ratified unqualified
-  `O(|v| log |v|)` worst case is **not achieved** by the product
-  tree, and this round's construction shows no fixed-association
-  settle achieves it: the aggregate product itself costs the parked
-  sum's width times the window sum's balanced density, and
-  cancellation is exploited only *within* a parked sum, never across
-  a seam. The committed witness `WA(w, d)` (`meter::wide_arming`, a
-  gap spine over one `2^(32w)` re-arm block: one arming as wide as
-  the input ahead of a trailing mass as dense as the input, the
-  plateau's cancelling descent landing after the sweep — outside
-  every aggregate) reads [measured 2026-07-28, dev, exact] touches
-  288,037 → 1,083,963 across WA(500) → WA(1,000) on
-  14,263 B → 28,451 B (×1.89/byte), limb ×1.87, next doubling
-  ×1.94/×1.93 — local exponent ~1.9 through the shipped tree. Two
-  structural findings behind it: (1) misaligned cancelling armings
-  (`+H, ε, −H` around a split seam, dense mass right of it) force the
-  same width×density price at any fixed tree association — only a
-  cancellation-adaptive settle (the prefix re-anchored with its own
-  freeze discipline, recursively) could exploit them, a
-  research-shaped cure; (2) **no intrinsic amplifier exists**: for
-  the exact answer itself to embed a `w`-wide × `d`-dense
-  convolution, the input must fund `w · d` (a plateau's mass against
-  same-scale punctures telescopes to compact terms; keeping the mass
-  dense at the plateau's own scale costs per-puncture wide codes) —
-  so every superlinear reading is accounting overhead on cancelling
-  arrangements, none of it mandatory. \[AMENDED 2026-07-28 (fix
-  round #94): finding 2 is retracted — the committed
-  plateau-puncture family (`meter::plateau_puncture`; red pin
-  `answer_embedded_product`, `tests/meter.rs`) constructs exactly
-  the embedding it argued away. Every turn leaf sits *on* the
-  plateau `H = 2^(32w)`, so nothing telescopes, and the turn masses
-  are `d` digits a full digit apart (incompressible in balanced
-  form), bought by per-turn topology bits: the exact rank numerator
-  is `H · M + 1`, a `Θ(w)`-digit × `Θ(d)`-digit product from
-  `Θ(w + d)` input bits, measured quadratic on the diagonal with
-  zero promotions — the excess sits in the close-time settle
-  `P · segment`, outside the ledger entirely. Consequences, landed
-  with the amendment: `Ω(M(|v|))` time is mandatory on adversarial
-  inputs (`M` the integer-multiplication bound; the superlinear
-  excess is not all accounting overhead), the mechanism prose
-  re-attributes to both settle sites (ledger aggregate products and
-  the close-time settle), and the rank/distance/lag claims upgrade
-  to the three-part form — `Θ(|v|²)` worst case, witnessed tight by
-  the wide-arming and plateau-puncture pins and bounded above by the
-  committed `quadratic_ceiling` derivation; `Ω(M(|v|))` mandatory;
-  `O(|v| log |v|)` on streams whose parked masses stay `O(1)` digits
-  wide. The "future release may compute the rank in amortized
-  `O(|v|)` time" rider is weakened to `O(M(|v|))` accordingly. The
-  claim-form sentence that follows this amendment records the #83
-  decision and is superseded by the three-part form.\] The claims
-  therefore state, no
-  stronger and no weaker: worst-case **superlinear** time (mechanism:
-  the aggregate product, family named), `O(|v| log |v|)` whenever
-  parked masses stay `O(1)` digits wide (every committed family, the
-  dense-suffix adversaries included), `O(|v|)` space, excess
-  non-contractual. `ledger_wide_arming_pin` (`tests/meter.rs`) is the
-  claims' committed red witness, floor ×1.44 midway.
-
-  **Class decision (charter item, smallest honest vocabulary):**
-  rank/distance/lag stay `Class::Linear` with the superlinear rustdoc
-  rider and the tests-only red pin — the #82 structure with the
-  witness re-denominated from DS to WA. `FoldLog` was evaluated and
-  declined at the roster rows: the settle's log factor is real but
-  never dominates a committed reading (the DS bands measure ×1.00),
-  and "linear × log" would be a false upper bound while the
-  wide-arming pin stands; `SuperlinearCounter` stays unavailable by
-  the documented seal constraint (no standing board exponent red —
-  the board reads every rank row green, DS not landed as a board
-  family: the seal's witness story is served by the committed
-  tests-only pins plus the flatness bands, and a 25th family would
-  buy no verdict the bands do not already hold).
-
-  **Board and instruments:** fresh release renders at both scales
-  read **default 1193 + 6, record 1193 + 6**, the red set exactly
-  the parent's six ratified reds; the round's whole board delta,
-  diffed cell for cell against parent renders on this machine, is
-  the three promo-rearm linear-functional cells' touch constants
-  (rank 1.4 → 1.6/B, distance/lag 2.1 → 2.4/B, exponents 1.00
-  unchanged) — every other cell byte-identical. Fuzzfit re-pinned at
-  fourth-decimal movement (rank slope 1.1291 → 1.1289; the organic
-  corpus rarely promotes), annotation in the bands pin of record;
-  the enforcement leg green through the cure.
-
-  **Reconciled with round #85 (rebased onto 482fbbb5):** the three
-  skip-mechanism adequacy bands (weight-comb, freeze-parade,
-  tooth-tail) read **byte-identical to their committed records**
-  under the product-tree settle at the merged tree — the settle's
-  window masses are sparse balanced digits, its window reads are the
-  same watermark reads the per-freeze settle pays, and its parked
-  sums ride the certificate-bearing accumulator, so certificate
-  consumption and gap-skipping are preserved exactly as the relay's
-  constraint required; no re-measure or movement note was needed.
-
-  **For the owner:** (1) the unqualified `O(|v| log |v|)` ratification
-  cannot be honored by any fixed-association settle — accept the
-  wide-arming residual as the stated bound (the pin stands red,
-  claims qualified as above), or commission the cancellation-adaptive
-  settle as its own campaign item; (2) the no-intrinsic-amplifier
-  argument (finding 2 above) is prose-proved in the module doc's
-  funding section but not mechanically pinned — a probe family
-  attempting the intrinsic construction and reading flat would make
-  it a committed fact rather than an argument, if wanted.
-
+  question; owner's suspicion, adversarial stance, dissolution
+  authorized on an earned refutation). Verdict: LOAD-BEARING, all
+  three.** Each of the accumulator's skip/extent mechanisms — the
+  zero-run ledger, the `bottom` write watermark, exact-`top`
+  maintenance — has a public-API family that is superlinear
+  without it and flat with it (weight comb ×1.93/byte without the
+  ledger; freeze parade ×1.91 without the watermark; tooth-tail
+  ×1.98 without the settled top), committed as three green
+  flatness bands whose ceiling docs carry both readings.
+  Kill-switch probe builds were value-identical before any cost
+  reading was trusted; each mechanism's own row witness read red
+  under exactly its absence (a liveness check of the probe
+  itself). The census: cheap gap creators exist in exactly one
+  place `before` reaches (the query integrator's weight-shifted
+  deposits, topology-priced); everything else enters at digit 0
+  or at code-funded width. The one redesign that could re-open
+  the question (a lazy top settled only at fold collapses) was
+  steelmanned and declined without a build: it forfeits the
+  public O(1) `digit_count` contract and hands stale width to
+  `&self` read paths that never heal; anyone reviving it owes
+  that witness campaign. Nothing dissolves; no envelope reverts.
+  The witness families were subsequently promoted to board
+  columns (weight-comb and freeze-parade; tooth-tail followed at
+  the #76 floor re-derivation below), their generators
+  single-sourced so the bands and the board consume the same
+  constructions.
+- **CURED 2026-07-28 (cure round #83): the balanced product-tree
+  settle.** `settle_armings` became a balanced reduction over the
+  ledger's entry sequence: every arming-window cross term rides
+  exactly one aggregate product, nothing re-read more than
+  logarithmically — the accounting-direction game closed (a
+  shared dense suffix cannot be walked once per arming). The #82
+  pins flipped to flatness bands under the declared log model;
+  DS/DSM moved into `src/meter` as bit-exact generators; the
+  retired per-arming walk committed and failing beside the
+  kernel. The discrepancy, resolved toward honest claims and
+  reported: the ratified unqualified `O(|v| log |v|)` is not
+  achieved by any fixed-association settle — the wide-arming
+  family WA (one arming as wide as the input ahead of a mass as
+  dense as the input) reads the aggregate product itself
+  superlinear; misaligned cancelling armings force the same price
+  at any fixed tree association (only a cancellation-adaptive
+  settle could exploit them — research-shaped). Class decision
+  (smallest honest vocabulary): rank/distance/lag stayed
+  `Class::Linear` with the superlinear rustdoc rider and the
+  tests-only red witness; `FoldLog` declined at those rows
+  (a false upper bound while the wide-arming pin stands);
+  superseded by #91's `MulBound` below.
 - **BUILT + RED 2026-07-28 (wedge round #76, the correlated n-ary
-  fold populations; branch `wedge76` @ base c2f9c513, rebased onto
-  31b28bfb). Verdict: the join folds are HONEST under joint
-  correlation (green under the declared model, bands committed);
-  `Version::meet_all` is NOT (a constructed quadratic, red pin
-  committed).** Charter: the fold rows had never seen a family that
-  correlates ALL n operands jointly against the reduction structure —
-  every committed population was random, organic, or a promoted pair
-  (§12's F4 entry called out and weave only partly closed the gap:
-  fixed arity). All numbers exact deterministic counters, dev profile
-  for pins, release for boards; every figure denominated in TOTAL
-  packed input bytes across the population (per byte·level where the
-  declared `O(D log 2k)` model is the claim, stated at each use).
-
-  **The join wedge (`stagger_comb`/`stagger_id`/
-  `stagger_population`, single-sourced in `meter.rs` with closed-form
-  pins).** `n` operands of `m` unit teeth over one `n·m`-slot dyadic
-  domain, operand `i` owning slot `i` of every block —
-  `m(4·log2 n + 6) − 2` bits per version operand,
-  `m(2·log2 n + 4) − 2` per id, `min_ticks = m` exact, full-population
-  join = the constant-1 skyline / seed reunion (the tiling witness) —
-  fed in **bit-reversed order** so every binary-counter merge at every
-  level joins region sets diverging at the top address bit:
-  intermediate swell ≈ the sum of the inputs' sizes at every internal
-  merge, no coalescing before the last level (index order would hand
-  the counter adjacent slots, maximal path sharing — the foreclosed
-  luck). Measured (dev, exact):
-  - *Arity axis, m = 64 fixed, n = 64 → 128 → 256* (12,800 →
-    28,672 → 63,488 B): version fold touches 171,963 → 429,946 →
-    1,048,313, limb 785,888 → 2,014,168 → 5,011,408, scan 767,834 →
-    1,969,818 → 4,906,266 — model-normalized (per byte·level) 8.57 →
-    8.59 → 8.59 scan bits, 1.92 → 1.87 → 1.84 touches: the raw
-    per-byte cost grows exactly the documented one-level-per-doubling
-    and the model's constant is flat. Party fold scan 1,425,352 →
-    3,227,464 → 7,260,488 (24.9 → 21.9 → 19.7 bits per byte·level).
-  - *Size axis, n = 64 fixed, m = 64 → 128 → 256* (12,800 → 25,600 →
-    51,200 B): version fold per-byte cost flat to three digits
-    (touches 13.43/B at all three points); party fold scan per
-    byte·level 24.9 → 27.1 → 29.4 (×1.09 per doubling — the up-front
-    overlap test's `log2(table)` probe factor, priced by the board's
-    declared search allowance; within the ×1.25 band).
-  - *Sequential controls, n = 256, m = 64*: the left version fold
-    reads 25,725,854 scan / 4,990,711 touches vs the balanced
-    4,906,266 / 1,048,313 (×5.2 / ×4.8); the per-input party join
-    chain reads 18,246,408 scan vs 7,260,488 (×2.5).
-  - *Board*: family `stagger` (fold rows only, FAMILIES 26 → 27 at
-    this entry's first leg), both cells GREEN at both scales under
-    the declared fold model — version fold limb/scan/touch exponents
-    1.09/1.09/1.07 (ceiling 1.24), party fold scan e 1.06 at
-    189.5/B default and 215.6/B record against model+allowance
-    (~2–4% headroom: the search allowance is nearly consumed, the
-    tightest calibration point the allowance has; a regressed search
-    reads red here first).
-  - *Enforcement*: four bands in `tests/meter.rs` (`fold_stagger`),
-    each holding the model-normalized constant flat (×1.25) across
-    two doublings per axis with absolute pinned ceilings (measured
-    ×1.25) and liveness floors (one touch per tooth on the version
-    fold, 8 scan bits per byte on the party fold), registered in the
-    board↔band parity pin.
-
-  **The meet wedge (`meter::meet_shade`, the join wedges' dual,
-  derived from the meet's walk).** A meet fold's hazard is not a
-  growing accumulator but a non-shrinking one: `meet_all` is a
-  sequential reduce, each step's emission sweep walks BOTH operands
-  whole (no domination short-circuit exists in `emit::meet`), and a
-  meet shrinks the accumulator's *value*, never necessarily its
-  packed size. Population: one `dense(d)` carrier (heights 0/1), then
-  `k − 1` `hugeleaf(2)` plateau shades (constant-3 skyline, 6 packed
-  bits) strictly above it — the running meet is the carrier,
-  byte-identical, at every step; both component shapes are committed
-  linear families; the composition alone is the adversary. Measured
-  (dev, exact, both width currencies):
-  - *Diagonal `d = k`, 512 → 1,024 → 2,048* (704 → 1,408 → 2,816 B):
-    touches 263,676 → 1,051,644 → 4,200,444 and limb 1,574,902 →
-    6,295,542 → 25,174,006 — per-byte growth ×1.99 and ×2.00 per
-    doubling, a class residual.
-  - *Direction fits (each factor alone)*: k = 256 → 512 → 1,024 at
-    d = 256 fixed grows touches ×2.004, ×2.002 per doubling
-    (limb ×2.004, ×2.002); d = 256 → 512 → 1,024 at k = 256 fixed
-    grows touches ×1.985, ×1.992 (limb ×1.994, ×1.997) — the exact
-    product law `Θ(k · d)`, each factor independently linear.
-  - *Committed*: the `meet_all_shade_reads_superlinear` RED PIN
-    (`tests/meter.rs`, `ledger_wide_arming_pin`'s structure): floor
-    ×1.49 per-byte growth across the committed doubling — midway
-    between linear and the measured ×2.00, so only a class change
-    crosses it — over a one-touch-per-operand-byte liveness floor
-    and the fold-returns-the-carrier semantic leg. Per the owner's
-    standing ruling this is an in-campaign mandatory cure;
-    the natural candidate is the join folds' balanced binary-counter
-    reduction (meet is associative and commutative; equal shades then
-    answer by canonical equality), which flips the pin into a
-    flatness band and restates the claims in the same change.
-  - *Prose re-derived to the proven worst case* (the NA rationale was
-    falsified by construction): `Version::meet_all`'s `# Complexity`
-    (`O(D)` space, **superlinear** worst-case time, the mechanism
-    stated), its claims-roster tokens and uncelled reason, and the
-    board coverage list's meet entry (no row until the cure; the red
-    pin is the record, never a board ceiling blessing the reading).
-
-  **The aligned-pair floor re-derivation (owner ruling 2026-07-28,
-  executed in this round: tooth-tail is a genuine family, the floor
-  premise was wrong).** Old premise: pair kernels fold *every stored
-  delta of both operands* — `floor = deltas(v) + deltas(w)`. The
-  tooth-tail pair refutes it honestly: the fused sweep folds per
-  *overlay boundary*, and a boundary both operands step lands both
-  step codes in one fold of the single running difference, so a
-  boundary-aligned pair does ~one touch per boundary against two
-  stored deltas (measured 8,195 touches over 8,192 boundaries at the
-  default board scale). New premise, derived from the sweep and true
-  for ALL pairs with no per-family carve-outs (`touch_pair_fold`,
-  board.rs): **one touch per stepping overlay boundary, and the
-  overlay steps at least as often as the LARGER operand stores
-  deltas** — `floor = max(deltas(v), deltas(w))`, strictly positive
-  wherever either operand stores a delta (the dead-meter adequacy
-  stated in the declaration doc); operands equal byte-for-byte
-  declare NA (canonical identity answers them before any sweep).
-  Applied uniformly: the ten pair rows (`version_cmp`, `concurrent`,
-  `causally_contains`, `join`/`meet` + assigns, `distance`, `lag`,
-  `clock_join`, `clock_sync`), the masked comparisons (the projected
-  sweep must still fold every stored delta across unowned gaps to
-  re-enter owned regions at the right height, so max is sound there
-  too), and the n-ary fold row under the same premise per first-level
-  merge (`touch_fold_first_merges`: the binary counter pairs
-  arrival-adjacent inputs; equal adjacent pairs force nothing; later
-  levels merge derived groups and are deliberately un-floored). The
-  envelope suite's comparison floors needed no change: its pair runs
-  compare against empty/one-tick operands (boundary count = delta
-  count there) and the tooth-tail band already floors per boundary.
-  Verified: every pre-existing pair cell green at both scales with
-  the re-derived floors met, no verdict flips anywhere, the render
-  diffs on pre-existing cells confined to the touch-floor field.
-
-  **Tooth-tail promotion (same ruling).** Board family `tooth-tail`
-  at its full 43-cell version-pair reach (FAMILIES 27 → 28 with this
-  entry's two legs), base `m = 4,096` boundaries with the band's
-  committed `g = m/64` spike ratio riding one knob. The ten formerly
-  floor-tripped cells read GREEN under the re-derived floor at both
-  scales. `version_parse_noncanon × tooth-tail` reads heap 20.7 →
-  20.8 B per text byte at exponent 1.00 (re-measured this round,
-  release, both scales) — the ratified small-flat-constant profile —
-  and lands GREEN under a **family-stated heap ceiling** (26 B/B =
-  measured ×1.25, `TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`, the
-  declared-models mechanism extended to per-cell flat heap ceilings:
-  constant leg replaced, exponent leg untouched, disclosed on the
-  row face and the legend, derivation at the constant). The parity
-  pin's tooth-tail exemption moves to the mapped list. Net: the
-  board's red set is exactly the six pre-existing ratified entries
-  at both scales.
-
-- **CURED + TAPPED 2026-07-28 (fix round #94, the meet fold and the
-  window-digit tap; branch `fix94` @ base a74be5d6).** Charter: cure
-  the `meet_all` quadratic, close the WindowMass metering hole, land
-  review #90's claims/prose corrections and the distance/lag pair
-  probe. All numbers exact deterministic counters, dev profile for
-  pins and bands, release for boards; every movement measured at the
-  parent a74be5d6.
-
-  **The meet cure (round #76's mandated flip).** `Version::meet_all`
-  now runs the join folds' balanced binary-counter reduction — one
-  shared helper, genericized over the combiner, so the two lattice
-  folds' cost model is uniform by construction. On the shade diagonal
-  MS(2,048, 2,048) the fold reads 22,572 touches / 135,278 limb ops
-  against the sequential reduce's 4,200,444 / 25,174,006 (186× both
-  currencies); model-normalized per byte·level 0.660 → 0.664 → 0.668
-  touches across two doublings. The #76 red pin flipped into the
-  `meet_fold` flatness band (measured ×1.25 ceilings, liveness floor,
-  carrier semantic leg), with the sequential reduce committed and
-  failing beside it (floor ×1.49 midway; the shade family still
-  catches the per-operand re-walk at ×2.00/byte). Claims re-derived:
-  `O(D log k)` time / `O(D)` space, roster `Class::FoldLog`; the
-  board row `version_meet_all` landed over the fold populations (all
-  8 cells green at both scales, the stagger meet cell included —
-  first-level touch floors, declared fold model), and `meet_shade`
-  doubles as a differential shape (carrier-exact in every feed order
-  against the sequential fold and the recursive oracle).
-
-  **The counter's one home (owner-approved scope addition, the DRY
-  survey).** `Party::join_all` and `Clock::join_all` were
-  near-verbatim copies of the same binary counter; `crate::fold` now
-  holds the shared core (`balanced_try_fold`: fallible combiner
-  `Result<T, (T, T)>`, accept predicate for the up-front overlap
-  test, feed-order rejection channel) and both route through it, as
-  do the version folds via the infallible wrapper. Pure refactor:
-  release boards byte-identical at both scales against the
-  pre-refactor tip (whole-file cmp). `Integrator::settle_armings`
-  evaluated and kept hand-rolled with a cross-binding comment: its
-  combiner charges the total as a side effect and its drain is
-  right-associated — the association the committed settle readings
-  are pinned against.
-
-  **The window-digit tap (review #90 F3).** `WindowMass`'s
-  merge/absorb/combine moved digits as plain `i64` traffic invisible
-  to every counter — #90's known-bad `O(density²)` absorb passed all
-  bands byte-identical. `combine` now records one limb count per
-  merged position, unconditionally compiled against the meter
-  feature (the `Base`-shim convention). Adequacy in the
-  committed-and-failing form — available exactly because the tap
-  exists: the per-digit absorb kernel (the shipped product tree,
-  each window merge folded one digit at a time) reads ×1.85/byte
-  limb growth on DS(500) → DS(1,000) against the shipped ×1.00,
-  value-exact, floor 1.42 midway. Re-pins at tap-measured values,
-  touches unchanged and exponents ×1.00 everywhere: DS rank limb
-  +8.2%/+8.7%, DS pair +4.8%/+5.1%, PR rank +2.0%, PR pair +0.9%,
-  wide-arming pin +0.5%/+0.3%/+0.1%; freeze-position and
-  plateau-puncture byte-identical (no promotion, no window mass —
-  the tap's scope witness). `combine`'s false doc precondition
-  ("each incoming digit within the balanced range") restated: merge
-  feeds raw `u32` limb halves; per-position sums stay under `2^33`,
-  far inside the `i64` headroom the recentering restores from.
-
-  **Claims and prose to the committed witnesses (review #90
-  F1/F2/F4/F7).** rank/distance/lag time claims upgraded to the
-  three-part form — `Θ(|v|²)` worst case (schoolbook settle
-  products, witnessed tight by the wide-arming and plateau-puncture
-  pins, bounded above by the committed `quadratic_ceiling`
-  derivation), `Ω(M(|v|))` mandatory on adversarial inputs (the
-  answer-embedded product), `O(|v| log |v|)` on `O(1)`-wide-parked
-  streams — roster tokens and seal consistent, classes unchanged
-  (`Linear` rows per the #83 seal reasoning). The query module doc's
-  refuted no-intrinsic-amplifier sentence excised for the embedding
-  construction (this entry's #83 amendment carries the retraction);
-  mechanism prose re-attributed to both residual sites (ledger
-  aggregate products AND the arming-free close-time settle); the
-  "amortized `O(|v|)`" riders weakened to `O(M(|v|))`. New probe:
-  the plateau-puncture × arming-train PAIR row for distance/lag
-  (touches 2,120,117 → 8,053,927 on 25,851 B → 50,897 B, within the
-  quadratic ceiling; halves-sum value leg) — the shared-integrator
-  argument now measured on the pair co-sweep.
-
-  **Board accounting:** fresh release renders at both scales read
-  **1328 + 6 (1334 cells)**, the red set exactly the six
-  pre-existing ratified entries; the whole diff against parent
-  renders on this machine is the 8 new green `version_meet_all`
-  cells and the three promo-rearm linear-functional cells' limb
-  constant 0.7 → 0.8/B (the tap; exponents 1.00 unchanged) — every
-  other cell byte-identical, 0 verdict flips. §13's cell count
-  re-derived 1285 → 1334: +4 this round (the meet row), the
-  remainder pre-existing drift from the #76/tooth-tail promotions
-  that never moved the prose.
-
-- **CURED 2026-07-28 (cure round #91, the settle products to the
-  multiplication bound; branch `settle91` @ base c16a73f6).**
-  Charter: the campaign's last substantive victory, owner-mandated
-  ("I don't accept quadratic operations, honestly or otherwise") —
-  take rank/distance/lag worst-case time to the integer-
-  multiplication bound by delegating the swollen settle products to
-  the backend cluster-wise, flip both committed red pins into
-  flatness bands, and re-derive the claims. All numbers exact
-  deterministic counters, dev profile for pins and bands, release
-  for boards; every movement measured at the parent c16a73f6.
-
-  **The mechanism.** Both residual sites now charge through one
-  path: a settle product's balanced signed digits split into
-  clusters at zero-gaps wider than the factor's own digit width
-  (`clusters`/`charge_digits`, query.rs), each cluster densifies
-  into at most two magnitudes (positive and negative digits
-  separately, no signed subtraction before the product), and each
-  rides one backend multiplication (dashu, at whatever tier its
-  dispatch engages: simple ≤ 24 words, Karatsuba ≤ 96, Toom-3
-  ≤ 4,000, NTT above), metered as traffic (operands + product
-  widths, the `parse_decimal` delegation convention) with
-  single-digit clusters on the old word-product fast path. The
-  close-time `P · segment` settle compacts the segment through the
-  window spelling first (`charge_segment`), so a climb's all-ones
-  run still collapses to two far-apart digits and never densifies
-  its span. The ledger settle re-associates through a
-  **mass-balanced** product tree (offline midpoint splits over
-  parked-digits + window-density masses, iterative on explicit
-  stacks): node products shrink geometrically down the tree, so
-  their backend costs telescope into the root's under any
-  power-law multiplication tier — the entry-count binary counter
-  was measured out (its shape lets one wide arming meet an equal
-  share of window mass at every level, stacking a
-  `(log n)^(2−r)` polylog on top of the bound). Cost bound,
-  derived (query.rs module doc): `O(M(|v|))` while every product's
-  smaller side sits in a power-law tier (every input under
-  ~64 KiB packed, and any `O(1)`-arming input at any size);
-  `O(M(|v|) · log a)` in general, `a` the arming count — the
-  tree-depth log survives only past the backend's 4,000-word
-  quasilinear threshold. The threshold seam is deliberate reuse of
-  the zero-run geometry and is parameterized (`clusters` takes the
-  gap limit as an argument) so the constants round's
-  threshold-gated certificates can gate the same seam; one
-  derivation lives at `charge_digits` (split where bridging stops
-  paying: a gap narrower than the factor costs less to carry than
-  the extra product, a wider one is unfunded work, and factor-width
-  spacing caps separated products at O(span) traffic).
-
-  **Verdict (both directions, denominated per packed byte, dev
-  exact).** Ceiling evidence — the two red pins flipped flat
-  through the public `rank`:
-  | family | parent (schoolbook) | tip (delegated) | per-byte growth |
-  |---|---|---|---|
-  | WA(500,500)→WA(1000,1000), 14,263 B→28,451 B | touches 288,037→1,083,963 (×1.89/B), limb 293,651→1,095,255 (×1.87/B) | touches 34,742→69,373, limb 41,942→83,836 | ×1.89/×1.87 → **×1.00/×1.00** (8.3×/7.0× lighter at the small scale) |
-  | PP(500,500)→PP(1000,1000), 14,188 B→28,376 B | touches 154,100→566,188 (×1.84/B), limb 165,566→589,122 (×1.78/B) | touches 25,585→51,157, limb 37,825→75,639 | ×1.84/×1.78 → **×1.00/×1.00** (6.0×/4.4× lighter) |
-
-  Floor evidence — the plateau-puncture answer still embeds the
-  product: the band's exact-rank leg (`H · M + 1` at scale
-  `2^(33d)`) and the roster's `mul_bound_embedding_is_alive` pin
-  hold `Ω(M(|v|))` mandatory; the retired per-digit charge is
-  committed and failing beside the kernels
-  (`schoolbook_settle_reads_superlinear_on_wide_arming` ×1.89/B
-  touch, `..._on_plateau_puncture` ×1.84/B, both value-exact
-  against the shipped folds — the adequacy ratchet's
-  committed-and-failing form). \[AMENDED 2026-07-28 (fix round
-  #102, from the round-#100 adversarial review): the floor evidence
-  as landed was wrong-graded. The plateau `H = 2^(32w)` funded
-  width, not content — the parked factor `H − 1` is an all-ones run
-  the settle's own balanced compaction spells in two terms, and the
-  strided mass `M = Σ 2^(33i−1)` is a geometric series — so the
-  named witness's numerator was computable in `O(|v|)` by shifts,
-  an increment, and (for the mass structure) one short division: no
-  multiplication mandated. Cured by re-shaping the family:
-  `plateau_puncture` is now the committed instance of the general
-  `puncture_product(x, y)` embedding, whose exact rank numerator is
-  `2·x·y + 1` for arbitrary positive factors — the floor evidence
-  of record is the reduction from arbitrary integer multiplication
-  (`arbitrary_factors_embed_their_product_in_exact_rank`, the query
-  fold's suite), not a bet on one shape — with `x` dense
-  pseudorandom (the parked plunge compacts to 65 balanced terms at
-  the embedding pin's scale, against 2 for a power-of-two plateau)
-  and `y` jitter-strided (exactly `d` isolated compaction-immune
-  digits at non-uniform strides, so no geometric closed form
-  telescopes it). `mul_bound_embedding_is_alive` re-pointed from
-  factor widths to factor content; the review's shift-only witness
-  retired with the cure. Re-measured rows on the re-shaped family:
-  `answer_embedded_product` band 48,420 → 96,847 touches / 72,883 →
-  145,758 limb on 20,376 B → 40,751 B packed (flat ×1.00/B,
-  ceilings ×1.25), its schoolbook kernel red at ×1.90/B touch and
-  ×1.65/B limb (floor 1.32), `pair_plateau_train` 406,244 → 815,755
-  touches (×1.02/B, ceilings ×1.25). New deterministic leg: a
-  public-fold differential drives dense incompressible factors
-  through the close-time settle product at every backend tier
-  boundary (24/25, 96/97, 4,000/4,001 words — oracle-differential
-  through the Toom-3 entry, closed-form at the NTT boundary, where
-  a per-digit-populated mass would cost a packed build in the
-  hundreds of megabits).\] Flip table: `ledger_wide_arming_pin
-  → ledger_wide_arming` flatness band (measured-×1.25 two-scale
-  ceilings, per-byte ×1.25 flatness, liveness floor, min_ticks
-  leg); `answer_embedded_product` red pin → flatness band (same
-  legs plus the exact-rank Ω-witness); `quadratic_ceiling` RETIRED
-  under the dissolution ratchet — its derivation priced the
-  schoolbook settle, every family it held now reads flat under the
-  strictly tighter `settle_flatness` probes (pair
-  ×1.93/B → ×1.04/B touch; trains ×1.17/×1.13 → ×1.09/×1.04 with
-  measured ceilings), and what it caught the schoolbook kernels
-  keep catching red. The train probes' alternating-strictly-cheaper
-  leg is retired with its premise: under delegated products the
-  parked sums' sign schedule is a constants effect (alternating
-  reads within 3% of same-sign, the ceilings' doc records it), and
-  the sign schedules' value coverage stays in the promoting
-  differential pool. Pair/query value witnesses: all committed
-  suites pass untouched (promoting pool, 691-pair exhaustive,
-  arbitrary trees, organic histories, composed forms, paper
-  oracle); new at the mechanism's seams — a cluster-geometry unit
-  pin (splits exactly at the gap limit) and a differential proptest
-  (`clustered_charge_agrees_with_whole_span_products`: arbitrary
-  sparse balanced masses × factors straddling the threshold and
-  the backend's tier boundaries, against two whole-span products
-  on an un-clustered path).
-
-  **Claims and the class vocabulary (owner-directed mid-round).**
-  rank/distance/lag re-derived to the landed three-part form:
-  `O(M(|v|) · log |v|)` worst case (the log absorbed below the
-  backend's quasilinear threshold and on `O(1)`-arming inputs,
-  where the bound is `O(M(|v|))`), `Ω(M(|v|))` mandatory,
-  `O(|v| log |v|)` on `O(1)`-wide-parked streams; the
-  non-contractual gap is now the tree-depth factor. The rows'
-  class moved `Linear → MulBound`, a new roster class (superlinear
-  worst case at the multiplication bound, delegated below every
-  deterministic counter — no honest board or judge red can exist),
-  and the class vocabulary's bindings were unified per the owner's
-  scattershot ruling: every `Class` variant now declares one
-  `ClassContract` (exponent-red stance, judge-red membership,
-  defining token with exclusivity, named `#[test]`-attributed
-  witnesses), enforced by one uniform test
-  (`classes_satisfy_their_contracts`) with an exhaustive match
-  making a contract-less class a compile error. MulBound's
-  contract binds the `Ω(M(` token bidirectionally to the class and
-  names its five witnesses (both flat bands, both schoolbook
-  kernels, the embedding pin).
-
-  **The residual log, for the owner (the charter's stop-and-report
-  obligation, resolved toward the goal on this review branch).**
-  The ratified target was unqualified `O(M(|v|))`; the landed
-  mechanism carries `O(M(|v|) · log a)` in exactly one corner —
-  armings numerous enough and parked sums/window masses wide
-  enough that the tree's products engage the backend's quasilinear
-  tier (≥ 4,000-word smaller sides, i.e. ~32 KiB parked sums per
-  side) at Ω(log a) levels simultaneously. Below that corner the
-  bound is clean `O(M(|v|))` [derived, module doc; measured flat
-  through every committed family]. No fixed decomposition known to
-  us removes the last log over a quasilinear `M` (the prefix-
-  correlation shape's standard bound is `M(n) log n`); §14's
-  standing asymptotic bar ("multiplication-equivalent up to log
-  factors ... at their problem's own optimum, stated and priced")
-  accepts the landed form, but the charter's tighter unqualified
-  target does not — the owner ratifies the claim as landed or
-  commissions the log's removal as its own item. Claims are stated
-  exactly (never weaker than proven, the log never hidden).
-  \[AMENDED 2026-07-28 (fix round #102, from the round-#100
-  adversarial review): the `log a` denomination above was wrong —
-  the mass-balanced tree's depth is logarithmic in the total settle
-  mass (parked digits plus window density), never in the arming
-  count: exponentially spread entry masses chain one isolating
-  split per level (depth `a − 1` at masses `2^1..2^a`; committed as
-  `mass_midpoint_split_runs_linear_depth_on_exponential_masses` in
-  the query fold's suite). The settle mass is input-funded, so the
-  honest general form is `O(M(|v|) · log |v|)` — the public claim,
-  which was already stated correctly and TIGHT: `Θ(log |v|)`
-  armings with parked widths `4,000 · 2^i` words, each banked ahead
-  of a trailing window span `Θ(|v|)`, keep `Θ(log |v|)` tree
-  levels' products in the quasilinear tier at `Θ(M(|v|))` each,
-  fully funded \[analytically derived; a committed witness at that
-  scale needs 65 KiB+ packed operands\]. The internal `log a`/
-  `log n` spellings in the query module doc were re-denominated to
-  mass terms; the conditioned `O((n + D) log n)` claim on
-  `O(1)`-wide parked masses survives through the entropy bound
-  (heavy windows sit shallow: mass-weighted traffic stays under
-  total mass × log(entry count)). The paragraph above also carried
-  a unit error, corrected in place: 4,000 64-bit words is ~32 KiB
-  per operand side (a quarter megaBIT, not megabyte) — version.rs's
-  "~64 KiB packed" is the consistent two-sided reading, verified
-  against dashu-int 0.5.0's THRESHOLD constants (simple ≤ 24,
-  Karatsuba ≤ 96, NTT at 4,000 words).\]
-
-  **Board and instruments:** fresh release renders at both scales
-  read **1328 + 6 (1334 cells)**, the red set exactly the six
-  pre-existing ratified entries, zero verdict flips; the whole
-  diff against parent renders on this machine is twelve query
-  cells' constants per scale (rank/distance/lag × reveal-comb,
-  reveal-hifloor, pure-comb, promo-rearm): limb +0.1/B and touch
-  +0.1/B on the comb rows (the products' operand-traffic records),
-  and the promo-rearm heap constant 0.7 → 2.3 B/B at exponent
-  1.00 (the settle's leaf aggregates — one accumulator and one
-  window vector per arming held at the close — far inside the
-  16 B/B ceiling; space stays `O(|v|)`). §13's cell count and red
-  roster are unchanged. Fuzzfit: the enforcement legs held at the
-  previous pin with no trip — the charter's expected staleness trip
-  did not occur (the organic corpus rarely arms the ledger and its
-  settles sit inside the pinned tolerances) — and the deliberate
-  re-fit moved one band at the sixth decimal
-  (`ff_version_min_ticks` slope 1.097606 → 1.097638, code layout
-  alone; the linear-functional trio byte-identical), annotated in
-  the bands pin of record.
+  fold populations).** The stagger population (operand `i` owning
+  slot `i` of every block, fed in bit-reversed order so every
+  counter merge joins top-diverging region sets — the foreclosed
+  luck) proved the join folds HONEST under joint correlation:
+  model-normalized constants flat, sequential controls ×2.5–×5
+  worse, four committed bands. `Version::meet_all` was NOT
+  honest: a non-shrinking accumulator (a meet shrinks the value,
+  never necessarily the packed size) read the exact product law
+  Θ(k·d) on the shade population — red pin committed, an
+  in-campaign mandatory cure per the owner's standing ruling.
+  The aligned-pair floor re-derivation (owner ruling, executed
+  here): the old per-stored-delta pair floor premise was wrong —
+  the fused sweep folds per stepping overlay boundary, so the
+  floor is `max(deltas(v), deltas(w))`, derived from the sweep
+  and true for ALL pairs with no per-family carve-outs; tooth-tail
+  promoted to its full board reach under the re-derived floor.
+- **CURED + TAPPED 2026-07-28 (fix round #94).** The meet cure:
+  `Version::meet_all` runs the join folds' balanced
+  binary-counter reduction — one shared helper, genericized over
+  the combiner, so the two lattice folds' cost model is uniform
+  by construction; the sequential reduce committed and failing
+  beside the flatness band; claims `O(D log k)`/`O(D)`, roster
+  `Class::FoldLog`; the board row landed. The counter's one home
+  (owner-approved DRY): `crate::fold::balanced_try_fold`
+  (fallible combiner, accept predicate, feed-order rejection
+  channel) carries the party/clock/version folds; pure refactor,
+  boards byte-identical. The window-digit tap: `WindowMass`
+  combine moved digits invisible to every counter — one limb
+  count now recorded per merged position, with the known-bad
+  per-digit absorb committed and failing exactly because the tap
+  exists. Claims to the committed witnesses: the #83
+  no-intrinsic-amplifier argument RETRACTED by construction — the
+  plateau-puncture family embeds an exact
+  `Θ(w)-digit × Θ(d)-digit` product in the answer from
+  `Θ(w + d)` input bits, so `Ω(M(|v|))` time is mandatory on
+  adversarial inputs; rank/distance/lag upgraded to the
+  three-part claim form.
+- **CURED 2026-07-28 (cure round #91, owner-mandated: "I don't
+  accept quadratic operations, honestly or otherwise"): the
+  settle products to the multiplication bound.** Both residual
+  sites charge through one path: settle products split into
+  clusters at zero-gaps wider than the factor's own width, each
+  cluster densifies into at most two magnitudes and rides one
+  backend multiplication (dashu, at whatever tier its dispatch
+  engages), metered as traffic; the close-time settle compacts
+  the segment through the window spelling first; the ledger
+  settle re-associates through a mass-balanced product tree
+  (node products shrink geometrically, telescoping into the
+  root's bound under any power-law tier — the entry-count
+  counter was measured out). Cost bound [derived, query.rs
+  module doc]: `O(M(|v|) · log |v|)` worst case — the depth is
+  logarithmic in the input-funded settle mass, never the arming
+  count (the #100 review's correction, committed as a
+  linear-depth witness on exponential masses) — with the log
+  absorbed below the backend's quasilinear threshold and on
+  `O(1)`-arming inputs; `Ω(M(|v|))` mandatory (the
+  answer-embedded product, re-shaped by the #100/#102 review
+  fixes into the general `puncture_product(x, y)` reduction from
+  arbitrary integer multiplication, `x` dense pseudorandom, `y`
+  jitter-strided, so no closed form telescopes it); the
+  quadratic ceiling derivation RETIRED under the dissolution
+  ratchet (every family it held reads flat under strictly
+  tighter probes; what it caught the schoolbook kernels keep
+  catching red). Both red pins flipped to flatness bands with
+  the schoolbook kernels committed and failing beside them; a
+  public-fold differential drives dense factors through the
+  settle at every backend tier boundary. The class vocabulary
+  unified per the owner's ruling: every `Class` variant declares
+  one `ClassContract` (exponent-red stance, judge-red
+  membership, defining token with exclusivity, named witnesses),
+  enforced by one uniform test with an exhaustive match;
+  rank/distance/lag moved `Linear → MulBound`. The residual log
+  is stated exactly, never hidden; removing it has no known
+  fixed-decomposition path and is not commissioned.
+- **Landed 2026-07-28..30 (the post-#91 tranche; landed shapes of
+  record, each with its instruments — detail in git history and
+  the named module docs):**
+  - *The red-triage doctrine realized* (the owner's 2026-07-28
+    "accepted red" ruling): `BOARD_EXPECTED_REDS` is an empty
+    triage buffer — every entry must carry a live task, and the
+    acceptance assertion
+    (`expected_red_buffer_is_an_empty_triage_buffer`) refuses any
+    entry at all at acceptance. Every former standing red resolved
+    to a cure or a dated owner-declared model at the ceilings
+    module (§17.3): the ascend-cliff tick certificate constant and
+    min_ticks reign constant (ratified 2026-07-28, conditional on
+    their measured flat-constant profiles), and the mirror-wide
+    render limb model (exponent and per-`R` constant ceilings,
+    with `render_merge_superlinearity_is_alive` as the class's
+    liveness floor).
+  - *The family registry* (`meter::registry`): `FamilyId` the
+    single source of truth, `Shape` the only construction door,
+    every instrument's family axis derived from the roster (§2).
+  - *The board's structural rounds*: the board module split into
+    single-responsibility submodules; process sharding on the cell
+    grid (family-outer deal, byte-identical by the shard pin,
+    `just amp-board-shard-pin`); the worst-case map (argmax family
+    per operation per currency, `just worst-cases`, its ranking
+    pin gate-enforced); the settle families promoted to board
+    columns (dense-suffix, plateau-puncture, lone-freeze) — whose
+    promotion surfaced and cured the wide-arming text-parse
+    quadratic (settled-top extraction; the column lands green) —
+    and the plateau-puncture base re-pinned to its measured
+    margin floor for wall-budget.
+  - *The Rank wire form and the Ranked view*: a canonical
+    prefix-free Rank encoding whose byte order is `Ord` (strict
+    decode rejects non-normalized forms, per the standing Rank
+    deferral's condition); `Ranked` as a borrowing rank view —
+    fused comparisons, fused encode, rank equality; `Ranked` as a
+    total causal-ordering key (byte order == `Ord`, `Eq` is
+    version identity); borsh transport composable; board rows,
+    worst-map pins, and rosters landed with it; `Ranked` and
+    `Rank` compare only with themselves (the rank question is
+    spelled `to_rank`).
+  - *The causal placement surface*: the `causally` placement
+    specs (the bounded six-way and the range nine-state verdict
+    faces, laws and witnesses); one fused placement co-walk
+    generic over its verdict, with `placement_of` and `contains`
+    as coarsenings and the composition as its oracle; the causal
+    interval type named `Span` with position-denominated
+    dominance variants, the `spanning` door total over any
+    nonempty collection; the tree's Knowledge classifiers and
+    range walk ride the placement face; the tree memo stored as
+    one causal `Span` (`lo <= hi` rides the type).
+  - *The fused hull* (#133, owner-requested capability): total
+    hull construction on `Version` (`span`/`span_all` beside
+    join/meet) — one pair walk feeds both span endpoints; the
+    hull fold one balanced reduction carrying both endpoints;
+    lattice-hull and lattice-fold laws reach every combine arm
+    (the arity-five clauses); its adversarial review's fixes
+    merged (the crossing-fold pin moved to the touch leg that
+    can see it; the organic differential; the span saving stated
+    exactly).
+  - *The recv/sync fusion* (#119): `sync` rides one sum-split
+    walk over the party pair (scan up to 7× lighter,
+    worst-case argmax re-pinned), with composition laws as the
+    total oracle; the recv fusion was disputed with evidence and
+    not landed.
+  - *Fold unification, phases A and B* (#108/#109; the survey and
+    its outcome record are `design/fold-unification-survey.md`):
+    the overlay-advance law once, over plateau cursors
+    (`PlateauCursor`, the generic binary advance; sweep, emit,
+    and the pair integrals migrated); projection, the masked
+    walk, and the id difference onto the law; `OpenedPair` the
+    one home of the two-skyline opening move. Phase C measured at
+    the boundary and dropped by the survey's own criterion. The
+    owner's identical-or-better acceptance ruling (2026-07-29,
+    mid-flight) is recorded there: deliberate, accounted
+    improvements supersede byte-identity acceptance gates;
+    regressions remain findings.
+  - *Surface totality from rustdoc JSON*: the coverage roster
+    held to the compiler's own account of the public surface
+    (`just surface-totality`, in the gate), replacing the
+    source-scrape extraction as the totality authority.
+  - *The fuelscape atlas* (`crates/before-fuelscape`, an external
+    instrument): per-operation heatmaps of deterministic fuel
+    against exact input size, sampled uniformly from each size's
+    whole canonical input space, committed families overlaid; it
+    enforces nothing (sampler correctness and coverage parity
+    against `crate::surface` are its committed checks) and may
+    read the roster but never mint a threshold. Guest kernels
+    landed for five walks the atlas could not price; the
+    remaining queued exemptions are §17.2's causally-kernel
+    round.
+  - *The validation index* (`testing::validation_index`): the
+    documentation-only map of every instrument, what failure
+    class each catches that the others cannot, and the triage
+    guide — the maintainer's cold-orientation page.
+  - *Claims machinery generalized*: the crate-agnostic
+    complexity-claims engine extracted to the workspace crate
+    `complexity-claims`; `suanpan` carries tier-3 complexity
+    claims (sections, roster, cost-table binding with exact
+    touch totals).
+  - *Meter honesty rounds*: pair-walk touch floors re-derived to
+    minimum-possible work (the liveness-floor premise ruling —
+    floors derive from the mechanism's irreducible per-boundary
+    work, no per-family carve-outs); liveness floors under the
+    accumulator-stream touch ceilings; the first-freeze-gate
+    straddle bands, the ticks(n) wide-count width band, the
+    n-ary aliased-rejection band, and the puncture reduction's
+    stored-size premise pin; the query integrator's segment and
+    window feeds open at the first freeze; the practical-regime
+    rank gauge pinned on the concurrent operand; suanpan's
+    `sign_dominates_at` saturating near `usize::MAX`.
+  - *The exposition deck* (`design/exposition/`): fact-diffed
+    against the landed implementation, with attack cards per
+    family genre and the white-box construction audit in its
+    method section.
+  - *The entropy pin*: the exhaustive decoder census
+    byte-compared against the count tables to 24 bits
+    (`design/before-version-entropy.md`'s companion instrument).
+  - *The Span wire form* (at this tip; review in flight, §17.2):
+    a canonical composite encoding with a one-pass fused decode,
+    `Span::new_unchecked` the trusted door, reborrow/into_owned
+    doors, codec laws and pins (verdict identity, rejection
+    witnesses, fused-decode meter legs), board rows and worst-map
+    pins, and the streaming backend's Node trait collapsed to one
+    span accessor.
+- **AMENDED 2026-07-30 (round #148, owner-directed): this document
+  restored to a forward-looking plan.** The re-accreted execution
+  history (round-by-round measurement narratives, superseded plan
+  waves, completed checklists, stale sums) is excised to git
+  history; the decision record above is the consolidated compact
+  history (every ruling preserved, execution chronicle condensed
+  to landed shapes); §14/§17.2 re-derived to the remaining tail
+  against the tree at this tip; every retained number re-verified
+  against the code or replaced by the mechanically-enforced home
+  the prose cites (the structure-not-tallies rule, §17.10).
 
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **1334 cells**,
-membership pinned by the smoke test — judged at two scales
-(default; `board::ACCEPTANCE_SCALE` = ×4, `just amp-board-acceptance`) at
-the **release profile**, the measurement of record (§12's
-ratification), from deterministic meters only: peak heap, grown
-stacker segments, limb ops, scanned/written bits, and accumulator
-digit touches, so every cell is six-column: verdict plus five
-judged counter columns. The board is a generalized cartesian
-product over three declarative axes: shapes declare operand
-bundles, operations declare the slots their signatures consume,
-and every judged quantity carries one field per metering currency
-(`board::ByCurrency`), so every-shape-everywhere and
-every-currency-everywhere hold structurally — adding a shape or
-operation grows the product, and adding a currency is a compile
-error until every operation declares a floor or a written NA for
-it. **The board reads no clock**: its entire rendered output is
+public operation surface × §2's families, judged at two scales
+(default; `board::ACCEPTANCE_SCALE` = ×4,
+`just amp-board-acceptance`) at the **release profile**, the
+measurement of record (§12's ratification), from deterministic
+meters only: peak heap, grown stacker segments, limb ops,
+scanned/written bits, and accumulator digit touches — every cell
+verdict plus five judged counter columns. The board is a
+generalized cartesian product over three declarative axes: shapes
+declare operand bundles, operations declare the slots their
+signatures consume, and every judged quantity carries one field
+per metering currency (`board::ByCurrency`), so
+every-shape-everywhere and every-currency-everywhere hold
+structurally — adding a shape or operation grows the product, and
+adding a currency is a compile error until every operation
+declares a floor or a written NA for it. The family axis derives
+from the registry (§2), and cell membership is committed data:
+the board smoke suite holds the rendered matrix to each family
+spec's declared bundle reach, so the cell population is enforced
+per family by name, never restated in prose. The board runs
+sharded across child processes on the cell grid (family-outer
+deal), byte-identical by pin (`just amp-board-shard-pin`); the
+worst-case map (`just worst-cases`) folds an argmax family per
+operation per currency with a gate-enforced ranking pin
+(`just worst-cases-pin`).
+
+**The board reads no clock**: its entire rendered output is
 byte-identical at a given scale under any machine load, no
 stripping, no carve-outs [measured — under a sustained
 parallel-build load generator], and the claim is enforced on two
@@ -3243,73 +1187,39 @@ on any counter disagreement, and the gate's
 renders. Wall time is judged nowhere in the gate; the time leg
 lives in the bench judge below, at `just bench-judge` / `just all`
 cadence. Instruction-count asymptotics are the fuzz-fit harness's
-territory (`crates/before/fuzzfit`, `just fuzzfit`: fuzzed
-operation programs replayed under wasmtime fuel, deterministic and
-load-independent, judged against pinned per-operation fuel bands);
-its design record, `design/before-fuzzfit-asymptotics.md`, is the
-instrument of record for that claim.
+territory (`crates/before/fuzzfit`, `just fuzzfit`, in the gate:
+fuzzed operation programs replayed under wasmtime fuel,
+deterministic and load-independent, judged against pinned
+per-operation fuel bands over the deterministic prefix — totally —
+plus random draws; its design record,
+`design/before-fuzzfit-asymptotics.md`, is the instrument of
+record for that claim). The fuel *distribution* is the fuelscape
+atlas's territory (`crates/before-fuelscape`, `just fuelscape-test`
+in the gate for its own checks): an audit view that enforces
+nothing and may never mint a threshold.
 
-> **Amendment 2026-07-28 (round #76, the fold populations and the
-> tooth-tail ratification).** `stagger` (the correlated n-ary fold
-> population, fold rows only, 2 cells) and `tooth-tail` (the
-> boundary-aligned pair at its 43-cell version-pair reach) land as
-> board families: FAMILIES 26 → 28, cells 1285 → **1330**. The
-> comparison touch floor is re-derived to the pair-walk boundary
-> premise (`touch_pair_fold`: `max` of the operands' stored-delta
-> counts, equal pairs NA; the fold row floors its first-level
-> merges), so the rendered `flr[t]` fields of the pair and fold
-> rows move — verdicts do not; the §12 round #76 entry carries the
-> derivation and the ruling. `version_parse_noncanon × tooth-tail`
-> is GREEN under the ratified family-stated heap ceiling
-> (owner ratification 2026-07-28, conditional on the re-measured
-> flat 20.7–20.8 B/B profile, which held; 26 B/B = ×1.25): the
-> board's red set stays exactly the six ratified
-> `BOARD_EXPECTED_REDS` entries at both scales. `Version::meet_all`
-> remains rowless with its rationale re-derived: the round's
-> meet-shade red pin (`tests/meter.rs`) is the committed record of
-> its worst case, and the row lands with the cure.
->
-> **Amendment 2026-07-28 (task #86, the skip-mechanism family
-> promotion).** `weight-comb` and `freeze-parade` land as board
-> families (FAMILIES 24 → 26, cells 1199 → 1285, version-only
-> bundles of 43 cells each, designed against the Measure group,
-> bases 512 with power-of-two call-site rounding), consuming the
-> §12 PROBED constructions single-sourced as `meter::weight_comb` /
-> `meter::freeze_parade` — the same generators the
-> `skyline_flatness` bands now consume, with `meter::tooth_tail`
-> single-sourced the same way. All 86 new cells GREEN at both
-> scales; every pre-existing cell byte-identical to the dd206b9d
-> renders at both scales. The `tooth-tail` column is deliberately
-> NOT landed: promoted experimentally, it read 11 red cells at both
-> scales — the comparison rows' stored-delta touch floor is
-> undercut ×2 by a same-shape boundary-aligned pair (the fused
-> sweep folds equal deltas to net zero: 8,195 touches against the
-> 16,384-touch floor), and `version_parse_noncanon` reads 20.7
-> heap B/B against the 16 B/B flat ceiling — so per the red
-> protocol the column was withdrawn, the one-sidedness is recorded
-> by name in the board↔band parity pin
-> (`amp_board_smoke::board_families_and_flatness_bands_stay_paired`,
-> landed in the same change), and floor re-derivation or red
-> ratification is the owner's. Final numbers of record re-render at
-> the next merge.
-
-Ceilings: scaling exponent ≤ 1.15 (per cell, fitted across the
-two scales against the cell's denominator bytes); heap ≤ 16 B per
-denominator byte over an 8 KiB flat allowance; grown segments
-≤ 1; limb ≤ 128 ops/byte on input-denominated rows; the text rows
-per §6 (κ constant leg + n_io exponent leg); scan ≤ 96 bits/byte
-on walk rows; touch ≤ 96 digit touches/byte (calibrated at
-release: heaviest honest reader the mirror-narrow tick cross at
-30.8/B default, 30.9/B record — scan's own margin convention).
+Ceilings (`meter::board`'s ceilings module carries every constant
+and its derivation): scaling exponent ≤ 1.15 (per cell, fitted
+across the two scales against the cell's denominator bytes); heap
+≤ 16 B per denominator byte over an 8 KiB flat allowance; grown
+segments ≤ 1; limb ≤ 128 ops/byte on input-denominated rows; the
+text rows per §6 (κ constant leg + `n_io` exponent leg); scan
+≤ 96 bits/byte on walk rows; touch ≤ 96 digit touches/byte.
 Exponent legs are fitted only where the cell's denominator pair
 scales (≥ ×1.5 between probes) and, on heap, where a reading
 clears the flat allowance the constant leg already forgives; an
 unjudged exponent renders `-.--` and the cell rides its constants
 and floors (§12's judgment-layer decision; guard tripwires
-committed in `meter::board::tests` — the same readings must read
-red the moment the denominator honestly doubles or the readings
-clear the allowance). Green = all columns within ceilings AND all
-floors met.
+committed). **Declared per-cell models** replace a global leg
+where the owner has ratified a derived cost law at the cell,
+disclosed on the row face (`decl[...]`), banded both sides so an
+improved kernel trips the stale-model floor and forces a
+re-declaration, each with a committed wrong-artifact tripwire:
+the fold rows' `O(D log k)` scan model and search allowance, the
+capacity-chain peak on the materialization pair, the ascend-cliff
+tick and min_ticks heap constants, and the mirror-wide render
+limb model (§17.3 enumerates them with their owners). Green = all
+columns within ceilings AND all floors met.
 
 **Liveness floors** (user ruling 2026-07-24: the board judges the
 API surface as well as the implementation — a ceiling over a dead
@@ -3317,56 +1227,46 @@ counter proves nothing). Every cell carries a floor-or-NA
 declaration per judged column, demanded by the `Cell` type and
 rendered as a legend; a floor trip is red with the mechanism named
 ("counter reads below floor: the meter is not watching this
-work"). Conventions of record: scan floors 1 bit per packed
-operand byte on every row that must examine its operands
-(early-exit rows floor at 2 bits — the root codes); limb floors
-where big-integer arithmetic is semantically mandatory, at two
-derivations (the same split the touch floors carry): rows that
-read the stored form as-is (decode, rank/distance/lag, tick)
-floor at one op per 64 bits of every stored payload *code* wider
-than 128 bits — a plateau of equal wide leaves stores its width
-once, so a tree-derived floor demands limb work no conforming
-walk does — and the value-materializing parse rows floor at one
-op per 64 bits of every stored *base* wider than 128 bits
-(conversion must materialize every spelled value); heap floors on
-codec and text rows (the result materializes at least its packed
-bytes), plus the fork rows' deterministic-liveness child-copy
-floors (fork builds both halves, so the generic in-place NA would
-misstate it); touch floors at two deterministic-liveness
-derivations — one touch per stored delta on the delta-folding
-kernels (sweep, emit, query folds, tick, parse: the envelope
-suite's committed one-per-delta convention), one touch per 64 bits
-of every stored wide code on the decode rows (the validator
-legitimately batches word-scale deltas in the accumulator's lazy
-zone, so a per-delta floor over-demands there — the stream-derived
-convention, deliberately NOT the tree-derived one); segments
-ceiling-only (its honest floor is zero). NA genres: wholesale byte
-moves (encode, hash, and — by byte-decided equality —
-`version_eq`, whose exposure sentence and time-leg backstop are on
-the board face), operands with no packed stream, empty forms. A
-floor trip is a designed stop-and-look; an implementation that
-legitimately does less work lowers the floor deliberately. Floors
-have caught three live regressions to date (the id-renderer scan
-vacuity; main's unmetered window fast paths; the byte-decided
-equality) — the instrument works.
+work"). Floors derive from the mechanism's minimum *possible*
+work, one universal premise per convention, no per-family
+carve-outs (the owner's floor-premise ruling): scan floors 1 bit
+per packed operand byte on every row that must examine its
+operands (early-exit rows floor at 2 bits — the root codes); limb
+floors where big-integer arithmetic is semantically mandatory, at
+two derivations — stream-reading rows floor per stored payload
+*code* wider than 128 bits, value-materializing parse rows per
+stored *base* wider than 128 bits; heap floors on codec and text
+rows plus the fork rows' child-copy floors; touch floors at one
+touch per stepping overlay boundary on the pair kernels
+(`max(deltas(v), deltas(w))` — the boundary premise, derived from
+the fused sweep; equal operands declare NA) and per stored delta
+or per wide code on the single-stream conventions; segments
+ceiling-only (its honest floor is zero). NA genres: wholesale
+byte moves (encode, hash, byte-decided equality), operands with
+no packed stream, empty forms. A floor trip is a designed
+stop-and-look; an implementation that legitimately does less work
+lowers the floor deliberately — and an honest input tripping a
+floor from below is a floor-premise finding, not a meter bug.
+Floors have caught live regressions (the id-renderer scan
+vacuity; unmetered window fast paths; the byte-decided equality)
+— the instrument works.
 
-Scan-meter contract notes in force: the gamma window fast paths
-record the same `2k+1` bits the per-bit loop prices (fast and
-slow paths meter identically); the wire-side borsh `ReaderCursor`
-is deliberately unmetered (no board row prices the wire path;
-`codec/scan.rs` states so; instrumenting it is a conscious future
-change with its own recalibration); the `max_depth` caller-side
-record double-counts uniformly (2×, deterministic) and carries a
-`TODO-recalibrate` for its own future commit that must re-measure
-the pins pricing that walk.
+Scan-meter contract notes in force (`codec/scan.rs` states them):
+the gamma window fast paths record the same bits the per-bit loop
+prices; the wire-side borsh `ReaderCursor` is deliberately
+unmetered (no board row prices the wire path; instrumenting it is
+a conscious future change with its own recalibration); the
+`max_depth` caller-side record double-counts uniformly (2×,
+deterministic) and carries a `TODO-recalibrate` for its own
+future commit.
 
 Tripwires (every criterion demonstrates the status quo fails it):
-`bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors`
-(committed, `meter/board/tests.rs`); the κ pair (§6); the judge's
-unmetered-quadratic bench (`benches/tripwire.rs`,
-`just bench-judge-tripwire`, `--expect-red`, e = 2.00 measured)
-plus its deterministic twin in `tools/benchjudge --self-test`,
-run at the head of every judge recipe.
+the bypassing-walk floor tripwire (committed in the board's
+suite); the κ pair (§6); the judge's unmetered-quadratic bench
+(`benches/tripwire.rs`, `just bench-judge-tripwire`,
+`--expect-red`, e = 2.00 measured) plus its deterministic twin in
+`tools/benchjudge --self-test`, run at the head of every judge
+recipe.
 
 Dashboard caveats of record: the board shares one process, so its
 heap numbers are indicative and the process-isolated envelopes in
@@ -3375,149 +1275,80 @@ a ~1 MiB growth threshold, so the default scale under-detects
 segment onset — which is why acceptance runs at ×4 too. One
 recorded non-monotone verdict genre: a flat per-byte ceiling
 against an n·log n constant can read red at default and green at
-×4 (`party_join_all × scatter` era) — record-scale greenness
-never clears a default red. Record-scale runtime budget: ≤ 30 s
-summed measured-body wall per family.
+×4 — record-scale greenness never clears a default red.
+Record-scale runtime budget: ≤ 30 s summed measured-body wall per
+family.
 
-### The rejection surface (fallible operations, enumerated 2026-07-26)
+**The red set** is empty on the settled tree: `BOARD_EXPECTED_REDS`
+is an in-flight triage buffer whose every entry must carry a live
+task, asserted EMPTY at acceptance
+(`expected_red_buffer_is_an_empty_triage_buffer`) — red is
+reserved for untriaged contradictions, and every resolved
+contradiction is either a cure or a dated declared model (§17.3).
+
+### The rejection surface (fallible operations)
 
 Cost claims are total: rejecting an input is an outcome with a
 cost, bounded like any other, whether or not the caller honored
 the usage invariants (§12's rejection-cost decision). The board's
-18 rejection rows (269 cells) measure the rejection side under all
-five currencies, with the defect **maximally deferred** in every
-committed shape — an early-exit-only measurement is the cheapest
-artifact that would pass, so every shape places its defect where
-rejection must consume as much input as possible:
+rejection rows (the `defect` module in `meter::board` is the
+enumeration of record — overlap, fold hand-back, empty
+difference, strict decode for every exposed codec including the
+Rank/Ranked/Span composites, and text parse) measure the
+rejection side under all five currencies, with the defect
+**maximally deferred** in every committed shape — an
+early-exit-only measurement is the cheapest artifact that would
+pass, so every shape places its defect where rejection must
+consume as much input as possible (truncation at the last byte,
+trailing junk after the complete valid stream, non-canonicality
+at the preorder-last position, overlap at the preorder-last
+terminal, crossed spans judged after both component parses).
+Adapter outputs for the overlap rows are semantically void by
+design (a well-formed pair no legal fork/join history produces);
+the cost claim is what the rows price. Not-rowed genres carry
+their reasons in the defect module (word-scale operands,
+delegation to a rowed validator, a failing reader being a
+truncation carrying an error).
 
-- **Overlap** (`Party::join`, `Clock::join`, `Clock::sync` —
-  `Err` on non-disjoint parties): the `party_join_overlap`/
-  `clock_join_overlap`/`clock_sync_overlap` rows, over the
-  overlap-mount adapter (the disjoint-mount adapter's
-  counterpart): `a` = the shape mounted left plus a marker chain
-  along the shape's rightmost-present path, `b` = the shape
-  mounted right, so the pair's one overlapping position is the
-  shape's preorder-last terminal — the last position the lockstep
-  walk reaches, with every earlier region disjoint. Adapter
-  outputs are semantically void by design (a well-formed pair no
-  legal fork/join history produces); the cost claim is what the
-  rows price. Clock overlap rejection does no version work (the
-  party join is the gate; `clock.rs`).
-- **Overlap hand-back in the folds** (`Party::join_all` —
-  `Err(Vec)` returning every overlapping input): the
-  `party_join_all_overlap` row — one large mounted accumulator
-  (the adapter's a-mount: the shape left, the marker right), many
-  one-byte right-full probes each overlapping the accumulator's
-  right half *behind* its whole left shape, all handed back. The
-  witnessing pair sits past the left shape, so a per-input test
-  priced in the accumulator (a cursor walk skip-scanning the left
-  shape per probe — the coding has no random access) reads
-  Θ(accumulator) per O(1)-byte input and the row goes red; the
-  fold's per-call accumulator index (§3's landed cure) answers
-  each test in O(probe), which is the separation the row watches.
-  `Clock::join_all` runs the identical up-front indexed test
-  against self inline, so the party row prices both (delegation,
-  the board doc's NA list).
-- **Empty difference** (`Party::without` → `None` when `other`
-  covers `self`): the `party_without_none` row, identical-region
-  operands, so the diff walks both streams in full and the empty
-  result is known only at the end.
-- **Strict decode** (`Version`/`Party`/`Clock::decode` —
-  `Decode`): `*_decode_truncated` (the last byte dropped: a
-  strict prefix of a preorder stream has an open subtree at every
-  earlier position, so EOF is discoverable only at the end),
-  `*_decode_trailing` (a `0xFF` byte appended after the complete
-  valid stream), for all three types; `version_decode_noncanon`
-  (the preorder-last leaf split into an equal-sibling pair — a
-  zero right-sibling delta, the minimality violation the
-  validator can only see at that pair's close, the stream's last
-  position) and `party_decode_noncanon` (the preorder-last
-  terminal split into a collapsible `(1, 1)`, same argument).
-  Clock non-canonicality is the component validators on the same
-  streams (delegation). Not rowed, with reasons:
-  `Decode::Anonymous` (the accepting parse of the empty stream —
-  a zero-byte operand, no adversarial scaling axis);
-  `Decode::Io` (the caller's reader; a failing reader is a
-  truncation carrying an error, priced by the truncated rows);
-  other non-canonicality genres (a delta driving the running
-  height negative, nonzero padding) ride the same single
-  validator pass at the same full-parse cost — the committed
-  tails are the maximally-deferred representatives.
-- **Text parse** (`FromStr` for all three — `Parse`):
-  `version_parse_trailing`/`party_parse_trailing`/
-  `clock_parse_trailing` (junk after the complete valid text; the
-  clock's junk sits inside the outer parens so the version
-  component parses in full first — the clock parser's outer-paren
-  check rejects appended junk in O(1), an early exit the row
-  deliberately avoids) and `version_parse_noncanon` (the last
-  spelled value `t` re-spelled `(0, t, t)`: equal sibling leaves,
-  judged at that node's close, the text's end) /
-  `party_parse_noncanon` (the last `1` re-spelled `(1, 1)`).
-  The P3.8 text round priced the *accepting* direction (κ, the
-  delegating-parser and schoolbook pins, the metered id renderer);
-  these rows extend it to the rejecting direction and duplicate
-  none of it. `Parse::Anonymous` ("0") is a word-scale input —
-  not rowed. Clock text non-canonicality: component delegation.
-- **Not rowed, bounded or delegated**: `Version::meet_all` →
-  `None` on an empty iterator (no operand); the `TryFrom`
-  literal forms (`u8`/`bool`/tuples/`u64`/`(I, E)` — word-scale
-  or type-bounded operands); `encode_to`'s `io::Error` (the
-  caller's writer: at most the encode row's work before the
-  error propagates); `Rank::checked_sub` → `None` (measured on
-  the `rank_pair_ops` row, which attempts both directions);
-  serde/borsh deserialize errors (the strict decoder through the
-  wrappers — the decode rejection rows; the borsh wire cursor
-  rides the standing unmetered-wire note above).
-
-Rejection-row conventions: **denomination** — a rejection produces
-no output, so every rejection row denominates against the fed
-stream alone (packed bytes, or text bytes on the parse rows; §6).
-**Floors** — packed-stream rejection rows floor scan at one bit
-per fed byte with the defect-placement derivation (a
-self-delimiting stream's terminal defect is only discoverable by
-parsing to it; the overlap rows' witnessing position sits at both
-operands' stream ends and the packed coding has no random access);
-heap, limb, and touch are NA on rejection rows — rejection
-materializes no result and forces neither value work nor an
-accumulator fold (a validator may defer both past the topology
-walk that finds the defect). Text-rejection rows declare no floor
-on any column, by honest derivation: no deterministic counter
-watches text-byte consumption, and a parser may find the defect in
-tokenization before any packed or value work — their ceilings
-judge live readings (the parsers do metered work greedily) and the
-time leg times them like every row.
+Rejection-row conventions: **denomination** — against the fed
+stream alone (§6). **Floors** — packed-stream rejection rows
+floor scan at one bit per fed byte with the defect-placement
+derivation (a self-delimiting stream's terminal defect is only
+discoverable by parsing to it; the packed coding has no random
+access); heap, limb, and touch are NA on rejection rows
+(rejection materializes no result and forces neither value work
+nor an accumulator fold). Text-rejection rows declare no floor on
+any column, by honest derivation: no deterministic counter
+watches text-byte consumption, and a parser may find the defect
+in tokenization before any packed or value work — their ceilings
+judge live readings and the time leg times them like every row.
 
 **The bench judge** (`tools/benchjudge`, stdlib Python;
 `benches/board.rs` driven by the board's own cell table so bench
-IDs mirror board cells by construction — the pinned mode times
-321 cells: the 319 designed-pairing board cells derived by rule
-from the axes (`board::BenchMode::Pinned`: each shape's
-designed-stress groups, the organic control, and the
-declared-model riders; count verified against the criterion
-`--list`) plus the wide-display pair; `BOARD_BENCH_MODE=full`,
-`just bench-judge quick full`, times the whole 1071-cell product plus
-the pair for final verdicts): fits each cell's
-wall exponent `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`
-across two saved criterion baselines (scales 1 and acceptance),
-denominated against the board's per-cell denominator bytes (never
-the scale knob), judging every cell whose hi median reaches the
-resolution-derived 10 µs floor. Ceilings ride the **sidecar**,
-never the roster: bench code declares each cell's ceiling class
-at its definition site (`benches/common/sidecar.rs`: general 1.3,
-text 1.7; `TEXT_CEILING_CELLS` pinned = exactly the wide-display
-pair), the judge cross-checks the two sidecars per cell, exit 2
-on disagreement. Sidecars are stamped (scale, profile `optimized`,
-sampling, git tip) and cross-checked against each other and
-`--tip` — stale or mismatched baselines refuse. Exit contract
-pinned end-to-end in `--self-test`: 0 all-green, 1 per red /
-dark tripwire / roster violation, 2 per input error (nonpositive,
-NaN, missing medians are input errors, never skips or verdicts).
-Sub-floor cells are SKIPped and listed (documenting cheapness);
-an unfloored lo median is deliberate, and the fit-noise band
-(≈ 0.052 at the 1.3 ceiling, ≈ 0.088 at 1.7; derivation in the
-tool) bounds resolution's pull — the roster's `boundary` class
-accepts either verdict only within that band of the cell's own
-ceiling.
+IDs mirror board cells by construction). The pinned mode times
+the rule-derived subset — every operation on the benign control,
+each shape's designed-stress pairings declared on the shape axis,
+the declared-model riders (`BOARD_DECLARED_BENCH_RIDERS`: the
+`version_min_ticks` reign-state cell and the mirror-wide display
+pair — a cell judged green under a declared counter model keeps a
+wall-clock witness even where no designed pairing times its
+shape), plus the wide-display pair; membership is verified
+against the criterion `--list`. `BOARD_BENCH_MODE=full` times the
+whole product for final verdicts. The judge fits each cell's wall
+exponent across two saved criterion baselines (scales 1 and
+acceptance), denominated against the board's per-cell denominator
+bytes (never the scale knob), judging every cell whose hi median
+reaches the resolution-derived 10 µs floor. Ceilings ride the
+**sidecar**, never the roster: bench code declares each cell's
+ceiling class at its definition site (general 1.3, text 1.7; the
+text-class set pinned as exactly the wide-display pair), the
+judge cross-checks the two sidecars per cell, exit 2 on
+disagreement. Sidecars are stamped (scale, profile, sampling, git
+tip) and cross-checked — stale or mismatched baselines refuse.
+Exit contract pinned end-to-end in `--self-test`. Sub-floor cells
+are SKIPped and listed (documenting cheapness); the fit-noise
+band bounds resolution's pull, and the roster's `boundary` class
+accepts either verdict only within that band.
 
 **The expected-red roster** (`tools/benchjudge-expected.json`):
 membership by cell name, expectations only (`red`: must be judged
@@ -3526,598 +1357,475 @@ verdict-flip/liveness signal and SKIP a drift out of judgment,
 both exit 1; `boundary`: within the band). Any unrostered red
 fails. Membership and the text-class set are pinned by
 `crates/before/tests/bench_judge_roster.rs`, so every edit trips
-a reviewed diff. `just bench-judge record` (full sampling, required
-for any quoted number) judges through the same roster — the
-expectations are exponent classes, valid under either sampling
-regime. Population at this tip: **the permanent schoolbook
-tripwire, the hugeleaf display pair, and the cross-stream freeze
-wedge (`version_distance/jump-pair`, red until the fused
-co-sweep cure lands — §12's 2026-07-27 instruments entry, with
-its dark-time-leg caution: a green time leg before the cure
-means the leg went dark); boundary empty** (item
-11's realization, 2026-07-27 — §12's P5 closeout record: the
-fifteen bigroot expectations left on the banked flip evidence and
-read e 0.92–1.04 live at the realization run; the display pair
-stays — its conversion-dominated hugeleaf-width render measured
-e 1.39/1.42 at the general 1.3 ceiling, so the κ hand-off did not
-cure the cells and the class question stays open with the text
-column). Every other cell — the designed diagonal and the
-populated `BOARD_RED_BENCH_RIDERS` alike — must fit under its own
-ceiling: a constant-factor counter red is not a time-exponent red
-(the pre-cure thirteen-rider census measured e 0.93–1.18; the
-cure-round merge leaves three riders, their time legs standing in
-the judge roster and re-verified at the acceptance run).
-
-**Numbers of record** [measured 2026-07-28; release profile,
-single runs per scale under the determinism tripwire, at the
-cure-round merge (§12's cure round #78 entries — all three
-tracks: the zero-run ledger, the anchor-web min_ticks fold with
-the anchored-segment rank and the freeze-pos family, and Track
-3's instruments with the weave family)]: board **1150 green /
-6 red at both scales** over **1156 cells**, the red set
-identical at both scales and equal to `BOARD_EXPECTED_REDS`
-(the prior record read 1041 + 30 / 1044 + 27 over 1071 cells at
-the `board-merge72-{lo,hi}.txt` renders). The acceptance
-sweep's final renders re-baseline the full board. The red
-roster, every red with exactly one owner, is §17.3; the
-cell-count and verdict lineage across the campaign's rounds
-(200 → 989 → 1071 → 1090 → 1071 → 1156)
-is in git history at the commits §14 names.
+a reviewed diff. Population at this tip: **the permanent
+schoolbook tripwire (`display_schoolbook/hugeleaf`) and the
+hugeleaf display pair (`version_display/hugeleaf`,
+`clock_display/hugeleaf` — conversion-dominated wide rendering
+measured over the general 1.3 ceiling; whether the cure is a
+faster render or a text-class migration is the open class
+question, owned by §17.2's final review); boundary empty.** Every
+other cell — designed diagonal and declared-model riders alike —
+must fit under its own ceiling: a constant-factor counter model
+is not a time-exponent red.
 
 **Acceptance (the campaign's; protocol per §12's ratification):
 all-green means the release-profile board green on counters and
 floors at BOTH scales, one run each under the committed
 determinism tripwire (the runner's in-process double measurement
-plus the gate's cross-process byte-compare), AND the bench judge
-roster-satisfied at both scales in both modes** — at the roster
-membership current at the sweep (the permanent schoolbook
-tripwire and the hugeleaf display pair — where both regimes read
-satisfied at the item-11 realization, record wall 33 min 27 s —
-plus the cross-stream wedge entry, which must read green through
-a live time leg once the fused co-sweep cure lands; record
-sampling belongs to this acceptance sweep alone — the standing
-cadence judges in quick mode). A release record-scale run of the counter
-board costs ~20 s wall [measured — the ratification baseline
-runs]; dev runs remain a debugging view and never satisfy
-acceptance.
+plus the gate's cross-process byte-compare), with
+`BOARD_EXPECTED_REDS` empty; AND the bench judge roster-satisfied
+at both scales in both modes at the roster membership current at
+the sweep** — record sampling belongs to this acceptance sweep
+alone (the standing cadence judges in quick mode). Dev runs
+remain a debugging view and never satisfy acceptance. The final
+renders of the acceptance sweep are the numbers of record;
+per-round movement lineage is in git history.
 
 ## 14. Execution plan
 
-Completed-phase ledger (narratives in git history at the named
-commits):
+The completed phases' narratives (P0 through the post-#91
+tranche) live in git history; §12 is their decision spine. What
+follows is the remaining tail, in dependency order, with the
+acceptance contracts in §17.2; nothing else remains.
 
-- **P0** (2026-07-22): generators + meters + board landed; current
-  envelopes pinned as thresholds; board born 59/99.
-- **P1** (2026-07-23): Tier 0 — limb-wise wide-gamma decode,
-  Builder push-growth, iterative complement. Board 96/62.
-- **P2** (2026-07-23): the decision packet — compactness ratio
-  measured, carry-cliff genre and blast radius priced, DECIDED
-  entry recorded (§12).
-- **P3.2–P3.8 pre-flip window** (2026-07-23/24): the accumulator
-  of record + generator families; criterion hardenings (κ,
-  RECORD_SCALE); skyline codec + validator + Gate A GO; sweep and
-  emit kernels + unified builder; query folds + freeze-discipline
-  cure; grow (bit-coded probe + splice emit); dual-oracle coverage
-  audit (gap list EMPTY); text kernels + parse delegation +
-  metered id renderer; the bench mandate (`benches/board.rs`) and
-  the bench judge + roster; surface-judgment floors; P4.1 id
-  walks (segments → 0); dashu swap; canary retirement; RNG
-  consolidation. Board 137/63 and 128/72 at the window's seal.
-- **C0** (2026-07-24, `1e96e6fd`): rebase onto the link-transport
-  merge; the sixteen-test stall roster RETIRED (sweep 1183/1183;
-  the committed stall seeds are link-transport's regression pins;
-  any test failure anywhere blocks again, no provenance
-  carve-out); the merge-seam re-sweep and the meter-coverage fix
-  round (main's unmetered fast paths under the campaign's floors;
-  five-cell vacuity catch cured; `version_eq` re-denominated).
-  Board 139/61 and 130/70.
-- **C2** (2026-07-25, `91fac33d`; fill kernel `c43740b8`;
-  seed-corpus cure `61d1bcd4`): the flag day — storage flipped,
-  every operation routed to the kernels, old codec deleted, 27
-  snapshots re-pinned (bytes-only review: zero blocking),
-  `BOOKMARK_FORMAT_VERSION` 1→2 with a reject test, byte-pinned
-  doctests re-run. Board 185/15 and 184/16 over 200 cells; 49
-  staged kills realized, zero unexplained movement; the judge's
-  fifteen realization greens banked (the judge's last honest
-  pre-realization reading, at the flip commit over 202 cells:
-  157 green / 3 red / 42 sub-floor, exit 1 on exactly the fifteen
-  banked violations). Workspace sweep at C0: 1183/1183, roster
-  retired, unqualified green since.
-- **Bench-coverage integration** (2026-07-25, `1312fba6`..
-  `10232626`): the coverage branch merged (rustdoc-JSON API index,
-  `benches/COVERAGE.md` — the census's home at that landing,
-  retired at #84 into the board module doc's coverage tiling and
-  its machine-readable table; `rank_sum`
-  row + fold benign controls; NA-prose repairs), re-adjudicated
-  against the flipped tree. Board 188/17 and 187/18 over 205.
-- **Post-flip fix round** (2026-07-25, `606e8f54`..`72f4a780`):
-  every flip-review finding addressed — real oracle witnesses
-  restored, the D2 window fast path restored on the flipped hot
-  paths (board byte-identical proof), the `clippy-default` gate
-  recipe (nine warnings caught on landing), scan double-records
-  fixed with measured splits, fuzz seeds consumed, snapshot
-  hexes corrected from measurement. Gate green.
-- **The fill linearization** (2026-07-25, red pin `36c9339b` +
-  cure `92d2fc31`): the nested-full-sibling family pinned the
-  re-scan genres quadratic (scan/limb e 2.00), the cure flipped
-  them (scan e 1.00 both arms, deep-4096 differential 67.4 s →
-  1.3 s); board 190/17 default, 187/20 record over 207. Its
-  adversarial review then refuted the limb-dimension O(n+m)
-  claim (§3's re-touching entry) — the finding that opened #34
-  and the tick cost spec's design loop. Acceptance deviation of
-  record (2026-07-25): the ×4 segments leg stayed red,
-  P4.2-owned — the linear acceptance was met on the work columns
-  (closed at P4.2: segments → 0).
-- **#34: the tick limb cure and the fusion** (2026-07-25..26,
-  red pin `dc9a2c31`; the anchor-web walk `12b5e9a3` + the
-  chained-memo pre-scan `39009918`; the frame ledger `4934db86` +
-  `952159f7`; the latent boundary register `43d625e7` +
-  `12a85d2f`; the fold-direction cure `b31ca059` (red pin
-  `8fdba3d4`..`b0136781`, flip `5f40eec3`); the fused tick
-  `80131954` with the flag width pin `74d6ec5e`): T-tick —
-  amortized O(n + m) Accum digit touches — realized inside the
-  fused tick; every #34-owned red flipped at both scales, and the
-  fusion moved 51 tick-row constants per scale with zero verdict
-  flips. The design loop's record is the spec's §9 (rounds 1–8).
-- **The #35 board product refactor** (2026-07-26, `a4a233ae`..
-  `cc4762c4`, ratified `cca70c01`/`61afb65b`): the three-axis
-  product (bundles × slots × currencies), 225 → 720 cells, every
-  pre-existing cell byte-identical; the determinism tripwire and
-  the release profile of record ratified (§12); the
-  assertion-repair policy's one trigger fixed (`df3c1cb9`).
-- **The #40 representation migration** (2026-07-26, `8181247a` +
-  `cbd52a94`): Version's at-rest form is `codec::Bits` (the wire
-  bytes in a length-carrying container) with byte-level Eq/Hash;
-  heap and record-scale segment readings moved down on 41/45
-  cells, flipping three owned reds green.
-- **The #39 instrumentation ratchet** (2026-07-26, `da80fa27` +
-  `7b7f35d0`): the touch currency joined the board as the fifth
-  judged column; the census's pin ratchets landed (§3's entry);
-  zero verdict changes from the column itself.
-- **The error-path round** (2026-07-26, `51509259`, red pin
-  `90e88144`): the rejection surface joined the board (18 rows,
-  269 cells, 720 → 989); the join_all re-scan found and
-  red-pinned.
-- **The join_all cure** (2026-07-26, `5aabc765` + `b71e146e`):
-  the per-call `IdIndex`; twelve reds flipped per scale;
-  `party_join_all × scatter` re-attributed green at default.
-- **Orbit pins (#38)** (2026-07-26, `0ac28993`): six deterministic
-  size-trajectory pins; no cell moved.
-- **C3's denomination and classification round** (2026-07-26,
-  `ab2cd0c4`, `ce8f9e69`, `1c32bb56`, `48c6f7b5`, `87e82b34`;
-  reconciliation `e74275ce`): queue items 1–10 done — stream-
-  derived limb floors, the content-exponent denominator, the
-  plateau `n_io` ruling, the κ re-derivation, the judgment-layer
-  guards; 75 (default) / 78 (×4) reds flipped green, zero flipped
-  red, every flip bucketed by mechanism; sums 966 + 23 / 951 + 38
-  over 989. The round opened the materializing-emitters item
-  (§17.2).
-- **The fuzz-fit harness** (2026-07-26, merged `a91bd97b`):
-  instruction-count asymptotics instrument; its record is
-  `design/before-fuzzfit-asymptotics.md`.
-- **#24, the boolean-skyline unification** (2026-07-26,
-  `447f6985`, `2cd73716`): id `diff` converted to the sweep, its
-  depth recursion dissolved; `party_without_none × id-pair` ×4
-  flipped green (54 grown segments → 0), the order-coupled tick
-  and parser segment counts re-rolled downward (work columns
-  byte-identical; two tick × nested-wide cells read green at a
-  flat count), converted-cell scan/heap constants re-metered
-  green→green; sums 966 + 23 / 954 + 35 over 989. Landed shape
-  and the predicate-leg reversal: §17.5.
+**The remaining tail:**
 
-Remaining plan: **C3's bench-harness remainder** (§17.2: the
-judge-roster realization, envelope tightening at P5.1, the
-before/after table) → **the materializing emitters** (§17.2) →
-**P4.2** residual audit → **P5.1–P5.5** closeout, with the
-boolean-skyline decision (#24, the user's) after C3.
+1. **The Span wire-format review** — in flight (its first
+   corrections are on the review branch: the serde half of the
+   Rank/Ranked/Span transport matrix, and total structural
+   rejection-genre ordering in Span decode).
+2. **The fuelscape causally-kernel round** — in flight: guest
+   kernels for the walks the atlas's exemption roster marks
+   queued, dissolving those exemptions into panels.
+3. **The `step!` retirement** — in flight: the test-only step
+   counter retires under the retirement ratchet (replacement red
+   first), with the stacker/`descend!` audit remainder resolved
+   in the same genre.
+4. **The variadic law suites** — the fixed-arity fold/hull
+   clauses become drawn-arity drivers.
+5. **The Bytes representation round** — two phases (the at-rest
+   container, the span fast-path ladder, and dedup; then the
+   equality-shortcut census under no-law-no-shortcut, with the
+   broad heap re-pin last), then its adversarial review.
+6. **The tick-seam cache probe** — measure-first, with its kill
+   bar.
+7. **Closeout obligations** — the proportional fuzz heap cap
+   decision, the board-ceiling finalization leg, and the
+   documentation closeout items (P5-genre; §17.2 item 7).
+8. **The comprehensive fuelscape survey of record and the fuzz
+   soak** — on the remote machine, at the final tip.
+9. **The final adversarial review** — the lens deck plus the
+   carried items.
+10. **The wall-clock benchmark legs on the machine of record** —
+    the bench judge at record sampling, both scales and modes,
+    and the before/after table of record.
+11. **The benchmark section and the final prose cycle** — the
+    crate-doc Efficiency section re-measured, the remaining
+    factual doc items, and the owner's sentence-level pass.
 
-Acceptance for the effort: the §13 acceptance criterion; plus the
-two 2026-07-25 user rulings:
+Then the go-criteria below gate the merge to main.
 
-**The per-operation performance bar** (for C3's before/after
-table and P5's acceptance): strict absolute improvement
-everywhere is the target and the expectation; the floor per
-operation is **at or close to parity on benign inputs,
-asymptotically optimal, and entirely free of adversarial
-exploitation surface**. A benign cell slightly slower under an
-adversarial mitigation's constant is triaged hard for a cure but
-does not block; anything below the floor blocks.
+**The per-operation performance bar** (user ruling 2026-07-25;
+judged by the before/after table and the acceptance sweep):
+strict absolute improvement everywhere is the target and the
+expectation; the floor per operation is **at or close to parity
+on benign inputs, asymptotically optimal, and entirely free of
+adversarial exploitation surface**. A benign cell slightly slower
+under an adversarial mitigation's constant is triaged hard for a
+cure but does not block; anything below the floor blocks.
 
-**The asymptotic bar**: **every public operation must be
-subquadratic in its total input, worst case; linear is the
-ideal.** Fundamentally-superlinear problems (radix conversion,
-multiplication-equivalent up to log factors; n log n
-comparison-ordered n-way folds) satisfy the bar at their
-problem's own optimum, stated and priced. The tick kernel's limb
-dimension sits at amortized O(n + m), realized inside the fused
-tick (the tick cost spec's T-tick).
+**The asymptotic bar** (user ruling 2026-07-25): **every public
+operation must be subquadratic in its total input, worst case;
+linear is the ideal.** Fundamentally-superlinear problems (radix
+conversion; multiplication-equivalent up to log factors — the
+`MulBound` query folds; n log n comparison-ordered n-way folds)
+satisfy the bar at their problem's own optimum, stated and
+priced. The tick kernel's limb dimension sits at amortized
+O(n + m), realized inside the fused tick (the tick cost spec's
+T-tick).
+
+**Go-criteria for merging to main** (the acceptance sweep of
+record; every leg on a checked-quiet machine where wall time is
+judged):
+
+- `just all` clean at the final tip (the gate plus the feature
+  matrix, fuzz smoke, lean, wasm, and the judge legs).
+- The §13 acceptance criterion met in full: boards all-green at
+  both scales under the single-run determinism protocol with the
+  red buffer empty; bench judge roster-satisfied at both scales,
+  both modes, at record sampling — only permanent expectations
+  standing, which means the display-pair class question (§17.2
+  item 9) is resolved or explicitly re-ratified by the owner at
+  the sweep.
+- The before/after table of record shows the parity floor met
+  everywhere and improvement where claimed (§17.2 item 10's
+  protocol).
+- The fuzz soak and the fuelscape survey of record completed at
+  the final tip on the remote machine, findings triaged to zero
+  or owner-ratified (item 8).
+- The coverage audit re-run with an empty gap list: every public
+  operation names its oracle legs and its resource pin through
+  the roster (surface totality from rustdoc JSON), and every
+  exposed type's bytes/text/serde forms are snapshot-pinned
+  in-crate (the representation-pin directive).
+- The final adversarial review closed: findings shifted from
+  "this is wrong" to "you might want to think about this", every
+  landed finding a committed check, the carried items each
+  resolved or explicitly owner-deferred with a dated record
+  (item 9).
+- The integration review against main: merge-seam re-sweep
+  (mechanical greps plus marker/ledger checks) across everything
+  merged since the last sweep, and function-level integration
+  review of the merge itself.
+- This document's §12 gains the acceptance entry (date, tip, the
+  sweep's numbers of record), and the campaign branch merges.
 
 ## 17. Work items of record
 
 ### 17.2 Open items, with acceptance contracts
 
-**The 2026-07-27 wave (in flight or decided; each lands its own
-§12 entry at merge, so this list carries obligations, not
-outcomes):**
-- **The fused distance/lag co-sweep cure** (owner of §17.3's
-  cross-stream freeze wedge): five committed readings move in one
-  commit — the board cell at both scales, the
-  `DISTANCE_JUMP_PAIR` envelope, the growth floor flipped to a
-  flatness bound, the judge roster entry through a live time leg,
-  and `Version::distance`'s complexity re-class — with the
-  accumulator's zero probe renamed to carry its one-sided
-  contract.
-- **The lazy projection view** (decided 2026-07-27; charter of
-  record `design/own-version-view.md`): `/` and
-  `Clock::own_version` return a ref-owning `OwnVersion<'a>`;
-  comparison fuses projection into linear co-walks;
-  materialization explicit via `.to_version()`/`From`. Sequenced
-  after the three items above; before the legibility and
-  adversarial-review passes.
-- **The fuzz soak** (owner re-scope 2026-07-27): the before-side
-  targets including `fuzz_laws`, run at the acceptance sweep.
-  Frame-level fuzzing of `rumors` is deferred to a future
-  campaign; its spec (`design/rumors-frame-fuzz.md`) is the
-  record that campaign resumes from.
+1. **The Span wire-format review** [in flight, 2026-07-30]. The
+   wire form is landed at this tip (§12's tranche entry): the
+   canonical composite encoding with the one-pass fused decode,
+   its laws, meter legs, board and worst-map rows, and rejection
+   witnesses. The review's charter is the campaign's standing
+   review genre: construct the wrong artifact the criteria bless
+   — decode-seam mutations, rejection-genre ordering, composite
+   prefix-freedom, the fused walk against the composed oracle —
+   evaluate seeds, don't confirm them. Its first corrections are
+   on the review branch: the serde half of the Rank/Ranked/Span
+   transport matrix (the borsh half landed with the wire form),
+   and total structural rejection-genre ordering in Span decode
+   (structural genres outrank the pair verdict). *Acceptance*:
+   every finding lands as a committed pin or fix on the review
+   branch; the branch merges by reported SHA with the gate's
+   doclint/rustdoc legs run at the merge; wire snapshots move
+   only if a deliberate protocol change is ruled (none expected).
+2. **The fuelscape causally-kernel round** [in flight,
+   2026-07-30]. The atlas's exemption roster
+   (`before-fuelscape`'s ops module) carries entries whose reason
+   is "queued for the guest-kernel census round" —
+   `causally::Span::encode`/`decode` — plus rank-view entries
+   whose reason is that no guest kernel exports the walk (the
+   `Ranked` comparisons and encodings). The round adds the guest
+   kernels (a `crates/before/fuzzfit` change, as the exemption
+   text records) and the matching atlas panels, dissolving the
+   queued exemptions. *Acceptance*: the queued exemption entries
+   are gone, replaced by panels; the ops parity test
+   (`panels_and_exemptions_tile_the_coverage_roster`) holds the
+   tiling; new fuel bands pinned with the standing
+   liveness-margin convention; no surviving exemption cites a
+   kernel that now exists.
+3. **The `step!` retirement** [in flight, 2026-07-30; the
+   retirement-ratchet obligation]. The crate-root `step!` macro
+   and `testing::metrics` count node-header reads under
+   `cfg(test)` — the campaign's oldest traversal-cost instrument,
+   predating the judged scan/touch currencies that now price the
+   same walks on every committed family. Retirement follows the
+   instrument-retirement ratchet: the replacement must
+   demonstrate it catches what the step counter caught — every
+   step-count complexity assertion re-denominated onto a judged
+   currency, with the known-bad kernel (a re-scanning walk)
+   reading red through the new home *before* the counter and its
+   call sites delete. The stacker/`descend!` remainder resolves
+   in the same genre (P4.2 left `descend!` compiling only for
+   the test-surface oracle bridge): drop `recurse::descend!` and
+   the `stacker` dependency, re-denominate
+   `clock::tests::deep_tree_stack_safety`, and update the
+   crate's AGENTS.md hard rule in the same change — or record
+   which test-only sites stay and why. *Acceptance*: no
+   `step!`/`metrics` (and, per the resolution, no
+   `stacker`/`descend!`) remains, or the keep is a dated
+   decision at the site; no traversal-cost assertion lost its
+   red-demonstrated successor; the gate green.
+4. **The variadic law suites.** The law tier's n-ary clauses are
+   fixed-arity: the arity-five fold and hull laws
+   (`fold_all_arity_five_matches_the_pair_folds`,
+   `span_all_is_the_lattice_hull`'s wide leg) reach every combine
+   arm of today's balanced counter, but the reach is a property
+   of the hand-picked arity, argued in each law's doc comment
+   against the current counter shape. The item: variadic drivers
+   — arity and population drawn, the counter's grouping exercised
+   at arbitrary weights — so the law tier's reach is the driver's
+   property and survives any future fold reshaping; shrunk
+   counterexamples ride as committed seeds. *Acceptance*: the
+   fold/hull laws run at drawn arity through all three law
+   consumers (the proptest drivers and `fuzz_laws`); the
+   fixed-arity clauses are retained as fast deterministic
+   witnesses or dissolved under the ratchet (the variadic driver
+   demonstrated red on a planted wrong-arm mutant first); the
+   law-table citation seal holds throughout.
+5. **The Bytes representation round** (owner-decided scope; two
+   phases, then its review). The at-rest packed container
+   (`codec::Bits`, today a `bitvec` bit-vector over bytes) moves
+   to the byte-buffer representation, with the round's charter
+   carrying the decided shape: *phase 1* — the representation
+   itself, the span fast-path ladder, and dedup; *phase 2* — the
+   whole-implementation equality-shortcut census under
+   **no-law-no-shortcut** (every equality fast path in any walk
+   is licensed by a committed law of the
+   `byte_equality_matches_bit_equality` genre, or it goes), with
+   the **broad heap re-pin last** — one deliberate, annotated
+   re-pin across the envelope and board heap records after the
+   representation settles, never incremental drift. Then the
+   round's adversarial review. Standing constraints that bind
+   it: wire bytes are unchanged (the representation is in-memory
+   only — any wire movement is a protocol change requiring a new
+   version, which nothing here rules); the representation-pin
+   directive forces the deliberate re-pin path; acceptance is
+   identical-or-better on the work columns (the owner's
+   2026-07-29 ruling), with every improvement parent-measured
+   and every regression a finding. *Acceptance*: both phases
+   landed with their census artifacts committed; the heap re-pin
+   is one reviewed diff with movement annotated against the
+   parent; differential and law suites untouched; the review
+   closed with findings landed.
+6. **The tick-seam cache probe** (coordinator-seeded; measure
+   first, kill bar). The seam: rumors' `Tree::act` advances the
+   running version by one full fused tick walk per action (the
+   tick-and-clone chain recorded at §12's batch-removal entry).
+   The probe measures the seam's real profile first — what
+   fraction of an action batch's cost is the per-action tick
+   walk on realistic trees — and only on measured evidence
+   constructs the cache (the ticks(n) probe's mechanism note
+   that the route is value-blind and its site stable is the
+   candidate lever). The kill bar is legitimate here (a
+   speculative probe, not an owner-requested capability): the
+   probe dies unless measurement shows a win worth the
+   machinery, and an honest kill is a first-class outcome.
+   *Acceptance*: the measurement lands as a dated record either
+   way; a landed cache rides the standing ratchets (instruments
+   before cures; movement parent-measured; no new unmetered
+   state).
+7. **Closeout obligations** (the P5-genre remainders, each small
+   and already scoped):
+   - *The proportional fuzz heap cap*: the fuzz harness runs
+     every input under a flat 1 GiB peak-heap cap
+     (`fuzz/src/lib.rs`), documented as not yet proportional to
+     input size. Land the proportional ceiling, or the owner
+     ratifies the flat cap with the harness doc re-derived to
+     the ratified shape.
+   - *The board-ceiling finalization leg*: board ceilings
+     tightened to final constants at record scale (release,
+     single runs under the determinism tripwire) — belongs to
+     the acceptance sweep, after the in-flight rounds' cells
+     settle.
+   - *Documentation closeout* (user sign-off, item by item): the
+     §6 invariant statement lands in the crate docs as contract
+     (over content bits for content-materializing operations,
+     packed operands for delta-native ones, every cost claim
+     carrying its epistemic status); the `Key` stability promise
+     in `rumors`' `src/tree/key.rs` gains its same-code-version
+     qualifier; the bookmark version-mismatch semantics stated
+     at the bookmark docs. These are the factual-docs half; the
+     style half is item 11's prose cycle.
+8. **The comprehensive fuelscape survey of record and the fuzz
+   soak** (remote machine, final tip). Both run on ox-east-1 at
+   the tip every other item has landed on: the fuelscape atlas's
+   survey of record (heavy sampling across every panel — the
+   audit view of where the bulk of each operation's input space
+   sends it; the atlas enforces nothing, so the survey's
+   deliverable is the rendered distribution plus any anomaly
+   triaged into an instrument), and the fuzz soak over the
+   before-side targets (`fuzz_decode`, `fuzz_decode_ops`,
+   `fuzz_laws`) under the heap cap. Frame-level fuzzing of
+   `rumors` stays deferred to a future campaign; its spec
+   (`design/rumors-frame-fuzz.md`) is the record that campaign
+   resumes from. *Acceptance*: both runs dated and
+   machine-annotated; every fuzz finding a committed seed with
+   its fix or an owner-ratified disposition; survey anomalies
+   triaged to instruments or explicitly recorded as expected
+   strata.
+9. **The final adversarial review** (the campaign's closing
+   review; independent agent, blind-spot-targeted). The lens
+   deck, each lens a pass with a constructed-wrong-artifact win
+   condition:
+   - *mutation-adequacy attack*: plant wrong kernels/mutants and
+     verify the committed instruments convict them (the
+     adequacy ratchet audited end to end);
+   - *blind-spot escalation*: the negative space of every prior
+     review round — what no round examined;
+   - *prose re-derivation*: every rustdoc and design-doc cost or
+     contract claim re-derived against the tree
+     (statement-faithfulness, both directions);
+   - *white-box worst-case construction*: per operation, read
+     the implementation and construct the maximizing family,
+     duals included, diffed against the registry roster — the
+     blindspots live in shapes no committed family exercises;
+   - *criterion-gaming attacks*: for each committed criterion,
+     the cheapest artifact that passes;
+   - *merge-seam re-sweep*: every track merged since the last
+     sweep re-swept mechanically;
+   - *integration review vs main*: semantic (function-level)
+     integration of the campaign branch against current main;
+   - *ghost/doc gates*: nothing anywhere refers to code that no
+     longer exists; both rustdoc builds warnings-denied;
+   - *stale-count excision*: no hand-maintained tally survives
+     where a mechanically-enforced home exists.
+   Plus the carried items, each to be resolved or explicitly
+   owner-deferred with a dated record: the bench judge's
+   sub-resolution window (a superlinear term whose constant sits
+   below the 10 µs floor at both bench scales on cells with no
+   counter leg); index-shaped search metering as a general
+   primitive (`metered_partition_point` is `IdIndex`-local); the
+   deliberately unmetered wire-side `ReaderCursor` (its
+   recalibration note in `codec/scan.rs`); the `max_depth`
+   double-count `TODO-recalibrate`; and the hugeleaf display
+   pair's class question (§13's judge roster — cure the
+   conversion-dominated render or migrate the pair to the text
+   class; the owner rules). *Acceptance*: the review closes when
+   findings shift from "wrong" to "consider"; every landed
+   finding is a committed check.
+10. **The wall-clock benchmark legs on the machine of record.**
+    The bench judge at record sampling, both scales, both modes,
+    on a checked-quiet machine (poll-until-quiet, bounded; load
+    disclosed in the report if any) — record sampling belongs to
+    this sweep alone. And **the before/after table of record**
+    (judged under §14's two bars). Protocol, mandatory: re-bench
+    the pre-C2 tip under the FINAL harness — a temp worktree at
+    the last pre-flip commit with the current bench files
+    grafted on (they call only the public API), full sampling
+    both tips, warm target dirs — **never the stored `base`
+    baselines**, which are contaminated for delta purposes (the
+    RNG consolidation regenerated every bench input family, and
+    they mix sampling modes). Any benign regression beyond
+    "slight" is a finding; the parity floor is the bar.
+11. **The benchmark section and the final prose cycle.** The
+    crate-doc Efficiency section re-measured under the landed
+    representation with `just readme` re-derivation (the READMEs
+    are derived, never hand-edited); the space-consumption
+    figure re-drawn if its numbers moved; then the owner's
+    sentence-level copy-edit pass over the user-facing prose —
+    explicitly non-blocking for everything except itself, and
+    the owner's final say on style (the standing docs policy).
 
-**C3's bench-harness remainder (the queue of record, items
-11–13).** Items 1–12 of the round's queue are done (§14's C3
-entry; the cell-exact movement is §17.3; items 11 and 12 are
-§12's 2026-07-27 P5 closeout record — the closeout re-measure
-found the twelve event-side rows byte-identical to their pinned
-records, so the deferred one-downward-re-pin resolved to no
-movement). Remaining:
+*Risk register for the tail*: a cell green at default but red at
+record is the two-scale design working — the cell's owner
+reopens. In-flight rounds landing out of order re-derive each
+other's pinned constants at their merges (the movement-annotation
+discipline); the Bytes round's heap re-pin must come after every
+other cost-moving item or its annotation is polluted.
 
-13. **The before/after table of record** (judged under §14's two
-    rulings). Protocol, mandatory: re-bench the pre-C2 tip under
-    the FINAL harness — a temp worktree at the last pre-flip
-    commit with the current bench files grafted on (they call only
-    the public API), full sampling both tips, warm target dirs —
-    **never the stored `base` baselines**, which are contaminated
-    for delta purposes (the RNG consolidation regenerated every
-    bench input family, and they mix sampling modes). Any benign
-    regression beyond "slight" is a finding; the parity floor is
-    the bar.
+### 17.3 Owned-red accounting
 
-*Risk*: a cell green at default but red at record — that is the
-two-scale design working; the cell's owner reopens. Adjacent but
-not C3's: #24 (the user's decision, post-C3) and the
-stack-container measured phase (§17.5, C3-adjacent, its own
-harness).
+The board's red set is **empty**: `BOARD_EXPECTED_REDS`
+(`meter::board`) is an in-flight triage buffer, every entry
+carrying a live task, asserted empty at acceptance and empty on
+the settled tree — red is reserved for untriaged contradictions
+(the owner's 2026-07-28 ruling: an "accepted red" list would
+mechanize normalization of deviance). Every contradiction the
+campaign found resolves to exactly one of a cure (§3's ledger) or
+a dated, owner-ratified declared model at its declaration site,
+in `meter::board`'s ceilings module:
 
-**The materializing emitters (opened at C3, 2026-07-26).**
-Three C3-classified residuals share one seam — the emitters that
-materialize before they write — and its cure round owns them
-(§17.3's roster carries the cells and readings):
-- The render's finalize pass materializes a per-node `Base`
-  vector, digit arena, and offset table before emit: the display
-  heap constants (14 cells per scale, 17.4–33.2 B per `n_io`
-  byte, linear). Candidate cure: convert bases to digits at
-  their close (dropping the `Base` vector) or a two-pass
-  finalize — either priced against κ's pipeline budget before
-  landing.
-- The render merge re-folds wide relative summaries per ancestor
-  on wide×deep right-spine shapes (mirror-wide display, limb
-  e 1.81 at ×4): the #34 re-touching genre alive in the render
-  walk; the anchor-web discipline is the candidate cure. Parse is
-  linear on the same shape, so the text format is not the
-  obstruction.
-- The projection output builder's growth transient makes peak
-  heap capacity-phase-dependent (the projection × comb-scatter
-  default-scale heap exponent): not a shrink-discipline target —
-  the peak is the mid-walk realloc's old+new coexistence, already
-  set when finish runs — and not a reserve target either, since
-  the projection's output is not size-derivable from its
-  operands. CLOSED (owner ruling 2026-07-27): the doubling-chain
-  band is RATIFIED as the stated-band residual — no pre-walk, no
-  segmented output (§12's capacity-phase finding carries the
-  pricing and the dated resolution).
-*Acceptance*: the two render cells above flip green at both
-scales with byte-identity across the differential suite;
-movement annotated against the parent boards; any κ movement
-re-derived at the constant. The projection pair is closed by
-the owner's ratification and stays on §17.3's roster as an
-accepted stated-band residual.
+- **The ascend-cliff tick heap constant**
+  (`ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE`): the
+  accumulator's zero-run certificates on a monotone climb occupy
+  memory until consumed — honest Θ(input) work-state with a large
+  constant on the one shape that defeats consumption; exponent
+  stays at the global bound. Ratified 2026-07-28, conditional on
+  the measured flat-constant profile.
+- **The ascend-cliff `version_min_ticks` heap constant**
+  (`ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE`): the
+  anchor web holds one live reign record per simultaneously-open
+  minimum, and the family holds Θ(k) open at once — the state
+  that buys the exponent cure. Ratified 2026-07-28, same
+  condition. A packed-frame representation is the candidate cure
+  if one is ever warranted.
+- **The mirror-wide render limb model**
+  (`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`,
+  `MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`): the render's
+  summary merge on wide×deep trees is the documented
+  `SuperlinearTime` class, judge-rostered red on the wall leg;
+  the ceilings admit the measured class while a genuinely
+  quadratic conversion still reads red, and the committed
+  `render_merge_superlinearity_is_alive` pin reads red the day a
+  render-merge cure lands, forcing the declaration's
+  re-derivation in the same change. Ratified 2026-07-28. The
+  anchor-web discipline remains the candidate cure, gated on the
+  display class question (§17.2 item 9).
+- **The capacity-chain peak** on the materialization pair
+  (`capacity_chain_peak`'s declared model, band two-sided): the
+  ratified stated-band residual of a non-derivable output (§12's
+  presize finding).
+- **The fold model and search allowance**
+  (`FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL`,
+  `INDEX_PROBE_SCAN_BITS`): the balanced reduction's own
+  `O(D log k)` and the fold index's per-probe price, each with
+  committed wrong-artifact tripwires (a quadratic fold or a
+  regressed search reads red).
 
-**The fold marginals — the n-cursor merge (C2-adjacent).** The
-V7 reduction's n·log n reads marginally red against flat ceilings
-on the fold cells (§17.3's fold-marginals genre). Candidate cure:
-an n-cursor merge replacing the binary-counter reduction's
-re-comparisons. *Acceptance*: the owned cells flip or the n·log n
-optimum is recorded as the problem's own (the asymptotic bar's
-fundamentally-superlinear clause) with the ceiling re-derived.
-
-**P4.2 — word-scale scanning (the conversion half landed;
-§12's 2026-07-26 P4.2 entry is the record).** The remaining open
-half: apply the word-at-a-time subtree skip (popcount
-pending-counter delta, mid-word zero-crossing exit) to `idbits`
-and the skyline topology stream where benches justify — a
-constants option no red owns. *Sequencing, resolved at #24
-(2026-07-26)*: the id predicates stay on the lockstep walk
-(§17.5), which is exactly the shape the word-scale skip fits;
-`diff`'s sweep enumerates leaves and never skips, so the skip
-does not touch it. The skip also interacts with the fused tick's
-route fold, which reads each skipped id subtree per 2-bit tag on
-leaf-under-internal-id arms — a correctness seam, kept per-bit at
-P4.2, and the spec's §9 round-8 table carries the landed
-interaction baseline. *Kills*: none (constants). *Acceptance*:
-benches.
-
-**P5.1 — envelope finalization**: the envelope leg is done
-(§12's 2026-07-27 P5 closeout entry — the suite re-measured
-whole, three rows tightened including `ID_WITHOUT`'s final
-ratchet). Remaining: the board-ceiling leg — board ceilings
-tightened to final constants at record scale (release, single
-runs under the determinism tripwire) — which belongs to the
-acceptance sweep, after the in-flight wave's cells settle.
-
-**P5.2 — proportional fuzz cap**: counting-allocator harness with
-a hard ceiling proportional to input size across all fuzz
-targets; the seed-writer + canonicity check join `just all`.
-
-**P5.3 — stacker-removal audit**: P4.2 established zero
-remaining library-path depth recursion (`descend!` is test-only;
-§12's P4.2 entry is the record), so the audit's condition is
-met. Remaining: drop `recurse::descend!` and `stacker`,
-re-denominate `clock::tests::deep_tree_stack_safety`, and update
-the crate's AGENTS.md hard rule in the same change — or record
-which test-only sites stay and why.
-
-**P5.4 — documentation closeout (user sign-off, item by item)**:
-the §6 invariant statement lands in the crate docs now that it is
-true — over content bits for content-materializing operations,
-packed operands for delta-native ones, the denomination stated as
-contract, every cost claim carrying its epistemic status; the
-`Key` stability promise in `rumors`' `src/tree/key.rs` gains its
-same-code-version qualifier; the bookmark version-mismatch
-semantics; `before`'s crate-doc Efficiency section re-measured
-under skyline with `just readme` re-derivation. The prose
-improvement pass landed 2026-07-27 (`86e85420`, the
-four-quadrant docs); the owner's sentence-level copy-edits
-remain open and are explicitly non-blocking (owner note,
-2026-07-27).
-
-**P5.5 — acceptance sweep of record**: `just all` clean; the §13
-acceptance criterion met in full (board all-green both scales
-under the ratified single-run protocol; judge roster-satisfied
-both scales both modes, only permanent expectations); the
-before/after table showing the parity floor met everywhere and
-improvement where claimed; the coverage audit re-run with an
-empty gap list (method: walk the board's op enumeration and the
-board-doc NA list; every public operation names its two oracle
-legs and its resource pin — the representation-pin leg per the
-2026-07-23 directive: every exposed type's bytes/text/serde forms
-snapshot-pinned in-crate); the benign rank-pair operand scaling
-if C3 chose that arm; the §14 acceptance entry recorded.
-
-### 17.3 Owned-red accounting (current; over the 1285 cells)
-
-Sums [measured 2026-07-28, release renders at the task #86 family
-landing (weight-comb and freeze-parade, cells 1199 → 1285, all 86
-new cells green and every pre-existing cell byte-identical at both
-scales), diffed cell for cell against the dd206b9d renders on the
-same machine; the prior boards of record read 1193 + 6 at the
-round #83 cure tip (cure83: the balanced product-tree settle,
-whose whole board delta against its 6bb2305e parent was the three
-promo-rearm linear-functional cells' touch constants — rank
-1.4 → 1.6/B, distance/lag 2.1 → 2.4/B, exponents 1.00 unchanged:
-the tree settle's per-level window rewrites), 1193 + 6 at the
-cure81 tip (the promotion ledger and the promo-rearm family
-landing, cells 1156 → 1199), 1150 + 6 over 1156 at the cure-round
-merge renders before that, and 1041 + 30 / 1044 + 27 over 1071 at
-the `board-merge72-{lo,hi}.txt` renders before that]:
-**default 1279 + 6 = 1285; record 1279 + 6 = 1285, the red set
-identical at both scales and identical to the parent's six.** Every red is a
-`BOARD_EXPECTED_REDS` member with its mechanism tag (the roster
-in `meter/board.rs` is the committed form of this accounting;
-the render's `mech[...]` column is its live disclosure). Every
-red has exactly one owner and the sums close; the per-round
-movement lineage (each round's flips, bucketed by mechanism,
-with every untouched cell verified byte-identical) is in git
-history at the commits §14 names.
-
-The red roster, both scales enumerated from the renders:
-
-(Resolved 2026-07-27, at the co-sweep cure's merge: the
-`version_min_ticks × jump-pair` scan-floor red the cure's
-parent-attribution runs surfaced — the saturating fold exiting
-early while the floor declared a full-stream scan — was cured by
-the exact `min_ticks` fold of the ticks(n) landing, which scans
-the full stream; the merged renders read the cell green at both
-scales with the scan floor exactly satisfied.)
-
-- **The render materialization genre**: CURED 2026-07-28 (cure
-  round #78 Track 3, the §12 entry): the finalize pass streams
-  each finalized base's digits into a node-keyed arena at its
-  merge and the open-node stacks replaced the frame enum, so all
-  14 heap-constant display cells read green at both scales
-  (dense 22.0 → 1.9 B/B, mirror-narrow 33.0 → ~13 B/B) with the
-  render envelopes re-pinned tighter.
-- **The render merge's wide-summary re-read**
-  (`version_display`/`clock_display` × mirror-wide: limb
-  exponent 1.55–1.56 default / 1.81 ×4, the ×4 constants over κ):
-  the finalize merge re-folds wide relative summaries per
-  ancestor on the wide×deep right-spine shape — the #34
-  re-touching genre alive in the render walk; parse on the same
-  shape is linear (6.05 ops/node [measured]), so the text is not
-  the obstruction. A genuine kernel superlinearity, red on an
-  honest denominator, exponent-tagged in `BOARD_EXPECTED_REDS`
-  and held red-alive by `render_merge_superlinearity_is_alive`
-  as the display pair's SuperlinearTime mechanism. Owner: **the
-  materializing emitters item** (its one remaining leg; the
-  anchor-web discipline is the candidate cure, gated on the
-  SuperlinearTime class question).
-- **The capacity-phase heap exponent**: GREEN by declared model
-  2026-07-28 (owner ratification 2026-07-27 encoded at the cell,
-  cure round #78 Track 3): the comb-scatter projection pair is
-  judged against ≈ 3·(n+m)·2^(k−1), k = ⌈log2(output/(n+m))⌉
-  (measured/model 1.005–1.017 at every probed point, band ±10%,
-  both scales), the heap exponent fit retired as unjudgeable
-  across the chain's power-of-two quantization, and a regressed
-  builder or an improved one trips the band's respective edge
-  (`declared_capacity_model_bands_the_projection_peak`). The
-  decided lazy projection view (`design/own-version-view.md`)
-  additionally makes the materialization explicit-only, so the
-  band will be reachable solely through `.to_version()`.
-- **The fold marginals**: GREEN by declared model 2026-07-28
-  (cure round #78 Track 3): the fold cells are judged under the
-  reduction's own `O(D log k)` (exponent ceilings at the model's
-  predicted exponent plus the linear slack; scan constant
-  12 bits/B per `log2(2k)` level), with the party fold's indexed
-  overlap test additionally covered by its declared search
-  allowance (tight to ~7% on the weave family). A quadratic fold
-  or a regressed search reads red
-  (`declared_fold_model_admits_the_log_factor_and_rejects_quadratic`),
-  and `fold_log_factor_is_alive` keeps the log factor honest.
-- **`version_min_ticks × ascend-cliff`'s heap constant** (138.7
-  B/B default / 141.3 ×4 at the cure-round merge renders — the
-  anchor-web fold's ~119 B/frame reign state plus the zero-run
-  ledger's certificates, which accumulate on monotone climbs;
-  e 1.00 with every work column flat — the query-fold cure
-  removed this cell's touch-exponent mechanism and its ×4 touch
-  constant in the same change, §12's cure round #78 entry, and
-  cured every other `version_min_ticks` red in the same
-  change): the family arms `k` simultaneously open
-  ranges with `k` distinct minima, so no zero run compresses and
-  no reign batches across them — any one-pass exact fold holds
-  Θ(k) live state here, and the anchor web's per-frame constant
-  is the reign record (offset, epoch, count) plus the inline word
-  boundary, ~119 B/frame with `Vec` doubling slack, the state
-  that buys the exponent cure. Linear in the input, honestly over
-  the 16 B/B ceiling. Owner: an accepted stated-band residual,
-  the same genre as the tick pair's entry below, with a
-  packed-frame representation the candidate cure if one is ever
-  warranted.
-- **The ascending-cliff tick family's heap constants**
-  (`version_tick`/`version_ticks`/`clock_tick`, 123.8 B/B
-  default / 125.9 ×4 at the cure-round merge renders — the fill
-  walk's watermark stack plus the zero-run ledger's certificates
-  accumulating on the monotone climb; e 1.00, ~1 B/B of it the
-  iterative walk's frame bits — the one committed family holding k
-  simultaneously-armed nonzero boundary differences, one pooled
-  unit-width buffer each; linear in the input, honestly over the
-  16 B/B ceiling): owner: the spec's §9 round-7 record — a
-  small-buffer diff-stack representation is the candidate cure if
-  one is ever warranted. The constant is specific to the board's
-  joint (s,s) axis, where the armed count k and the
-  per-difference width b grow together: at fixed b the peak heap
-  is exactly affine in k (measured pre-ledger: 91.3 B per armed
-  nonzero difference plus a 2,905 B floor; the zero-run ledger
-  adds a per-jump certificate term on this axis, still affine)
-  and the B/B reading drifts with the k:b mix while the exponent
-  holds 1.00 (the merge72 renders read 64.1/66.3 B/B; the drift
-  to 78.9 landed between those renders and the cure round's
-  base — the query-fold cure's parent and tip read the cells
-  byte-identical, and the step to 123.8/125.9 is the suanpan
-  cure's certificates arriving in the same round). A future
-  re-pin of this cell must re-measure on the board's own axis;
-  the exponent claim is axis-invariant, the constant is not.
-Bench riders (`BOARD_RED_BENCH_RIDERS`) are populated (census
-re-realized 2026-07-28 against `BOARD_EXPECTED_REDS` at the
-cure-round merge — the roster hygiene test binds every rider to
-a rostered red): the three standing reds that the designed
-pairings do not already time — the `min_ticks` row on the
-ascend-cliff cross and the mirror-wide display pair — each keep
-a judged time leg in the pinned bench subset, and every rider
-must fit under its own ceiling. A rider and its roster
-expectation move as one reviewed diff, judge-verified.
+Each declared model is disclosed on the row face, banded so an
+improved kernel trips the stale-model floor, and carried by the
+declared-model bench riders (`BOARD_DECLARED_BENCH_RIDERS`) where
+no designed pairing times its shape. The bench judge's standing
+reds are §13's roster (the schoolbook tripwire and the display
+pair); the display pair is the one open class question and is
+owned by the final review.
 
 ### 17.5 Post-campaign docket (user directives)
 
-- **#24, the boolean-skyline unification (the user's decision,
-  post-C3; probe verdict GO-WITH-SHAPE 2026-07-24; landed
-  2026-07-26, `2cd73716`, with the construction/predicate split
-  reversed).** Under the skyline coding a `Party` is a boolean
-  skyline. Landed shape: `diff` rides the sweep — an id leaf
-  cursor per operand presenting absent children as synthetic
-  unowned plateaus, the event sweep's advance/tie rule
-  transferred verbatim (no boolean carve-out; the boolean side
-  needs no accumulator, each cursor's one owned bit replaces the
-  running difference), one output plateau per elementary interval
-  into a leaf-driven collapsing id builder (positions on a
-  delta-coded bit stack) — dissolving the id family's one depth
-  recursion, its `descend!` guard, and the two-pass complement
-  retagging. `party_without_none × id-pair` ×4: 54 grown
-  segments → 0; the id-side segments residue is parser-only
-  (§17.3). The 2026-07-24 shape's predicate leg is reversed on
-  cost evidence: `covers`/`is_disjoint` stay on the lockstep —
-  a verdict-only walk carries no per-level state (the pending
-  stack queues nothing on unary chains; `ID_COVERS`/`ID_DISJOINT`
-  pin ~zero transient heap), where a leaf-enumerating sweep pays
-  two path-bit stacks per operand depth for interval geometry a
-  predicate never reads — so that conversion would multiply a
-  pinned near-zero envelope to retire no red. `sum` stays on its
-  frames walk (copy-splice has no sweep analogue), as recorded
-  in 2026-07-24's verdict. Converted-cell re-metering (scan
-  constants moved both directions at exponent 1.00: each input
-  tag now read exactly once where the structural walk peeked and
-  read; output written reserve-and-patch where it spliced; heap
-  up ≤ 7.4 B/B, the recursion state relocated to metered bit
-  stacks — the `ID_JOIN` precedent class) is enumerated in the
-  #24 board diff; `id_without`'s envelope re-measured
-  byte-identical (518 219 B peak, 0 segments). The 26 green→green
-  re-metered cells are the enumerated verdict-neutral class
-  (ratified by owner, 2026-07-26).
-- **The accumulator is the workspace crate `suanpan`** (§12's
-  two 2026-07-27 extraction entries are the record). Standing
-  policy: unpublished until a second consumer stabilizes the
-  API; its amortization contract is subtle — reads mutate.
+- **The constants frontier** (`design/before-constants-frontier.md`,
+  ideation of record): candidate directions for a future
+  constants campaign, none committed; probe results land there as
+  dated amendments. The word-scale subtree skip (popcount
+  pending-counter delta over `idbits` and the skyline topology
+  stream — a constants option no red owns, with the route-fold
+  correctness seam its P4.2 sequencing decision names) belongs to
+  that campaign.
+- **The fold-vocabulary residue**: the fold-unification survey's
+  optional cleanup row (its §4 row 6) stays open in that
+  document; Phase C is measured-and-dropped by the survey's own
+  criterion.
+- **suanpan publication policy**: unpublished until a second
+  consumer stabilizes the API; its amortization contract is
+  subtle — reads mutate. The spare-buffer newtype question
+  revisits if a second pooling consumer appears.
 - **Stack-container decision: `SmallVec<[T; N]>` vs
   `Vec::with_capacity(N)` vs `Vec::new()`, measured, per site**
-  (user directive 2026-07-25). It is not a priori clear that
-  smallvec's constants beat Vec's: the inline path saves one small
-  call-scoped allocation (tens of ns on a thread-cached allocator,
-  paid once per op) but pays a per-access discriminant branch
-  (well-predicted when never spilling, yet real in code size and
-  inlining pressure), a fatter struct (locality when embedded or
-  moved), and a spill memcpy at exactly the deep input. Nor is
-  pre-sizing a free improvement over starting empty: allocator
-  size classes mean `with_capacity(N)` at a defensive bound rounds
-  into a larger class whose slack Vec does not adopt (capacity
-  stays as requested — the slack is pure waste), while an organic
-  `Vec::new()` on a shallow walk makes exactly one small-class
-  allocation and never runs the doubling chain. "Capacity known in
-  advance" splits into known-per-input (pre-size to the exact
-  value) vs known-as-typical-bound (pre-sizing may lose to
-  organic); our walk stacks are almost all the latter.
-  Discipline: every explicit stack from the P4 residual audit
-  (and the D3-inherited `PARSE_STACK_INLINE` stacks) is
-  implemented behind ONE type seam (a module-local alias or
-  newtype, one line to swap); a measured phase — C3-adjacent,
-  under the final harness, benign AND deep families, both
-  scales — benches all three contenders and decides per site;
-  the losers' numbers ride the DECIDED entry. The
-  choice is not judgment-neutral: shallow walks on smallvec are
-  allocation-free and heap columns pin that — a Vec win on time
-  re-pins those rows deliberately (the parity-floor ruling's
-  genre). Where a packed bit-stack (2 bits/level) suffices,
-  neither applies and the bit-stack stays.
+  (user directive 2026-07-25). The inline path saves one small
+  call-scoped allocation but pays a per-access discriminant
+  branch, a fatter struct, and a spill memcpy at exactly the deep
+  input; pre-sizing at a defensive bound rounds into a larger
+  allocator size class whose slack Vec does not adopt, while an
+  organic `Vec::new()` on a shallow walk makes exactly one
+  small-class allocation. "Capacity known in advance" splits into
+  known-per-input (pre-size exactly) vs known-as-typical-bound
+  (pre-sizing may lose); our walk stacks are almost all the
+  latter. Discipline: every explicit stack from the P4 residual
+  audit is implemented behind ONE type seam (a module-local alias
+  or newtype, one line to swap); a measured phase under the final
+  harness — benign AND deep families, both scales — benches all
+  three contenders and decides per site; the losers' numbers ride
+  the DECIDED entry. The choice is not judgment-neutral: shallow
+  walks on smallvec are allocation-free and heap columns pin that
+  — a Vec win on time re-pins those rows deliberately. Where a
+  packed bit-stack (2 bits/level) suffices, neither applies and
+  the bit-stack stays.
 - **The envelope-harness unification** (the #39 census's deferred
-  disposition): collapse the four envelope harness shapes in
+  disposition): collapse the envelope harness shapes in
   `tests/meter.rs` into one five-column shape with per-column
-  floor-or-NA — the #35 totality mechanism applied to the gate
-  suite; P5-window candidate, beside the standing
-  harness-triplication item below.
+  floor-or-NA — the board's totality mechanism applied to the
+  gate suite; sibling of the standing harness-triplication item.
 - **Defended keeps (2026-07-24 scaffolding sweep) — adjudicated
   once, not relitigated**: the limb/scan/segment/touch meters and
   their floors (domain-semantic; no external tool can produce
   them); the adversarial generators, envelope harnesses, and the
   ratchet convention; `tier2_size` and the compactness probes;
-  `testing/metrics` step counts; `tools/memwatch` (no macOS
-  cgroup equivalent); `tools/doclint` (measured non-subsumed by
-  clippy); heap metering (`peak_alloc` + the
-  one-global-allocator-per-binary plumbing; dhat cannot reset
-  its high-water mark mid-process); κ and its tripwires (every
-  sub-problem exists because review refuted a weaker criterion).
-  Open internal-hygiene items from the same sweep: the
-  `tests/meter.rs` harness triplication (one
-  column-set-parameterized harness; P5-window candidate);
-  heap-column exact pins kept eyes-open under backend bumps.
+  `tools/memwatch` (no macOS cgroup equivalent); `tools/doclint`
+  (measured non-subsumed by clippy); heap metering (`peak_alloc`
+  + the one-global-allocator-per-binary plumbing; dhat cannot
+  reset its high-water mark mid-process); κ and its tripwires
+  (every sub-problem exists because review refuted a weaker
+  criterion). Heap-column exact pins stay eyes-open under backend
+  bumps.
 
 ### 17.10 Runbook conventions in force
 
-- **Gate invocation**: `SWAP_LIMIT_GB=24 PROC_LIMIT_GB=16 just
-  gate`; unqualified green since C0 — any failure anywhere
+- **Gate invocation**: `just gate` (codegen-running recipes route
+  through `tools/memwatch`; per-process and swap limits default
+  to the committed values, overridable per invocation);
+  unqualified green before every commit — any failure anywhere
   blocks.
 - **Manual staging** (user preference): stages run as
   individually spawned subagents, the coordinator sequences by
@@ -4130,7 +1838,8 @@ expectation move as one reviewed diff, judge-verified.
   per agent; never iterate on timing.
 - **Docs policy**: agents correct user-facing rustdoc that is
   factually wrong, toward the code, always surfaced; style and
-  substance improvements gated on the user (P5.4 is the slot).
+  substance improvements gated on the user (§17.2 item 11 is the
+  slot).
 - **The justfile is documentation** (user directive 2026-07-24):
   every recipe's comment block ends in a self-standing one-liner
   directly above the recipe (`just --list` shows exactly that
@@ -4161,7 +1870,14 @@ expectation move as one reviewed diff, judge-verified.
   fast, with record-scale runs at acceptance time.
 - **Movement annotations** split pre-existing drift from the
   attributed change (measure at the parent commit; warm target
-  dirs make the bisect cheap).
+  dirs make the bisect cheap). Acceptance criteria say "identical
+  or better", never "byte-identical", except where any movement
+  at all is a finding (owner ruling 2026-07-29).
+- **Structure, not tallies** (owner rule, applied 2026-07-30):
+  prose states the structure; any load-bearing count lives in a
+  mechanically-enforced place the prose cites by name (the smoke
+  suite's per-family expectations, the rosters, the pinned
+  constants).
 - **Agent practices**: charters state the goal beside the
   mechanism; reviewers dispute the seeds; never transcribe a
   proposed constant — re-measure; relay mid-flight findings
@@ -4173,4 +1889,5 @@ expectation move as one reviewed diff, judge-verified.
   convoys behind wedged rust-analyzer `cargo metadata` children
   (`lsof ~/.cargo/.package-cache`; killing cargo children is
   safe); worktree target dirs regrow to hundreds of GB and are
-  freely deletable under disk pressure.
+  freely deletable under disk pressure — but only by their
+  owners: agents delete nothing outside their own worktree.
