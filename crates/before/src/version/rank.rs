@@ -352,11 +352,12 @@ impl Rank {
         self.num.bits() + u64::from(self.exp)
     }
 
-    /// The stored parts `(numerator, exponent)`: the fused encode's
-    /// hand-off from a rank fold's output to the canonical emission
-    /// ([`encode_parts`]), and the raw normalized form the reference
-    /// computations and differential oracles re-derive order and
-    /// arithmetic from.
+    /// The stored parts `(numerator, exponent)`.
+    ///
+    /// The fused encode's hand-off from a rank fold's output to the
+    /// canonical emission ([`encode_parts`]), and the raw normalized
+    /// form the reference computations and differential oracles
+    /// re-derive order and arithmetic from.
     pub(crate) fn raw_parts(&self) -> (&Base, u32) {
         (&self.num, self.exp)
     }

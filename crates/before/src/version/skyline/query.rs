@@ -720,10 +720,12 @@ fn pair_integral(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> Ra
     Rank::from_raw(Base::from(total), scale)
 }
 
-/// Run the pair co-sweep: one merge walk over both streams, integrating
-/// the measure's functional of the running difference on the
-/// anchored-segment split (the module doc's pair-co-sweep section), and
-/// hand back the raw total as `(sign, magnitude, scale)`.
+/// Run the pair co-sweep: one merge walk over both streams, handing
+/// back the raw total as `(sign, magnitude, scale)`.
+///
+/// Integrates the measure's functional of the running difference on
+/// the anchored-segment split (the module doc's pair-co-sweep
+/// section).
 ///
 /// # Panics
 ///

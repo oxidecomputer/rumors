@@ -1339,15 +1339,16 @@ fn seeded_rank(seed: u64) -> super::Rank {
 
 // ─────────────────────── the rank wire form ───────────────────────
 
-/// Committed witnesses for the lexicographic law's boundary genres:
-/// zero, the smallest fractions, integral-only vs fractional at a shared
-/// integral part, every step of the integral header (the mantissa-width
-/// steps at `I + 1` crossing a power of two, and the width-of-width
-/// steps where the unary run itself lengthens), and equal integral
-/// parts separated only deep in the fraction. Each byte string is
-/// pinned exactly — the wire form is canonical, so these are format
-/// goldens — and the whole battery must be strictly ascending in byte
-/// order exactly as it is ascending in rank order.
+/// Committed witnesses for the lexicographic law's boundary genres.
+///
+/// Zero, the smallest fractions, integral-only vs fractional at a
+/// shared integral part, every step of the integral header (the
+/// mantissa-width steps at `I + 1` crossing a power of two, and the
+/// width-of-width steps where the unary run itself lengthens), and
+/// equal integral parts separated only deep in the fraction. Each byte
+/// string is pinned exactly — the wire form is canonical, so these are
+/// format goldens — and the whole battery must be strictly ascending
+/// in byte order exactly as it is ascending in rank order.
 #[test]
 fn rank_encoding_known_values() {
     let rank_of = |text: &str| text.parse::<Version>().unwrap().rank();
@@ -1415,9 +1416,11 @@ fn rank_encoding_known_values() {
 
 proptest! {
     /// THE LAW on adversarial in-memory ranks: byte-wise lexicographic
-    /// order on canonical encodings equals `Ord` on the ranks, over
-    /// pairs mixing far-apart magnitude classes, forced class ties, and
-    /// exact duplicates — and every encoding round-trips exactly.
+    /// order on canonical encodings equals `Ord` on the ranks.
+    ///
+    /// Over pairs mixing far-apart magnitude classes, forced class
+    /// ties, and exact duplicates — and every encoding round-trips
+    /// exactly.
     #[test]
     fn rank_lex_encoding_orders_like_ord(sa in any::<u64>(), sb in any::<u64>(), dup in any::<bool>()) {
         let a = seeded_rank(sa);
@@ -1428,10 +1431,12 @@ proptest! {
         prop_assert_eq!(&super::Rank::decode(&eb[..]).unwrap(), &b);
     }
 
-    /// THE LAW on rank-bearing versions: over arbitrary normal-form
-    /// version pairs, the ranks' encodings compare byte-wise exactly as
-    /// the ranks compare — so the encodings order causally related
-    /// versions cause-first when used as KV keys — and round-trip.
+    /// THE LAW on rank-bearing versions: two versions' rank encodings
+    /// compare byte-wise exactly as the ranks compare.
+    ///
+    /// Over arbitrary normal-form version pairs — so the encodings
+    /// order causally related versions cause-first when used as KV
+    /// keys — and every encoding round-trips.
     #[test]
     fn rank_lex_encoding_orders_versions(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let a = from_oracle_version(&oa).rank();
@@ -1443,16 +1448,18 @@ proptest! {
     }
 }
 
-/// The exhaustive small-scope sweep: over **every** byte string of zero,
-/// one, and two bytes, decode is total (accepts or rejects, never
-/// panics); every accepted string re-encodes byte-identically (the
-/// format is bijective on accepted strings, so no value has a second
-/// spelling — the strict-canonicality statement that subsumes the
-/// per-genre rejections); the accepted strings in byte order carry
-/// strictly ascending ranks (the lexicographic law, total at this
-/// scope); every decoded rank's numeric size is linear in its input
-/// bytes (no decompression bomb); and both live rejection genres
-/// (truncation, non-minimal packing) actually fire.
+/// The exhaustive small-scope sweep over **every** byte string of
+/// zero, one, and two bytes.
+///
+/// Decode is total (accepts or rejects, never panics); every accepted
+/// string re-encodes byte-identically (the format is bijective on
+/// accepted strings, so no value has a second spelling — the
+/// strict-canonicality statement that subsumes the per-genre
+/// rejections); the accepted strings in byte order carry strictly
+/// ascending ranks (the lexicographic law, total at this scope); every
+/// decoded rank's numeric size is linear in its input bytes (no
+/// decompression bomb); and both live rejection genres (truncation,
+/// non-minimal packing) actually fire.
 #[test]
 fn rank_encoding_exhaustive_small_scope() {
     let mut accepted: Vec<(Vec<u8>, super::Rank)> = Vec::new();
@@ -1499,8 +1506,9 @@ fn rank_encoding_exhaustive_small_scope() {
     assert!(trailing > 0, "the non-minimal-packing genre fires");
 }
 
-/// Committed witnesses, one per rejection genre the decoder can reach:
-/// empty input, an unterminated unary run, a truncated header payload,
+/// Committed witnesses, one per rejection genre the decoder can reach.
+///
+/// Empty input, an unterminated unary run, a truncated header payload,
 /// a truncated integral mantissa, a trailing zero byte, and the one
 /// spelling a trailing-zero fraction could take (spilling its zeros
 /// into a further byte — inside the final byte such bits *are* the
@@ -1555,18 +1563,20 @@ fn rank_decoding_rejects_each_genre() {
     }
 }
 
-/// The provenance size bound, measured and pinned per committed family:
-/// every rank reachable through a version fold encodes linearly in the
-/// version's packed bytes. The families white-box the encoder's two
-/// axes — numerator width (wide counters, answer-embedding products)
-/// and exponent depth (spines), plus the dense-fraction staircase that
-/// maximizes set bits per level — and the pin holds each family's
-/// encoded size at or under 1.0 bit per packed input bit. Measured
-/// \[2026-07-29, this test instrumented\]: wide counter 0.56 (the worst
-/// — a lone counter's version pays gamma's doubled width where the
-/// encoding pays the width once), deep spine 0.34, dense staircase
-/// 0.34, deep wide counter 0.24, plateau puncture 0.16; the 1.0 pin
-/// leaves headroom for packing drift while sitting an order under the
+/// The provenance size bound, measured and pinned per committed
+/// family: every rank reachable through a version fold encodes
+/// linearly in the version's packed bytes.
+///
+/// The families white-box the encoder's two axes — numerator width
+/// (wide counters, answer-embedding products) and exponent depth
+/// (spines), plus the dense-fraction staircase that maximizes set bits
+/// per level — and the pin holds each family's encoded size at or
+/// under 1.0 bit per packed input bit. Measured \[2026-07-29, this
+/// test instrumented\]: wide counter 0.56 (the worst — a lone
+/// counter's version pays gamma's doubled width where the encoding
+/// pays the width once), deep spine 0.34, dense staircase 0.34, deep
+/// wide counter 0.24, plateau puncture 0.16; the 1.0 pin leaves
+/// headroom for packing drift while sitting an order under the
 /// exponential blowup arbitrary in-memory ranks can reach.
 #[test]
 fn rank_encoding_size_is_provenance_linear() {
@@ -1749,10 +1759,12 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
 // ─────────────────────────────── ranked ───────────────────────────────
 
 /// `Ranked` known values: equality is rank equality, deliberately
-/// coarser than version identity — a concurrent pair sharing a rank
-/// (half vs. the two-peak tree) compares `Equal` through the fused
-/// walk's hardest arm (the exact total must cancel to zero), across
-/// every operand mix of the heterogeneous family.
+/// coarser than version identity.
+///
+/// A concurrent pair sharing a rank (half vs. the two-peak tree)
+/// compares `Equal` through the fused walk's hardest arm (the exact
+/// total must cancel to zero), across every operand mix of the
+/// heterogeneous family.
 // The redundant-looking operand mixes are the point: each spelling
 // exercises a distinct heterogeneous impl (`Ranked` vs `&Rank`,
 // `&Ranked` vs `Rank`, ...).
@@ -1775,10 +1787,11 @@ fn ranked_equates_equal_rank_concurrent_pairs() {
 }
 
 proptest! {
-    /// A plain sort of `Ranked` keys delivers causes before effects: in
-    /// the sorted sequence, no version is causally dominated by an earlier
-    /// one (rank order refines causality; equal-rank keys are concurrent
-    /// or identical, so any tie order is causally safe).
+    /// A plain sort of `Ranked` keys delivers causes before effects.
+    ///
+    /// In the sorted sequence, no version is causally dominated by an
+    /// earlier one (rank order refines causality; equal-rank keys are
+    /// concurrent or identical, so any tie order is causally safe).
     // `Version` is a partial order: `!(later < earlier)` also admits
     // concurrent pairs, which `later >= earlier` would reject.
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
@@ -1800,11 +1813,12 @@ proptest! {
     }
 
     /// The fused `Ranked` comparison is the materialized rank order,
-    /// differentially: over arbitrary normal-form version pairs, the
-    /// one-walk signed co-sweep answers exactly what two independent
-    /// rank folds and a `Rank` comparison answer, in both argument
-    /// orders — and the fused encode emits `Rank::encode`'s bytes
-    /// byte-for-byte.
+    /// differentially.
+    ///
+    /// Over arbitrary normal-form version pairs, the one-walk signed
+    /// co-sweep answers exactly what two independent rank folds and a
+    /// `Rank` comparison answer, in both argument orders — and the
+    /// fused encode emits `Rank::encode`'s bytes byte-for-byte.
     #[test]
     fn ranked_fused_walk_matches_materialized(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let a = from_oracle_version(&oa);

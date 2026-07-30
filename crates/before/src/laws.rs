@@ -211,10 +211,12 @@ fn seed_projection_is_identity(a: &Version) -> bool {
     (a / &Party::seed()) == *a
 }
 
-/// [`Ranked`] carries exactly its version's rank: both constructors view
-/// the same version, `to_rank` (and the `From` materialization, and the
-/// fused `encode`) realize exactly `Version::rank`'s value, and settling
-/// the borrow (`into_owned`) changes nothing.
+/// [`Ranked`] carries exactly its version's rank.
+///
+/// Both constructors view the same version, `to_rank` (and the `From`
+/// materialization, and the fused `encode`) realize exactly
+/// `Version::rank`'s value, and settling the borrow (`into_owned`)
+/// changes nothing.
 // The owned-instance comparison is the point: the law exercises the
 // `From<Ranked> for Rank` materialization itself.
 #[allow(clippy::cmp_owned)]
@@ -404,12 +406,14 @@ fn version_eq_implies_hash_eq(a: &Version, b: &Version) -> bool {
     a != b || hash_of(a) == hash_of(b)
 }
 
-/// [`Ranked`]'s comparisons are rank comparisons, exactly: the fused
-/// co-walk equals the materialized `Rank` order, equality is rank
-/// equality, every heterogeneous operand mix (`Ranked` vs [`Rank`],
-/// either direction, owned and borrowed) answers the same question —
-/// and the order therefore extends causality (causally ordered versions
-/// compare the same way, by rank strict monotonicity).
+/// [`Ranked`]'s comparisons are rank comparisons, exactly.
+///
+/// The fused co-walk equals the materialized `Rank` order, equality is
+/// rank equality, every heterogeneous operand mix (`Ranked` vs
+/// [`Rank`], either direction, owned and borrowed) answers the same
+/// question — and the order therefore extends causality (causally
+/// ordered versions compare the same way, by rank strict
+/// monotonicity).
 // The "needless" borrows are the point: the law exercises the
 // `&Ranked` operand impls std would not derive.
 #[allow(clippy::needless_borrow)]
