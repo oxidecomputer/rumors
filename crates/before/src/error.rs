@@ -30,8 +30,9 @@ pub struct Overlap;
 pub struct Crossed;
 
 /// Why a byte string failed to decode into a [`Party`](crate::Party),
-/// [`Version`](crate::Version), [`Clock`](crate::Clock), or
-/// [`Rank`](crate::Rank).
+/// [`Version`](crate::Version), [`Clock`](crate::Clock),
+/// [`Rank`](crate::Rank), [`Ranked`](crate::Ranked), or
+/// [`Span`](crate::causally::Span).
 ///
 /// ```
 /// use before::Clock;
@@ -48,6 +49,13 @@ pub enum Decode {
     #[error("trailing or nonzero padding bits")]
     TrailingBits,
     /// The structure is well-formed but not in canonical normal form.
+    ///
+    /// Also the composite genre: well-formed components no encode ever
+    /// pairs — a [`Ranked`](crate::Ranked) key whose rank prefix the
+    /// version does not measure, a
+    /// [`Span`](crate::causally::Span) pair that is crossed or
+    /// concurrent — are the canonical spelling of no value, so they
+    /// reject here rather than under a per-type variant.
     #[error("input is not canonical")]
     NotCanonical,
     /// The id region is the anonymous identity `0` (it owns no region). A

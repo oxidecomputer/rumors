@@ -82,6 +82,30 @@
 //! degenerate span `[v, v]` is pairwise comparison itself
 //! (`degenerate_span_place_is_partial_cmp`).
 //!
+//! # The span wire form
+//!
+//! A [`Span`] has a canonical byte encoding: the meet's
+//! [`Version::encode`] bytes, then the join's. Each component is
+//! byte-aligned, independently canonical, and self-delimiting, so the
+//! two concatenate with no length prefix —
+//! [`Clock::encode`](crate::Clock::encode)'s framing rule. Decoding is
+//! **one forward pass**: [`Span::decode`] parses the first version,
+//! then parses the second while validating, in the same walk, that it
+//! dominates the first — so a span parsed from the wire is valid by
+//! construction, with no separate validation step for a loader to
+//! forget. A composite whose well-formed components no encode ever
+//! pairs — a crossed or concurrent pair — is rejected as
+//! [`Decode::NotCanonical`], the genre for well-formed structure that
+//! is the canonical spelling of no value (the
+//! [`Ranked`](crate::Ranked) composite key's rank-mismatch precedent).
+//!
+//! Deliberately absent from the format: a discriminated short form for
+//! the coincident span. `lo == hi` encodes both endpoints in full — a
+//! flag would tax every span's wire size and every decode's parse for
+//! the one case that is already the cheapest to carry, and canonicality
+//! stays trivial (one spelling per span, byte equality exactly span
+//! equality) with no flag-consistency rule to enforce.
+//!
 //! # Complexity
 //!
 //! Every borrowing constructor in this module is `O(1)` time and space:
@@ -138,6 +162,9 @@ use std::ops::{Bound, RangeBounds};
 
 pub use crate::error::Crossed;
 
+use crate::codec;
+use crate::error::Decode;
+use crate::version::skyline;
 use crate::version::skyline::place;
 use crate::Version;
 
@@ -642,7 +669,9 @@ impl<'a> Span<'a> {
     ///
     /// [`Version::span`] and [`Version::span_all`] construct through
     /// here — their endpoints are minted owned, so the span borrows
-    /// nothing. The caller's derivation must guarantee `lo <= hi`; a
+    /// nothing — and so does the borsh deserializer, whose pair the
+    /// fused admission parse validated on the wire. The caller must
+    /// guarantee `lo <= hi`; a
     /// meet/join pair over one nonempty collection always does, and the
     /// hull laws (`span_is_the_pair_hull`, `span_all_is_the_lattice_hull`)
     /// pin every deriving caller's endpoints to the committed lattice
@@ -832,6 +861,157 @@ impl<'a> Span<'a> {
             lo: Cow::Owned(self.lo.into_owned()),
             hi: Cow::Owned(self.hi.into_owned()),
         }
+    }
+
+    /// Encodes this [`Span`] as canonical bytes: the meet's
+    /// [`Version::encode`] bytes, then the join's.
+    ///
+    /// Each endpoint is byte-aligned, independently canonical, and
+    /// self-delimiting, so the two concatenate with no length prefix
+    /// (the [module docs](self) carry the wire form). Byte equality on
+    /// these composites is exactly span equality, and no span's
+    /// encoding is a byte prefix of another's — pinned directly,
+    /// riding the components' committed prefix-freedom.
+    ///
+    /// # Complexity
+    ///
+    /// One copy of each endpoint's stored bytes.
+    ///
+    /// **Complexity**: `O(n)`.
+    ///
+    /// ```
+    /// use before::{causally::Span, Clock};
+    /// let mut clock = Clock::seed();
+    /// let older = clock.tick().clone();
+    /// let newer = clock.tick().clone();
+    /// let span = Span::new(&older, &newer).unwrap();
+    /// // The framing: the meet's bytes, then the join's.
+    /// assert_eq!(span.encode(), [older.encode(), newer.encode()].concat());
+    /// assert_eq!(Span::decode(&span.encode()[..]).unwrap(), span);
+    /// ```
+    pub fn encode(&self) -> Vec<u8> {
+        let mut bytes = self.lo.encode();
+        bytes.extend_from_slice(self.hi.as_bytes());
+        bytes
+    }
+
+    /// Encodes this [`Span`]'s canonical bytes to an arbitrary writer:
+    /// exactly [`encode`](Self::encode)'s bytes, one endpoint's write
+    /// after the other's.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the writer itself reports; the encoding side is
+    /// infallible.
+    ///
+    /// # Complexity
+    ///
+    /// One write of each endpoint's stored bytes, plus whatever the
+    /// writer itself costs.
+    ///
+    /// **Complexity**: `O(n)`.
+    ///
+    /// ```
+    /// use before::{causally::Span, Clock};
+    /// let mut clock = Clock::seed();
+    /// let v = clock.tick().clone();
+    /// let span = Span::new(&v, &v).unwrap();
+    /// let mut buf = Vec::new();
+    /// span.encode_to(&mut buf).unwrap();
+    /// assert_eq!(buf, span.encode());
+    /// ```
+    pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.lo.encode_to(writer)?;
+        self.hi.encode_to(writer)
+    }
+
+    /// Decodes a [`Span`] from a reader of canonical bytes, strictly
+    /// rejecting everything else — validity included: the one forward
+    /// pass that parses the second version also proves it dominates
+    /// the first, so every span this returns is valid by construction
+    /// and no separate validation step exists to forget.
+    ///
+    /// Total over arbitrary input: every byte string either decodes to
+    /// the one span that encodes to it, or is rejected. The fused
+    /// second parse maintains the pair comparison's running difference
+    /// where parse-then-validate would run the standalone validator's
+    /// accumulator *and* the comparison's — the resource pins in
+    /// `tests/meter.rs`'s span rows hold the decode to exactly the
+    /// first component's parse plus one comparison sweep.
+    ///
+    /// # Errors
+    ///
+    /// - [`Decode::Truncated`]: the bytes end mid-component — inside
+    ///   either version's tree, or with the second missing entirely.
+    /// - [`Decode::TrailingBits`]: live bits past a component's
+    ///   complete tree, or nonzero padding.
+    /// - [`Decode::NotCanonical`]: a non-canonical component, or a
+    ///   pair that no [`Span`] encodes — crossed or concurrent — the
+    ///   canonical spelling of no value (the [module docs](self) place
+    ///   the genre choice beside the wire form).
+    /// - [`Decode::Io`]: the reader itself fails.
+    ///
+    /// On an input defective several ways at once, the components'
+    /// structural genres win: the pair rejection is pronounced only
+    /// over two structurally whole streams.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` time and space in the bytes read, accepted or rejected:
+    /// one strict parse of the first component, then one fused
+    /// parse-and-compare pass over the second against the first.
+    ///
+    /// **Complexity**: `O(n)`.
+    ///
+    /// ```
+    /// use before::{causally::Span, error::Decode, Clock};
+    /// let mut clock = Clock::seed();
+    /// let older = clock.tick().clone();
+    /// let newer = clock.tick().clone();
+    /// let bytes = Span::new(&older, &newer).unwrap().encode();
+    /// let span = Span::decode(&bytes[..]).unwrap();
+    /// assert_eq!(span.meet(), &older);
+    /// assert_eq!(span.join(), &newer);
+    /// // A reversed pair is the canonical spelling of no span.
+    /// let crossed = [newer.encode(), older.encode()].concat();
+    /// assert!(matches!(
+    ///     Span::decode(&crossed[..]),
+    ///     Err(Decode::NotCanonical)
+    /// ));
+    /// ```
+    pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Span<'static>, Decode> {
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).map_err(Decode::Io)?;
+        // The meet is the byte-aligned self-delimiting prefix: parse
+        // its tree to find the split, check its padding, and adopt its
+        // bytes as the endpoint's storage.
+        let (lo, lo_bytes) = {
+            let bits = codec::bytes_as_bits(&buf);
+            let end = skyline::validate_prefix(bits)?;
+            let lo_bytes = end.div_ceil(8);
+            codec::require_zero_padding(&bits[..8 * lo_bytes], end)?;
+            let mut bits = codec::Bits::from_vec(buf[..lo_bytes].to_vec());
+            bits.truncate(end);
+            (Version::from_bits(bits), lo_bytes)
+        };
+        // The join: the admission walk parses its stream while
+        // validating, in the same pass, that it dominates the meet —
+        // never a parse and then a second comparison walk.
+        let hi = {
+            let tail = &buf[lo_bytes..];
+            let bits = codec::bytes_as_bits(tail);
+            let mut cursor = codec::DsiCursor::new(bits);
+            skyline::validate_dominating_from(lo.view(), &mut cursor)?;
+            let end = codec::BitCursor::position(&cursor);
+            codec::require_zero_padding(bits, end)?;
+            let mut bits = codec::Bits::from_vec(tail.to_vec());
+            bits.truncate(end);
+            Version::from_bits(bits)
+        };
+        Ok(Span {
+            lo: Cow::Owned(lo),
+            hi: Cow::Owned(hi),
+        })
     }
 }
 
