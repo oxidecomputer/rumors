@@ -225,7 +225,7 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
                     if back {
                         for (radix, child) in children.iter() {
                             let mut child_path = path;
-                            child_path.push(*radix);
+                            child_path.push(radix);
                             self.frames.push_back(Frame {
                                 node: child,
                                 path: child_path,
@@ -235,7 +235,7 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
                     } else {
                         for (radix, child) in children.iter().rev() {
                             let mut child_path = path;
-                            child_path.push(*radix);
+                            child_path.push(radix);
                             self.frames.push_front(Frame {
                                 node: child,
                                 path: child_path,
@@ -527,14 +527,13 @@ impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
                 None => loop {
                     let level = self.spine.last_mut()?;
                     let next_child = match &level.node.inner.children {
-                        // Probe for the smallest not-yet-visited radix: an
-                        // O(log fan-out) map lookup, so unvisited siblings
+                        // Probe for the smallest not-yet-visited radix: one
+                        // O(log fan-out) binary search, so unvisited siblings
                         // are never enumerated or held.
                         Children::Branch { children, .. } if level.next <= u8::MAX as u16 => {
                             children
-                                .range(level.next as u8..)
-                                .next()
-                                .map(|(radix, child)| (*radix, child.clone()))
+                                .successor(level.next as u8)
+                                .map(|(radix, child)| (radix, child.clone()))
                         }
                         Children::Branch { .. } => None,
                         Children::Leaf { .. } => {

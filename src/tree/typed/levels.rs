@@ -29,8 +29,8 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     /// inductive case can coerce to `Pin<Box<dyn Future + Send>>`. That
     /// coercion discharges the inner state machine's auto-trait check at each
     /// recursion site, terminating what would otherwise be a height-deep walk
-    /// through the `imbl` btree internals; the captured node values (containing
-    /// messages) must therefore be `Send + Sync`.
+    /// through every level's captured state; the captured node values
+    /// (containing messages) must therefore be `Send + Sync`.
     type Message: Send + Sync;
 
     /// The height of the bottom-most level.

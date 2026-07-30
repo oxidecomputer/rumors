@@ -17,6 +17,15 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 nightly_toolchain := "nightly"
 
+# The triple the fuzz recipes build for. cargo-fuzz defaults `--target` to the
+# triple it was itself built for, not the host's, so a statically linked
+# prebuilt (what the CI installer ships) aims the sanitizer build at
+# `*-linux-musl`: a target whose std is absent, and whose static libc the
+# sanitizer refuses outright. Naming the host keeps the recipes indifferent to
+# how cargo-fuzz arrived.
+
+host_triple := `rustc -vV | sed -n 's/^host: //p'`
+
 # Default fuzz smoke duration per target, in seconds (matches the guidance in
 # crates/before/fuzz/Cargo.toml).
 
@@ -124,7 +133,11 @@ testdoc:
 # derived, never hand-edited: after editing crate-level rustdoc, run
 # `just readme`. `readme-check` re-derives the READMEs into scratch copies
 # and diffs, the same no-rot contract as fmt-check, so a rustdoc edit can't
-# silently desync the README. Needs cargo-rdme: `cargo install cargo-rdme`.
+# silently desync the README. It leads with the stripper's own self-test, which
+# pins the link forms rewritten and the forms preserved: a stripping bug then
+# names itself here instead of arriving as unexplained drift in a derived file,
+# or as corruption that a regeneration quietly commits.
+# Needs cargo-rdme: `cargo install cargo-rdme`.
 
 # Regenerate every crate's README from its crate-level rustdoc.
 readme:
@@ -132,6 +145,7 @@ readme:
 
 # Verify every README is in sync with its rustdoc (the gate variant of `readme`).
 readme-check:
+    ./tools/readme self-test
     ./tools/readme check
 
 # The dependency list is the ordering: build-free lints first for fast
@@ -212,7 +226,7 @@ bench-build:
 # Build the libFuzzer targets (nightly).
 [working-directory("crates/before/fuzz")]
 fuzz-build:
-    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build
+    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) and the `before::laws` law collection are asserted inline in the
@@ -225,11 +239,11 @@ fuzz-build:
 # Short fuzz smoke: run each libFuzzer target for `secs` seconds.
 [working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_differential corpus/fuzz_decode_differential seeds/fuzz_decode_differential -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_laws corpus/fuzz_laws seeds/fuzz_laws -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_parse corpus/fuzz_parse seeds/fuzz_parse -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_differential corpus/fuzz_decode_differential seeds/fuzz_decode_differential -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_laws corpus/fuzz_laws seeds/fuzz_laws -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_parse corpus/fuzz_parse seeds/fuzz_parse -- -max_total_time={{ secs }}
 
 # The fuzz-fit asymptotics harness lives in a detached workspace
 # (crates/before/fuzzfit, the fuzz-target idiom), so workspace-wide builds

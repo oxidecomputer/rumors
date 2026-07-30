@@ -474,6 +474,11 @@ pub struct ErrorRoute {
 
 impl ErrorRoute {
     /// Publish the first incoming-stream error without blocking its reporter.
+    ///
+    /// A report that loses the one-slot race is dropped as cascade. No
+    /// causal detail is lost with it: reports never carry the supply
+    /// deposit (the session terminal is the slot's sole consumer), so a
+    /// dropped report forfeits only its stream-granularity origin.
     fn report(&self, error: StreamError) {
         let _ = self.send.try_send(error);
     }
@@ -515,6 +520,26 @@ impl FirstStreamError {
             .lock()
             .expect("supply failure lock")
             .take()
+    }
+
+    /// Recover a queued [`StreamError::SupplyClosed`] the terminal's biased
+    /// poll order never received, attaching the deposited cause (reports
+    /// leave the deposit in its slot for the terminal to claim).
+    ///
+    /// When the protocol arm resolves first with a symptom of the dead
+    /// supply (a write to a peer that already tore down), the causal report
+    /// can be sitting unreceived in the route. Any *other* queued error is
+    /// discarded here: it lost to the protocol error by the terminal's
+    /// deliberate poll order, exactly as if the select had resolved the
+    /// protocol arm alone.
+    pub fn queued_supply_closed(&mut self) -> Option<StreamError> {
+        while let Ok(error) = self.receive.try_recv() {
+            if let StreamError::SupplyClosed { origin, source } = error {
+                let source = source.or_else(|| self.take_supply_failure());
+                return Some(StreamError::SupplyClosed { origin, source });
+            }
+        }
+        None
     }
 }
 

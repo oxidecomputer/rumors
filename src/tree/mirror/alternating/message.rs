@@ -46,7 +46,7 @@
 //! Multi-child branches always carry at least two children; singletons
 //! appear on the wire only as `prefix_len > 0` and reconstruct through
 //! [`Node::beneath`](crate::tree::typed::Node::beneath). Branch radices
-//! are required to be strictly ascending (matching the backing `OrdMap`'s
+//! are required to be strictly ascending (matching the backing fan's
 //! canonical iteration order).
 //!
 //! ## The three channels

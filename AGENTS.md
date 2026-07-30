@@ -40,11 +40,14 @@ it fully clean before every commit.
 ## Contributing a change
 
 One-time setup: everything `just gate` shells out to is a stable Rust
-toolchain (1.85 or later, for edition 2024) with clippy and rustfmt, a
-nightly toolchain (merged doctests), `just`, `cargo-nextest`, `cargo-rdme`,
-and python3 with bash (the `tools/` linters). `just ci` additionally wants
-the `wasm32-unknown-unknown` target, `wasm-pack`, `cargo-fuzz`, and
-node/npm.
+toolchain (1.85 or later, for edition 2024) with clippy, rustfmt, and
+rust-src, a nightly toolchain (merged doctests), `just`, `cargo-nextest`,
+`cargo-rdme`, and python3 with bash (the `tools/` linters). `just ci`
+additionally wants the `wasm32-unknown-unknown` target, `wasm-pack`,
+`cargo-fuzz`, and node/npm. rust-src is what lets rustc quote std source,
+which `before`'s trybuild snapshots do: without the sources installed, three
+compile-fail cases mismatch on the quoted lines alone while the guarantees
+they pin are perfectly intact.
 
 1. Iterate with the inner loop: `just check`, `just test <filter>`,
    `just clippy`, `just fmt`.

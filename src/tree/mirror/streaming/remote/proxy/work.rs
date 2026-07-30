@@ -175,9 +175,11 @@ where
     /// the accept driver then flushes the ready failure into the slot.
     /// That poll never waits — the driver either deposits and parks or is
     /// pending — so the session still imposes no deadline of its own (the
-    /// link contract's liveness posture). The deposit is surfaced at
-    /// direction granularity unless a stream that provably needed the
-    /// supply already named itself.
+    /// link contract's liveness posture). The failure is surfaced at the
+    /// finest granularity available: the selected error or a queued
+    /// [`StreamError::SupplyClosed`] the biased order never received
+    /// names the stream that provably needed the supply; the deposit
+    /// alone is attributed at direction granularity.
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
@@ -219,21 +221,26 @@ where
         };
         match outcome {
             Ok(output) => Ok((output, control_read, control_write)),
-            Err(error) => match errors.take_supply_failure() {
-                // The dead supply is the root cause and the selected error
-                // its symptom. Keep the reporting stream's origin when the
-                // symptom already named the dead supply.
-                Some(source) => {
-                    let origin = match &error {
-                        Error::Stream(StreamError::SupplyClosed { origin, .. }) => *origin,
-                        _ => Origin::direction(remote),
-                    };
-                    Err(Error::Stream(StreamError::SupplyClosed {
-                        origin,
+            // The causal supply failure outranks its own symptoms wherever
+            // it landed: the selected report or a queued `SupplyClosed` the
+            // biased poll never received (stream granularity), else the
+            // deposit still in its slot (direction granularity), else the
+            // protocol error really is the cause.
+            Err(Error::Stream(StreamError::SupplyClosed { origin, source })) => {
+                Err(Error::Stream(StreamError::SupplyClosed {
+                    origin,
+                    source: source.or_else(|| errors.take_supply_failure()),
+                }))
+            }
+            Err(error) => match errors.queued_supply_closed() {
+                Some(supply) => Err(Error::Stream(supply)),
+                None => match errors.take_supply_failure() {
+                    Some(source) => Err(Error::Stream(StreamError::SupplyClosed {
+                        origin: Origin::direction(remote),
                         source: Some(source),
-                    }))
-                }
-                None => Err(error),
+                    })),
+                    None => Err(error),
+                },
             },
         }
     }

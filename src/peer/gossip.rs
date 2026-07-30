@@ -882,11 +882,15 @@ impl<T, B: Persist> Peer<T, B> {
             // Join the tree we got via gossip: a synchronous, in-memory
             // merge, run directly inside the critical section, as in `send`
             // and `redact`.
-            let prior_hash = inner.tree.hash();
-            inner.tree.join(merged);
-
-            // We've modified the watch if the peer retired or the tree changed
-            peer_retiring || prior_hash != inner.tree.hash()
+            //
+            // We've modified the watch if the peer retired or the tree
+            // changed, straight from `join`'s changed flag: no root hash is
+            // read inside this critical section (`Tree::join` states the
+            // flag's contract). The join runs unconditionally — it must
+            // commit the merge even when the retirement alone decides the
+            // notification.
+            let tree_changed = inner.tree.join(merged);
+            peer_retiring || tree_changed
         });
         if party_overlap {
             return (Intent::Remain, Err(Error::PartyOverlap));

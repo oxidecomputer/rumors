@@ -21,7 +21,8 @@
 //! - [`fault`] injects transport adversity; [`flaky`] injects
 //!   bookmark-storage adversity.
 //! - [`wire`] and [`tcp`] carry the same sessions over in-memory links
-//!   and real sockets.
+//!   and real sockets; [`routed_tcp`] is the socket instantiation of
+//!   the routed adapter's dial/listen seam.
 //! - [`gossip_snapshot`] captures a session's exact bytes for the `insta`
 //!   pins.
 //!
@@ -34,7 +35,9 @@ pub mod fault;
 pub mod flaky;
 pub mod gossip_snapshot;
 pub mod oracle;
+pub mod overlap;
 pub mod peer;
+pub mod routed_tcp;
 pub mod schedule;
 pub mod sim;
 pub mod tcp;
