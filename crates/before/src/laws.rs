@@ -59,7 +59,7 @@ use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
 use std::ops::{Bound, RangeBounds};
 
-use crate::causally::{self, Bounded};
+use crate::causally::{self, Bounded, Dominance, Endpoint, Interval, Placement};
 use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 
 /// A named law: the name a failure reports, and the predicate that must
@@ -270,7 +270,9 @@ fn version_encoded_bits_matches_encode_len(a: &Version) -> bool {
 /// Commutativity and the bound laws of the lattice operations, absorption,
 /// the partial order's pair laws and their coherence with `Eq`/`Hash` and
 /// `concurrent`, the valuation identity tying `rank` to the lattice, the
-/// `distance`/`lag` metric laws, and [`Ranked`]'s rank order.
+/// `distance`/`lag` metric laws, [`Ranked`]'s rank order, and the
+/// degenerate-interval identity tying interval placement back to
+/// pairwise comparison.
 pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("merge_commutative", merge_commutative),
     ("meet_commutative", meet_commutative),
@@ -293,6 +295,10 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("version_eq_iff_bytes_eq", version_eq_iff_bytes_eq),
     ("version_eq_implies_hash_eq", version_eq_implies_hash_eq),
     ("ranked_orders_by_rank", ranked_orders_by_rank),
+    (
+        "degenerate_interval_place_is_partial_cmp",
+        degenerate_interval_place_is_partial_cmp,
+    ),
 ];
 
 /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
@@ -447,8 +453,11 @@ fn ranked_orders_by_rank(a: &Version, b: &Version) -> bool {
 /// Associativity, the least/greatest bound laws, both distributive laws,
 /// transitivity (constructed and incidental), the triangle inequality,
 /// and the [`causally`] placement laws: the six-way [`Bounded`] verdict
-/// as a pure function of the two causal comparisons, and its per-kind
-/// coarsening to `placement_of`/`contains`.
+/// as a pure function of the two causal comparisons, its per-kind
+/// coarsening to `placement_of`/`contains`, the nine-way
+/// [`Interval::place`] verdict as a pure transcription of the two
+/// endpoint comparisons, its coarsenings to `dominance_of` and — on
+/// two-bounded ranges — to `bounded`.
 pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("merge_associative", merge_associative),
     ("meet_associative", meet_associative),
@@ -466,6 +475,18 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     (
         "bounded_coarsens_to_placement",
         bounded_coarsens_to_placement,
+    ),
+    (
+        "interval_place_matches_relations",
+        interval_place_matches_relations,
+    ),
+    (
+        "interval_dominance_coarsens_place",
+        interval_dominance_coarsens_place,
+    ),
+    (
+        "bounded_coarsens_interval_place",
+        bounded_coarsens_interval_place,
     ),
 ];
 
@@ -640,6 +661,163 @@ fn bounded_coarsens_to_placement(a: &Version, b: &Version, c: &Version) -> bool 
                     return false;
                 }
             }
+        }
+    }
+    true
+}
+
+/// The interval pairs the placement laws quantify over, from a version
+/// pair: the constructed always-ordered pair (`meet <= join`), the
+/// coincident pair (reaching `lo == hi` on every call), and the raw
+/// pair whenever it happens to order.
+fn interval_candidates(b: &Version, c: &Version) -> Vec<(Version, Version)> {
+    let (meet, join) = (b & c, b | c);
+    let mut out = vec![(meet.clone(), join), (meet.clone(), meet)];
+    if le(b, c) {
+        out.push((b.clone(), c.clone()));
+    }
+    out
+}
+
+/// [`Placement`], transcribed from the two raw causal comparisons
+/// against the endpoints — the nine-state table stated relation by
+/// relation, with the start relation examined first.
+fn place_from_relations(lo: &Version, hi: &Version, p: &Version) -> Placement {
+    match p.partial_cmp(lo) {
+        Some(Ordering::Less) => Placement::Before,
+        Some(Ordering::Equal) => match p.partial_cmp(hi) {
+            Some(Ordering::Equal) => Placement::At(Endpoint::Both),
+            _ => Placement::At(Endpoint::Start),
+        },
+        Some(Ordering::Greater) => match p.partial_cmp(hi) {
+            Some(Ordering::Less) => Placement::Between,
+            Some(Ordering::Equal) => Placement::At(Endpoint::End),
+            Some(Ordering::Greater) => Placement::After,
+            None => Placement::Concurrent(Endpoint::End),
+        },
+        None => match p.partial_cmp(hi) {
+            None => Placement::Concurrent(Endpoint::Both),
+            _ => Placement::Concurrent(Endpoint::Start),
+        },
+    }
+}
+
+/// `Interval::place` is exactly the two causal comparisons against the
+/// endpoints: the nine-state verdict is a pure transcription of
+/// `(probe vs lo, probe vs hi)`.
+///
+/// Checked over the constructed ordered, coincident, and incidental
+/// interval pairs, probing each operand and the pair's meet (which
+/// reaches the at-endpoint and `lo == hi` corners on every call).
+fn interval_place_matches_relations(a: &Version, b: &Version, c: &Version) -> bool {
+    let meet = b & c;
+    for (lo, hi) in &interval_candidates(b, c) {
+        let Ok(interval) = Interval::new(lo, hi) else {
+            // Every candidate is ordered by construction or admission.
+            return false;
+        };
+        for probe in [a, b, c, &meet] {
+            if interval.place(probe) != place_from_relations(lo, hi, probe) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// `dominance_of` is `place` coarsened to the dominance question, on
+/// every interval: `Whole` collects the verdicts with `hi <= p`
+/// (`At(End)`, `At(Both)`, `After`), `StartOnly` those with `lo <= p`
+/// but not `hi <= p` (`At(Start)`, `Between`, `Concurrent(End)`), and
+/// `Neither` the rest (`Before`, `Concurrent(Start)`,
+/// `Concurrent(Both)`).
+fn interval_dominance_coarsens_place(a: &Version, b: &Version, c: &Version) -> bool {
+    let meet = b & c;
+    for (lo, hi) in &interval_candidates(b, c) {
+        let Ok(interval) = Interval::new(lo, hi) else {
+            return false;
+        };
+        for probe in [a, b, c, &meet] {
+            let coarse = match interval.place(probe) {
+                Placement::At(Endpoint::End | Endpoint::Both) | Placement::After => {
+                    Dominance::Whole
+                }
+                Placement::At(Endpoint::Start)
+                | Placement::Between
+                | Placement::Concurrent(Endpoint::End) => Dominance::StartOnly,
+                Placement::Before | Placement::Concurrent(Endpoint::Start | Endpoint::Both) => {
+                    Dominance::Neither
+                }
+            };
+            if interval.dominance_of(probe) != coarse {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// On a two-bounded range, `bounded` is `Interval::place` over the same
+/// version pair, coarsened — and bound *kinds* never enter, since both
+/// verdicts are pure functions of the raw relations.
+///
+/// The collapse forgets exactly what range semantics cannot see: a
+/// concurrency's start side (`Concurrent(Start)` folds into `Between`,
+/// because start bounds keep concurrent versions, and
+/// `Concurrent(End | Both)` into `Concurrent`, the end-bound verdict)
+/// and the coincident at-verdict's end half (`At(Both)` canonicalizes
+/// to `AtStart`, the start-speaks-first rule).
+fn bounded_coarsens_interval_place(a: &Version, b: &Version, c: &Version) -> bool {
+    let meet = b & c;
+    for (s, e) in &placement_bound_pairs(b, c) {
+        for range in each_admitted_range(s, e) {
+            // Only two-bounded ranges carry an interval to coarsen from.
+            let (Bound::Included(lo) | Bound::Excluded(lo)) = range.start_bound() else {
+                continue;
+            };
+            let (Bound::Included(hi) | Bound::Excluded(hi)) = range.end_bound() else {
+                continue;
+            };
+            let Ok(interval) = Interval::new(lo, hi) else {
+                // The range gate already validated the pair.
+                return false;
+            };
+            for probe in [a, b, c, &meet] {
+                let coarse = match interval.place(probe) {
+                    Placement::Before => Bounded::Before,
+                    Placement::At(Endpoint::Start | Endpoint::Both) => Bounded::AtStart,
+                    Placement::At(Endpoint::End) => Bounded::AtEnd,
+                    Placement::Between | Placement::Concurrent(Endpoint::Start) => Bounded::Between,
+                    Placement::After => Bounded::After,
+                    Placement::Concurrent(Endpoint::End | Endpoint::Both) => Bounded::Concurrent,
+                };
+                if range.bounded(probe) != coarse {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// `place` against the degenerate interval `[v, v]` is pairwise
+/// comparison itself: the four verdicts reachable with coincident
+/// endpoints transcribe `partial_cmp`'s four outcomes, and the five
+/// endpoint-splitting verdicts are unreachable.
+fn degenerate_interval_place_is_partial_cmp(a: &Version, b: &Version) -> bool {
+    let Ok(interval) = Interval::new(b, b) else {
+        // A version is always ordered with itself.
+        return false;
+    };
+    for probe in [a, b] {
+        let expect = match probe.partial_cmp(b) {
+            Some(Ordering::Less) => Placement::Before,
+            Some(Ordering::Equal) => Placement::At(Endpoint::Both),
+            Some(Ordering::Greater) => Placement::After,
+            None => Placement::Concurrent(Endpoint::Both),
+        };
+        if interval.place(probe) != expect {
+            return false;
         }
     }
     true

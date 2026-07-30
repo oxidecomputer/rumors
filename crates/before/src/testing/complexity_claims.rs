@@ -317,7 +317,7 @@ const fn constant(op: &'static str) -> Claim {
     }
 }
 
-/// The `causally` module doc's shared line: fourteen rows price the same
+/// The `causally` module doc's shared line: eighteen rows price the same
 /// three facts, so they share one bound at one site.
 const CAUSALLY_BOUND: Bound = Bound::Custom {
     line: "constructors `O(1)`; validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
@@ -987,6 +987,25 @@ pub(crate) const CLAIMS: &[Claim] = &[
     ),
     causally(
         "causally::Range::bounded",
+        Cells::Board(&[("causally_contains", Class::Linear)]),
+    ),
+    causally(
+        "causally::Interval::new",
+        Cells::Uncelled(CAUSALLY_COMPOSITION),
+    ),
+    causally(
+        "causally::Interval::ordered",
+        Cells::Uncelled(
+            "stores two borrows and performs no comparison at all: the trusted \
+             door's debug assertion sits outside the cost contract",
+        ),
+    ),
+    causally(
+        "causally::Interval::place",
+        Cells::Board(&[("causally_contains", Class::Linear)]),
+    ),
+    causally(
+        "causally::Interval::dominance_of",
         Cells::Board(&[("causally_contains", Class::Linear)]),
     ),
     // ─────────────────────── operator/trait families ───────────────────────

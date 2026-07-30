@@ -128,52 +128,55 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
     SourceSpec {
         path: "src/party.rs",
         module_prefix: None,
-        type_override: None,
+        type_overrides: &[],
     },
     SourceSpec {
         path: "src/version.rs",
         module_prefix: None,
-        type_override: None,
+        type_overrides: &[],
     },
     SourceSpec {
         path: "src/clock.rs",
         module_prefix: None,
-        type_override: None,
+        type_overrides: &[],
     },
     SourceSpec {
         path: "src/version/own.rs",
         module_prefix: None,
-        type_override: None,
+        type_overrides: &[],
     },
     SourceSpec {
         path: "src/version/rank.rs",
         module_prefix: None,
-        type_override: None,
+        type_overrides: &[],
     },
     SourceSpec {
         path: "src/version/ranked.rs",
         module_prefix: None,
-        type_override: None,
+        type_overrides: &[],
     },
     SourceSpec {
         path: "src/version/ticks.rs",
         module_prefix: None,
-        type_override: None,
+        type_overrides: &[],
     },
     SourceSpec {
         path: "src/party/forks.rs",
         module_prefix: None,
-        type_override: Some("iter::Party"),
+        type_overrides: &[("Forks", "iter::Party")],
     },
     SourceSpec {
         path: "src/clock/forks.rs",
         module_prefix: None,
-        type_override: Some("iter::Clock"),
+        type_overrides: &[("Forks", "iter::Clock")],
     },
     SourceSpec {
         path: "src/causally.rs",
         module_prefix: Some("causally"),
-        type_override: Some("causally::Range"),
+        type_overrides: &[
+            ("Range", "causally::Range"),
+            ("Interval", "causally::Interval"),
+        ],
     },
 ];
 

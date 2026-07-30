@@ -34,7 +34,7 @@ const fn spec(module_prefix: Option<&'static str>) -> [SourceSpec; 1] {
     [SourceSpec {
         path: "lib.rs",
         module_prefix,
-        type_override: None,
+        type_overrides: &[],
     }]
 }
 

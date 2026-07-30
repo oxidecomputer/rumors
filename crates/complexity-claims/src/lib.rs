@@ -55,10 +55,22 @@ pub struct SourceSpec {
     /// Namespace for module-level `pub fn`s (`None`: the file must have
     /// none).
     pub module_prefix: Option<&'static str>,
-    /// Override for the inherent-impl type name — for files whose local
-    /// type name is not its public path or whose type lives under a
-    /// public module.
-    pub type_override: Option<&'static str>,
+    /// Public names for the file's inherent-impl types, keyed by local
+    /// type name — for types whose local name is not their public path
+    /// or that live under a public module. A type absent from the list
+    /// keeps its parsed name (and a roster's totality test is what
+    /// catches a mapping a new public type still needs).
+    pub type_overrides: &'static [(&'static str, &'static str)],
+}
+
+/// The roster-facing name of one inherent-impl type: its
+/// [`type_overrides`](SourceSpec::type_overrides) mapping, or the local
+/// name itself.
+fn public_type_name<'a>(spec: &SourceSpec, local: &'a str) -> &'a str {
+    spec.type_overrides
+        .iter()
+        .find(|(from, _)| *from == local)
+        .map_or(local, |(_, to)| *to)
 }
 
 /// Extract the `pub fn` surface from `specs` under `root`, named as a
@@ -86,7 +98,7 @@ pub fn extract_public_fns(root: &Path, specs: &[SourceSpec]) -> BTreeSet<String>
                     current_type = None; // trait impl: cannot hold `pub fn`
                 } else {
                     current_type = parse_impl_self_type(rest)
-                        .map(|name| spec.type_override.map(str::to_owned).unwrap_or(name));
+                        .map(|name| public_type_name(spec, &name).to_owned());
                 }
                 continue;
             }
@@ -382,7 +394,7 @@ pub fn doc_index(root: &Path, specs: &[SourceSpec]) -> DocIndex {
             }
             if let Some(rest) = line.strip_prefix("    pub fn ") {
                 let context = match current_type.as_deref() {
-                    Some(ty) => Some(spec.type_override.unwrap_or(ty)),
+                    Some(ty) => Some(public_type_name(spec, ty)),
                     None => current_mod.as_deref(),
                 };
                 if let Some(ty) = context {
