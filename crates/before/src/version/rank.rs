@@ -332,6 +332,38 @@ impl Rank {
         encode_parts(&self.num, self.exp)
     }
 
+    /// Encodes this rank to an arbitrary writer: exactly
+    /// [`encode`](Rank::encode)'s canonical bytes, without handing the
+    /// caller the intermediate `Vec`.
+    ///
+    /// The stream is bit-packed, so the bytes are assembled in one
+    /// internal buffer and delivered to the writer in a single
+    /// `write_all` — the writer sees exactly what `encode` returns.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the writer itself reports; the encoding side is
+    /// infallible.
+    ///
+    /// # Complexity
+    ///
+    /// `O(‖r‖)` time and space in the rank's numeric size (see
+    /// [the type's note](Rank#complexity)); the output is at most
+    /// `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
+    ///
+    /// **Complexity**: `O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
+    ///
+    /// ```
+    /// use before::Version;
+    /// let rank = Version::try_from(5).unwrap().rank();
+    /// let mut buf = Vec::new();
+    /// rank.encode_to(&mut buf).unwrap();
+    /// assert_eq!(buf, rank.encode());
+    /// ```
+    pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(&encode_parts(&self.num, self.exp))
+    }
+
     /// Decodes a rank from a reader of canonical
     /// [`encode`](Rank::encode) bytes, strictly rejecting everything
     /// else.
@@ -478,74 +510,101 @@ pub(crate) fn encode_parts(num: &Base, exp: u32) -> Vec<u8> {
 /// nine bits per eight expansion bits plus the one closing bit.
 const FRACTION_GROUP_BITS: u64 = 8;
 
-/// Parse one canonical stream (strictly: [`Rank::decode`]'s contract).
+/// Parse one canonical stream from the whole input (strictly:
+/// [`Rank::decode`]'s contract): the stream itself, then padding to
+/// the byte boundary and not a byte more.
 fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
-    // Bit addressing is MSB-first within each byte. `total` cannot
-    // overflow: a `Vec` holds at most `isize::MAX` bytes.
-    let total = bytes.len() as u64 * 8;
-    let bit = |i: u64| bytes[(i / 8) as usize] >> (7 - i % 8) & 1 == 1;
+    let mut iter = bytes.iter();
+    let rank = decode_stream(|| iter.next().copied().ok_or(Decode::Truncated))?;
+    if iter.next().is_some() {
+        // `decode` handed over the whole input, so bytes past the
+        // self-delimited stream are non-minimal packing.
+        return Err(Decode::TrailingBits);
+    }
+    Ok(rank)
+}
+
+/// A byte-at-a-time source dressed as an MSB-first bit reader: one
+/// byte buffered, refilled strictly on demand.
+struct BitSource<F> {
+    next_byte: F,
+    current: u8,
+    /// Bits consumed of `current`, `0..=8`; `8` means refill first.
+    used: u8,
+}
+
+impl<F: FnMut() -> Result<u8, Decode>> BitSource<F> {
+    fn bit(&mut self) -> Result<bool, Decode> {
+        if self.used == 8 {
+            self.current = (self.next_byte)()?;
+            self.used = 0;
+        }
+        let bit = self.current & (0x80 >> self.used) != 0;
+        self.used += 1;
+        Ok(bit)
+    }
+}
+
+/// Parse one canonical stream from a byte-at-a-time source, consuming
+/// exactly the bytes the stream spans.
+///
+/// The stream is self-delimiting (the fraction's close bit), so the
+/// parse never asks for a byte past the one holding the close bit —
+/// which is what lets a rank compose inside a larger stream (the
+/// `borsh` boundary): the bytes after it belong to the next field.
+/// Every allocation is fed by bits actually read, never by a width a
+/// header merely claims, so no small input can provoke a large
+/// buffer. Strictness is [`Rank::decode`]'s except whole-input
+/// minimality — a caller that owns the input's end rejects leftover
+/// bytes itself ([`decode_bytes`]).
+pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Result<Rank, Decode> {
+    let mut src = BitSource {
+        next_byte,
+        current: 0,
+        used: 8,
+    };
     // The header's unary run: ρ ones ended by a zero.
-    let mut pos = 0;
-    while pos < total && bit(pos) {
-        pos += 1;
+    let mut rho = 0u64;
+    while src.bit()? {
+        rho += 1;
     }
-    if pos == total {
-        // Empty input, or the run never terminated.
-        return Err(Decode::Truncated);
-    }
-    let rho = pos;
-    pos += 1; // the terminating zero
     if rho >= 64 {
         // The format bound: an integral width of 2⁶⁴ or more bits
         // exceeds both the numerator this crate can hold and any input
         // under 2 EiB (the mantissa alone would need 2⁶⁴ − 1 bits).
         return Err(Decode::NotCanonical);
     }
-    if total - pos < rho {
-        return Err(Decode::Truncated);
-    }
     // w's bits below its (implied) leading bit: ρ of them, so w < 2⁶⁴.
     let mut w = 1u64;
     for _ in 0..rho {
-        w = w << 1 | u64::from(bit(pos));
-        pos += 1;
+        w = w << 1 | u64::from(src.bit()?);
     }
-    if w - 1 > total - pos {
-        return Err(Decode::Truncated);
+    // The biased integral m: its implied leading bit, then w − 1
+    // stream bits, sunk MSB-first and unbiased at materialization.
+    let mut mantissa = BitSink::new();
+    mantissa.push(true);
+    for _ in 0..w - 1 {
+        mantissa.push(src.bit()?);
     }
-    // The biased integral m (its leading bit implied), then unbias.
-    let integral = read_magnitude(&bit, pos, w - 1, true) - &Base::from(1u8);
-    pos += w - 1;
+    let integral = mantissa.into_base() - &Base::from(1u8);
     // The fraction's groups, each opened by a set continuation bit;
     // the stream's one clear closing bit ends the loop. Group bytes
     // stay plain `u8`s until the single width-metered materialization
     // below.
     let mut groups: Vec<u8> = Vec::new();
     loop {
-        if pos == total {
-            return Err(Decode::Truncated);
-        }
-        let more = bit(pos);
-        pos += 1;
-        if !more {
+        if !src.bit()? {
             break;
-        }
-        if total - pos < FRACTION_GROUP_BITS {
-            return Err(Decode::Truncated);
         }
         let mut group = 0u8;
         for _ in 0..FRACTION_GROUP_BITS {
-            group = group << 1 | u8::from(bit(pos));
-            pos += 1;
+            group = group << 1 | u8::from(src.bit()?);
         }
         groups.push(group);
     }
-    // Strict minimal packing: the self-delimited stream, then zero bits
-    // to the byte boundary and not a bit more.
-    if pos.div_ceil(8) != bytes.len() as u64 {
-        return Err(Decode::TrailingBits);
-    }
-    if (pos..total).any(bit) {
+    // Strict minimal packing within the final byte: the bits after
+    // the close bit are padding and must be zero.
+    if src.used < 8 && src.current & (0xFF >> src.used) != 0 {
         return Err(Decode::TrailingBits);
     }
     // The final group carries the expansion's last set bit
@@ -580,29 +639,6 @@ fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
     Ok(Rank { num, exp })
 }
 
-/// Assemble the magnitude whose bits are (`lead_one` then) the `len`
-/// stream bits at `start`, MSB-first.
-fn read_magnitude(bit: &impl Fn(u64) -> bool, start: u64, len: u64, lead_one: bool) -> Base {
-    let width = len + u64::from(lead_one);
-    if width == 0 {
-        return Base::ZERO;
-    }
-    // The caller bounds `len` by the input's bit count, so the byte
-    // buffer fits comfortably in memory.
-    let mut buf = vec![0u8; usize::try_from(width.div_ceil(8)).expect("bounded by input bytes")];
-    let offset = buf.len() as u64 * 8 - width;
-    let mut set = |i: u64| buf[(i / 8) as usize] |= 1 << (7 - i % 8);
-    if lead_one {
-        set(offset);
-    }
-    for k in 0..len {
-        if bit(start + k) {
-            set(offset + u64::from(lead_one) + k);
-        }
-    }
-    Base::from_be_bytes(&buf)
-}
-
 /// An MSB-first bit sink packing into bytes, the final byte zero-padded.
 struct BitSink {
     bytes: Vec<u8>,
@@ -611,6 +647,16 @@ struct BitSink {
 }
 
 impl BitSink {
+    /// An empty sink growing as bits arrive: the decoder's shape,
+    /// where preallocating from a header's claimed width would let a
+    /// few malicious bytes provoke a large buffer.
+    fn new() -> BitSink {
+        BitSink {
+            bytes: Vec::new(),
+            used: 0,
+        }
+    }
+
     fn with_capacity_bits(bits: u64) -> BitSink {
         BitSink {
             bytes: Vec::with_capacity(usize::try_from(bits.div_ceil(8)).expect("output fits")),
@@ -630,6 +676,14 @@ impl BitSink {
 
     fn into_bytes(self) -> Vec<u8> {
         self.bytes
+    }
+
+    /// The pushed bits as a magnitude, MSB-first: the final byte's
+    /// zero padding is stripped by one shift, and the materialization
+    /// rides the width-metered assembly ([`Base::from_be_bytes`]).
+    fn into_base(self) -> Base {
+        let pad = if self.used == 0 { 0 } else { 8 - self.used };
+        Base::from_be_bytes(&self.bytes) >> u32::from(pad)
     }
 }
 

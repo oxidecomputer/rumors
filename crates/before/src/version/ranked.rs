@@ -175,6 +175,40 @@ impl<'a> Ranked<'a> {
         let (num, exp) = rank.raw_parts();
         encode_parts(num, exp)
     }
+
+    /// Encodes the rank's canonical bytes to an arbitrary writer:
+    /// exactly [`encode`](Self::encode)'s bytes — the same one fused
+    /// fold and emission — without handing the caller the
+    /// intermediate `Vec`.
+    ///
+    /// The stream is bit-packed, so the bytes are assembled in one
+    /// internal buffer and delivered in a single `write_all` (see
+    /// [`Rank::encode_to`]).
+    ///
+    /// # Errors
+    ///
+    /// Whatever the writer itself reports; the encoding side is
+    /// infallible.
+    ///
+    /// # Complexity
+    ///
+    /// As [`encode`](Self::encode): one rank fold plus an emission
+    /// linear in the rank's numeric size.
+    ///
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    ///
+    /// ```
+    /// use before::{Ranked, Version};
+    /// let v = Version::try_from(5).unwrap();
+    /// let mut buf = Vec::new();
+    /// Ranked::from(&v).encode_to(&mut buf).unwrap();
+    /// assert_eq!(buf, Ranked::from(&v).encode());
+    /// ```
+    pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        let rank = self.version.rank();
+        let (num, exp) = rank.raw_parts();
+        writer.write_all(&encode_parts(num, exp))
+    }
 }
 
 /// Views a borrowed version by its rank: `O(1)`, no fold, no copy.
