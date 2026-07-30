@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::ops::{Bound, RangeBounds};
 
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 
 use super::*;
 use crate::testing::bridge::from_oracle_version;
@@ -585,6 +586,234 @@ proptest! {
         );
         if let Ok(span) = admitted {
             prop_assert_eq!(span, Span::new_unchecked(&lo, &hi));
+        }
+    }
+}
+
+// ───────────────────────────── the span wire form ─────────────────────────────
+
+/// Committed witnesses, one per rejection genre the span wire decode
+/// can reach: a strictly crossed pair, a concurrent pair (both
+/// orders), a non-canonical component on each side of the seam,
+/// truncation at every byte boundary (inside the meet, at the seam
+/// with the join missing entirely, inside the join), a trailing byte
+/// after the complete composite, and a set padding bit inside each
+/// component's final byte.
+#[test]
+fn span_decode_rejects_each_genre() {
+    use crate::error::Decode;
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let older = alice.tick().clone();
+    let newer = alice.tick().clone();
+    let beside = bob.tick().clone(); // concurrent to alice's whole line
+    let bytes = Span::new(&older, &newer).unwrap().encode();
+    let lo_len = older.encode().len();
+
+    // The accepted baseline the witnesses below are each one defect away
+    // from.
+    assert_eq!(
+        Span::decode(&bytes[..]).unwrap(),
+        Span::new(&older, &newer).unwrap()
+    );
+
+    // Strictly crossed: the join strictly below the meet.
+    let crossed = [newer.encode(), older.encode()].concat();
+    assert!(
+        matches!(Span::decode(&crossed[..]), Err(Decode::NotCanonical)),
+        "a strictly crossed pair is the canonical spelling of no span"
+    );
+
+    // Concurrent: neither component bounds the other, in both orders.
+    for (a, b) in [(&older, &beside), (&beside, &older)] {
+        let concurrent = [a.encode(), b.encode()].concat();
+        assert!(
+            matches!(Span::decode(&concurrent[..]), Err(Decode::NotCanonical)),
+            "a concurrent pair is the canonical spelling of no span"
+        );
+    }
+
+    // Truncation at every byte boundary. Every cut lands mid-tree: a
+    // component's final byte always carries live bits (encode pads only
+    // to the next byte boundary), so no proper byte prefix parses whole.
+    assert!(
+        matches!(Span::decode(&[][..]), Err(Decode::Truncated)),
+        "empty input"
+    );
+    for cut in 1..bytes.len() {
+        let genre = match cut.cmp(&lo_len) {
+            Ordering::Less => "inside the meet",
+            Ordering::Equal => "at the seam: the join missing entirely",
+            Ordering::Greater => "inside the join",
+        };
+        assert!(
+            matches!(Span::decode(&bytes[..cut]), Err(Decode::Truncated)),
+            "cut at byte {cut} ({genre})"
+        );
+    }
+
+    // Live bits past the complete composite.
+    let trailing = [bytes.clone(), vec![0]].concat();
+    assert!(
+        matches!(Span::decode(&trailing[..]), Err(Decode::TrailingBits)),
+        "trailing zero byte"
+    );
+
+    // A set padding bit inside each component's final byte. Both
+    // witnesses must end mid-byte for the padding to exist at all.
+    assert_ne!(
+        older.encoded_bits() % 8,
+        0,
+        "the meet witness ends mid-byte"
+    );
+    assert_ne!(
+        newer.encoded_bits() % 8,
+        0,
+        "the join witness ends mid-byte"
+    );
+    let mut meet_padding = bytes.clone();
+    meet_padding[lo_len - 1] |= 0x01;
+    assert!(
+        matches!(Span::decode(&meet_padding[..]), Err(Decode::TrailingBits)),
+        "set bit in the meet's padding"
+    );
+    let mut join_padding = bytes.clone();
+    *join_padding.last_mut().unwrap() |= 0x01;
+    assert!(
+        matches!(Span::decode(&join_padding[..]), Err(Decode::TrailingBits)),
+        "set bit in the join's padding"
+    );
+
+    // A non-canonical component on each side of the seam: an internal
+    // node whose two leaf children carry height 0 and delta 0 — the
+    // collapsible sibling pair minimal topology forbids. As a *join* it
+    // denotes the empty version, so it dominates an empty meet and only
+    // canonicality can reject it — which is exactly the check the fused
+    // walk must not lose.
+    let collapsible: Vec<u8> = vec![0b0111_1000];
+    assert!(
+        matches!(Version::decode(&collapsible[..]), Err(Decode::NotCanonical)),
+        "the component witness is itself non-canonical"
+    );
+    let empty = Version::new().encode();
+    let meet_noncanon = [collapsible.clone(), empty.clone()].concat();
+    assert!(
+        matches!(Span::decode(&meet_noncanon[..]), Err(Decode::NotCanonical)),
+        "non-canonical meet"
+    );
+    let join_noncanon = [empty, collapsible].concat();
+    assert!(
+        matches!(Span::decode(&join_noncanon[..]), Err(Decode::NotCanonical)),
+        "non-canonical join"
+    );
+}
+
+/// FUSED-VALIDATE VERDICT IDENTITY, exhaustively at small scope: over
+/// every ordered pair of normal-form event trees to the committed depth
+/// bound, the fused wire decode of `lo.encode() ++ hi.encode()` agrees
+/// with the composed form — decode each component, then validate with
+/// `Span::new` — accepting exactly the same composites, producing the
+/// same span on every accept, and rejecting every crossed or concurrent
+/// pair as `NotCanonical`. The corpus reaches ordered, reversed,
+/// coincident, and concurrent pairs by brute force, and the liveness
+/// floors prove both verdicts fired at scale.
+#[test]
+fn span_decode_verdict_matches_the_composed_form_exhaustively() {
+    use crate::error::Decode;
+    use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
+    let corpus: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
+        .iter()
+        .map(from_oracle_version)
+        .collect();
+    let encodings: Vec<Vec<u8>> = corpus.iter().map(Version::encode).collect();
+    let (mut accepted, mut rejected) = (0u64, 0u64);
+    for (lo, lo_bytes) in corpus.iter().zip(&encodings) {
+        for (hi, hi_bytes) in corpus.iter().zip(&encodings) {
+            let composite = [lo_bytes.as_slice(), hi_bytes.as_slice()].concat();
+            let fused = Span::decode(&composite[..]);
+            match Span::new(lo, hi) {
+                Ok(span) => {
+                    accepted += 1;
+                    match fused {
+                        Ok(decoded) => assert_eq!(
+                            decoded, span,
+                            "the fused decode's accept is the composed span"
+                        ),
+                        Err(e) => {
+                            panic!("fused decode must accept the ordered pair [{lo}, {hi}]: {e}")
+                        }
+                    }
+                }
+                Err(Crossed) => {
+                    rejected += 1;
+                    assert!(
+                        matches!(fused, Err(Decode::NotCanonical)),
+                        "fused decode must reject the unordered pair [{lo}, {hi}] as NotCanonical"
+                    );
+                }
+            }
+        }
+    }
+    // Liveness: both verdicts fire, at scale.
+    assert!(accepted > 1_000, "acceptance is live: {accepted}");
+    assert!(rejected > 1_000, "rejection is live: {rejected}");
+}
+
+proptest! {
+    /// FUSED-VALIDATE VERDICT IDENTITY over arbitrary pairs: the fused
+    /// wire decode of `a.encode() ++ b.encode()` agrees with the
+    /// composed form (decode each component, then `Span::new`) on both
+    /// verdicts, and on every accept the two forms produce the same
+    /// span.
+    #[test]
+    fn span_decode_verdict_matches_the_composed_form(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+    ) {
+        use crate::error::Decode;
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let composite = [a.encode(), b.encode()].concat();
+        let fused = Span::decode(&composite[..]);
+        match Span::new(&a, &b) {
+            Ok(span) => match fused {
+                Ok(decoded) => prop_assert_eq!(
+                    decoded, span,
+                    "the fused decode's accept is the composed span"
+                ),
+                Err(e) => return Err(TestCaseError::fail(format!(
+                    "fused decode must accept the ordered pair [{a}, {b}]: {e}"
+                ))),
+            },
+            Err(Crossed) => prop_assert!(
+                matches!(fused, Err(Decode::NotCanonical)),
+                "fused decode must reject the unordered pair [{a}, {b}] as NotCanonical"
+            ),
+        }
+    }
+
+    /// The span composite is prefix-free: distinct spans' encodings are
+    /// never byte prefixes of one another — pinned directly on the
+    /// composite (it rides the components' committed prefix-freedom,
+    /// but the pin is on the composite itself, never inferred).
+    /// Prefix-freedom is what lets one composite self-delimit inside a
+    /// larger stream: the borsh leg reads exactly one span and leaves
+    /// the next field's bytes unread.
+    #[test]
+    fn span_encoding_is_prefix_free(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+        oc in arb_oracle_version(),
+        od in arb_oracle_version(),
+    ) {
+        let x = from_oracle_version(&oa).span(&from_oracle_version(&ob));
+        let y = from_oracle_version(&oc).span(&from_oracle_version(&od));
+        if x != y {
+            let (ex, ey) = (x.encode(), y.encode());
+            prop_assert!(
+                !ex.starts_with(&ey) && !ey.starts_with(&ex),
+                "prefix-free: {:02x?} vs {:02x?}", ex, ey
+            );
         }
     }
 }

@@ -281,8 +281,8 @@ fn version_encoded_bits_matches_encode_len(a: &Version) -> bool {
 /// `concurrent`, the valuation identity tying `rank` to the lattice, the
 /// `distance`/`lag` metric laws, [`Ranked`]'s total order and its
 /// lexicographic key encoding, the degenerate-span identity tying
-/// span placement back to pairwise comparison, and the pair span's
-/// definitional pin.
+/// span placement back to pairwise comparison, the pair span's
+/// definitional pin, and the span wire form's round-trip.
 pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("merge_commutative", merge_commutative),
     ("meet_commutative", meet_commutative),
@@ -317,6 +317,7 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
         degenerate_span_place_is_partial_cmp,
     ),
     ("span_is_the_pair_hull", span_is_the_pair_hull),
+    ("span_codec_roundtrip", span_codec_roundtrip),
 ];
 
 /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
@@ -976,6 +977,27 @@ fn span_is_the_pair_hull(a: &Version, b: &Version) -> bool {
         && flip_subsumed
         && empty_edge
         && unary_edge
+}
+
+/// The span wire form: `encode` is the meet's encoding followed by the
+/// join's, and `decode ∘ encode` is the identity exactly.
+///
+/// Quantified over the pair's hull (every valid span is some pair's
+/// hull) and the coincident span `[a, a]`: each round-trips to an
+/// equal span, and the round-tripped span re-encodes to the same
+/// bytes — the composite is a section of canonical bytes, so byte
+/// equality on encodings is span equality.
+fn span_codec_roundtrip(a: &Version, b: &Version) -> bool {
+    let hull = a.span(b);
+    let bytes = hull.encode();
+    let framed = bytes == [hull.meet().encode(), hull.join().encode()].concat();
+    let round =
+        Span::decode(&bytes[..]).is_ok_and(|decoded| decoded == hull && decoded.encode() == bytes);
+    let coincident = {
+        let span = a.span(a);
+        Span::decode(&span.encode()[..]).is_ok_and(|decoded| decoded == span)
+    };
+    framed && round && coincident
 }
 
 // ───────────────────────────── Party: one value ─────────────────────────────
