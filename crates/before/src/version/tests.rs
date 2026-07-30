@@ -1723,10 +1723,11 @@ fn rank_encoding_is_suffix_safe_at_the_padding_seam() {
 
 proptest! {
     /// THE LAW's suffix-safety half, adversarially: distinct ranks'
-    /// encodings are never byte prefixes of one another, so a key
-    /// built as `encoding ++ tiebreak` orders by rank first under
-    /// every choice of tiebreak — the KV-key contract `Rank::encode`
-    /// documents.
+    /// encodings are never byte prefixes of one another.
+    ///
+    /// So a key built as `encoding ++ tiebreak` orders by rank first
+    /// under every choice of tiebreak — the KV-key contract
+    /// `Rank::encode` documents.
     ///
     /// Over pairs mixing far-apart magnitude classes, forced class
     /// ties, and near-miss extensions (the second rank re-derived

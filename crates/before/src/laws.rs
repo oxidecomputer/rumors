@@ -213,7 +213,8 @@ fn seed_projection_is_identity(a: &Version) -> bool {
 
 /// [`Ranked`] carries exactly its version's rank.
 ///
-/// Both constructors view the same version, `to_rank` (and the `From`
+/// Every entry views the same version (both `From` constructors and
+/// the `Version::ranked` method spelling), `to_rank` (and the `From`
 /// materialization, and the fused `encode`) realize exactly
 /// `Version::rank`'s value, and settling the borrow (`into_owned`)
 /// changes nothing.
@@ -229,6 +230,10 @@ fn ranked_carries_own_rank(a: &Version) -> bool {
         && {
             let owned = Ranked::from(a.clone()).into_owned();
             owned.version() == a && owned.to_rank() == a.rank()
+        }
+        && {
+            let method = a.ranked();
+            method.version() == a && method.to_rank() == a.rank()
         }
 }
 

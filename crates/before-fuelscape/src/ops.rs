@@ -818,6 +818,11 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "O(1) reference accessor (the guest's clock-to-version bridge kernel prices \
          a clone, not this accessor)",
     ),
+    (
+        "Version::ranked",
+        "O(1) borrowing view construction (the version_rank panel prices the walk \
+         its comparisons run)",
+    ),
     ("Ranked::version", "O(1) borrow of the viewed version"),
     (
         "Ranked::into_owned",

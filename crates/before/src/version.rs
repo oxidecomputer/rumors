@@ -320,6 +320,34 @@ impl Version {
         skyline::query::rank(&self.0)
     }
 
+    /// Views this version by its causal rank: the borrowing [`Ranked`]
+    /// view, which compares, equates, and encodes by
+    /// [`rank`](Self::rank) without materializing one.
+    ///
+    /// Equal to `Ranked::from(&self)` — this is the method spelling
+    /// for chained call sites. Construction is `O(1)` and runs no
+    /// fold; see [`Ranked`] for what the view's comparisons mean
+    /// (rank order, equality deliberately coarser than version
+    /// identity) and when to materialize a [`Rank`] instead.
+    ///
+    /// # Complexity
+    ///
+    /// **Complexity**: `O(1)`.
+    ///
+    /// ```
+    /// use before::{Ranked, Version};
+    /// let half: Version = "(0, 1, 0)".parse().unwrap();
+    /// let one = Version::try_from(1).unwrap();
+    /// // Compare by rank; no Rank is materialized on either side.
+    /// assert!(half.ranked() < one.ranked());
+    /// // The method is exactly the borrowing view conversion.
+    /// assert!(half.ranked() == Ranked::from(&half));
+    /// assert_eq!(half.ranked().version(), &half);
+    /// ```
+    pub fn ranked(&self) -> Ranked<'_> {
+        Ranked::from(self)
+    }
+
     /// The causal distance between two versions: the [`Rank`] of their
     /// symmetric difference, `rank(self | other) - rank(self & other)`.
     ///

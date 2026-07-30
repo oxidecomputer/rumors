@@ -133,6 +133,10 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ),
     ("Clock::dangerously_alias", "one byte copy per part"),
     (
+        "Version::ranked",
+        "an O(1) borrowing view construction: no walk, no allocation",
+    ),
+    (
         "Ranked::version",
         "a borrow of the viewed version: no walk, no allocation",
     ),

@@ -627,6 +627,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         // seals demand reds that cannot honestly exist here) fits.
         cells: Cells::Board(&[("version_rank", Class::MulBound)]),
     },
+    constant("Version::ranked"),
     Claim {
         op: "Version::distance",
         checks: &[Check {
