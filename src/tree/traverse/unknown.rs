@@ -10,8 +10,6 @@
 //! [`mirror`](super::mirror) delegate their version filtering here, which
 //! is what makes them observationally identical.
 
-use std::cmp::Ordering;
-
 use crate::{Version, causally};
 
 use super::typed::*;
@@ -39,34 +37,33 @@ where
         // If the node doesn't exist, we can't return information about it
         let node = node?;
 
-        // Both fast paths place a node bound against the counterparty's
-        // known-at range (everything causally contained in `known`):
-        //
-        // 1. floor beyond the range (concurrent with or > known)
-        // 2. ceiling within the range (<= known)
-        //
-        // We check them in this order because it's expected that the first
-        // comparison is *cheaper* (the meet of random versions is likely to be
-        // small because it's the greatest-common-ancestor) and because it's
-        // more likely to happen *higher* in the tree, *and* because it's the
-        // only one of the two comparisons which can early-terminate during the
-        // placement (a floor concurrent to `known` is decided at the first
-        // opposing interval). This gives a measurable, if small win in
-        // benchmarks, by skipping the second comparison more of the time.
-        let known_at = causally::known_at(known);
-
-        // If the node's floor is beyond the known range, the whole subtree is
-        // definitely unknown (children are always in the causal future or
-        // present of their parent's floor), so return the node unchanged:
-        if known_at.placement_of(node.floor()) == Ordering::Greater {
-            return Some(node);
-        }
-
-        // If the node's ceiling is within the known range, the whole subtree
-        // is already known (children are always in the causal past or present
-        // of their parent's ceiling), so don't return anything at all:
-        if known_at.contains(node.ceiling()) {
-            return None;
+        // One fused walk classifies the node: the counterparty's version
+        // is placed against the subtree's memoized `[floor, ceiling]`
+        // interval — ordered structurally, since both memos are the meet
+        // and join of the same leaf versions, which is what lets the
+        // trusted constructor skip a validating comparison per node —
+        // and each verdict of the dominance face is one prune decision.
+        // The fused walk decodes `known` once where placing the two
+        // bounds separately would decode it once per bound, and it keeps
+        // the cheap unknown-subtree exit: `floor <= known` refuted is
+        // the whole verdict, decided at the first refuting interval
+        // (the floor, a meet, is likely the smallest stream, and whole
+        // divergent subtrees are the common case high in the tree).
+        let interval = causally::Interval::ordered(node.floor(), node.ceiling());
+        match interval.dominance_of(known) {
+            // `known` does not dominate even the floor (the floor is
+            // beyond or beside it): the whole subtree is definitely
+            // unknown (children are always in the causal future or
+            // present of their parent's floor), so return the node
+            // unchanged.
+            causally::Dominance::Neither => return Some(node),
+            // `known` dominates the ceiling: the whole subtree is
+            // already known (children are always in the causal past or
+            // present of their parent's ceiling), so don't return
+            // anything at all.
+            causally::Dominance::Whole => return None,
+            // Only the floor is dominated: the subtree is mixed.
+            causally::Dominance::StartOnly => {}
         }
 
         // Recursively process each child, re-assembling only the unknown children
@@ -100,3 +97,6 @@ impl Unknown for Z {
         Some(node)
     }
 }
+
+#[cfg(test)]
+mod tests;
