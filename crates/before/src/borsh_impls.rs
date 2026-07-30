@@ -167,8 +167,9 @@ impl BorshDeserialize for Clock {
     }
 }
 
-/// The canonical lexicographic bytes of [`Rank::encode`], unframed —
-/// borsh is a transport for the one wire form, never a second format —
+/// The canonical lexicographic bytes of [`Rank::encode`], unframed.
+///
+/// Borsh is a transport for the one wire form, never a second format,
 /// so byte-wise order on the serialized bytes is still [`Ord`] on
 /// ranks, and the numerator–exponent pair stays off the wire (the
 /// decompression-bomb hazard [`Rank::encode`] documents).
@@ -192,10 +193,12 @@ impl BorshDeserialize for Rank {
 }
 
 /// The identical bytes as the materialized rank's — one fused fold and
-/// emission ([`Ranked::encode`]). Serialize-only: a rank does not
-/// determine a version, so no `BorshDeserialize` exists for `Ranked`,
-/// exactly the asymmetry of [`Ranked::encode`] having no decode —
-/// deserialize a [`Rank`] instead.
+/// emission ([`Ranked::encode`]).
+///
+/// Serialize-only: a rank does not determine a version, so no
+/// `BorshDeserialize` exists for `Ranked`, exactly the asymmetry of
+/// [`Ranked::encode`] having no decode — deserialize a [`Rank`]
+/// instead.
 impl BorshSerialize for Ranked<'_> {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         self.encode_to(writer)
