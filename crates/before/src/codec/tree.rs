@@ -34,13 +34,11 @@ enum IdFrame {
 ///
 /// Each node is a 2-bit presence tag (bit 0 = left child follows, bit 1 = right
 /// child follows): `00` a terminal, `10`/`01` a unary node, `11` a both-present
-/// node. A `0` is never a node, so an empty input is the `0` tree itself (only
-/// valid at the root; `Party::decode` rejects the resulting anonymous id).
+/// node. A `0` id is structural absence — a zero presence bit in its parent's
+/// tag, no bits of its own — so the grammar has no empty production: input
+/// exhausted before a tag completes, the empty input included, is
+/// [`Decode::Truncated`], exactly as a byte-starved reader reports it.
 pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
-    // The empty `0` tree is representable only as an empty root input.
-    if pos == bits.len() {
-        return Ok(pos);
-    }
     let mut cursor = SliceCursor::new(bits, pos);
     parse_id_from(&mut cursor)
 }
@@ -96,7 +94,17 @@ where
 /// Confirm a freshly built id bit stream is exactly one canonical-normal-form
 /// tree. Wraps [`parse_id`] (the single source of truth for id normal form),
 /// mapping its outcome onto [`Parse`].
+///
+/// The empty stream is accepted here, unlike at [`parse_id`]: it is the
+/// in-memory normal form of the anonymous `0` id, which the builders and the
+/// text grammar legitimately construct (the literal `0`). Whether an
+/// anonymous id is *allowed* is the caller's question, answered at the
+/// standalone-value gates (`Parse::Anonymous`); the wire grammar never asks
+/// it, because no encoder spells the anonymous id on the wire.
 pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), Parse> {
+    if bits.is_empty() {
+        return Ok(());
+    }
     match parse_id(bits, 0) {
         Ok(end) if end == bits.len() => Ok(()),
         Ok(_) => Err(Parse::Syntax),

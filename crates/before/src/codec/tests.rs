@@ -14,6 +14,7 @@ use super::{
     bytes_as_bits, decode_int, decode_int_from, encode_int, Base, BitCursor, Bits, BitsSlice,
     DsiCursor, SliceCursor, PARSE_STACK_INLINE,
 };
+use crate::causally::Span;
 use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
@@ -23,7 +24,7 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{run, versions, world_strategy};
-use crate::{error::Decode, Clock, Party, Version};
+use crate::{error::Decode, Clock, Party, Rank, Ranked, Version};
 
 // ───────────────────────────── integer code ─────────────────────────────
 
@@ -825,34 +826,39 @@ fn parse_base_digit_run_grammar() {
     assert_eq!(v.to_string(), embedded);
 }
 
-/// The byte `decode` paths are the only ones that yield a top-level `Party`
-/// without passing through `finish_id`; both reject the anonymous identity `0`,
-/// so an empty-region `Party`/`Clock` cannot be constructed.
+/// Zero bytes is exhausted input to every raw decoder, rejected as
+/// `Truncated` — the same starvation genre the borsh reader path reports
+/// when its reader runs dry before a value.
 ///
-/// The paper forbids `event` on an anonymous stamp (§3, `i ≠ 0`), and a
-/// standalone party is by definition a nonzero share. In the pruned encoding
-/// the anonymous id `0` is the empty bit stream, so a party with no bytes — and
-/// a clock whose byte-aligned party prefix is empty — is the anonymous case.
+/// The wire grammar has no empty production: an anonymous (`0`) id is
+/// spelled by a zero presence bit in its parent's 2-bit tag (structural
+/// absence), never by bits of its own, and no encoder emits a value with
+/// zero bytes — the tree codes are prefix-free, and a zero-length spelling
+/// cannot be self-delimiting. So the empty input is not a parse of
+/// anything; in particular, `Party::decode` and `Clock::decode` reject it
+/// as truncation before any anonymity question could arise.
 #[test]
-fn decode_rejects_anonymous_id() {
-    // The anonymous id `0` encodes to no bits at all; as a bare party that is
-    // the empty byte stream, rejected as `Anonymous`.
+fn empty_input_is_truncated() {
+    // The test-only anonymous id has no wire spelling: it encodes to zero
+    // bytes, which no self-delimiting decoder can be handed as a value.
     let anon = from_oracle_party(&oracle::Party::Leaf(false)).encode();
     assert!(anon.is_empty(), "the anonymous id encodes to no bytes");
-    assert!(matches!(Party::decode(&anon[..]), Err(Decode::Anonymous)));
 
-    // A clock byte-concatenates its (byte-aligned) party and version. The only
-    // empty party prefix is the empty stream, so the anonymous clock is rejected
-    // when its party region decodes as anonymous.
-    assert!(matches!(Clock::decode(&[][..]), Err(Decode::Anonymous)));
+    assert!(matches!(Party::decode(&[][..]), Err(Decode::Truncated)));
+    assert!(matches!(Version::decode(&[][..]), Err(Decode::Truncated)));
+    assert!(matches!(Clock::decode(&[][..]), Err(Decode::Truncated)));
+    assert!(matches!(Rank::decode(&[][..]), Err(Decode::Truncated)));
+    assert!(matches!(Ranked::decode(&[][..]), Err(Decode::Truncated)));
+    assert!(matches!(Span::decode(&[][..]), Err(Decode::Truncated)));
 }
 
 /// `Clock::decode` can never yield a clock with an anonymous (`0`) party — the
 /// invariant the whole stack rests on (paper §3: a live share is `i ≠ 0`).
 ///
-/// The party is the byte-aligned prefix, `Party::decode` rejects the empty id,
-/// and the only empty prefix is the empty stream (itself rejected as
-/// `Anonymous`), so an anonymous-party clock has *no* encoding: its bytes (just
+/// The party is the byte-aligned prefix and the id grammar has no empty
+/// production (the only would-be-empty prefix is the whole empty stream,
+/// itself rejected as exhausted input), so an anonymous-party clock has *no*
+/// encoding: its bytes (just
 /// the version, since the `0` party contributes none) decode to a *different*,
 /// non-anonymous clock or fail canonicity — never round-trip back. This sweeps
 /// every byte string up to two bytes, where the empty-prefix boundary lives:

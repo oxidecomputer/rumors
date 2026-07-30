@@ -597,11 +597,11 @@ impl Party {
         };
         // Reuse the read buffer as the result's backing store (it is offset-0
         // and canonical up to `end`), so decoding allocates no more than before.
+        // The id grammar has no empty production (exhausted input rejects as
+        // `Truncated` above), so the parsed id is a nonzero share — the
+        // standalone-party invariant (paper §3: `i ≠ 0`) holds structurally.
         let mut id = codec::Bits::from_vec(buf);
         id.truncate(end);
-        if codec::id_is_empty(&id) {
-            return Err(Decode::Anonymous);
-        }
         Ok(Party::from_bits(id))
     }
 

@@ -135,10 +135,10 @@ impl BorshSerialize for Party {
 
 impl BorshDeserialize for Party {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        // The id grammar has no empty production (a starved reader rejects
+        // inside the parse), so the parsed id is a nonzero share — the
+        // standalone-party invariant (paper §3: `i ≠ 0`) holds structurally.
         let bits = deserialize_id(reader)?;
-        if codec::id_is_empty(&bits) {
-            return Err(decode_error(Decode::Anonymous));
-        }
         Ok(Party::from_bits(bits))
     }
 }

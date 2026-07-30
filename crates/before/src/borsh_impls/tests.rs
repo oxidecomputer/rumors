@@ -213,8 +213,10 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
 
 /// Decode one id tree per-bit through [`BitwiseReaderCursor`].
 ///
-/// Replicates the wire pipeline stage for stage, including the anonymity
-/// rejection of `Party::deserialize_reader`.
+/// Replicates the wire pipeline stage for stage: parse, padding check,
+/// truncate to the consumed bits. The id grammar has no empty production,
+/// so the parsed id is a nonzero share — exactly as
+/// `Party::deserialize_reader` relies on.
 fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let mut cursor = BitwiseReaderCursor {
         reader,
@@ -226,9 +228,6 @@ fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let position = cursor.position;
     let mut bits = cursor.bits;
     bits.truncate(position);
-    if codec::id_is_empty(&bits) {
-        return Err(Decode::Anonymous);
-    }
     Ok(Party::from_bits(bits))
 }
 
