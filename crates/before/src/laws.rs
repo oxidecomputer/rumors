@@ -829,17 +829,32 @@ fn bounded_coarsens_span_place(a: &Version, b: &Version, c: &Version) -> bool {
     true
 }
 
-/// The n-ary span at arity three: endpoints definitionally the n-ary
-/// meet and join over `{receiver} ∪ items`, every input within.
+/// The n-ary span at arities three and five: endpoints definitionally
+/// the n-ary meet and join over `{receiver} ∪ items`, every input
+/// within.
 ///
 /// The endpoints are [`Version::meet_all`] and
-/// [`Version::join_all`] over all three inputs — the accessors read
+/// [`Version::join_all`] over the same inputs — the accessors read
 /// exactly them back; which input rides as
 /// the receiver is irrelevant and so is item order (the fold laws'
 /// order-independence, observed through the door); and every input
 /// places within the hull — never
 /// [`Before`](Placement::Before) or [`After`](Placement::After), since
 /// the meet bounds each input from below and the join from above.
+///
+/// Arity five drives the hull fold's balanced counter through every
+/// combine arm — two leaf combines, one merged–merged combine, and the
+/// closing merged–input drain — where arity three reaches only the
+/// first two genres. The merged–merged arm is the one whose legs read
+/// two endpoints from *each* operand, so a fold that reads the wrong
+/// endpoint of a merged group agrees with the oracle at every smaller
+/// arity and diverges only here. The five inputs are `a, b, c, a, b`
+/// — repeats, not lattice derivatives: the counter's two weight-1
+/// groups are then `hull(a, b)` and `hull(c, a)`, each carrying
+/// information the other lacks in *both* lattice directions, so a
+/// misread endpoint loses a fresh operand rather than one absorption
+/// already supplied (items like `b ∧ c` or `b ∨ c` would be absorbed
+/// by `b` and `c` and leave a misread invisible).
 fn span_all_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
     let hull = a.span_all([b, c]);
     let meet = Version::meet_all([a, b, c]).expect("a triple is nonempty");
@@ -850,7 +865,9 @@ fn span_all_is_the_lattice_hull(a: &Version, b: &Version, c: &Version) -> bool {
     let contained = [a, b, c]
         .into_iter()
         .all(|v| !matches!(hull.place(v), Placement::Before | Placement::After));
-    definitional && accessors && permuted && contained
+    let wide = a.span_all([b, c, a, b]);
+    let every_arm = wide == Span::ordered(&meet, &join);
+    definitional && accessors && permuted && contained && every_arm
 }
 
 /// `place` against the degenerate span `[v, v]` is pairwise

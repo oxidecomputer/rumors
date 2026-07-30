@@ -641,7 +641,10 @@ impl<'a> Span<'a> {
     /// meet/join pair over one nonempty collection always does, and the
     /// hull laws (`span_is_the_pair_hull`, `span_all_is_the_lattice_hull`)
     /// pin every deriving caller's endpoints to the committed lattice
-    /// folds on every law consumer. There is deliberately no
+    /// folds on every law consumer — every combine arm of the hull fold
+    /// included, through the lattice-hull law's arity-five clause,
+    /// which reaches the merged–merged combine the smaller arities
+    /// never build. There is deliberately no
     /// re-validating assertion here: recomputing the comparison per
     /// construction would spend the fused hull walk's entire saving on
     /// re-checking an invariant the differential laws already pin.
