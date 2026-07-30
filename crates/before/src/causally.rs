@@ -953,7 +953,9 @@ impl<'a> Span<'a> {
     ///
     /// On an input defective several ways at once, the components'
     /// structural genres win: the pair rejection is pronounced only
-    /// over two structurally whole streams.
+    /// over a composite whose components parse whole and whose padding
+    /// is exact — a defect the component decoders would report rejects
+    /// here with the same genre.
     ///
     /// # Complexity
     ///
@@ -995,15 +997,21 @@ impl<'a> Span<'a> {
             (Version::from_bits(bits), lo_bytes)
         };
         // The join: the admission walk parses its stream while
-        // validating, in the same pass, that it dominates the meet —
-        // never a parse and then a second comparison walk.
+        // deciding, in the same pass, whether it dominates the meet —
+        // never a parse and then a second comparison walk. The pair
+        // verdict is pronounced last, after the padding check, so a
+        // composite defective several ways rejects by its structural
+        // genre first, exactly as decoding the components would.
         let hi = {
             let tail = &buf[lo_bytes..];
             let bits = codec::bytes_as_bits(tail);
             let mut cursor = codec::DsiCursor::new(bits);
-            skyline::validate_dominating_from(lo.view(), &mut cursor)?;
+            let dominates = skyline::validate_dominating_from(lo.view(), &mut cursor)?;
             let end = codec::BitCursor::position(&cursor);
             codec::require_zero_padding(bits, end)?;
+            if !dominates {
+                return Err(Decode::NotCanonical);
+            }
             let mut bits = codec::Bits::from_vec(tail.to_vec());
             bits.truncate(end);
             Version::from_bits(bits)

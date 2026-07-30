@@ -823,3 +823,252 @@ proptest! {
         }
     }
 }
+
+/// Structural genres outrank the pair verdict on multiply-defective
+/// composites, exactly as decoding the components would order them.
+///
+/// Each witness stacks a second defect on a composite the pair
+/// relation already rejects, and the structural genre wins: a set
+/// padding bit or a spurious trailing byte after a crossed join is
+/// `TrailingBits`, a cut after an early refutation is `Truncated` —
+/// never the pair rejection's `NotCanonical`. The negative-height
+/// witnesses pin the admission walk's subsumption seam: a whole
+/// negative-height join rejects `NotCanonical` (the same genre the
+/// standalone validator gives those bytes), and a negative-height
+/// join that is *also* truncated rejects `Truncated` — the one
+/// deliberate divergence from component-wise decoding, which reports
+/// the height dip it meets first; the fused walk carries no height
+/// accumulator, so the whole-parse rule decides instead.
+#[test]
+fn span_decode_structural_genres_outrank_the_pair_verdict() {
+    use crate::error::Decode;
+    let mut clock = Clock::seed();
+    let one = clock.tick().clone();
+    let empty = Version::new();
+
+    // The empty version's canonical byte: leaf flag `1`, gamma(0) `1`,
+    // six zero padding bits.
+    assert_eq!(empty.encode(), vec![0xC0]);
+    // A negative-height stream: root internal `0`, left leaf `1` with
+    // absolute height gamma(0) `1`, right leaf `1` with delta
+    // zigzag(-1) `010`, one zero padding bit — 0b0111_0100. Its running
+    // height dips to -1, which only canonicality rejects.
+    let neg = vec![0x74];
+    assert!(matches!(
+        Version::decode(&neg[..]),
+        Err(Decode::NotCanonical)
+    ));
+
+    // A whole negative-height join over the empty meet: the join never
+    // dominates (its dip sits below the meet's zero), so the admission
+    // verdict subsumes the height check under the same genre.
+    let composite = [empty.encode(), neg].concat();
+    assert!(
+        matches!(Span::decode(&composite[..]), Err(Decode::NotCanonical)),
+        "a whole negative-height join rejects as the validator would"
+    );
+
+    // The same stream cut before its right subtree: 0b0011_1010 parses
+    // root internal, left-inner leaf height 0, then delta zigzag(-1) —
+    // the dip — and then runs out of bits. The structural genre wins.
+    let truncated_neg = [empty.encode(), vec![0x3A]].concat();
+    assert!(
+        matches!(Span::decode(&truncated_neg[..]), Err(Decode::Truncated)),
+        "truncation outranks the refuted pair verdict"
+    );
+
+    // A crossed pair (join strictly below the meet) with a set padding
+    // bit in the join's final byte: the padding defect wins.
+    let crossed_padding = [one.encode(), vec![0xC4]].concat();
+    assert!(
+        matches!(
+            Span::decode(&crossed_padding[..]),
+            Err(Decode::TrailingBits)
+        ),
+        "nonzero padding outranks the refuted pair verdict"
+    );
+
+    // A crossed pair with a spurious all-zero byte after the join: the
+    // composite re-encoding shorter than its input is the same
+    // trailing-bits genre.
+    let crossed_trailing = [one.encode(), vec![0xC0, 0x00]].concat();
+    assert!(
+        matches!(
+            Span::decode(&crossed_trailing[..]),
+            Err(Decode::TrailingBits)
+        ),
+        "a trailing zero byte outranks the refuted pair verdict"
+    );
+
+    // A crossed pair whose join is also cut mid-tree: refutation is
+    // decided early, and the walk still parses to the cut.
+    let taller = {
+        let mut main = Clock::seed();
+        let mut other = main.fork();
+        other.tick();
+        main.recv(other.send());
+        main.tick();
+        main.version().clone()
+    };
+    let join = {
+        let mut main = Clock::seed();
+        let mut other = main.fork();
+        other.tick();
+        main.recv(other.send());
+        main.version().clone()
+    };
+    let join_bytes = join.encode();
+    let crossed_truncated = [taller.encode(), join_bytes[..join_bytes.len() - 1].to_vec()].concat();
+    assert!(
+        matches!(Span::decode(&crossed_truncated[..]), Err(Decode::Truncated)),
+        "truncation outranks the refuted pair verdict"
+    );
+}
+
+/// FUSED-VALIDATE VERDICT IDENTITY beyond the exhaustive corpus's
+/// reach: deep spines, wide fans, and payload magnitudes at and past
+/// the machine word, on both verdicts.
+///
+/// The small-scope sweep is exhaustive to depth 2; these constructed
+/// families sample the genres it cannot contain — 300-level spines
+/// (deep path stacks, long unary runs), 1024-leaf fans (maximal-width
+/// plateaus), absolute heights above `2^64` (payload codes past the
+/// decoder's word window), and heights at the 63/64-bit sign edges of
+/// the zigzag map — and check the fused decode against the composed
+/// form (decode, decode, `Span::new`) on accept, reject, and the
+/// decoded span itself, for the pair, its hulls, and the coincident
+/// span.
+#[test]
+fn span_decode_verdict_matches_the_composed_form_off_corpus() {
+    use crate::error::Decode;
+    use crate::oracle;
+
+    fn composed(bytes: &[u8], seam: usize) -> Result<Span<'static>, Decode> {
+        let lo = Version::decode(&bytes[..seam])?;
+        let hi = Version::decode(&bytes[seam..])?;
+        Span::new(&lo, &hi)
+            .map(|s| s.into_owned())
+            .map_err(|Crossed| Decode::NotCanonical)
+    }
+
+    fn check_identity(lo: &Version, hi: &Version) {
+        let lo_bytes = lo.encode();
+        let seam = lo_bytes.len();
+        let composite = [lo_bytes, hi.encode()].concat();
+        let fused = Span::decode(&composite[..]);
+        match (fused, composed(&composite, seam)) {
+            (Ok(f), Ok(c)) => {
+                assert_eq!(f, c, "accept identity for [{lo}, {hi}]");
+                assert_eq!(f.encode(), composite, "re-encode identity");
+            }
+            (Err(ef), Err(ec)) => assert_eq!(
+                std::mem::discriminant(&ef),
+                std::mem::discriminant(&ec),
+                "genre identity for [{lo}, {hi}]: fused {ef:?}, composed {ec:?}"
+            ),
+            (f, c) => panic!("verdict mismatch for [{lo}, {hi}]: fused {f:?}, composed {c:?}"),
+        }
+    }
+
+    // A left-descending spine: every level one internal node whose
+    // right child is a leaf.
+    let spine = |depth: usize, bump: u64| {
+        let mut t = oracle::Version::leaf(0u64);
+        for i in 0..depth {
+            let i = i as u64;
+            t = oracle::Version::node(i % 7 + bump, t, oracle::Version::leaf(i % 3));
+        }
+        t
+    };
+    // A complete tree: `2^depth` leaves with mixed heights.
+    fn fan(depth: usize, salt: u64) -> oracle::Version {
+        fn go(d: usize, ix: u64, salt: u64) -> oracle::Version {
+            if d == 0 {
+                oracle::Version::leaf(ix.wrapping_mul(2654435761).wrapping_add(salt) % 5)
+            } else {
+                oracle::Version::node(ix % 2, go(d - 1, ix * 2, salt), go(d - 1, ix * 2 + 1, salt))
+            }
+        }
+        go(depth, 1, salt)
+    }
+    // Nested `u64::MAX` bases: absolute heights above `2^64`, so the
+    // payload gamma codes outgrow the decoder's word window.
+    let giant = |extra: u64| {
+        oracle::Version::node(
+            u64::MAX,
+            oracle::Version::node(
+                u64::MAX,
+                oracle::Version::leaf(extra),
+                oracle::Version::leaf(0u64),
+            ),
+            oracle::Version::leaf(1u64),
+        )
+    };
+    // One height at a chosen bit edge beside a zero leaf.
+    let bit_edge =
+        |h: u64| oracle::Version::node(0u64, oracle::Version::leaf(h), oracle::Version::leaf(0u64));
+
+    let shapes = [
+        spine(300, 0),
+        spine(300, 1),
+        spine(120, 3),
+        fan(10, 0),
+        fan(10, 9),
+        fan(6, 4),
+        giant(0),
+        giant(5),
+        bit_edge((1u64 << 63) - 1),
+        bit_edge(1u64 << 63),
+        bit_edge((1u64 << 62) + 1),
+        bit_edge(u64::MAX),
+        oracle::Version::leaf(0u64),
+    ];
+    let versions: Vec<Version> = shapes.iter().map(from_oracle_version).collect();
+    for a in &versions {
+        for b in &versions {
+            // The raw pair (ordered, crossed, or concurrent), the
+            // hull against each operand (always ordered), and the
+            // coincident span.
+            check_identity(a, b);
+            let hull = a.span(b);
+            check_identity(a, hull.join());
+            check_identity(hull.meet(), b);
+            check_identity(a, a);
+        }
+    }
+}
+
+proptest! {
+    /// A single-bit mutation of a valid composite never aliases it:
+    /// the mutated bytes are rejected, or they decode to a *different*
+    /// span whose canonical encoding is the mutated composite itself —
+    /// the span-level face of the components' mutation sweeps, crossing
+    /// the seam and both padding regions that only the composite has.
+    #[test]
+    fn span_single_bit_mutations_never_alias(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+        flip_seed in any::<prop::sample::Index>(),
+    ) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let span = a.span(&b);
+        let mut bytes = span.encode();
+        let flip = flip_seed.index(bytes.len() * 8);
+        bytes[flip / 8] ^= 0x80 >> (flip % 8);
+        match Span::decode(&bytes[..]) {
+            Err(_) => {}
+            Ok(mutant) => {
+                prop_assert_ne!(
+                    &mutant, &span,
+                    "a single-bit mutation decoded back to the same span: \
+                     two spellings of one value were both accepted"
+                );
+                prop_assert_eq!(
+                    mutant.encode(), bytes,
+                    "an accepted composite must be the canonical encoding of its span"
+                );
+            }
+        }
+    }
+}

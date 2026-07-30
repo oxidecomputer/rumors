@@ -251,10 +251,15 @@ impl BorshDeserialize for Span<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
         let lo = Version::deserialize_reader(reader)?;
         let mut cursor = ReaderCursor::new(reader);
-        crate::version::skyline::validate_dominating_from(lo.view(), &mut cursor)
+        let dominates = crate::version::skyline::validate_dominating_from(lo.view(), &mut cursor)
             .map_err(decode_error)?;
-        let hi = Version::from_bits(cursor.finish().map_err(decode_error)?);
-        Ok(Span::owned(lo, hi))
+        // The final byte's padding check outranks the pair verdict,
+        // exactly as the byte-slice decode orders them.
+        let bits = cursor.finish().map_err(decode_error)?;
+        if !dominates {
+            return Err(decode_error(Decode::NotCanonical));
+        }
+        Ok(Span::owned(lo, Version::from_bits(bits)))
     }
 }
 
