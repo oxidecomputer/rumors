@@ -8,8 +8,9 @@
 //! # The wire form
 //!
 //! [`Rank::encode`] emits a *prefix-ascending* bit stream — one whose
-//! unpadded lexicographic order equals the ranks' numeric order even
-//! when each stream is followed by arbitrary further bits — packed
+//! lexicographic order equals the ranks' numeric order even when each
+//! stream is followed by arbitrary further bits, because two distinct
+//! ranks' streams always differ at a bit position inside both — packed
 //! MSB-first into zero-padded bytes:
 //!
 //! 1. **The integral part** `I = ⌊r⌋`, as the Elias delta code of
@@ -38,39 +39,44 @@
 //!    FoundationDB tuple encoding's arbitrary-precision integers cap
 //!    at 255-byte magnitudes behind a one-byte length header — both
 //!    would truncate a counter a version can legitimately carry.
-//! 2. **The fractional part**, as its binary expansion: exactly `exp`
-//!    bits, the numerator's low `exp` bits MSB-first. Normalization
-//!    keeps the numerator odd whenever `exp > 0`, so the expansion
-//!    never ends in a zero bit — expansions without trailing zeros are
-//!    unique, and their lexicographic order (a proper prefix sorting
-//!    first) is exactly their numeric order, because a proper
-//!    extension contains a set bit and only adds value.
+//! 2. **The fractional part**, as its binary expansion (the
+//!    numerator's low `exp` bits MSB-first) in groups of eight bits,
+//!    each group opened by a set *continuation* bit and the last
+//!    zero-padded to full width; one clear bit closes the fraction and
+//!    the stream. Normalization keeps the numerator odd whenever
+//!    `exp > 0`, so the expansion never ends in a zero bit: the final
+//!    group is nonzero, and its trailing zeros are recoverably
+//!    padding. Group order is numeric order: two same-integral streams
+//!    align group-for-group, a difference inside a group is decided at
+//!    its first differing expansion bit, and where only one fraction
+//!    continues, its set continuation bit beats the other's closing
+//!    zero — the extension carries a further set bit, so it denotes
+//!    the larger value.
 //!
-//! Zero-padding to the byte boundary preserves the bit-level verdict:
-//! two encodings that differ at a bit position differ at that byte; if
-//! one bit stream is a proper prefix of the other, the longer one's
-//! extension holds a set bit (its fraction ends in one), which either
-//! falls inside the shorter one's padded length — where the padding is
-//! zero, deciding the byte comparison the same way — or beyond it,
-//! where the shorter byte string is a proper byte prefix and sorts
-//! first. Equal padded byte strings therefore force equal bit streams,
-//! so padding can create neither ties nor inversions, and **byte-wise
-//! lexicographic order on encodings equals [`Ord`] on ranks** — the
-//! law the committed sweep and proptests pin.
+//! The closing bit makes every stream self-delimiting, so distinct
+//! ranks' streams are never prefixes of one another: they differ at a
+//! bit position **inside both**, the padded byte forms differ at that
+//! byte, and neither byte string is a byte prefix of the other. Hence
+//! zero-padding can create neither ties nor inversions, **byte-wise
+//! lexicographic order on encodings equals [`Ord`] on ranks**, and no
+//! appended suffix can flip the order between distinct ranks — the
+//! laws the committed sweep and proptests pin.
 //!
 //! Every piece of the stream is forced: the header is bijective (each
 //! `(ρ, payload)` pair decodes to a width `w` whose own width is
-//! exactly `ρ + 1`, so non-minimal headers are unrepresentable), the
-//! fraction's length is recovered from the stream's last set bit (a
-//! "fraction with trailing zeros" is not expressible — inside the
-//! final byte those bits *are* the padding, and spilling them into a
-//! further byte fails the minimal-length check). The decoder rejects
-//! exactly: truncation (the unary run, the header payload, or the
-//! mantissa running off the end), non-minimal byte length (trailing
-//! zero bytes), and the format's representation bounds (an integral
-//! mantissa of `2⁶⁴` or more bits, a fraction deeper than `2³² − 1` —
-//! both beyond any rank this crate can hold, and beyond any input
-//! under 2 EiB / 512 MiB respectively).
+//! exactly `ρ + 1`, so non-minimal headers are unrepresentable), and
+//! the fraction's depth is recovered from the final group's last set
+//! bit (a "fraction with trailing zeros" is not expressible — inside
+//! the final group those bits *are* the padding, and spilling them
+//! into a further group leaves that group all-zero, which the decoder
+//! rejects as non-minimal). The decoder rejects exactly: truncation
+//! (the unary run, the header payload, the mantissa, a group, or its
+//! continuation bit running off the end), non-minimal packing (byte
+//! length beyond the stream's own, a set bit in the padding, or an
+//! all-zero final group), and the format's representation bounds (an
+//! integral mantissa of `2⁶⁴` or more bits, a fraction deeper than
+//! `2³² − 1` — both beyond any rank this crate can hold, and beyond
+//! any input under 2 EiB / 576 MiB respectively).
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -128,7 +134,7 @@ use crate::error::Decode;
 /// [`distance`](crate::Version::distance), [`lag`](crate::Version::lag))
 /// keeps linear in the packed bits it read, and which
 /// [`encode`](Rank::encode) makes tangible: the canonical byte form is
-/// `‖r‖ + O(log ‖r‖)` bits. Comparison (`==`, [`Ord`]) is
+/// at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits. Comparison (`==`, [`Ord`]) is
 /// `O(1)` when the two magnitudes differ in scale and `O(‖a‖ + ‖b‖)` time
 /// with no allocation on scale ties; hashing and cloning are `O(‖r‖)`.
 /// Addition (`+`, `+=`) is `O(‖a‖ + ‖b‖)` time and space, and an n-ary
@@ -238,8 +244,9 @@ impl Rank {
     /// accepts exactly the byte strings this method produces, and equal
     /// ranks encode byte-identically (distinct ranks never collide).
     /// The format itself — the prefix-ascending integral code, the
-    /// trailing-zero-free fraction, the padding argument — is the
-    /// module's business; callers need only the law above.
+    /// group-framed fraction, the self-delimiting close that makes the
+    /// streams prefix-free — is the module's business; callers need
+    /// only the law above.
     ///
     /// # There is no numerator–exponent serialization
     ///
@@ -254,8 +261,10 @@ impl Rank {
     ///
     /// # Cost, and where it is bounded
     ///
-    /// The output is `‖r‖ + O(log ‖r‖)` bits — one bit per fractional
-    /// digit and per integral bit. Every rank *reachable from this
+    /// The output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits — one bit
+    /// per integral bit, nine bits per eight fractional digits (the
+    /// framing that keeps distinct ranks' encodings prefix-free, which
+    /// is what suffix safety costs). Every rank *reachable from this
     /// crate's public constructors* keeps that linear in what the
     /// caller already paid \[derived, and pinned per family by
     /// `rank_encoding_size_is_provenance_linear`\]: a fold's rank
@@ -277,10 +286,10 @@ impl Rank {
     /// # Complexity
     ///
     /// `O(‖r‖)` time and space in the rank's numeric size (see
-    /// [the type's note](Rank#complexity)); the output is
-    /// `‖r‖ + O(log ‖r‖)` bits.
+    /// [the type's note](Rank#complexity)); the output is at most
+    /// `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
     ///
-    /// **Complexity**: `O(‖r‖)` time and space; the output is `‖r‖ + O(log ‖r‖)` bits.
+    /// **Complexity**: `O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
     ///
     /// ```
     /// use before::{Rank, Version};
@@ -309,13 +318,15 @@ impl Rank {
     /// # Errors
     ///
     /// [`Decode::Truncated`] when the stream ends inside the integral
-    /// header or its mantissa; [`Decode::TrailingBits`] when the byte
-    /// string is longer than the minimal packing of its content
-    /// (trailing zero bytes — the one spelling a trailing-zero
+    /// header, its mantissa, or the fraction (a group or its
+    /// continuation bit); [`Decode::TrailingBits`] when the byte
+    /// string is not the minimal packing of its content (bytes past
+    /// the stream's own, a set bit in the padding, or an all-zero
+    /// final fraction group — the one spelling a trailing-zero
     /// fraction could take); [`Decode::NotCanonical`] when the stream
-    /// declares content past the format's representation bounds (an
+    /// carries content past the format's representation bounds (an
     /// integral mantissa of `2⁶⁴` or more bits, a fraction deeper than
-    /// `2³² − 1` — reachable only through inputs of 2 EiB and 512 MiB
+    /// `2³² − 1` — reachable only through inputs of 2 EiB and 576 MiB
     /// respectively); [`Decode::Io`] when the reader itself fails.
     ///
     /// # Complexity
@@ -397,7 +408,10 @@ pub(crate) fn encode_parts(num: &Base, exp: u32) -> Vec<u8> {
     let biased = (num.clone() >> exp) + 1u32;
     let w = biased.bits();
     let rho = u64::from(63 - w.leading_zeros());
-    let mut sink = BitSink::with_capacity_bits(2 * rho + 1 + (w - 1) + u64::from(exp));
+    let exp = u64::from(exp);
+    let groups = exp.div_ceil(FRACTION_GROUP_BITS);
+    let mut sink =
+        BitSink::with_capacity_bits(2 * rho + w + groups * (FRACTION_GROUP_BITS + 1) + 1);
     // The header: ρ ones, the terminating zero, then w's bits below its
     // leading bit — the Elias delta length header with the run's bit
     // sense inverted, so longer (larger) integral parts sort after
@@ -413,16 +427,27 @@ pub(crate) fn encode_parts(num: &Base, exp: u32) -> Vec<u8> {
     for i in (0..w - 1).rev() {
         sink.push(biased.bit(i));
     }
-    // The fraction: the numerator's low `exp` bits MSB-first — the
-    // binary expansion of the fractional part, which normalization
-    // (an odd numerator whenever exp > 0) keeps free of trailing
-    // zeros, so the expansion is unique and lexicographic order on
-    // expansions is numeric order.
-    for i in (0..u64::from(exp)).rev() {
-        sink.push(num.bit(i));
+    // The fraction: the binary expansion (expansion bit `j`, counting
+    // from the binary point, is the numerator's bit `exp − j`) in
+    // groups of eight, each opened by a set continuation bit, the last
+    // zero-padded; a clear bit closes the stream. Normalization (an
+    // odd numerator whenever exp > 0) puts the expansion's final set
+    // bit inside the last group, which keeps the padding recoverable
+    // and the group order numeric (the module doc's argument).
+    for g in 0..groups {
+        sink.push(true);
+        for j in g * FRACTION_GROUP_BITS + 1..=(g + 1) * FRACTION_GROUP_BITS {
+            sink.push(j <= exp && num.bit(exp - j));
+        }
     }
+    sink.push(false);
     sink.into_bytes()
 }
+
+/// The width of one fraction group: the expansion rides in byte-sized
+/// groups, each opened by a continuation bit, so the fraction costs
+/// nine bits per eight expansion bits plus the one closing bit.
+const FRACTION_GROUP_BITS: u64 = 8;
 
 /// Parse one canonical stream (strictly: [`Rank::decode`]'s contract).
 fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
@@ -462,32 +487,62 @@ fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
     // The biased integral m (its leading bit implied), then unbias.
     let integral = read_magnitude(&bit, pos, w - 1, true) - &Base::from(1u8);
     pos += w - 1;
-    // The fraction runs from the header's end through the stream's
-    // last set bit: its expansion never ends in zero, so everything
-    // after the last set bit is padding, never content.
-    let last_set = (1..=bytes.len())
-        .rev()
-        .find(|&i| bytes[i - 1] != 0)
-        .map_or(0, |i| {
-            (i as u64 - 1) * 8 + u64::from(8 - bytes[i - 1].trailing_zeros())
-        });
-    let frac_len = last_set.saturating_sub(pos);
-    let exp = u32::try_from(frac_len).map_err(|_| {
-        // The format bound: Rank's exponent (the event-tree depth) is
-        // u32; a deeper fraction needs over 512 MiB of input.
-        Decode::NotCanonical
-    })?;
-    // Strict minimal packing: content bits, then zero bits to the byte
-    // boundary and not a bit more. Bits past the content are zero by
-    // construction (they sit past the last set bit), so the one check
-    // left is that no whole trailing byte is padding.
-    if (pos + frac_len).div_ceil(8) != bytes.len() as u64 {
+    // The fraction's groups, each opened by a set continuation bit;
+    // the stream's one clear closing bit ends the loop. Group bytes
+    // stay plain `u8`s until the single width-metered materialization
+    // below.
+    let mut groups: Vec<u8> = Vec::new();
+    loop {
+        if pos == total {
+            return Err(Decode::Truncated);
+        }
+        let more = bit(pos);
+        pos += 1;
+        if !more {
+            break;
+        }
+        if total - pos < FRACTION_GROUP_BITS {
+            return Err(Decode::Truncated);
+        }
+        let mut group = 0u8;
+        for _ in 0..FRACTION_GROUP_BITS {
+            group = group << 1 | u8::from(bit(pos));
+            pos += 1;
+        }
+        groups.push(group);
+    }
+    // Strict minimal packing: the self-delimited stream, then zero bits
+    // to the byte boundary and not a bit more.
+    if pos.div_ceil(8) != bytes.len() as u64 {
         return Err(Decode::TrailingBits);
     }
+    if (pos..total).any(bit) {
+        return Err(Decode::TrailingBits);
+    }
+    // The final group carries the expansion's last set bit
+    // (normalization: the expansion never ends in zero), so an
+    // all-zero final group is pure padding — non-minimal packing —
+    // and its trailing zeros locate the fraction's true depth.
+    let (frac_len, pad) = match groups.last() {
+        None => (0, 0),
+        Some(0) => return Err(Decode::TrailingBits),
+        Some(&last) => {
+            let pad = last.trailing_zeros();
+            (
+                groups.len() as u64 * FRACTION_GROUP_BITS - u64::from(pad),
+                pad,
+            )
+        }
+    };
+    let exp = u32::try_from(frac_len).map_err(|_| {
+        // The format bound: Rank's exponent (the event-tree depth) is
+        // u32; a deeper fraction needs over 576 MiB of input.
+        Decode::NotCanonical
+    })?;
     let num = if frac_len == 0 {
         integral
     } else {
-        (integral << exp) | read_magnitude(&bit, pos, frac_len, false)
+        (integral << exp) | (Base::from_be_bytes(&groups) >> pad)
     };
     debug_assert!(
         exp == 0 || num.bit(0),
@@ -503,7 +558,7 @@ fn read_magnitude(bit: &impl Fn(u64) -> bool, start: u64, len: u64, lead_one: bo
     if width == 0 {
         return Base::ZERO;
     }
-    // The callers bound `len` by the input's bit count, so the byte
+    // The caller bounds `len` by the input's bit count, so the byte
     // buffer fits comfortably in memory.
     let mut buf = vec![0u8; usize::try_from(width.div_ceil(8)).expect("bounded by input bytes")];
     let offset = buf.len() as u64 * 8 - width;

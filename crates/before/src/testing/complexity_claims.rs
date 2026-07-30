@@ -874,7 +874,8 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Custom {
-                line: "`O(‖r‖)` time and space; the output is `‖r‖ + O(log ‖r‖)` bits.",
+                line: "`O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` \
+                       bits.",
                 reason: "the operand is an in-memory rank denominated by value content; \
                          the output is mandatory, so the honest bound names it",
             },

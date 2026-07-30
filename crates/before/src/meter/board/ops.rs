@@ -490,16 +490,23 @@ pub(super) fn ops() -> Vec<Op> {
                 // measurement. I/O-denominated: value content in, the
                 // actual canonical bytes out (the `cell` module doc's
                 // rank denomination), with the emission's honesty
-                // asserted here — a canonical encoding is
-                // `‖r‖ + O(log ‖r‖)` bits, so padding the output side
-                // of the denominator trips the run instead of greening
-                // the cell.
+                // asserted here — a canonical encoding is at most
+                // `9⁄8 · ‖r‖ + O(log ‖r‖)` bits, so padding the output
+                // side of the denominator trips the run instead of
+                // greening the cell. Derivation of the bound: the
+                // stream is `2ρ + w` header/mantissa bits plus
+                // `9 · ⌈exp/8⌉ + 1` fraction bits; `w ≤ bits(⌊r⌋) + 1`
+                // and `exp` each sit inside `content = bits(num) + exp`
+                // (so the 9⁄8 shows up as `content/8`), and `2ρ + 11`
+                // stays under 64 for any integral part narrower than
+                // 2²⁶ bits — orders beyond every committed family.
                 let (a, _) = f.rank_pair.clone()?;
                 let content = a.content_bits();
                 let encoded_len = a.encode().len();
                 assert!(
-                    (encoded_len as u64) * 8 <= content + 64,
-                    "output honesty: a canonical rank encoding is content + O(log) bits"
+                    (encoded_len as u64) * 8 <= content + content / 8 + 64,
+                    "output honesty: a canonical rank encoding is at most \
+                     9/8 content + O(log) bits"
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
