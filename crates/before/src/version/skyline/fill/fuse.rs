@@ -48,10 +48,10 @@
 
 use crate::codec::{BitCursor, Bits, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
-use crate::step;
 
 use super::super::build::SkylineBuilder;
 use super::super::grow::{Cost, Route, COST_MAX};
+use super::super::walk::LeafWalk;
 
 /// The zero inflation cost: a fully-owned terminal is a free increment
 /// (`grow(1, n) = (n + 1, 0)`).
@@ -153,33 +153,20 @@ impl Out {
         let matched_end = *matched_end;
         let mut builder = SkylineBuilder::with_capacity(ev.len());
         let mut cursor = crate::codec::DsiCursor::new(ev);
-        let mut path = Bits::new();
+        let mut walk = LeafWalk::new();
         while cursor.position() < matched_end {
-            // One whole descent per unary read; a descent never
-            // straddles `matched_end` (a matched prefix ends on a
-            // plateau boundary).
-            step!();
-            let k = cursor.read_unary().expect("canonical skyline bits");
-            for _ in 0..k {
-                path.push(false);
-            }
+            // A descent never straddles `matched_end` (a matched prefix
+            // ends on a plateau boundary), and a divergence always
+            // leaves its own consumed range beyond the matched prefix,
+            // so the prefix is a proper prefix of the tiling and some
+            // ancestor is still open at its end — the walk cannot
+            // exhaust before the position bound stops this loop.
+            let depth = walk
+                .descend(&mut cursor)
+                .expect("a matched prefix is a proper prefix of the tiling");
             let start = cursor.position();
             cursor.skip_int().expect("canonical skyline bits");
-            builder.leaf(path.len(), ev[start..cursor.position()].to_bitvec());
-            loop {
-                match path.pop() {
-                    Some(true) => continue,
-                    Some(false) => {
-                        path.push(true);
-                        break;
-                    }
-                    // A divergence always leaves its own consumed range
-                    // beyond the matched prefix, so the prefix is a
-                    // proper prefix of the tiling and some ancestor is
-                    // still open at its end.
-                    None => unreachable!("a matched prefix is a proper prefix of the tiling"),
-                }
-            }
+            builder.leaf(depth, ev[start..cursor.position()].to_bitvec());
         }
         debug_assert_eq!(
             cursor.position(),

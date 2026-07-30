@@ -170,6 +170,7 @@ pub mod query;
 pub mod sweep;
 pub mod text;
 mod validate;
+mod walk;
 
 #[cfg(test)]
 mod tests;
