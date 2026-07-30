@@ -8614,8 +8614,9 @@ mod span_codec {
     ///
     /// The floor is the fusion's own pieces; the gap above it is
     /// exactly the topology-minimality check the fusion keeps (one
-    /// word-scale zero-equality per second-component leaf — the bare
-    /// comparison never asks it, the strict parse must), and the
+    /// word-scale zero-equality per second-component leaf *delta* —
+    /// the first leaf is never asked, the bare comparison never asks
+    /// at all, the strict parse must), and the
     /// undercut against the composed shape is the second component's
     /// deleted payload re-decode. A parse-then-validate spelling reads
     /// the composed sum back exactly and fails the undercut.
