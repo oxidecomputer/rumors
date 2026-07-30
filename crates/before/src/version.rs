@@ -408,7 +408,7 @@ impl Version {
     /// records that `self` does not, `rank(self | other) - rank(self)`.
     ///
     /// The directed half of [`distance`](Self::distance): exactly the size of
-    /// the [`causally::delta`](crate::causally::delta) a replica at `self` must
+    /// the [`causally::delta`] a replica at `self` must
     /// receive to reach `self | other`. Zero when `other <= self` (`self`
     /// already knows everything `other` does), and the two directions sum to
     /// the symmetric distance: `a.lag(b) + b.lag(a) == a.distance(b)`.

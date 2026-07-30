@@ -588,6 +588,7 @@ pub(super) fn render_map(
 ///   argmax lands on benign, whose organic interleaved pair still runs
 ///   the full merge at composition parity (19.4 bits/B, byte-identical
 ///   to the parent reading; runner-up id-pair ×1.21).
+///
 /// Movement 2026-07-31 (the fused span hull: `version_span` joins as
 /// the fused pair-hull row and `version_span_all` as the two-sided
 /// hull fold's row; four new ranking entries — the two new rows at

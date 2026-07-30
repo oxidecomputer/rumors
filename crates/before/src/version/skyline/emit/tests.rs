@@ -40,8 +40,10 @@ fn version_of(p: &Packed) -> Version {
 
 /// Assert both emitters against the recursive oracle on one pair, in
 /// both operand orders, and run the pointwise overlay witness on each
-/// emitted stream; the fused hull sweep must reproduce both single-op
-/// outputs byte for byte from its one walk.
+/// emitted stream.
+///
+/// The fused hull sweep rides the same comparison: it must reproduce
+/// both single-op outputs byte for byte from its one walk.
 fn assert_emits(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));

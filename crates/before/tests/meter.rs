@@ -8306,10 +8306,11 @@ mod span {
     }
 
     /// The span fixture: two comparable snapshots `s < v` of one
-    /// multi-party history (received sends give the streams real
-    /// structure), a divergent line `div` concurrent to `v`, and a
-    /// small population of intermediate snapshots for the n-ary
+    /// multi-party history, a divergent line `div` concurrent to `v`,
+    /// and a population of intermediate snapshots for the n-ary
     /// regimes.
+    ///
+    /// Received sends give every stream real multi-party structure.
     fn fixture() -> (Version, Version, Version, Vec<Version>) {
         let mut main = Clock::seed();
         let mut others: Vec<Clock> = (0..6).map(|_| main.fork()).collect();

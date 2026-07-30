@@ -317,10 +317,11 @@ const fn constant(op: &'static str) -> Claim {
     }
 }
 
-/// The `causally` module doc's shared line: eighteen rows price the same
-/// three facts, so they share one bound at one site. The deriving
-/// constructors (`Version::span`/`Version::span_all`) are priced at
-/// their own fn docs, not here.
+/// The `causally` module doc's shared line: eighteen rows price the
+/// same three facts, so they share one bound at one site.
+///
+/// The deriving constructors (`Version::span`/`Version::span_all`) are
+/// priced at their own fn docs, not here.
 const CAUSALLY_BOUND: Bound = Bound::Custom {
     line: "borrowing constructors `O(1)` (the deriving `span`/`span_all` priced on `Version`); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
     reason: "one module-doc section prices every constructor and predicate together",

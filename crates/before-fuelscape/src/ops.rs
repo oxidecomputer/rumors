@@ -1034,30 +1034,50 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          the bounds; the version_cmp panel prices the same per-stream sweep",
     ),
     (
-        "causally::Interval::new",
-        "interval constructor whose validity check is one causal comparison; \
+        "causally::Span::new",
+        "span constructor whose validity check is one causal comparison; \
          the version_cmp panel prices the walk",
     ),
     (
-        "causally::Interval::ordered",
-        "O(1) interval constructor over two borrowed versions (the trusted \
+        "causally::Span::ordered",
+        "O(1) span constructor over two borrowed versions (the trusted \
          door performs no comparison)",
     ),
     (
-        "causally::Interval::place",
-        "interval placement, law-pinned to the causal comparisons against the \
+        "causally::Span::place",
+        "span placement, law-pinned to the causal comparisons against the \
          endpoints; the version_cmp panel prices the same per-stream sweep",
     ),
     (
-        "causally::Interval::dominance_of",
-        "interval placement, law-pinned to the causal comparisons against the \
+        "causally::Span::dominance_of",
+        "span placement, law-pinned to the causal comparisons against the \
          endpoints; the version_cmp panel prices the same per-stream sweep",
     ),
     (
-        "causally::Interval::spanning",
-        "the lattice hull's endpoints are the meet and join folds; the \
-         version_join_all/version_meet_all panels price the same balanced \
-         reductions",
+        "causally::Span::meet",
+        "O(1) borrow of a stored endpoint: no walk, no comparison",
+    ),
+    (
+        "causally::Span::join",
+        "O(1) borrow of a stored endpoint: no walk, no comparison",
+    ),
+    (
+        "causally::Span::into_parts",
+        "borrow-settling destructure: at most one byte copy per endpoint, \
+         no walk",
+    ),
+    (
+        "Version::span",
+        "the fused pair hull: one emission sweep feeds both endpoints; the \
+         version_join/version_meet panels price the same walk, which the \
+         fused form undercuts (the span scan-identity pins in the envelope \
+         suite hold the undercut exact)",
+    ),
+    (
+        "Version::span_all",
+        "the hull fold: one balanced reduction carrying both endpoints, leaf \
+         combines fused; the version_join_all/version_meet_all panels price \
+         the same balanced reductions",
     ),
     // ── not operations ──
     (
