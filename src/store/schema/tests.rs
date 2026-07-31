@@ -1,7 +1,9 @@
-//! Record encodings round-trip exactly, and the allocator's names are
+//! Record encodings round-trip exactly, the decode doors refuse
+//! corrupted rows as observable errors, and the allocator's names are
 //! unique across blocks, crashes, and concurrent exhaustion.
 
 use before::{Clock, Version};
+use borsh::BorshSerialize;
 use proptest::prelude::*;
 
 use super::*;
@@ -25,7 +27,7 @@ fn version_passthrough_is_exact() {
             payload: b"payload".to_vec(),
         },
     };
-    let decoded = NodeRecord::decode(&record.encode());
+    let decoded = NodeRecord::decode(NodeId(0), &record.encode()).expect("round trip");
     assert_eq!(decoded, record);
     let NodeBody::Leaf {
         version: reloaded, ..
@@ -67,7 +69,7 @@ proptest! {
             }
         };
         let record = NodeRecord { strong, body };
-        prop_assert_eq!(NodeRecord::decode(&record.encode()), record);
+        prop_assert_eq!(NodeRecord::decode(NodeId(0), &record.encode()).expect("round trip"), record);
     }
 
     /// The canonical-root record round-trips, absent identity included:
@@ -99,7 +101,10 @@ fn id_keys_order_numerically() {
     let ids = [0u64, 1, 255, 256, 1 << 20, u64::MAX];
     let mut keys: Vec<_> = ids.iter().map(|&id| NodeId(id).key()).collect();
     keys.sort();
-    let sorted: Vec<_> = keys.iter().map(|key| NodeId::from_key(key)).collect();
+    let sorted: Vec<_> = keys
+        .iter()
+        .map(|key| NodeId::from_key(NODES, key).expect("eight bytes"))
+        .collect();
     assert_eq!(sorted, ids.map(NodeId).to_vec());
 }
 
@@ -107,7 +112,123 @@ fn id_keys_order_numerically() {
 #[test]
 fn held_keys_round_trip() {
     let key = held_key(NodeId(77), PinId(u64::MAX));
-    assert_eq!(split_held_key(&key), (NodeId(77), PinId(u64::MAX)));
+    assert_eq!(
+        split_held_key(&key).expect("sixteen bytes"),
+        (NodeId(77), PinId(u64::MAX))
+    );
+}
+
+/// A truncated node record refuses as an observable [`Corruption`]
+/// naming its table and key — never a panic, and never a value.
+///
+/// The bytes are a valid record's encoding cut short: exactly what a
+/// torn write or a rotted length leaves behind.
+#[test]
+fn truncated_record_refuses_as_corruption() {
+    let record = NodeRecord {
+        strong: 2,
+        body: NodeBody::Leaf {
+            prefix: vec![3, 1, 4],
+            version: Version::new(),
+            payload: b"payload".to_vec(),
+        },
+    };
+    let whole = record.encode();
+    let truncated = &whole[..whole.len() - 1];
+    let node = NodeId(42);
+    let refusal = NodeRecord::decode(node, truncated).expect_err("truncated bytes must refuse");
+    assert_eq!(refusal.table(), NODES);
+    assert_eq!(refusal.key(), node.key());
+}
+
+/// Byte-layout mirror of a branch [`NodeRecord`] whose bounds are two
+/// *independent* versions: what lets the test write a crossed pair the
+/// real record's validating span field can never construct.
+#[derive(BorshSerialize)]
+struct RawBranchRecord {
+    strong: u64,
+    /// [`NodeBody`]'s borsh enum discriminant; `Branch` is variant 1.
+    variant: u8,
+    prefix: Vec<u8>,
+    hash: Hash,
+    /// The bounds field as raw endpoints (a `Span` serializes as the
+    /// meet's canonical bytes then the join's, unframed).
+    meet: Version,
+    join: Version,
+    leaves: u64,
+    version_bytes: u64,
+    children: Vec<(u8, NodeId, Hash)>,
+}
+
+/// A stored branch whose bounds pair is crossed (meet strictly above
+/// join) refuses as an observable [`Corruption`]: the span field's
+/// validating parse is a decode door like any other, so bounds no write
+/// could produce surface as the same error, never a panic and never an
+/// unordered span handed to the classifiers.
+#[test]
+fn crossed_span_record_refuses_as_corruption() {
+    let party = before::Party::seed();
+    let mut version = Version::new();
+    version.tick(&party);
+    let below = version.clone();
+    version.tick(&party);
+    let above = version;
+
+    let raw = RawBranchRecord {
+        strong: 1,
+        variant: 1,
+        prefix: vec![9],
+        hash: Hash::leaf(b"x"),
+        // Crossed: the stored meet strictly dominates the stored join.
+        meet: above,
+        join: below,
+        leaves: 2,
+        version_bytes: 3,
+        children: vec![
+            (0, NodeId(1), Hash::leaf(&[0])),
+            (1, NodeId(2), Hash::leaf(&[1])),
+        ],
+    };
+    let bytes = borsh::to_vec(&raw).expect("the mirror encodes");
+    let node = NodeId(7);
+    let refusal = NodeRecord::decode(node, &bytes).expect_err("a crossed bounds pair must refuse");
+    assert_eq!(refusal.table(), NODES);
+    assert_eq!(refusal.key(), node.key());
+}
+
+/// The mirror's layout premise holds: an *ordered* pair through the
+/// mirror decodes to the real record, so the crossed case above fails
+/// on the crossing alone, not on some layout mismatch.
+#[test]
+fn raw_branch_mirror_matches_record_layout() {
+    let party = before::Party::seed();
+    let mut version = Version::new();
+    version.tick(&party);
+    let below = version.clone();
+    version.tick(&party);
+    let above = version;
+
+    let raw = RawBranchRecord {
+        strong: 1,
+        variant: 1,
+        prefix: vec![9],
+        hash: Hash::leaf(b"x"),
+        meet: below.clone(),
+        join: above.clone(),
+        leaves: 2,
+        version_bytes: 3,
+        children: vec![
+            (0, NodeId(1), Hash::leaf(&[0])),
+            (1, NodeId(2), Hash::leaf(&[1])),
+        ],
+    };
+    let bytes = borsh::to_vec(&raw).expect("the mirror encodes");
+    let decoded = NodeRecord::decode(NodeId(7), &bytes).expect("an ordered pair decodes");
+    let NodeBody::Branch { bounds, .. } = &decoded.body else {
+        unreachable!("variant 1 is Branch");
+    };
+    assert_eq!(bounds.meet().as_bytes(), below.as_bytes());
+    assert_eq!(bounds.join().as_bytes(), above.as_bytes());
 }
 
 /// Allocation never repeats an ID: not within a block, not across the

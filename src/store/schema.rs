@@ -31,16 +31,27 @@
 //!
 //! # Corruption
 //!
-//! The backend trusts its own tables: it is the only writer, so a record
-//! that fails to decode is an invariant violation (a bug here, or storage
-//! the deployment let something else write), and the decode helpers
-//! **panic** rather than launder corruption into a storage error the
-//! caller would retry. Integrity below that — torn pages, bit rot — is
-//! the store's own department, per the [`Kv`] contract.
+//! Corruption is environmental: bit rot, a torn write the store's
+//! integrity layer missed, an operator's misdirected script. This layer
+//! writes only canonical records, so bytes that fail to decode — or
+//! decode to a shape no write produces, like a crossed bounds pair — are
+//! evidence the store no longer holds what was written. Every decode
+//! door here refuses such bytes with a [`Corruption`] naming the table
+//! and key: the enclosing transaction applies nothing (the
+//! [`checked`](super::checked) views guarantee it), and the refusal
+//! surfaces through the backend's error surface
+//! ([`KvError::Corrupt`](super::KvError::Corrupt)) as its own genre,
+//! distinct from a store that merely *failed* — the deployment can then
+//! tell "retry against healthy storage" from "the stored replica lied",
+//! and decide what recovery means. Detecting the torn page itself —
+//! integrity below the byte level this layer reads — is the store's own
+//! department, per the [`Kv`] contract.
 
 use before::{Version, causally};
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use super::checked;
+use super::error::{Corruption, KvError};
 use super::kv::{Kv, ReadTxn, Table, WriteTxn};
 use crate::tree::typed::Hash;
 
@@ -83,14 +94,15 @@ impl NodeId {
 
     /// Reads a [`key`](Self::key) back.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// On a malformed key: held and GC rows are written only by this
-    /// module, so a bad key is corruption (see the module docs).
-    pub(crate) fn from_key(key: &[u8]) -> Self {
-        NodeId(u64::from_be_bytes(
-            key.try_into().expect("malformed node-ID row key"),
-        ))
+    /// [`Corruption`] on a key that is not exactly eight bytes: node-ID
+    /// rows are written only by this module, so a malformed key in
+    /// `table` is corruption (see the module docs).
+    pub(crate) fn from_key(table: Table, key: &[u8]) -> Result<Self, Corruption> {
+        Ok(NodeId(u64::from_be_bytes(key.try_into().map_err(
+            |_| Corruption::new(table, key, "node-ID row key"),
+        )?)))
     }
 }
 
@@ -104,15 +116,19 @@ pub(crate) fn held_key(node: NodeId, pin: PinId) -> [u8; 16] {
 
 /// Splits a held-table row key back into `(node, pin)`.
 ///
-/// # Panics
+/// # Errors
 ///
-/// On a malformed key (corruption; see the module docs).
-pub(crate) fn split_held_key(key: &[u8]) -> (NodeId, PinId) {
-    assert_eq!(key.len(), 16, "malformed held row key");
-    (
-        NodeId::from_key(&key[..8]),
-        PinId(u64::from_be_bytes(key[8..].try_into().unwrap())),
-    )
+/// [`Corruption`] on a key that is not exactly sixteen bytes
+/// (see the module docs).
+pub(crate) fn split_held_key(key: &[u8]) -> Result<(NodeId, PinId), Corruption> {
+    let (node, pin) = key
+        .split_at_checked(8)
+        .filter(|(_, pin)| pin.len() == 8)
+        .ok_or_else(|| Corruption::new(HELD, key, "held row key"))?;
+    Ok((
+        NodeId(u64::from_be_bytes(node.try_into().expect("split at 8"))),
+        PinId(u64::from_be_bytes(pin.try_into().expect("checked to 8"))),
+    ))
 }
 
 /// A registration identity for one held-table row.
@@ -212,13 +228,18 @@ pub(crate) enum NodeBody {
 }
 
 impl NodeRecord {
-    /// Decodes a row value.
+    /// Decodes `node`'s row value.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// On undecodable bytes (corruption; see the module docs).
-    pub(crate) fn decode(value: &[u8]) -> Self {
-        borsh::from_slice(value).expect("corrupt node record")
+    /// [`Corruption`] on undecodable bytes — the [`bounds`] field's
+    /// validating parse counts, so a crossed or concurrent stored pair
+    /// refuses here exactly as truncated or garbled bytes do (see the
+    /// module docs).
+    ///
+    /// [`bounds`]: NodeBody::Branch::bounds
+    pub(crate) fn decode(node: NodeId, value: &[u8]) -> Result<Self, Corruption> {
+        borsh::from_slice(value).map_err(|_| Corruption::new(NODES, &node.key(), "node record"))
     }
 
     /// Encodes this record as a row value.
@@ -240,13 +261,22 @@ impl CanonicalRoot {
     /// Decodes the META root row, or the default (empty tree, no
     /// identity) when the row is absent.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// On undecodable bytes (corruption; see the module docs).
-    pub(crate) fn read<T: ReadTxn + ?Sized>(txn: &mut T) -> Result<Self, T::Error> {
+    /// The transaction's own failure, or [`Corruption`] on undecodable
+    /// bytes (see the module docs).
+    pub(crate) fn read<T>(txn: &mut T) -> Result<Self, T::Error>
+    where
+        T: ReadTxn + ?Sized,
+        T::Error: From<Corruption>,
+    {
         Ok(txn
             .get(META, ROOT_KEY)?
-            .map(|value| borsh::from_slice(&value).expect("corrupt canonical-root record"))
+            .map(|value| {
+                borsh::from_slice(&value)
+                    .map_err(|_| Corruption::new(META, ROOT_KEY, "canonical-root record"))
+            })
+            .transpose()?
             .unwrap_or_default())
     }
 
@@ -283,28 +313,37 @@ impl IdAllocator {
     /// Allocates one fresh ID, reserving a new block when the in-hand one
     /// is exhausted. IDs are unique for the store's lifetime and never
     /// reused; a crash wastes the unconsumed remainder of the block.
-    pub(crate) async fn allocate<K: Kv>(&self, kv: &K) -> Result<u64, K::Error> {
+    ///
+    /// # Errors
+    ///
+    /// The store's failure, or [`Corruption`] when the ceiling row is
+    /// undecodable or absurd — a ceiling within one block of the 64-bit
+    /// space is unreachable by honest reservation (a block per
+    /// nanosecond would take centuries), so an overflowing reservation
+    /// is a rotted high byte, not exhaustion.
+    pub(crate) async fn allocate<K: Kv>(&self, kv: &K) -> Result<u64, KvError<K::Error>> {
         let mut block = self.block.lock().await;
         if block.0 == block.1 {
-            let reserved = kv
-                .write(|txn| {
-                    let floor = txn
-                        .get(META, IDS_KEY)?
-                        .map(|value| {
-                            borsh::from_slice(&value).expect("corrupt ID-allocator record")
-                        })
-                        .unwrap_or(0u64);
-                    let ceiling = floor
-                        .checked_add(ID_BLOCK)
-                        .expect("node-ID space exhausted");
-                    txn.put(
-                        META,
-                        IDS_KEY,
-                        &borsh::to_vec(&ceiling).expect("u64 encoding is infallible"),
-                    )?;
-                    Ok(floor)
-                })
-                .await?;
+            let reserved = checked::write(kv, |txn| {
+                let floor = txn
+                    .get(META, IDS_KEY)?
+                    .map(|value| {
+                        borsh::from_slice(&value)
+                            .map_err(|_| Corruption::new(META, IDS_KEY, "ID-allocator record"))
+                    })
+                    .transpose()?
+                    .unwrap_or(0u64);
+                let ceiling = floor
+                    .checked_add(ID_BLOCK)
+                    .ok_or_else(|| Corruption::new(META, IDS_KEY, "ID-allocator ceiling"))?;
+                txn.put(
+                    META,
+                    IDS_KEY,
+                    &borsh::to_vec(&ceiling).expect("u64 encoding is infallible"),
+                )?;
+                Ok(floor)
+            })
+            .await?;
             *block = (reserved, reserved + ID_BLOCK);
         }
         let id = block.0;

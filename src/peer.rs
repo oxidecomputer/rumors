@@ -304,8 +304,11 @@ where
     /// [`OpenError::Retired`](crate::store::OpenError::Retired) when the
     /// stored replica donated its identity away (the store is an archive,
     /// not a resumable peer);
+    /// [`OpenError::Corrupt`](crate::store::OpenError::Corrupt) when the
+    /// store served bytes no peer ever wrote (the stored replica lied;
+    /// retrying cannot help, and the variant names the corrupt row);
     /// [`OpenError::Storage`](crate::store::OpenError::Storage) when the
-    /// store itself failed.
+    /// store itself failed (retry against healthy storage).
     pub async fn open(kv: K) -> Result<Self, crate::store::OpenError<K::Error>> {
         let backend = crate::store::KvBackend::new(kv);
         let (network, clock, root) = backend.open_replica().await?;

@@ -21,7 +21,7 @@
 //! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
 //! | [`Error::Bookmark`] | unchanged (committed if raised after absorbing a retirement) | fix or replace the bookmark storage, then retry |
 //! | [`Error::Mirror`] | unchanged | reconciliation failed: the nested source names the detecting side and the fault |
-//! | [`Error::Storage`] | unchanged | the storage backend failed on a local operation: fix or replace the storage, then retry |
+//! | [`Error::Storage`] | unchanged | the storage backend failed on a local operation; a persistent peer's wrapped [`KvError`](crate::KvError) splits the genres — the store *failed* (fix or replace the storage, then retry) or the store *lied* ([`KvError::Corrupt`](crate::KvError::Corrupt): retrying cannot help; recover content from any other replica by ordinary gossip) |
 
 use std::convert::Infallible;
 
@@ -54,6 +54,10 @@ pub type MirrorError<E = Infallible> = mirror::Error<MaterializedError<E>, Remot
 /// tree state outside a session: sending, redacting, committing a batch,
 /// or reading through a snapshot or observer. The default in-memory
 /// backend is infallible, so for it this error cannot be constructed.
+/// For a [`KvBackend`](crate::KvBackend) peer the wrapped error is
+/// [`KvError`](crate::KvError), whose two arms separate a store that
+/// failed from a store that lied (corruption) — match on it when the
+/// handling differs.
 #[derive(Debug, thiserror::Error)]
 #[error("storage backend failed: {0}")]
 pub struct StorageError<E>(#[source] pub E);

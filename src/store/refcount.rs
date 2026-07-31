@@ -30,6 +30,8 @@
 
 use std::sync::Mutex;
 
+use super::checked;
+use super::error::{Corruption, KvError};
 use super::kv::{Kv, ReadTxn, WriteTxn};
 use super::schema::{
     CanonicalRoot, GC, HELD, NODES, NodeId, NodeRecord, PinId, held_key, split_held_key,
@@ -95,13 +97,16 @@ impl ReleaseQueue {
 /// True iff any held row registers `node`.
 fn held<T: ReadTxn + ?Sized>(txn: &mut T, node: NodeId) -> Result<bool, T::Error> {
     // Held keys are (node BE, pin BE): the first row at or after
-    // (node, 0) belongs to `node` iff its 8-byte prefix matches.
+    // (node, 0) belongs to `node` iff its 8-byte prefix matches. A key
+    // too short to carry the prefix registers nothing here; the
+    // recovery sweep is where a malformed held key surfaces as the
+    // corruption it is.
     let probe = held_key(node, PinId(0));
     Ok(match txn.get(HELD, &probe)? {
         Some(_) => true,
         None => txn
             .next_after(HELD, Some(&probe))?
-            .is_some_and(|(key, _)| key[..8] == node.key()),
+            .is_some_and(|(key, _)| key.get(..8) == Some(&node.key()[..])),
     })
 }
 
@@ -119,13 +124,19 @@ fn queue_if_dead<W: WriteTxn + ?Sized>(
 }
 
 /// Reads a node's record, or `None` if it was already reclaimed.
-pub(crate) fn read_node<T: ReadTxn + ?Sized>(
-    txn: &mut T,
-    node: NodeId,
-) -> Result<Option<NodeRecord>, T::Error> {
-    Ok(txn
-        .get(NODES, &node.key())?
-        .map(|value| NodeRecord::decode(&value)))
+///
+/// # Errors
+///
+/// The transaction's own failure, or [`Corruption`] when the row's
+/// bytes fail [`NodeRecord::decode`].
+pub(crate) fn read_node<T>(txn: &mut T, node: NodeId) -> Result<Option<NodeRecord>, T::Error>
+where
+    T: ReadTxn + ?Sized,
+    T::Error: From<Corruption>,
+{
+    txn.get(NODES, &node.key())?
+        .map(|value| NodeRecord::decode(node, &value).map_err(T::Error::from))
+        .transpose()
 }
 
 /// Stores a fresh node under a fresh registration.
@@ -159,12 +170,16 @@ pub(crate) fn register<W: WriteTxn + ?Sized>(
 /// never reused, so the absent row means the work is already done. An
 /// *increment* against one is a custody bug — something is linking a
 /// record it failed to keep registered — and panics rather than
-/// installing a dangling edge.
-pub(crate) fn adjust_strong<W: WriteTxn + ?Sized>(
-    txn: &mut W,
-    node: NodeId,
-    delta: i64,
-) -> Result<(), W::Error> {
+/// installing a dangling edge, as does a count that over- or
+/// underflows. Both asserts are the custody detector [`Kv`]'s
+/// exclusive-ownership requirement licenses: within one live backend
+/// they are unreachable, and a second backend sweeping this one's
+/// registrations is the documented usage violation the panic reports.
+pub(crate) fn adjust_strong<W>(txn: &mut W, node: NodeId, delta: i64) -> Result<(), W::Error>
+where
+    W: WriteTxn + ?Sized,
+    W::Error: From<Corruption>,
+{
     let Some(mut record) = read_node(txn, node)? else {
         assert!(
             delta < 0,
@@ -182,10 +197,11 @@ pub(crate) fn adjust_strong<W: WriteTxn + ?Sized>(
 
 /// Releases a batch of registrations: deletes each exact row and queues
 /// any node thereby made unreachable. Idempotent per entry.
-pub(crate) fn release<W: WriteTxn + ?Sized>(
-    txn: &mut W,
-    batch: &[(NodeId, PinId)],
-) -> Result<(), W::Error> {
+pub(crate) fn release<W>(txn: &mut W, batch: &[(NodeId, PinId)]) -> Result<(), W::Error>
+where
+    W: WriteTxn + ?Sized,
+    W::Error: From<Corruption>,
+{
     for &(node, pin) in batch {
         txn.delete(HELD, &held_key(node, pin))?;
         if let Some(record) = read_node(txn, node)? {
@@ -200,13 +216,17 @@ pub(crate) fn release<W: WriteTxn + ?Sized>(
 ///
 /// `clock` is written as given: `Some` records the identity, `None`
 /// clears it (retirement) — never "retain".
-pub(crate) fn flip_root<W: WriteTxn + ?Sized>(
+pub(crate) fn flip_root<W>(
     txn: &mut W,
     network: crate::Network,
     root: Option<NodeId>,
     ceiling: before::Version,
     identity: Option<Vec<u8>>,
-) -> Result<(), W::Error> {
+) -> Result<(), W::Error>
+where
+    W: WriteTxn + ?Sized,
+    W::Error: From<Corruption>,
+{
     let previous = CanonicalRoot::read(txn)?;
     CanonicalRoot {
         network: Some(network),
@@ -228,10 +248,11 @@ pub(crate) fn flip_root<W: WriteTxn + ?Sized>(
 
 /// Rewrites only the identity record, leaving the tree untouched: the
 /// party-shrink write that must land before a donation crosses the wire.
-pub(crate) fn record_identity<W: WriteTxn + ?Sized>(
-    txn: &mut W,
-    identity: Option<Vec<u8>>,
-) -> Result<(), W::Error> {
+pub(crate) fn record_identity<W>(txn: &mut W, identity: Option<Vec<u8>>) -> Result<(), W::Error>
+where
+    W: WriteTxn + ?Sized,
+    W::Error: From<Corruption>,
+{
     let mut record = CanonicalRoot::read(txn)?;
     record.identity = identity;
     record.write(txn)
@@ -241,14 +262,18 @@ pub(crate) fn record_identity<W: WriteTxn + ?Sized>(
 /// nodes, decrementing children (queuing any that die) and deleting the
 /// processed rows. Returns how many it processed; zero means the queue
 /// is empty.
-pub(crate) fn reclaim_step<W: WriteTxn + ?Sized>(txn: &mut W) -> Result<usize, W::Error> {
+pub(crate) fn reclaim_step<W>(txn: &mut W) -> Result<usize, W::Error>
+where
+    W: WriteTxn + ?Sized,
+    W::Error: From<Corruption>,
+{
     let mut processed = 0;
     let mut cursor: Option<Vec<u8>> = None;
     while processed < GC_BUDGET {
         let Some((key, _)) = txn.next_after(GC, cursor.as_deref())? else {
             break;
         };
-        let node = NodeId::from_key(&key);
+        let node = NodeId::from_key(GC, &key)?;
         if let Some(record) = read_node(txn, node)? {
             if record.strong > 0 || held(txn, node)? {
                 // A stale queue entry: the node was re-linked or
@@ -272,17 +297,17 @@ pub(crate) fn reclaim_step<W: WriteTxn + ?Sized>(txn: &mut W) -> Result<usize, W
 /// The explicit maintenance entry point; the backend also piggybacks
 /// bounded flush/reclaim steps onto its ordinary write transactions, so
 /// an idle store converges without ever calling this.
-pub(crate) async fn vacuum<K: Kv>(kv: &K, queue: &ReleaseQueue) -> Result<(), K::Error> {
+pub(crate) async fn vacuum<K: Kv>(kv: &K, queue: &ReleaseQueue) -> Result<(), KvError<K::Error>> {
     loop {
         let batch = queue.take();
         if batch.is_empty() {
-            let processed = kv.write(|txn| reclaim_step(txn)).await?;
+            let processed = checked::write(kv, |txn| reclaim_step(txn)).await?;
             if processed == 0 && queue.is_empty() {
                 return Ok(());
             }
         } else {
             let applied = batch.clone();
-            if let Err(error) = kv.write(move |txn| release(txn, &applied)).await {
+            if let Err(error) = checked::write(kv, move |txn| release(txn, &applied)).await {
                 queue.requeue(batch);
                 return Err(error);
             }
@@ -298,29 +323,28 @@ pub(crate) async fn vacuum<K: Kv>(kv: &K, queue: &ReleaseQueue) -> Result<(), K:
 /// that flushed everything leaves the table empty, and one that didn't is
 /// indistinguishable from a crash and equally swept. Idempotent: a crash
 /// mid-sweep leaves the remaining rows for the next open.
-pub(crate) async fn recover<K: Kv>(kv: &K) -> Result<(), K::Error> {
+pub(crate) async fn recover<K: Kv>(kv: &K) -> Result<(), KvError<K::Error>> {
     loop {
-        let swept = kv
-            .write(|txn| {
-                let mut swept = 0;
-                let mut cursor: Option<Vec<u8>> = None;
-                while swept < RELEASE_BUDGET {
-                    let Some((key, _)) = txn.next_after(HELD, cursor.as_deref())? else {
-                        break;
-                    };
-                    let (node, pin) = split_held_key(&key);
-                    release(txn, &[(node, pin)])?;
-                    cursor = Some(key);
-                    swept += 1;
-                }
-                Ok(swept)
-            })
-            .await?;
+        let swept = checked::write(kv, |txn| {
+            let mut swept = 0;
+            let mut cursor: Option<Vec<u8>> = None;
+            while swept < RELEASE_BUDGET {
+                let Some((key, _)) = txn.next_after(HELD, cursor.as_deref())? else {
+                    break;
+                };
+                let (node, pin) = split_held_key(&key)?;
+                release(txn, &[(node, pin)])?;
+                cursor = Some(key);
+                swept += 1;
+            }
+            Ok(swept)
+        })
+        .await?;
         if swept == 0 {
             break;
         }
     }
-    while kv.write(|txn| reclaim_step(txn)).await? > 0 {}
+    while checked::write(kv, |txn| reclaim_step(txn)).await? > 0 {}
     Ok(())
 }
 

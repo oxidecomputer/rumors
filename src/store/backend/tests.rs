@@ -3,7 +3,8 @@ use futures::StreamExt as _;
 use super::*;
 use crate::link::memory;
 use crate::store::Memory;
-use crate::store::schema::{GC, HELD, NODES};
+use crate::store::kv::ReadTxn as _;
+use crate::store::schema::{GC, HELD};
 use crate::{Peer, Rumors, store::OpenError};
 
 /// A fresh KV-backed peer over the reference store, seeded as its own
@@ -39,56 +40,54 @@ fn contents<S: crate::tree::backend::Store<u64>>(
 /// and the held and reclamation tables are empty.
 fn audit(store: &Memory) {
     pollster::block_on(async {
-        use crate::store::kv::Kv as _;
-        store
-            .read(|txn| {
-                // The reachable closure of the canonical root, with each
-                // node's expected strong count (durable edges + the root
-                // edge).
-                let record = CanonicalRoot::read(txn)?;
-                let mut reachable = std::collections::HashMap::<u64, u64>::new();
-                let mut frontier: Vec<NodeId> = Vec::new();
-                if let Some(root) = record.root {
-                    reachable.insert(root.0, 1);
-                    frontier.push(root);
-                }
-                while let Some(id) = frontier.pop() {
-                    let node = refcount::read_node(txn, id)?.expect("dangling reachable edge");
-                    for child in node.children() {
-                        let strong = reachable.entry(child.0).or_insert(0);
-                        *strong += 1;
-                        if *strong == 1 {
-                            frontier.push(child);
-                        }
+        crate::store::checked::read(store, |txn| {
+            // The reachable closure of the canonical root, with each
+            // node's expected strong count (durable edges + the root
+            // edge).
+            let record = CanonicalRoot::read(txn)?;
+            let mut reachable = std::collections::HashMap::<u64, u64>::new();
+            let mut frontier: Vec<NodeId> = Vec::new();
+            if let Some(root) = record.root {
+                reachable.insert(root.0, 1);
+                frontier.push(root);
+            }
+            while let Some(id) = frontier.pop() {
+                let node = refcount::read_node(txn, id)?.expect("dangling reachable edge");
+                for child in node.children() {
+                    let strong = reachable.entry(child.0).or_insert(0);
+                    *strong += 1;
+                    if *strong == 1 {
+                        frontier.push(child);
                     }
                 }
-                // Storage holds exactly the closure, with exact counts.
-                let mut stored = 0;
-                let mut cursor: Option<Vec<u8>> = None;
-                while let Some((key, value)) = txn.next_after(NODES, cursor.as_deref())? {
-                    let id = NodeId::from_key(&key);
-                    let node = NodeRecord::decode(&value);
-                    assert_eq!(
-                        Some(&node.strong),
-                        reachable.get(&id.0),
-                        "stored strong count matches recomputed reachability for {id:?}"
-                    );
-                    stored += 1;
-                    cursor = Some(key);
-                }
-                assert_eq!(stored, reachable.len(), "storage is exactly the closure");
-                assert!(
-                    txn.next_after(HELD, None)?.is_none(),
-                    "no held rows at quiescence"
+            }
+            // Storage holds exactly the closure, with exact counts.
+            let mut stored = 0;
+            let mut cursor: Option<Vec<u8>> = None;
+            while let Some((key, value)) = txn.next_after(NODES, cursor.as_deref())? {
+                let id = NodeId::from_key(NODES, &key)?;
+                let node = NodeRecord::decode(id, &value)?;
+                assert_eq!(
+                    Some(&node.strong),
+                    reachable.get(&id.0),
+                    "stored strong count matches recomputed reachability for {id:?}"
                 );
-                assert!(
-                    txn.next_after(GC, None)?.is_none(),
-                    "no queued reclamation at quiescence"
-                );
-                Ok(())
-            })
-            .await
-            .expect("audit transaction");
+                stored += 1;
+                cursor = Some(key);
+            }
+            assert_eq!(stored, reachable.len(), "storage is exactly the closure");
+            assert!(
+                txn.next_after(HELD, None)?.is_none(),
+                "no held rows at quiescence"
+            );
+            assert!(
+                txn.next_after(GC, None)?.is_none(),
+                "no queued reclamation at quiescence"
+            );
+            Ok(())
+        })
+        .await
+        .expect("audit transaction");
     });
 }
 
@@ -258,6 +257,47 @@ fn reopen_resumes_the_replica() {
             witness.snapshot().hash(),
             "post-restart sends converge"
         );
+    });
+}
+
+/// A store whose canonical record rotted refuses to open with the
+/// corruption genre — distinct from [`OpenError::Empty`],
+/// [`OpenError::Retired`], and a store failure — naming the corrupt
+/// row, so a deployment can tell "the store lied" from every other
+/// refusal to resume.
+#[test]
+fn open_reports_corruption_distinctly() {
+    pollster::block_on(async {
+        use crate::store::kv::Kv as _;
+        let (store, _backend, rumors) = kv_peer();
+        rumors.send(7).await.expect("send");
+        drop(rumors);
+
+        // Bit rot at the canonical record: truncate the stored row.
+        let rotted = store
+            .read(|txn| txn.get(crate::store::schema::META, crate::store::schema::ROOT_KEY))
+            .await
+            .expect("read the root row")
+            .expect("a seeded store holds a root row");
+        store
+            .write(move |txn| {
+                txn.put(
+                    crate::store::schema::META,
+                    crate::store::schema::ROOT_KEY,
+                    &rotted[..rotted.len() - 1],
+                )
+            })
+            .await
+            .expect("plant the rot");
+
+        match Peer::<u64, _, _>::open(store).await {
+            Err(OpenError::Corrupt(corruption)) => {
+                assert_eq!(corruption.table(), crate::store::schema::META);
+                assert_eq!(corruption.key(), crate::store::schema::ROOT_KEY);
+            }
+            Err(other) => panic!("a rotted record must refuse as corruption, got {other:?}"),
+            Ok(_) => panic!("a rotted record must refuse to open"),
+        }
     });
 }
 

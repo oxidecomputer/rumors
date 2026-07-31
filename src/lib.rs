@@ -412,7 +412,7 @@ pub use snapshot::{Messages, Snapshot};
     doc(cfg(any(feature = "conformance", feature = "test-internals")))
 )]
 pub use store::Memory;
-pub use store::{Kv, KvBackend, OpenError};
+pub use store::{Corruption, Kv, KvBackend, KvError, OpenError};
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;
 pub use tree::mirror::streaming::stats::SessionStats;

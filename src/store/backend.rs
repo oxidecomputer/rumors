@@ -55,10 +55,18 @@
 //!
 //! # Corruption
 //!
-//! Per the [schema policy](super::schema), a record that fails to decode —
-//! or a child edge pointing at an absent row — panics: the backend is the
-//! only writer of its tables, so both are invariant violations, not
-//! recoverable storage errors.
+//! Per the [schema policy](super::schema), a record that fails to decode
+//! — or one whose shape disagrees with the height of the edge naming it —
+//! refuses with [`Corruption`], surfacing through this backend's error
+//! type ([`KvError`]) as its own genre so a deployment can tell a store
+//! that failed from a store that lied. The refusal applies nothing: the
+//! [`checked`](super::checked) transaction views buffer every mutation
+//! until the enclosing closure succeeds. A child edge pointing at an
+//! *absent* row is different — records are reachable only through
+//! counted edges and registrations, so absence means the custody
+//! accounting itself was violated (a second backend swept this one's
+//! registrations; see [`Kv`]'s exclusive-ownership requirement), and the
+//! fetch panics as that detector.
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -82,9 +90,13 @@ use crate::{
     },
 };
 
-use super::kv::{Kv, WriteTxn};
+use super::checked::{self, CheckedWrite};
+use super::error::{Corruption, KvError};
+use super::kv::Kv;
 use super::refcount::{self, ReleaseQueue};
-use super::schema::{CanonicalRoot, IdAllocator, NodeBody, NodeId, NodeRecord, PinId};
+use super::schema::{
+    CanonicalRoot, IdAllocator, META, NODES, NodeBody, NodeId, NodeRecord, PinId, ROOT_KEY,
+};
 
 /// The persistent tree backend: a cheap cloneable handle over one [`Kv`]
 /// store's tables.
@@ -266,16 +278,16 @@ impl<T: Send + Sync + 'static> Body<T> {
         }
     }
 
-    /// Decode a stored record body.
+    /// Decode `node`'s stored record body.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// On an undecodable payload (corruption; module docs).
-    fn decode(body: NodeBody) -> Self
+    /// [`Corruption`] on an undecodable leaf payload (module docs).
+    fn decode(node: NodeId, body: NodeBody) -> Result<Self, Corruption>
     where
         T: BorshDeserialize,
     {
-        match body {
+        Ok(match body {
             NodeBody::Leaf {
                 prefix,
                 version,
@@ -283,7 +295,8 @@ impl<T: Send + Sync + 'static> Body<T> {
             } => Body::Leaf {
                 prefix,
                 version,
-                message: Message::from_bytes(Bytes::from(payload)).expect("corrupt leaf payload"),
+                message: Message::from_bytes(Bytes::from(payload))
+                    .map_err(|_| Corruption::new(NODES, &node.key(), "leaf payload"))?,
             },
             NodeBody::Branch {
                 prefix,
@@ -300,7 +313,7 @@ impl<T: Send + Sync + 'static> Body<T> {
                 version_bytes,
                 children,
             },
-        }
+        })
     }
 
     /// Encode this body as its stored record form.
@@ -397,7 +410,10 @@ where
     /// Concurrent callers may race to install; the loser's registration
     /// drops into the release queue and its duplicate record is reclaimed
     /// — wasted bytes, never a dangling reference.
-    async fn persisted(self: &Arc<Self>, backend: &KvBackend<K, T>) -> Result<NodeId, K::Error> {
+    async fn persisted(
+        self: &Arc<Self>,
+        backend: &KvBackend<K, T>,
+    ) -> Result<NodeId, KvError<K::Error>> {
         match &self.provenance {
             Provenance::Stored { id, .. } => Ok(*id),
             Provenance::Pending { installed, .. } => {
@@ -581,9 +597,10 @@ where
     fn message(&self) -> &Message<T> {
         match &self.inner.body {
             Body::Leaf { message, .. } => message,
-            // A height-zero view has consumed its whole span, and a branch
-            // record never spans to height zero: reaching this is a
-            // corrupt record or a construction bug (module docs).
+            // Structural: every stored record enters a walk through the
+            // shape door ([`coherent`]), which places a branch body
+            // strictly above height zero, and construction never builds
+            // one at it — so a height-zero branch view cannot be minted.
             Body::Branch { .. } => unreachable!("height-zero view over a branch record"),
         }
     }
@@ -598,7 +615,7 @@ where
     fn leaf(
         version: Version,
         message: Message<T>,
-    ) -> impl Future<Output = Result<Self, K::Error>> + Send {
+    ) -> impl Future<Output = Result<Self, KvError<K::Error>>> + Send {
         // No backend value is in scope, so the leaf stages as a pending
         // body — the write-behind shape this method's contract sanctions —
         // and installs when a branch or root flip links it. A session
@@ -671,7 +688,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn vacuum(&self) -> Result<(), K::Error> {
+    pub async fn vacuum(&self) -> Result<(), KvError<K::Error>> {
         refcount::vacuum(&self.shared.kv, &self.shared.releases).await
     }
 
@@ -683,10 +700,10 @@ where
     /// positively committed — releases are idempotent, so re-applying a
     /// batch whose fate was never learned is safe, while forgetting one
     /// would leak until recovery.
-    async fn write_upkeep<R, F>(&self, mut f: F) -> Result<R, K::Error>
+    async fn write_upkeep<R, F>(&self, mut f: F) -> Result<R, KvError<K::Error>>
     where
         R: Send + 'static,
-        F: FnMut(&mut dyn WriteTxn<Error = K::Error>) -> Result<R, K::Error> + Send + 'static,
+        F: FnMut(&mut CheckedWrite<'_, K::Error>) -> Result<R, KvError<K::Error>> + Send + 'static,
     {
         /// Re-queues a taken batch on drop unless defused: covers the
         /// `Err` return and the dropped-mid-await (committed-or-not)
@@ -708,16 +725,13 @@ where
             queue: &self.shared.releases,
             batch: Some(batch.clone()),
         };
-        let result = self
-            .shared
-            .kv
-            .write(move |txn| {
-                let result = f(txn)?;
-                refcount::release(txn, &batch)?;
-                refcount::reclaim_step(txn)?;
-                Ok(result)
-            })
-            .await;
+        let result = checked::write(&self.shared.kv, move |txn| {
+            let result = f(txn)?;
+            refcount::release(txn, &batch)?;
+            refcount::reclaim_step(txn)?;
+            Ok(result)
+        })
+        .await;
         if result.is_ok() {
             guard.batch = None;
         }
@@ -727,15 +741,23 @@ where
     /// Fetch one stored record as a resident node, through the dedup
     /// funnel; `custody` is what keeps the returned node registered.
     ///
+    /// # Errors
+    ///
+    /// The store's failure, or [`Corruption`] when the record's bytes
+    /// or leaf payload fail to decode.
+    ///
     /// # Panics
     ///
-    /// If the record is absent: every caller resolves an ID out of a
-    /// strong edge or a registration, so absence is corruption.
+    /// If the record is *absent*: every caller resolves an ID out of a
+    /// strong edge or a registration, so within one live backend absence
+    /// is unreachable — the panic is the custody detector for a second
+    /// backend sweeping this one's registrations ([`Kv`]'s
+    /// exclusive-ownership requirement; see the module docs).
     async fn fetch(
         &self,
         id: NodeId,
         custody: impl FnOnce() -> Custody<K, T>,
-    ) -> Result<Arc<Fetched<K, T>>, K::Error> {
+    ) -> Result<Arc<Fetched<K, T>>, KvError<K::Error>> {
         if let Some(resident) = self
             .shared
             .dedup
@@ -746,14 +768,11 @@ where
         {
             return Ok(resident);
         }
-        let record = self
-            .shared
-            .kv
-            .read(move |txn| refcount::read_node(txn, id))
+        let record = checked::read(&self.shared.kv, move |txn| refcount::read_node(txn, id))
             .await?
             .expect("dangling child edge or registration: custody accounting bug");
         let fetched = Arc::new(Fetched {
-            body: Body::decode(record.body),
+            body: Body::decode(id, record.body)?,
             provenance: Provenance::Stored {
                 id,
                 custody: custody(),
@@ -771,7 +790,7 @@ where
 
     /// Register a fresh held-table row on `id` and fetch it as an entry
     /// handle: how a root enters the process from storage.
-    async fn fetch_entry(&self, id: NodeId) -> Result<Arc<Fetched<K, T>>, K::Error> {
+    async fn fetch_entry(&self, id: NodeId) -> Result<Arc<Fetched<K, T>>, KvError<K::Error>> {
         let pin = PinId(self.shared.ids.allocate(&self.shared.kv).await?);
         let registration = Registration {
             node: id,
@@ -790,7 +809,7 @@ where
     T: BorshDeserialize + Send + Sync + 'static,
 {
     type Node<H: Height> = KvNode<K, T, H>;
-    type Error = K::Error;
+    type Error = KvError<K::Error>;
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
         // What one view keeps resident: the view itself, its share of the
@@ -945,9 +964,40 @@ where
                 let child = self
                     .fetch(id, || Custody::Under(parent.inner.clone()))
                     .await?;
+                coherent::<T, H>(id, &child.body)?;
                 yield (prefix.push(radix), KvNode::view(child, 0));
             }
         }
+    }
+}
+
+/// The shape door for stored records entering a walk: a record fetched
+/// through an edge at height `H` must place its body exactly where the
+/// edge claims — a leaf's stored span ends at height zero
+/// (`prefix.len() == H`), a branch's strictly above it
+/// (`prefix.len() < H`).
+///
+/// Every record enters the process through this check (child fetches
+/// and the root load), so the height-typed views above it can trust
+/// their shape structurally: it is what keeps the height-zero leaf
+/// accessors' branch arm unreachable.
+///
+/// # Errors
+///
+/// [`Corruption`] naming the record whose span disagrees with its edge.
+fn coherent<T, H: Height>(node: NodeId, body: &Body<T>) -> Result<(), Corruption> {
+    let sound = match body {
+        Body::Leaf { prefix, .. } => prefix.len() == H::HEIGHT,
+        Body::Branch { prefix, .. } => prefix.len() < H::HEIGHT,
+    };
+    if sound {
+        Ok(())
+    } else {
+        Err(Corruption::new(
+            NODES,
+            &node.key(),
+            "node record shape (its span disagrees with the edge naming it)",
+        ))
     }
 }
 
@@ -979,7 +1029,7 @@ where
     async fn reified(
         &self,
         backend: &KvBackend<K, T>,
-    ) -> Result<(NodeId, Option<Arc<Fetched<K, T>>>), K::Error> {
+    ) -> Result<(NodeId, Option<Arc<Fetched<K, T>>>), KvError<K::Error>> {
         if self.offset == 0 {
             return Ok((self.inner.persisted(backend).await?, None));
         }
@@ -1124,6 +1174,7 @@ where
                     let child = self
                         .fetch(id, || Custody::Under(parent.inner.clone()))
                         .await?;
+                    coherent::<T, H>(id, &child.body)?;
                     Ok(Some(KvNode::view(child, 0)))
                 }
             }
@@ -1190,7 +1241,8 @@ where
     }
 
     fn barrier(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        self.shared.kv.sync()
+        let this = self.clone();
+        async move { this.shared.kv.sync().await.map_err(KvError::Store) }
     }
 }
 
@@ -1215,9 +1267,29 @@ pub enum OpenError<E> {
     #[error("the stored replica retired; its identity lives elsewhere")]
     Retired,
 
+    /// The store served bytes no peer ever wrote: the stored replica is
+    /// corrupt, and reopening it cannot go better on retry.
+    ///
+    /// The payload names the table and key. What recovery means is the
+    /// deployment's call — and content needs no backup ritual: any other
+    /// replica of the set restores it through ordinary gossip (the crate
+    /// docs' storage section).
+    #[error(transparent)]
+    Corrupt(Corruption),
+
     /// The store itself failed.
     #[error(transparent)]
-    Storage(#[from] E),
+    Storage(E),
+}
+
+/// Splits a backend failure into [`OpenError`]'s two storage-genre arms.
+impl<E> From<KvError<E>> for OpenError<E> {
+    fn from(error: KvError<E>) -> Self {
+        match error {
+            KvError::Store(error) => OpenError::Storage(error),
+            KvError::Corrupt(corruption) => OpenError::Corrupt(corruption),
+        }
+    }
 }
 
 impl<K: Kv, T> KvBackend<K, T>
@@ -1234,17 +1306,22 @@ where
         &self,
     ) -> Result<(Network, before::Clock, Root<Self, T>), OpenError<K::Error>> {
         refcount::recover(&self.shared.kv).await?;
-        let record = self.shared.kv.read(|txn| CanonicalRoot::read(txn)).await?;
+        let record = checked::read(&self.shared.kv, |txn| CanonicalRoot::read(txn)).await?;
         let Some(network) = record.network else {
             return Err(OpenError::Empty);
         };
         let Some(identity) = record.identity else {
             return Err(OpenError::Retired);
         };
-        let clock: before::Clock = borsh::from_slice(&identity).expect("corrupt identity record");
+        let clock: before::Clock = borsh::from_slice(&identity)
+            .map_err(|_| OpenError::Corrupt(Corruption::new(META, ROOT_KEY, "identity clock")))?;
         let root = match record.root {
             None => None,
-            Some(id) => Some(KvNode::view(self.fetch_entry(id).await?, 0)),
+            Some(id) => {
+                let entry = self.fetch_entry(id).await?;
+                coherent::<T, height::Root>(id, &entry.body).map_err(KvError::from)?;
+                Some(KvNode::view(entry, 0))
+            }
         };
         Ok((
             network,

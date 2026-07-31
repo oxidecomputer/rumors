@@ -24,6 +24,8 @@
 //! in [`kv`].
 
 mod backend;
+mod checked;
+mod error;
 pub mod kv;
 /// The reference store rides the same features that carry its imbl
 /// dependency: the crate's own tests (via `test-internals`) and the
@@ -32,6 +34,7 @@ pub mod kv;
 mod memory;
 
 pub use backend::{KvBackend, OpenError};
+pub use error::{Corruption, KvError};
 pub use kv::{Kv, ReadTxn, Table, WriteTxn};
 #[cfg(any(feature = "conformance", feature = "test-internals"))]
 #[cfg_attr(

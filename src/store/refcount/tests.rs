@@ -89,9 +89,15 @@ async fn audit(store: &Memory, expected_identity: Option<Vec<u8>>, quiesced: boo
     let nodes: BTreeMap<NodeId, NodeRecord> = scan(store, NODES)
         .await
         .into_iter()
-        .map(|(key, value)| (NodeId::from_key(&key), NodeRecord::decode(&value)))
+        .map(|(key, value)| {
+            let id = NodeId::from_key(NODES, &key).expect("audit reads well-formed keys");
+            let record = NodeRecord::decode(id, &value).expect("audit reads well-formed records");
+            (id, record)
+        })
         .collect();
-    let root = store.read(|txn| CanonicalRoot::read(txn)).await.unwrap();
+    let root = checked::read(store, |txn| CanonicalRoot::read(txn))
+        .await
+        .unwrap();
 
     // Strong counts equal recomputed durable edges: parent links plus the
     // canonical-root edge.
@@ -126,7 +132,7 @@ async fn audit(store: &Memory, expected_identity: Option<Vec<u8>>, quiesced: boo
         assert!(nodes.contains_key(&id), "canonical root {id:?} is absent");
     }
     for (key, _) in scan(store, HELD).await {
-        let (node, _) = split_held_key(&key);
+        let (node, _) = split_held_key(&key).expect("audit reads well-formed keys");
         assert!(
             nodes.contains_key(&node),
             "held row registers absent {node:?}"
@@ -231,8 +237,7 @@ proptest! {
                         let node = NodeId(allocator.allocate(&store).await.unwrap());
                         let pin = PinId(allocator.allocate(&store).await.unwrap());
                         let record = leaf_record(0, b"leaf");
-                        store
-                            .write(move |txn| install(txn, node, pin, &record))
+                        checked::write(&store, move |txn| install(txn, node, pin, &record))
                             .await
                             .unwrap();
                         pins.push((node, pin));
@@ -256,8 +261,7 @@ proptest! {
                         let node = NodeId(allocator.allocate(&store).await.unwrap());
                         let pin = PinId(allocator.allocate(&store).await.unwrap());
                         let record = branch_record(&children);
-                        store
-                            .write(move |txn| {
+                        checked::write(&store, move |txn| {
                                 install(txn, node, pin, &record)?;
                                 for &child in &children {
                                     adjust_strong(txn, child, 1)?;
@@ -279,14 +283,13 @@ proptest! {
                         let batch = queue.take();
                         if !batch.is_empty() {
                             let applied = batch.clone();
-                            store
-                                .write(move |txn| release(txn, &applied))
+                            checked::write(&store, move |txn| release(txn, &applied))
                                 .await
                                 .unwrap();
                         }
                     }
                     Op::Reclaim => {
-                        store.write(|txn| reclaim_step(txn)).await.unwrap();
+                        checked::write(&store, |txn| reclaim_step(txn)).await.unwrap();
                     }
                     Op::Vacuum => {
                         vacuum(&store, &queue).await.unwrap();
@@ -300,8 +303,7 @@ proptest! {
                             clock_tag(identity_seq)
                         });
                         let record = identity.clone();
-                        store
-                            .write(move |txn| flip_root(txn, test_network(), root, Version::new(), record.clone()))
+                        checked::write(&store, move |txn| flip_root(txn, test_network(), root, Version::new(), record.clone()))
                             .await
                             .unwrap();
                     }
@@ -311,8 +313,7 @@ proptest! {
                             clock_tag(identity_seq)
                         });
                         let record = identity.clone();
-                        store
-                            .write(move |txn| record_identity(txn, record.clone()))
+                        checked::write(&store, move |txn| record_identity(txn, record.clone()))
                             .await
                             .unwrap();
                     }
@@ -351,8 +352,7 @@ async fn cascades_are_queued_not_inlined() {
         let node = NodeId(allocator.allocate(&store).await.unwrap());
         let pin = PinId(allocator.allocate(&store).await.unwrap());
         let record = leaf_record(0, b"base");
-        store
-            .write(move |txn| install(txn, node, pin, &record))
+        checked::write(&store, move |txn| install(txn, node, pin, &record))
             .await
             .unwrap();
         queue.push(node, pin);
@@ -365,15 +365,14 @@ async fn cascades_are_queued_not_inlined() {
         let parent_pin = PinId(allocator.allocate(&store).await.unwrap());
         let leaf = leaf_record(0, b"sibling");
         let branch = branch_record(&[level, sibling]);
-        store
-            .write(move |txn| {
-                install(txn, sibling, sibling_pin, &leaf)?;
-                install(txn, parent, parent_pin, &branch)?;
-                adjust_strong(txn, level, 1)?;
-                adjust_strong(txn, sibling, 1)
-            })
-            .await
-            .unwrap();
+        checked::write(&store, move |txn| {
+            install(txn, sibling, sibling_pin, &leaf)?;
+            install(txn, parent, parent_pin, &branch)?;
+            adjust_strong(txn, level, 1)?;
+            adjust_strong(txn, sibling, 1)
+        })
+        .await
+        .unwrap();
         queue.push(sibling, sibling_pin);
         queue.push(parent, parent_pin);
         level = parent;
@@ -396,26 +395,26 @@ async fn stale_queue_entries_are_dropped() {
     let node = NodeId(allocator.allocate(&store).await.unwrap());
     let pin = PinId(allocator.allocate(&store).await.unwrap());
     let record = leaf_record(0, b"leaf");
-    store
-        .write(move |txn| install(txn, node, pin, &record))
+    checked::write(&store, move |txn| install(txn, node, pin, &record))
         .await
         .unwrap();
     // Released: the node is queued (strong 0, no rows).
-    store
-        .write(move |txn| release(txn, &[(node, pin)]))
+    checked::write(&store, move |txn| release(txn, &[(node, pin)]))
         .await
         .unwrap();
     // Re-registered before reclamation ran (a fresh fetch pinned it).
     let repin = PinId(allocator.allocate(&store).await.unwrap());
-    store
-        .write(move |txn| register(txn, node, repin))
+    checked::write(&store, move |txn| register(txn, node, repin))
         .await
         .unwrap();
 
-    while store.write(|txn| reclaim_step(txn)).await.unwrap() > 0 {}
+    while checked::write(&store, |txn| reclaim_step(txn))
+        .await
+        .unwrap()
+        > 0
+    {}
     assert!(
-        store
-            .read(move |txn| Ok(read_node(txn, node)?.is_some()))
+        checked::read(&store, move |txn| Ok(read_node(txn, node)?.is_some()))
             .await
             .unwrap(),
         "a re-registered node must survive its stale queue entry"
@@ -437,20 +436,19 @@ async fn recovery_is_idempotent_and_spares_the_root() {
     let stranded_pin = PinId(allocator.allocate(&store).await.unwrap());
     let kept_record = leaf_record(0, b"kept");
     let stranded_record = leaf_record(0, b"stranded");
-    store
-        .write(move |txn| {
-            install(txn, kept, kept_pin, &kept_record)?;
-            install(txn, stranded, stranded_pin, &stranded_record)?;
-            flip_root(
-                txn,
-                test_network(),
-                Some(kept),
-                Version::new(),
-                Some(clock_tag(1)),
-            )
-        })
-        .await
-        .unwrap();
+    checked::write(&store, move |txn| {
+        install(txn, kept, kept_pin, &kept_record)?;
+        install(txn, stranded, stranded_pin, &stranded_record)?;
+        flip_root(
+            txn,
+            test_network(),
+            Some(kept),
+            Version::new(),
+            Some(clock_tag(1)),
+        )
+    })
+    .await
+    .unwrap();
 
     // A crash strands both registrations; recovery reclaims only what the
     // root does not reach, and a second recovery finds nothing to do.
@@ -459,15 +457,14 @@ async fn recovery_is_idempotent_and_spares_the_root() {
     recover(&survivor).await.unwrap();
     vacuum(&survivor, &queue).await.unwrap();
     audit(&survivor, Some(clock_tag(1)), true).await;
-    let (kept_alive, stranded_alive) = survivor
-        .read(move |txn| {
-            Ok((
-                read_node(txn, kept)?.is_some(),
-                read_node(txn, stranded)?.is_some(),
-            ))
-        })
-        .await
-        .unwrap();
+    let (kept_alive, stranded_alive) = checked::read(&survivor, move |txn| {
+        Ok((
+            read_node(txn, kept)?.is_some(),
+            read_node(txn, stranded)?.is_some(),
+        ))
+    })
+    .await
+    .unwrap();
     assert!(kept_alive, "the canonical root's tree survives recovery");
     assert!(!stranded_alive, "a stranded registration is reclaimed");
 }
@@ -483,24 +480,22 @@ async fn ambiguous_release_reapplies_harmlessly() {
     let node = NodeId(allocator.allocate(&store).await.unwrap());
     let pin = PinId(allocator.allocate(&store).await.unwrap());
     let record = leaf_record(0, b"leaf");
-    store
-        .write(move |txn| {
-            install(txn, node, pin, &record)?;
-            flip_root(txn, test_network(), Some(node), Version::new(), None)
-        })
-        .await
-        .unwrap();
+    checked::write(&store, move |txn| {
+        install(txn, node, pin, &record)?;
+        flip_root(txn, test_network(), Some(node), Version::new(), None)
+    })
+    .await
+    .unwrap();
 
     queue.push(node, pin);
     // The flush commits but reports failure; the queue re-submits.
     store.inject_commit_then_error(0);
     let error = vacuum(&store, &queue).await.unwrap_err();
-    assert_eq!(error, crate::store::MemoryError::Injected);
+    assert_eq!(error, KvError::Store(crate::store::MemoryError::Injected));
     assert!(!queue.is_empty(), "an unacknowledged batch is requeued");
     vacuum(&store, &queue).await.unwrap();
     audit(&store, None, true).await;
-    let alive = store
-        .read(move |txn| Ok(read_node(txn, node)?.is_some()))
+    let alive = checked::read(&store, move |txn| Ok(read_node(txn, node)?.is_some()))
         .await
         .unwrap();
     assert!(alive, "the root-linked node survives the double release");
@@ -512,18 +507,17 @@ async fn ambiguous_release_reapplies_harmlessly() {
 #[pollster::test]
 async fn canonical_root_row_lives_in_meta() {
     let store = Memory::new();
-    store
-        .write(|txn| {
-            flip_root(
-                txn,
-                test_network(),
-                None,
-                Version::new(),
-                Some(clock_tag(1)),
-            )
-        })
-        .await
-        .unwrap();
+    checked::write(&store, |txn| {
+        flip_root(
+            txn,
+            test_network(),
+            None,
+            Version::new(),
+            Some(clock_tag(1)),
+        )
+    })
+    .await
+    .unwrap();
     let raw = store.read(|txn| txn.get(META, ROOT_KEY)).await.unwrap();
     assert!(raw.is_some(), "flip_root writes META[root]");
     let ids = store.read(|txn| txn.get(META, IDS_KEY)).await.unwrap();
