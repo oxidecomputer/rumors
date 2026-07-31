@@ -153,6 +153,32 @@ readme-check:
     ./tools/readme self-test
     ./tools/readme check
 
+# The supply-chain leg, two build-free checks over the committed lockfiles.
+# cargo-audit sweeps every lockfile in the repository — the root workspace
+# and each detached workspace (fuzz, fuzzfit, fuelscape, surfacecheck) —
+# against the RustSec advisory database (fetched over the network, so this
+# is the one gate leg that needs connectivity): a vulnerability anywhere
+# fails the gate; unmaintained/unsound/yanked advisories print as warnings
+# for triage without failing. cargo-deny holds the root workspace's
+# resolved graph (all members, all features, all targets) to one version
+# per crate; deny.toml is the roster of record, every tolerated duplicate
+# carrying the holdout that keeps it alive. The duplicate policy covers
+# the root workspace only: a duplicate in a detached dev-tooling workspace
+# costs one extra tool compile, never a shipped byte. Both invocations
+# name `--workspace` explicitly — the root manifest is a package AND a
+# workspace, and cargo-deny's default member selection would otherwise
+# silently check the root package alone (measured: 84 crates vs 459).
+# Needs cargo-audit and cargo-deny: `cargo install cargo-audit cargo-deny`.
+
+# Audit advisories on every lockfile and hold the workspace to single crate versions.
+supply-chain:
+    cargo audit
+    cargo audit --file crates/before/fuzz/Cargo.lock
+    cargo audit --file crates/before/fuzzfit/Cargo.lock
+    cargo audit --file crates/before-fuelscape/Cargo.lock
+    cargo audit --file crates/before/surfacecheck/Cargo.lock
+    cargo deny --workspace check bans
+
 # The dependency list is the ordering: build-free lints first for fast
 # failure, then the builds, then the full-feature tests and doctests, then
 # the fuel-band asymptotics check (fuzzfit-build then fuzzfit: the wasm
@@ -166,7 +192,7 @@ readme-check:
 # nightly rustdoc JSON, held total against the operation roster).
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism amp-board-shard-pin worst-cases-pin surface-totality
+gate: fmt-check doclint testdoc readme-check supply-chain clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism amp-board-shard-pin worst-cases-pin surface-totality
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
