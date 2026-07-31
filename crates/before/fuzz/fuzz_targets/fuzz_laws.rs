@@ -6,6 +6,9 @@
 //! arbitrary bytes — adversarially-shaped trees, wide-gamma bases, and
 //! party/version pairings no op sequence produces. A violated law is a panic
 //! naming the law, so the fuzzer minimizes straight to the algebraic defect.
+//! The drive loop expands from the law-group roster
+//! (`before::for_each_law_group!`), so a group added to the roster is
+//! fuzzed here by construction, with no wiring in this file.
 //! The contract: every law holds, and no law's computation passes the
 //! harness heap cap (`before_fuzz::under_heap_cap`).
 //!
@@ -29,7 +32,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use before::{laws, Clock, Party, Version};
+use before::{Clock, Party, Rank, Version};
 
 fuzz_target!(|data: &[u8]| {
     before_fuzz::under_heap_cap(|| run(data));
@@ -88,6 +91,88 @@ macro_rules! drive {
     };
 }
 
+/// One decoded input's environment: the pools the roster-derived drive
+/// list selects each law group's inputs from.
+struct Env<'x> {
+    /// The three positionally decoded versions.
+    v: [&'x Version; 3],
+    /// The two decoded parties, then the decoded clock's party.
+    p: [&'x Party; 3],
+    /// Ranks derived from the decoded versions: two own ranks and a
+    /// genuine distance.
+    r: [&'x Rank; 3],
+    /// The decoded clock.
+    k: &'x Clock,
+    /// The list scripts' pool-indexed variadic inputs.
+    versions: &'x [Version],
+    parties: &'x [Party],
+    clocks: &'x [Clock],
+}
+
+/// Expands the law-group roster into the drive loop: one `drive!` per
+/// group, keyed on the group's input signature, selecting that
+/// signature's inputs from an [`Env`].
+///
+/// The group list lives only in `before::for_each_law_group!`, so a
+/// group added to the roster is fuzzed here by construction; a roster
+/// signature without an arm refuses to compile.
+macro_rules! drive_groups {
+    (args: ($env:expr); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
+        $( drive_groups!(@one $env, $group, $shape); )*
+    };
+    (@one $env:expr, $group:ident, (version)) => {
+        drive!(before::laws::$group, $env.v[0]);
+    };
+    (@one $env:expr, $group:ident, (version, version)) => {
+        drive!(before::laws::$group, $env.v[0], $env.v[1]);
+    };
+    (@one $env:expr, $group:ident, (version, version, version)) => {
+        drive!(before::laws::$group, $env.v[0], $env.v[1], $env.v[2]);
+    };
+    (@one $env:expr, $group:ident, (party)) => {
+        drive!(before::laws::$group, $env.p[0]);
+    };
+    (@one $env:expr, $group:ident, (party, party)) => {
+        drive!(before::laws::$group, $env.p[0], $env.p[1]);
+    };
+    (@one $env:expr, $group:ident, (party, party, party)) => {
+        drive!(before::laws::$group, $env.p[0], $env.p[1], $env.p[2]);
+    };
+    (@one $env:expr, $group:ident, (version, party)) => {
+        drive!(before::laws::$group, $env.v[0], $env.p[0]);
+    };
+    (@one $env:expr, $group:ident, (version, version, party)) => {
+        drive!(before::laws::$group, $env.v[0], $env.v[1], $env.p[0]);
+    };
+    (@one $env:expr, $group:ident, (version, party, party)) => {
+        drive!(before::laws::$group, $env.v[0], $env.p[0], $env.p[1]);
+    };
+    (@one $env:expr, $group:ident, (version, version, party, party)) => {
+        drive!(before::laws::$group, $env.v[0], $env.v[1], $env.p[0], $env.p[1]);
+    };
+    (@one $env:expr, $group:ident, (rank, rank, rank)) => {
+        drive!(before::laws::$group, $env.r[0], $env.r[1], $env.r[2]);
+    };
+    (@one $env:expr, $group:ident, (clock)) => {
+        drive!(before::laws::$group, $env.k);
+    };
+    (@one $env:expr, $group:ident, (clock, version)) => {
+        drive!(before::laws::$group, $env.k, $env.v[0]);
+    };
+    (@one $env:expr, $group:ident, (versions)) => {
+        drive!(before::laws::$group, $env.versions);
+    };
+    (@one $env:expr, $group:ident, (version, versions)) => {
+        drive!(before::laws::$group, $env.v[0], $env.versions);
+    };
+    (@one $env:expr, $group:ident, (party, parties)) => {
+        drive!(before::laws::$group, $env.p[0], $env.parties);
+    };
+    (@one $env:expr, $group:ident, (clock, clocks)) => {
+        drive!(before::laws::$group, $env.k, $env.clocks);
+    };
+}
+
 /// One input's body: decode the chunks positionally and drive every group.
 fn run(mut data: &[u8]) {
     let data = &mut data;
@@ -121,22 +206,15 @@ fn run(mut data: &[u8]) {
         .map(|i| cpool[i].dangerously_alias())
         .collect();
 
-    drive!(laws::VERSION_SOLO, &a);
-    drive!(laws::VERSION_PAIR, &a, &b);
-    drive!(laws::VERSION_TRIPLE, &a, &b, &c);
-    drive!(laws::PARTY_SOLO, &p);
-    drive!(laws::PARTY_PAIR, &p, &q);
-    drive!(laws::PARTY_TRIPLE, &p, &q, k.party());
-    drive!(laws::VERSION_PARTY, &a, &p);
-    drive!(laws::VERSION_PAIR_PARTY, &a, &b, &p);
-    drive!(laws::VERSION_PARTY_PAIR, &a, &p, &q);
-    drive!(laws::VERSION_PAIR_PARTY_PAIR, &a, &b, &p, &q);
     let (ra, rb, rc) = (a.rank(), b.rank(), a.distance(&b));
-    drive!(laws::RANK_TRIPLE, &ra, &rb, &rc);
-    drive!(laws::CLOCK_SOLO, &k);
-    drive!(laws::CLOCK_VERSION, &k, &a);
-    drive!(laws::VERSION_LIST, &versions);
-    drive!(laws::VERSION_AND_LIST, &a, &versions);
-    drive!(laws::PARTY_AND_LIST, &p, &parties);
-    drive!(laws::CLOCK_AND_LIST, &k, &clocks);
+    let env = Env {
+        v: [&a, &b, &c],
+        p: [&p, &q, k.party()],
+        r: [&ra, &rb, &rc],
+        k: &k,
+        versions: &versions,
+        parties: &parties,
+        clocks: &clocks,
+    };
+    before::for_each_law_group!(drive_groups(&env));
 }
