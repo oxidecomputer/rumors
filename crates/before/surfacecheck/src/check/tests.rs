@@ -137,11 +137,20 @@ fn render_names_the_findings() {
 }
 
 /// The exemption discipline is enforced by the judgment itself: an
-/// undated ruling, a too-thin reason, or a module prefix not ending in
-/// `::` is a malformed-exception finding.
+/// undated ruling — wrong length, dashes or digits out of place, or a
+/// month or day outside its range — a too-thin reason, or a module
+/// prefix not ending in `::` is a malformed-exception finding.
 #[test]
 fn malformed_exceptions_read_red() {
-    let ex = extracted(&["Party::seed", "causally::all", "a::x", "b::y", "c::z"]);
+    let ex = extracted(&[
+        "Party::seed",
+        "causally::all",
+        "a::x",
+        "b::y",
+        "c::z",
+        "d::w",
+        "e::v",
+    ]);
     let ro = rostered(&["Party::seed", "causally::all"]);
     let undated = Exception {
         name: "a::x",
@@ -153,15 +162,39 @@ fn malformed_exceptions_read_red() {
         reason: "because",
         decided: "2026-07-30",
     };
+    // Ten characters holding two dashes, but no date: the shape check
+    // must read the positions, not count characters.
+    let misdashed = Exception {
+        name: "d::w",
+        reason: "a substantive reason of adequate length",
+        decided: "20-26-07xx",
+    };
+    let unmonthed = Exception {
+        name: "e::v",
+        reason: "a substantive reason of adequate length",
+        decided: "2026-13-01",
+    };
     let unscoped = Exception {
         name: "c::z",
         reason: "a substantive reason of adequate length",
         decided: "2026-07-30",
     };
-    let findings = reconcile_with(&ex, &ro, &[undated, thin], &[unscoped], ANCHORS);
+    let findings = reconcile_with(
+        &ex,
+        &ro,
+        &[undated, thin, misdashed, unmonthed],
+        &[unscoped],
+        ANCHORS,
+    );
     assert_eq!(
         findings.malformed_exceptions,
-        vec!["a::x".to_owned(), "b::y".to_owned(), "c::z".to_owned()],
+        vec![
+            "a::x".to_owned(),
+            "b::y".to_owned(),
+            "d::w".to_owned(),
+            "e::v".to_owned(),
+            "c::z".to_owned(),
+        ],
     );
 }
 

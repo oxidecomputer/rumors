@@ -592,7 +592,7 @@ impl Mirror {
                 };
                 let ticked = match self.regs.get_mut(v as usize) {
                     Some(Some(NVal::V(version))) => {
-                        party.tick(version);
+                        version.tick(&party);
                         true
                     }
                     _ => false,
