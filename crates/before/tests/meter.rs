@@ -6603,8 +6603,8 @@ fn fold_party_scatter_envelope() {
 // (one `join` per input) reads 18,246,408 scanned bits against the
 // balanced 7,260,488 on 40,960 B (×2.5): the growing-accumulator genre
 // the balanced reduction exists to foreclose;
-// `fold_log_factor_is_alive` (the claims suite) keeps the model's log
-// factor itself honest.
+// the per-door `*_log_factor_is_alive` pins (the claims suite) keep the
+// model's log factor itself honest.
 #[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 mod fold_stagger {
     use before::meter::registry::Shape;

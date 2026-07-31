@@ -215,17 +215,36 @@ impl Class {
                 witnesses: &[],
             },
             // The fold classes promise the balanced reduction's log
-            // factor: the `log k` token is theirs alone, and the
-            // scatter-population growth pin keeps the factor alive.
+            // factor: the `log k` token is theirs alone, and one
+            // stagger-population growth pin per public door keeps the
+            // factor alive door by door.
             Class::FoldLog => ClassContract {
                 exponent_reds: RedStance::Forbidden,
                 judge_red: false,
                 token: Some("log k"),
                 token_exclusive: true,
-                witnesses: &[(
-                    "src/testing/complexity_claims/tests.rs",
-                    "fold_log_factor_is_alive",
-                )],
+                witnesses: &[
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "version_join_all_log_factor_is_alive",
+                    ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "version_meet_all_log_factor_is_alive",
+                    ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "version_span_all_log_factor_is_alive",
+                    ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "party_join_all_log_factor_is_alive",
+                    ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "clock_join_all_log_factor_is_alive",
+                    ),
+                ],
             },
             // Judge-rostered superlinear time. The token is not
             // exclusive: type docs legitimately note superlinear
