@@ -1170,6 +1170,170 @@ fn no_collapse_fold_re_scans_the_prefix() {
     }
 }
 
+/// Deposit `−(2^33 − 1)` — the lazy zone's most negative digit — at
+/// digit `index` through the public word-scale entry points, without
+/// triggering a recenter.
+///
+/// Two deposits of `−2^32` and `−(2^32 − 1)` land in one digit because
+/// each intermediate total stays inside the zone; a single deposit of
+/// the full value would recenter. This is the construction behind the
+/// extreme-cancellation witnesses below: an adversary (or an unlucky
+/// workload) can park any digit one unit inside the zone boundary.
+fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
+    acc.sub_magnitude_shl(&UBig::from(1u64 << 32), 32 * index);
+    acc.sub_magnitude_shl(&UBig::from((1u64 << 32) - 1), 32 * index);
+}
+
+/// The sign fold's decision threshold is tight: a running partial of
+/// exactly 2 can still be overturned by the digits below, so the fold
+/// must keep descending — a threshold of 2 would report the wrong sign
+/// on this input.
+///
+/// The witness parks digits `[−(2^33 − 1), −(2^33 − 1), 2]` (built
+/// through public entry points; every digit is one unit inside the lazy
+/// zone). The suffix partial at the top digit is exactly 2, but the two
+/// digits below sum to `−(2^33 − 1)·(2^32 + 1)`, which exceeds
+/// `2 · 2^64` by `2^32 − 1`: the true value is `−(2^32 − 1)`, negative.
+/// Committed because the mutation `SIGN_DECIDED: 3 → 2` — which reads
+/// this value as positive — passed the whole differential suite
+/// (2026-07-31): random streams essentially never stack two adjacent
+/// extreme digits under a partial of exactly 2, so the tight corner
+/// needs this constructed pin. The mirrored spelling checks the
+/// negative-partial side of the same boundary.
+#[test]
+fn sign_threshold_survives_extreme_cancellation() {
+    let mut acc = Accumulator::new();
+    park_extreme_negative_digit(&mut acc, 0);
+    park_extreme_negative_digit(&mut acc, 1);
+    acc.add_magnitude_shl(&UBig::from(2u8), 64);
+    // Independent read-out first: the low-to-high carry pass does not
+    // share the fold's threshold, so the two paths cross-check.
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!(
+        (sign, magnitude),
+        (Ordering::Less, UBig::from((1u64 << 32) - 1)),
+        "the exact value is −(2^32 − 1)"
+    );
+    assert_eq!(
+        acc.sign(),
+        Ordering::Less,
+        "a top partial of 2 must not decide"
+    );
+    // The mirrored spelling: digits [2^33 − 1, 2^33 − 1, −2] denote
+    // +(2^32 − 1), and a partial of −2 at the top must not decide either.
+    acc.negate();
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!(
+        (sign, magnitude),
+        (Ordering::Greater, UBig::from((1u64 << 32) - 1)),
+        "the mirrored value is +(2^32 − 1)"
+    );
+    assert_eq!(acc.sign(), Ordering::Greater);
+}
+
+/// The domination certificate's decision index is tight: a fold that
+/// decides at digit index `floor + 1` must answer `decided = false`,
+/// because an adjustment under `2^(32·(floor + 1))` can still flip the
+/// sign there.
+///
+/// The witness holds digits `[−(2^33 − 1), −(2^33 − 1), 3]`: the fold
+/// decides the (exact, positive) sign at index 2 with partial 3, and
+/// the value is `2^64 − 2^32 + 1` — strictly less than `u64::MAX`. At
+/// `floor = 1` the contract covers every `u64` adjustment, so `decided`
+/// must be false: subtracting `u64::MAX` flips the sign, as the tail of
+/// the test demonstrates. Committed because the mutation
+/// `floor.saturating_add(2) → floor.saturating_add(1)` — which
+/// certifies domination here — passed the entire committed workspace
+/// suite (suanpan and before both, 2026-07-31); the certificate is
+/// consumed by before's rank/query sweeps to skip folds entirely, so a
+/// wrongly-decided verdict would corrupt values silently.
+#[test]
+fn domination_decision_index_is_tight_at_floor_plus_two() {
+    let mut acc = Accumulator::new();
+    park_extreme_negative_digit(&mut acc, 0);
+    park_extreme_negative_digit(&mut acc, 1);
+    acc.add_magnitude_shl(&UBig::from(3u8), 64);
+    let (sign, decided) = acc.sign_dominates_at(1);
+    assert_eq!(sign, Ordering::Greater, "the sign itself is exact");
+    assert!(
+        !decided,
+        "deciding at index floor + 1 would certify domination over an \
+         adjustment larger than the held value"
+    );
+    // Why it must be false: a u64 adjustment (covered by floor = 1)
+    // flips the sign.
+    acc.sub_u64(u64::MAX);
+    assert_eq!(
+        acc.sign(),
+        Ordering::Less,
+        "u64::MAX exceeds the held 2^64 − 2^32 + 1"
+    );
+}
+
+/// A decided domination verdict covers a maximally redundant
+/// *accumulator* operand held in digits `0..=floor` — the contract
+/// clause consumers lean on, and the one leg the differential proptests
+/// cannot reach.
+///
+/// Consumers read `sign_dominates_at(other.digit_count() - 1)` before
+/// `sub_accum(&other)`. The differential proptests' probes are plain
+/// magnitudes under `2^(32·(floor + 1))`, while a lazy-zone spelling
+/// reaches almost `2.01 · 2^(32·(floor + 1))`.
+///
+/// The held value decides at exactly index `floor + 2` with the minimum
+/// partial 3 over maximally cancelling lower digits — the tightest
+/// decided value — and the operand spells every digit `0..=floor` at
+/// `+(2^33 − 1)`, about twice the largest plain magnitude the proptest
+/// can draw. Folding the operand in (both signs) must preserve the
+/// sign, and the operand's magnitude must be strictly smaller.
+#[test]
+fn decided_domination_covers_extreme_accumulator_operands() {
+    let floor = 1usize;
+    // v: digits [−(2^33 − 1), −(2^33 − 1), −(2^33 − 1), 3], deciding at
+    // index 3 = floor + 2 with partial exactly 3.
+    let mut v = Accumulator::new();
+    park_extreme_negative_digit(&mut v, 0);
+    park_extreme_negative_digit(&mut v, 1);
+    park_extreme_negative_digit(&mut v, 2);
+    v.add_magnitude_shl(&UBig::from(3u8), 96);
+    let (sign, decided) = v.sign_dominates_at(floor);
+    assert_eq!(sign, Ordering::Greater);
+    assert!(decided, "partial 3 at index floor + 2 is the decision edge");
+    // a: an accumulator held in digits 0..=floor at the zone's edge —
+    // magnitude (2^33 − 1)(2^32 + 1), far beyond any u64.
+    let mut a = Accumulator::new();
+    park_extreme_negative_digit(&mut a, 0);
+    park_extreme_negative_digit(&mut a, 1);
+    a.negate();
+    assert_eq!(a.digit_count() - 1, floor, "the operand sits at the floor");
+    // |v| > |a| and folding ±a cannot flip the sign.
+    let mut probe = v.clone();
+    probe.sub_accum(&a);
+    assert_eq!(probe.sign(), Ordering::Greater, "v − a keeps v's sign");
+    let mut probe = v.clone();
+    probe.add_accum(&a);
+    assert_eq!(probe.sign(), Ordering::Greater, "v + a keeps v's sign");
+}
+
+/// A carry tie that recenters to a zero remainder converts exactly:
+/// the read-out's complement pass must ripple through the zero low
+/// digit.
+///
+/// The flush-right deposit `−2^32 − 2^32` lands digit 0 on the recenter
+/// boundary (remainder 0, carry −2). Pins the `rem_euclid`/complement
+/// seam of `sign_magnitude` on the one shape where the complement's
+/// carry crosses a zero digit — the arm the negative-conversion test's
+/// operands never exercise.
+#[test]
+fn flush_right_carry_tie_converts_exactly() {
+    let mut acc = Accumulator::new();
+    acc.sub_u64(1 << 32);
+    acc.sub_u64(1 << 32);
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!((sign, magnitude), (Ordering::Less, UBig::from(1u64 << 33)));
+    assert_eq!(acc.sign(), Ordering::Less);
+}
+
 /// A fresh accumulator (and its `Default`) holds exactly zero.
 #[test]
 fn new_and_default_hold_zero() {
