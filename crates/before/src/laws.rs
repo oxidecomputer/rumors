@@ -1098,9 +1098,12 @@ fn span_all_is_rotation_invariant(receiver: &Version, items: &[Version]) -> bool
 /// Laws over one live party.
 ///
 /// The fork/join round-trip and its disjointness geometry, the balanced
-/// n-way fork's two forms, `join_all`'s fold laws, the covering order's
-/// point laws (with a constructed transitivity chain), `without` at the
-/// reflexive corner, aliasing, and the representational round-trips.
+/// n-way fork's two forms, the covering order's point laws (with a
+/// constructed transitivity chain), `without` at the reflexive corner,
+/// aliasing, and the representational round-trips. `join_all`'s fold
+/// laws are [`PARTY_AND_LIST`]'s: the width-quantified family
+/// (reunion, acceptance, best-effort at every arity) subsumes any
+/// fixed-width point instance.
 pub static PARTY_SOLO: &[Law<fn(&Party) -> bool>] = &[
     ("fork_join_roundtrip", fork_join_roundtrip),
     ("fork_halves_disjoint", fork_halves_disjoint),
@@ -1113,15 +1116,6 @@ pub static PARTY_SOLO: &[Law<fn(&Party) -> bool>] = &[
         "forks_partial_drop_folds_back",
         forks_partial_drop_folds_back,
     ),
-    (
-        "party_join_all_reunites_a_fork",
-        party_join_all_reunites_a_fork,
-    ),
-    (
-        "party_join_all_empty_is_identity",
-        party_join_all_empty_is_identity,
-    ),
-    ("party_join_all_best_effort", party_join_all_best_effort),
     ("join_overlap_hands_back", join_overlap_hands_back),
     ("covers_reflexive", covers_reflexive),
     (
@@ -1197,35 +1191,6 @@ fn forks_partial_drop_folds_back(p: &Party) -> bool {
     let mut keeper = p.dangerously_alias();
     let taken: Vec<Party> = keeper.forks(5).take(2).collect(); // iterator dropped after 2
     keeper.join_all(taken).is_ok() && keeper == *p
-}
-
-/// `join_all` reunites a fork: folding a balanced fork's shares back
-/// recovers the original region (`self` seeds the fold; balanced-fork
-/// shares are pairwise disjoint, so the fold is defined the whole way).
-fn party_join_all_reunites_a_fork(p: &Party) -> bool {
-    let mut keeper = p.dangerously_alias();
-    let shares: Vec<Party> = keeper.forks(3).collect();
-    keeper.join_all(shares).is_ok() && keeper == *p
-}
-
-/// `join_all` of the empty iterator leaves the party unchanged (`self`
-/// seeds the fold; the partial monoid has no identity element of its own).
-fn party_join_all_empty_is_identity(p: &Party) -> bool {
-    let mut q = p.dangerously_alias();
-    q.join_all(std::iter::empty::<Party>()).is_ok() && q == *p
-}
-
-/// `join_all` is best-effort and lossless: given a clashing alias *before*
-/// a genuine disjoint share, the share is still absorbed and only the alias
-/// comes back (fail-fast would abandon the share after the clash).
-fn party_join_all_best_effort(p: &Party) -> bool {
-    let mut keeper = p.dangerously_alias();
-    let share = keeper.fork(); // keeper holds one half...
-    let clash = keeper.dangerously_alias(); // ...and this aliases it (overlaps)
-    match keeper.join_all([clash, share]) {
-        Err(returned) => returned.len() == 1 && keeper == *p,
-        Ok(()) => false,
-    }
 }
 
 /// Joining an overlapping party errors and hands it back unchanged: a
