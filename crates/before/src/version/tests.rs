@@ -2364,3 +2364,34 @@ proptest! {
         prop_assert_eq!(vs[0].span_all(&dup), vs[0].span_all(&vs));
     }
 }
+
+proptest! {
+    /// The composite row-key shape — a rank's canonical stream, then a
+    /// fixed-width opaque key — orders by first difference exactly as
+    /// `(rank, suffix)` orders lexicographically.
+    ///
+    /// The KV-key use `Rank::encode` documents, exercised in context:
+    /// distinct ranks decide the composite inside the rank prefix (no
+    /// 32-byte suffix can flip it, in either assignment), and equal
+    /// ranks — byte-identical prefixes, by canonical uniqueness — hand
+    /// the verdict to the suffix's own first differing byte.
+    #[test]
+    fn rank_prefix_orders_fixed_suffix_row_keys(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+        sa in proptest::array::uniform32(any::<u8>()),
+        sb in proptest::array::uniform32(any::<u8>()),
+    ) {
+        let a = from_oracle_version(&oa).rank();
+        let b = from_oracle_version(&ob).rank();
+        let key_a = [a.encode(), sa.to_vec()].concat();
+        let key_b = [b.encode(), sb.to_vec()].concat();
+        let expect = a.cmp(&b).then_with(|| sa.cmp(&sb));
+        prop_assert_eq!(key_a.cmp(&key_b), expect, "{} vs {}", a, b);
+        // Both assignments: the swap must invert exactly.
+        let swapped_a = [a.encode(), sb.to_vec()].concat();
+        let swapped_b = [b.encode(), sa.to_vec()].concat();
+        let expect = a.cmp(&b).then_with(|| sb.cmp(&sa));
+        prop_assert_eq!(swapped_a.cmp(&swapped_b), expect, "{} vs {}", a, b);
+    }
+}
