@@ -7,9 +7,12 @@
 #   no-rot sweep just ci / just all                  everything, so nothing rots
 #
 # The gate runs every check a commit must pass; its recipe line spells out the
-# order. `ci` adds the artifacts the gate doesn't reach, exactly as GitHub CI
-# builds them; `all` adds what CI cannot run (the fuzz smoke and the formal
-# tier). The comment above each recipe states what it verifies and why.
+# order. `ci` builds the artifacts the gate doesn't reach (the feature matrix,
+# wasm, bench builds, the fuzz-target build, the viz bundle), exactly as
+# GitHub CI builds them; `all` adds what CI cannot run (the fuzz smoke and the
+# formal tier). Neither sweep repeats the gate's instrument legs — the fuel
+# bands, the board pins, and surface totality run only in `just gate`. The
+# comment above each recipe states what it verifies and why.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -88,17 +91,19 @@ clippy:
 # `clippy` above lints under --all-features, and the dev-dependency cycle
 # forces the meter/oracle features onto the lib for every test build — so a
 # surface that is dead under *default* features (test-only helpers left
-# ungated) never trips it. These are the default-feature library builds,
-# exactly what `cargo build -p <crate>` compiles, warnings denied: test- and
-# meter-only surface must be cfg-gated, not left dangling. Each package is
-# linted alone so workspace feature unification cannot re-light the gated
-# features.
+# ungated) never trips it. These are the default-feature library and
+# test-target builds, warnings denied: test- and meter-only surface must be
+# cfg-gated, not left dangling, in the integration-test and cfg(test) trees
+# just as in the lib (`just test` compiles the test targets under default
+# features with warnings not denied, so without this leg that surface never
+# meets -D warnings anywhere). Each package is linted alone so workspace
+# feature unification cannot re-light the gated features.
 
-# Lint the default-feature library builds, warnings denied.
+# Lint the default-feature library and test builds, warnings denied.
 clippy-default:
-    cargo clippy -p suanpan -- -D warnings
-    cargo clippy -p before -- -D warnings
-    cargo clippy -p rumors -- -D warnings
+    cargo clippy -p suanpan --lib --tests -- -D warnings
+    cargo clippy -p before --lib --tests -- -D warnings
+    cargo clippy -p rumors --lib --tests -- -D warnings
 
 # Format the whole workspace.
 fmt:
@@ -181,9 +186,11 @@ features:
     cargo check -p before --no-default-features --features limb-meter
     cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
+    cargo check -p before --no-default-features --features doc-images
     cargo check -p rumors --no-default-features
     cargo check -p rumors --features protocol-v1
     cargo check -p rumors --features meter
+    cargo check -p rumors --no-default-features --features conformance
 
 # The viz engine must keep compiling for its real target, not just the host.
 wasm-check:
@@ -223,9 +230,11 @@ bench-build:
 # The fuzz targets live in a detached workspace (crates/before/fuzz) precisely
 # so the ordinary gate never compiles them: without this recipe they rot invisibly.
 
-# Build the libFuzzer targets (nightly).
+# Build the libFuzzer targets (nightly). The fmt line is the detached
+# workspace's formatting leg: the root `cargo fmt --all` cannot reach it.
 [working-directory("crates/before/fuzz")]
 fuzz-build:
+    cargo fmt --check
     {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
@@ -272,9 +281,15 @@ fuzzfit-build:
 # shrinks to a minimal out-of-band shape and writes a proptest seed
 # file — commit any seed that appears.
 
-# Run the fuzz-fit asymptotics suites against the pinned fuel bands.
+# Run the fuzz-fit asymptotics suites against the pinned fuel bands. The
+# fmt/clippy lines are the detached workspace's own lint leg (the root
+# `cargo fmt --all`/clippy cannot reach a detached workspace, so without
+# them its source rots invisibly through green gates — the fuelscape and
+# surfacecheck recipes carry the same discipline).
 [working-directory("crates/before/fuzzfit")]
 fuzzfit: fuzzfit-build
+    cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --cargo-profile release
 
 # Re-fit the pinned bands from the committed deterministic corpus (4096
@@ -606,12 +621,13 @@ rumormill *args:
     cargo run --release -p rumormill -- {{ args }}
 
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
-# `ci` is the build-everything tier: the gate's checks plus the feature matrix,
-# wasm, bench builds, the fuzz-target *build*, and the viz bundle. It is ordered
-# cheap-first so failures surface early — formatting, then the lint (which also
-# compiles all host targets), the feature matrix, wasm, docs, the full
-# test+doctest run, bench builds, the fuzz build, and finally the
-# network-touching viz bundle. GitHub CI runs exactly this.
+# `ci` is the build-everything tier: formatting and lints, the feature matrix,
+# wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
+# and the viz bundle, ordered cheap-first so failures surface early. GitHub CI
+# runs exactly this. Neither `ci` nor `all` runs the gate's instrument legs —
+# the fuel bands, the fuelscape pins, the board determinism/shard/ranking
+# pins, and surface totality run only in `just gate` (its recipe line is the
+# roster of record), pre-commit on a developer machine.
 #
 # `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
 # per-commit spend), the formal tier (the runner has no Lean toolchain) —

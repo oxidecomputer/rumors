@@ -99,8 +99,10 @@ pub(crate) enum Class {
     /// Linear space, superlinear worst-case time, red on the bench
     /// judge's committed roster.
     ///
-    /// The members: the display pair (value conversion plus the render
-    /// merge).
+    /// The membership is structural, never a prose roster: the
+    /// operations whose value conversion or render merge delegates
+    /// superlinear work below the counters — the [`CLAIMS`] rows
+    /// citing this class are the enumeration of record.
     SuperlinearTime,
     /// Superlinear in the deterministic work counters on committed
     /// board families, while absent from the bench judge's red roster.
@@ -124,15 +126,18 @@ pub(crate) enum Class {
     /// deterministic counter: the counters legitimately read flat on
     /// the very families that witness the worst case.
     ///
-    /// The members: rank, distance, and lag (one shared integrator,
-    /// whose settle products ride the backend's multiplication). No
-    /// board or judge red can exist for this class — the counters
-    /// price the fold's own traffic, which *is* linear, and the
-    /// multiplication's wall share sits far under the judge's
+    /// The membership is structural, never a prose roster: the
+    /// settle-delegating query folds (single-stream and pair, one
+    /// shared integrator whose settle products ride the backend's
+    /// multiplication) and the `Ranked` key surface built on them —
+    /// the [`CLAIMS`] rows citing this class are the enumeration of
+    /// record. No board or judge red can exist for this class — the
+    /// counters price the fold's own traffic, which *is* linear, and
+    /// the multiplication's wall share sits far under the judge's
     /// resolution at bench scales — so its evidence is structural,
     /// named by its contract's witnesses: the wide × dense flatness
     /// bands, the committed schoolbook kernels failing beside them,
-    /// and the answer-embedded-product liveness pin. An answer that
+    /// and the answer-embedded-product liveness pins. An answer that
     /// stops embedding the product dissolves the class back to a
     /// linear one in the same change.
     MulBound,
@@ -251,9 +256,14 @@ impl Class {
             // design (a standing exponent red means the delegation
             // failed and the honest home is SuperlinearCounter), the
             // Ω(M(·)) floor token exclusively its own, and the
-            // committed evidence named: both wide × dense flatness
-            // bands, both schoolbook kernels, and the
-            // answer-embedded-product liveness pin.
+            // committed evidence named through both settle doors —
+            // rank's single-stream fold (both wide × dense flatness
+            // bands, both schoolbook kernels, the
+            // answer-embedded-product liveness pin) and the pair
+            // co-sweep, whose claims (distance, lag, the ranked
+            // comparisons) enter the settle through a distinct entry
+            // point (the pair flatness band and the pair embedding
+            // pin).
             Class::MulBound => ClassContract {
                 exponent_reds: RedStance::Forbidden,
                 judge_red: false,
@@ -262,6 +272,7 @@ impl Class {
                 witnesses: &[
                     ("tests/meter.rs", "rank_wide_arming_is_flat_per_unit"),
                     ("tests/meter.rs", "rank_plateau_puncture_is_flat_per_unit"),
+                    ("tests/meter.rs", "pair_plateau_train_is_flat_per_unit"),
                     (
                         "src/version/skyline/query/tests.rs",
                         "schoolbook_settle_reads_superlinear_on_wide_arming",
@@ -273,6 +284,14 @@ impl Class {
                     (
                         "src/testing/complexity_claims/tests.rs",
                         "mul_bound_embedding_is_alive",
+                    ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "mul_bound_pair_embedding_is_alive",
+                    ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "mul_bound_key_embedding_is_alive",
                     ),
                 ],
             },

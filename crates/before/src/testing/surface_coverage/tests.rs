@@ -108,6 +108,55 @@ fn citation_haystack_admits_only_attributed_tests() {
     );
 }
 
+/// Test-name-shaped identifiers cited inside *exclusion* reasons resolve
+/// to an executable binding, exactly as Bound/Law/Trans citations must.
+///
+/// The exclusion legs are the roster's largest genre, and their reasons
+/// carry the production-side pins each exclusion rests on
+/// (`decode_encode_arbitrary`, `alias_is_byte_identical_overlap`, ...).
+/// [`every_cited_binding_test_exists`] never sees them — `Leg::cited`
+/// returns `None` for exclusions — so a pin renamed or deleted while
+/// cited only in a reason would rot silently. This sweep extracts every
+/// identifier-shaped token (lowercase snake_case with at least two
+/// underscores, so ordinary prose never matches) from every exclusion
+/// reason and holds it to the same haystack: a `#[test]`-attributed item
+/// under `src/` or a registered law name.
+///
+/// The two-underscore threshold is the reason-writer's contract: cite
+/// pins by their full snake_case test name, never by a shorthand — a
+/// one-word or single-underscore alias is invisible to this sweep.
+#[test]
+fn exclusion_reason_citations_resolve() {
+    let mut declared = declared_test_names();
+    declared.extend(
+        crate::laws::registered_names()
+            .into_iter()
+            .map(str::to_owned),
+    );
+    let mut dead: Vec<String> = Vec::new();
+    for row in METHOD_SURFACE.iter().chain(FAMILY_SURFACE) {
+        for leg in [&row.prod_tree, &row.prod_fs, &row.tree_fs] {
+            let Some(reason) = leg.exclusion_reason() else {
+                continue;
+            };
+            let ident = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_';
+            for token in reason.split(|c: char| !ident(c)) {
+                if token.matches('_').count() >= 2
+                    && token.starts_with(|c: char| c.is_ascii_lowercase())
+                    && !declared.contains(token)
+                {
+                    dead.push(format!("{}: {token}", row.op));
+                }
+            }
+        }
+    }
+    assert!(
+        dead.is_empty(),
+        "exclusion reasons cite names that resolve to no `#[test]` item or \
+         registered law: {dead:?}"
+    );
+}
+
 /// The family roster's rows are unique by op description (totality over
 /// the operator/trait surface is by review of the file; this pins the
 /// table's internal hygiene).
