@@ -124,9 +124,12 @@ impl Version {
         // `1` — see `is_empty`), so the stored form is one static byte:
         // construction allocates nothing, and every empty version
         // shares the one static buffer (clone identity holds even
-        // across separate `new()` calls). The codec round-trip and
-        // text laws pin the constant against the built form.
-        const EMPTY_STREAM: &[u8] = &[0b1100_0000];
+        // across separate `new()` calls). A `static`, not a `const`:
+        // a const's promoted allocation has no guaranteed unique
+        // address, and the cross-call sharing claim rests on one. The
+        // codec round-trip and text laws pin the constant against the
+        // built form.
+        static EMPTY_STREAM: &[u8] = &[0b1100_0000];
         Version::from_frozen(codec::Bits::from_canonical(
             bytes::Bytes::from_static(EMPTY_STREAM),
             2,

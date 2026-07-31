@@ -125,14 +125,20 @@ fn freeze_canonicalizes_storage() {
     assert_eq!(&*frozen, &buf[..]);
 }
 
-/// `Bits::ptr_eq` recognizes clones and only clones.
+/// `Bits::ptr_eq` implies value equality, and clones are its nonempty
+/// source.
 ///
 /// A clone shares the frozen buffer (`ptr_eq` true), while two
-/// independent freezes of the same content are equal (`canonical_eq`)
-/// but not pointer-identical — so `ptr_eq` is a fast path *into* byte
-/// equality, never a substitute for it.
+/// independent freezes of the same *nonempty* content are equal
+/// (`canonical_eq`) but not pointer-identical — so `ptr_eq` is a fast
+/// path *into* byte equality, never a substitute for it. The empty
+/// stream is the deliberate exception the predicate's docs carry: every
+/// zero-byte allocation shares one dangling pointer, so two independent
+/// empty freezes read `ptr_eq` true *without* clone provenance — which
+/// is why a rung may derive from `ptr_eq` only what value equality
+/// gives it, never a clone-history fact.
 #[test]
-fn ptr_eq_recognizes_clones_and_only_clones() {
+fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
     let build = || super::Bits::freeze(bitvec![u8, Msb0; 1, 0, 1, 1, 0]);
     let a = build();
     let clone = a.clone();
@@ -141,6 +147,13 @@ fn ptr_eq_recognizes_clones_and_only_clones() {
     let b = build();
     assert!(!a.ptr_eq(&b));
     assert!(super::canonical_eq(&a, &b));
+    // Independently frozen empty streams alias: ptr_eq true with no
+    // clone anywhere — and still value-equal, the only fact a fast
+    // path may use.
+    let e1 = super::Bits::freeze(BitsMut::new());
+    let e2 = super::Bits::freeze(BitsMut::new());
+    assert!(e1.ptr_eq(&e2));
+    assert!(super::canonical_eq(&e1, &e2));
 }
 
 /// The two freeze doors agree.
