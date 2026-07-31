@@ -465,13 +465,14 @@ fn mul_bound_embedding_is_alive() {
     );
 }
 
-/// The pair door's answer-embedded-product liveness: the `MulBound`
-/// pair claims (distance, lag) enter the settle through the pair
-/// co-sweep — a distinct entry point from rank's single-stream fold,
-/// which the class contract's other embedding and schoolbook
-/// witnesses exercise — so the `Ω(M(a + b))` floor needs its
-/// embedding family constructed through the pair operations' own
-/// doors, not inferred from rank alone.
+/// The pair door's answer-embedded-product liveness.
+///
+/// The `MulBound` pair claims (distance, lag) enter the settle through
+/// the pair co-sweep — a distinct entry point from rank's single-stream
+/// fold, which the class contract's other embedding and schoolbook
+/// witnesses exercise — so the `Ω(M(a + b))` floor needs its embedding
+/// family constructed through the pair operations' own doors, not
+/// inferred from rank alone.
 ///
 /// Against the empty version, the valuation identities collapse to
 /// `distance(v, ∅) = lag(∅, v) = rank(v)` and `lag(v, ∅) = 0`, so the
@@ -519,8 +520,9 @@ fn mul_bound_pair_embedding_is_alive() {
     );
 }
 
-/// The key doors' answer-embedded-product liveness: the `MulBound`
-/// key claims (`Ranked::encode_rank`, `Ranked::encode`,
+/// The key doors' answer-embedded-product liveness.
+///
+/// The `MulBound` key claims (`Ranked::encode_rank`, `Ranked::encode`,
 /// `Ranked::decode`) emit or verify the rank through their own fused
 /// entry points — distinct doors from `Version::rank`'s, which
 /// [`mul_bound_embedding_is_alive`] pins — so the embedding family
