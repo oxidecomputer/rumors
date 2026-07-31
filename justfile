@@ -7,9 +7,12 @@
 #   no-rot sweep just ci / just all                  everything, so nothing rots
 #
 # The gate runs every check a commit must pass; its recipe line spells out the
-# order. `ci` adds the artifacts the gate doesn't reach, exactly as GitHub CI
-# builds them; `all` adds what CI cannot run (the fuzz smoke and the formal
-# tier). The comment above each recipe states what it verifies and why.
+# order. `ci` builds the artifacts the gate doesn't reach (the feature matrix,
+# wasm, bench builds, the fuzz-target build, the viz bundle), exactly as
+# GitHub CI builds them; `all` adds what CI cannot run (the fuzz smoke and the
+# formal tier). Neither sweep repeats the gate's instrument legs — the fuel
+# bands, the board pins, and surface totality run only in `just gate`. The
+# comment above each recipe states what it verifies and why.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -618,12 +621,13 @@ rumormill *args:
     cargo run --release -p rumormill -- {{ args }}
 
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
-# `ci` is the build-everything tier: the gate's checks plus the feature matrix,
-# wasm, bench builds, the fuzz-target *build*, and the viz bundle. It is ordered
-# cheap-first so failures surface early — formatting, then the lint (which also
-# compiles all host targets), the feature matrix, wasm, docs, the full
-# test+doctest run, bench builds, the fuzz build, and finally the
-# network-touching viz bundle. GitHub CI runs exactly this.
+# `ci` is the build-everything tier: formatting and lints, the feature matrix,
+# wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
+# and the viz bundle, ordered cheap-first so failures surface early. GitHub CI
+# runs exactly this. Neither `ci` nor `all` runs the gate's instrument legs —
+# the fuel bands, the fuelscape pins, the board determinism/shard/ranking
+# pins, and surface totality run only in `just gate` (its recipe line is the
+# roster of record), pre-commit on a developer machine.
 #
 # `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
 # per-commit spend), the formal tier (the runner has no Lean toolchain) —
