@@ -78,8 +78,10 @@ pub struct Fit {
 /// the bucket medians rise from the overhead knee and then settle onto the
 /// true law only above it. The floor is also the enforcement-side size
 /// floor: below it the shrinker would converge on small-n noise, not
-/// genuine violations.
-const FIT_FLOOR_BITS: u64 = 128;
+/// genuine violations. The sub-floor region is not unjudged wholesale:
+/// the small-operand bands ([`crate::bands::SMALL_BAND_KERNELS`]) price
+/// it as the constant-overhead regime it is, via [`fit_constant`].
+pub const FIT_FLOOR_BITS: u64 = 128;
 
 /// Minimum denominator decades a slope estimate needs; narrower clouds
 /// classify constant.
@@ -173,6 +175,57 @@ pub fn fit(samples: &[(u64, u64)]) -> Option<Fit> {
         min_denom,
         max_denom,
         constant,
+    })
+}
+
+/// Fit one kernel's sub-floor samples as a constant band: slope 0,
+/// intercept the mean `log₁₀` fuel, widths the maximum residuals on each
+/// side. `None` when fewer than 2 samples exist.
+///
+/// The constant classification is by construction, not by span test:
+/// below [`FIT_FLOOR_BITS`] the law of record *is* the constant-overhead
+/// regime (the reason the floor exists — see its doc), so a slope fitted
+/// there would read overhead decay as an asymptote. The band therefore
+/// prices the region's whole spread — one level, two measured widths —
+/// and a bounded regression inside the region reads Above the ceiling
+/// while a dead meter reads Below the floor, exactly the seed bands'
+/// template.
+///
+/// # Panics
+///
+/// Panics on a sample at or above [`FIT_FLOOR_BITS`]: sub-floor samples
+/// are the caller's contract, and a floored sample folded into the
+/// constant level would silently widen the band toward the size-law
+/// regime it must not price.
+pub fn fit_constant(samples: &[(u64, u64)]) -> Option<Fit> {
+    if samples.len() < 2 {
+        return None;
+    }
+    let min_denom = samples.iter().map(|&(d, _)| d).min().expect("non-empty");
+    let max_denom = samples.iter().map(|&(d, _)| d).max().expect("non-empty");
+    assert!(
+        max_denom < FIT_FLOOR_BITS,
+        "fit_constant priced a floored sample ({max_denom} bits >= {FIT_FLOOR_BITS}): \
+         the constant model holds only below the fit floor"
+    );
+    let logs: Vec<f64> = samples
+        .iter()
+        .map(|&(_, f)| (f.max(1) as f64).log10())
+        .collect();
+    let intercept = logs.iter().sum::<f64>() / logs.len() as f64;
+    let (width_above, width_below) = logs.iter().fold((0.0f64, 0.0f64), |(wa, wb), &y| {
+        let residual = y - intercept;
+        (wa.max(residual), wb.max(-residual))
+    });
+    Some(Fit {
+        slope: 0.0,
+        intercept,
+        width_above,
+        width_below,
+        samples: samples.len(),
+        min_denom,
+        max_denom,
+        constant: true,
     })
 }
 
