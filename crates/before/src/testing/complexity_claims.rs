@@ -355,6 +355,15 @@ const fn constant(op: &'static str) -> Claim {
     }
 }
 
+/// The `Span` type doc's shared line: the operator matrix families
+/// price their endpoint-wise legs together at the one type doc every
+/// cell links back to.
+const SPAN_TYPE_BOUND: Bound = Bound::Custom {
+    line: "operators `O(a + b)` in the operands' packed sizes; constructors and accessors \
+           `O(1)`, plus `new`'s one validating comparison.",
+    reason: "one type-doc section prices the whole operator matrix together",
+};
+
 /// The `causally` module doc's shared line: eighteen rows price the
 /// same three facts, so they share one bound at one site.
 ///
@@ -1083,30 +1092,30 @@ pub(crate) const CLAIMS: &[Claim] = &[
         Cells::Board(&[("range_bounded", Class::Linear)]),
     ),
     causally(
-        "causally::Span::new",
+        "Span::new",
         Cells::Uncelled(CAUSALLY_COMPOSITION),
     ),
     causally(
-        "causally::Span::new_unchecked",
+        "Span::new_unchecked",
         Cells::Uncelled(
             "stores two borrows and performs no comparison at all: the trusted \
              door's debug assertion sits outside the cost contract",
         ),
     ),
     causally(
-        "causally::Span::place",
+        "Span::place",
         Cells::Board(&[("span_place", Class::Linear)]),
     ),
     causally(
-        "causally::Span::dominance_of",
+        "Span::dominance_of",
         Cells::Board(&[("span_dominance", Class::Linear)]),
     ),
-    constant("causally::Span::meet"),
-    constant("causally::Span::join"),
+    constant("Span::meet"),
+    constant("Span::join"),
     // A clone is a refcount bump, so the settle is constant whether
     // the endpoints are owned or borrowed.
     Claim {
-        op: "causally::Span::into_parts",
+        op: "Span::into_parts",
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Constant,
@@ -1115,10 +1124,10 @@ pub(crate) const CLAIMS: &[Claim] = &[
             "one refcount bump per borrowed endpoint (the board's coverage table)",
         ),
     },
-    constant("causally::Span::reborrow"),
+    constant("Span::reborrow"),
     // Constant whether owned or borrowed, as `into_parts`.
     Claim {
-        op: "causally::Span::into_owned",
+        op: "Span::into_owned",
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Constant,
@@ -1128,7 +1137,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ),
     },
     Claim {
-        op: "causally::Span::encode",
+        op: "Span::encode",
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Linear,
@@ -1136,7 +1145,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         cells: Cells::Board(&[("span_encode", Class::Linear)]),
     },
     Claim {
-        op: "causally::Span::encode_to",
+        op: "Span::encode_to",
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Linear,
@@ -1146,7 +1155,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         cells: Cells::Board(&[("span_encode", Class::Linear)]),
     },
     Claim {
-        op: "causally::Span::decode",
+        op: "Span::decode",
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Linear,
@@ -1159,6 +1168,162 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ]),
     },
     // ─────────────────────── operator/trait families ───────────────────────
+    Claim {
+        op: "Span::union_all",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Fold,
+        }],
+        // On all-coincident inputs the door is law-pinned identical to
+        // Version::span_all (span_union_of_points_is_span_all), so that
+        // row's cell witnesses the fold class; the wide-input legs are
+        // the same balanced counter over the celled version join/meet.
+        cells: Cells::Board(&[("version_span_all", Class::FoldLog)]),
+    },
+    Claim {
+        op: "Span::intersect_all",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Fold,
+        }],
+        // The same balanced counter with the legs swapped: the two
+        // n-ary lattice folds' cells witness the class, one per leg.
+        cells: Cells::Board(&[
+            ("version_join_all", Class::FoldLog),
+            ("version_meet_all", Class::FoldLog),
+        ]),
+    },
+    Claim {
+        op: "Span::sum_all",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Fold,
+        }],
+        // Join on both legs; on points the door is law-pinned identical
+        // to the celled join_all fold.
+        cells: Cells::Board(&[("version_join_all", Class::FoldLog)]),
+    },
+    Claim {
+        op: "Span::product_all",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Fold,
+        }],
+        // Meet on both legs; on points the door is law-pinned identical
+        // to the celled meet_all fold.
+        cells: Cells::Board(&[("version_meet_all", Class::FoldLog)]),
+    },
+    constant("OwnSpan::meet"),
+    constant("OwnSpan::join"),
+    Claim {
+        op: "OwnSpan::place",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Custom {
+                line: "two masked co-walks, `O(|lo| + |hi| + |p| + |probe|)`.",
+                reason: "the composed verdict is denominated in both endpoints, the mask, \
+                         and the probe at once; no pair template names four streams",
+            },
+        }],
+        cells: Cells::Uncelled(
+            "two of the masked co-walks the OwnVersion comparison rows price; \
+             the composition adds no walk of its own",
+        ),
+    },
+    Claim {
+        op: "OwnSpan::dominance_of",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Custom {
+                line: "at most two masked co-walks, one when the start refutes.",
+                reason: "the early exit halves the walk count on refutation; no template \
+                         speaks about verdict-dependent walk counts",
+            },
+        }],
+        cells: Cells::Uncelled(
+            "the masked co-walks the OwnVersion comparison rows price, with the \
+             dominance early exit",
+        ),
+    },
+    Claim {
+        op: "OwnSpan::to_span",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::Custom {
+                line: "as [`OwnVersion::to_version`], per endpoint — the results' packed \
+                       sizes are not bounded by a constant factor of the operands.",
+                reason: "materialization is priced by its product-growth output, per \
+                         endpoint; no template names an output-denominated pair",
+            },
+        }],
+        cells: Cells::Uncelled(
+            "two of the materializations the OwnVersion::to_version row prices",
+        ),
+    },
+    Claim {
+        op: "Span | Span (BitOr, owned and borrowed — the containment join)",
+        checks: &[Check {
+            site: Site::TypeDoc("src/span.rs", "Span"),
+            bound: SPAN_TYPE_BOUND,
+        }],
+        cells: Cells::Uncelled(
+            "endpoint-wise composition of the board-covered version meet/join; \
+             the point fast path is the board-covered version_span_all leaf walk",
+        ),
+    },
+    Claim {
+        op: "Span & Span (BitAnd, owned and borrowed — the containment meet)",
+        checks: &[Check {
+            site: Site::TypeDoc("src/span.rs", "Span"),
+            bound: SPAN_TYPE_BOUND,
+        }],
+        cells: Cells::Uncelled(
+            "endpoint-wise composition of the board-covered version join/meet \
+             plus one validating comparison",
+        ),
+    },
+    Claim {
+        op: "Span + Span (Add, owned and borrowed — the pointwise join)",
+        checks: &[Check {
+            site: Site::TypeDoc("src/span.rs", "Span"),
+            bound: SPAN_TYPE_BOUND,
+        }],
+        cells: Cells::Uncelled(
+            "endpoint-wise composition of the board-covered version join, both legs",
+        ),
+    },
+    Claim {
+        op: "Span * Span (Mul, owned and borrowed — the pointwise meet)",
+        checks: &[Check {
+            site: Site::TypeDoc("src/span.rs", "Span"),
+            bound: SPAN_TYPE_BOUND,
+        }],
+        cells: Cells::Uncelled(
+            "endpoint-wise composition of the board-covered version meet, both legs",
+        ),
+    },
+    Claim {
+        op: "&Span / &Party (Div — the lazy span projection view)",
+        checks: &[Check {
+            site: Site::ImplDoc("src/span.rs", "Div<&'a Party> for &'a Span<'a>"),
+            bound: Bound::Constant,
+        }],
+        cells: Cells::Uncelled(
+            "view construction: two borrows; the verdict and materialization \
+             costs live on the OwnSpan rows",
+        ),
+    },
+    Claim {
+        op: "From<OwnSpan> for Span (explicit materialization)",
+        checks: &[Check {
+            site: Site::ImplDoc("src/span.rs", "From<OwnSpan<'_>> for Span<'static>"),
+            bound: Bound::Custom {
+                line: "as [`OwnSpan::to_span`].",
+                reason: "delegation; the named method's line is the contract",
+            },
+        }],
+        cells: Cells::Uncelled("delegation to OwnSpan::to_span; its row carries the cost"),
+    },
     Claim {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
         checks: &[Check {

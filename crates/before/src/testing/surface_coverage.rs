@@ -178,7 +178,12 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
     SourceSpec {
         path: "src/causally.rs",
         module_prefix: Some("causally"),
-        type_overrides: &[("Range", "causally::Range"), ("Span", "causally::Span")],
+        type_overrides: &[("Range", "causally::Range")],
+    },
+    SourceSpec {
+        path: "src/span.rs",
+        module_prefix: None,
+        type_overrides: &[],
     },
 ];
 
