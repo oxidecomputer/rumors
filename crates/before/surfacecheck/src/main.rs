@@ -1,5 +1,5 @@
-//! Surface totality against rustdoc JSON: every public function-like item
-//! of `before` is rostered or excepted, checked from the compiler's own
+//! Surface totality against rustdoc JSON: every public item of `before`
+//! is rostered, pinned, or excepted, checked from the compiler's own
 //! account of the public surface.
 //!
 //! The surface roster (`before::surface::METHOD_SURFACE`) is enforced
@@ -8,13 +8,18 @@
 //! name. This binary closes that hole from the other side: it parses the
 //! nightly rustdoc JSON for `before` (built by the `just surface-totality`
 //! recipe with `--all-features`, so feature-gated modules are visible),
-//! walks the publicly reachable item tree, and holds every public
-//! function-like item — free functions, inherent methods, and
-//! public-trait-declared methods — to exactly one of two dispositions:
-//! a roster row in `METHOD_SURFACE`, or a named, dated exception in
-//! [`check`]. Trait-*impl* methods (operators, `Display`/`FromStr`,
-//! serde/borsh) are out of scope here: the roster covers them by family
-//! (`FAMILY_SURFACE`), whose totality is by review.
+//! walks the publicly reachable item tree, and holds every public item to
+//! exactly one disposition:
+//!
+//! - function-like items (free functions, inherent methods,
+//!   public-trait-declared methods): a roster row in `METHOD_SURFACE`, or
+//!   a named, dated exception in [`check`];
+//! - trait impls (operators, `Display`/`FromStr`, serde/borsh, derives):
+//!   a pinned row in [`census::TRAIT_IMPLS`], reconciled both ways, so a
+//!   new impl and a vanished pin both read red — the mechanical jaw
+//!   behind `FAMILY_SURFACE`'s per-family dispositions;
+//! - associated consts and types, module consts, statics, and macros: a
+//!   pinned row in [`census::ITEMS`], reconciled the same way.
 //!
 //! Exit status is the verdict: zero with a one-line census on a clean
 //! sweep, nonzero with every finding named otherwise. The check runs
@@ -25,12 +30,13 @@
 use std::collections::BTreeSet;
 use std::process::ExitCode;
 
+mod census;
 mod check;
 mod extract;
 
 /// Read the rustdoc JSON at the path given as the sole CLI argument,
 /// refuse a format-version mismatch, and reconcile the extracted surface
-/// against the roster and the exception lists.
+/// against the roster, the pinned censuses, and the exception lists.
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     // `--list` renders the census (every extracted item with its
@@ -90,42 +96,81 @@ fn main() -> ExitCode {
         }
     };
 
-    let extracted = extract::function_like_items(&krate);
+    let surface = extract::public_surface(&krate);
     let rostered: BTreeSet<&str> = before::surface::METHOD_SURFACE
         .iter()
         .map(|row| row.op)
         .collect();
     if list.is_some() {
-        for name in &extracted {
-            let disposition = if rostered.contains(name.as_str()) {
-                "rostered".to_owned()
-            } else if check::ITEM_EXCEPTIONS.iter().any(|e| e.name == name) {
-                "excepted (item)".to_owned()
-            } else if let Some(e) = check::MODULE_EXCEPTIONS
-                .iter()
-                .find(|e| name.starts_with(e.name))
-            {
-                format!("excepted (module {})", e.name)
-            } else {
-                "UNROSTERED".to_owned()
-            };
-            println!("{name:60} {disposition}");
-        }
+        render_list(&surface, &rostered);
     }
-    let findings = check::reconcile(&extracted, &rostered);
+    let findings = check::reconcile(&surface, &rostered);
     if findings.is_clean() {
+        let outside = |set: &BTreeSet<String>| {
+            set.iter()
+                .filter(|row| {
+                    !check::MODULE_EXCEPTIONS
+                        .iter()
+                        .any(|e| row.starts_with(e.name))
+                })
+                .count()
+        };
         println!(
             "surface totality: {} public function-like items = {} rostered + {} \
-             excepted ({} item exceptions, {} module-scope)",
-            extracted.len(),
+             excepted ({} item exceptions, {} module-scope); {} trait impls = {} \
+             pinned + {} module-excepted; {} items = {} pinned + {} module-excepted",
+            surface.functions.len(),
             rostered.len(),
-            extracted.len() - rostered.len(),
+            surface.functions.len() - rostered.len(),
             check::ITEM_EXCEPTIONS.len(),
             check::MODULE_EXCEPTIONS.len(),
+            surface.impls.len(),
+            outside(&surface.impls),
+            surface.impls.len() - outside(&surface.impls),
+            surface.items.len(),
+            outside(&surface.items),
+            surface.items.len() - outside(&surface.items),
         );
         ExitCode::SUCCESS
     } else {
         eprint!("{}", findings.render());
         ExitCode::FAILURE
+    }
+}
+
+/// Render every extracted row with its disposition, category by
+/// category, for triage and review.
+fn render_list(surface: &extract::Surface, rostered: &BTreeSet<&str>) {
+    let module_exception = |name: &str| {
+        check::MODULE_EXCEPTIONS
+            .iter()
+            .find(|e| name.starts_with(e.name))
+    };
+    for name in &surface.functions {
+        let disposition = if rostered.contains(name.as_str()) {
+            "rostered".to_owned()
+        } else if check::ITEM_EXCEPTIONS.iter().any(|e| e.name == name) {
+            "excepted (item)".to_owned()
+        } else if let Some(e) = module_exception(name) {
+            format!("excepted (module {})", e.name)
+        } else {
+            "UNROSTERED".to_owned()
+        };
+        println!("{name:60} {disposition}");
+    }
+    let census_disposition = |row: &String, pinned: &[&str]| {
+        if pinned.contains(&row.as_str()) {
+            "pinned".to_owned()
+        } else if let Some(e) = module_exception(row) {
+            format!("excepted (module {})", e.name)
+        } else {
+            "UNROSTERED".to_owned()
+        }
+    };
+    for row in &surface.impls {
+        println!("{row:100} {}", census_disposition(row, census::TRAIT_IMPLS));
+    }
+    for row in &surface.items {
+        println!("{row:60} {}", census_disposition(row, census::ITEMS));
     }
 }

@@ -22,7 +22,12 @@
 //! either way the reviewer sees a named diff. Operator and trait surfaces
 //! (`|`, `&`, `/`, comparison matrices, `Display`/`FromStr`, serde/borsh)
 //! are not reachable by that scan; they are rostered by family in
-//! [`FAMILY_SURFACE`], whose totality is by review of this file alone.
+//! [`FAMILY_SURFACE`] for their leg dispositions, and the surface-totality
+//! gate (`crates/before/surfacecheck`, over nightly rustdoc JSON) holds
+//! the concrete impl inventory behind those families mechanically total:
+//! every reachable trait impl is pinned there by name, so a new operator
+//! or trait impl fails the gate until its pin — and, for a new family,
+//! the family row here — is added.
 //! Every test name a row cites must resolve to an executable binding:
 //! a `#[test]`-attributed item under `src/` ([`cited_test_names`] against
 //! [`declared_test_names`], a source scan that admits only attributed

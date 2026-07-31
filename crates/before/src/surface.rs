@@ -685,8 +685,12 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot
-/// reach. Totality here is by review of this file: a new operator impl is
-/// a deliberate API event that must add a family row.
+/// reach. Rows here carry the leg dispositions by family; the concrete
+/// impl inventory behind them is held mechanically total by the
+/// surface-totality gate (`crates/before/surfacecheck`), which pins every
+/// reachable trait impl by name against nightly rustdoc JSON. A new
+/// operator impl is a deliberate API event: it fails that gate until its
+/// pin — and, for a new family, a family row here — is added.
 pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",

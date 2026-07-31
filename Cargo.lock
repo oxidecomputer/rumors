@@ -324,6 +324,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "stacker",
+ "static_assertions",
  "suanpan",
  "thiserror 2.0.18",
  "trybuild",

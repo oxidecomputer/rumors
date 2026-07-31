@@ -43,6 +43,12 @@ smallvec = "1.15"
 # `ptr::read` in its `BufBitWriter::into_inner` is off the read path, and
 # this crate's `#![forbid(unsafe_code)]` is per-crate, unaffected.
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
+# Compile-time auto-trait pins (`src/auto_traits.rs`): every public API type
+# asserts `Send + Sync + Unpin`, so a field addition that would silently
+# revoke one becomes a compile error in every build, not a downstream
+# breakage. Macro-only: it contributes no runtime code and no transitive
+# dependencies.
+static_assertions = "1.1"
 thiserror = "2"
 serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
 borsh = { version = "1", optional = true }
