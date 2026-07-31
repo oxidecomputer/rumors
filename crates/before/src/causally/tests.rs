@@ -925,6 +925,63 @@ fn span_decode_structural_genres_outrank_the_pair_verdict() {
     );
 }
 
+/// Structural genres outrank the coincident-pair verdict: a composite
+/// whose join stream byte-equals its meet still rejects by its
+/// structural defect, never silently dedups.
+///
+/// The admission walk's `Equal` verdict is what dispatches the
+/// coincident span's storage dedup, and it is pronounced only after
+/// the join's padding check — so a coincident composite carrying a set
+/// padding bit or a spurious trailing zero byte is `TrailingBits`, and
+/// one whose byte-equal join is cut mid-tree is `Truncated`: the same
+/// precedence the crossed-pair witnesses pin, exercised through the
+/// dedup-dispatching arm.
+#[test]
+fn span_decode_structural_genres_outrank_the_coincident_verdict() {
+    use crate::error::Decode;
+    let mut main = Clock::seed();
+    let mut other = main.fork();
+    other.tick();
+    main.recv(other.send());
+    main.tick();
+    let v = main.version().clone();
+    let bytes = v.encode();
+    assert!(
+        bytes.len() > 1 && !v.encoded_bits().is_multiple_of(8),
+        "the witness needs a multi-byte stream with live padding bits"
+    );
+
+    // The clean coincident composite accepts (the dedup baseline).
+    let coincident = [bytes.clone(), bytes.clone()].concat();
+    let span = Span::decode(&coincident[..]).expect("the coincident composite decodes");
+    assert!(span.meet().view().ptr_eq(span.join().view()));
+
+    // A set padding bit in the byte-equal join's final byte: the
+    // padding defect wins over the Equal verdict.
+    let mut padded = coincident.clone();
+    *padded.last_mut().expect("nonempty") |= 0x01;
+    assert!(
+        matches!(Span::decode(&padded[..]), Err(Decode::TrailingBits)),
+        "nonzero padding outranks the coincident verdict"
+    );
+
+    // A spurious all-zero byte after the byte-equal join: the same
+    // trailing genre.
+    let trailing = [coincident.clone(), vec![0x00]].concat();
+    assert!(
+        matches!(Span::decode(&trailing[..]), Err(Decode::TrailingBits)),
+        "a trailing zero byte outranks the coincident verdict"
+    );
+
+    // The byte-equal join cut mid-tree: truncation wins, though every
+    // byte read so far matched the meet exactly.
+    let truncated = [bytes.clone(), bytes[..bytes.len() - 1].to_vec()].concat();
+    assert!(
+        matches!(Span::decode(&truncated[..]), Err(Decode::Truncated)),
+        "truncation outranks the coincident verdict"
+    );
+}
+
 /// FUSED-VALIDATE VERDICT IDENTITY beyond the exhaustive corpus's
 /// reach: deep spines, wide fans, and payload magnitudes at and past
 /// the machine word, on both verdicts.
