@@ -66,8 +66,14 @@ fn assert_emits(a: &Version, b: &Version) {
             oracle_relation(&met, x, y),
             "the fused verdict must match the oracle's lattice reading: {a} vs {b}"
         );
-        assert_eq!(hulled.lo, met, "the fused hull's meet must match: {a} vs {b}");
-        assert_eq!(hulled.hi, joined, "the fused hull's join must match: {a} vs {b}");
+        assert_eq!(
+            hulled.lo, met,
+            "the fused hull's meet must match: {a} vs {b}"
+        );
+        assert_eq!(
+            hulled.hi, joined,
+            "the fused hull's join must match: {a} vs {b}"
+        );
     }
 }
 
@@ -79,11 +85,7 @@ fn assert_emits(a: &Version, b: &Version) {
 /// from the recursive oracle, the reading from the order-theoretic
 /// definition — so the fused verdict differential shares nothing with
 /// the fold it checks.
-fn oracle_relation(
-    met: &BitsMut,
-    x: &BitsMut,
-    y: &BitsMut,
-) -> Option<core::cmp::Ordering> {
+fn oracle_relation(met: &BitsMut, x: &BitsMut, y: &BitsMut) -> Option<core::cmp::Ordering> {
     match (met == x, met == y) {
         (true, true) => Some(core::cmp::Ordering::Equal),
         (true, false) => Some(core::cmp::Ordering::Less),

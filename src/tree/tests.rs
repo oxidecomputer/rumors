@@ -1403,10 +1403,7 @@ mod span_door_traffic {
         let (equal, empty, comparable, concurrent) = cells(|| {
             let mut tree: Tree<Bytes> = Tree::new();
             for round in 0..8 {
-                tree.act(
-                    &party_of("A"),
-                    batch("a", round, 64).map(insert_action),
-                );
+                tree.act(&party_of("A"), batch("a", round, 64).map(insert_action));
                 tree.warm_caches();
             }
         });
@@ -1436,10 +1433,7 @@ mod span_door_traffic {
             for label in ["A", "B", "C", "D"] {
                 let mut tree: Tree<Bytes> = Tree::new();
                 for round in 0..4 {
-                    tree.act(
-                        &party_of(label),
-                        batch(label, round, 32).map(insert_action),
-                    );
+                    tree.act(&party_of(label), batch(label, round, 32).map(insert_action));
                 }
                 tree.warm_caches();
                 merged.join(tree);
@@ -1449,10 +1443,7 @@ mod span_door_traffic {
             // ancestor memos, so re-warming re-folds them against the
             // merged population.
             for round in 100..104 {
-                merged.act(
-                    &party_of("A"),
-                    batch("a", round, 32).map(insert_action),
-                );
+                merged.act(&party_of("A"), batch("a", round, 32).map(insert_action));
                 merged.warm_caches();
             }
         });
