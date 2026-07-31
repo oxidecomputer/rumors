@@ -1733,6 +1733,22 @@ owned by the final review.
   — a Vec win on time re-pins those rows deliberately. Where a
   packed bit-stack (2 bits/level) suffices, neither applies and
   the bit-stack stays.
+  - **DECIDED 2026-07-31 (adopt-68): plain `Vec::new()` at both
+    parser-stack sites; the `smallvec` dependency retired from
+    `before`.** The ratified A/B record ran the `stacks` bench's
+    per-site arms against the shipped inline stacks: the id-parse
+    stack *lost* as SmallVec (record geomean 0.782 for the Vec
+    arm — Vec wins in microseconds on the deep cells against
+    regressions of tens of nanoseconds on tiny spines), and the
+    text stack read near-neutral (0.962), dissolved with it so
+    the dependency goes entirely (dependency-dissolution over a
+    cell-neutral hold). Heap envelope rows re-pinned deliberately
+    where the Vec growth moved them, movements recorded at the
+    parent. The per-site A/B seams, their `RUSTFLAGS` arms
+    (`id_stack_vec`/`text_stack_vec`), and the `stacks` bench
+    retired with the decision: the seam existed to price the
+    choice, and the choice is made — re-opening it starts from
+    this entry's numbers, not from standing machinery.
 - **The envelope-harness unification** (the #39 census's deferred
   disposition): collapse the envelope harness shapes in
   `tests/meter.rs` into one five-column shape with per-column

@@ -239,12 +239,6 @@ pub fn alloc_arms() -> String {
     if cfg!(before_alloc_ab = "display_growth") {
         arms.push("display_growth");
     }
-    if cfg!(before_alloc_ab = "id_stack_vec") {
-        arms.push("id_stack_vec");
-    }
-    if cfg!(before_alloc_ab = "text_stack_vec") {
-        arms.push("text_stack_vec");
-    }
     if arms.is_empty() {
         arms.push("shipped");
     }

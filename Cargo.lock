@@ -322,7 +322,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "smallvec",
  "stacker",
  "static_assertions",
  "suanpan",

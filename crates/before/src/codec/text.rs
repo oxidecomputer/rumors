@@ -1,10 +1,5 @@
-#[cfg(not(before_alloc_ab = "text_stack_vec"))]
-use smallvec::SmallVec;
-
 use crate::error::Parse;
 
-#[cfg(not(before_alloc_ab = "text_stack_vec"))]
-use super::tree::PARSE_STACK_INLINE;
 use super::{validate_id, Base, BitsMut};
 
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure
@@ -100,22 +95,13 @@ enum IdKind {
     Node,
 }
 
-/// The text id parser's explicit stack: one frame per unfinished
-/// ancestor, [`PARSE_STACK_INLINE`] frames inline.
-///
-/// Allocation-strategy seam, the text-side counterpart of the packed
-/// parser's: the `before_alloc_ab = "text_stack_vec"` cfg —
-/// `RUSTFLAGS`-only, exactly as there — swaps in a heap-only `Vec` so
-/// the stack benchmark can price this site independently of the packed
-/// one. Shipped builds always take the `SmallVec` arm.
-#[cfg(not(before_alloc_ab = "text_stack_vec"))]
-type TextIdStack = SmallVec<[IdFrame; PARSE_STACK_INLINE]>;
-#[cfg(before_alloc_ab = "text_stack_vec")]
-type TextIdStack = Vec<IdFrame>;
-
 /// While building a node bottom-up, what its subtree still needs from the
 /// text: the node's reserved 2-bit tag slot rides in the frame so the
 /// children's presence patches in at the close paren.
+///
+/// One frame per unfinished ancestor, on an explicit heap `Vec` — as
+/// deep as the nesting, never the call stack, exactly the packed
+/// parsers' discipline ([`super::tree`]).
 enum IdFrame {
     /// The next subtree is the node's left child.
     NeedLeft {
@@ -139,9 +125,9 @@ enum IdFrame {
 /// children, then patches the tag to their presence — rejecting a collapsible
 /// `(0, 0)` / `(1, 1)` once its `)` has parsed (a structural defect outranks
 /// the canonicality check, exactly the token order of the grammar). One
-/// frame per unfinished ancestor, [`PARSE_STACK_INLINE`] frames inline.
+/// frame per unfinished ancestor.
 fn parse_id_tree(cur: &mut Cur, bits: &mut BitsMut) -> Result<(), Parse> {
-    let mut stack = TextIdStack::new();
+    let mut stack: Vec<IdFrame> = Vec::new();
     loop {
         // One atom: a leaf token, or a `(` opening the next unfinished node.
         let mut kind = match cur.bump() {
