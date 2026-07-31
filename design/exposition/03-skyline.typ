@@ -284,9 +284,9 @@ other rules cost little or nothing. What uniqueness buys:
 - *Byte equality is semantic equality.* Equality and hashing are raw
   byte operations — no walk, no decode. Any system that deduplicates,
   content-addresses, or gossips values compares them constantly;
-  those comparisons are `memcmp`, behind an $O(1)$ shared-buffer
-  identity rung for values that are clones of one another (values
-  clone by reference count, sharing one buffer).
+  those comparisons are `memcmp` — and a value clones by reference
+  count, so a clone and its source share one buffer and answer
+  equality in $O(1)$, before any byte is compared.
 - *Decode can reject rather than repair.* Every valid value has
   exactly one acceptable spelling, so anything else is refused. There
   is no normalization pass, no "fix up and continue" path whose cost

@@ -196,16 +196,16 @@ $ sum_(j = 1)^(W) Theta(j) = Theta(W^2) "bit-work — on 64-bit words,"
   W^2 \/ 128 + O(W) "machine-word writes." $
 
 On `hugeleaf` this is the whole input, and the arithmetic reconciles
-with the committed counter. The committed instance holds
+with the committed counter. The instrument holds
 $W = 125,000$ bits — a sixteen-kilobyte value spelled as one
-thirty-one-kilobyte code — and the formula predicts
+thirty-one-kilobyte code — where the formula predicts
 $W^2\/128 approx 1.22 dot 10^8$ machine-word writes; the
-instrumented bit-at-a-time decoder counted $122$ million, the
+bit-at-a-time decoder counted $122$ million, the
 formula to within a percent. The cured
 decoder — accumulate machine words, splice them once — landed the
 same cell at $1,954$ word writes: the value's own words, exactly
 linear, a sixty-thousandfold drop (measured). And the quadratic
-scales past any patience: a value just thirty times wider — half a
+outgrows any patience: a value just thirty times wider — half a
 megabyte — pays the formula a further thousandfold. The defect looks trivial once named —
 of course you buffer words — but it is worth its own entry for two
 reasons. First, it is a _decode-time_ quadratic: it runs on arbitrary
