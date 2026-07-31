@@ -228,6 +228,21 @@ impl Party {
     /// For the consuming counterpart that splits into exactly `N` shares with no
     /// residual, see [`From<Party>`](Party) for `[Party; N]`.
     ///
+    /// # Panics
+    ///
+    /// In builds with debug assertions, `n == usize::MAX` panics with an
+    /// arithmetic overflow (the split carves `n + 1` subregions, and the
+    /// count has no headroom for the residual share). The panic strikes
+    /// after `self`'s region has been moved into the split, so a caller
+    /// that catches the unwind is left holding an emptied `Party` whose
+    /// region was dropped — destroyed, never duplicated, so the Law of
+    /// Disjointness is safe, but the handle is no longer usable as an
+    /// identity. Without debug assertions the count wraps instead: the
+    /// returned iterator yields no shares while reporting `usize::MAX`
+    /// remaining — violating [`ExactSizeIterator`]'s contract and the
+    /// "hands out `n`" promise at exactly this one input — and `self`
+    /// keeps its whole region.
+    ///
     /// # Complexity
     ///
     /// `O(S)` time and space for a full drain, where `S` is the total

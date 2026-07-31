@@ -173,6 +173,14 @@ impl Clock {
     /// For the consuming counterpart that splits into exactly `N` clocks, see
     /// [`From<Clock>`](Clock) for `[Clock; N]`.
     ///
+    /// # Panics
+    ///
+    /// As [`Party::forks`], whose split this drives: in builds with debug
+    /// assertions, `n == usize::MAX` panics with an arithmetic overflow;
+    /// without them the count wraps and the iterator yields no children
+    /// while reporting `usize::MAX` remaining (see [`Party::forks`]'s
+    /// section for the caught-unwind state).
+    ///
     /// # Complexity
     ///
     /// `O(S + n)` time and space for a full drain, where `S` is the
