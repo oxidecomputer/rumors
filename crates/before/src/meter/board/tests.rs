@@ -730,6 +730,24 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
         "heap readings clearing the allowance must be judged and red: {:?}",
         over_allowance.red
     );
+    // A probe pair straddling the allowance boundary manufactures an
+    // exponent: the flat term the constant leg forgives deflates the
+    // base reading and releases at the large one, so the fit measures
+    // the boundary, not a scaling class. The straddling pair stays
+    // unjudged; the class is judged at the next doubling, where both
+    // probes sit in the scaling regime (the over-allowance probe above).
+    let straddling = evaluate(
+        "guard_probe",
+        "straddle-allowance",
+        sample(100_000, HEAP_FLAT_ALLOWANCE_BYTES as u64 / 2, 0),
+        sample(200_000, 3 * HEAP_FLAT_ALLOWANCE_BYTES as u64, 0),
+    );
+    assert!(
+        !straddling.red.iter().any(|r| r.contains("heap exponent")),
+        "a probe pair straddling the flat allowance must leave the heap \
+         exponent unjudged: {:?}",
+        straddling.red
+    );
 }
 
 /// The declared fold model admits the balanced reduction's log factor

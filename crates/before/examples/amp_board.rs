@@ -9,15 +9,20 @@
 //!
 //! Usage: `just amp-board` (release, the profile of record — dev runs are
 //! a debugging view whose readings are never pinned), or directly
-//! `cargo run -p before --example amp_board --features limb-meter -- [scale]`
-//! where the optional `scale` (a positive number, default 1) multiplies
-//! every input family's base size; the literal `acceptance` selects the
-//! acceptance scale (`board::ACCEPTANCE_SCALE`, `just
+//! `cargo run -p before --example amp_board --features limb-meter,scan-meter
+//! -- [scale]` where the optional `scale` (a positive number, default 1)
+//! multiplies every input family's base size; the literal `acceptance`
+//! selects the acceptance scale (`board::ACCEPTANCE_SCALE`, `just
 //! amp-board-acceptance`). The default sizes keep the whole board at
 //! seconds of runtime; acceptance requires all green at both the default
 //! and acceptance scales, one run each under the board's determinism
-//! tripwire. Without the `limb-meter` feature the limb column reads
-//! `off`.
+//! tripwire — and the exit code carries that verdict: at those two
+//! scales of record, a red count disagreeing with the expected-reds
+//! triage buffer exits nonzero, so every gate leg that runs a board of
+//! record consumes its verdicts. The counter features are
+//! `required-features`: a build without them would render limb, scan,
+//! and touch unjudged while still printing verdict colors, so cargo
+//! refuses it outright.
 //!
 //! Two further modes consume the same sweep instead of rendering the
 //! matrix: `worst-cases` renders the worst-case map (the argmax family
@@ -186,12 +191,30 @@ fn main() {
                     panic!("amp-board: scale must be a positive number, got {arg:?}")
                 }),
             };
-            if shards == 1 {
+            let summary = if shards == 1 {
                 board::run(scale, &heap, &mut out)
             } else {
                 board::run_sharded(scale, shards, &spawner(shards), &mut out)
             }
             .expect("stdout stays writable");
+            // The verdicts are consumed, not just rendered: at the
+            // scales of record (default and acceptance, the two the
+            // all-green acceptance criterion is stated over), a red
+            // count disagreeing with the expected-reds triage buffer
+            // exits nonzero, so a red board cannot pass a gate leg
+            // that runs it. Other scales stay debugging views whose
+            // verdicts are not of record and never bind.
+            if scale == DEFAULT_SCALE || scale == board::ACCEPTANCE_SCALE {
+                let expected = board::BOARD_EXPECTED_REDS.len();
+                if summary.red != expected {
+                    eprintln!(
+                        "amp-board: {red} red cells at scale {scale} vs {expected} \
+                         in the expected-reds triage buffer",
+                        red = summary.red
+                    );
+                    std::process::exit(1);
+                }
+            }
         }
     }
 }

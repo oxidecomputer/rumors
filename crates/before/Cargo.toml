@@ -158,6 +158,15 @@ unexpected_cfgs = { level = "deny", check-cfg = [
     'cfg(before_alloc_ab, values("projection_growth", "projection_shrink", "display_growth", "id_stack_vec", "text_stack_vec"))',
 ] }
 
+# The board example judges limb, scan, and touch work against pinned
+# floors and ceilings; built without the counter features those columns
+# read `off` and every one of their verdicts silently renders green.
+# Requiring the features makes the unfeatured invocation a loud cargo
+# error instead of a board that looks judged and isn't.
+[[example]]
+name = "amp_board"
+required-features = ["limb-meter", "scan-meter"]
+
 [[bench]]
 name = "party"
 harness = false
