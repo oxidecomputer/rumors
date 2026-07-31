@@ -142,6 +142,13 @@ pub(super) const NA_SCAN_NO_STREAM: &str =
 /// Scan NA: a trivial (seed) operand stores no bits to scan.
 pub(super) const NA_SCAN_SEED_PARTY: &str =
     "the forked party is the seed: its packed form is empty";
+/// Scan NA: the whole-interval party's projection is the version itself
+/// (declared 2026-07-31, truing the floor to the seed fast path: the
+/// materialization is an `O(1)` buffer-sharing clone, so no stream walk
+/// is forced and the honest floor is zero).
+pub(super) const NA_SCAN_SEED_PROJECTION: &str = "the whole-interval (seed) party's projection \
+     is the version itself, handed back as a buffer-sharing clone: no stream walk is in the \
+     contract";
 /// Limb floor: the parse rows materialize every wide spelled value.
 const WHY_LIMB_WIDE: &str = "a magnitude wider than the machine-word bound must be materialized \
      or folded limb by limb: one op per 64 magnitude bits (the parse direction converts every \
@@ -195,10 +202,14 @@ pub(super) const NA_LIMB_DEPENDENCY: &str =
 /// Heap floor: the result materializes at least its packed bytes.
 const WHY_HEAP_MATERIALIZES: &str =
     "materializes a result at least as large as the packed bytes it codes";
-/// Heap floor (deterministic-liveness): a forked child copies the version.
-const WHY_HEAP_FORK_CHILD: &str = "deterministic-liveness: the forked child carries its own \
-     copy of the version's packed bits today; a shared-buffer representation would lower this \
-     floor deliberately";
+/// Heap NA: the forked child's version hand-over shares the refcounted
+/// stored buffer (declared 2026-07-31, truing the floor to the
+/// `bytes::Bytes`-backed at-rest form: a version clone is a refcount
+/// bump, so the byte-copy premise the old floor asserted is gone and
+/// the honest floor is zero).
+pub(super) const NA_HEAP_FORK_SHARES: &str = "the forked child's version hand-over is a \
+     refcount bump on the shared stored buffer, never a byte copy, and no other allocation \
+     is semantically forced";
 /// Heap floor (deterministic-liveness): a forked party materializes its
 /// child half's packed id bits.
 pub(super) const WHY_HEAP_FORK_HALF: &str =
@@ -605,21 +616,6 @@ pub(super) fn heap_materializes(packed_bytes: usize) -> Liveness {
     Liveness::Floor {
         min: packed_bytes as u64,
         why: WHY_HEAP_MATERIALIZES,
-    }
-}
-
-/// The fork rows' heap declaration: the child clock's version copy floors
-/// the heap at the version's whole stored bytes, or NA when the version is
-/// word-scale (the id-pair cross forks around an empty version).
-pub(super) fn heap_fork_child(version: &Version) -> Liveness {
-    let stored_bytes = (version.encoded_bits() / 8) as u64;
-    if stored_bytes == 0 {
-        na(NA_HEAP_IN_PLACE)
-    } else {
-        Liveness::Floor {
-            min: stored_bytes,
-            why: WHY_HEAP_FORK_CHILD,
-        }
     }
 }
 

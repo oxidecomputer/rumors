@@ -273,8 +273,9 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
          and every committed liveness floor met (flr[...]: a counter below its floor is red: \
          the meter is not watching that work; segments is ceiling-only by policy, its honest \
          floor is zero). exponent legs are fitted only where the denominator pair scales \
-         (>= x{MIN_EXPONENT_DENOM_GROWTH} between probes) and, on heap, where a reading \
-         clears the flat allowance the constant leg already forgives; an unjudged exponent \
+         (>= x{MIN_EXPONENT_DENOM_GROWTH} between probes) and, on heap, where both readings \
+         clear the flat allowance the constant leg already forgives (a base inside the \
+         forgiven zone manufactures an exponent at the boundary); an unjudged exponent \
          renders -.-- and the cell rides its constants and floors. every judged quantity is \
          a deterministic counter: the time-exponent leg lives in the bench judge \
          (just bench-judge)"
