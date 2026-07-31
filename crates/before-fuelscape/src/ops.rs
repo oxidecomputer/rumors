@@ -67,6 +67,32 @@ pub enum Inputs {
     /// committed fold-cure families mark the adversarial arity ramps on
     /// top of this bulk measure.
     VersionSlice,
+    /// One packed party followed by a version slice, composed into
+    /// disjoint clocks in the guest: the clock-fold row's input space.
+    /// The clock count is drawn uniformly from every count the column's
+    /// budget can feed (`1..=size − 1`: one byte for the party, one per
+    /// version), then the total splits uniformly over the compositions
+    /// into one exact size per operand, party first. The party is
+    /// fork-split in preparation so each drawn version rides its own
+    /// disjoint party — independent uniform parties are almost never
+    /// pairwise disjoint, so the fold's domain is reached by splitting
+    /// one.
+    ///
+    /// The clock count is stratified for the same reason as
+    /// [`VersionSlice`](Inputs::VersionSlice)'s arity: a panel can read
+    /// a fold's arity factor only if the arity varies across samples.
+    ClockSlice,
+    /// One packed party of exactly the column's size, split into a
+    /// drawn number of balanced shares in the guest: the party-fold
+    /// row's input space. The share count is drawn uniformly over
+    /// `1..=size` — a declared range, since the shares are minted in
+    /// the guest and the byte budget therefore does not bound the
+    /// count; `1..=size` mirrors the slice rows' arity-per-column
+    /// envelope so the fold panels read comparably. Any party admits
+    /// any share count (a balanced split subdivides leaves as far as it
+    /// needs), so the draw never rejects, and the size axis stays the
+    /// one party's own packed bytes.
+    PartyShares,
 }
 
 impl Inputs {
@@ -77,6 +103,10 @@ impl Inputs {
             Inputs::Packed(operands) | Inputs::PackedDistinct(operands) => operands.len().max(1),
             // One one-byte operand: the smallest slice is unary.
             Inputs::VersionSlice => 1,
+            // One byte for the party, one for the smallest slice.
+            Inputs::ClockSlice => 2,
+            // The one party; the share count costs no bytes.
+            Inputs::PartyShares => 1,
         }
     }
 }
@@ -94,10 +124,6 @@ const FORKS_SHARES: u32 = 8;
 /// width.
 const TICKS_COUNT: u32 = 1_000_000_000;
 
-/// The share count the `party_join_all` row re-merges: the fold's
-/// arity, a declared constant matching the forks row's split.
-const JOIN_ALL_SHARES: u32 = 8;
-
 /// One measured operation: a roster row.
 pub struct OpSpec {
     /// The atlas name (also the output file stem).
@@ -112,7 +138,14 @@ pub struct OpSpec {
     pub size_measure: &'static str,
     /// Stage `inputs` (one packed encoding per operand) and run the one
     /// measured kernel, returning its fuel.
-    pub measure: fn(&mut Guest, &[Vec<u8>]) -> Measured,
+    ///
+    /// The last argument is the sample's drawn arity. Every host-drawn
+    /// row can read its arity off `inputs` itself (the slice rows do),
+    /// so those rows ignore it; the guest-split fold row
+    /// ([`PartyShares`](Inputs::PartyShares)) mints its fold operands
+    /// inside the guest from the single drawn party, so its drawn share
+    /// count reaches the kernel only through this argument.
+    pub measure: fn(&mut Guest, &[Vec<u8>], usize) -> Measured,
 }
 
 /// The size measure of a one-operand packed row.
@@ -199,7 +232,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["Version::decode"],
         size_measure: M_UNARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             g.stage_write(&inputs[0]);
             g.call("ff_version_decode", &[0])
         },
@@ -209,7 +242,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["Version::encode"],
         size_measure: M_UNARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call("ff_version_encode", &[0])
         },
@@ -220,7 +253,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Version Display / FromStr / TryFrom literals"],
         size_measure: "exact packed bytes, uniform per size (fuel includes writing the \
              text output)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call("ff_version_display", &[0])
         },
@@ -232,7 +265,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the sampled value, rendered to text by Display \
              (the value measure pushed through rendering — not uniform over text; the \
              adversarial text families keep the corner coverage)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_version_display", &[0]);
             g.call("ff_version_fromstr", &[1])
@@ -243,7 +276,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["Version::rank"],
         size_measure: M_UNARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call("ff_version_rank", &[1, 0])
         },
@@ -253,7 +286,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["Version::min_ticks"],
         size_measure: M_UNARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call_i64("ff_version_min_ticks", &[0])
         },
@@ -263,7 +296,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Party]),
         covers: &["Version::tick"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             g.call("ff_version_tick", &[0, 1])
@@ -277,7 +310,7 @@ pub const ROSTER: &[OpSpec] = &[
              count a declared constant, 10⁹: the fused multi-tick walk is flat in the \
              count — at most two fused passes and one splice — so one panel at one \
              large count is the whole n-dependence)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             g.call("ff_version_ticks", &[0, 1, TICKS_COUNT])
@@ -293,7 +326,7 @@ pub const ROSTER: &[OpSpec] = &[
         ],
         size_measure: "total packed bytes; split uniform across the two operands (the \
              projection view materialized via to_version)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             g.call("ff_version_project", &[2, 0, 1])
@@ -309,7 +342,7 @@ pub const ROSTER: &[OpSpec] = &[
              and the compared version, split uniform three ways (the fused \
              three-stream co-walk, no materialization; view construction is O(1) \
              preparation, and the equality entry runs the same fused mechanism)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             load_version(g, 2, &inputs[2]);
@@ -329,7 +362,7 @@ pub const ROSTER: &[OpSpec] = &[
              parties, split uniform four ways (the fused four-stream co-walk, no \
              materialization; view construction is O(1) preparation, and the equality \
              entry runs the same fused mechanism)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             load_version(g, 2, &inputs[2]);
@@ -342,7 +375,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version PartialOrd (the comparison matrix, owned and borrowed)"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_version_cmp", &[0, 1])
@@ -353,7 +386,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version::concurrent"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_version_concurrent", &[0, 1])
@@ -364,7 +397,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version | Version (BitOr/BitOrAssign, owned and borrowed)"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_version_join", &[2, 0, 1])
@@ -375,7 +408,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version & Version (BitAnd/BitAndAssign, owned and borrowed)"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_version_meet", &[2, 0, 1])
@@ -386,7 +419,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version::distance"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_version_distance", &[2, 0, 1])
@@ -397,7 +430,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version::lag"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_version_lag", &[2, 0, 1])
@@ -408,7 +441,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::VersionSlice,
         covers: &["Version::join_all"],
         size_measure: M_SLICE,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             g.call("ff_version_join_all", &[n, 0, n])
         },
@@ -418,7 +451,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::VersionSlice,
         covers: &["Version::meet_all"],
         size_measure: M_SLICE,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             g.call("ff_version_meet_all", &[n, 0, n])
         },
@@ -428,7 +461,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version::span"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_version_span", &[2, 0, 1])
@@ -441,7 +474,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "total packed bytes; arity uniform over 1..=size, split uniform \
              over the compositions (the first drawn operand rides as the hull fold's \
              receiver, feed order preserved)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             g.call("ff_version_span_all", &[n, 0, n])
         },
@@ -452,7 +485,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party]),
         covers: &["Party::decode"],
         size_measure: M_UNARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             g.stage_write(&inputs[0]);
             g.call("ff_party_decode", &[0])
         },
@@ -462,7 +495,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party]),
         covers: &["Party::encode"],
         size_measure: M_UNARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call("ff_party_encode", &[0])
         },
@@ -473,7 +506,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party Display / FromStr / TryFrom literals"],
         size_measure: "exact packed bytes, uniform per size (fuel includes writing the \
              text output)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call("ff_party_display", &[0])
         },
@@ -485,7 +518,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the sampled value, rendered to text by Display \
              (the value measure pushed through rendering — not uniform over text; the \
              adversarial text families keep the corner coverage)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             prep(g, "ff_party_display", &[0]);
             g.call("ff_party_fromstr", &[1])
@@ -496,7 +529,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party]),
         covers: &["Party::fork"],
         size_measure: M_UNARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call("ff_party_fork", &[1, 0])
         },
@@ -507,7 +540,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party::forks"],
         size_measure: "exact packed bytes, uniform per size (share count a declared \
              constant, 8)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call("ff_party_forks", &[1, 0, FORKS_SHARES])
         },
@@ -519,7 +552,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of one uniform party; the operands are its two \
              fork halves (independent uniform pairs are almost never disjoint, so the \
              partial domain is reached by re-merging a split)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             prep(g, "ff_party_fork", &[1, 0]);
             g.call("ff_party_join", &[0, 1])
@@ -527,16 +560,19 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_join_all",
-        inputs: Inputs::Packed(&[Operand::Party]),
+        inputs: Inputs::PartyShares,
         covers: &["Party::join_all"],
-        size_measure: "packed bytes of one uniform party; the measured fold re-merges \
-             its 8 balanced shares (a declared constant, split in preparation) into \
-             the residual — independent uniform parties are almost never pairwise \
-             disjoint, so the n-ary domain is reached by re-merging a split",
-        measure: |g, inputs| {
+        size_measure: "packed bytes of one uniform party; share count uniform over \
+             1..=size (drawn per sample; the balanced split is minted in the guest, \
+             so the size axis stays the party's own bytes), and the measured fold \
+             re-merges the shares into the residual — independent uniform parties \
+             are almost never pairwise disjoint, so the n-ary domain is reached by \
+             re-merging a split",
+        measure: |g, inputs, arity| {
+            let shares = arity as u32;
             load_party(g, 0, &inputs[0]);
-            prep(g, "ff_party_forks", &[1, 0, JOIN_ALL_SHARES]);
-            g.call("ff_party_join_all", &[0, 1, JOIN_ALL_SHARES])
+            prep(g, "ff_party_forks", &[1, 0, shares]);
+            g.call("ff_party_join_all", &[0, 1, shares])
         },
     },
     OpSpec {
@@ -544,7 +580,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Party]),
         covers: &["Party::is_disjoint"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             g.call("ff_party_is_disjoint", &[0, 1])
@@ -555,7 +591,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Party]),
         covers: &["Party::covers"],
         size_measure: M_BINARY,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             g.call("ff_party_covers", &[0, 1])
@@ -567,7 +603,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party::without"],
         size_measure: "total packed bytes; split uniform; byte-equal pairs rejected \
              and operand order chosen so the difference exists",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
             // Unmeasured verdict: when the second operand covers the
@@ -593,7 +629,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::decode"],
         size_measure: M_CLOCK,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             // The unmeasured encode leaves the clock's canonical bytes in
             // the staging buffer for the measured decode to read.
@@ -606,7 +642,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::encode"],
         size_measure: M_CLOCK,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_encode", &[0])
         },
@@ -616,7 +652,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::tick"],
         size_measure: M_CLOCK,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_tick", &[0])
         },
@@ -626,7 +662,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::fork"],
         size_measure: M_CLOCK,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_fork", &[3, 0])
         },
@@ -636,7 +672,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::send"],
         size_measure: M_CLOCK,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_send", &[0])
         },
@@ -647,7 +683,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Clock::recv"],
         size_measure: "total packed bytes of the clock's parts and the received \
              version, split uniform three ways",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             load_version(g, 3, &inputs[2]);
             g.call("ff_clock_recv", &[0, 3])
@@ -658,37 +694,37 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version, Operand::Version]),
         covers: &["Clock::join"],
         size_measure: M_CLOCK_PAIR,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock_pair(g, inputs);
             g.call("ff_clock_join", &[4, 5])
         },
     },
     OpSpec {
         name: "clock_join_all",
-        inputs: Inputs::Packed(&[
-            Operand::Party,
-            Operand::Version,
-            Operand::Version,
-            Operand::Version,
-            Operand::Version,
-        ]),
+        inputs: Inputs::ClockSlice,
         covers: &["Clock::join_all"],
-        size_measure: "total packed bytes of one party and four versions, split \
-             uniform five ways; the party fork-split four ways in preparation, so the \
-             measured fold reunites three disjoint clocks into the first",
-        measure: |g, inputs| {
+        size_measure: "total packed bytes of one party and the drawn versions, split \
+             uniform over the compositions; clock count uniform over 1..=size−1 \
+             (every count the budget can feed), the party fork-split in preparation \
+             so the parties partition one region, and the measured fold reunites the \
+             drawn clocks into the first",
+        measure: |g, inputs, _| {
+            // The drawn clock count rides in-band: one party, then one
+            // version per clock.
+            let clocks = (inputs.len() - 1) as u32;
             load_party(g, 0, &inputs[0]);
-            // Three shares into registers 1..4; register 0 keeps the
-            // residual, so the four parties partition the sampled region.
-            prep(g, "ff_party_forks", &[1, 0, 3]);
+            // `clocks − 1` shares into registers 1..clocks; register 0
+            // keeps the residual, so the `clocks` parties partition the
+            // sampled region (a one-clock draw splits nothing and the
+            // measured fold is the empty fold into that clock).
+            prep(g, "ff_party_forks", &[1, 0, clocks - 1]);
             for (i, version) in inputs[1..].iter().enumerate() {
-                load_version(g, 4 + i as u32, version);
+                load_version(g, clocks + i as u32, version);
             }
-            prep(g, "ff_clock_from_parts", &[8, 0, 4]);
-            prep(g, "ff_clock_from_parts", &[9, 1, 5]);
-            prep(g, "ff_clock_from_parts", &[10, 2, 6]);
-            prep(g, "ff_clock_from_parts", &[11, 3, 7]);
-            g.call("ff_clock_join_all", &[8, 9, 3])
+            for i in 0..clocks {
+                prep(g, "ff_clock_from_parts", &[2 * clocks + i, i, clocks + i]);
+            }
+            g.call("ff_clock_join_all", &[2 * clocks, 2 * clocks + 1, clocks - 1])
         },
     },
     OpSpec {
@@ -696,7 +732,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version, Operand::Version]),
         covers: &["Clock::sync"],
         size_measure: M_CLOCK_PAIR,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock_pair(g, inputs);
             g.call("ff_clock_sync", &[4, 5])
         },
@@ -706,7 +742,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::from_parts"],
         size_measure: M_CLOCK,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_clock_from_parts", &[2, 0, 1])
@@ -717,7 +753,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::into_parts"],
         size_measure: M_CLOCK,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_into_parts", &[3, 4, 0])
         },
@@ -728,7 +764,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Clock::own_version"],
         size_measure: "total packed bytes of the clock's party and version parts, \
              split uniform (the view materialized via to_version)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_own_version", &[3, 0])
         },
@@ -740,7 +776,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
         size_measure: "total packed bytes of the two versions whose ranks are added, \
              split uniform (ranks derived by Version::rank in preparation)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             prep(g, "ff_version_rank", &[2, 0]);
@@ -754,7 +790,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
         size_measure: "total packed bytes of the two versions whose ranks are compared, \
              split uniform (ranks derived by Version::rank in preparation)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             prep(g, "ff_version_rank", &[2, 0]);
@@ -769,7 +805,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "total packed bytes of the two versions whose ranks are \
              subtracted, split uniform; operands ordered by rank so the difference \
              exists",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             prep(g, "ff_version_rank", &[2, 0]);
@@ -792,7 +828,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the version whose rank is rendered (rank \
              derived by Version::rank in preparation; fuel includes writing the text \
              output)",
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_version_rank", &[1, 0]);
             g.call("ff_rank_display", &[1])
@@ -804,7 +840,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Span::place"],
         size_measure: M_SPAN_PROBE,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             load_version(g, 2, &inputs[2]);
@@ -817,7 +853,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Span::dominance_of"],
         size_measure: M_SPAN_PROBE,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             load_version(g, 2, &inputs[2]);
@@ -830,7 +866,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["causally::Span::encode"],
         size_measure: M_SPAN_HULL,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             prep(g, "ff_version_span", &[2, 0, 1]);
@@ -842,7 +878,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["causally::Span::decode"],
         size_measure: M_SPAN_HULL,
-        measure: |g, inputs| {
+        measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             prep(g, "ff_version_span", &[2, 0, 1]);

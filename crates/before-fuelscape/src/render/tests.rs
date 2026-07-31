@@ -9,12 +9,12 @@ use super::{render_gallery, render_op, RenderMeta};
 /// render an SVG per operation with the provenance stamp drawn in, and
 /// emit the gallery. This is the gate's liveness check for the
 /// instrument — seconds, not a real survey (full renders go through the
-/// `just atlas` recipe) — and it needs the guest wasm, which the recipe
-/// builds first (`just fuzzfit-build`).
+/// `just fuelscape` recipe) — and it needs the guest wasm, which the
+/// recipe builds first (`just fuzzfit-build`).
 #[test]
 fn pipeline_smoke_samples_measures_and_renders() {
-    // The grid top must reach every row's minimum total size (the widest
-    // signature, five one-byte operands, needs a 5-byte column to exist).
+    // The grid top must reach every row's minimum total size, so every
+    // row has at least one column to sample.
     let plan = Plan {
         base_seed: 0x5eed,
         samples_per_column: 3,
