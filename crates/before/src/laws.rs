@@ -344,7 +344,53 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ),
     ("span_is_the_pair_hull", span_is_the_pair_hull),
     ("span_codec_roundtrip", span_codec_roundtrip),
+    (
+        "range_composition_is_order_agnostic",
+        range_composition_is_order_agnostic,
+    ),
+    (
+        "range_rebinding_keeps_the_latest",
+        range_rebinding_keeps_the_latest,
+    ),
 ];
+
+/// Range construction commutes across the free-fn/method seam: a
+/// free-fn start refined by an end method equals the matching free-fn
+/// end refined by the start method, for all four pairings — same
+/// stored bounds, and the two orders reject the same crossed pairs.
+///
+/// This is where the start-refinement methods' bound *storage* (which
+/// kind lands in which field) is quantified: the placement laws build
+/// every range start-first through the free constructors, and their
+/// verdict checks read the range's own accessors, so an internally
+/// coherent mis-storage inside [`Range::since`]/[`Range::not_before`]
+/// (`causally::Range`) is invisible to them under any construction
+/// order. Only the equation against the free constructor separates the
+/// method's storage from the constructor's.
+fn range_composition_is_order_agnostic(s: &Version, e: &Version) -> bool {
+    causally::since(s).known_at(e) == causally::known_at(e).since(s)
+        && causally::since(s).before(e) == causally::before(e).since(s)
+        && causally::not_before(s).known_at(e) == causally::known_at(e).not_before(s)
+        && causally::not_before(s).before(e) == causally::before(e).not_before(s)
+}
+
+/// Re-setting a bound keeps the latest value: a rebinding chain equals
+/// the direct construction of its final state, for both start kinds,
+/// both end kinds, and the unbounded start.
+///
+/// Total over every version pair — each chain's opposite bound is
+/// unbounded, so validation always admits it — and, like
+/// [`range_composition_is_order_agnostic`], the equation runs against
+/// the free constructors, so a rebinding that stores the wrong bound
+/// kind (or keeps the earlier value) diverges on every pair.
+fn range_rebinding_keeps_the_latest(a: &Version, b: &Version) -> bool {
+    causally::since(a).since(b) == Ok(causally::since(b))
+        && causally::since(a).not_before(b) == Ok(causally::not_before(b))
+        && causally::not_before(a).since(b) == Ok(causally::since(b))
+        && causally::known_at(a).before(b) == Ok(causally::before(b))
+        && causally::before(a).known_at(b) == Ok(causally::known_at(b))
+        && causally::all().since(b) == Ok(causally::since(b))
+}
 
 /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
 /// order).
