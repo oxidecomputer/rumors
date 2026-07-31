@@ -16,8 +16,8 @@
 //!   predicted exponent plus the linear cells' slack, and the scan
 //!   constant [`FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL`] per reduction
 //!   level; a quadratic left fold still reads ~2 and stays red, and the
-//!   log factor's own liveness is the claims suite's
-//!   `fold_log_factor_is_alive` pin.
+//!   log factor's own liveness is held per public door by the claims
+//!   suite's `*_log_factor_is_alive` pins.
 //! - **The comb-scatter projection pair** (`own_version_to_version`,
 //!   `clock_own_version_to_version` on the output-domination cross): peak
 //!   heap is the output builder's doubling chain anchored at the
@@ -355,9 +355,13 @@ pub(super) fn capacity_chain_peak(input_bytes: usize, output_bytes: usize) -> f6
 /// marginal, ~1.14–1.17 at the committed populations — so the ceiling is
 /// that prediction plus the same slack [`MAX_SCALING_EXPONENT`] grants
 /// linear cells (0.15). A quadratic fold reads ~2 against any committed
-/// arity pair and stays red; the model's own liveness is the
-/// `fold_log_factor_is_alive` pin, which reads red the day the reduction
-/// stops paying its log factor.
+/// arity pair and stays red; the model's own liveness is held per
+/// public door — one `*_log_factor_is_alive` pin in the claims suite
+/// for each of `Version::join_all`, `Version::meet_all`,
+/// `Version::span_all`, `Party::join_all`, and `Clock::join_all`, each
+/// with its own measured floor — so a door whose wiring stops paying
+/// the reduction's log factor reads red at that door even while the
+/// shared core still pays it elsewhere.
 pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f64 {
     let levels1 = (2.0 * k1 as f64).log2();
     let levels2 = (2.0 * k2 as f64).log2();
