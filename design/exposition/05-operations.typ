@@ -334,11 +334,16 @@ sum of their inputs' sizes at every level (a population of mutually
 interleaved teeth achieves exactly that), which is the $log k$
 factor's honest content, not an accident to engineer away. The party
 side runs the same reduction with one further obligation: the n-ary
-party union is _fallible_ — an operand overlapping the accumulated
-group is rejected and handed back — and each rejection is priced at
-the rejected operand's own bits (its overlap witness sits at the
-bottom of its own path) plus the reduction's logarithmic factor,
-never at a re-probe of the accumulated group.
+party union is _fallible_ — an operand no disjoint placement can
+absorb is rejected and handed back, dropping nothing. Rejection has
+two doors, each priced without re-probing the accumulated group: an
+operand overlapping the host fails an up-front test that walks the
+operand once against an index of the host built once per call (one
+logarithmic table search per node both sides own), and an operand
+aliasing its fellows surfaces later, as one failed combine inside
+the counter — priced at the combine the reduction was running
+anyway, its overlap witness at the bottom of the operands' shared
+path.
 
 #figure(
   attack(
@@ -362,8 +367,8 @@ never at a re-probe of the accumulated group.
      short-circuit available.],
     cure: [the balanced reduction: the carrier is walked once per
       counter level, $O(d log k + k)$ — the committed sequential
-      form survives only as the adequacy tripwire that keeps this
-      cell's verdict live.],
+      form survives as the laws' value oracle and as the adequacy
+      tripwire that keeps this cell's verdict live.],
   ),
   kind: image,
   caption: [The shaded carrier attack card: a value that never
@@ -456,15 +461,12 @@ Two predicates ride the same walk: $"covers"(p, q)$ asks whether
 $q$'s owned region $subset.eq$ $p$'s, and
 _disjoint_ asks whether no owned region is shared — the safety
 condition every join
-checks. Both are lockstep verdict walks: no emission, and $O(1)$
-state
-in total, where every
-other two-operand walk pays a path bit per level. The paired
-traversal is itself a full binary structure over the union shape,
-so one obligation counter over _paired_ positions replaces the
-stack: a position where both sides descend counts $+1$, one where
-either side is terminal or absent counts $-1$, and the walk ends
-when the count dies. Where one side is absent, the other's whole
+checks. Both are lockstep verdict walks: no emission, and two bits
+of suspended state per _queued right pair_ — the presence tags the
+walk parks while it finishes the two left children — on one packed
+stack; a right pair neither side stores queues nothing at all, so
+a lockstep chain of unary nodes keeps the stack empty at any
+depth. Where one side is absent, the other's whole
 subtree is skipped by its own stream's counter (@coding's
 device transposed: each stored node contributes its child count
 minus one) rather than by
@@ -492,10 +494,10 @@ position.
     [any predicate that suspends a word per paired level pays
      $Theta(d)$ words of transient state against $Theta(d)$ _bits_
      of operand.],
-    cure: [the paired obligation counter: both-descend counts $+1$,
-      terminal-or-absent counts $-1$ — $O(1)$ state in total for
-      `covers` and `disjoint`, with subtree skips priced by the
-      skipped stream's own bits.],
+    cure: [two presence bits per queued right pair on a packed
+      stack — and a unary lockstep chain queues nothing, riding an
+      empty stack at any depth — with subtree skips priced by the
+      skipped stream's own counter.],
   ),
   kind: image,
   caption: [The lockstep pair attack card: maximal paired depth,
@@ -1761,10 +1763,11 @@ expansion is exactly a lexicographic order, as the paper itself
 notes), with ties to the right child as in the paper's final
 equation. The fold's working set
 is honest about its width: one pending cost pair per open id
-branch, two counts each at most the id's node count —
-log-width in principle, machine words in practice. Besides the
-watermark stack, it is the only suspended state in the system wider
-than bits per level, and it is priced the same way: bounded by the
+branch, two counts each at most the id's node count — log-width
+entries, held on a pop-able stack that prices each at twice its
+own width in packed bits, never a machine-word frame. Beside the
+watermark stack it is the walk's other suspended state wider than
+the two-bit norm, and it is priced the same way: bounded by the
 id's own
 depth, alive only while the flag is clear. `grow` then _splices_:
 copy everything up to the inflation point verbatim; re-code the
