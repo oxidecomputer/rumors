@@ -196,3 +196,18 @@ proptest! {
         prop_assert_eq!(run(), run());
     }
 }
+
+/// WITNESS (r141 audit): `oplog::read_varint` does not bound its shift, so a
+/// hostile URL fragment whose varint carries ten continuation bytes drives
+/// `<<` past 64 bits: a panic under debug assertions, a masked shift (silent
+/// misdecode instead of a `BadFragment` error) in the release wasm build.
+/// The fragment below is `[tag 1, 0x80 x 10, 0x01]` base64url-encoded — any
+/// shared link can carry it. The cure is a shift bound (reject varints wider
+/// than usize) in `read_varint`; this test then flips to asserting a clean
+/// `BadFragment` error.
+#[test]
+#[should_panic(expected = "attempt to shift left with overflow")]
+fn overlong_varint_fragment_panics_instead_of_erroring() {
+    let mut e = crate::Engine::new();
+    let _ = e.load_fragment("AYCAgICAgICAgIAB");
+}
