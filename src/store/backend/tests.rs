@@ -17,7 +17,11 @@ fn kv_peer() -> (
     KvBackend<Memory, u64>,
     Rumors<u64, crate::bookmark::NoBookmark, KvBackend<Memory, u64>>,
 ) {
-    let store = Memory::default();
+    // The re-execution schedule rides under every battery in this file:
+    // each backend transaction closure runs twice with the first
+    // execution discarded, so a closure leaking any effect outside its
+    // transaction argument diverges under the assertions below.
+    let store = Memory::new().retrying();
     let backend = KvBackend::new(store.clone());
     let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
     (store, backend, peer.into_rumors())
@@ -170,7 +174,7 @@ fn kv_and_local_converge_over_gossip() {
 
         // A KV-backed peer bootstraps from the in-memory one.
         let (mut a, mut b) = memory();
-        let store = Memory::default();
+        let store = Memory::new().retrying();
         let (served, joined) = tokio::join!(
             local.gossip(&mut a),
             Peer::<u64>::bootstrap()
@@ -367,7 +371,7 @@ fn kv_act_matches_local_hash() {
     use crate::tree::typed::Path;
     pollster::block_on(async {
         let mut clock = before::Clock::seed();
-        let kv = KvBackend::<Memory, u64>::new(Memory::default());
+        let kv = KvBackend::<Memory, u64>::new(Memory::new().retrying());
         let mut local_root = None;
         let mut kv_root = None;
         for message in 0..16u64 {
@@ -401,7 +405,7 @@ fn kv_act_matches_local_hash() {
 #[test]
 fn every_crash_prefix_reopens_consistently() {
     pollster::block_on(async {
-        let store = Memory::recording();
+        let store = Memory::recording().retrying();
         let backend = KvBackend::<Memory, u64>::new(store.clone());
         let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
         let rumors = peer.into_rumors();
@@ -469,7 +473,7 @@ fn injected_faults_abort_commits_cleanly() {
     // Sweep the fault across the first forty write transactions.
     for nth in 0..40u64 {
         pollster::block_on(async {
-            let store = Memory::new();
+            let store = Memory::new().retrying();
             let backend = KvBackend::<Memory, u64>::new(store.clone());
             let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
             let rumors = peer.into_rumors();
@@ -540,7 +544,7 @@ fn injected_faults_abort_commits_cleanly() {
 fn ambiguous_commits_are_superseded_cleanly() {
     for nth in 0..24u64 {
         pollster::block_on(async {
-            let store = Memory::new();
+            let store = Memory::new().retrying();
             let backend = KvBackend::<Memory, u64>::new(store.clone());
             let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
             let rumors = peer.into_rumors();
@@ -612,7 +616,7 @@ fn barrier_flushes_once_per_commit_window() {
 #[test]
 fn escaped_state_is_durable_before_it_ships() {
     pollster::block_on(async {
-        let store = Memory::recording();
+        let store = Memory::recording().retrying();
         let backend = KvBackend::<Memory, u64>::new(store.clone());
         let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
         let rumors = peer.into_rumors();
@@ -684,7 +688,15 @@ fn failing_sync_blocks_the_send() {
             .expect("the commit itself never flushes");
         store.inject_sync_error();
         let (mut a, mut b) = memory();
-        let (ours, theirs) = tokio::join!(rumors.gossip(&mut a), witness.gossip(&mut b));
+        // The failing side hangs up when it aborts (dropping its link)
+        // so the counterparty's half-run session resolves as a dead
+        // session instead of parking on a silent peer.
+        let ours = async {
+            let outcome = rumors.gossip(&mut a).await;
+            drop(a);
+            outcome
+        };
+        let (ours, theirs) = tokio::join!(ours, witness.gossip(&mut b));
         assert!(
             matches!(
                 ours,
@@ -724,7 +736,7 @@ fn failing_sync_blocks_the_send() {
 #[test]
 fn donation_is_recorded_before_it_ships() {
     pollster::block_on(async {
-        let store = Memory::recording();
+        let store = Memory::recording().retrying();
         let backend = KvBackend::<Memory, u64>::new(store.clone());
         let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
         let rumors = peer.into_rumors();
@@ -807,7 +819,7 @@ fn sends_dropped_at_every_poll_depth_are_full_or_nothing() {
     // covers every genuine suspension point along the way.
     for depth in 0..12usize {
         pollster::block_on(async {
-            let store = Memory::new();
+            let store = Memory::new().retrying();
             let backend = KvBackend::<Memory, u64>::new(store.clone());
             let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
             let rumors = peer.into_rumors();
@@ -887,7 +899,7 @@ fn sends_dropped_at_every_poll_depth_are_full_or_nothing() {
 #[test]
 fn retirement_clears_the_record_before_it_ships() {
     pollster::block_on(async {
-        let store = Memory::recording();
+        let store = Memory::recording().retrying();
         let backend = KvBackend::<Memory, u64>::new(store.clone());
         let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
         let rumors = peer.into_rumors();

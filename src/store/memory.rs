@@ -49,6 +49,9 @@ struct Shared {
     faults: BTreeMap<u64, WriteFault>,
     /// Write transactions attempted so far (the fault clock).
     writes: u64,
+    /// Whether every transaction closure runs on the re-execution
+    /// schedule (execute, discard, execute again).
+    retrying: bool,
     /// Completed [`sync`](Kv::sync) barriers.
     syncs: u64,
     /// The history index the last completed sync covered, when recording.
@@ -87,6 +90,14 @@ struct Shared {
 ///   a *write-behind* store: `reopen_at(synced_prefix())` is the worst
 ///   state a legal power loss can leave — everything up to the last
 ///   barrier, nothing since guaranteed.
+/// - **The re-execution schedule.** [`retrying`](Memory::retrying)
+///   makes every transaction closure run twice, the first execution
+///   against a discarded view: the deterministic worst case of the
+///   [`Kv` contract's re-execution clause](crate::store::kv#the-transaction-contract)
+///   (an optimistically-concurrent store retrying on conflict), still
+///   entirely inside the contract. A closure that routes any effect
+///   outside its transaction argument diverges under this store where a
+///   plain run would hide it.
 ///
 /// The faces exist for test harnesses; none perturbs the store's
 /// conformance when unused.
@@ -175,6 +186,20 @@ impl Memory {
         shared.faults.insert(at, WriteFault::CommitThenError);
     }
 
+    /// Adopts the re-execution schedule: every transaction closure runs
+    /// twice, the first execution against a view whose effects are
+    /// discarded (see the type docs). Chainable at construction:
+    /// `Memory::recording().retrying()`.
+    ///
+    /// A closure `Err` on the first execution aborts immediately with
+    /// nothing applied and no second run, exactly as a conflict-retrying
+    /// store aborts on a closure error.
+    #[must_use]
+    pub fn retrying(self) -> Self {
+        self.shared.lock().expect("Memory lock poisoned").retrying = true;
+        self
+    }
+
     /// Makes the next [`sync`](Kv::sync) fail with
     /// [`MemoryError::Injected`] (one-shot), counting and covering
     /// nothing: the durability barrier of a store whose flush machinery
@@ -261,12 +286,17 @@ impl Kv for Memory {
         R: Send + 'static,
         F: FnMut(&mut dyn ReadTxn<Error = Self::Error>) -> Result<R, Self::Error> + Send + 'static,
     {
-        let snapshot = self
-            .shared
-            .lock()
-            .expect("Memory lock poisoned")
-            .committed
-            .clone();
+        let (snapshot, retrying) = {
+            let shared = self.shared.lock().expect("Memory lock poisoned");
+            (shared.committed.clone(), shared.retrying)
+        };
+        if retrying {
+            // The discarded first execution of the re-execution
+            // schedule (type docs): same snapshot, result dropped.
+            f(&mut MemoryTxn {
+                state: snapshot.clone(),
+            })?;
+        }
         f(&mut MemoryTxn { state: snapshot })
     }
 
@@ -285,6 +315,17 @@ impl Kv for Memory {
 
         if let Some(WriteFault::Abort) = fault {
             return Err(MemoryError::Injected);
+        }
+
+        if shared.retrying {
+            // The discarded first execution of the re-execution
+            // schedule (type docs): same snapshot, effects dropped
+            // wholesale. A closure error aborts here, before anything
+            // could apply — as it would on a conflict-retrying store.
+            let mut discarded = MemoryTxn {
+                state: shared.committed.clone(),
+            };
+            f(&mut discarded)?;
         }
 
         let mut txn = MemoryTxn {

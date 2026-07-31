@@ -440,11 +440,20 @@ where
 /// Payload bytes appear on neither side of the comparison, per the
 /// `node_bytes` contract's `children = 0` clause (custody happens at
 /// `Leaf::leaf`; in-flight payload is priced by `target_message_size`).
+///
+/// The store underneath runs the re-execution schedule
+/// ([`Memory::retrying`](crate::store::Memory::retrying)): every
+/// backend transaction closure the session drives runs twice, so one
+/// leaking an effect outside its transaction argument (a double-pushed
+/// release, a double-memoized install) diverges against the census and
+/// the convergence check.
 #[test]
 fn kv_backend_conforms() {
     let _serial = serialized();
     pollster::block_on(check(
-        crate::store::KvBackend::<crate::store::Memory, u64>::new(crate::store::Memory::default()),
+        crate::store::KvBackend::<crate::store::Memory, u64>::new(
+            crate::store::Memory::new().retrying(),
+        ),
         MATERIALIZING_BUDGET,
     ));
 }

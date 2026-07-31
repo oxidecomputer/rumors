@@ -230,8 +230,12 @@ proptest! {
         let mut towered = Replica::new(Materializing);
         // The persistent backend runs the same defaults over real stored
         // records (only `child` and construction differ), so the one
-        // differential run pins both non-Local backends.
-        let mut kv = Replica::new(KvBackend::<Memory, u64>::new(Memory::default()));
+        // differential run pins both non-Local backends. Its store runs
+        // the re-execution schedule (`Memory::retrying`): every custody
+        // transaction closure executes twice with the first run
+        // discarded, so a closure leaking any effect outside its
+        // transaction argument diverges from `Local` right here.
+        let mut kv = Replica::new(KvBackend::<Memory, u64>::new(Memory::new().retrying()));
 
         let actions = resolve(&first, &mut clock, &mut inserted);
         local.act(duplicate(&actions));
@@ -405,7 +409,7 @@ proptest! {
 
         // The persistent pair shares one store: `join` is a same-store
         // operation by contract.
-        let backend = KvBackend::<Memory, u64>::new(Memory::default());
+        let backend = KvBackend::<Memory, u64>::new(Memory::new().retrying());
         let mut stored_a = Replica::new(backend.clone());
         let mut stored_b = Replica::new(backend.clone());
         stored_a.act(duplicate(&shared));

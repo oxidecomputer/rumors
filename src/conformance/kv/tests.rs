@@ -14,6 +14,15 @@ async fn memory_conforms() {
     check(async || Memory::new(), || MemoryError::Aborted).await;
 }
 
+/// The re-execution schedule is hostile but legal: a store that runs
+/// every transaction closure twice (first execution discarded) still
+/// passes the whole public suite, because re-execution is a clause of
+/// the contract, not a violation of it.
+#[pollster::test]
+async fn retrying_memory_conforms() {
+    check(async || Memory::new().retrying(), || MemoryError::Aborted).await;
+}
+
 /// Which clause the lying store violates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lie {

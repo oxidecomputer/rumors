@@ -42,7 +42,11 @@
 //! - **Re-execution.** A transaction closure may run more than once (an
 //!   optimistically-concurrent store retries on conflict). Closures must
 //!   route every effect through the transaction argument and tolerate
-//!   re-execution from scratch.
+//!   re-execution from scratch. The reference store's
+//!   [`retrying`](super::Memory::retrying) face is this clause's
+//!   deterministic worst case, and the crate's own storage batteries run
+//!   over it — the ratchet holding this crate's closures to the same
+//!   discipline the clause asks of a store's other users.
 //!
 //! Exclusive ownership is *not* a clause of this trait: it is the
 //! persistent backend's own usage requirement, and it is stricter than

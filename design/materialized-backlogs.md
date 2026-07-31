@@ -375,8 +375,17 @@ refcount bump the `Arc<Version>` handles bought (pinned in before by
 dedup or version pointer identity ever relied on the shared handles,
 and the interning's whole remaining economy was a 40-byte handle copy
 per yield; the read surfaces yield owned `Version`s again. The Kv
-closures-may-rerun clause needs its RetryKv ratchet post-merge (task
-#17). The campaign landed as PR #8
+closures-may-rerun clause has its ratchet (task #17, discharged):
+`Memory::retrying` runs every transaction closure on the
+optimistic-conflict schedule — execute, discard, execute again — and
+the backend batteries (the Store differentials, the crash and fault
+sweeps, the session census) run over it, so a backend closure leaking
+an effect outside its transaction argument diverges under the committed
+assertions; the schedule lives as a `Memory` instrumentation face
+rather than a wrapper Kv type because a distinct store type would
+instantiate the whole height-indexed protocol tower again (the
+conformance knobs record the measured cost of each extra
+instantiation). The campaign landed as PR #8
 (20 commits, tip 7a832183): Store/Backlogs-style capability layering,
 commit-lock write protocol, Kv/Memory/conformance::kv, KvBackend with
 pending-node custody and recovery, Peer::seed_in/open, read paths
