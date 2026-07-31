@@ -94,8 +94,9 @@ $ 1 - 2 x^2 - 2 x^3 - 2 sqrt(2) x^4 = 0, $
 
 carries the smaller positive root and hence the operative
 singularity, $x_c = 0.514500dots$ (the other branch,
-$1 - 2 x^2 - 2 x^3 + 2 sqrt(2) x^4 = 0$, first vanishes near
-$0.706$) — safely inside $G$'s own radius of
+$1 - 2 x^2 - 2 x^3 + 2 sqrt(2) x^4 = 0$, first vanishes at
+$1\/sqrt(2)$ exactly, never sooner) — safely inside $G$'s own
+radius of
 convergence $1 \/ sqrt(2)$, so the branch point governs. The
 grammar is aperiodic — $V = A + B$ has streams of both parities,
 a lone leaf even and a node odd — so $x_c$ is the unique dominant
