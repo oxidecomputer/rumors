@@ -31,10 +31,14 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use fuzzfit_harness::bands::{Band, ENFORCE_MARGIN, ENFORCE_MARGIN_BELOW, REFIT_PREFIX_PROGRAMS};
+use fuzzfit_harness::bands::{
+    Band, ENFORCE_MARGIN, ENFORCE_MARGIN_BELOW, REFIT_PREFIX_PROGRAMS, SMALL_BAND_KERNELS,
+};
 use fuzzfit_harness::curve::{local_slope_excess, MIN_BUCKETS, MIN_PER_BUCKET, SHAPE_EXEMPT};
-use fuzzfit_harness::drive::{for_each_deterministic_program, run_program};
-use fuzzfit_harness::fit::{fit, line_divergence, Fit};
+use fuzzfit_harness::drive::{
+    for_each_bootstrap_program, for_each_deterministic_program, run_program,
+};
+use fuzzfit_harness::fit::{fit, fit_constant, line_divergence, Fit, FIT_FLOOR_BITS};
 use fuzzfit_harness::strategies::{build, Family, ESCALATION_REPLAYS};
 use fuzzfit_harness::wasm::Guest;
 
@@ -63,6 +67,10 @@ fn main() {
     type Key = (&'static str, bool);
     let mut by_key: BTreeMap<Key, Vec<(u64, u64)>> = BTreeMap::new();
     let mut prefix_by_key: BTreeMap<Key, Vec<(u64, u64)>> = BTreeMap::new();
+    // Sub-floor samples of the small-band kernels (success arm): the
+    // small bands' calibration input, pooled from the main corpus here
+    // and the deterministic bootstrap stream below.
+    let mut small_by_kernel: BTreeMap<&'static str, Vec<(u64, u64)>> = BTreeMap::new();
     // Per-case sample groups big enough to possibly carry shape evidence
     // — (case, family, key, samples) — held back so the shape
     // diagnostic can judge them against the *new* fits once those exist.
@@ -81,6 +89,15 @@ fn main() {
                     .or_default()
                     .push((s.denom_bits, s.fuel));
             }
+            if s.denom_bits < FIT_FLOOR_BITS
+                && !s.rejected
+                && SMALL_BAND_KERNELS.contains(&s.kernel)
+            {
+                small_by_kernel
+                    .entry(s.kernel)
+                    .or_default()
+                    .push((s.denom_bits, s.fuel));
+            }
             case_keys
                 .entry(key)
                 .or_default()
@@ -93,6 +110,23 @@ fn main() {
         }
         if (case + 1) % 32 == 0 {
             eprintln!("… {}/{programs} programs, {total_steps} samples", case + 1);
+        }
+    });
+
+    // The deterministic bootstrap stream: dense sub-floor coverage of the
+    // small-band kernels. Its samples feed only the small fits — folding
+    // them into the main fits would change the pinned size-law lines.
+    for_each_bootstrap_program(|_, samples| {
+        for s in samples {
+            if s.denom_bits < FIT_FLOOR_BITS
+                && !s.rejected
+                && SMALL_BAND_KERNELS.contains(&s.kernel)
+            {
+                small_by_kernel
+                    .entry(s.kernel)
+                    .or_default()
+                    .push((s.denom_bits, s.fuel));
+            }
         }
     });
 
@@ -132,6 +166,53 @@ fn main() {
             if f.constant { " [constant]" } else { "" }
         )
         .expect("String write cannot fail");
+    }
+
+    // The small-operand bands: one constant fit per rostered kernel over
+    // the pooled sub-floor samples. A kernel the pooled corpus never
+    // sampled sub-floor is a generator regression and fails the pin here
+    // rather than shipping a silent coverage hole.
+    let mut small_rows = String::new();
+    let mut small_fits: BTreeMap<&'static str, Fit> = BTreeMap::new();
+    for &kernel in SMALL_BAND_KERNELS {
+        let samples = small_by_kernel.get(kernel).unwrap_or_else(|| {
+            panic!(
+                "no sub-floor samples for small-band kernel {kernel}: the corpus \
+                    and the bootstrap stream both missed it"
+            )
+        });
+        let f = fit_constant(samples)
+            .unwrap_or_else(|| panic!("small-band kernel {kernel} needs >= 2 sub-floor samples"));
+        writeln!(
+            small_rows,
+            "    Band {{\n        kernel: \"{kernel}\",\n        rejected: false,\n        \
+             slope: {:.6},\n        \
+             intercept: {:.6},\n        width_above: {:.6},\n        width_below: {:.6},\n        \
+             min_denom: {},\n        max_denom: {},\n        samples: {},\n        \
+             constant: {},\n    }},",
+            f.slope,
+            f.intercept,
+            f.width_above,
+            f.width_below,
+            f.min_denom,
+            f.max_denom,
+            f.samples,
+            f.constant
+        )
+        .expect("String write cannot fail");
+        writeln!(
+            table,
+            "{:32} level {:+.3} width +{:.3}/-{:.3} n={:6} denom {}..{} bits [small]",
+            format!("{kernel} [small]"),
+            f.intercept,
+            f.width_above,
+            f.width_below,
+            f.samples,
+            f.min_denom,
+            f.max_denom,
+        )
+        .expect("String write cannot fail");
+        small_fits.insert(kernel, f);
     }
 
     // ── judgment-constant evidence (stderr; never part of the pin file) ──
@@ -228,6 +309,19 @@ fn main() {
             .unwrap_or_else(|m| panic!("malformed escalation replay at {}", m.op));
         for s in &samples {
             let key = (s.kernel, s.rejected);
+            // Sub-floor steps of the small-band kernels are judged by the
+            // small bands in enforcement, so their replay excess is
+            // measured against the small ceiling here.
+            if s.denom_bits < FIT_FLOOR_BITS && !s.rejected {
+                if let Some(f) = small_fits.get(&s.kernel) {
+                    if s.denom_bits >= f.min_denom && s.denom_bits <= f.max_denom {
+                        let excess = (s.fuel.max(1) as f64).log10() - f.intercept - f.width_above;
+                        if ceiling_max.as_ref().is_none_or(|(m, ..)| excess > *m) {
+                            ceiling_max = Some((excess, key, depth));
+                        }
+                    }
+                }
+            }
             let Some(f) = fits.get(&key) else { continue };
             if s.denom_bits < f.min_denom {
                 continue;
@@ -280,6 +374,17 @@ pub const PINNED_RUSTC: &str = \"{rustc}\";
 /// snapshot, commit with a dated movement annotation.
 pub const BANDS: &[Band] = &[
 {rows}];
+
+/// The pinned small-operand bands: one constant-classified band per
+/// [`SMALL_BAND_KERNELS`] entry (success arm), judged below the fit
+/// floor over each band's own calibrated span.
+///
+/// Generated by `just fuzzfit-calibrate` alongside [`BANDS`], from the
+/// pooled sub-floor samples of the calibration corpus and the
+/// deterministic bootstrap stream — review the diff like a snapshot,
+/// commit with a dated movement annotation.
+pub const SMALL_BANDS: &[Band] = &[
+{small_rows}];
 
 /// The band keys the pin-time prefix refit covered: the staleness
 /// cross-check's committed expectation list.
