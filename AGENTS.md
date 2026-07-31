@@ -40,7 +40,9 @@ it fully clean before every commit.
 ## Contributing a change
 
 One-time setup: everything `just gate` shells out to is a stable Rust
-toolchain (1.85 or later, for edition 2024) with clippy, rustfmt, and
+toolchain (1.92 or later: the workspace source needs 1.92, and the locked
+dependencies move the working floor with `Cargo.lock`, so when in doubt use
+current stable) with clippy, rustfmt, and
 rust-src, a nightly toolchain (merged doctests), `just`, `cargo-nextest`,
 `cargo-rdme`, and python3 with bash (the `tools/` linters). `just ci`
 additionally wants the `wasm32-unknown-unknown` target, `wasm-pack`,
