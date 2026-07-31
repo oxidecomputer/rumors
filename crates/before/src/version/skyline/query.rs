@@ -394,10 +394,10 @@ const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 
 /// The exact causal rank of the version a skyline stream denotes.
 ///
-/// One leaf sweep integrating the step function on the
-/// anchored-segment height split (the module doc's pair-co-sweep
-/// section carries the algebra and the funding certification; rank is
-/// its single-stream instance). Equal to
+/// One topology pre-scan for the maximum depth, then one leaf sweep
+/// integrating the step function on the anchored-segment height split
+/// (the module doc's pair-co-sweep section carries the algebra and the
+/// funding certification; rank is its single-stream instance). Equal to
 /// [`Version::rank`](crate::Version::rank) on the decoded version, which
 /// the differential suite pins exactly.
 ///
@@ -406,16 +406,10 @@ const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 /// Panics if the operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes.
 pub fn rank(bits: &BitsSlice) -> Rank {
-    // The fused single pass: no maximum-depth pre-scan. The integral
-    // needs every interval weighted 2^(S − depth) with `S` the deepest
-    // leaf, unknown until the walk ends — so it anchors instead at the
-    // stream's bit length, an upper bound on any leaf depth (each level
-    // of a descent consumes at least one topology bit). Every term then
-    // carries the same surplus factor 2^(anchor − S), which the closing
-    // normalization strips: `Rank::from_raw` divides numerator and
-    // exponent by their shared factors of two, so the anchored total
-    // denotes exactly the value the S-scaled total would.
-    let anchor = bits.len() as u64;
+    let max_depth = max_depth(bits);
+    // Depth counts levels of a stream held in memory, so it always
+    // fits the u64 rank exponent.
+    let scale = max_depth as u64;
     let (mut cursor, first) = LeafCursor::open(bits);
     // The single-stream instance of the anchored-segment integral: the
     // integrand is the height itself, opened at the first leaf's
@@ -424,7 +418,7 @@ pub fn rank(bits: &BitsSlice) -> Rank {
     let mut integral = Integrator::new();
     integral.open(false, &first);
     loop {
-        let weight_shift = anchor - cursor.depth() as u64;
+        let weight_shift = (max_depth - cursor.depth()) as u64;
         integral.interval(weight_shift);
         if cursor.done() {
             break;
@@ -433,17 +427,9 @@ pub fn rank(bits: &BitsSlice) -> Rank {
         fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
         integral.boundary(base_digits(&step.magnitude));
     }
-    // The scaled read: the raw numerator is `num · 2^shift` over the
-    // anchor's denominator 2^anchor, so the exponent handed to
-    // normalization is their difference (an integer rank when the
-    // shift clears the anchor).
-    let (sign, num, shift) = integral.finish_shl(anchor);
+    let (sign, num) = integral.finish(max_depth as u64);
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-    if shift >= anchor {
-        Rank::from_raw(Base::from(num) << (shift - anchor), 0)
-    } else {
-        Rank::from_raw(Base::from(num), anchor - shift)
-    }
+    Rank::from_raw(Base::from(num), scale)
 }
 
 /// Add (or, with `subtract`, remove) `factor · digits · 2^shift` in the
@@ -1417,27 +1403,6 @@ impl Integrator {
     /// ledger settles. The live component owes nothing here: every
     /// interval already credited it directly.
     fn finish(mut self, closing_shift: u64) -> (Ordering, UBig) {
-        self.close(closing_shift);
-        self.total.sign_magnitude()
-    }
-
-    /// [`finish`](Integrator::finish), read out at the total's own
-    /// scale: `(sign, magnitude, shift)` with the raw numerator equal
-    /// to `magnitude · 2^shift`.
-    ///
-    /// The scaled read skips the never-written digits under the
-    /// total's write watermark instead of materializing them as zero
-    /// words — the closing move for a caller whose interval weights
-    /// ride a high fixed anchor.
-    fn finish_shl(mut self, closing_shift: u64) -> (Ordering, UBig, u64) {
-        self.close(closing_shift);
-        self.total.sign_magnitude_shl()
-    }
-
-    /// The shared closing sequence: the final segment settlement, the
-    /// promotion ledger's one settle, then the base's whole-interval
-    /// term `B · 2^S`.
-    fn close(&mut self, closing_shift: u64) {
         self.settle();
         if !self.promotions.is_empty() {
             let (seg_sign, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
@@ -1451,6 +1416,7 @@ impl Integrator {
         if !self.base.is_literally_zero() {
             self.total.add_accum_shl(&self.base, closing_shift);
         }
+        self.total.sign_magnitude()
     }
 }
 
