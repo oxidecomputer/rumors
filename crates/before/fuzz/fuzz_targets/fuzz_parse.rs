@@ -8,9 +8,13 @@
 //!      including arbitrarily deep nesting — the parsers are iterative,
 //!      never call-stack recursive.
 //!   2. Any accepted value round-trips through its display: `Display` is
-//!      the notation `FromStr` parses, and the parsers strictly reject
-//!      non-canonical spellings, so an accepted value's rendering parses
-//!      back to the same value.
+//!      the notation `FromStr` parses, and it emits the canonical
+//!      spelling, so an accepted value's rendering parses back to the
+//!      same value. Spelling is deliberately flexible on the way in
+//!      (whitespace and leading zeros normalize; the text cursor and
+//!      `parse_base` document both) — what the parsers strictly reject
+//!      is non-normal-form *values*, and that structural strictness is
+//!      the `FromStr` contract, not spelling strictness.
 //!   3. No input's computation exceeds the harness heap cap
 //!      (`before_fuzz::under_heap_cap`).
 
