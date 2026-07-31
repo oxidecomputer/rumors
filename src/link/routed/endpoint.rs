@@ -76,10 +76,11 @@ impl Default for Config {
 #[derive(Debug, thiserror::Error)]
 pub enum EndpointError {
     /// The address type refused to encode the advertised name: its
-    /// wire form cannot carry the name faithfully (the stock
-    /// [`SocketAddr`](std::net::SocketAddr) instantiation refuses
-    /// scoped IPv6 addresses this way). The source says what could
-    /// not be carried.
+    /// wire form cannot carry the name faithfully.
+    ///
+    /// The stock [`SocketAddr`](std::net::SocketAddr) instantiation
+    /// refuses scoped IPv6 addresses this way. The source says what
+    /// could not be carried.
     #[error("the advertised name has no wire encoding")]
     Unencodable(#[from] Unencodable),
     /// The advertised name encoded outside 1..=[`MAX_ADDR_LEN`](super::MAX_ADDR_LEN)

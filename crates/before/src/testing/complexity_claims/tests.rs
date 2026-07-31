@@ -303,16 +303,18 @@ fn render_merge_superlinearity_is_alive() {
 // per-component walks, the hull's two-direction carry) can drop the
 // factor without touching the core, so each pin binds its door.
 
-/// Operand block count of the fold-door populations: the board's
-/// stagger family at its band scale, held fixed while the arity
-/// quadruples so the population's bytes grow (near-)linearly and the
-/// scan growth above that is the log factor's own signal.
+/// Operand block count of the fold-door populations.
+///
+/// The board's stagger family at its band scale, held fixed while the
+/// arity quadruples so the population's bytes grow (near-)linearly and
+/// the scan growth above that is the log factor's own signal.
 #[cfg(feature = "scan-meter")]
 const FOLD_DOOR_TEETH: usize = 64;
 
 /// The staggered version population `SG(n, 64)` in bit-reversed feed
-/// order ([`Shape::StaggerPopulation`](crate::meter::registry::Shape)):
-/// every balanced merge joins maximally interleaving region sets, so
+/// order ([`Shape::StaggerPopulation`](crate::meter::registry::Shape)).
+///
+/// Every balanced merge joins maximally interleaving region sets, so
 /// intermediates stay proportional to the leaves they carry.
 #[cfg(feature = "scan-meter")]
 fn stagger_versions(n: usize) -> Vec<crate::Version> {
@@ -354,10 +356,12 @@ fn join_all_scan_bits(n: usize) -> u64 {
 }
 
 /// The staggered notch population, the meet dual of
-/// [`stagger_versions`]: element `i` is the unit plateau (height 1
-/// everywhere) projected onto the complement of the staggered id
-/// `SI(n, 64, i)`, so it carries notches (height 0) exactly over that
-/// id's interleaved blocks.
+/// [`stagger_versions`].
+///
+/// Element `i` is the unit plateau (height 1 everywhere) projected
+/// onto the complement of the staggered id `SI(n, 64, i)`, so it
+/// carries notches (height 0) exactly over that id's interleaved
+/// blocks.
 ///
 /// A meet keeps every operand's notches — the pointwise min drops to 0
 /// wherever either side does — and the bit-reversed feed makes each

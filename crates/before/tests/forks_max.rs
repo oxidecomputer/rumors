@@ -13,10 +13,11 @@
 use before::{Clock, Party};
 
 /// `Party::forks(u64::MAX)` is total: no panic, the iterator reports
-/// `u64::MAX - 1` shares (the saturated count minus the residual), the
-/// first shares are genuinely produced and disjoint from the keeper,
-/// and dropping the iterator folds everything back into the caller's
-/// party.
+/// `u64::MAX - 1` shares (the saturated count minus the residual).
+///
+/// The first shares are genuinely produced and disjoint from the
+/// keeper, and dropping the iterator folds everything back into the
+/// caller's party.
 #[test]
 fn party_forks_max_saturates_without_panic() {
     let mut p = Party::seed();

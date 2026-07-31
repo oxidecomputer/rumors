@@ -248,11 +248,13 @@ fn admitted_boundary_compositions_have_exact_membership() {
 
 /// Generic [`RangeBounds`] dispatch reaches the causal membership verdict
 /// on a version concurrent to the start bound — exactly the probe where
-/// the trait's *provided* `contains` body diverges: its start arm demands
-/// dominance over the start (`start <= item` / `start < item`), so on a
-/// partial order it drops concurrent versions the causal semantics keep.
-/// The provided body is transcribed below and pinned to the wrong answer,
-/// witnessing the divergence the override cures.
+/// the trait's *provided* `contains` body diverges.
+///
+/// The provided body's start arm demands dominance over the start
+/// (`start <= item` / `start < item`), so on a partial order it drops
+/// concurrent versions the causal semantics keep. That body is
+/// transcribed below and pinned to the wrong answer, witnessing the
+/// divergence the override cures.
 #[test]
 fn trait_contains_keeps_concurrent_versions_the_provided_body_drops() {
     // A generic consumer: sees only the trait, so this dispatches to the
@@ -613,10 +615,12 @@ proptest! {
     }
 
     /// Trait-dispatched membership is the causal predicate on every
-    /// (range, probe): the `RangeBounds::contains` override agrees with
-    /// the inherent `Range::contains` across the unbounded range, every
-    /// single-bound range, and every admitted two-bound composition, on
-    /// probes spanning the lattice around the bounds.
+    /// (range, probe).
+    ///
+    /// The `RangeBounds::contains` override agrees with the inherent
+    /// `Range::contains` across the unbounded range, every single-bound
+    /// range, and every admitted two-bound composition, on probes
+    /// spanning the lattice around the bounds.
     #[test]
     fn trait_contains_agrees_with_the_inherent_everywhere(
         s in arb_oracle_version(),

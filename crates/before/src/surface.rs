@@ -685,7 +685,9 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot
-/// reach. Rows here carry the leg dispositions by family; the concrete
+/// reach.
+///
+/// Rows here carry the leg dispositions by family; the concrete
 /// impl inventory behind them is held mechanically total by the
 /// surface-totality gate (`crates/before/surfacecheck`), which pins every
 /// reachable trait impl by name against nightly rustdoc JSON. A new

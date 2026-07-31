@@ -1201,10 +1201,12 @@ impl RangeBounds<Version> for Range<'_> {
     }
 
     /// The causal membership predicate, overriding the trait's provided
-    /// body: keep the item unless the start bound *subtracts* it
-    /// (`item <= start` under an excluded start, `item < start` under an
-    /// included one), and the end bound must contain it. The provided
-    /// body instead requires the item to *dominate* the start bound
+    /// body: keep the item unless the start bound *subtracts* it, and
+    /// the end bound must contain it.
+    ///
+    /// Subtraction is `item <= start` under an excluded start and
+    /// `item < start` under an included one. The provided body instead
+    /// requires the item to *dominate* the start bound
     /// (`start <= item` / `start < item`), which on a partial order
     /// silently drops versions concurrent to the start — versions
     /// [`Range::contains`] keeps. For `Version` probes this override and

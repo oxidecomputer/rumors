@@ -459,8 +459,9 @@ impl Dial for SocketDial {
 }
 
 /// An advertised name the address type refuses to encode fails
-/// construction as `EndpointError::Unencodable`, never a panic: the
-/// stock `SocketAddr` instantiation refuses a scoped IPv6 name (the
+/// construction as `EndpointError::Unencodable`, never a panic.
+///
+/// The stock `SocketAddr` instantiation refuses a scoped IPv6 name (the
 /// 18-byte wire form cannot carry the scope, and the unscoped address
 /// dials a different peer), and construction is the one place the
 /// router encodes, so the refusal surfaces exactly here.
@@ -488,8 +489,9 @@ fn scoped_advertised_name_fails_construction() {
 
 /// An advertised name encoding outside the header's one-byte length
 /// bound (empty, or past `MAX_ADDR_LEN`) fails construction as
-/// `EndpointError::NameLength` carrying the offending length: an
-/// empty name cannot be dialed back, and a longer one does not fit
+/// `EndpointError::NameLength` carrying the offending length.
+///
+/// An empty name cannot be dialed back, and a longer one does not fit
 /// the length prefix.
 #[test]
 fn out_of_bound_advertised_name_fails_construction() {
