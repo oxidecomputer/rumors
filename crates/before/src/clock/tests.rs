@@ -713,7 +713,8 @@ fn deep_tree_query_and_causal_stack_safety() {
 
 /// The text mirror and the tick-floor fold survive depth 100k: a deep
 /// clock renders to paper notation and parses back equal, and
-/// `min_ticks` runs its fold over the deep event tree.
+/// `min_ticks` runs its epoch-ledger/min-web walk over the deep event
+/// tree.
 ///
 /// `codec::tests::deep_id_text_roundtrip` proves the *id* text parser
 /// at this depth; the event tree's text walk is a separate parser (its
