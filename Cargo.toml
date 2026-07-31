@@ -20,6 +20,18 @@ readme = "README.md"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[lib]
+# Keep `cargo bench` from compiling the library itself as a libtest bench
+# harness. That auto-target rebuilds the whole crate — every `#[cfg(test)]`
+# module included — at opt-level 3 in a single rustc invocation, and its
+# codegen peak is the heaviest compile in the workspace (it trips the
+# memwatch per-process ceiling). The harness would run nothing: stable Rust
+# has no bench items, and every real benchmark is a `harness = false`
+# criterion target below. The test modules keep their coverage through the
+# dev-profile test runs; `cargo bench` still builds this library once, as
+# the ordinary rlib the criterion targets link against.
+bench = false
+
 [features]
 # Test-only introspection and deterministic scheduling infrastructure.
 # Enabled for this crate's own tests via the self-referential dev-dependency
