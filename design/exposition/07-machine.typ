@@ -138,8 +138,9 @@ open ancestor, the overlay walk's one path bit per level per cursor:
 two bits per level either way, by two different routes — with two
 stated exceptions, the
 watermark stack's bounded differences (@tick-web) and the route
-fold's pending cost pairs (@tick-fusion: two machine words per open
-id _branch_ against the id's own two bits per level, a bounded
+fold's pending cost pairs (@tick-fusion: a log-width pair per open
+id _branch_, stacked at twice its own width in packed bits against
+the id's own two bits per level — a bounded
 transient multiplier on the id operand alone), both still linear,
 both priced. A tree $10^5$ levels deep — a thirty-seven-kilobyte
 message —
