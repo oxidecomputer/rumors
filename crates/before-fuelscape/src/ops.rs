@@ -1290,11 +1290,13 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "OwnSpan::meet",
-        "O(1) accessor handing out the bound OwnVersion endpoint view",
+        "O(1) construction of the endpoint's OwnVersion view (stored endpoint \
+         over the span's party); no walk, no comparison",
     ),
     (
         "OwnSpan::join",
-        "O(1) accessor handing out the bound OwnVersion endpoint view",
+        "O(1) construction of the endpoint's OwnVersion view (stored endpoint \
+         over the span's party); no walk, no comparison",
     ),
     // ── representation mechanics ──
     (
