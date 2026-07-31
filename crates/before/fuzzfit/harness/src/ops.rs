@@ -309,7 +309,6 @@ fn version_buffers_alias(a: &Version, b: &Version) -> bool {
     core::ptr::eq(ab.as_ptr(), bb.as_ptr()) && ab.len() == bb.len()
 }
 
-
 /// A mirrored execution error: the program is malformed (a generator bug,
 /// never a `before` bug).
 #[derive(Debug)]

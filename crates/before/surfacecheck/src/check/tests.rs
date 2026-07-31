@@ -136,10 +136,12 @@ fn render_names_the_findings() {
     assert!(report.contains("METHOD_SURFACE"));
 }
 
-/// The exemption discipline is enforced by the judgment itself: an
-/// undated ruling — wrong length, dashes or digits out of place, or a
-/// month or day outside its range — a too-thin reason, or a module
-/// prefix not ending in `::` is a malformed-exception finding.
+/// The exemption discipline is enforced by the judgment itself: a
+/// malformed exception is a finding.
+///
+/// Malformed means an undated ruling — wrong length, dashes or digits
+/// out of place, or a month or day outside its range — a too-thin
+/// reason, or a module prefix not ending in `::`.
 #[test]
 fn malformed_exceptions_read_red() {
     let ex = extracted(&[
