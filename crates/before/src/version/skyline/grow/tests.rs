@@ -278,8 +278,9 @@ fn family_pairs_grow_identically() {
     assert_eq!(
         taken.load(Ordering::Relaxed),
         FAMILY_GROW_PAIRS,
-        "the family grid's grow-branch coverage moved: re-derive the pin \
-         from the deterministic pools"
+        "the family grid's grow-branch coverage moved: confirm the corpus \
+         itself is intact (`corpus_counts_are_exact` green) before \
+         re-deriving the pin from the deterministic pools"
     );
 }
 
@@ -335,8 +336,9 @@ fn exhaustive_small_scope_grows_identically() {
     assert_eq!(
         taken.load(Ordering::Relaxed),
         EXHAUSTIVE_GROW_PAIRS,
-        "the exhaustive grid's grow-branch coverage moved: re-derive the pin \
-         from the enumerated scope"
+        "the exhaustive grid's grow-branch coverage moved: confirm the corpus \
+         itself is intact (`corpus_counts_are_exact` green) before \
+         re-deriving the pin from the enumerated scope"
     );
 }
 
