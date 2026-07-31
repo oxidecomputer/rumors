@@ -651,8 +651,9 @@ fn deep_tree_stack_safety() {
 ///
 /// Driven here: rank, distance, lag, `Ranked` ordering, the `Rank`
 /// wire round-trip at a 100k exponent, span hulls (pair and n-ary),
-/// `Span` validation, decode, placement, and dominance, `Range` bound
-/// classification, and projection through a deep id.
+/// `Span` validation, decode, placement, and dominance, the span
+/// algebra (all four operators, the n-ary door, the quotient view),
+/// `Range` bound classification, and projection through a deep id.
 ///
 /// `deep_tree_stack_safety` above proves the clock ops at this depth;
 /// this is the same proof for the surfaces it does not drive — every
@@ -697,6 +698,21 @@ fn deep_tree_query_and_causal_stack_safety() {
     let _ = validated.dominance_of(&late);
     let hull = early.span_all([late.clone()]);
     assert_eq!(hull.join(), &late);
+
+    // The span algebra at depth: each operator's legs run the join and
+    // meet kernels over the deep endpoints, the n-ary door drives the
+    // balanced fold's combine arms, and the quotient view runs the
+    // masked co-walks — every constituent iterative, pinned here at the
+    // door.
+    let head = causally::Span::new(&early, &early).expect("coincident");
+    assert_eq!(&head | &span, span);
+    assert_eq!(&head & &span, Some(head.clone()));
+    assert_eq!(&head + &span, span);
+    assert_eq!(&head * &span, head);
+    assert_eq!(head.union_all([&span, &hull]), span);
+    let view = &span / clock.party();
+    let _ = view.place(&early);
+    assert_eq!(view.to_span(), span);
 
     // Range bound classification: the fused two-bounded 3-stream walk.
     let range = causally::since(&early)
