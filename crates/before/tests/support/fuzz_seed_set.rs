@@ -159,6 +159,15 @@ pub fn seed_set() -> Vec<Seed> {
         name: "span_crossed",
         bytes: [newer.encode(), older.encode()].concat(),
     });
+    // The minimal coincident composite (two empty versions): the accept
+    // path that dispatches the span storage dedup — the admission
+    // walk's Equal verdict — plus both static stream buffers, through
+    // every differential arm.
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "span_coincident",
+        bytes: [Version::new().encode(), Version::new().encode()].concat(),
+    });
     // A crossed pair whose join also carries a set padding bit: the
     // structural genre (TrailingBits) must outrank the pair verdict.
     let mut padded_empty = Version::new().encode();
