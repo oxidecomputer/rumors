@@ -26,8 +26,10 @@ fn source(rel: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
 }
 
-/// Occurrences of `!(laws::GROUP` with the group name ending at a word
-/// boundary: the macro-invocation spelling every driver uses
+/// Occurrences of `!(laws::GROUP` in `text`, the group name ending at
+/// a word boundary.
+///
+/// The macro-invocation spelling every driver uses
 /// (`assert_laws!(laws::GROUP, ...)`, `drive!(laws::GROUP, ...)`),
 /// which rustdoc links and prose mentions of a group cannot satisfy.
 fn drive_sites(text: &str, group: &str) -> usize {

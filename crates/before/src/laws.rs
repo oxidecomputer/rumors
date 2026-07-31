@@ -71,13 +71,15 @@ use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 /// hold on every admissible input.
 pub type Law<F> = (&'static str, F);
 
-/// Emits the registration surface from one group list: the name chain
-/// ([`registered_names`]) and the group roster ([`REGISTERED_GROUPS`])
-/// come from a single spelling of the groups, so they cannot drift from
-/// each other — and the totality pin in this module's tests holds that
-/// one spelling equal to the `pub static` declarations in this file and
-/// present in every consumer, closing the unwired-group hole (a group
-/// static that compiles, ships, and never executes).
+/// Emits the registration surface from one group list.
+///
+/// The name chain ([`registered_names`]) and the group roster
+/// ([`REGISTERED_GROUPS`]) come from a single spelling of the groups,
+/// so they cannot drift from each other — and the totality pin in this
+/// module's tests holds that one spelling equal to the `pub static`
+/// declarations in this file and present in every consumer, closing
+/// the unwired-group hole (a group static that compiles, ships, and
+/// never executes).
 macro_rules! register_groups {
     ($($group:ident),* $(,)?) => {
         /// Every registered law name, across all groups.
