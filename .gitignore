@@ -14,3 +14,6 @@ formal/tla/tla2tools.jar
 
 # EventDag analysis dumps (lake exe eventdag); regenerable from the tool.
 formal/lean/eventdag-out/
+
+# macOS Finder metadata; never content.
+.DS_Store

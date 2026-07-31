@@ -1,8 +1,10 @@
 //! Process-global counters classifying pair-hull traffic by the ladder
 //! rung that answered it.
 //!
-//! Every pair-hull construction ([`Version::span`](crate::Version::span)
-//! and `span_all`'s leaf combines) descends a ladder of fast paths —
+//! Every pair-hull construction ([`Version::span`](crate::Version::span),
+//! `span_all`'s leaf combines, and the span union's point-combines,
+//! which derive their hull through the same kernel) descends a ladder
+//! of fast paths —
 //! byte-equal operands, an empty operand, a comparable pair handed back
 //! as clones — before the one emitting case, a concurrent pair. Which
 //! rung answers is a property of the *caller's traffic*, not of the
