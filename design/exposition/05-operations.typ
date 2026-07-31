@@ -1877,6 +1877,41 @@ $0 slash plus.minus 1$ payload bits per id level; the additive 32
 absorbs the _widening_ of the first leaf's absolute code and the
 splice's constant overheads.
 
+#figure(
+  attack(
+    [duplicated wide code$(W)$],
+    [any additive bound on tick's output],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([id], codestrip((
+        ([owned], 62pt, "t"), ([— unowned —], 140pt, "x"),
+      ))),
+      oprow([version], codestrip((
+        ([flag], 18pt, "t"), ([owned leaf], 44pt, "p"),
+        ([flag], 18pt, "t"),
+        ([$W$-bit delta (the wide neighbor)], 124pt, "w"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [one cheap owned leaf beside a $W$-bit code that is nearly
+         the entire stream: the raise crosses exactly that
+         boundary]),
+    ),
+    [the raise re-codes one boundary delta against the wide
+     neighbor, spelling one input code's width a second time in the
+     output — and since a single code can be nearly the whole
+     stream, "one duplication" _is_ a doubling. Every additive
+     conjecture $"size"(e) + O(dots)$ dies here.],
+    cure: [nothing to defeat — the family sizes the bound itself:
+      the pinned one-step form concedes the factor 2 (the
+      duplication is real), and the orbit pin below holds the
+      doubling a one-step transient — growth past the first tick is
+      logarithmic in the count, never a ratchet.],
+  ),
+  kind: image,
+  caption: [The duplicated wide code attack card: the construction
+    that killed the additive conjecture and fixed the one-step
+    bound's multiplicative form.],
+) <fig-attack-dupcode>
+
 Second, the growth does not compound. In closed form, for $k$
 iterated ticks against the same party:
 
