@@ -484,6 +484,7 @@ fn mul_bound_embedding_is_alive() {
 /// embedding the product — or a pair-door rewiring that stops
 /// reaching the shared integrator exactly — loses the pair claims
 /// their floor witness here.
+#[cfg(feature = "meter")]
 #[test]
 fn mul_bound_pair_embedding_is_alive() {
     let (w, d) = (64usize, 48usize);
