@@ -99,9 +99,10 @@ const MIN_BUCKETS: usize = 3;
 
 /// Fit one kernel's samples. `None` when fewer than 2 samples exist.
 ///
-/// Samples below [`FIT_FLOOR_BITS`] are dropped first (when anything
-/// remains above the floor); a kernel sampled only below the floor fits
-/// over what it has and classifies constant.
+/// Samples below [`FIT_FLOOR_BITS`] are dropped first when at least two
+/// samples remain above the floor (a slope needs two points); otherwise
+/// the full sample set is fitted — a kernel sampled only below the floor
+/// fits over what it has and classifies constant.
 pub fn fit(samples: &[(u64, u64)]) -> Option<Fit> {
     let floored: Vec<(u64, u64)> = samples
         .iter()
