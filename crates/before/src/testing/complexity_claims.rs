@@ -251,9 +251,14 @@ impl Class {
             // design (a standing exponent red means the delegation
             // failed and the honest home is SuperlinearCounter), the
             // Ω(M(·)) floor token exclusively its own, and the
-            // committed evidence named: both wide × dense flatness
-            // bands, both schoolbook kernels, and the
-            // answer-embedded-product liveness pin.
+            // committed evidence named through both settle doors —
+            // rank's single-stream fold (both wide × dense flatness
+            // bands, both schoolbook kernels, the
+            // answer-embedded-product liveness pin) and the pair
+            // co-sweep, whose claims (distance, lag, the ranked
+            // comparisons) enter the settle through a distinct entry
+            // point (the pair flatness band and the pair embedding
+            // pin).
             Class::MulBound => ClassContract {
                 exponent_reds: RedStance::Forbidden,
                 judge_red: false,
@@ -262,6 +267,7 @@ impl Class {
                 witnesses: &[
                     ("tests/meter.rs", "rank_wide_arming_is_flat_per_unit"),
                     ("tests/meter.rs", "rank_plateau_puncture_is_flat_per_unit"),
+                    ("tests/meter.rs", "pair_plateau_train_is_flat_per_unit"),
                     (
                         "src/version/skyline/query/tests.rs",
                         "schoolbook_settle_reads_superlinear_on_wide_arming",
@@ -273,6 +279,10 @@ impl Class {
                     (
                         "src/testing/complexity_claims/tests.rs",
                         "mul_bound_embedding_is_alive",
+                    ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "mul_bound_pair_embedding_is_alive",
                     ),
                 ],
             },
