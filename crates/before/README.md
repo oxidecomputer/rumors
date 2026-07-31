@@ -203,27 +203,21 @@ indistinguishable from a healthy one, and comparisons simply begin
 reporting causal order that never happened. Nothing panics; the answers
 are just wrong.
 
-The two rules below are what make the Law hold. Each is stated by its
-commonest trigger, and the discipline extends past the letter of both:
-a `Clock` restored from bytes persisted *before* its last
-`tick` brings an earlier state of the identity back
-into play with no fork anywhere in the history — the restored party
-overlaps its own descendant, and two distinct events receive one
-version. An overlap error from a join or sync is always a symptom,
-never the disease — some rule was already broken upstream (a stale
-copy came back into play, or a second seed leaked in), and the fence
-caught one visible consequence of it; the rest of the damage may
-already be silent. The caller must ensure both:
+Three rules make the Law hold. An overlap error from a join or sync is
+always a symptom, never the disease — some rule was already broken
+upstream (a stale state came back into play, or a second seed leaked
+in), and the fence caught one visible consequence of it; the rest of
+the damage may already be silent. The caller must ensure all three:
 
 1. **Singularity.** A system of clocks has one `Clock::seed` (or
    `Party::seed`), created once, from which every `Clock` and
    `Party` in the system descends. One `Party` may be reused with
    multiple `Version`s (`Party::tick` borrows the party, so one
-   identity can stamp many histories), and multiple "universes" may
-   coexist, each descended from its own `seed`, as long
-   as clocks from different seeds never interact. Nothing in a value or
-   its encoding identifies its universe, so that boundary is the
-   caller's to police.
+   identity can stamp many histories — under the tick-chain rule
+   below), and multiple "universes" may coexist, each descended from
+   its own `seed`, as long as clocks from different
+   seeds never interact. Nothing in a value or its encoding identifies
+   its universe, so that boundary is the caller's to police.
 
    *What about a universe tag, so mixups could be detected?* There is
    deliberately no mechanism for this. Naming a universe is the concern
@@ -232,12 +226,55 @@ already be silent. The caller must ensure both:
    into every value (a UUID, say) would add 128 bits to values that
    are often a few bytes long, paid across an entire corpus.
 
-2. **Linearity.** Operations on `Clock`s and `Party`s are strictly
-   linear: once a `Clock` or `Party` has been
-   `fork`ed, a copy of the pre-fork value must not come
-   back into play. The crate helps by making `Party` and `Clock`
-   `!Clone`, but at serialization boundaries and across
-   processes, linearity is the caller's responsibility.
+2. **Linearity.** Advancing a `Clock` or `Party` — a
+   `tick`, a `fork`, a
+   `join` — retires every earlier state of it: from then
+   on, only the latest state of the identity may act. In process the
+   compiler enforces this (`Party` and `Clock` are
+   `!Clone`, and every advance moves or exclusively borrows
+   its operand), which leaves exactly one hole — and, if your code
+   holds a single seed, the *only* way to violate linearity: bytes. A
+   serialized state is a copy no type can see, and
+   `decode` cannot tell the latest state from a stale
+   one, because nothing in the value records what came after it — a
+   stale restore is a linearity violation hiding behind a boundary no
+   mechanism can police. A restored snapshot is safe exactly when it
+   *is* the latest state: nothing advanced the identity after the
+   snapshot was taken. Restore a clock persisted before its last tick
+   and the identity exists twice with no fork anywhere in the history —
+   the restored party overlaps its own descendant, and two distinct
+   events receive one version.
+
+3. **Tick chains.** Within any set of versions that ever meet — in a
+   comparison, a join, or any other operation that takes both — each
+   party's ticks must form a causal chain: each tick applied to a
+   version that dominates the version its previous tick produced. A
+   tick is a pure function of the version it is applied to, with no
+   memory of the party's other ticks, so a party that ticks two
+   divergent copies of a version mints the same successor for two
+   distinct events (`Version` is freely `Clone`; nothing mechanical
+   stops this). A `Clock` keeps the chain for you — its version only
+   moves forward — so the rule binds where `Party::tick` and
+   `Version::tick` assemble histories by hand: one identity may stamp
+   many histories, provided each meeting set sees a single chain.
+
+#### Persistence and recovery
+
+Persisting a `Clock` is where stale restores happen by accident. A
+crash truncates the store at its last durable write, and recovery
+restores the newest snapshot that survived; if the process advanced the
+clock past that snapshot before crashing, recovery restores an earlier
+state. That alone is still safe — an advance the crash erased from
+every observer might as well never have happened, and the snapshot *is*
+the latest surviving state — unless the advance escaped: if any version
+ticked after the snapshot left the process (sent to a peer, written
+into data that survives), the restored clock re-ticks over history the
+identity already spent and re-mints exactly the versions that escaped.
+The discipline follows: make the clock durable before anything derived
+from its advance escapes the process. A store that acknowledges commits
+before they are durable preserves linearity only while the versions in
+a lost tail also never escaped; a store that syncs the clock's state
+ahead of every externally visible effect preserves it unconditionally.
 
 ### Replicating clocks between processes
 
@@ -387,6 +424,12 @@ semantics (versions modeled as literal mathematical functions, with
 tick's freedom of where to increment exercised nondeterministically),
 alongside exhaustive small-scope enumeration of clock shapes,
 algebraic-law property suites, and fuzzed codecs (`decode`'s strict
-canonicality is asserted inline in the fuzz targets).
+canonicality is asserted inline in the fuzz targets). The
+[safety rules](#safety-rules) are pinned by committed witnesses: a
+stale-state suite (`same_party_divergent_clones_conflate`,
+`conflated_histories_join_loses_an_event`,
+`restored_pre_tick_clock_conflates_without_any_fork`,
+`from_parts_stale_version_conflates`) demonstrates each corruption
+shape the rules exist to prevent.
 
 <!-- cargo-rdme end -->
