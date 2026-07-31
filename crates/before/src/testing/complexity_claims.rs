@@ -1102,6 +1102,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
              door's debug assertion sits outside the cost contract",
         ),
     ),
+    constant("Span::at"),
     causally(
         "Span::place",
         Cells::Board(&[("span_place", Class::Linear)]),
@@ -1323,6 +1324,23 @@ pub(crate) const CLAIMS: &[Claim] = &[
             },
         }],
         cells: Cells::Uncelled("delegation to OwnSpan::to_span; its row carries the cost"),
+    },
+    Claim {
+        op: "From<Version> for Span (the coincident constructor, owned and borrowed)",
+        checks: &[
+            Check {
+                site: Site::ImplDoc("src/span.rs", "From<Version> for Span<'static>"),
+                bound: Bound::Constant,
+            },
+            Check {
+                site: Site::ImplDoc("src/span.rs", "From<&'a Version> for Span<'a>"),
+                bound: Bound::Constant,
+            },
+        ],
+        cells: Cells::Uncelled(
+            "one refcount-bump buffer-sharing clone at most (the consuming door), \
+             two stored borrows otherwise: no input axis to measure against",
+        ),
     },
     Claim {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",

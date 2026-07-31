@@ -105,14 +105,21 @@ mod tests;
 /// [`dominance_of`](Self::dominance_of) coarsens it to the three-way
 /// [`Dominance`] verdict.
 ///
-/// Construction has three doors: [`new`](Self::new) validates the
+/// Construction's doors: [`new`](Self::new) validates the
 /// pair, rejecting a reversed or incomparable one with [`Crossed`];
 /// [`new_unchecked`](Self::new_unchecked) trusts a caller who already holds
-/// `lo <= hi` structurally and skips the validating comparison; and
+/// `lo <= hi` structurally and skips the validating comparison;
+/// [`at`](Self::at) (or its `From<Version>` and `From<&Version>`
+/// spellings) builds the
+/// coincident span at one version, total because a point needs no
+/// ordering; and
 /// the derived constructors on [`Version`] — [`span`](Version::span)
 /// and [`span_all`](Version::span_all), beside the join/meet family
 /// they compose — *derive* the span as a collection's lattice hull,
-/// total where the first two must reject or trust. An existing span
+/// total where the validating door must reject and the trusted one
+/// must trust. Every named door takes its version operands as
+/// anything [`Into`] a [`Cow`] of [`Version`], so owned and borrowed
+/// endpoints mix freely and no per-ownership door variants exist. An existing span
 /// pays no door twice: [`reborrow`](Self::reborrow) hands out a
 /// shorter-lived span over the same endpoints, and
 /// [`into_owned`](Self::into_owned) settles the borrows so the span
@@ -161,17 +168,23 @@ impl<'a> Span<'a> {
     /// The validating door: the span `[lo, hi]`, checking that the
     /// pair is ordered.
     ///
+    /// Each endpoint is anything [`Into`] a [`Cow`] of [`Version`] —
+    /// owned and borrowed versions mix freely, borrows lent and owned
+    /// values moved, so no door variant per ownership pattern exists
+    /// to choose between.
+    ///
     /// # Errors
     ///
     /// [`Crossed`] unless `lo <= hi` — a reversed pair is rejected, and
     /// so is an incomparable one, where neither version bounds the
     /// other and no chain segment exists between them.
-    pub fn new(lo: &'a Version, hi: &'a Version) -> Result<Self, Crossed> {
-        match lo.partial_cmp(hi) {
-            Some(Ordering::Less | Ordering::Equal) => Ok(Self {
-                lo: Cow::Borrowed(lo),
-                hi: Cow::Borrowed(hi),
-            }),
+    pub fn new(
+        lo: impl Into<Cow<'a, Version>>,
+        hi: impl Into<Cow<'a, Version>>,
+    ) -> Result<Self, Crossed> {
+        let (lo, hi) = (lo.into(), hi.into());
+        match lo.as_ref().partial_cmp(hi.as_ref()) {
+            Some(Ordering::Less | Ordering::Equal) => Ok(Self { lo, hi }),
             Some(Ordering::Greater) | None => Err(Crossed),
         }
     }
@@ -195,15 +208,61 @@ impl<'a> Span<'a> {
     ///
     /// Debug builds assert `lo <= hi` and panic when it fails; release
     /// builds construct the span unchecked.
-    pub fn new_unchecked(lo: &'a Version, hi: &'a Version) -> Self {
+    pub fn new_unchecked(lo: impl Into<Cow<'a, Version>>, hi: impl Into<Cow<'a, Version>>) -> Self {
+        let (lo, hi) = (lo.into(), hi.into());
         debug_assert!(
-            lo <= hi,
+            lo.as_ref() <= hi.as_ref(),
             "Span::new_unchecked requires lo <= hi: the caller's structural guarantee failed"
         );
-        Self {
-            lo: Cow::Borrowed(lo),
-            hi: Cow::Borrowed(hi),
-        }
+        Self { lo, hi }
+    }
+
+    /// The coincident span `[version, version]`: the span at one
+    /// point.
+    ///
+    /// The named door for the single-version span — the shape whose
+    /// placement collapses to pairwise comparison and on which the
+    /// pointwise operators restrict to the version operators exactly
+    /// (the [module docs](self) place the point identity beside the
+    /// operator vocabulary). The version rides as [`new`](Self::new)'s
+    /// endpoints do — anything [`Into`] a [`Cow`] of [`Version`], a
+    /// borrow lent to both endpoints or an owned value moved into one
+    /// and buffer-share-cloned into the other — and the `From` impls
+    /// are the same door as trait conversions. Total: a point needs
+    /// no ordering, so nothing is validated and nothing can be
+    /// rejected. Either way the endpoints read one shared buffer, so
+    /// the built span is certified coincident by clone identity and
+    /// takes every coincident fast path; the
+    /// `at_is_the_coincident_hull` law in [`laws`](crate::laws) pins
+    /// every door to the pair hull `version.span(&version)`.
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let v = alice.tick().clone();
+    /// let point = Span::at(v.clone()); // owned; `Span::at(&v)` lends
+    /// // Both endpoints are the version, and the span is exactly
+    /// // the singleton hull.
+    /// assert_eq!((point.meet(), point.join()), (&v, &v));
+    /// assert_eq!(point, v.span(&v));
+    /// assert_eq!(Span::from(v.clone()), point);
+    /// assert_eq!(Span::from(&v), point);
+    /// ```
+    ///
+    /// # Complexity
+    ///
+    /// At most one refcount-bump clone of the version's stored
+    /// buffer; no walk, no comparison.
+    ///
+    /// **Complexity**: `O(1)`.
+    pub fn at(version: impl Into<Cow<'a, Version>>) -> Span<'a> {
+        let lo = version.into();
+        // A borrowed endpoint is lent twice; an owned one moves in
+        // and its buffer-sharing clone fills the second slot — either
+        // way the pair reads one shared buffer, the O(1) coincidence
+        // certificate every fast path reads.
+        let hi = lo.clone();
+        Span { lo, hi }
     }
 
     /// The crate-internal owned door: a span from endpoints the caller
@@ -611,6 +670,77 @@ impl<'a> Span<'a> {
             lo: Cow::Owned(lo),
             hi: Cow::Owned(hi),
         })
+    }
+}
+
+/// Lends this version to a [`Cow`]-accepting door: the borrowed lift.
+///
+/// The [`Span`] constructors take each version operand as anything
+/// [`Into`] a [`Cow`] of [`Version`]; this lift and its consuming
+/// dual are what let owned and borrowed versions mix freely there.
+///
+/// # Complexity
+///
+/// **Complexity**: `O(1)`.
+impl<'a> From<&'a Version> for Cow<'a, Version> {
+    fn from(version: &'a Version) -> Cow<'a, Version> {
+        Cow::Borrowed(version)
+    }
+}
+
+/// Moves this version into a [`Cow`]-accepting door, dually to the
+/// lending lift.
+///
+/// # Complexity
+///
+/// **Complexity**: `O(1)`.
+impl From<Version> for Cow<'_, Version> {
+    fn from(version: Version) -> Self {
+        Cow::Owned(version)
+    }
+}
+
+/// The coincident span `[version, version]`, as [`Span::at`] — the
+/// consuming trait spelling of the same door.
+///
+/// # Complexity
+///
+/// One refcount-bump clone of the version's stored buffer; no walk,
+/// no comparison.
+///
+/// **Complexity**: `O(1)`.
+///
+/// ```
+/// use before::{Clock, Span};
+/// let mut alice = Clock::seed();
+/// let v = alice.tick().clone();
+/// assert_eq!(Span::from(v.clone()), Span::at(&v));
+/// ```
+impl From<Version> for Span<'static> {
+    fn from(version: Version) -> Span<'static> {
+        Span::at(version)
+    }
+}
+
+/// The coincident span at a borrowed version: [`Span::at`]'s lending
+/// trait spelling, both endpoints borrowed from the one version.
+///
+/// # Complexity
+///
+/// Stores two copies of the one borrow; no clone at all.
+///
+/// **Complexity**: `O(1)`.
+///
+/// ```
+/// use before::{Clock, Span};
+/// let mut alice = Clock::seed();
+/// let v = alice.tick().clone();
+/// let point = Span::from(&v); // borrows; `v` stays usable
+/// assert_eq!(point, v.span(&v));
+/// ```
+impl<'a> From<&'a Version> for Span<'a> {
+    fn from(version: &'a Version) -> Span<'a> {
+        Span::at(version)
     }
 }
 

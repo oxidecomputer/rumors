@@ -593,6 +593,15 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     causally_row("causally::Range::bounded"),
     span_row("Span::new"),
     span_row("Span::new_unchecked"),
+    SurfaceRow {
+        op: "Span::at",
+        prod_tree: Leg::Law("at_is_the_coincident_hull"),
+        prod_fs: Leg::Excluded(
+            "constructor mechanics of the Rust API; the law pins both coincident \
+             doors to the bound pair hull",
+        ),
+        tree_fs: Leg::Excluded("constructor mechanics of the Rust API; law-pinned"),
+    },
     span_row("Span::place"),
     span_row("Span::dominance_of"),
     SurfaceRow {
@@ -818,6 +827,14 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Law("own_span_matches_the_projected_span"),
         prod_fs: Leg::Excluded(
             "the From impl is to_span; the law pins both materialization doors to              the eagerly projected span",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the doors"),
+    },
+    SurfaceRow {
+        op: "From<Version> for Span (the coincident constructor, owned and borrowed)",
+        prod_tree: Leg::Law("at_is_the_coincident_hull"),
+        prod_fs: Leg::Excluded(
+            "the consuming From impl is Span::at and the lending one stores two              borrows of the version; the law pins every coincident door to the              bound pair hull",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the doors"),
     },

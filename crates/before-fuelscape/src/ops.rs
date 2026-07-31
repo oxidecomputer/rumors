@@ -1409,6 +1409,17 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          door performs no comparison)",
     ),
     (
+        "Span::at",
+        "coincident constructor: at most one refcount-bump buffer-sharing clone \
+         of the version (a lent one is stored as two borrows); no walk, no \
+         comparison",
+    ),
+    (
+        "From<Version> for Span (the coincident constructor, owned and borrowed)",
+        "the trait spellings of Span::at: at most one refcount-bump clone, no \
+         walk, no comparison",
+    ),
+    (
         "Span::meet",
         "O(1) borrow of a stored endpoint: no walk, no comparison",
     ),
