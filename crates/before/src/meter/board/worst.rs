@@ -16,6 +16,15 @@
 //! carried by the complexity claims and their tripwires, not by this
 //! table.
 //!
+//! The ranking pin defends **relative structure**: which family names
+//! hold the argmax within each operation × currency cell. That is the
+//! whole of its jurisdiction. Absolute deterministic counter readings
+//! are the envelope tests' domain (the pinned ceilings and liveness
+//! floors in the meter suites), and absolute performance is the
+//! benchmarks' — a change that moves every family's reading in
+//! proportion leaves this pin green by design, because the fact it
+//! holds (which shape is worst, per cell) has not moved.
+//!
 //! # The reading and its denominator
 //!
 //! Each cell contributes the board's normalized constant of record at the
