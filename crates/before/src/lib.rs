@@ -666,13 +666,20 @@ pub mod implementation {
     //! them.
     //!
     //! What decides among the survivors is where the stored values
-    //! actually fall, and that is a measurement: re-running the
-    //! space-consumption experiment behind the crate docs'
-    //! [Efficiency](crate#efficiency) figures and histogramming every
-    //! value handed to the coder — the first absolute height and every
-    //! zigzagged delta — in both of the paper's workload regimes, data
-    //! causality under membership churn and process causality among a
-    //! fixed set. The distribution that emerges is small-valued but not
+    //! actually fall, and that is a measurement, committed as the
+    //! `code_study` example: re-running the space-consumption experiment
+    //! behind the crate docs' [Efficiency](crate#efficiency) figures and
+    //! histogramming every value handed to the coder — the first absolute
+    //! height and every zigzagged delta — in both of the paper's workload
+    //! regimes, data causality under membership churn and process
+    //! causality among a fixed set. The figures quoted below are from a
+    //! reduced-parameter run of that instrument — ten runs per regime
+    //! over populations of 4 to 128, at 20,000 iterations in the churning
+    //! regime and 10,000 in the fixed, a fraction of the full
+    //! experiment's schedule; the example's constants are those
+    //! parameters, and its exact per-version reconciliation check ties
+    //! the histograms to the encoder's own output.
+    //! The distribution that emerges is small-valued but not
     //! zero-heavy: zeros are only 27% of the churning regime's values
     //! (10.5% of the fixed regime's), so the one-bit zero is not the whole
     //! story — the code must be cheap across the small band, not just at
