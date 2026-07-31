@@ -12,7 +12,13 @@
 //! depth-100k proof) — so the guard machinery compiles only for the test
 //! surface, where the remaining depth recursion lives: the differential
 //! oracle bridge (`testing::bridge`), whose walks mirror the paper's
-//! recursive trees. The segment counter below stays compiled for the
+//! recursive trees, plus the test-local recursive witnesses beside it (the
+//! grow suite's reference cost probe, the meter suite's segment-liveness
+//! dive). Keep decision (2026-07-31): the guard and its `stacker` backing
+//! stay — as a dev-dependency, never a production one — exactly as long
+//! as those test-surface walks do; the paper-shaped oracle is clearest
+//! written recursively, and the guard is what lets it meet deep inputs
+//! safely. The segment counter below stays compiled for the
 //! meters: it is the deterministic stand-in for recursion-driven stack
 //! consumption, and its zero reading over the library kernels is the
 //! measured fact the boards' segments column pins.
