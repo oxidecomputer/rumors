@@ -1394,10 +1394,11 @@ mod span_door_traffic {
     }
 
     /// A single-writer tree never presents a concurrent pair at the
-    /// bounds-memo door: one party's versions form a chain, every
-    /// bound folded from a chain stays on it, and the door's traffic
-    /// is entirely fast-path (comparable or coincident), zero
-    /// emissions.
+    /// bounds-memo door.
+    ///
+    /// One party's versions form a chain, every bound folded from a
+    /// chain stays on it, and the door's traffic is entirely
+    /// fast-path (comparable or coincident), zero emissions.
     #[test]
     fn single_writer_bounds_never_emit() {
         let (equal, empty, comparable, concurrent) = cells(|| {
@@ -1421,11 +1422,14 @@ mod span_door_traffic {
         );
     }
 
-    /// Divergent writers split the door's traffic: fringe combines of
-    /// concurrent leaf versions reach the emitting walk, while the
-    /// interior regime (ordered by construction) and same-writer
-    /// sibling runs stay on the fast paths — both rungs read live on
-    /// one merged four-writer tree, incremental rounds included.
+    /// Divergent writers split the door's traffic between the fast
+    /// paths and the emitting walk.
+    ///
+    /// Fringe combines of concurrent leaf versions reach the
+    /// emitting walk, while the interior regime (ordered by
+    /// construction) and same-writer sibling runs stay on the fast
+    /// paths — both rungs read live on one merged four-writer tree,
+    /// incremental rounds included.
     #[test]
     fn merged_writers_split_the_door() {
         let (equal, empty, comparable, concurrent) = cells(|| {
