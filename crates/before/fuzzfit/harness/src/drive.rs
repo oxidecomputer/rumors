@@ -11,7 +11,7 @@ use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::TestRunner;
 
 use crate::ops::{Malformed, Mirror, Op};
-use crate::strategies::{any_family, build, Family};
+use crate::strategies::{any_family, build, Family, BOOTSTRAP_MAX_ROUNDS, BOOTSTRAP_PROGRAMS};
 use crate::wasm::Guest;
 
 /// One measured step: the band key (kernel × outcome), the denominated
@@ -127,5 +127,30 @@ pub fn for_each_deterministic_program(
         let samples = run_program(&program)
             .unwrap_or_else(|m| panic!("malformed program from {family:?}: {}", m.op));
         visit(case, &family, &samples);
+    }
+}
+
+/// Drive the deterministic small-operand corpus: [`BOOTSTRAP_PROGRAMS`]
+/// programs of [`Family::Bootstrap`], rounds cycling
+/// `1..=BOOTSTRAP_MAX_ROUNDS` and each program's seed its case index, so
+/// any two consumers observe byte-identical samples.
+///
+/// The calibration sweep derives the small-operand bands from this
+/// stream (pooled with the main corpus's own sub-floor samples); the
+/// enforcement suite replays the same stream and judges it, and the two
+/// agree exactly because they are the same stream.
+///
+/// # Panics
+///
+/// Propagates [`run_program`]'s differential panics; a malformed program
+/// (a generator bug) also panics, since this corpus is a calibration
+/// input and must be entirely runnable.
+pub fn for_each_bootstrap_program(mut visit: impl FnMut(usize, &[Sample])) {
+    for case in 0..BOOTSTRAP_PROGRAMS {
+        let rounds = (case as u32 % BOOTSTRAP_MAX_ROUNDS) + 1;
+        let program = build(&Family::Bootstrap { rounds }, case as u64);
+        let samples = run_program(&program)
+            .unwrap_or_else(|m| panic!("malformed bootstrap program at {}", m.op));
+        visit(case, &samples);
     }
 }
