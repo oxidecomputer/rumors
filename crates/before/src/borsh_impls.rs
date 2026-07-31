@@ -8,6 +8,11 @@
 //! encoding itself; no borsh length prefix is needed. This also lets values
 //! compose inside a larger borsh stream while preserving their in-memory
 //! wire form.
+//!
+//! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
+//! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes
+//! to their source, so their linearity notes apply verbatim at this door
+//! ([Safety rules](crate#safety-rules)).
 
 use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};

@@ -561,6 +561,13 @@ impl Clock {
     /// Decodes a [`Clock`] from a reader of canonical bytes, strictly
     /// rejecting malformed or non-canonical input.
     ///
+    /// A decoded clock is a *second holder* of whatever identity the
+    /// bytes spell: nothing ties bytes to their source, so decoding
+    /// while the original handle — or any other copy of the bytes — can
+    /// still act violates linearity. Treat encode-then-decode as a
+    /// move, and restore an identity only from its latest persisted
+    /// state ([Safety rules](crate#safety-rules)).
+    ///
     /// # Complexity
     ///
     /// `O(n)` time and space in the bytes read, accepted or rejected:
@@ -698,6 +705,13 @@ impl core::fmt::Debug for Clock {
 /// non-normal-form
 /// input and any anonymous (id `0`) party.
 ///
+/// Parsing *mints* the clock's party, tied to no existing handle:
+/// `"(1, 0)".parse()` yields a clock whose party overlaps every seed's
+/// whole region. Text mints belong in tests and fresh universes; inside
+/// a live system, identity comes only from
+/// [`fork`](Clock::fork)/[`join`](Clock::join)
+/// ([Safety rules](crate#safety-rules)).
+///
 /// # Complexity
 ///
 /// `O(t + |c|)` time and space, the input text plus the packed clock
@@ -726,6 +740,10 @@ impl core::str::FromStr for Clock {
 
 /// A clock from a `(party, version)` literal, e.g.
 /// `Clock::try_from(((1, 0), 5))`.
+///
+/// Mints the clock's party tied to no existing handle, like the text
+/// door — a test and fresh-universe door
+/// ([Safety rules](crate#safety-rules)).
 ///
 /// # Complexity
 ///
