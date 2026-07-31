@@ -42,10 +42,10 @@ construction needs machinery we do not have yet. Each is named once,
 here, and used consistently through @resilience. The table is the
 document's core set, not the whole committed roster: as each later
 mechanism is built, its section constructs the further families
-aimed at it, each presented as an _attack card_ — the input shape,
-the work it extracts from the design it refutes, and the landed
-mechanism that defeats it — in one uniform format from here through
-@resilience.
+aimed at it, each presented, in one uniform format from here
+through @resilience, as an _attack card_: the input shape, the work
+it extracts from the design it refutes, and the landed mechanism
+that defeats it.
 
 #figure(
   table(
@@ -245,7 +245,7 @@ once, not $W$ payments of growing size.
 Every operation in the paper is a structural recursion, and a
 transcription runs it on the call stack: one native frame per tree
 level. A bare frame — return address, saved registers — is tens of
-bytes against the roughly *three bits* the level cost on the wire:
+bytes against the roughly *three bits* a level costs on the wire:
 already a hundredfold amplification. With each frame's spilled
 locals and temporaries, the heaviest recursive frame measures
 roughly half a kilobyte per level (per-level stack-pointer deltas,
