@@ -16,7 +16,7 @@ canonical stream fits in $n$ bits, and let
 $H(n) = log_2 |cal(F)(n)|$. Bits are unpadded throughout, per
 @canonical: the tabulated budgets are byte multiples, so the
 worst-case member pads to nothing, though a typical value carries
-up to seven padding bits these ratios do not price.
+up to seven padding bits that these ratios do not price.
 _Any_ injective assignment of bit
 strings to the members of $cal(F)(n)$ — ours, or the best
 conceivable replacement, prefix-free or not — must give some member
@@ -39,9 +39,9 @@ this is: worst case against worst case — our longest spelling on
 $cal(F)(n)$ against the longest spelling any coding must have on
 $cal(F)(n)$ — not a bound on any particular version's cost, and not
 an average. This is the standard competitive framing for universal
-codes — Elias's, in the references — and its self-referential flavor
-(the
-coding's own reach defines the set) is both its strength — no
+codes — Elias's, in the references. Its self-referential flavor, in
+which the coding's own reach defines the set, is both its
+strength — no
 external model of "likely versions" is smuggled in — and the source
 of the honest caveat in @ctf-caveat.
 
@@ -292,9 +292,9 @@ measured corpora barely contain.
 The catch is where the surviving competitors win: the versions
 delta covers more
 cheaply are exactly the few-plateau, giant-payload ones, and delta
-pays for that on small values, pointwise — comparing coded payloads
+pays for that on small values, pointwise — compare coded payloads
 $v$ (each code
-spells $v + 1$), gamma is better than or equal to delta on every
+spells $v + 1$): gamma is better than or equal to delta on every
 $v$ up to 30 and loses ground steadily from $v = 31$ on, while
 omega does not overtake gamma until values past a hundred.
 Measured across organic gossip

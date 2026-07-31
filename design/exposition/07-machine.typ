@@ -133,18 +133,18 @@ strongly biased and predicts well.
 == Depth without frames <depth-machine>
 
 Every walk is iterative. Suspended ancestors cost about two _bits_
-each on packed stacks — the validator's two topology-state bits per
-open ancestor, the overlay walk's one path bit per level per cursor:
-two bits per level either way, by two different routes — with two
-stated exceptions, the
-watermark stack's bounded differences (@tick-web) and the route
-fold's pending cost pairs (@tick-fusion: a log-width pair per open
-id _branch_, stacked at twice its own width in packed bits against
+each on packed stacks: the validator keeps two topology-state bits
+per open ancestor, the overlay walk one path bit per level per
+cursor — two bits per level either way, by two different routes.
+Two stated exceptions run wider, both still linear and both
+priced: the
+watermark stack's bounded differences (@tick-web), and the route
+fold's pending cost pairs (@tick-fusion), a log-width pair per open
+id _branch_ stacked at twice its own width in packed bits against
 the id's own two bits per level — a bounded
-transient multiplier on the id operand alone), both still linear,
-both priced. A tree $10^5$ levels deep — a thirty-seven-kilobyte
-message —
-costs a cursor walking it one path bit per level: some twelve
+transient multiplier on the id operand alone. A cursor walking a
+tree $10^5$ levels deep — a thirty-seven-kilobyte
+message — pays one path bit per level: some twelve
 kilobytes of packed stack state against that operand's own
 thirty-seven kilobytes, and no native stack at all —
 no overflow, no guard pages, no frame setup and teardown in the hot
