@@ -299,20 +299,29 @@
 //!   re-mint. Content learned *from* other peers flows back at the next
 //!   gossip either way.
 //!
-//! Three deployment obligations ride along. A store holds exactly one
+//! A few deployment obligations ride along. A store holds exactly one
 //! replica, owned by one process at a time — the backend counts, caches,
 //! and recovers on that assumption. Long-held [`Snapshot`]s (and
 //! observers mid-walk) hold storage registrations, so space reclamation
 //! for redacted content waits on their release; reclamation itself runs
 //! incrementally inside ordinary commits, with
 //! [`KvBackend::vacuum`] as the explicit drain for maintenance windows
-//! (keep a clone of the [`KvBackend`] you seeded with to call it). And
-//! the throughput figures under [When *should* you use
-//! it?](#when-should-you-use-it) price the in-memory backend: a stored
-//! replica's local commits and cold reads additionally ride the store's
-//! transaction latency, while wire costs are unchanged. One protocol
-//! restriction: `Protocol::V1` sessions require the in-memory backend
-//! ([`Error::ProtocolUnsupported`](error::Error::ProtocolUnsupported)).
+//! (keep a clone of the [`KvBackend`] you seeded with to call it).
+//! Treat replication as the backup: you basically never restore a store
+//! from a backup copy, because a state revert rolls the whole replica —
+//! identity included — back to a past it already spent, resurrecting
+//! any identity donated since and re-minting version coordinates other
+//! replicas may hold. Gossip *is* the backup that preserves the causal
+//! guarantees: keep a second peer replicating, and recover a lost store
+//! by bootstrapping a fresh peer and letting ordinary synchronization
+//! restore the content. And the throughput figures under [When *should*
+//! you use it?](#when-should-you-use-it) price the in-memory backend: a
+//! stored replica's local commits and cold reads additionally ride the
+//! store's transaction latency, while wire costs are unchanged. One
+//! protocol restriction: `Protocol::V1` sessions require the in-memory
+//! backend (V1 assumes a resident tree;
+//! [`Error::ProtocolUnsupported`](error::Error::ProtocolUnsupported)
+//! states the worst case).
 //!
 //! # Runtime independence
 //!

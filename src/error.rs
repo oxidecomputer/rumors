@@ -11,7 +11,7 @@
 //! | [`Error::Io`] | unchanged | transport failure (retry over a fresh link), or a Borsh framing fault outside the streaming mirror (counterparty bug: report it) |
 //! | [`Error::MagicMismatch`] | unchanged | the counterparty is not speaking rumors: fix the dial target |
 //! | [`Error::VersionMismatch`] | unchanged | select the same [`Protocol`] at both ends; if both already do, the selected protocol's wire version differs across the two releases: align crate versions |
-//! | [`Error::ProtocolUnsupported`] | unchanged | the selected protocol cannot run on this peer's storage backend: select [`Protocol::V2`], or keep the peer in memory |
+//! | [`Error::ProtocolUnsupported`] | unchanged | the selected protocol cannot run on this peer's storage backend (V1 assumes a resident tree; over a store it would materialize, worst case, the whole replica to send one message): select [`Protocol::V2`], or keep the peer in memory |
 //! | [`Error::NetworkMismatch`] | unchanged | unrelated universes: apply the dominance rule ([`Peer`](crate::Peer)'s "Bootstrapping without consensus") |
 //! | [`Error::PartyOverlap`] | unchanged | nothing was absorbed: the retiring peer's identity overlaps ours |
 //! | [`Error::Epilogue`] | **committed** (a bootstrapping side instead applies nothing) | none locally: what was certainly lost is the peer's confirmation (a donor's identity may be lost with it: see the variant) |
@@ -95,9 +95,14 @@ pub enum Error<B: BookmarkError = NoBookmark, E = Infallible> {
     /// Raised before any wire traffic, so nothing moved and the link is
     /// poisoned only by the usual session-interruption rule. Today this
     /// names exactly one combination: [`Protocol::V1`] sessions require
-    /// the in-memory backend (the frozen alternating protocol works on
-    /// resident nodes). Select [`Protocol::V2`], or keep V1 peers on the
-    /// in-memory backend.
+    /// the in-memory backend. V1's full-level alternation assumes a
+    /// resident tree — run over a storage backend, it would fault nodes
+    /// into memory level by level with no window bounding them, in the
+    /// worst case materializing the whole store to send a single
+    /// message. [`Protocol::V2`]'s fixed-memory streaming exists
+    /// precisely to bound that, so the pairing is refused here rather
+    /// than allowed to run into it. Select [`Protocol::V2`], or keep V1
+    /// peers on the in-memory backend.
     #[error("the selected protocol ({protocol:?}) requires the in-memory storage backend")]
     ProtocolUnsupported {
         /// The protocol the peer had selected.

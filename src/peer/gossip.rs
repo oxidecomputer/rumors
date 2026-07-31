@@ -246,7 +246,10 @@ impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
             // Decline an unsupported protocol/backend pairing before any
-            // wire traffic (see `gossip_inner`'s twin gate).
+            // wire traffic: V1's alternation assumes a resident tree, and
+            // over a storage backend the worst case materializes the
+            // whole store into memory to send a single message (see
+            // `gossip_inner`'s twin gate).
             #[cfg(any(test, feature = "protocol-v1"))]
             if config.protocol == Protocol::V1 && !v1::supported::<T, S>() {
                 return Err(Error::ProtocolUnsupported {
@@ -719,7 +722,11 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
         // traffic: the selection and the backend are both known here, so a
         // storage-backed peer with V1 selected fails fast with nothing
         // written and nothing read — the counterparty sees a dead session,
-        // never a mid-protocol failure.
+        // never a mid-protocol failure. The pairing is refused outright
+        // rather than allowed to run because V1's full-level alternation
+        // assumes a resident tree: over a storage backend it would fault
+        // nodes into memory with no window bounding them, in the worst
+        // case materializing the whole store to send a single message.
         #[cfg(any(test, feature = "protocol-v1"))]
         if self.protocol == Protocol::V1 && !v1::supported::<T, S>() {
             return (
