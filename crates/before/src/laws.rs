@@ -354,18 +354,20 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ),
 ];
 
-/// Range construction commutes across the free-fn/method seam: a
-/// free-fn start refined by an end method equals the matching free-fn
-/// end refined by the start method, for all four pairings — same
-/// stored bounds, and the two orders reject the same crossed pairs.
+/// Range construction commutes across the free-fn/method seam, for
+/// all four start/end pairings.
+///
+/// A free-fn start refined by an end method equals the matching
+/// free-fn end refined by the start method — same stored bounds — and
+/// the two orders reject the same crossed pairs.
 ///
 /// This is where the start-refinement methods' bound *storage* (which
 /// kind lands in which field) is quantified: the placement laws build
 /// every range start-first through the free constructors, and their
 /// verdict checks read the range's own accessors, so an internally
-/// coherent mis-storage inside [`Range::since`]/[`Range::not_before`]
-/// (`causally::Range`) is invisible to them under any construction
-/// order. Only the equation against the free constructor separates the
+/// coherent mis-storage inside [`causally::Range::since`] or
+/// [`causally::Range::not_before`] is invisible to them under any
+/// construction order. Only the equation against the free constructor separates the
 /// method's storage from the constructor's.
 fn range_composition_is_order_agnostic(s: &Version, e: &Version) -> bool {
     causally::since(s).known_at(e) == causally::known_at(e).since(s)
