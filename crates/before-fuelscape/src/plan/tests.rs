@@ -120,6 +120,43 @@ fn slice_arity_reaches_every_count() {
     );
 }
 
+/// The slice arity draw is uniform over `1..=total`, not merely total.
+///
+/// The module doc claims *uniform* stratification (equal representation
+/// per arity), and the atlas's slice-column measure rests on it — but a
+/// reachability check alone cannot pin uniformity: a biased-but-total
+/// draw (e.g. the min of two `gen_range` draws, `P(1) = 17/81` vs the
+/// uniform `1/9` at total 9, chi-square 723.2 at the committed seed
+/// over 2000 draws) reaches
+/// every count in the same budget and passes it. This one-sided
+/// chi-square pin (8 degrees of freedom, mean 8 + 6σ = 32, the sampler
+/// pins' own 6σ idiom) reads red on any such skew while a fixed seed
+/// keeps the run deterministic.
+#[test]
+fn slice_arity_draws_uniformly_over_every_count() {
+    const TOTAL: usize = 9;
+    const DRAWS: usize = 2_000;
+    let mut rng = cell_rng(0xc0de, "arity-uniformity", TOTAL, 0);
+    let mut observed = [0u64; TOTAL];
+    for _ in 0..DRAWS {
+        observed[slice_arity(TOTAL, &mut rng) - 1] += 1;
+    }
+    let expected = DRAWS as f64 / TOTAL as f64;
+    let chi2: f64 = observed
+        .iter()
+        .map(|&o| {
+            let d = o as f64 - expected;
+            d * d / expected
+        })
+        .sum();
+    // 8 degrees of freedom: mean 8, variance 16, so 8 + 6·4 = 32.
+    let threshold = 32.0;
+    assert!(
+        chi2 <= threshold,
+        "chi-square {chi2:.1} exceeds {threshold:.1} over {TOTAL} arities"
+    );
+}
+
 /// The split reaches every composition.
 ///
 /// Cut-point sampling is uniform over the compositions, so at (6, 3)
