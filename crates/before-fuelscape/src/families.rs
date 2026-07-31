@@ -170,6 +170,73 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
                 ])
             }));
         }
+        // The binary span-operator rows (two hulled pairs): one point
+        // has the committed pair shapes hulled per side, the other
+        // crosses a hulled pair with a coincident point (a hulled
+        // self-pair), marking the operators' point-combine seam.
+        [Operand::Version, Operand::Version, Operand::Version, Operand::Version] => {
+            out.extend(ramp("jump_pair × concurrent_pair", max_bytes, |t| {
+                let (a, b) = Shape::JumpPair.packed_pair3(8, t, 1);
+                let (c, d) = Shape::ConcurrentPair.version_pair(2 * t);
+                Some(vec![
+                    version_bytes(&a),
+                    version_bytes(&b),
+                    c.encode(),
+                    d.encode(),
+                ])
+            }));
+            out.extend(ramp("tooth_tail × hugeleaf point", max_bytes, |t| {
+                let (a, b) = Shape::ToothTail.packed_pair(t, 2 * t.max(1));
+                let v = version_bytes(&Shape::Hugeleaf.packed1(8 * t));
+                Some(vec![version_bytes(&a), version_bytes(&b), v.clone(), v])
+            }));
+        }
+        // The span projection row (a hulled pair plus the projecting
+        // party).
+        [Operand::Version, Operand::Version, Operand::Party] => {
+            out.extend(ramp("jump_pair × scattered_id", max_bytes, |t| {
+                let (a, b) = Shape::JumpPair.packed_pair3(8, t, 1);
+                Some(vec![
+                    version_bytes(&a),
+                    version_bytes(&b),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
+                ])
+            }));
+            out.extend(ramp("concurrent_pair × id_spine", max_bytes, |t| {
+                let (a, b) = Shape::ConcurrentPair.version_pair(2 * t);
+                Some(vec![
+                    a.encode(),
+                    b.encode(),
+                    party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
+                ])
+            }));
+        }
+        // The masked span placement rows (a hulled pair, the masking
+        // party, and the probe).
+        [Operand::Version, Operand::Version, Operand::Party, Operand::Version] => {
+            out.extend(ramp("jump_pair × scattered_id × dense", max_bytes, |t| {
+                let (a, b) = Shape::JumpPair.packed_pair3(8, t, 1);
+                Some(vec![
+                    version_bytes(&a),
+                    version_bytes(&b),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
+                ])
+            }));
+            out.extend(ramp(
+                "concurrent_pair × id_spine × hugeleaf",
+                max_bytes,
+                |t| {
+                    let (a, b) = Shape::ConcurrentPair.version_pair(2 * t);
+                    Some(vec![
+                        a.encode(),
+                        b.encode(),
+                        party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
+                        version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
+                    ])
+                },
+            ));
+        }
         // The span placement rows (a hulled pair plus a probe): the
         // committed pair shapes hulled into the span, crossed with a
         // same-scale probe.
@@ -368,63 +435,62 @@ fn party_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
     out
 }
 
+/// The staggered fold populations (bit-reversed feed order preserved),
+/// ramped along both committed band axes: arity at a fixed block
+/// count, and operand size at a fixed arity.
+///
+/// The ramp doubles `t` from 1, so `n = 2t` and `m = t` are always the
+/// powers of two the generators require.
+fn stagger_ramps(max_bytes: usize) -> Vec<FamilyInput> {
+    let mut out = Vec::new();
+    out.extend(ramp("stagger arity (m=4)", max_bytes, |t| {
+        Some(stagger_versions(2 * t, 4))
+    }));
+    out.extend(ramp("stagger size (n=4)", max_bytes, |t| {
+        Some(stagger_versions(4, t))
+    }));
+    out
+}
+
+/// The meet-shade population on the committed diagonal `d = k` (one
+/// dense carrier, `k − 1` dominating plateau shades, carrier fed
+/// first).
+fn meet_shade_ramp(max_bytes: usize) -> Vec<FamilyInput> {
+    ramp("meet_shade (d=k)", max_bytes, |t| {
+        let d = 2 * t;
+        Some(
+            Shape::MeetShade
+                .versions(d, d)
+                .iter()
+                .map(|v| v.encode())
+                .collect(),
+        )
+    })
+}
+
 /// The slice rows' committed fold-cure families, per operation: the
 /// whole point of the fold panels is seeing the cured curves against the
 /// uniform frontier.
 ///
 /// - `version_join_all` gets the staggered fold populations
-///   ([`stagger_population`], bit-reversed feed order preserved), ramped
-///   along both committed band axes: arity at a fixed block count, and
-///   operand size at a fixed arity.
-/// - `version_meet_all` gets the meet-shade population ([`meet_shade`])
-///   on the committed diagonal `d = k` (one dense carrier, `k − 1`
-///   dominating plateau shades, carrier fed first).
-/// - `version_span_all` carries both hull endpoints through one fold, so
-///   it gets both sides' committed shapes: the staggered populations
-///   (the join endpoint's swell) and the meet shade (the meet endpoint's
-///   diagonal, carrier fed first — the first operand is the receiver).
+///   ([`stagger_ramps`]): the join fold's committed swell shapes.
+/// - `version_meet_all` gets the meet-shade population
+///   ([`meet_shade_ramp`]): the meet fold's committed diagonal.
+/// - `version_span_all` carries both hull endpoints through one fold,
+///   so it gets both sides' committed shapes — and the span fold rows
+///   composed from drawn versions follow the same assignment by the
+///   lattice directions their legs fold: the containment doors
+///   (`span_union_all`, `span_intersect_all`) fold one leg each way
+///   and get both, the pointwise join (`span_sum_all`) folds join legs
+///   only and gets the staggers, the pointwise meet
+///   (`span_product_all`) folds meet legs only and gets the shade.
 fn slice_overlays(name: &str, max_bytes: usize) -> Vec<FamilyInput> {
     match name {
-        "version_join_all" => {
-            let mut out = Vec::new();
-            // The ramp doubles t from 1, so n = 2t and m = t are always
-            // the powers of two the generators require.
-            out.extend(ramp("stagger arity (m=4)", max_bytes, |t| {
-                Some(stagger_versions(2 * t, 4))
-            }));
-            out.extend(ramp("stagger size (n=4)", max_bytes, |t| {
-                Some(stagger_versions(4, t))
-            }));
-            out
-        }
-        "version_meet_all" => ramp("meet_shade (d=k)", max_bytes, |t| {
-            let d = 2 * t;
-            Some(
-                Shape::MeetShade
-                    .versions(d, d)
-                    .iter()
-                    .map(|v| v.encode())
-                    .collect(),
-            )
-        }),
-        "version_span_all" => {
-            let mut out = Vec::new();
-            out.extend(ramp("stagger arity (m=4)", max_bytes, |t| {
-                Some(stagger_versions(2 * t, 4))
-            }));
-            out.extend(ramp("stagger size (n=4)", max_bytes, |t| {
-                Some(stagger_versions(4, t))
-            }));
-            out.extend(ramp("meet_shade (d=k)", max_bytes, |t| {
-                let d = 2 * t;
-                Some(
-                    Shape::MeetShade
-                        .versions(d, d)
-                        .iter()
-                        .map(|v| v.encode())
-                        .collect(),
-                )
-            }));
+        "version_join_all" | "span_sum_all" => stagger_ramps(max_bytes),
+        "version_meet_all" | "span_product_all" => meet_shade_ramp(max_bytes),
+        "version_span_all" | "span_union_all" | "span_intersect_all" => {
+            let mut out = stagger_ramps(max_bytes);
+            out.extend(meet_shade_ramp(max_bytes));
             out
         }
         other => panic!("no committed slice families for {other}"),
