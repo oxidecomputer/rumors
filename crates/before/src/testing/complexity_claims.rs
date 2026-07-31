@@ -274,7 +274,7 @@ impl Class {
             // The multiplication-bound delegation: flat counters by
             // design (a standing exponent red means the delegation
             // failed and the honest home is SuperlinearCounter), the
-            // Ω(M(·)) floor token exclusively its own, and the
+            // `M(` bound symbol exclusively its own token, and the
             // committed evidence named through both settle doors —
             // rank's single-stream fold (both wide × dense flatness
             // bands, both schoolbook kernels, the
@@ -286,7 +286,7 @@ impl Class {
             Class::MulBound => ClassContract {
                 exponent_reds: RedStance::Forbidden,
                 judge_red: false,
-                token: Some("Ω(M("),
+                token: Some("M("),
                 token_exclusive: true,
                 witnesses: &[
                     ("tests/meter.rs", "rank_wide_arming_is_flat_per_unit"),

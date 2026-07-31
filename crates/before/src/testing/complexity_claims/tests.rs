@@ -847,13 +847,12 @@ fn bound_templates_render_their_documented_lines() {
     assert_eq!(
         Bound::MulBound.render(),
         "**Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, \
-         `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts."
+         `O(n log n)` with width-bounded parked drifts."
     );
     assert_eq!(
         Bound::MulBoundPair.render(),
         "**Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst \
-         case, `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with \
-         width-bounded parked drifts."
+         case, `O((a + b) log (a + b))` with width-bounded parked drifts."
     );
     assert_eq!(
         Bound::Custom {
@@ -1029,7 +1028,7 @@ fn a_witnessless_superlinear_counter_claim_is_flagged_as_decoration() {
 /// judge-rostered) with its bound swapped to the plain linear template
 /// — every roster-side check blesses it, and only the live
 /// `# Complexity` section still carrying the MulBound class's
-/// exclusive `Ω(M(` token convicts it. A revert of the leg to
+/// exclusive `M(` token convicts it. A revert of the leg to
 /// roster-only scanning reads red here. The preconditions keep the
 /// fixture meaningful: the real section must still carry the token
 /// (if MulBound legitimately dissolves, re-point the fixture at a
@@ -1053,8 +1052,8 @@ fn a_downgraded_mul_bound_claim_is_convicted_by_its_section_text() {
         .section("Version::rank", super::Site::Fn)
         .expect("Version::rank has a Complexity section");
     assert!(
-        section.contains("Ω(M("),
-        "Version::rank's Complexity section no longer carries `Ω(M(`: \
+        section.contains("M("),
+        "Version::rank's Complexity section no longer carries `M(`: \
          re-point this fixture at a live MulBound section"
     );
     // Precondition: the stance and judge legs bless the downgrade
@@ -1074,7 +1073,7 @@ fn a_downgraded_mul_bound_claim_is_convicted_by_its_section_text() {
     assert!(
         problems
             .iter()
-            .any(|p| p.contains("section") && p.contains("Ω(M(")),
+            .any(|p| p.contains("section") && p.contains("M(")),
         "the downgraded claim slipped the token-exclusivity leg \
          ({problems:?}): the leg is reading the roster's rendered lines \
          instead of the rustdoc section text"

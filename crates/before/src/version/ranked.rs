@@ -86,9 +86,17 @@ use crate::error::Decode;
 /// [`to_rank`](Self::to_rank) and the encodes are one rank fold
 /// ([`Version::rank`]'s three-part claim). A comparison is the fused
 /// pair co-sweep at the distance/lag bound, plus — only on rank ties —
-/// one byte comparison of the two versions.
+/// one byte comparison of the two versions. On answer-embedding pairs
+/// the shipped co-sweep provably pays the backend's multiplication
+/// cost — it settles the exact signed rank difference, whose value
+/// embeds an input-funded product — but that is a fact about this
+/// walk, not a floor on the comparison problem: [`Ord`] answers a
+/// three-valued verdict, not an exact rank, so the
+/// answer-embedded-product reduction that floors [`Version::rank`]
+/// cannot reach it, and whether some comparison can order such pairs
+/// below one multiplication is open.
 ///
-/// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded parked drifts.
+/// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
 ///
 /// ```
 /// use before::{Ranked, Version};
@@ -130,9 +138,12 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    /// As [`Version::rank`] (one rank fold).
+    /// As [`Version::rank`] (one rank fold), its proven `Ω(M(n))`
+    /// lower bound included: the answer-embedded-product reduction
+    /// floors any computation of the exact rank, and this method is
+    /// exactly that computation.
     ///
-    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::{Ranked, Version};
@@ -194,9 +205,12 @@ impl<'a> Ranked<'a> {
     /// One rank fold, an emission linear in the rank's numeric size
     /// (which the fold keeps linear in the packed input — the
     /// provenance pin on [`Rank::encode`]), and one byte copy of the
-    /// version.
+    /// version. The fold's proven `Ω(M(n))` lower bound applies whole:
+    /// the emitted rank component determines the exact rank, so no
+    /// encoder undercuts the answer-embedded-product reduction that
+    /// floors [`Version::rank`].
     ///
-    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::{Ranked, Version};
@@ -230,9 +244,10 @@ impl<'a> Ranked<'a> {
     /// # Complexity
     ///
     /// As [`encode`](Self::encode): one rank fold, a linear emission,
-    /// and one byte copy of the version.
+    /// and one byte copy of the version — the fold's proven `Ω(M(n))`
+    /// lower bound included.
     ///
-    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::{Ranked, Version};
@@ -269,9 +284,13 @@ impl<'a> Ranked<'a> {
     ///
     /// One rank fold plus an emission linear in the rank's numeric
     /// size, which the fold keeps linear in the packed input (the
-    /// provenance pin on [`Rank::encode`]).
+    /// provenance pin on [`Rank::encode`]). The fold's proven
+    /// `Ω(M(n))` lower bound applies whole: the emitted bytes
+    /// determine the exact rank, so no emitter undercuts the
+    /// answer-embedded-product reduction that floors
+    /// [`Version::rank`].
     ///
-    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::{Ranked, Version};
@@ -301,9 +320,10 @@ impl<'a> Ranked<'a> {
     /// # Complexity
     ///
     /// As [`encode_rank`](Self::encode_rank): one rank fold plus an
-    /// emission linear in the rank's numeric size.
+    /// emission linear in the rank's numeric size — the fold's proven
+    /// `Ω(M(n))` lower bound included.
     ///
-    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::{Ranked, Version};
@@ -347,9 +367,17 @@ impl<'a> Ranked<'a> {
     /// One strict parse linear in the bytes read, plus the verifying
     /// rank fold over the decoded version ([`Version::rank`]'s
     /// three-part claim) — the fold is the decode's dominant term and
-    /// the price of the verification.
+    /// the price of the verification. On answer-embedding keys the
+    /// shipped fold provably pays the backend's multiplication cost —
+    /// it recomputes the exact rank whole — but that is a fact about
+    /// this algorithm, not a floor on the verification problem: the
+    /// key hands the rank in, the obligation is to check it against
+    /// the version, and the answer-embedded-product reduction that
+    /// floors [`Version::rank`] proves nothing about checking a
+    /// claimed answer — whether a verifying decode can go below one
+    /// multiplication is open.
     ///
-    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::{error::Decode, Ranked, Version};

@@ -325,7 +325,7 @@ impl Version {
     /// and none may do better than one multiplication on the
     /// embedded-product inputs.
     ///
-    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::Clock;
@@ -404,7 +404,7 @@ impl Version {
     /// is not contractual: a future release may close the tree-depth
     /// factor.
     ///
-    /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
@@ -456,7 +456,7 @@ impl Version {
     /// gap above the multiplication bound is likewise not
     /// contractual.
     ///
-    /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
