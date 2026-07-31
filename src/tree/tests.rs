@@ -1364,13 +1364,12 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 /// regime the tree pays — a comparable pair is handed back at one
 /// comparison sweep, only a concurrent pair reaches the emitting walk —
 /// and the mix is a property of the workload's versions, not of the
-/// kernel. Two structural facts anchor the readings: an interior memo's
-/// `lo.span(&hi)` operands are ordered by construction (the meet of the
-/// floors never exceeds the join of the ceilings), so interior-regime
-/// traffic is never concurrent; and a fringe memo's `span_all` leaf
-/// combines read sibling leaf versions, whose relation tracks the
-/// writers'. The counters are process-global and meaningful one
-/// scenario per process (nextest's model).
+/// kernel. The door's traffic is the fringe regime's: a fringe memo's
+/// `span_all` leaf combines read sibling leaf versions, whose relation
+/// tracks the writers'. (An interior memo folds its children's spans
+/// through the union's per-endpoint legs, which construct totally and
+/// never enter the pair-hull ladder.) The counters are process-global
+/// and meaningful one scenario per process (nextest's model).
 #[cfg(feature = "meter")]
 mod span_door_traffic {
     use before::meter;
@@ -1426,10 +1425,9 @@ mod span_door_traffic {
     /// paths and the emitting walk.
     ///
     /// Fringe combines of concurrent leaf versions reach the
-    /// emitting walk, while the interior regime (ordered by
-    /// construction) and same-writer sibling runs stay on the fast
-    /// paths — both rungs read live on one merged four-writer tree,
-    /// incremental rounds included.
+    /// emitting walk, while same-writer sibling runs stay on the
+    /// fast paths — both rungs read live on one merged four-writer
+    /// tree, incremental rounds included.
     #[test]
     fn merged_writers_split_the_door() {
         let (equal, empty, comparable, concurrent) = cells(|| {
@@ -1457,7 +1455,7 @@ mod span_door_traffic {
         );
         assert!(
             comparable > 0,
-            "interior memos are ordered by construction: the comparable rung stays live"
+            "same-writer sibling leaves form chains: the comparable rung stays live"
         );
         assert!(
             concurrent > 0,

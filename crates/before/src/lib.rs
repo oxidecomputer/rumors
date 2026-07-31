@@ -67,6 +67,7 @@
 //! | [`Version`]         | a causal timestamp (history of known events)    | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), join (`\|`), meet (`&`), [`rank`](Version::rank)                        |
 //! | [`Clock`]           | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork)([`s`](Clock::forks)), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), join (`\|`, `\|=`) a [`Version`] |
 //! | [`Rank`]/[`Ranked`] | a total order extending the causal order       | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub), [`encode`](Rank::encode)/[`decode`](Rank::decode)                            |
+//! | [`Span`]            | an ordered pair of versions and the chain segment between them | [`place`](Span::place), [`dominance_of`](Span::dominance_of), union (`\|`), intersect (`&`), pointwise join/meet (`+`, `*`), projection (`/`)     |
 //!
 //! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)): moved, never
 //! duplicated, because duplicating identity is exactly what breaks a causal
@@ -358,7 +359,7 @@
 //! Every feature is off by default.
 //!
 //! - **`serde`** — `Serialize`/`Deserialize` for [`Party`], [`Version`],
-//!   [`Clock`], [`Rank`], [`Ranked`], and [`Span`](causally::Span), each as
+//!   [`Clock`], [`Rank`], [`Ranked`], and [`Span`], each as
 //!   its canonical byte encoding; deserializing runs the same strict
 //!   validation as [`decode`](Clock::decode).
 //! - **`borsh`** — `BorshSerialize`/`BorshDeserialize`, likewise as the
@@ -420,6 +421,7 @@ mod clock;
 mod codec;
 mod idbits;
 mod party;
+pub mod span;
 mod version;
 
 // The whole public API:
@@ -427,6 +429,7 @@ pub use clock::Clock;
 pub mod causally;
 pub mod error;
 pub use party::Party;
+pub use span::{OwnSpan, Span};
 pub use version::{OwnVersion, Rank, Ranked, Ticks, Version};
 pub mod iter {
     //! Lazy balanced-fork iterators: [`iter::Party`](Party) and

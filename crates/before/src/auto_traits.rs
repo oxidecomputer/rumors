@@ -9,7 +9,8 @@
 //! deliberate API event: it must change this file, where the reviewer
 //! sees it by name.
 //!
-//! The roster below covers the API surface — the root types, the
+//! The roster below covers the API surface — the root types (the `span`
+//! module's among them, pinned at their root re-export names), the
 //! `causally`, `error`, and `iter` modules. The feature-gated instrument
 //! trees (`oracle`, `meter`, `surface`, `laws`) are bench/test-only
 //! surfaces outside the API stability promise and carry no pins here.
@@ -30,13 +31,14 @@ assert_impl_all!(crate::OwnVersion<'static>: Send, Sync, Unpin);
 assert_impl_all!(crate::Rank: Send, Sync, Unpin);
 assert_impl_all!(crate::Ranked<'static>: Send, Sync, Unpin);
 assert_impl_all!(crate::Ticks: Send, Sync, Unpin);
+assert_impl_all!(crate::Span<'static>: Send, Sync, Unpin);
+assert_impl_all!(crate::OwnSpan<'static>: Send, Sync, Unpin);
 
 assert_impl_all!(crate::causally::Bounded: Send, Sync, Unpin);
 assert_impl_all!(crate::causally::Dominance: Send, Sync, Unpin);
 assert_impl_all!(crate::causally::Endpoint: Send, Sync, Unpin);
 assert_impl_all!(crate::causally::Placement: Send, Sync, Unpin);
 assert_impl_all!(crate::causally::Range<'static>: Send, Sync, Unpin);
-assert_impl_all!(crate::causally::Span<'static>: Send, Sync, Unpin);
 
 assert_impl_all!(crate::error::Crossed: Send, Sync, Unpin);
 assert_impl_all!(crate::error::Decode: Send, Sync, Unpin);

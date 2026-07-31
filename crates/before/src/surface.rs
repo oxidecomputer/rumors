@@ -591,12 +591,12 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     causally_row("causally::Range::contains"),
     causally_row("causally::Range::placement_of"),
     causally_row("causally::Range::bounded"),
-    span_row("causally::Span::new"),
-    span_row("causally::Span::new_unchecked"),
-    span_row("causally::Span::place"),
-    span_row("causally::Span::dominance_of"),
+    span_row("Span::new"),
+    span_row("Span::new_unchecked"),
+    span_row("Span::place"),
+    span_row("Span::dominance_of"),
     SurfaceRow {
-        op: "causally::Span::meet",
+        op: "Span::meet",
         prod_tree: Leg::Law("span_is_the_pair_hull"),
         prod_fs: Leg::Excluded(
             "accessor over a stored endpoint; the hull laws pin the accessor \
@@ -605,7 +605,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("accessor over a stored endpoint; law-pinned"),
     },
     SurfaceRow {
-        op: "causally::Span::join",
+        op: "Span::join",
         prod_tree: Leg::Law("span_is_the_pair_hull"),
         prod_fs: Leg::Excluded(
             "accessor over a stored endpoint; the hull laws pin the accessor \
@@ -614,7 +614,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("accessor over a stored endpoint; law-pinned"),
     },
     SurfaceRow {
-        op: "causally::Span::into_parts",
+        op: "Span::into_parts",
         prod_tree: Leg::Law("span_is_the_pair_hull"),
         prod_fs: Leg::Excluded(
             "borrow-settling mechanics of the Rust API; the law pins value \
@@ -623,7 +623,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("borrow-settling mechanics of the Rust API"),
     },
     SurfaceRow {
-        op: "causally::Span::reborrow",
+        op: "Span::reborrow",
         prod_tree: Leg::Law("span_is_the_pair_hull"),
         prod_fs: Leg::Excluded(
             "borrow-lending mechanics of the Rust API; the law pins the \
@@ -632,7 +632,79 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("borrow-lending mechanics of the Rust API"),
     },
     SurfaceRow {
-        op: "causally::Span::into_owned",
+        op: "Span::union_all",
+        prod_tree: Leg::Law("span_folds_match_the_sequential_operators"),
+        prod_fs: Leg::Excluded(
+            "definitionally the binary containment join folded over {self} ∪ others;              the law pins the door to the bound operator at every arity, and              span_union_of_points_is_span_all pins the all-coincident case to              Version::span_all",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the fold"),
+    },
+    SurfaceRow {
+        op: "Span::intersect_all",
+        prod_tree: Leg::Law("span_folds_match_the_sequential_operators"),
+        prod_fs: Leg::Excluded(
+            "definitionally the binary containment meet folded through Option over              {self} ∪ others; the law pins the door to the bound operator at every              arity",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the fold"),
+    },
+    SurfaceRow {
+        op: "Span::sum_all",
+        prod_tree: Leg::Law("span_folds_match_the_sequential_operators"),
+        prod_fs: Leg::Excluded(
+            "definitionally the binary pointwise join folded over {self} ∪ others;              the law pins the door to the bound operator at every arity",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the fold"),
+    },
+    SurfaceRow {
+        op: "Span::product_all",
+        prod_tree: Leg::Law("span_folds_match_the_sequential_operators"),
+        prod_fs: Leg::Excluded(
+            "definitionally the binary pointwise meet folded over {self} ∪ others;              the law pins the door to the bound operator at every arity",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the fold"),
+    },
+    SurfaceRow {
+        op: "OwnSpan::meet",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "accessor handing out the bound OwnVersion view; the law pins it              equal to the eagerly projected endpoint",
+        ),
+        tree_fs: Leg::Excluded("accessor over the bound projection; law-pinned"),
+    },
+    SurfaceRow {
+        op: "OwnSpan::join",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "accessor handing out the bound OwnVersion view; the law pins it              equal to the eagerly projected endpoint",
+        ),
+        tree_fs: Leg::Excluded("accessor over the bound projection; law-pinned"),
+    },
+    SurfaceRow {
+        op: "OwnSpan::place",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "semantically the nine-state transcription of the two bound masked              comparisons (OwnVersion vs Version, bound on all three legs); the              law pins every verdict to the eagerly projected span's",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the verdicts"),
+    },
+    SurfaceRow {
+        op: "OwnSpan::dominance_of",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "the dominance coarsening over the bound masked comparisons; the law              pins every verdict to the eagerly projected span's",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the verdicts"),
+    },
+    SurfaceRow {
+        op: "OwnSpan::to_span",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "composition of the bound OwnVersion::to_version per endpoint; the              law pins the materialized span, and projection monotonicity              (projection_monotone_in_version) keeps the pair ordered",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the composition"),
+    },
+    SurfaceRow {
+        op: "Span::into_owned",
         prod_tree: Leg::Law("span_is_the_pair_hull"),
         prod_fs: Leg::Excluded(
             "borrow-settling mechanics of the Rust API; the law pins the \
@@ -641,7 +713,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("borrow-settling mechanics of the Rust API"),
     },
     SurfaceRow {
-        op: "causally::Span::encode",
+        op: "Span::encode",
         prod_tree: Leg::Law("span_codec_roundtrip"),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; the composite is law-pinned as \
@@ -652,7 +724,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
     SurfaceRow {
-        op: "causally::Span::encode_to",
+        op: "Span::encode_to",
         prod_tree: Leg::Excluded(
             "the identical composite emission as Span::encode with a writer sink; \
              its doctest pins byte identity with encode, and the borsh suite drives \
@@ -665,7 +737,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
     SurfaceRow {
-        op: "causally::Span::decode",
+        op: "Span::decode",
         prod_tree: Leg::Law("span_codec_roundtrip"),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; strict fused decode is pinned \
@@ -700,6 +772,54 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Bound("meet_arbitrary"),
         prod_fs: Leg::Trans("meet_realizes_pointwise_min"),
         tree_fs: Leg::Bound("meet_realizes_pointwise_min"),
+    },
+    SurfaceRow {
+        op: "Span | Span (BitOr, owned and borrowed — the containment join)",
+        prod_tree: Leg::Law("span_union_is_the_containment_join"),
+        prod_fs: Leg::Excluded(
+            "definitionally the bound meet/join over the corresponding endpoints;              the law pins the endpoints, every operand cell, and coverage of both              operands",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
+    },
+    SurfaceRow {
+        op: "Span & Span (BitAnd, owned and borrowed — the containment meet)",
+        prod_tree: Leg::Law("span_intersect_is_the_shared_segment"),
+        prod_fs: Leg::Excluded(
+            "definitionally the bound join/meet over the corresponding endpoints,              validated once; the law pins the endpoints, the None verdict, every              operand cell, absorption, and shared-membership coherence",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
+    },
+    SurfaceRow {
+        op: "Span + Span (Add, owned and borrowed — the pointwise join)",
+        prod_tree: Leg::Law("span_sum_is_the_pointwise_join"),
+        prod_fs: Leg::Excluded(
+            "definitionally the bound join over both endpoint pairs; the law pins              the endpoints, every operand cell, the identity, and the restriction              to the version join on coincident operands",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
+    },
+    SurfaceRow {
+        op: "Span * Span (Mul, owned and borrowed — the pointwise meet)",
+        prod_tree: Leg::Law("span_product_is_the_pointwise_meet"),
+        prod_fs: Leg::Excluded(
+            "definitionally the bound meet over both endpoint pairs; the law pins              the endpoints, every operand cell, pointwise absorption, and the              restriction to the version meet on coincident operands",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
+    },
+    SurfaceRow {
+        op: "&Span / &Party (Div — the lazy span projection view)",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "view construction: two borrows; every verdict and the materialization              are law-pinned to the eagerly projected span, whose pieces are bound              (Div on versions, OwnVersion::to_version)",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the view"),
+    },
+    SurfaceRow {
+        op: "From<OwnSpan> for Span (explicit materialization)",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "the From impl is to_span; the law pins both materialization doors to              the eagerly projected span",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the doors"),
     },
     SurfaceRow {
         op: "&Version / &Party (Div — the lazy projection view)",
