@@ -1,39 +1,65 @@
-//! The reachability walk: every public function-like item, named as the
-//! roster names it.
+//! The reachability walk: every public item, named as its check names it.
 //!
 //! The walk starts at the crate's root module and follows exactly what a
 //! user of the public API can reach — public modules, `pub use`
-//! re-exports (named and glob), public types and their inherent impls,
-//! and public traits — recording each function-like item under the path
-//! it is *reachable* at, which is the roster's own naming (`Party::seed`
-//! for a root re-export, `causally::Range::since` inside a public
-//! module). The `paths` table's definition paths are deliberately not
-//! used: they name private modules (`party::Party`, `version::skyline`)
-//! and include items the public tree never reaches.
+//! re-exports (named and glob), public types and their impls, and public
+//! traits — recording each item under the path it is *reachable* at,
+//! which is the roster's own naming (`Party::seed` for a root re-export,
+//! `causally::Range::since` inside a public module). The `paths` table's
+//! definition paths are deliberately not used for reachable naming: they
+//! name private modules (`party::Party`, `version::skyline`) and include
+//! items the public tree never reaches.
 //!
-//! Out of scope, matching the roster's denomination: trait-*impl*
-//! methods (`FAMILY_SURFACE`'s review-governed domain), associated
-//! consts and types, statics, and macros. `#[doc(hidden)]` items never
-//! appear in the JSON at all, so the ground truth here is the documented
-//! public surface.
+//! Three categories come back, each held total by its own committed
+//! roster:
+//!
+//! - **functions** — free functions, inherent methods, and public-trait
+//!   -declared methods, reconciled against `METHOD_SURFACE` and the
+//!   exception lists in [`crate::check`];
+//! - **impls** — every reachable trait impl, one row per
+//!   `type: impl Trait for For` spelling, reconciled against the pinned
+//!   [`crate::census::TRAIT_IMPLS`]. Compiler-synthesized auto-trait
+//!   impls are excluded here because `before` pins those guarantees
+//!   directly (`src/auto_traits.rs` asserts `Send + Sync + Unpin` on
+//!   every public API type at compile time); blanket impls are excluded
+//!   because they are foreign library plumbing (`From<T> for T`,
+//!   `Borrow`, `Any`, …), not API decisions made in this crate;
+//! - **items** — associated consts and types, module-level consts,
+//!   statics, and macros, reconciled against the pinned
+//!   [`crate::census::ITEMS`].
+//!
+//! `#[doc(hidden)]` items never appear in the JSON at all, so the ground
+//! truth here is the documented public surface.
 
 use std::collections::BTreeSet;
 
-use rustdoc_types::{Crate, Id, Item, ItemEnum};
+use rustdoc_types::{Crate, GenericArg, GenericArgs, Id, Item, ItemEnum, Path, Type};
 
-/// Walk the publicly reachable item tree and collect every function-like
-/// item's roster-style name.
+/// The publicly reachable surface, by category.
 ///
-/// A type reachable at two public paths contributes its methods under
-/// both names; the reconcile step then surfaces the extra path as an
-/// unrostered finding to triage, which is the honest reading (two public
-/// spellings are two rows of surface).
-pub(crate) fn function_like_items(krate: &Crate) -> BTreeSet<String> {
+/// A type reachable at two public paths contributes its methods and
+/// impls under both names; the reconcile step then surfaces the extra
+/// path as an unrostered finding to triage, which is the honest reading
+/// (two public spellings are two rows of surface).
+#[derive(Debug, Default)]
+pub(crate) struct Surface {
+    /// Function-like items: `Type::fn`, `module::fn`, `Trait::fn`.
+    pub functions: BTreeSet<String>,
+    /// Trait impls: `Type: impl trait::Path<Args> for ForType`.
+    pub impls: BTreeSet<String>,
+    /// Associated consts and types, module consts, statics, and macros,
+    /// named by reachable path alone (`Rank::ZERO`, `laws::VERSION_SOLO`).
+    pub items: BTreeSet<String>,
+}
+
+/// Walk the publicly reachable item tree and collect every public item
+/// into its [`Surface`] category.
+pub(crate) fn public_surface(krate: &Crate) -> Surface {
     let root = module_of(krate, krate.root);
-    let mut names = BTreeSet::new();
+    let mut surface = Surface::default();
     let mut visited_modules = BTreeSet::new();
-    walk_module(krate, &root.items, &[], &mut names, &mut visited_modules);
-    names
+    walk_module(krate, &root.items, &[], &mut surface, &mut visited_modules);
+    surface
 }
 
 /// Look up an id in the index, panicking with the id on a dangling
@@ -64,12 +90,12 @@ fn walk_module(
     krate: &Crate,
     items: &[Id],
     prefix: &[&str],
-    names: &mut BTreeSet<String>,
+    surface: &mut Surface,
     visited: &mut BTreeSet<(Vec<String>, Id)>,
 ) {
     for &id in items {
         let item = item_of(krate, id);
-        walk_named(krate, item, prefix, names, visited);
+        walk_named(krate, item, prefix, surface, visited);
     }
 }
 
@@ -81,7 +107,7 @@ fn walk_named(
     krate: &Crate,
     item: &Item,
     prefix: &[&str],
-    names: &mut BTreeSet<String>,
+    surface: &mut Surface,
     visited: &mut BTreeSet<(Vec<String>, Id)>,
 ) {
     let name = item.name.as_deref();
@@ -91,36 +117,64 @@ fn walk_named(
             let key = (path_key(prefix, name), item.id);
             if visited.insert(key) {
                 let prefix = push(prefix, name);
-                walk_module(krate, &module.items, &prefix, names, visited);
+                walk_module(krate, &module.items, &prefix, surface, visited);
             }
         }
-        ItemEnum::Use(use_) => walk_use(krate, use_, prefix, names, visited),
+        ItemEnum::Use(use_) => walk_use(krate, use_, prefix, surface, visited),
         ItemEnum::Struct(s) => {
-            walk_type(krate, name, &s.impls, prefix, names);
+            walk_type(krate, name, &s.impls, prefix, surface);
         }
         ItemEnum::Enum(e) => {
-            walk_type(krate, name, &e.impls, prefix, names);
+            walk_type(krate, name, &e.impls, prefix, surface);
         }
         ItemEnum::Union(u) => {
-            walk_type(krate, name, &u.impls, prefix, names);
+            walk_type(krate, name, &u.impls, prefix, surface);
         }
         ItemEnum::Function(_) => {
-            names.insert(join(prefix, name.expect("a function has a name")));
+            surface
+                .functions
+                .insert(join(prefix, name.expect("a function has a name")));
         }
         ItemEnum::Trait(t) => {
             let trait_name = name.expect("a trait has a name");
+            let owner = join(prefix, trait_name);
             for &member in &t.items {
                 let member = item_of(krate, member);
-                if let ItemEnum::Function(_) = member.inner {
-                    let fn_name = member.name.as_deref().expect("a trait method has a name");
-                    let owner = join(prefix, trait_name);
-                    names.insert(format!("{owner}::{fn_name}"));
+                let member_name = member.name.as_deref();
+                match &member.inner {
+                    ItemEnum::Function(_) => {
+                        let fn_name = member_name.expect("a trait method has a name");
+                        surface.functions.insert(format!("{owner}::{fn_name}"));
+                    }
+                    ItemEnum::AssocConst { .. } | ItemEnum::AssocType { .. } => {
+                        let item_name = member_name.expect("a trait member has a name");
+                        surface.items.insert(format!("{owner}::{item_name}"));
+                    }
+                    _ => {}
                 }
             }
+            // Impls of a public trait for types the type walk never
+            // visits (primitives, foreign types) are reachable only
+            // from the trait's page; record them under the trait's
+            // reachable path.
+            for &impl_id in &t.implementations {
+                record_impl(krate, impl_id, &owner, surface);
+            }
         }
-        // Not function-like: consts, statics, type aliases, macros,
-        // impls at module scope (reached through their types instead),
-        // and the rest of the item grammar.
+        ItemEnum::Constant { .. } | ItemEnum::Static(_) => {
+            surface
+                .items
+                .insert(join(prefix, name.expect("a const or static has a name")));
+        }
+        ItemEnum::Macro(_) | ItemEnum::ProcMacro(_) => {
+            surface
+                .items
+                .insert(join(prefix, name.expect("a macro has a name")));
+        }
+        // Not reachable surface in this crate's grammar: enum variants
+        // and struct fields (reached through their types' rows), type
+        // aliases (aliases of already-walked types), and the rest of
+        // the item grammar.
         _ => {}
     }
 }
@@ -132,7 +186,7 @@ fn walk_use(
     krate: &Crate,
     use_: &rustdoc_types::Use,
     prefix: &[&str],
-    names: &mut BTreeSet<String>,
+    surface: &mut Surface,
     visited: &mut BTreeSet<(Vec<String>, Id)>,
 ) {
     // `id` is `None` only for primitive re-exports; an id absent from the
@@ -150,11 +204,12 @@ fn walk_use(
     };
     if use_.is_glob {
         // A glob over an enum re-exports variants, which are not
-        // function-like; only a module glob splices surface in.
+        // reachable surface on their own; only a module glob splices
+        // surface in.
         if let ItemEnum::Module(module) = &target.inner {
             let key = (path_key(prefix, "*"), id);
             if visited.insert(key) {
-                walk_module(krate, &module.items, prefix, names, visited);
+                walk_module(krate, &module.items, prefix, surface, visited);
             }
         }
         return;
@@ -164,20 +219,18 @@ fn walk_use(
         name: Some(use_.name.clone()),
         ..target.clone()
     };
-    walk_named(krate, &renamed, prefix, names, visited);
+    walk_named(krate, &renamed, prefix, surface, visited);
 }
 
-/// Record a public type's inherent methods as `Type::fn` rows.
-///
-/// Trait impls (`trait_` present) are skipped: operators, conversions,
-/// and codec traits are `FAMILY_SURFACE`'s domain, rostered by family
-/// and reviewed, never name-matched here.
+/// Record a public type's impls: inherent methods as `Type::fn` function
+/// rows, inherent associated consts and types as `Type::NAME` item rows,
+/// and trait impls as census rows.
 fn walk_type(
     krate: &Crate,
     name: Option<&str>,
     impls: &[Id],
     prefix: &[&str],
-    names: &mut BTreeSet<String>,
+    surface: &mut Surface,
 ) {
     let type_name = join(prefix, name.expect("a type has a name"));
     for &impl_id in impls {
@@ -186,15 +239,140 @@ fn walk_type(
             panic!("a type's impls list must name impl items, found {impl_item:?}");
         };
         if impl_.trait_.is_some() {
+            record_impl(krate, impl_id, &type_name, surface);
             continue;
         }
         for &member in &impl_.items {
             let member = item_of(krate, member);
-            if let ItemEnum::Function(_) = member.inner {
-                let fn_name = member.name.as_deref().expect("a method has a name");
-                names.insert(format!("{type_name}::{fn_name}"));
+            let member_name = member.name.as_deref();
+            match &member.inner {
+                ItemEnum::Function(_) => {
+                    let fn_name = member_name.expect("a method has a name");
+                    surface.functions.insert(format!("{type_name}::{fn_name}"));
+                }
+                ItemEnum::AssocConst { .. } | ItemEnum::AssocType { .. } => {
+                    let item_name = member_name.expect("an associated item has a name");
+                    surface.items.insert(format!("{type_name}::{item_name}"));
+                }
+                _ => {}
             }
         }
+    }
+}
+
+/// Record one trait impl as a census row under the reachable path it was
+/// found at (`owner`: the implementing type's path, or the trait's path
+/// for impls reached from a trait page).
+///
+/// Compiler-synthesized auto-trait impls are excluded — `before` pins
+/// `Send`/`Sync`/`Unpin` on every public API type at compile time in
+/// `src/auto_traits.rs`, which is where that guarantee is reviewed —
+/// and blanket impls are excluded as foreign library plumbing, not API
+/// decisions of this crate. Everything else, derives included, is a
+/// row: deriving a trait is exactly the kind of API event the census
+/// exists to make diff-visible.
+fn record_impl(krate: &Crate, impl_id: Id, owner: &str, surface: &mut Surface) {
+    let impl_item = item_of(krate, impl_id);
+    let ItemEnum::Impl(impl_) = &impl_item.inner else {
+        panic!("an implementations list must name impl items, found {impl_item:?}");
+    };
+    if impl_.is_synthetic || impl_.blanket_impl.is_some() {
+        return;
+    }
+    let trait_ = impl_
+        .trait_
+        .as_ref()
+        .expect("record_impl is called on trait impls only");
+    surface.impls.insert(format!(
+        "{owner}: impl {} for {}",
+        render_trait(krate, trait_),
+        render_type(krate, &impl_.for_),
+    ));
+}
+
+/// Render a trait reference for a census row: the definition path from
+/// the `paths` table (unambiguous across same-named traits), plus any
+/// generic arguments.
+fn render_trait(krate: &Crate, trait_: &Path) -> String {
+    let mut out = krate
+        .paths
+        .get(&trait_.id)
+        .map(|summary| summary.path.join("::"))
+        .unwrap_or_else(|| trait_.path.clone());
+    if let Some(args) = &trait_.args {
+        out.push_str(&render_args(krate, args));
+    }
+    out
+}
+
+/// Render a type for a census row.
+///
+/// Named types render as their bare name (the last segment of the
+/// definition path): census rows are keyed under the reachable path of
+/// the type they were found at, which carries the disambiguation, and
+/// bare names keep the pinned roster legible. A type shape this crate's
+/// surface never uses panics rather than rendering approximately — a
+/// new shape must be named here before it can be pinned.
+fn render_type(krate: &Crate, ty: &Type) -> String {
+    match ty {
+        Type::ResolvedPath(path) => {
+            let mut out = krate
+                .paths
+                .get(&path.id)
+                .and_then(|summary| summary.path.last().cloned())
+                .unwrap_or_else(|| {
+                    path.path
+                        .rsplit("::")
+                        .next()
+                        .expect("rsplit yields at least one segment")
+                        .to_owned()
+                });
+            if let Some(args) = &path.args {
+                out.push_str(&render_args(krate, args));
+            }
+            out
+        }
+        Type::Generic(name) => name.clone(),
+        Type::Primitive(name) => name.clone(),
+        Type::BorrowedRef {
+            is_mutable, type_, ..
+        } => {
+            format!(
+                "&{}{}",
+                if *is_mutable { "mut " } else { "" },
+                render_type(krate, type_)
+            )
+        }
+        Type::Tuple(parts) => {
+            let parts: Vec<String> = parts.iter().map(|p| render_type(krate, p)).collect();
+            format!("({})", parts.join(", "))
+        }
+        Type::Slice(inner) => format!("[{}]", render_type(krate, inner)),
+        Type::Array { type_, len } => format!("[{}; {len}]", render_type(krate, type_)),
+        other => panic!("surfacecheck: unhandled type shape in an impl census row: {other:?}"),
+    }
+}
+
+/// Render generic arguments for a census row: types and consts, with
+/// lifetimes elided (they never distinguish two impls) and associated
+/// bindings elided (they are constraints, not identity).
+fn render_args(krate: &Crate, args: &GenericArgs) -> String {
+    let GenericArgs::AngleBracketed { args, .. } = args else {
+        panic!("surfacecheck: unhandled generic-args shape in an impl census row: {args:?}");
+    };
+    let rendered: Vec<String> = args
+        .iter()
+        .filter_map(|arg| match arg {
+            GenericArg::Type(ty) => Some(render_type(krate, ty)),
+            GenericArg::Const(constant) => Some(constant.expr.clone()),
+            GenericArg::Lifetime(_) => None,
+            GenericArg::Infer => Some("_".to_owned()),
+        })
+        .collect();
+    if rendered.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", rendered.join(", "))
     }
 }
 

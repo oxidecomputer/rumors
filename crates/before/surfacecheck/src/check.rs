@@ -1,15 +1,23 @@
-//! The judgment: extracted surface against the roster, with the
-//! committed exception lists and the scan-liveness anchors.
+//! The judgment: extracted surface against the roster and the pinned
+//! censuses, with the committed exception lists and the scan-liveness
+//! anchors.
 //!
-//! Every exception is named, dated, and reasoned — the registry
-//! exemption-list discipline — and every exception must still *match*
-//! something: an exception whose item vanished is a dead entry this
-//! check fails on, so the lists are self-pruning. The anchors are the
-//! extractor's liveness floor: a walk that returns nothing (or the wrong
-//! tree) cannot pass, because two known-public items must be present by
-//! name.
+//! Functions reconcile against `METHOD_SURFACE`; trait impls and
+//! non-function items reconcile against the pinned lists in
+//! [`crate::census`]. Every exception is named, dated, and reasoned —
+//! the registry exemption-list discipline — and every exception and
+//! census entry must still *match* something: an entry whose item
+//! vanished is a dead entry this check fails on, so the lists are
+//! self-pruning. The anchors are the extractor's liveness floor: a walk
+//! that returns nothing (or the wrong tree) cannot pass, because two
+//! known-public items must be present by name; the censuses need no
+//! separate anchor because their reconciliation is two-way — an impl
+//! walk that goes silent orphans every pinned row at once.
 
 use std::collections::BTreeSet;
+
+use crate::census;
+use crate::extract::Surface;
 
 #[cfg(test)]
 mod tests;
@@ -67,6 +75,15 @@ pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
                  accessors in itself would be circular",
         decided: "2026-07-30",
     },
+    Exception {
+        name: "laws::",
+        reason: "the named algebraic-law predicate tables (statics of law \
+                 rows), public under the `laws` feature so the fuzz workspace \
+                 can drive the same collection the in-tree proptests assert; \
+                 the laws are instruments over the rostered operations, not \
+                 surface to roster against itself",
+        decided: "2026-07-31",
+    },
 ];
 
 /// The extractor's liveness anchors: known-public items that must be
@@ -84,10 +101,19 @@ pub(crate) struct Findings {
     pub unrostered: Vec<String>,
     /// Roster rows naming no reachable public item.
     pub orphaned: Vec<String>,
+    /// Reachable trait impls with no census pin and no module exception.
+    pub unrostered_impls: Vec<String>,
+    /// Census impl pins naming no reachable trait impl.
+    pub orphaned_impls: Vec<String>,
+    /// Reachable consts, statics, associated types, or macros with no
+    /// census pin and no module exception.
+    pub unrostered_items: Vec<String>,
+    /// Census item pins naming no reachable item.
+    pub orphaned_items: Vec<String>,
     /// Item exceptions matching no extracted item, or also rostered
     /// (an exception may never shadow a roster row).
     pub dead_item_exceptions: Vec<String>,
-    /// Module exceptions matching no extracted item.
+    /// Module exceptions matching nothing in any extracted category.
     pub dead_module_exceptions: Vec<String>,
     /// Liveness anchors missing from the extraction.
     pub missing_anchors: Vec<String>,
@@ -129,6 +155,33 @@ impl Findings {
             &self.orphaned,
         );
         block(
+            "reachable trait impls with no census pin and no exception",
+            "a new impl is a deliberate API event: pin it in TRAIT_IMPLS \
+             (crates/before/surfacecheck/src/census.rs) and, for a new \
+             operator or trait family, add the FAMILY_SURFACE row \
+             (crates/before/src/surface.rs) naming its leg dispositions",
+            &self.unrostered_impls,
+        );
+        block(
+            "census impl pins naming no reachable trait impl",
+            "remove or rename the pin in \
+             crates/before/surfacecheck/src/census.rs",
+            &self.orphaned_impls,
+        );
+        block(
+            "reachable consts, statics, associated types, or macros with \
+             no census pin and no exception",
+            "pin the item in ITEMS \
+             (crates/before/surfacecheck/src/census.rs)",
+            &self.unrostered_items,
+        );
+        block(
+            "census item pins naming no reachable item",
+            "remove or rename the pin in \
+             crates/before/surfacecheck/src/census.rs",
+            &self.orphaned_items,
+        );
+        block(
             "dead or roster-shadowing item exceptions",
             "remove the exception, or resolve the conflict with its roster row",
             &self.dead_item_exceptions,
@@ -154,30 +207,54 @@ impl Findings {
     }
 }
 
-/// Reconcile the extracted surface against the roster under the
-/// committed exception lists and anchors.
-pub(crate) fn reconcile(extracted: &BTreeSet<String>, rostered: &BTreeSet<&str>) -> Findings {
+/// Reconcile the extracted surface against the roster and the pinned
+/// censuses, under the committed exception lists and anchors.
+pub(crate) fn reconcile(surface: &Surface, rostered: &BTreeSet<&str>) -> Findings {
     reconcile_with(
-        extracted,
+        surface,
         rostered,
         ITEM_EXCEPTIONS,
         MODULE_EXCEPTIONS,
         ANCHORS,
+        census::TRAIT_IMPLS,
+        census::ITEMS,
     )
 }
 
-/// [`reconcile`] over explicit exception and anchor tables, so the
-/// judgment is a pure function the unit tests drive with synthetic
+/// [`reconcile`] over explicit exception, anchor, and census tables, so
+/// the judgment is a pure function the unit tests drive with synthetic
 /// inputs.
 pub(crate) fn reconcile_with(
-    extracted: &BTreeSet<String>,
+    surface: &Surface,
     rostered: &BTreeSet<&str>,
     item_exceptions: &[Exception],
     module_exceptions: &[Exception],
     anchors: &[&str],
+    impl_census: &[&str],
+    item_census: &[&str],
 ) -> Findings {
+    let extracted = &surface.functions;
     let excepted_items: BTreeSet<&str> = item_exceptions.iter().map(|e| e.name).collect();
     let module_covers = |name: &str| module_exceptions.iter().any(|e| name.starts_with(e.name));
+    // Census reconciliation is two-way set equality outside the
+    // module-excepted trees: an extracted row without a pin is
+    // unrostered, a pin without a row is orphaned.
+    let census_diff = |extracted: &BTreeSet<String>, pinned: &[&str]| {
+        let pinned_set: BTreeSet<&str> = pinned.iter().copied().collect();
+        let unrostered: Vec<String> = extracted
+            .iter()
+            .filter(|row| !pinned_set.contains(row.as_str()) && !module_covers(row))
+            .cloned()
+            .collect();
+        let orphaned: Vec<String> = pinned
+            .iter()
+            .filter(|row| !extracted.contains(**row))
+            .map(|row| (*row).to_owned())
+            .collect();
+        (unrostered, orphaned)
+    };
+    let (unrostered_impls, orphaned_impls) = census_diff(&surface.impls, impl_census);
+    let (unrostered_items, orphaned_items) = census_diff(&surface.items, item_census);
     // A decision date is a real `YYYY-MM-DD` shape — digits in the digit
     // positions, dashes at positions 4 and 7, month 01-12, day 01-31 —
     // never merely ten characters holding two dashes somewhere.
@@ -220,6 +297,10 @@ pub(crate) fn reconcile_with(
             .filter(|op| !extracted.contains(**op))
             .map(|op| (*op).to_owned())
             .collect(),
+        unrostered_impls,
+        orphaned_impls,
+        unrostered_items,
+        orphaned_items,
         dead_item_exceptions: item_exceptions
             .iter()
             .map(|e| e.name)
@@ -229,7 +310,12 @@ pub(crate) fn reconcile_with(
         dead_module_exceptions: module_exceptions
             .iter()
             .map(|e| e.name)
-            .filter(|prefix| !extracted.iter().any(|name| name.starts_with(prefix)))
+            .filter(|prefix| {
+                let covers = |name: &String| name.starts_with(prefix);
+                !extracted.iter().any(covers)
+                    && !surface.impls.iter().any(covers)
+                    && !surface.items.iter().any(covers)
+            })
             .map(str::to_owned)
             .collect(),
         missing_anchors: anchors

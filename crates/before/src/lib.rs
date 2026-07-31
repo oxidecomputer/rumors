@@ -753,6 +753,9 @@ pub mod implementation {
 mod recurse;
 
 // No outer doc comment, as `recurse` above: the module documents itself.
+mod auto_traits;
+
+// No outer doc comment, as `recurse` above: the module documents itself.
 mod fold;
 
 /// Reference oracle: the paper's recursive trees; ground truth for the
