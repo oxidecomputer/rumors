@@ -5,8 +5,8 @@
 This section builds the representation: the reading of a version as
 a step function, the packed coding of that reading, the pruned
 one-bit twin that stores a party, and the canonical form under which
-the bytes _are_ the value. It ends with a bill: one canonical rule
-whose enforcement the representation alone cannot afford, which
+the bytes _are_ the value. It ends with a bill — one canonical rule
+whose enforcement the representation alone cannot afford — that
 @accum pays.
 
 == A version is a step function
@@ -179,8 +179,8 @@ terminal, four bits in all:
 #align(center, bitrow((("10", "t", [node: left child only]), ("00", "t", [terminal: owned]))))
 
 At a hundred participants with stable membership, a depth-seven
-share is sixteen bits — two bytes, derived, and pinned as the fork
-orbit's exact size: two bits, plus two per fork. Measured on the
+share is sixteen bits — two bytes — derived, and pinned as the fork
+orbit's exact size (two bits, plus two per fork). Measured on the
 paper's static space scenario, reproduced on our implementation at
 128 participants, a whole clock — the share and its version
 together — averages three bytes. The

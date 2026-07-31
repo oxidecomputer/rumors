@@ -130,7 +130,7 @@ it so that every touch has a payer._ One discipline, twelve seams:
 ) <fig-genres>
 
 Two structural facts stand out. First, _the accumulator is the
-keystone_: the five marked rows bottom out in its contract — amortized
+keystone_: the seven marked rows bottom out in its contract — amortized
 $O(1)$ word deltas at any held width, $O("limbs")$ wide deltas at any
 scale, amortized $O(1)$ sign, funded materialization. It is why the
 introduction called it half of the answer rather than an
@@ -164,9 +164,10 @@ contents:
   counters — against a re-introduction of the design it refuted.
   The families sit in one committed roster crossed against the
   whole operation surface as a standing dashboard: at this
-  writing, a forty-six-family roster, thirty-two of them board
-  columns priced on every operation their operand bundles reach —
-  1,846 cells, every one green. Green is earned, not
+  writing, a forty-six-family roster, thirty-two of its families
+  standing as board columns priced on every operation their
+  operand bundles reach —
+  1,930 cells, every one green. Green is earned, not
   granted: red is reserved for _untriaged_ contradictions, a
   persistent red is a process failure rather than a status, and
   there is no "accepted red" list — the triage buffer is asserted
