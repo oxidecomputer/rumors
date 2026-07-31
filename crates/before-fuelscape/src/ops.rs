@@ -920,7 +920,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ("Ranked::version", "O(1) borrow of the viewed version"),
     (
         "Ranked::into_owned",
-        "at most one byte-copy clone of the borrowed version; no walk",
+        "at most one refcount-bump clone of the borrowed version; no walk, no byte copy",
     ),
     // ── delegating wrappers priced at the operation they wrap ──
     (
@@ -941,7 +941,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     (
         "Clock::forks",
         "composition of the balanced party split (the party_forks panel prices the \
-         walk) with one version byte-copy clone per share; no distinct walk",
+         walk) with one version refcount-bump clone per share; no distinct walk",
     ),
     (
         "Clock Display / FromStr / TryFrom",
@@ -978,7 +978,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     (
         "From<Clock> for [Clock; N] (consuming balanced split)",
         "consuming form of the Clock::forks composition: the balanced party split \
-         (party_forks panel) plus one version byte-copy clone per share",
+         (party_forks panel) plus one version refcount-bump clone per share",
     ),
     (
         "iter::Party / iter::Clock (Forks iterators, drop folds back)",
@@ -1056,12 +1056,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     // ── linearity escape hatches ──
     (
         "Party::dangerously_alias",
-        "deliberate linearity escape hatch: a byte-copy clone, no guest kernel",
+        "deliberate linearity escape hatch: a refcount-bump clone of the shared stored buffer, no guest kernel",
     ),
     (
         "Clock::dangerously_alias",
-        "deliberate linearity escape hatch: a two-field byte-copy clone, no guest \
-         kernel",
+        "deliberate linearity escape hatch: a two-field refcount-bump clone of the \
+         shared stored buffers, no guest kernel",
     ),
     // ── no guest kernel exports the operation ──
     (
@@ -1159,8 +1159,8 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "causally::Span::into_parts",
-        "borrow-settling destructure: at most one byte copy per endpoint, \
-         no walk",
+        "borrow-settling destructure: at most one refcount-bump clone per \
+         endpoint, no walk, no byte copy",
     ),
     (
         "causally::Span::reborrow",
@@ -1169,8 +1169,8 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "causally::Span::into_owned",
-        "borrow-settling conversion: at most one byte copy per endpoint, \
-         no walk",
+        "borrow-settling conversion: at most one refcount-bump clone per \
+         endpoint, no walk, no byte copy",
     ),
     // ── not operations ──
     (

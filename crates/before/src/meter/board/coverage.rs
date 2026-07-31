@@ -72,7 +72,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ),
     (
         "Party::dangerously_alias",
-        "one byte copy of the stored canonical bits",
+        "one refcount bump: the alias shares the stored canonical buffer",
     ),
     (
         "Party::encoded_bits",
@@ -102,7 +102,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     (
         "Clock::forks",
         "iterates the measured fork on shrinking operands plus one version clone \
-         (a byte copy) per child",
+         (a refcount bump on the shared stored buffer) per child",
     ),
     (
         "Clock::from_parts",
@@ -129,7 +129,10 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "Clock::encoded_bits",
         "a stored-length read per part: no walk, no allocation",
     ),
-    ("Clock::dangerously_alias", "one byte copy per part"),
+    (
+        "Clock::dangerously_alias",
+        "one refcount bump per part: both stored buffers are shared",
+    ),
     (
         "Version::ranked",
         "an O(1) borrowing view construction: no walk, no allocation",
@@ -140,7 +143,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ),
     (
         "Ranked::into_owned",
-        "at most one byte copy of the borrowed version: no walk",
+        "at most one clone of the borrowed version (a refcount bump): no walk, no byte copy",
     ),
     (
         "causally::all",
@@ -217,7 +220,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ),
     (
         "causally::Span::into_parts",
-        "at most one byte copy per borrowed endpoint: no walk",
+        "at most one clone per borrowed endpoint (a refcount bump): no walk, no byte copy",
     ),
     (
         "causally::Span::reborrow",
@@ -226,7 +229,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ),
     (
         "causally::Span::into_owned",
-        "at most one byte copy per borrowed endpoint: no walk",
+        "at most one clone per borrowed endpoint (a refcount bump): no walk, no byte copy",
     ),
     (
         "&Version / &Party (Div — the lazy projection view)",
@@ -241,7 +244,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     (
         "From<Clock> for [Clock; N] (consuming balanced split)",
         "the clock forks machinery consuming its operand: the measured fork on \
-         shrinking operands plus one version byte copy per child",
+         shrinking operands plus one version refcount-bump clone per child",
     ),
     (
         "iter::Party / iter::Clock (Forks iterators, drop folds back)",
