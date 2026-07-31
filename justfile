@@ -647,13 +647,6 @@ worst-cases:
 worst-cases-pin:
     cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- worst-cases-check
 
-# Paste a peer id into the dialog, or dial one directly:
-# `just rumormill --name bob --peer <endpoint-id>`.
-
-# Run the chatroom demo, e.g. `just rumormill --name alice`.
-rumormill *args:
-    cargo run --release -p rumormill -- {{ args }}
-
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
 # `ci` is the build-everything tier: formatting and lints, the feature matrix,
 # wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
