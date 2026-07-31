@@ -211,6 +211,16 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          door's debug assertion sits outside the cost contract",
     ),
     (
+        "Span::at",
+        "one refcount-bump buffer-sharing clone at most (a lent version is \
+         stored as two borrows): no walk, no comparison",
+    ),
+    (
+        "From<Version> for Span (the coincident constructor, owned and borrowed)",
+        "the trait spellings of Span::at: one refcount-bump clone at most, \
+         no walk, no comparison",
+    ),
+    (
         "Span::meet",
         "a borrow of a stored endpoint: no walk, no allocation",
     ),

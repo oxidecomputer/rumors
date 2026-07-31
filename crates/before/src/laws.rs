@@ -204,6 +204,7 @@ pub static VERSION_SOLO: &[Law<fn(&Version) -> bool>] = &[
     ("distance_to_self_is_zero", distance_to_self_is_zero),
     ("lag_to_self_is_zero", lag_to_self_is_zero),
     ("span_with_self_is_coincident", span_with_self_is_coincident),
+    ("at_is_the_coincident_hull", at_is_the_coincident_hull),
     ("rank_zero_iff_empty", rank_zero_iff_empty),
     ("min_ticks_zero_iff_empty", min_ticks_zero_iff_empty),
     ("seed_projection_is_identity", seed_projection_is_identity),
@@ -279,6 +280,14 @@ fn lag_to_self_is_zero(a: &Version) -> bool {
 fn span_with_self_is_coincident(a: &Version) -> bool {
     let span = a.span(a);
     span.meet() == a && span.join() == a && a.span_all(core::iter::empty::<Version>()) == span
+}
+
+/// The coincident constructors are the singleton hull: `Span::at`,
+/// the consuming `From<Version>` door, and the lending
+/// `From<&Version>` door all build exactly the pair hull `a.span(&a)`.
+fn at_is_the_coincident_hull(a: &Version) -> bool {
+    let hull = a.span(a);
+    Span::at(a.clone()) == hull && Span::from(a.clone()) == hull && Span::from(a) == hull
 }
 
 /// `rank` separates the bottom: zero area exactly for the empty version

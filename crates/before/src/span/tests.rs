@@ -129,6 +129,46 @@ fn span_new_unchecked_asserts_the_guarantee_in_debug() {
     let _ = Span::new_unchecked(&a4, &a2);
 }
 
+/// The constructor doors accept any ownership mix per endpoint
+/// (owned, borrowed, and one of each) and build the same span from
+/// the same values.
+#[test]
+fn span_doors_accept_owned_and_borrowed_endpoints() {
+    let ([_, a2, _, a4, _], _) = span_fixtures();
+    let borrowed = Span::new(&a2, &a4).unwrap();
+    let owned: Span<'static> = Span::new(a2.clone(), a4.clone()).unwrap();
+    let mixed = Span::new(&a2, a4.clone()).unwrap();
+    assert_eq!(owned, borrowed);
+    assert_eq!(mixed, borrowed);
+    let trusted: Span<'static> = Span::new_unchecked(a2.clone(), a4.clone());
+    assert_eq!(trusted, borrowed);
+}
+
+/// The coincident constructors build the span `[v, v]`, equal to the
+/// singleton hull `v.span(&v)`.
+///
+/// `Span::at` on an owned or borrowed version and both `From`
+/// spellings agree: both endpoints are the version, and the pair is
+/// clone-identity certified coincident.
+#[test]
+fn at_builds_the_coincident_span() {
+    let ([_, a2, ..], _) = span_fixtures();
+    let point: Span<'static> = Span::at(a2.clone());
+    assert_eq!((point.meet(), point.join()), (&a2, &a2));
+    assert!(point.is_coincident(), "clone identity certifies the point");
+    assert_eq!(point, a2.span(&a2), "the singleton hull, exactly");
+
+    let lent = Span::at(&a2);
+    assert!(lent.is_coincident(), "a lent pair reads one buffer");
+    assert_eq!(lent, point);
+
+    let consumed = Span::from(a2.clone());
+    let borrowed = Span::from(&a2);
+    assert!(consumed.is_coincident() && borrowed.is_coincident());
+    assert_eq!(consumed, point);
+    assert_eq!(borrowed, point);
+}
+
 /// The deriving doors on every input genre: the receiver keeps the
 /// hull total, and every genre yields its tightest containing span.
 ///
@@ -945,13 +985,13 @@ fn own_span_projects_both_endpoints() {
     assert_eq!(view.dominance_of(&a1), Dominance::After);
     // …while the unprojected span keeps bob's tick above a1.
     assert_eq!(span.dominance_of(&a1), Dominance::Between);
-    // Materialization is the eagerly projected span.
+    // Materialization is the eagerly projected span (the owned
+    // endpoints ride straight into the door: no borrow, no settle).
     let eager = Span::new(
-        &(&a1 / alice.party()).to_version(),
-        &(&both / alice.party()).to_version(),
+        (&a1 / alice.party()).to_version(),
+        (&both / alice.party()).to_version(),
     )
-    .unwrap()
-    .into_owned();
+    .unwrap();
     assert_eq!(view.to_span(), eager);
     assert_eq!(Span::from(view), eager);
     // The endpoint views compare as the projections they name.

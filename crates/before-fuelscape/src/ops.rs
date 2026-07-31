@@ -174,6 +174,24 @@ const M_SPAN_PROBE: &str = "total packed bytes of the two hull operands and the 
      split uniform three ways (the span composed in unmeasured preparation as the \
      operands' pair hull, so the measured fused walk reads the probe against the \
      hull's meet and join)";
+/// The size measure of the binary span-operator rows: two spans, each
+/// composed in preparation as a sampled pair's hull.
+const M_SPAN_PAIR: &str = "total packed bytes of the four operands whose pair hulls are \
+     the two spans, split uniform four ways (hulls composed in unmeasured preparation; \
+     the endpoints' sizes are on the operands' scale, not exactly their sum)";
+/// The size measure of the n-ary span-door rows: drawn versions
+/// composed into spans as cyclically adjacent pair hulls.
+const M_SPAN_FOLD: &str = "total packed bytes; arity uniform over 1..=size, split \
+     uniform over the compositions, the k drawn versions composed in unmeasured \
+     preparation into k spans (span i the pair hull of versions i and i+1, \
+     cyclically, so each operand rides in two adjacent hulls), the first span \
+     riding as the fold's receiver";
+/// The size measure of the masked span placement rows: a hulled pair,
+/// the masking party, and the probe.
+const M_OWN_SPAN_PROBE: &str = "total packed bytes of the two hull operands, the \
+     masking party, and the probe, split uniform four ways (the span composed in \
+     unmeasured preparation as the operands' pair hull; the measured verdict runs \
+     the masked co-walks against the projected endpoints, no materialization)";
 
 /// Stage packed bytes and decode them into a version register
 /// (unmeasured preparation; the decode's own fuel is discarded).
@@ -891,6 +909,200 @@ pub const ROSTER: &[OpSpec] = &[
             g.call("ff_span_decode", &[3])
         },
     },
+    OpSpec {
+        name: "span_union",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["Span | Span (BitOr, owned and borrowed — the containment join)"],
+        size_measure: M_SPAN_PAIR,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_version_span", &[4, 0, 1]);
+            prep(g, "ff_version_span", &[5, 2, 3]);
+            g.call("ff_span_union", &[6, 4, 5])
+        },
+    },
+    OpSpec {
+        name: "span_intersect",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["Span & Span (BitAnd, owned and borrowed — the containment meet)"],
+        size_measure: M_SPAN_PAIR,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_version_span", &[4, 0, 1]);
+            prep(g, "ff_version_span", &[5, 2, 3]);
+            // Both verdicts (1 shared segment, 0 empty intersection) are
+            // measured outcomes of the one kernel call.
+            g.call("ff_span_intersect", &[6, 4, 5])
+        },
+    },
+    OpSpec {
+        name: "span_sum",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["Span + Span (Add, owned and borrowed — the pointwise join)"],
+        size_measure: M_SPAN_PAIR,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_version_span", &[4, 0, 1]);
+            prep(g, "ff_version_span", &[5, 2, 3]);
+            g.call("ff_span_sum", &[6, 4, 5])
+        },
+    },
+    OpSpec {
+        name: "span_product",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["Span * Span (Mul, owned and borrowed — the pointwise meet)"],
+        size_measure: M_SPAN_PAIR,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_version_span", &[4, 0, 1]);
+            prep(g, "ff_version_span", &[5, 2, 3]);
+            g.call("ff_span_product", &[6, 4, 5])
+        },
+    },
+    OpSpec {
+        name: "span_union_all",
+        inputs: Inputs::VersionSlice,
+        covers: &["Span::union_all"],
+        size_measure: M_SPAN_FOLD,
+        measure: |g, inputs, _| {
+            let n = load_slice(g, inputs);
+            for i in 0..n {
+                prep(g, "ff_version_span", &[n + i, i, (i + 1) % n]);
+            }
+            g.call("ff_span_union_all", &[2 * n, n, n])
+        },
+    },
+    OpSpec {
+        name: "span_intersect_all",
+        inputs: Inputs::VersionSlice,
+        covers: &["Span::intersect_all"],
+        size_measure: M_SPAN_FOLD,
+        measure: |g, inputs, _| {
+            let n = load_slice(g, inputs);
+            for i in 0..n {
+                prep(g, "ff_version_span", &[n + i, i, (i + 1) % n]);
+            }
+            // Both verdicts (1 shared segment, 0 empty intersection) are
+            // measured outcomes of the one fold call.
+            g.call("ff_span_intersect_all", &[2 * n, n, n])
+        },
+    },
+    OpSpec {
+        name: "span_sum_all",
+        inputs: Inputs::VersionSlice,
+        covers: &["Span::sum_all"],
+        size_measure: M_SPAN_FOLD,
+        measure: |g, inputs, _| {
+            let n = load_slice(g, inputs);
+            for i in 0..n {
+                prep(g, "ff_version_span", &[n + i, i, (i + 1) % n]);
+            }
+            g.call("ff_span_sum_all", &[2 * n, n, n])
+        },
+    },
+    OpSpec {
+        name: "span_product_all",
+        inputs: Inputs::VersionSlice,
+        covers: &["Span::product_all"],
+        size_measure: M_SPAN_FOLD,
+        measure: |g, inputs, _| {
+            let n = load_slice(g, inputs);
+            for i in 0..n {
+                prep(g, "ff_version_span", &[n + i, i, (i + 1) % n]);
+            }
+            g.call("ff_span_product_all", &[2 * n, n, n])
+        },
+    },
+    OpSpec {
+        name: "span_project",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Party]),
+        covers: &[
+            "&Span / &Party (Div — the lazy span projection view)",
+            "OwnSpan::to_span",
+            "From<OwnSpan> for Span (explicit materialization)",
+        ],
+        size_measure: "total packed bytes of the two hull operands and the projecting \
+             party, split uniform three ways (the span composed in unmeasured \
+             preparation as the operands' pair hull; the view is O(1) preparation, \
+             and the measured kernel materializes both projected endpoints)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_party(g, 2, &inputs[2]);
+            prep(g, "ff_version_span", &[3, 0, 1]);
+            g.call("ff_span_project", &[4, 3, 2])
+        },
+    },
+    OpSpec {
+        name: "own_span_place",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Party,
+            Operand::Version,
+        ]),
+        covers: &["OwnSpan::place"],
+        size_measure: M_OWN_SPAN_PROBE,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_party(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_version_span", &[4, 0, 1]);
+            g.call("ff_own_span_place", &[4, 2, 3])
+        },
+    },
+    OpSpec {
+        name: "own_span_dominance",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Party,
+            Operand::Version,
+        ]),
+        covers: &["OwnSpan::dominance_of"],
+        size_measure: M_OWN_SPAN_PROBE,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_party(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_version_span", &[4, 0, 1]);
+            g.call("ff_own_span_dominance", &[4, 2, 3])
+        },
+    },
 ];
 
 /// The coverage roster rows deliberately without a panel, each with its
@@ -1077,77 +1289,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          prices the emission",
     ),
     (
-        "Span | Span (BitOr, owned and borrowed — the containment join)",
-        "one Version::meet over the lows and one Version::join over the highs; the \
-         version_meet and version_join panels price the walks",
-    ),
-    (
-        "Span & Span (BitAnd, owned and borrowed — the containment meet)",
-        "one Version::join over the lows, one Version::meet over the highs, and one \
-         endpoint comparison deciding the crossing; the version_join, version_meet, \
-         and version_cmp panels price the walks",
-    ),
-    (
-        "Span + Span (Add, owned and borrowed — the pointwise join)",
-        "Version::join on each endpoint; the version_join panel prices the walk",
-    ),
-    (
-        "Span * Span (Mul, owned and borrowed — the pointwise meet)",
-        "Version::meet on each endpoint; the version_meet panel prices the walk",
-    ),
-    (
-        "Span::union_all",
-        "the receiver-seeded balanced fold of the containment join; the \
-         version_span_all panel prices the hull fold, and the points bridge law \
-         pins union_all equal to span_all there",
-    ),
-    (
-        "Span::intersect_all",
-        "the receiver-seeded balanced fold of the containment meet; the \
-         version_join_all and version_meet_all panels price the balanced fold walks",
-    ),
-    (
-        "Span::sum_all",
-        "the receiver-seeded balanced fold of the pointwise join; the \
-         version_join_all panel prices the balanced fold walk",
-    ),
-    (
-        "Span::product_all",
-        "the receiver-seeded balanced fold of the pointwise meet; the \
-         version_meet_all panel prices the balanced fold walk",
-    ),
-    (
-        "&Span / &Party (Div — the lazy span projection view)",
-        "O(1) construction binding an endpoint pair of projection views; the walks \
-         live in the view's placement, comparison, and materialization ops",
-    ),
-    (
-        "OwnSpan::place",
-        "the quotient placement composed from the masked co-walks the \
-         own_version_cmp and own_version_pair_cmp panels price; no guest kernel \
-         exports the span view",
-    ),
-    (
-        "OwnSpan::dominance_of",
-        "the dominance coarsening of the quotient placement with the early exit; \
-         priced as OwnSpan::place",
-    ),
-    (
         "OwnSpan::meet",
         "O(1) accessor handing out the bound OwnVersion endpoint view",
     ),
     (
         "OwnSpan::join",
         "O(1) accessor handing out the bound OwnVersion endpoint view",
-    ),
-    (
-        "OwnSpan::to_span",
-        "two endpoint materializations, each the projection walk the \
-         version_project panel prices",
-    ),
-    (
-        "From<OwnSpan> for Span (explicit materialization)",
-        "the identical two-endpoint materialization as OwnSpan::to_span",
     ),
     // ── representation mechanics ──
     (
@@ -1260,6 +1407,17 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "Span::new_unchecked",
         "O(1) span constructor over two borrowed versions (the trusted \
          door performs no comparison)",
+    ),
+    (
+        "Span::at",
+        "coincident constructor: at most one refcount-bump buffer-sharing clone \
+         of the version (a lent one is stored as two borrows); no walk, no \
+         comparison",
+    ),
+    (
+        "From<Version> for Span (the coincident constructor, owned and borrowed)",
+        "the trait spellings of Span::at: at most one refcount-bump clone, no \
+         walk, no comparison",
     ),
     (
         "Span::meet",
