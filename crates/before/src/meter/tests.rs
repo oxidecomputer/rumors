@@ -521,13 +521,16 @@ fn scan_meter_counts_deterministically_and_resets() {
     );
 }
 
-/// The span-traffic counters classify one constructed witness per rung,
-/// and reset to zero.
+/// The span-traffic counters classify one constructed witness per rung
+/// arm, and reset to zero.
 ///
 /// One witness pair per rung — byte-equal streams in distinct buffers,
 /// an empty operand, a ticked chain (comparable), a forked divergence
 /// (concurrent) — read as the full four-cell snapshot, so a miswired
-/// rung shows as the wrong cell moving, not merely a total. The counter
+/// rung shows as the wrong cell moving, not merely a total. The empty
+/// and comparable rungs classify each operand order in its own match
+/// arm, so those rungs are witnessed in both orders: a miswire of
+/// either arm alone moves its cell. The counter
 /// is process-global, so the per-call readings are meaningful under
 /// nextest's one-test-per-process isolation (this workspace's runner).
 #[test]
@@ -558,12 +561,22 @@ fn span_traffic_classifies_each_rung() {
     assert_eq!(
         cells(&Version::new(), &v),
         (0, 1, 0, 0),
-        "an empty operand answers at the empty rung: {ISOLATION_NOTE}"
+        "an empty first operand answers at the empty rung: {ISOLATION_NOTE}"
+    );
+    assert_eq!(
+        cells(&v, &Version::new()),
+        (0, 1, 0, 0),
+        "an empty second operand answers at the empty rung: {ISOLATION_NOTE}"
     );
     assert_eq!(
         cells(&w, &v),
         (0, 0, 1, 0),
-        "a ticked chain answers at the comparable rung: {ISOLATION_NOTE}"
+        "a dominating first operand answers at the comparable rung: {ISOLATION_NOTE}"
+    );
+    assert_eq!(
+        cells(&v, &w),
+        (0, 0, 1, 0),
+        "a dominated first operand answers at the comparable rung: {ISOLATION_NOTE}"
     );
     assert_eq!(
         cells(&v, &d),

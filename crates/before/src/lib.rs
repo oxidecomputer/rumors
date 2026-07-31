@@ -200,7 +200,7 @@
 //! reporting causal order that never happened. Nothing panics; the answers
 //! are just wrong.
 //!
-//! Three rules make the Law hold. An overlap error from a join or sync is
+//! Two rules make the Law hold. An overlap error from a join or sync is
 //! always a symptom, never the disease — some rule was already broken
 //! upstream (a stale state came back into play, or a second seed leaked
 //! in), and the fence caught one visible consequence of it; the rest of

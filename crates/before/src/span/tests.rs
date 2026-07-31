@@ -963,6 +963,61 @@ fn nary_doors_match_sequential_folds_on_a_mixed_family() {
 
 // ───────────────────────────── the quotient view ─────────────────────────────
 
+/// The quotient view reaches every `Concurrent` placement, matching
+/// the eagerly projected span in each corner.
+///
+/// The `own_span_matches_the_projected_span` law probes with the
+/// span's own operands and the projected endpoints, and every such
+/// probe dominates the projected start by construction (projection
+/// only shrinks a version, so `(a ∧ b) / p <= a` always): the law can
+/// never present a probe concurrent to the projected start, and the
+/// `Concurrent(Start)`/`Concurrent(Both)` transcription arms are its
+/// negative space. This witness constructs them — sibling forks inside
+/// the masking party's region (concurrent to the start, below the
+/// end), a foreign line (concurrent to both), and a start-dominating
+/// probe beside only the end — and pins the dominance coarsening of
+/// each.
+#[test]
+fn own_span_place_reaches_every_concurrent_corner() {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let vb = bob.tick().clone();
+    // Two sibling lines inside what re-joins into one party region.
+    let mut left = alice.fork();
+    let vl = left.tick().clone();
+    let vr = alice.tick().clone();
+    alice.join(left).expect("fork halves re-join");
+    let party = alice.party();
+
+    let hi = &vl | &vr;
+    let span = Span::new(&vl, &hi).expect("vl bounds its own join");
+    let view = &span / party;
+    // Both endpoints' supports sit inside the party's region, so the
+    // eager projection is the span itself.
+    let eager = Span::new(
+        (span.meet() / party).to_version(),
+        (span.join() / party).to_version(),
+    )
+    .expect("projection is monotone");
+    assert_eq!(eager, span, "the region covers both endpoints");
+
+    // The sibling: concurrent to the start, strictly below the end.
+    assert_eq!(view.place(&vr), Placement::Concurrent(Endpoint::Start));
+    assert_eq!(view.dominance_of(&vr), Dominance::Before);
+    // The foreign line: concurrent to both endpoints.
+    assert_eq!(view.place(&vb), Placement::Concurrent(Endpoint::Both));
+    assert_eq!(view.dominance_of(&vb), Dominance::Before);
+    // Above the start, beside the end.
+    let probe = &vl | &vb;
+    assert_eq!(view.place(&probe), Placement::Concurrent(Endpoint::End));
+    assert_eq!(view.dominance_of(&probe), Dominance::Between);
+    // Every corner transcribes the eagerly projected span's verdict.
+    for probe in [&vr, &vb, &probe] {
+        assert_eq!(view.place(probe), eager.place(probe));
+        assert_eq!(view.dominance_of(probe), eager.dominance_of(probe));
+    }
+}
+
 /// The quotient view's verdicts against a party that owns only part
 /// of the span's history match the eagerly projected span, and
 /// materialization hands that span back.
