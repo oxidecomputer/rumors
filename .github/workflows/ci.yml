@@ -1,11 +1,14 @@
 # Run the no-rot sweep (`just ci`) on every push to main and every pull request.
 #
-# `ci` is the gate's superset minus one thing: fmt-check → doclint → testdoc → readme-check
-# → clippy → the `before` feature matrix → wasm-check → docs → docs-internal →
-# test → doctest → bench-build → fuzz-build → the viz bundle. It builds the fuzz
-# targets but does
-# not run the smoke (`just all` adds that locally — libFuzzer minutes are a poor
-# per-commit spend). CI invokes the recipe rather than re-listing its steps, so
+# `ci` is the build-everything tier: fmt-check → doclint → testdoc → readme-check
+# → clippy → clippy-default → the workspace feature matrix → wasm-check → docs →
+# docs-internal → test-all → doctest → bench-build → fuzz-build → the viz
+# bundle. It builds the fuzz targets but does not run the smoke (`just all`
+# adds that locally — libFuzzer minutes are a poor per-commit spend), and it
+# runs none of the gate's instrument legs (the fuel bands, the board pins,
+# surface totality; the `gate` recipe line in the justfile is the roster of
+# record): the instrument lattice runs only in `just gate`, pre-commit on a
+# developer machine. CI invokes the recipe rather than re-listing its steps, so
 # the sweep has exactly one definition (the justfile) and the two can't drift.
 #
 # What the runner has to supply that a dev machine already has:
