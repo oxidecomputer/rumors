@@ -131,10 +131,12 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
 
     let (chart_area, caption_area) = root.split_vertically(height - 58);
 
-    // One-operand rows take the whole column size; everything else plots
-    // a total (the stamp carries the row's exact measure declaration).
-    let unary =
-        matches!(atlas.op.inputs, crate::ops::Inputs::Packed(operands) if operands.len() == 1);
+    // One-operand rows take the whole column size (the party-fold row's
+    // single party included: its shares are guest-minted, not input
+    // bytes); everything else plots a total (the stamp carries the row's
+    // exact measure declaration).
+    let unary = matches!(atlas.op.inputs, crate::ops::Inputs::Packed(operands) if operands.len() == 1)
+        || matches!(atlas.op.inputs, crate::ops::Inputs::PartyShares);
     let title = format!("{} — p(fuel | size)", atlas.op.name);
     let mut chart = ChartBuilder::on(&chart_area)
         .caption(title, ("sans-serif", 17).into_font().color(&INK))

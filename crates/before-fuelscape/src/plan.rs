@@ -14,8 +14,11 @@
 //! size `N` draws a split uniformly from the compositions of `N` into
 //! `k` positive parts, then each operand uniformly at its exact size; a
 //! slice row first draws its arity uniformly from every count the budget
-//! can feed (`1..=N`). So the x-axis is total packed input bytes
-//! everywhere, and every rendered plot carries its row's exact
+//! can feed (`1..=N`), the clock-fold row does the same with one part
+//! reserved for its party (`1..=N − 1` clocks), and the party-fold row
+//! draws the share count its guest-side split mints (`1..=N`, the one
+//! party keeping the whole budget). So the x-axis is total packed input
+//! bytes everywhere, and every rendered plot carries its row's exact
 //! declaration ([`crate::ops::OpSpec`]'s `size_measure`).
 
 use rand::Rng;
@@ -59,6 +62,9 @@ impl Plan {
 pub struct CellSample {
     /// The column's total input size in packed bytes.
     pub size: usize,
+    /// The sample's drawn arity: the fold's operand count for the
+    /// variable-arity rows, the signature's operand count otherwise.
+    pub arity: usize,
     /// Fuel consumed by the one measured kernel call.
     pub fuel: u64,
     /// Whole-sample rejections spent drawing the inputs: version
@@ -127,8 +133,14 @@ impl Samplers {
     }
 }
 
-/// The slice-row arity draw: uniform over every count the column's
-/// budget can feed (`1..=total`, one byte per operand).
+/// The arity draw shared by every variable-arity row: uniform over
+/// `1..=cap`.
+///
+/// The cap is the row's declared arity ceiling at the column: for a
+/// version-slice row, the whole byte budget (every count it can feed at
+/// one byte per operand); for the clock-fold row, the budget less the
+/// party's byte; for the party-fold row, the column size itself (its
+/// shares are guest-minted, so the budget does not bound them).
 ///
 /// Arity is stratified deliberately rather than left to the composition
 /// count — uniform over whole compositions would concentrate nearly all
@@ -136,8 +148,8 @@ impl Samplers {
 /// parts peak at `k ≈ total/2`) — so every arity gets equal
 /// representation per column, and the split below stays exactly uniform
 /// at the drawn arity.
-fn slice_arity(total: usize, rng: &mut rand_chacha::ChaCha12Rng) -> usize {
-    rng.gen_range(1..=total)
+fn draw_arity(cap: usize, rng: &mut rand_chacha::ChaCha12Rng) -> usize {
+    rng.gen_range(1..=cap)
 }
 
 /// Split `total` uniformly over its compositions into `parts` positive
@@ -207,15 +219,20 @@ fn draw_packed(
 
 /// Draw one operation's packed inputs for a column of total size `size`.
 ///
-/// Returns the encodings (operand order) and the rejection count spent.
+/// Returns the encodings (operand order), the sample's drawn arity (the
+/// signature's operand count for the fixed-signature rows), and the
+/// rejection count spent.
 fn draw_inputs(
     op: &OpSpec,
     samplers: &Samplers,
     size: usize,
     rng: &mut rand_chacha::ChaCha12Rng,
-) -> (Vec<Vec<u8>>, u64) {
+) -> (Vec<Vec<u8>>, usize, u64) {
     match op.inputs {
-        Inputs::Packed(operands) => draw_packed(operands, samplers, size, rng),
+        Inputs::Packed(operands) => {
+            let (inputs, rejected) = draw_packed(operands, samplers, size, rng);
+            (inputs, operands.len(), rejected)
+        }
         Inputs::PackedDistinct(operands) => {
             // Whole-sample rejection of byte-identical pairs: restricting
             // the uniform pair measure to the distinct pairs, exactly.
@@ -224,7 +241,7 @@ fn draw_inputs(
                 let (inputs, r) = draw_packed(operands, samplers, size, rng);
                 rejected += r;
                 if inputs.iter().any(|i| *i != inputs[0]) {
-                    return (inputs, rejected);
+                    return (inputs, operands.len(), rejected);
                 }
                 rejected += 1;
             }
@@ -232,7 +249,7 @@ fn draw_inputs(
         Inputs::VersionSlice => {
             // Arity first, then the split, then the members, so the
             // stream is stable however the samplers consume randomness.
-            let arity = slice_arity(size, rng);
+            let arity = draw_arity(size, rng);
             let sizes = split_budget(size, arity, rng);
             let mut rejected = 0;
             let inputs = sizes
@@ -246,7 +263,48 @@ fn draw_inputs(
                     draw.bytes
                 })
                 .collect();
-            (inputs, rejected)
+            (inputs, arity, rejected)
+        }
+        Inputs::ClockSlice => {
+            // Clock count first, then the split (party's part first),
+            // then the members, so the stream is stable however the
+            // samplers consume randomness.
+            let clocks = draw_arity(size - 1, rng);
+            let sizes = split_budget(size, clocks + 1, rng);
+            let mut rejected = 0;
+            let inputs = sizes
+                .into_iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    if i == 0 {
+                        samplers
+                            .party
+                            .sample_bytes(n, rng)
+                            .expect("every byte size down to 1 has canonical parties")
+                            .bytes
+                    } else {
+                        let draw = samplers
+                            .version
+                            .sample_bytes(n, rng)
+                            .expect("every byte size down to 1 has canonical versions");
+                        rejected += draw.rejected;
+                        draw.bytes
+                    }
+                })
+                .collect();
+            (inputs, clocks, rejected)
+        }
+        Inputs::PartyShares => {
+            // Share count first, then the one party at the column's
+            // whole size (party draws are counting-guided, rejection
+            // free).
+            let shares = draw_arity(size, rng);
+            let party = samplers
+                .party
+                .sample_bytes(size, rng)
+                .expect("every byte size down to 1 has canonical parties")
+                .bytes;
+            (vec![party], shares, 0)
         }
     }
 }
@@ -270,9 +328,9 @@ pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas 
         .into_par_iter()
         .map(|(size, index)| {
             let mut rng = cell_rng(plan.base_seed, op.name, size, index);
-            let (inputs, rejected) = draw_inputs(op, samplers, size, &mut rng);
+            let (inputs, arity, rejected) = draw_inputs(op, samplers, size, &mut rng);
             let mut guest = Guest::new();
-            let measured = (op.measure)(&mut guest, &inputs);
+            let measured = (op.measure)(&mut guest, &inputs, arity);
             assert!(
                 measured.ret >= 0,
                 "{}: guest kernel reported {} at size {size} sample {index}",
@@ -281,6 +339,7 @@ pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas 
             );
             CellSample {
                 size,
+                arity,
                 fuel: measured.fuel,
                 rejected,
             }
@@ -292,7 +351,7 @@ pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas 
         .map(|fam| {
             let size = fam.inputs.iter().map(Vec::len).sum();
             let mut guest = Guest::new();
-            let measured = (op.measure)(&mut guest, &fam.inputs);
+            let measured = (op.measure)(&mut guest, &fam.inputs, fam.arity);
             assert!(
                 measured.ret >= 0,
                 "{}: guest kernel reported {} on family {}",
