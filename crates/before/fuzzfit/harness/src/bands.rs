@@ -39,6 +39,36 @@
 //! priced separately because the residual cloud is one-sidedly heavy —
 //! see [`crate::fit`].
 //!
+//! # The blessed-drift window
+//!
+//! The committed instruments bound how far a *uniform* fuel drift — every
+//! step of one kernel costing `c×` its pinned law, sizes untouched — can
+//! run before something reads red. The shape leg is structurally deaf to
+//! it (uniform drift moves intercepts, never slopes), so the window is
+//! set by the other two legs, per band key:
+//!
+//! ```text
+//! window = min( 10^(width_above + ENFORCE_MARGIN − max deterministic-leg residual),
+//!               10^(REFIT_TOLERANCE −/+ the key's honest prefix divergence) )
+//! ```
+//!
+//! The first term is the point leg through the deterministic prefix: the
+//! prefix sample already nearest the ceiling is the one a drift pushes
+//! over first. The second is the staleness leg: drift lifts the prefix
+//! refit's line decade for decade, and the key's honest pre-drift
+//! divergence eats into (or, when the prefix sits below the pin, adds
+//! to) the tolerance. Measured over the deterministic prefix at this
+//! pin, most keys sit near the margin floor (~×1.6 in fuel), while the
+//! window is widest exactly where calibration sampling is thinnest: a
+//! ~×3 uniform drift passes all committed instruments on the thinnest
+//! rejection arms (the sync and join overlap arms, whose few-hundred-
+//! sample clouds carry the roster's widest ceilings), with every other
+//! key under ~×2.5. Drift inside the window surfaces only at the next
+//! deliberate re-pin, as diff the re-pinner must annotate; the
+//! mechanism is unchanged by stating this — the window is the honest
+//! price of margins that must also absorb allocator variance and honest
+//! sampling dispersion.
+//!
 //! # Pin of record
 //!
 //! Re-pinned 2026-07-31 at the small-operand bands round: [`SMALL_BANDS`]
