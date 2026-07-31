@@ -199,27 +199,21 @@
 //! reporting causal order that never happened. Nothing panics; the answers
 //! are just wrong.
 //!
-//! The two rules below are what make the Law hold. Each is stated by its
-//! commonest trigger, and the discipline extends past the letter of both:
-//! a [`Clock`] restored from bytes persisted *before* its last
-//! [`tick`](Clock::tick) brings an earlier state of the identity back
-//! into play with no fork anywhere in the history — the restored party
-//! overlaps its own descendant, and two distinct events receive one
-//! version. An overlap error from a join or sync is always a symptom,
-//! never the disease — some rule was already broken upstream (a stale
-//! copy came back into play, or a second seed leaked in), and the fence
-//! caught one visible consequence of it; the rest of the damage may
-//! already be silent. The caller must ensure both:
+//! Three rules make the Law hold. An overlap error from a join or sync is
+//! always a symptom, never the disease — some rule was already broken
+//! upstream (a stale state came back into play, or a second seed leaked
+//! in), and the fence caught one visible consequence of it; the rest of
+//! the damage may already be silent. The caller must ensure both:
 //!
 //! 1. **Singularity.** A system of clocks has one [`Clock::seed`] (or
 //!    [`Party::seed`]), created once, from which every [`Clock`] and
 //!    [`Party`] in the system descends. One [`Party`] may be reused with
 //!    multiple [`Version`]s ([`Party::tick`] borrows the party, so one
 //!    identity can stamp many histories), and multiple "universes" may
-//!    coexist, each descended from its own [`seed`](Clock::seed), as long
-//!    as clocks from different seeds never interact. Nothing in a value or
-//!    its encoding identifies its universe, so that boundary is the
-//!    caller's to police.
+//!    coexist, each descended from
+//!    its own [`seed`](Clock::seed), as long as clocks from different
+//!    seeds never interact. Nothing in a value or its encoding identifies
+//!    its universe, so that boundary is the caller's to police.
 //!
 //!    *What about a universe tag, so mixups could be detected?* There is
 //!    deliberately no mechanism for this. Naming a universe is the concern
@@ -228,12 +222,19 @@
 //!    into every value (a UUID, say) would add 128 bits to values that
 //!    are often a few bytes long, paid across an entire corpus.
 //!
-//! 2. **Linearity.** Operations on [`Clock`]s and [`Party`]s are strictly
-//!    linear: once a [`Clock`] or [`Party`] has been
-//!    [`fork`](Clock::fork)ed, a copy of the pre-fork value must not come
-//!    back into play. The crate helps by making [`Party`] and [`Clock`]
-//!    [`!Clone`](Clone), but at serialization boundaries and across
-//!    processes, linearity is the caller's responsibility.
+//! 2. **Linearity.** Advancing a [`Clock`] or [`Party`] — a
+//!    [`tick`](Clock::tick), a [`fork`](Clock::fork), a
+//!    [`join`](Clock::join) — retires every earlier state of it: from then
+//!    on, only the latest state of the identity may act. In process the
+//!    compiler enforces this ([`Party`] and [`Clock`] are
+//!    [`!Clone`](Clone), and every advance moves or exclusively borrows
+//!    its operand), which leaves exactly one hole (and, if your code
+//!    holds a single seed, the *only* way to violate linearity): bytes. A
+//!    serialized state is a copy no type can see, and
+//!    [`decode`](Clock::decode) cannot tell the latest state from a stale
+//!    one. Restore a clock persisted before its latest tick
+//!    and the identity exists twice with no fork anywhere in the history —
+//!    the restored party overlaps its own descendant, violating linearity.
 //!
 //! ## Replicating clocks between processes
 //!
@@ -383,7 +384,13 @@
 //! tick's freedom of where to increment exercised nondeterministically),
 //! alongside exhaustive small-scope enumeration of clock shapes,
 //! algebraic-law property suites, and fuzzed codecs (`decode`'s strict
-//! canonicality is asserted inline in the fuzz targets).
+//! canonicality is asserted inline in the fuzz targets). The
+//! [safety rules](#safety-rules) are pinned by committed witnesses: the
+//! stale-state suite demonstrates the linearity violation a stale
+//! restore produces (`restored_pre_tick_clock_conflates_without_any_fork`)
+//! beside pins of what deterministic ticking does over duplicated
+//! versions — valid uses whose equal stamps record equal knowledge, not
+//! event identity.
 
 // Define the `[space-consumption]` image reference above as a base64 data URI.
 // A relative path would resolve against the rustdoc HTML output tree, where the

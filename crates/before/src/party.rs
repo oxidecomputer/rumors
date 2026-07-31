@@ -150,6 +150,11 @@ impl Party {
 
     /// Advances `version` by one event for this party.
     ///
+    /// One party can stamp many histories through this borrowing form.
+    /// A tick is a pure function of `version` and this party: ticking
+    /// two clones of one version mints equal successors, and that is
+    /// valid — a version records causal knowledge, not event identity.
+    ///
     /// # Complexity
     ///
     /// `O(|v| + |p|)` time and space, as [`Version::tick`] (see its
