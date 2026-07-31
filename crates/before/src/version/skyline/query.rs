@@ -405,8 +405,9 @@ const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 ///
 /// Panics if the operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes — or is
-/// deeper than `u32::MAX` levels (the rank exponent would overflow; such
-/// a stream exceeds 2 GiB).
+/// deeper than `u32::MAX` levels (the rank exponent would overflow; the
+/// cheapest spine spends 3 bits per level, so such a stream exceeds
+/// 1.5 GiB).
 pub fn rank(bits: &BitsSlice) -> Rank {
     let max_depth = max_depth(bits);
     let scale =

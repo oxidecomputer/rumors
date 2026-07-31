@@ -197,22 +197,22 @@ mod envelope {
     use super::{envelope, Envelope};
     //                                              peak heap,  segments, limb ops, limb floor           measured: peak heap, segments, limb ops
     pub const DECODE_DENSE: Envelope    = envelope(   120_045,        0,       625_003, 375_001); // 11_072_549 -> 96_036 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 250_002 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels)
-    pub const CMP_DENSE: Envelope       = envelope(    30_740,        0,       312_505, 187_503); //          8 -> 24_592, 192 -> 0, 2_000_010 -> 250_004 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep)
+    pub const CMP_DENSE: Envelope       = envelope(    30_740,        0,       312_505, 187_503); //          8 -> 24_592 -> 24_584 (2026-07-29, OpenedPair: the pair walk's opening move stated once) -> 24_576 (2026-07-30, the Bytes-backed at-rest form), 192 -> 0, 2_000_010 -> 250_004 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep) -> 250_002 (2026-07-30, the Bytes-backed at-rest form)
     pub const JOIN_DENSE: Envelope      = envelope(   130_297,        0,       937_505, 562_503); //  4_797_477 -> 151_113 -> 104_237 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 240 -> 0, 3_000_008 -> 750_004 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
     // The tick rows live in `query_env`: the tick walk's cost currency
     // is accumulator digit touches (with scanned bits beside it), which
     // this four-column table never watched.
     pub const DECODE_BIGROOT: Envelope  = envelope(    60_090,        0,        50_790, 30_474); //  1_396_905 -> 48_072 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 20_630 -> 40_632 (2026-07-25, C2: operations route to the skyline kernels)
-    pub const CMP_BIGROOT: Envelope     = envelope(    40_350,        0,        25_790, 15_474); // 56_416_936 -> 32_280, 12 -> 0, 37_606_270 -> 20_632 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep; the V1 kill realized)
+    pub const CMP_BIGROOT: Envelope     = envelope(    40_350,        0,        25_790, 15_474); // 56_416_936 -> 32_280 -> 32_272 (2026-07-30, the Bytes-backed at-rest form), 12 -> 0, 37_606_270 -> 20_632 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep; the V1 kill realized) -> 20_630 (2026-07-30, the Bytes-backed at-rest form)
     pub const JOIN_BIGROOT: Envelope    = envelope(    85_060,        0,        76_583, 45_949); // 56_849_753 -> 81_800 -> 68_048 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 16 -> 0, 87_631_274 -> 61_266 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel; the V1 kill realized)
     pub const DECODE_HUGELEAF: Envelope = envelope(   122_504,        0,         2_443, 1_465); //     48_851 -> 98_003 (2026-07-25, C2: operations route to the skyline kernels: the validating wire decode holds the running height), 0, 1_954
     pub const JOIN_HUGELEAF: Envelope   = envelope(   185_494,        0,         4_887, 2_931); //    115_707 -> 179_622 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel holds both payload buffers) -> 148_395 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 0, 7_821 -> 3_909 (2026-07-25, C2: operations route to the skyline kernels)
     pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0, 0); //    125_001 -> 223_305, 202 -> 0, 0 (2026-07-24, iterative id walks: frame bits on the heap, no grown segments)
     pub const ID_COVERS: Envelope       = envelope(        10,        0,             0, 0); //          0 -> 8,  85 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
-    pub const ID_WITHOUT: Envelope      = envelope(   521_110,        0,             0, 0); //    518_219 -> 416_888 (2026-07-26, dev builds run no shadow re-parse of the diff emission: the differential suites carry the normal-form check), 138 -> 0, 0 (2026-07-23, iterative complement)
+    pub const ID_WITHOUT: Envelope      = envelope(   521_110,        0,             0, 0); //    518_219 -> 416_888 (2026-07-26, dev builds run no shadow re-parse of the diff emission: the differential suites carry the normal-form check) -> 416_887 (2026-07-30, the Bytes-backed at-rest form), 138 -> 0, 0 (2026-07-23, iterative complement)
     pub const DECODE_CLIFF: Envelope    = envelope(     4_052,        0,        12_903, 7_741); //    607_489 -> 3_241 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 40_960 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels)
-    pub const CMP_CLIFF: Envelope       = envelope(     1_710,        0,         7_765, 4_659); //        496 -> 1_368 (2026-07-25, C2: operations route to the skyline kernels: the sweep holds two accumulators), 0, 190_474 -> 6_212 (2026-07-25, C2: operations route to the skyline kernels: the cliff-immune sweep)
+    pub const CMP_CLIFF: Envelope       = envelope(     1_710,        0,         7_765, 4_659); //        496 -> 1_368 (2026-07-25, C2: operations route to the skyline kernels: the sweep holds two accumulators) -> 1_200 (2026-07-29, OpenedPair: the pair walk's opening move stated once) -> 1_192 (2026-07-30, the Bytes-backed at-rest form), 0, 190_474 -> 6_212 (2026-07-25, C2: operations route to the skyline kernels: the cliff-immune sweep) -> 6_210 (2026-07-30, the Bytes-backed at-rest form)
     pub const JOIN_CLIFF: Envelope      = envelope(     5_672,        0,        25_869, 15_521); //  1_411_489 -> 6_330 -> 4_537 (2026-07-30, the Bytes-backed at-rest form, parent 3a4f3c8e: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 0, 384_008 -> 20_695 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
     // Skyline validator rows (2026-07-23, new scenarios): the V5
     // replacement's transient, achieved — the dense row's 49 KB peak over
@@ -1435,16 +1435,16 @@ const fn sweep_envelope(
 mod sweep_env {
     use super::{sweep_envelope, SweepEnvelope};
     //                                                               peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_CMP_DENSE: SweepEnvelope      = sweep_envelope(   30_730,        0,   312_503,   468_760, 187_501); //   24_584, 0, 250_002, 375_008
-    pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(   51_210,        0,   625_005,   937_515, 375_003); //   40_968, 0, 500_004, 750_012
+    pub const SKYLINE_CMP_DENSE: SweepEnvelope      = sweep_envelope(   30_730,        0,   312_503,   468_760, 187_501); //   24_584 -> 24_576 (2026-07-29, OpenedPair: the pair walk's opening move stated once; work columns unmoved), 0, 250_002, 375_008
+    pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(   51_210,        0,   625_005,   937_515, 375_003); //   40_968 -> 40_960 (2026-07-29, OpenedPair; work columns unmoved), 0, 500_004, 750_012
     pub const SKYLINE_CMP_BIGROOT: SweepEnvelope    = sweep_envelope(   39_540,        0,    25_788,   137_514, 15_472); //   31_632 -> 32_272 (2026-07-24, dashu-int backend), 0,  20_630, 110_011
-    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925, 4_657); //    1_160 -> 1_296 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_360 (2026-07-24, dashu-int backend), 0,   6_210,  14_340
-    // SKYLINE_CMP_WIDE_TOOTH's 1_224-under-1_250 margin is a deliberate
+    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925, 4_657); //    1_160 -> 1_296 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_360 (2026-07-24, dashu-int backend) -> 1_192 (2026-07-29, OpenedPair; work columns unmoved), 0,   6_210,  14_340
+    // SKYLINE_CMP_WIDE_TOOTH's 1_064-under-1_250 margin is a deliberate
     // change-detector on the backend's and the accumulator's allocation
     // policies: the committed Cargo.lock (dashu-int 0.5.0 exact) is what
     // makes the measurement deterministic, and a cargo update to any other
     // 0.5.x is a deliberate re-measure event, not noise.
-    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_250,        0,    29_509, 1_000_483, 17_705); //      840 -> 968 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_032 (2026-07-24, dashu-int backend) -> 1_224 (2026-07-28, the zero-run ledger's map node), 0,  23_607, 800_386
+    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_250,        0,    29_509, 1_000_483, 17_705); //      840 -> 968 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_032 (2026-07-24, dashu-int backend) -> 1_224 (2026-07-28, the zero-run ledger's map node) -> 1_064 (2026-07-29, OpenedPair: the pair walk's opening move stated once; work columns unmoved), 0,  23_607, 800_386
 }
 
 /// Run one sweep scenario body under all four meters and assert its
@@ -2516,7 +2516,9 @@ mod skyline_flatness {
     /// accumulator's zero-run walks) / 4,326 → 4,479 limbs on 24,085
     /// skyline bytes; large 12,390 → 10,350 touches (same change) /
     /// 8,662 → 8,967 limbs on 48,245 bytes (limb movement 2026-07-24,
-    /// metered `trailing_zeros`, under the standing ceilings).
+    /// metered `trailing_zeros`, under the standing ceilings). Live
+    /// 2026-07-30: 4,905 → 9,829 touches (−5.1%, accumulated since the
+    /// record; limbs unmoved), under the standing ceilings.
     const FREEZE_BAND_OVER_TOUCH_CEILINGS: (u64, u64) = (6_458, 12_938);
 
     /// The over-threshold limb ceilings paired with
@@ -2649,7 +2651,11 @@ mod skyline_flatness {
     /// small scale alone. Measured: small 5,138 touches / 2,128 → 2,280
     /// limbs on 4,961 skyline bytes; large 10,272 touches / 4,250 →
     /// 4,554 limbs on 9,921 bytes (limb movement 2026-07-24, metered
-    /// `trailing_zeros`, under the standing ceilings).
+    /// `trailing_zeros`, under the standing ceilings). Live 2026-07-30:
+    /// 5,134 / 10,264 touches and 2,580 / 5,152 limbs — the limb column
+    /// has accumulated +13% since the 2026-07-24 movement and now sits
+    /// ×1.03 under its standing ceilings, the thinnest margin on the
+    /// suite; the next reading over is real signal, not slack.
     const RANK_JUMP_TOUCH_CEILINGS: (u64, u64) = (6_423, 12_840);
 
     /// The jump-comb limb ceilings paired with
@@ -2938,7 +2944,10 @@ mod skyline_flatness {
     /// 206,804 limb ops (×1.50 touch and ×1.43 limb per-byte growth
     /// across the doubling, local exponent still rising at FP(4,000) —
     /// each freeze read the position accumulator's whole written span).
-    const RANK_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] = [(109_399, 44_054), (219_075, 88_607)];
+    // Ceilings re-pinned at the merged #141 fix-round tree: element-wise
+    // tightest of the two independent 2026-07-31 truings, held green by
+    // the run below.
+    const RANK_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] = [(109_361, 44_054), (219_007, 88_590)];
 
     /// rank is linear on the freeze-position family: per-byte touch and
     /// limb work stay flat (×1.25) across a block-count doubling, under
@@ -3057,7 +3066,8 @@ mod skyline_flatness {
     /// The record: 258,676 / 517,516 touches and 115,878 / 231,750 limb
     /// ops across `k = 1,000 → 2,000` on a 73 → 146 KiB packed pair —
     /// three sweeps' worth, ~3.5 touches per byte, flat across the
-    /// doubling.
+    /// doubling. Live 2026-07-30: 256,037 / 512,297 touches and
+    /// 115,492 / 230,976 limb ops, under the standing ceilings.
     const DISTANCE_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] =
         [(323_345, 144_847), (646_895, 289_687)];
 
@@ -3163,7 +3173,9 @@ mod skyline_flatness {
     /// promotion's committed tripwire reads 1,440,756 → 5,006,506
     /// touches here (×1.74/byte, local exponent ~1.9 and rising —
     /// every promotion re-read the position accumulator's whole
-    /// written span).
+    /// written span). Live 2026-07-30: 368,546 → 737,232 touches
+    /// (−8.8%, accumulated since the record) and 205,479 → 411,125
+    /// limb ops, under the standing ceilings.
     const RANK_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
         [(504_890, 257_740), (1_010_122, 516_046)];
 
@@ -3535,7 +3547,9 @@ mod skyline_flatness {
     /// committed pair tripwire's record). Movement 2026-07-28 (the
     /// window-digit combine tap, parent 822,401 → 1,644,899 limb ops):
     /// +0.9% limb — the settle's window-digit traffic now metered —
-    /// touches unchanged.
+    /// touches unchanged. Live 2026-07-30: 988,333 → 1,976,657 touches
+    /// (−9.7%, accumulated since the record) and 864,999 → 1,730,291
+    /// limb ops, under the standing ceilings.
     const DISTANCE_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
         [(1_368_802, 1_083_031), (2_737_957, 2_167_143)];
 
@@ -3655,12 +3669,15 @@ mod skyline_flatness {
     /// across the doubling — the superlinear wedge this family was
     /// built to expose), then to 170,128 / 340,256 (1.26 per byte,
     /// still flat; 2026-07-28, certificate skips replace the
-    /// accumulator's zero-run walks).
+    /// accumulator's zero-run walks). Live 2026-07-30: 166,993 /
+    /// 333,979 touches, under the standing ceilings.
     const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (212_660, 425_320);
     /// The limb ceilings paired with
-    /// [`DISTANCE_JUMP_PAIR_TOUCH_CEILINGS`]: measured 53,905 /
-    /// 107,753 (0.40 per byte, flat), tightened from the composed
-    /// form's 973,702 / 3,341,816 (7.2 → 12.4 per byte).
+    /// [`DISTANCE_JUMP_PAIR_TOUCH_CEILINGS`].
+    ///
+    /// Measured 53,905 / 107,753 (0.40 per byte, flat), tightened from
+    /// the composed form's 973,702 / 3,341,816 (7.2 → 12.4 per byte).
+    /// Live 2026-07-30: 53,559 / 107,048, under the standing ceilings.
     const DISTANCE_JUMP_PAIR_LIMB_CEILINGS: (u64, u64) = (67_382, 134_692);
 
     /// The jump-pair distance is linear in the packed pair: per-byte
@@ -4275,7 +4292,8 @@ mod skyline_flatness {
     /// limb ops): −18% touch, −21% limb — each aggregate charge is one
     /// backend product per dense cluster instead of a factor-wide
     /// product per window digit; the per-byte exponent stays ×1.00 in
-    /// both currencies.
+    /// both currencies. Live 2026-07-30: 177,264 → 354,542 touches and
+    /// 97,381 → 195,491 limb ops, under the standing ceilings.
     const RANK_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] = [(224_705, 125_500), (448_907, 250_775)];
 
     /// rank is flat per byte on the dense-suffix family under the
@@ -4385,7 +4403,8 @@ mod skyline_flatness {
     /// and 413,847 → 826,771 limb ops): −23% touch, −13% limb — one
     /// backend product per dense cluster instead of a factor-wide
     /// product per window digit; the per-byte exponent stays ×1.00 in
-    /// both currencies.
+    /// both currencies. Live 2026-07-30: 525,427 → 1,051,407 touches
+    /// and 355,553 → 712,993 limb ops, under the standing ceilings.
     const DISTANCE_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] =
         [(686_817, 452_301), (1_371_800, 904_066)];
 
@@ -4501,10 +4520,13 @@ mod ledger_wide_arming {
     /// the schoolbook settle's red reading of 288,037 → 1,083,963
     /// touches and 293,651 → 1,095,255 limb ops — measured at the
     /// parent as one whole fold, so 2 limb ops above the kernel's
-    /// own committed tip record, two measurement harnesses rather
-    /// than drift — (×1.89 and ×1.87 per
+    /// own committed tip record of that date, two measurement
+    /// harnesses rather than drift — (×1.89 and ×1.87 per
     /// byte, local exponent ~1.9: the aggregate product paid the
     /// parked width times the window density one digit at a time).
+    /// Live 2026-07-30: 32,452 → 64,793 touches (−6.6%, accumulated
+    /// since the record) and 41,412 → 82,774 limb ops, under the
+    /// standing ceilings.
     const WIDE_ARMING_CEILINGS: [(u64, u64); 2] = [(43_427, 52_427), (86_716, 104_795)];
 
     /// rank is flat per byte on the wide-arming family: per-byte touch
@@ -4780,10 +4802,12 @@ mod answer_embedded_product {
     /// ops across PP(500, 500) → PP(1,000, 1,000) on 20,376 B →
     /// 40,751 B packed operands (~2.4 touches per packed byte, flat
     /// across the doubling), while the committed schoolbook kernel
-    /// reads the same family red at 485,517 → 1,848,277 touches and
-    /// 198,320 → 653,131 limb ops (×1.90 and ×1.65 per byte: the
+    /// reads the same family red at 482,968 → 1,843,181 touches and
+    /// 198,320 → 653,131 limb ops (×1.91 and ×1.65 per byte: the
     /// close-time settle paying the parked plateau's width once per
-    /// trailing-mass digit).
+    /// trailing-mass digit). Live 2026-07-30: 45,871 → 91,751 touches
+    /// (−5.3%, accumulated since the record; limbs unmoved), under
+    /// the standing ceilings.
     const PLATEAU_PUNCTURE_CEILINGS: [(u64, u64); 2] = [(60_525, 91_103), (121_058, 182_197)];
 
     /// rank is flat per byte on the plateau-puncture family: per-byte
@@ -5010,7 +5034,9 @@ mod settle_flatness {
     /// packed pairs (×1.02 per byte); the committed schoolbook
     /// kernel keeps the plateau side's close-time settle — the site
     /// that dominates this pair — red on the same family in the
-    /// query fold's test suite.
+    /// query fold's test suite. Live 2026-07-30: 398,013 → 798,265
+    /// touches and 370,381 → 746,786 limb ops, under the standing
+    /// ceilings.
     const PAIR_PLATEAU_TRAIN_CEILINGS: [(u64, u64); 2] = [(507_805, 462_076), (1_019_693, 932_102)];
 
     /// The plateau-puncture × arming-train pair is flat per byte
@@ -5056,7 +5082,9 @@ mod settle_flatness {
     /// sums, inside the level-ratio model), tightened in the cure's
     /// own commit from the schoolbook charge's 57,542 → 127,612 →
     /// 279,963 touches (×1.17, ×1.13 per byte and rising with the
-    /// count).
+    /// count). Live 2026-07-30: 22,716 → 47,491 → 96,946 touches and
+    /// 33,487 → 70,210 → 144,081 limb ops, under the standing
+    /// ceilings.
     const TRAIN_SAME_SIGN_CEILINGS: [(u64, u64); 3] =
         [(29_240, 42_511), (60_208, 88_545), (122_261, 181_272)];
 
@@ -5068,7 +5096,9 @@ mod settle_flatness {
     /// under the backend-delegated products the parked sums' sign
     /// schedule moves constants only (cancellation narrows a product's
     /// factor; the bound never rests on it). The sign schedules' value
-    /// coverage lives in the promoting differential pool.
+    /// coverage lives in the promoting differential pool. Live
+    /// 2026-07-30: 23,219 → 48,849 → 99,484 touches and 33,330 →
+    /// 69,994 → 143,543 limb ops, under the standing ceilings.
     const TRAIN_ALTERNATING_CEILINGS: [(u64, u64); 3] =
         [(29_927, 42_313), (61_963, 88_273), (125_532, 180_466)];
 
@@ -5873,8 +5903,8 @@ mod query_env {
     // accumulator instead of skipping the meet leg, buying the heap
     // (−96%), limb (−60%), and scan (−25%) columns down with the same
     // change.
-    pub const DISTANCE_JUMP_PAIR: QueryEnvelope           = query_envelope(     5_760,        0,    67_382, 4_022_900,   208_742, 40_428, 125_244); // 5_008 -> 5_776 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 53_905, 3_218_320, 184_494 (2026-07-27, the fused co-sweep; from 138_809, 0, 973_702, 6_464_538, 1_029_327 at the uncured composed form) -> 170_128 (2026-07-28, certificate skips replace the accumulator's zero-run walks) -> 167_225 (pre-existing drift, measured at round #87's base); heap 5_376 -> 4_608 and touches 167_225 -> 166_993 (2026-07-29, round #87: the segment feed opens at the first freeze — this pair freezes early, so only the pre-freeze prefix moves)
-    pub const LAG_JUMP_PAIR: QueryEnvelope                = query_envelope(     5_760,        0,    63_549, 4_022_900,   173_489, 38_129, 104_093); // 5_008 -> 5_776 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 50_839, 3_218_320, 163_509 (2026-07-27, the fused co-sweep; from 138_641, 0, 127_449, 4_315_090, 87_148 at the composed form) -> 141_463 (2026-07-28, certificate skips replace the accumulator's zero-run walks) -> 139_023 (pre-existing drift, measured at round #87's base); heap 5_376 -> 4_608 and touches 139_023 -> 138_791 (2026-07-29, round #87: the segment feed opens at the first freeze)
+    pub const DISTANCE_JUMP_PAIR: QueryEnvelope           = query_envelope(     5_760,        0,    67_382, 4_022_900,   208_742, 40_428, 125_244); // 5_008 -> 5_776 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 53_905 -> 53_559 (2026-07-28, cluster-delegated settle products), 3_218_320, 184_494 (2026-07-27, the fused co-sweep; from 138_809, 0, 973_702, 6_464_538, 1_029_327 at the uncured composed form) -> 170_128 (2026-07-28, certificate skips replace the accumulator's zero-run walks) -> 167_225 (pre-existing drift, measured at round #87's base); heap 5_376 -> 4_608 and touches 167_225 -> 166_993 (2026-07-29, round #87: the segment feed opens at the first freeze — this pair freezes early, so only the pre-freeze prefix moves)
+    pub const LAG_JUMP_PAIR: QueryEnvelope                = query_envelope(     5_760,        0,    63_549, 4_022_900,   173_489, 38_129, 104_093); // 5_008 -> 5_776 (2026-07-28, the zero-run ledger's map nodes; the older ceiling stands), 0, 50_839 -> 50_924 (2026-07-28, cluster-delegated settle products: the lag leg's one upward column, under the standing ceiling), 3_218_320, 163_509 (2026-07-27, the fused co-sweep; from 138_641, 0, 127_449, 4_315_090, 87_148 at the composed form) -> 141_463 (2026-07-28, certificate skips replace the accumulator's zero-run walks) -> 139_023 (pre-existing drift, measured at round #87's base); heap 5_376 -> 4_608 and touches 139_023 -> 138_791 (2026-07-29, round #87: the segment feed opens at the first freeze)
     pub const DISTANCE_CONCURRENT: QueryEnvelope          = query_envelope(       105,        0,    29_009,   157_859,    34_989, 17_405, 20_993); // 84, 0, 23_207, 126_287, 36_183 (2026-07-27, the fused co-sweep; from 5_964, 0, 166_549, 263_500, 61_442 at the composed form) -> 32_087 (pre-existing drift, measured at round #87's base) -> 27_991 (2026-07-29, round #87: the segment feed opens at the first freeze — the word-scale pair never freezes)
     pub const LAG_CONCURRENT: QueryEnvelope               = query_envelope(       105,        0,    29_009,   157_859,    35_838, 17_405, 21_502); // 84, 0, 23_207, 126_287, 36_862 (2026-07-27, the fused co-sweep; from 5_964, 0, 95_571, 197_300, 43_696 at the composed form) -> 32_766 (pre-existing drift, measured at round #87's base) -> 28_670 (2026-07-29, round #87: the segment feed opens at the first freeze)
     // The masked-comparison rows (2026-07-27, the OwnVersion landing):
@@ -7281,7 +7311,9 @@ mod memo_resolution_cost {
     /// pinned sizes (62,023 → 124,023 before the fused tick,
     /// 2026-07-26; 60,023 → 120,023 before the latent boundary
     /// register's O(1) tag work per close); ×3.94 under the refuted
-    /// recording-chain interval resolution].
+    /// recording-chain interval resolution. Live 2026-07-30: 65,021 →
+    /// 130,021 — +3 touches per site accumulated since the record,
+    /// still exactly ×2.00 across the doubling].
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(
@@ -7361,7 +7393,9 @@ mod memo_resolution_cost {
     /// b = 2,048 (94,725 before the fused tick, 2026-07-26; 88,726,
     /// from which the pinned band derives, before the latent boundary
     /// register's O(1) tag work per close; the older ceiling stands
-    /// over the rise) — a
+    /// over the rise; live 2026-07-30: 100,723 — +3 touches per site
+    /// accumulated since the record, ×1.10 under the standing
+    /// ceiling) — a
     /// per-site fan-out at that width would add ~64 touches per site
     /// on top of the ~43-touch linear slope].
     #[test]
@@ -7556,7 +7590,10 @@ mod width_circulation_cost {
     /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×2.00 on a ×2.00
     /// input (48,857 → 97,705 before the fused tick, 2026-07-26, the
     /// pinned band's derivation; 738,449 → 2,884,881 (×3.91) before
-    /// the latent boundary register landed)]: the consume-minted width-b
+    /// the latent boundary register landed); live 2026-07-30:
+    /// 51,853 → 103,701 — +3 touches per site accumulated since the
+    /// record, still ×2.00 on the ×2.00 input, under the standing
+    /// band]: the consume-minted width-b
     /// boundary difference parks in the latent register at the site's
     /// close and the next consume's arm recycles it by a narrow
     /// anchor-relative fold, so no hop re-reads the width. A reading
@@ -7695,7 +7732,8 @@ mod width_circulation_cost {
     ///
     /// Movement: 56,831 → 50,837 when the latent boundary register
     /// landed — the deleted close and consume folds this family paid
-    /// narrow.
+    /// narrow. Live 2026-07-30: 53,837 — +3 touches per site
+    /// accumulated since the record, under the standing ceiling.
     const HIFLOOR_TOUCH_CEILING: u64 = 63_547;
 
     /// Touch liveness floor paired with [`HIFLOOR_TOUCH_CEILING`]:
@@ -7709,7 +7747,8 @@ mod width_circulation_cost {
     /// Per-byte touches stay flat (×1.25) across the width QUADRUPLING
     /// the wide family scales with [measured: 19.1 → 16.9 per byte
     /// across b = 512 → 2,048 at k = 1,000; 21.4 → 18.9 before the
-    /// latent boundary register landed, 2026-07-26], under an absolute
+    /// latent boundary register landed, 2026-07-26; live 2026-07-30:
+    /// 20.2 → 17.9 per byte], under an absolute
     /// band on the larger run. The wide GAP is the cycle's cost driver
     /// — not the site forest, not the deferral, not the close-reveal
     /// schedule, all of which this family shares with the wide one.

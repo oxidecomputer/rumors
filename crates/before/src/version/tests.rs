@@ -2454,3 +2454,32 @@ fn boundary_arity_fan_folds_match_the_sequential_fold() {
         }
     }
 }
+
+/// The cheapest canonical deep spine costs exactly 3 stored bits per
+/// marginal level.
+///
+/// This is the basis for the depth-guard prose on the skyline query
+/// kernels: a stream deeper than `u32::MAX` levels (where the rank
+/// exponent would overflow its `u32`) must exceed 3 · 2³² bits =
+/// 1.5 GiB. If the grammar ever admits a cheaper per-level spelling,
+/// this pin moves and that prose must be re-derived with it.
+#[test]
+fn deep_spine_marginal_cost_is_three_bits_per_level() {
+    let spine = |depth: usize| -> usize {
+        let mut text = String::new();
+        for _ in 0..depth {
+            text.push_str("(0, 1, ");
+        }
+        text.push('0');
+        text.push_str(&")".repeat(depth));
+        let v: Version = text.parse().expect("the unit-leaf deep spine is canonical");
+        v.encode().len() * 8
+    };
+    let (small, large) = (spine(1_000), spine(2_000));
+    assert_eq!(
+        large - small,
+        3 * 1_000,
+        "the deep spine's marginal level cost moved off 3 bits: re-derive \
+         the query depth-guard size prose from the new grammar"
+    );
+}
