@@ -21,8 +21,8 @@ inner loop:
 
 ## Hard rules
 
-- No `unsafe` (`#![forbid(unsafe_code)]`); `stacker` does the platform stack
-  manipulation.
+- No `unsafe` (`#![forbid(unsafe_code)]`); the test-only stack guard's
+  platform stack manipulation lives in the `stacker` dev-dependency.
 - No library traversal recurses on tree depth: every deep walk is iterative,
   with `O(1)`, bit, or heap stacks documented where they live
   (`idbits::skip_subtree`, the `codec::tree` and `codec::text` parsers, the
@@ -31,9 +31,10 @@ inner loop:
   carry suspended ancestors on the explicit bit stacks in
   `version/skyline/fill.rs`). A walk that must recurse routes each recursive
   call through `crate::recurse::descend!`, which grows the stack onto the
-  heap before a deep input can overflow — today that is only the test-only
-  oracle bridge. The depth-100k `clock::tests::deep_tree_stack_safety` test
-  is the proof.
+  heap before a deep input can overflow — today those are only test
+  surfaces: the oracle bridge and the test-local recursive witnesses beside
+  it (`recurse.rs`'s module doc holds the inventory and the keep decision).
+  The depth-100k `clock::tests::deep_tree_stack_safety` test is the proof.
 - `decode` strictly rejects non-canonical input; byte-equality is what
   `Eq`/`Hash` rest on.
 - `Party`/`Clock` are `!Clone`; `Version` is `Clone`. Don't add `Clone` to

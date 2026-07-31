@@ -178,8 +178,20 @@ pub(crate) fn reconcile_with(
 ) -> Findings {
     let excepted_items: BTreeSet<&str> = item_exceptions.iter().map(|e| e.name).collect();
     let module_covers = |name: &str| module_exceptions.iter().any(|e| name.starts_with(e.name));
+    // A decision date is a real `YYYY-MM-DD` shape — digits in the digit
+    // positions, dashes at positions 4 and 7, month 01-12, day 01-31 —
+    // never merely ten characters holding two dashes somewhere.
     let dated = |e: &Exception| {
-        e.decided.len() == 10 && e.decided.chars().filter(|&c| c == '-').count() == 2
+        let bytes = e.decided.as_bytes();
+        let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+        bytes.len() == 10
+            && bytes[4] == b'-'
+            && bytes[7] == b'-'
+            && digits(0..4)
+            && digits(5..7)
+            && digits(8..10)
+            && (1..=12).contains(&e.decided[5..7].parse::<u8>().unwrap_or(0))
+            && (1..=31).contains(&e.decided[8..10].parse::<u8>().unwrap_or(0))
     };
     let mut malformed_exceptions: Vec<String> = item_exceptions
         .iter()

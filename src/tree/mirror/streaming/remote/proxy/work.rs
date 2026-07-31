@@ -15,6 +15,7 @@ use crate::tree::{
         Backend, Leaf,
         protocol::{BoxResponses, Responses},
         remote::{
+            adapter::{DecodeError, EncodeError},
             codec::{Origin, RunBudget, Speaker},
             proxy::{Error, send_or_cancel},
             streams::{AcceptDriver, FirstStreamError, StreamError},
@@ -179,7 +180,11 @@ where
     /// finest granularity available: the selected error or a queued
     /// [`StreamError::SupplyClosed`] the biased order never received
     /// names the stream that provably needed the supply; the deposit
-    /// alone is attributed at direction granularity.
+    /// alone is attributed at direction granularity. Typed backend errors
+    /// are exempt from the outranking: the local store failing is
+    /// independent of the transport, so a dead supply cannot have caused
+    /// it, and it surfaces as itself (the attribution contract on
+    /// [`Error`]).
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
@@ -232,6 +237,14 @@ where
                     source: source.or_else(|| errors.take_supply_failure()),
                 }))
             }
+            // A typed backend error is the local store's own failure: the
+            // supply cannot have caused it, so it is never outranked — it
+            // surfaces from the failing operation itself, as `Error`'s
+            // attribution contract promises.
+            Err(
+                error @ (Error::Encode(EncodeError::Backend(_))
+                | Error::Decode(DecodeError::Backend(_))),
+            ) => Err(error),
             Err(error) => match errors.queued_supply_closed() {
                 Some(supply) => Err(Error::Stream(supply)),
                 None => match errors.take_supply_failure() {

@@ -110,8 +110,11 @@ impl fmt::Debug for Token {
 /// `encode` must produce between 1 and [`MAX_ADDR_LEN`] bytes (an
 /// endpoint's own advertised name is checked at construction), and
 /// `decode` must invert it: `decode(&encode(a))` yields an address that
-/// dials the same peer as `a`. `decode` returns `None` for bytes that
-/// name nothing; the router drops the connection that carried them.
+/// dials the same peer as `a`. An implementation whose namespace holds
+/// names its encoding cannot carry faithfully must refuse them (panic in
+/// `encode`) rather than silently alter the dialed peer. `decode`
+/// returns `None` for bytes that name nothing; the router drops the
+/// connection that carried them.
 pub trait Addr: Clone + Send + Sync + 'static {
     /// Encode this name for the wire.
     fn encode(&self) -> Vec<u8>;
@@ -128,9 +131,30 @@ const SOCKET_ADDR_LEN: usize = 18;
 /// v4-mapped.
 ///
 /// Decoding canonicalizes: a v4-mapped IPv6 address comes back as the
-/// IPv4 address it maps, which dials the same peer.
+/// IPv4 address it maps, which dials the same peer. An IPv6 `flowinfo`
+/// labels a flow, not a peer, so it is not part of the name: it is not
+/// carried, and a decoded address bears flowinfo zero — still the same
+/// peer.
+///
+/// # Panics
+///
+/// Encoding an IPv6 address with a nonzero `scope_id`. The scope names
+/// the interface a link-local peer is reachable through; the 18-byte
+/// name cannot carry it, and the unscoped address does *not* dial the
+/// same peer, so a scoped advertised name is a configuration bug caught
+/// at endpoint construction (the one place the router encodes). A
+/// link-local deployment needs a caller-supplied [`Addr`] whose
+/// encoding carries the scope.
 impl Addr for SocketAddr {
     fn encode(&self) -> Vec<u8> {
+        if let SocketAddr::V6(v6) = self {
+            assert_eq!(
+                v6.scope_id(),
+                0,
+                "a scoped IPv6 address has no 18-byte wire name: dropping \
+                 the scope would dial a different peer",
+            );
+        }
         let ip = match self.ip() {
             IpAddr::V4(v4) => v4.to_ipv6_mapped(),
             IpAddr::V6(v6) => v6,
