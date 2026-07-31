@@ -538,3 +538,90 @@ fn event_meet_is_commutative() {
         assert!(ab == ba, "event meet not commutative at ({i}, {j})");
     });
 }
+
+// ───────────────────────────── corpus totality pins ─────────────────────────────
+
+/// The enumerated corpora are exactly total, pinned by counts the
+/// enumerator cannot supply to itself.
+///
+/// Every check in this suite is universally quantified over the corpus, so
+/// a silent enumeration shrink (a dedup regression, a dropped constructor
+/// arm) leaves them all green on a smaller universe — the "exhaustive"
+/// claim degrades to "sampled" with no red anywhere in this module
+/// (`corpus_is_canonical`'s non-triviality floor admits shrinks of more
+/// than half the corpus). This pin closes that hole two ways:
+///
+/// - **Ids, by closed form**: canonical normal-form id trees of depth
+///   `≤ d` are in bijection with the owned-cell subsets of the `2^d`-cell
+///   dyadic grid (the semantic-oracle embedding: normal form is the unique
+///   tree spelling of each region), so the corpus counts exactly
+///   `2^(2^d)` — derived in-test, not transcribed from the enumerator.
+///
+/// - **Events, by denotation distinctness plus the committed size**: no
+///   two enumerated event trees share a step function over the level-
+///   [`EV_SMALL_DEPTH`] grid (evaluated here by an independent path-sum
+///   walk, no `node`/normalization involved), and the corpus size is the
+///   committed `691` of the module doc — so a shrink moves the literal and
+///   a dedup bug that conflated distinct denotations would shrink the
+///   distinct-vector set below the corpus size.
+#[test]
+fn corpus_counts_are_exact() {
+    for d in 0..=ID_SMALL_DEPTH {
+        assert_eq!(
+            all_normal_ids(d).len(),
+            1usize << (1usize << d),
+            "id corpus at depth {d} must be 2^(2^{d}): the canonical trees \
+             are in bijection with the owned-cell subsets of the 2^{d} grid"
+        );
+    }
+
+    /// The step-function vector of an oracle event tree over the level-`depth`
+    /// dyadic grid: cell `c`'s value is the sum of bases along `c`'s path
+    /// (an independent evaluation — no `node`, no normalization, no dedup key).
+    fn ev_vector(t: &oracle::Version, depth: usize) -> Vec<crate::codec::Base> {
+        use crate::codec::Base;
+        use oracle::Version as V;
+        (0..(1usize << depth))
+            .map(|cell| {
+                let mut node = t;
+                let mut acc = Base::ZERO;
+                for level in 0..depth {
+                    match node {
+                        V::Leaf(_) => break,
+                        V::Node(n, l, r) => {
+                            acc += n;
+                            let right = (cell >> (depth - 1 - level)) & 1 == 1;
+                            node = if right { r } else { l };
+                        }
+                    }
+                }
+                match node {
+                    V::Leaf(n) | V::Node(n, ..) => acc + n,
+                }
+            })
+            .collect()
+    }
+
+    let evs = all_normal_events(EV_SMALL_DEPTH);
+    assert_eq!(
+        evs.len(),
+        691,
+        "event corpus at EV_SMALL_DEPTH moved: the module doc's committed \
+         count and every 'exhaustive' claim over it re-derive together"
+    );
+    let denotations: std::collections::BTreeSet<Vec<Vec<u8>>> = evs
+        .iter()
+        .map(|v| {
+            ev_vector(v, EV_SMALL_DEPTH)
+                .into_iter()
+                .map(|b| b.to_bytes_le())
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        denotations.len(),
+        evs.len(),
+        "two enumerated event trees share a step function: the corpus is \
+         no longer a set of distinct canonical denotations"
+    );
+}
