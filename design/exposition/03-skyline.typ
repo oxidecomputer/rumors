@@ -179,12 +179,11 @@ terminal, four bits in all:
 #align(center, bitrow((("10", "t", [node: left child only]), ("00", "t", [terminal: owned]))))
 
 At a hundred participants with stable membership, a depth-seven
-share is sixteen bits — two bytes, derived. Measured, the mean sits
-nearer three bytes, ownership fragmentation claiming the excess;
-sustained fork-and-retire churn raises it to a few tens. Both
-figures come from the paper's two space scenarios — static
-membership and data churn respectively — reproduced on our
-implementation. The
+share is sixteen bits — two bytes, derived, and pinned as the fork
+orbit's exact size: two bits, plus two per fork. Measured on the
+paper's static space scenario, reproduced on our implementation at
+128 participants, a whole clock — the share and its version
+together — averages three bytes. The
 id side of the system is, by design, nearly free.
 
 One boundary case rounds out the coding. The paper's _anonymous_
@@ -285,7 +284,9 @@ other rules cost little or nothing. What uniqueness buys:
 - *Byte equality is semantic equality.* Equality and hashing are raw
   byte operations — no walk, no decode. Any system that deduplicates,
   content-addresses, or gossips values compares them constantly;
-  those comparisons are `memcmp`.
+  those comparisons are `memcmp`, behind an $O(1)$ shared-buffer
+  identity rung for values that are clones of one another (values
+  clone by reference count, sharing one buffer).
 - *Decode can reject rather than repair.* Every valid value has
   exactly one acceptable spelling, so anything else is refused. There
   is no normalization pass, no "fix up and continue" path whose cost

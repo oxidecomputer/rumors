@@ -305,9 +305,10 @@ offer here is that shape, not a per-boundary ledger closing to the
 exact constant. The inequality's status, plainly: sketched here;
 _derived_ in full
 in our work — the derivation is longer than this section wants —
-with the $-2$ additionally _attained_ in property tests across
-roughly
-1.5 million generated operand pairs. Joins never blow up — the inequality is what lets a
+and enforced as a committed pin over every emitter of record, its
+$-2$ _attained_ exactly at the empty pair and the whole bound held
+by property tests across seven generated operand families. Joins
+never blow up — the inequality is what lets a
 system fold thousands of versions together with a predictable memory
 ceiling.
 
@@ -689,8 +690,8 @@ total order extending causality (break ties among concurrent values
 however you like — say, by canonical bytes, which uniqueness makes
 legitimate).
 
-Computing it is a one-cursor sweep with a weighted fold: add
-$h_i dot 2^(S - d_i)$ per leaf, in numerator units, with $S$ the
+Computing it is a one-cursor sweep with a weighted fold: each leaf
+owes $h_i dot 2^(S - d_i)$, in numerator units, with $S$ the
 maximum depth. One pre-pass finds $S$, reading flags and hopping
 over payloads by their coded lengths — rank is one of the two-pass
 operations the introduction owned up to. The pre-pass earns its
@@ -1173,8 +1174,11 @@ entered zero at this boundary, so $|D'| <= |d D|$ and the read is
 priced by the codes just folded, the same argument as join's
 switch. The integrand runs on the anchored-segment split of the
 rank fold unchanged — rank _is_ this integral's single-stream
-instance, its orientation constantly $+1$ — with one difference of
-funding arity: the potential of @funding splits into one ledger
+instance, its orientation constantly $+1$ — with two adjustments
+of arity: the pre-pass pins the pair's shared scale $S$ with two
+topology skims, one per stream, and the freeze test runs once per
+boundary, against the boundary's _widest_ folded code. The funding
+splits the same way: the potential of @funding keeps one ledger
 per operand, and every charge names the ledger of the operand
 whose codes funded it. A cheap code from one operand can _fire_ a
 freeze, but the work the freeze performs is bounded by deposits

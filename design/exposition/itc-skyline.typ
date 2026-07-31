@@ -37,12 +37,12 @@
   program yields an implementation that is correct — and quadratic,
   in time and in transient memory, on inputs any peer can legally
   present: ordinary canonical values, cheap to spell whether or not
-  an honest history would ever produce them. On the direct
-  transcription, before any cure, a twenty-nine-kilobyte operand
-  pair cost nearly two hundred megabytes of transient memory inside
-  one comparison, and a value half a megabyte wide — its
-  self-delimiting code twice that — took over fourteen seconds to
-  decode. From first principles, this document develops a
+  an honest history would ever produce them. Before the cures, the
+  committed instruments read fifty-six megabytes of transient
+  memory — thousands of times the operand's fifteen kilobytes —
+  inside one comparison, and 122 million machine-word writes to
+  decode one sixteen-kilobyte value, sixty thousand times the
+  cured, linear count. From first principles, this document develops a
   representation under which every primitive clock operation runs
   as a bounded number of linear passes over its packed operands and
   its mandatory output: one pass for most, two where a lookahead or
