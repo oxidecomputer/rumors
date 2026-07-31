@@ -22,6 +22,14 @@ multiple-versions = "deny"
 # so stale entries name themselves. Requirements match the tolerated minor
 # line only: a third version of any of these still fails the check.
 skip = [
+    # Deliberate local pin: before's dev-dependencies hold rand 0.8 +
+    # rand_chacha 0.3 for value-stable seed streams (the committed corpus
+    # seeds; rationale at the pin in crates/before/Cargo.toml). imbl and
+    # proptest ride the current rand_core line.
+    { name = "rand_core", version = "0.6" },
+    # getrandom 0.2 is rand_core 0.6's backend (the pin above); both
+    # lift together.
+    { name = "getrandom", version = "0.2" },
     # embed-doc-image (the doc-images rustdoc feature) has not moved to
     # the current base64.
     { name = "base64", version = "0.13" },
