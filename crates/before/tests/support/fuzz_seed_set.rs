@@ -102,6 +102,30 @@ pub fn seed_set() -> Vec<Seed> {
         name: "version_nested",
         bytes: x.version().encode(),
     });
+    // The decode target's non-canonical frontier: one committed witness
+    // per skyline-validator arm, driven through the version door (the
+    // span differential's fused admission walk subsumes both genres
+    // under its dominance refutation, so only a version-kind seed
+    // reaches these arms). Neither stream is derivable from the API —
+    // no encode produces them — so the bytes carry their derivations.
+    //
+    // A running height that dips negative mid-stream: root internal
+    // `0`, left leaf `1` with height gamma(0) `1`, right leaf `1` with
+    // delta zigzag(-1) `010`, one zero padding bit — 0b0111_0100.
+    seeds.push(Seed {
+        target: "fuzz_decode",
+        name: "version_negative_height",
+        bytes: vec![0x74],
+    });
+    // A collapsible sibling pair (zero right delta): root internal `0`,
+    // left leaf `1` with height gamma(5) `00110`, right leaf `1` with
+    // delta zigzag(0) `1` — nine live bits, 0b0100_1101 then `1` and
+    // seven zero padding bits.
+    seeds.push(Seed {
+        target: "fuzz_decode",
+        name: "version_zero_sibling",
+        bytes: vec![0x4D, 0x80],
+    });
     // `y` exists to nest `z`'s party a level deeper; its version stays
     // empty and needs no seed of its own.
     let _ = y.version();

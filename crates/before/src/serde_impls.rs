@@ -5,6 +5,11 @@
 //! validator ([`decode`](crate::Clock::decode)), so the serialized form is
 //! exactly the wire form and a deserialized value is guaranteed to be in
 //! canonical normal form.
+//!
+//! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
+//! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes
+//! to their source, so their linearity notes apply verbatim at this door
+//! ([Safety rules](crate#safety-rules)).
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

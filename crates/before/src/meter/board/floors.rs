@@ -324,6 +324,11 @@ pub(super) const NA_TOUCH_SEED_RAISE: &str =
 pub(super) const NA_TOUCH_GROW: &str =
     "the empty version's tick is id-directed growth: the grow kernel \
      runs no accumulator";
+/// Touch NA: the fused placement walk's fold count is bound-dependent.
+pub(super) const NA_TOUCH_PLACEMENT: &str =
+    "the fused placement walk's delta-fold count varies with how the \
+     bounds partition the probe's intervals: no per-byte fold count is \
+     forced";
 
 /// Scan floor (rejection rows): the defect sits at the stream's end.
 pub(super) const WHY_SCAN_REJECT_END: &str = "rejection with the defect at the stream's end by \

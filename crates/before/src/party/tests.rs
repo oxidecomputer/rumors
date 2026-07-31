@@ -117,6 +117,36 @@ fn join_all_agrees_with_oracle_when_none_overlap() {
     assert_join_all_matches_recursive_oracle(acc, shares);
 }
 
+/// A group retained on the stack by a failed weight-1 combine — the
+/// over-full counter slot — keeps coalescing with later inputs exactly
+/// as the recursive oracle says.
+///
+/// The deterministic witness for the fold's hand-back-retention arm
+/// (`fold.rs`, the failed-combine path whose newer group has already
+/// coalesced). Feed order [a, b, alias(a), c, d, e] over
+/// pairwise-disjoint forks: a∪b coalesces to weight 1; alias(a) enters
+/// at weight 0; c merges with it; the weight-1 combine of a∪b with
+/// alias∪c fails on the alias and retains alias∪c on the stack; d∪e
+/// then coalesces and merges INTO the retained group (weight 2), so the
+/// hand-back is the four-input group alias∪c∪d∪e and the accumulator
+/// absorbs only a∪b. Misrouting the retained group to the rejection
+/// channel instead hands back alias∪c alone and absorbs d∪e —
+/// divergent on both observables. (The narrower [a, b, alias(a), c]
+/// shape reaches the arm but not the divergence: the closing drain
+/// rejects the retained group either way.)
+#[test]
+fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
+    let mut acc = Party::seed();
+    let mut shares: Vec<Party> = acc.forks(5).collect();
+    let e = shares.pop().expect("five forks");
+    let d = shares.pop().expect("five forks");
+    let c = shares.pop().expect("five forks");
+    let b = shares.pop().expect("five forks");
+    let a = shares.pop().expect("five forks");
+    let alias = a.dangerously_alias();
+    assert_join_all_matches_recursive_oracle(acc, vec![a, b, alias, c, d, e]);
+}
+
 /// The hand-back outcome is invariant to where the overlapping input
 /// sits in the sequence — first, interior, or last.
 ///
