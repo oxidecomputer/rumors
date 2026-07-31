@@ -567,16 +567,14 @@ impl<T> Node<T> {
     ///   combine derives its pair hull in one fused walk, the meet and
     ///   join legs sharing every operand decode — where the split folds
     ///   this replaces decoded each version once per lattice direction.
-    /// - **Interior** (any child a branch): the children's bounds
-    ///   combine as `(meet ∧ meet, join ∨ join)` — one balanced fold per
-    ///   lattice direction, because the two legs read *different*
-    ///   operand pairs (no shared decode exists to fuse) — and the owned
-    ///   span assembles through [`Version::span`], the pair-hull door:
-    ///   the meet of the floors never exceeds the join of the ceilings,
-    ///   and a comparable pair's hull *is* the ordered pair, so the door
-    ///   is exact. Its one fused walk over the two results is the price
-    ///   of owned construction through the public hull doors, paid once
-    ///   per memo.
+    /// - **Interior** (any child a branch): the children's spans fold
+    ///   through one balanced containment join
+    ///   ([`causally::Span::union_all`]) — a branch child hands up its
+    ///   memoized span, a leaf child its coincident one — with the meet
+    ///   and join legs folded per endpoint, because different children's
+    ///   floors and ceilings share no decode to fuse. The union is
+    ///   total by construction, so the owned memo assembles with no
+    ///   separate hull walk and no validating comparison.
     ///
     /// Either fold makes every child pass through `O(log k)` combines of
     /// similarly sized operands instead of one combine against the whole
@@ -600,10 +598,9 @@ impl<T> Node<T> {
                 let first = versions.next().expect("a branch always has >= 2 children");
                 first.span_all(versions)
             } else {
-                let lo = Version::meet_all(children.values().map(Node::floor))
-                    .expect("a branch always has >= 2 children");
-                let hi = Version::join_all(children.values().map(Node::ceiling));
-                lo.span(&hi)
+                let mut spans = children.values().map(Node::span);
+                let first = spans.next().expect("a branch always has >= 2 children");
+                first.union_all(spans)
             }
         })
     }

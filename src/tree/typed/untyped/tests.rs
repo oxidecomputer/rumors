@@ -788,22 +788,19 @@ mod memo_fold_cost {
     }
 
     /// An interior branch's bounds memo — children handing up their own
-    /// memoized spans — still undercuts the sequential two-fold shape,
-    /// with the owned span's assembly walk inside the measured reading.
+    /// memoized spans, folded through one balanced containment join —
+    /// still undercuts the sequential two-fold shape.
     ///
-    /// The interior regime has no fused pair decode to share: the meet
-    /// and join legs read different endpoint pairs, so the memo runs
-    /// one balanced fold per direction and assembles the stored span
-    /// through the pair-hull door — one extra fused walk over the two
-    /// results, priced inside the memo reading rather than hidden (the
-    /// bare split-fold reading is measured beside it, so the door's
-    /// share stays visible). The population pairs consecutive staggered
-    /// versions into two-leaf child branches (memos pre-forced, so the
-    /// reading isolates the root's own fold), keeping the sequential
-    /// join accumulator non-coalescing across the children's ceilings.
-    /// The gap is structurally narrower than the fringe tests' — half
-    /// the fanout, and the door inside the reading — so the pinned
-    /// margin is x3 against a measured ~3.2x.
+    /// The interior regime has no fused pair decode to share: different
+    /// children's floors and ceilings are distinct streams, so the
+    /// union's combines fold per endpoint, and the owned memo assembles
+    /// total with no separate hull walk to price. The population pairs
+    /// consecutive staggered versions into two-leaf child branches
+    /// (memos pre-forced, so the reading isolates the root's own fold),
+    /// keeping the sequential join accumulator non-coalescing across
+    /// the children's ceilings. The gap is structurally narrower than
+    /// the fringe tests' — half the fanout — so the pinned margin is x3
+    /// against a measured ~3.2x.
     #[test]
     fn interior_bounds_memo_undercuts_sequential_folds() {
         let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
@@ -830,21 +827,12 @@ mod memo_fold_cost {
         let node = Node::branch(children.clone()).expect("128 children make a branch");
 
         let (join, meet, seq_limb, seq_scan) = sequential_bounds(&children);
-        // The memo's two balanced legs alone, re-run bare: subtracting
-        // this from the memo reading below prices the pair-hull door.
-        let (_, fold_limb, fold_scan) = metered(|| {
-            let lo = Version::meet_all(children.values().map(Node::floor))
-                .expect("a branch always has >= 2 children");
-            let hi = Version::join_all(children.values().map(Node::ceiling));
-            (lo, hi)
-        });
         let (ceiling, memo_limb, memo_scan) = metered(|| node.ceiling().clone());
         assert_eq!(&ceiling, &join, "the memo ceiling is the sequential join");
         assert_eq!(node.floor(), &meet, "the memo floor is the sequential meet");
         eprintln!(
             "MEASURED memo_bounds_fold_interior: sequential limb={seq_limb} scan={seq_scan} \
-             span-memo limb={memo_limb} scan={memo_scan} \
-             bare-folds limb={fold_limb} scan={fold_scan}",
+             span-memo limb={memo_limb} scan={memo_scan}",
         );
         assert_undercuts("interior_bounds_memo", "limb ops", memo_limb, seq_limb, 3);
         assert_undercuts("interior_bounds_memo", "scan bits", memo_scan, seq_scan, 3);
