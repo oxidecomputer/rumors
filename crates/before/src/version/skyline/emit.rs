@@ -81,7 +81,7 @@ use suanpan::Accumulator;
 use crate::codec::{Base, BitsMut, BitsSlice};
 
 use super::build::SkylineBuilder;
-use super::sweep::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
+use super::sweep::{advance_diff, Directions, OpenedPair, PlateauCursor, Side, Step};
 use super::{gamma_code, zigzag_signed};
 
 /// The join (pointwise max) of the versions two skyline streams denote,
@@ -128,8 +128,25 @@ pub fn meet(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
     })
 }
 
+/// The fused hull's product: the two endpoint streams beside the
+/// pair's causal relation, all read off one sweep.
+pub struct Hull {
+    /// The causal order of the versions the operands denote — the
+    /// comparison sweep's verdict, folded from the per-interval signs
+    /// the emission walk reads anyway; `None` is concurrent.
+    ///
+    /// Byte-distinct equal operands report `Equal` here like any other
+    /// pair: the fold sees only signs, never buffers.
+    pub relation: Option<Ordering>,
+    /// The meet (pointwise min) stream.
+    pub lo: BitsMut,
+    /// The join (pointwise max) stream.
+    pub hi: BitsMut,
+}
+
 /// The hull `(meet, join)` of the versions two skyline streams denote,
-/// as canonical skyline streams, from **one** fused sweep.
+/// as canonical skyline streams beside the pair's causal relation, all
+/// from **one** fused sweep.
 ///
 /// [`meet`] and [`join`] differ only in their side selection: both
 /// consume the identical crossing sequence — the boundaries the pair
@@ -143,19 +160,21 @@ pub fn meet(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
 /// pins the identity stream-level, and the `span_is_the_pair_hull` law
 /// pins it through the public door on every law consumer.
 ///
-/// The per-interval sign reads this loop already performs are exactly
-/// the comparison sweep's fold, so the pair *relation* is decidable in
-/// this same pass by carrying the two surviving-direction flags beside
-/// the emissions (both surviving to exhaustion is equality; one alone
-/// is domination) — the deliberate seam for comparable-pair fast paths
-/// (hand back the operands, no emission) and single-emission equality
-/// dedup, should a caller need the verdict.
+/// The relation rides for free: the per-interval sign the side picks
+/// read is exactly what the comparison sweep folds, so one
+/// surviving-directions fold beside the emissions decides the pair's
+/// causal order at exhaustion (both directions surviving is equality,
+/// one alone is domination, neither is concurrent). The differential
+/// suite beside this module pins the verdict against the lattice
+/// reading of the oracle's outputs on every witnessed pair. A caller
+/// that already classified the pair (the span ladder reaches this walk
+/// only on concurrent operands) reads it as a free cross-check.
 ///
 /// # Panics
 ///
 /// [`join`]'s contract exactly: canonical operands required, structural
-/// violations panic, the rest yield an unspecified output pair.
-pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (BitsMut, BitsMut) {
+/// violations panic, the rest yield an unspecified output triple.
+pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
     /// One output of the fused sweep: its side selection (pointwise min
     /// or max — the only point where the two outputs differ), the side
     /// it is currently following, and its builder.
@@ -172,6 +191,13 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (BitsMut, BitsMut) {
         a_first,
         b_first,
     } = OpenedPair::open(a_bits, b_bits);
+
+    // One sign read serves the whole interval: both side picks and the
+    // relation fold consume the same `sign(D)`, so the accumulator is
+    // read once per elementary interval however many consumers share it.
+    let mut dirs = Directions::new();
+    let sign = diff.sign();
+    dirs.fold(sign);
 
     // The first interval opens each output with its winning side's
     // absolute height; the capacity estimate is `emit`'s, per builder.
@@ -198,7 +224,7 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (BitsMut, BitsMut) {
         },
     ];
     for emission in &mut outputs {
-        emission.side = (emission.pick)(diff.sign(), Side::A);
+        emission.side = (emission.pick)(sign, Side::A);
         let first = match emission.side {
             Side::A => &a_first,
             Side::B => &b_first,
@@ -211,9 +237,11 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (BitsMut, BitsMut) {
     while !(ca.done() && cb.done()) {
         // One crossing, folded once, serves both outputs' deltas.
         let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
+        let sign = diff.sign();
+        dirs.fold(sign);
         let depth = ca.depth().max(cb.depth());
         for emission in &mut outputs {
-            let new_side = (emission.pick)(diff.sign(), emission.side);
+            let new_side = (emission.pick)(sign, emission.side);
             let (negative, magnitude) = if new_side == emission.side {
                 step_delta(emission.side, &da, &db)
             } else {
@@ -227,7 +255,11 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> (BitsMut, BitsMut) {
     }
 
     let [lo, hi] = outputs;
-    (lo.out.finish(), hi.out.finish())
+    Hull {
+        relation: dirs.relation(),
+        lo: lo.out.finish(),
+        hi: hi.out.finish(),
+    }
 }
 
 /// Run the emission sweep, generic over the side selection.
