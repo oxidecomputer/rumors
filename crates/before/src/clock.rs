@@ -173,13 +173,9 @@ impl Clock {
     /// For the consuming counterpart that splits into exactly `N` clocks, see
     /// [`From<Clock>`](Clock) for `[Clock; N]`.
     ///
-    /// # Panics
-    ///
-    /// As [`Party::forks`], whose split this drives: in builds with debug
-    /// assertions, `n == usize::MAX` panics with an arithmetic overflow;
-    /// without them the count wraps and the iterator yields no children
-    /// while reporting `usize::MAX` remaining (see [`Party::forks`]'s
-    /// section for the caught-unwind state).
+    /// Total over every `n`, saturating exactly as [`Party::forks`] does
+    /// (whose split this drives): at `n == u64::MAX` the iterator yields
+    /// one child fewer than asked.
     ///
     /// # Complexity
     ///
@@ -200,7 +196,7 @@ impl Clock {
     ///     assert_eq!(child.version(), parent.version()); // every child copies the version
     /// }
     /// ```
-    pub fn forks(&mut self, n: usize) -> Forks<'_> {
+    pub fn forks(&mut self, n: u64) -> Forks<'_> {
         Forks::new(self, n)
     }
 

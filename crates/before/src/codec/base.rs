@@ -95,9 +95,9 @@ fn meter_limbs_solo(a: &Base) {
 /// output can only shrink, so the operand covers the cost. Compiles to
 /// nothing without the `limb-meter` feature.
 #[inline(always)]
-fn meter_limbs_shl(a: &Base, rhs: u32) {
+fn meter_limbs_shl(a: &Base, rhs: u64) {
     #[cfg(feature = "limb-meter")]
-    limb_meter::record(a.limbs() + u64::from(rhs) / 64 + 1);
+    limb_meter::record(a.limbs() + rhs / 64 + 1);
     #[cfg(not(feature = "limb-meter"))]
     let _ = (a, rhs);
 }
@@ -496,7 +496,7 @@ impl Shl<u32> for Base {
     type Output = Base;
 
     fn shl(self, rhs: u32) -> Base {
-        meter_limbs_shl(&self, rhs);
+        meter_limbs_shl(&self, u64::from(rhs));
         Base(self.0 << rhs as usize)
     }
 }
@@ -516,6 +516,32 @@ impl Shr<u32> for Base {
     fn shr(self, rhs: u32) -> Base {
         meter_limbs1(&self);
         Base(self.0 >> rhs as usize)
+    }
+}
+
+// The u64 shift forms serve exponent-denominated callers (a `Rank`'s
+// exponent is u64). A shift amount is realizable only when the shifted
+// value fits the address space, so the conversion to the backend's
+// usize is checked, not truncating: an amount past usize denotes a
+// value that could not be allocated anyway.
+
+impl Shl<u64> for Base {
+    type Output = Base;
+
+    fn shl(self, rhs: u64) -> Base {
+        meter_limbs_shl(&self, rhs);
+        let rhs = usize::try_from(rhs).expect("shift amount fits the address space");
+        Base(self.0 << rhs)
+    }
+}
+
+impl Shr<u64> for Base {
+    type Output = Base;
+
+    fn shr(self, rhs: u64) -> Base {
+        meter_limbs1(&self);
+        let rhs = usize::try_from(rhs).expect("shift amount fits the address space");
+        Base(self.0 >> rhs)
     }
 }
 

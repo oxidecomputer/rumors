@@ -1238,7 +1238,7 @@ proptest! {
 /// forked from one seed, deterministically.
 fn orbit_population(n: usize) -> Vec<Clock> {
     let mut clocks = vec![Clock::seed()];
-    let children: Vec<Clock> = clocks[0].forks(n - 1).collect();
+    let children: Vec<Clock> = clocks[0].forks(n as u64 - 1).collect();
     clocks.extend(children);
     clocks
 }

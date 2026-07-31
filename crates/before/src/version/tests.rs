@@ -1022,7 +1022,7 @@ fn alignment_cmp(a: &super::Rank, b: &super::Rank) -> core::cmp::Ordering {
 
 /// A rank's raw parts for the oracle, as plain `UBig` arithmetic
 /// operands.
-fn rank_parts(r: &super::Rank) -> (dashu_int::UBig, u32) {
+fn rank_parts(r: &super::Rank) -> (dashu_int::UBig, u64) {
     let (num, exp) = r.raw_parts();
     (dashu_int::UBig::from_le_bytes(&num.to_bytes_le()), exp)
 }
@@ -1055,7 +1055,7 @@ fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
     words[0] |= 1; // odd: the stored normalization invariant
     let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
     let num = crate::codec::Base::from(dashu_int::UBig::from_le_bytes(&bytes));
-    let exp = (next() % 100_000) as u32;
+    let exp = next() % 100_000;
     super::Rank::from_raw(num, exp)
 }
 
@@ -1088,7 +1088,7 @@ fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
                 let (num, exp) = rank_parts(&a);
                 super::Rank::from_raw(
                     crate::codec::Base::from(num),
-                    exp.saturating_add((next() % 64) as u32 + 1),
+                    exp.saturating_add(next() % 64 + 1),
                 )
             }
             // A forced class tie: same exponent, same width, a low bit
@@ -1636,7 +1636,7 @@ proptest! {
             let (num, exp) = a.raw_parts();
             super::Rank::from_raw(
                 (num.clone() << deepen) + 1u32,
-                exp.saturating_add(deepen),
+                exp.saturating_add(u64::from(deepen)),
             )
         } else {
             seeded_rank(sb)
@@ -2458,11 +2458,12 @@ fn boundary_arity_fan_folds_match_the_sequential_fold() {
 /// The cheapest canonical deep spine costs exactly 3 stored bits per
 /// marginal level.
 ///
-/// This is the basis for the depth-guard prose on the skyline query
-/// kernels: a stream deeper than `u32::MAX` levels (where the rank
-/// exponent would overflow its `u32`) must exceed 3 · 2³² bits =
-/// 1.5 GiB. If the grammar ever admits a cheaper per-level spelling,
-/// this pin moves and that prose must be re-derived with it.
+/// This pins the grammar's depth-to-size exchange rate: every level a
+/// stream reaches is paid for by stored bits, so depth-derived
+/// quantities (the rank exponent among them) stay linear in the input
+/// the caller already holds. If the grammar ever admits a cheaper
+/// per-level spelling, this pin moves and any prose pricing depth in
+/// input bytes must be re-derived with it.
 #[test]
 fn deep_spine_marginal_cost_is_three_bits_per_level() {
     let spine = |depth: usize| -> usize {

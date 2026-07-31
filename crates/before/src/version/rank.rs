@@ -127,10 +127,11 @@
 //! (the unary run, the header payload, the mantissa, a group, or its
 //! continuation bit running off the end), non-minimal packing (byte
 //! length beyond the stream's own, a set bit in the padding, or an
-//! all-zero final group), and the format's representation bounds (an
-//! integral mantissa of `2⁶⁴` or more bits, a fraction deeper than
-//! `2³² − 1` — both beyond any rank this crate can hold, and beyond
-//! any input under 2 EiB / 576 MiB respectively).
+//! all-zero final group), and the format's one representation bound
+//! (an integral mantissa of `2⁶⁴` or more bits — beyond any rank this
+//! crate can hold, and beyond any input under 2 EiB; the fraction's
+//! depth is counted from bits actually read, so it can never outrun
+//! the exponent that stores it).
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -218,7 +219,7 @@ pub struct Rank {
     num: Base,
     /// The (binary) exponent of the denominator `2^exp`. Bounded by the
     /// event tree's depth, since each level halves the interval width.
-    exp: u32,
+    exp: u64,
 }
 
 impl Rank {
@@ -417,10 +418,10 @@ impl Rank {
     /// the stream's own, a set bit in the padding, or an all-zero
     /// final fraction group — the one spelling a trailing-zero
     /// fraction could take); [`Decode::NotCanonical`] when the stream
-    /// carries content past the format's representation bounds (an
-    /// integral mantissa of `2⁶⁴` or more bits, a fraction deeper than
-    /// `2³² − 1` — reachable only through inputs of 2 EiB and 576 MiB
-    /// respectively); [`Decode::Io`] when the reader itself fails.
+    /// carries content past the format's representation bound (an
+    /// integral mantissa of `2⁶⁴` or more bits — reachable only
+    /// through inputs of 2 EiB or more); [`Decode::Io`] when the
+    /// reader itself fails.
     ///
     /// # Complexity
     ///
@@ -453,7 +454,7 @@ impl Rank {
     /// wire terms too.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn content_bits(&self) -> u64 {
-        self.num.bits() + u64::from(self.exp)
+        self.num.bits() + self.exp
     }
 
     /// The stored parts `(numerator, exponent)`.
@@ -462,7 +463,7 @@ impl Rank {
     /// canonical emission ([`encode_parts`]), and the raw normalized
     /// form the reference computations and differential oracles
     /// re-derive order and arithmetic from.
-    pub(crate) fn raw_parts(&self) -> (&Base, u32) {
+    pub(crate) fn raw_parts(&self) -> (&Base, u64) {
         (&self.num, self.exp)
     }
 
@@ -472,14 +473,14 @@ impl Rank {
     ///
     /// `pub(crate)` for the reference computations (the oracle's tree fold,
     /// the semantic oracle's Riemann sum), which produce the same raw form.
-    pub(crate) fn from_raw(num: Base, exp: u32) -> Self {
+    pub(crate) fn from_raw(num: Base, exp: u64) -> Self {
         match num.trailing_zeros() {
             None => Rank {
                 num: Base::ZERO,
                 exp: 0,
             },
             Some(tz) => {
-                let shift = u32::try_from(tz.min(u64::from(exp))).expect("min with a u32");
+                let shift = tz.min(exp);
                 Rank {
                     num: num >> shift,
                     exp: exp - shift,
@@ -495,13 +496,12 @@ impl Rank {
 /// `pub(crate)` alongside [`Rank::encode`] so the ranked view's fused
 /// emission can emit straight from its rank fold's
 /// `(numerator, exponent)` output, with no walk beyond the fold's own.
-pub(crate) fn encode_parts(num: &Base, exp: u32) -> Vec<u8> {
+pub(crate) fn encode_parts(num: &Base, exp: u64) -> Vec<u8> {
     // The integral part, biased so zero has a (smallest) codeword:
     // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1.
     let biased = (num.clone() >> exp) + 1u32;
     let w = biased.bits();
     let rho = u64::from(63 - w.leading_zeros());
-    let exp = u64::from(exp);
     let groups = exp.div_ceil(FRACTION_GROUP_BITS);
     let mut sink =
         BitSink::with_capacity_bits(2 * rho + w + groups * (FRACTION_GROUP_BITS + 1) + 1);
@@ -654,11 +654,11 @@ pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Re
             )
         }
     };
-    let exp = u32::try_from(frac_len).map_err(|_| {
-        // The format bound: Rank's exponent (the event-tree depth) is
-        // u32; a deeper fraction needs over 576 MiB of input.
-        Decode::NotCanonical
-    })?;
+    // The fraction's depth needs no bound of its own: every expansion
+    // bit was read from the stream, so `frac_len` never exceeds the
+    // input's own bit count and always fits the u64 exponent — an
+    // input long enough to overflow it cannot be allocated.
+    let exp = frac_len;
     let num = if frac_len == 0 {
         integral
     } else {
@@ -844,14 +844,14 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// normalization at the end).
 fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
     let mut acc = Accumulator::new();
-    let mut exp = 0u32;
+    let mut exp = 0u64;
     for rank in iter {
         let rank = rank.borrow();
         if rank.exp > exp {
-            acc.shl(u64::from(rank.exp - exp));
+            acc.shl(rank.exp - exp);
             exp = rank.exp;
         }
-        acc.add_magnitude_shl(&rank.num, u64::from(exp - rank.exp));
+        acc.add_magnitude_shl(&rank.num, exp - rank.exp);
     }
     let (sign, magnitude) = acc.sign_magnitude();
     debug_assert_ne!(

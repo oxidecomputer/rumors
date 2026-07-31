@@ -25,15 +25,15 @@ struct Split {
     /// Pending subregions in emission order; the top of the stack (the last
     /// element) is produced next, and each entry still owes `count` shares.
     /// Holding the owned regions is what lets a partial read fold them back.
-    stack: Vec<(Party, usize)>,
+    stack: Vec<(Party, u64)>,
     /// Shares still to emit (`Σ count`); kept as a running total so the
     /// iterator's size is exact in `O(1)`.
-    remaining: usize,
+    remaining: u64,
 }
 
 impl Split {
     /// A partition of `party` into `k` shares. `k >= 1`.
-    fn new(party: Party, k: usize) -> Self {
+    fn new(party: Party, k: u64) -> Self {
         debug_assert!(k >= 1, "a balanced split yields at least one share");
         Split {
             stack: vec![(party, k)],
@@ -63,7 +63,13 @@ impl Iterator for Split {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.remaining, Some(self.remaining))
+        // The count is u64 and `usize` may be narrower: past its range
+        // the hint is `(usize::MAX, None)`, the standard spelling for
+        // an iterator of more than `usize::MAX` items.
+        (
+            usize::try_from(self.remaining).unwrap_or(usize::MAX),
+            usize::try_from(self.remaining).ok(),
+        )
     }
 }
 
@@ -71,11 +77,17 @@ impl ExactSizeIterator for Split {}
 
 /// A lazy iterator of balanced [`Party`] shares, returned by [`Party::forks`].
 ///
-/// Yields exactly `n` disjoint shares produced one at a time. The party it
-/// borrows keeps the remaining share and is never left empty; any share not
-/// taken before the iterator drops is [`join`](Party::join)ed back into that
-/// party, so a partial read leaves the original [`Party`] holding everything it
-/// did not hand out.
+/// Yields exactly `n` disjoint shares produced one at a time (at the one
+/// saturating input `n == u64::MAX`, one fewer — see [`Party::forks`]).
+/// The party it borrows keeps the remaining share and is never left empty;
+/// any share not taken before the iterator drops is
+/// [`join`](Party::join)ed back into that party, so a partial read leaves
+/// the original [`Party`] holding everything it did not hand out.
+///
+/// On platforms whose `usize` is narrower than the share count,
+/// [`size_hint`](Iterator::size_hint) reports `(usize::MAX, None)` — the
+/// standard spelling for an iterator of more than `usize::MAX` items —
+/// and [`len`](ExactSizeIterator::len) is meaningful only within `usize`.
 ///
 /// # Complexity
 ///
@@ -98,14 +110,16 @@ pub struct Forks<'a> {
 impl<'a> Forks<'a> {
     /// Borrow `party` and reserve `n` balanced shares, leaving the residual in
     /// place. The public entry point is [`Party::forks`].
-    pub(crate) fn new(party: &'a mut Party, n: usize) -> Self {
+    pub(crate) fn new(party: &'a mut Party, n: u64) -> Self {
         // `n + 1`, not `n`: a Party is never empty, so `party` must retain a
         // share even once every yielded share has been consumed. The first
         // preorder leaf becomes that residual — reaching it costs O(log n)
         // forks, not the whole partition — and the same preorder governs the
         // `n` shares yielded after it, matching the consuming `From` split.
+        // The count saturates: at `n == u64::MAX` the residual's headroom is
+        // spent and the iterator yields one share fewer than asked.
         let whole = mem::replace(party, Party::anonymous());
-        let mut split = Split::new(whole, n + 1);
+        let mut split = Split::new(whole, n.saturating_add(1));
         *party = split
             .next()
             .expect("a split into n + 1 >= 1 shares yields a residual leaf");
@@ -166,7 +180,7 @@ impl Drop for Forks<'_> {
 impl<const N: usize> From<Party> for [Party; N] {
     fn from(party: Party) -> [Party; N] {
         const { assert!(N >= 1, "a `Party` cannot split into zero shares") }
-        let mut split = Split::new(party, N);
+        let mut split = Split::new(party, N as u64);
         // `from_fn` calls indices `0..N` in order, and `Split` yields in
         // preorder, so share `i` lands at index `i` — the same order `forks`
         // hands them out.
