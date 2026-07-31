@@ -1,7 +1,7 @@
 use crate::ops::ROSTER;
 use crate::sample::cell_rng;
 
-use super::{run_op, slice_arity, split_budget, Plan, Samplers};
+use super::{draw_arity, run_op, split_budget, Plan, Samplers};
 
 /// A run is a pure function of (guest wasm, plan): two executions of the
 /// same plan read byte-identical fuel in the same cell order.
@@ -14,8 +14,10 @@ use super::{run_op, slice_arity, split_budget, Plan, Samplers};
 /// re-derives a cell's RNG from execution order fails it. The op list
 /// walks every input space: unary and binary packed draws (both
 /// samplers, the split rule, the version rejection path), the slice
-/// arity-and-composition draw, the distinct-pair rejection, and the
-/// three-way split with in-guest fork preparation.
+/// arity-and-composition draw, the distinct-pair rejection, the
+/// three-way split with in-guest fork preparation, and both
+/// variable-arity fold draws (the party-plus-version-slice clock fold
+/// and the guest-split party shares).
 #[test]
 fn run_op_is_deterministic_and_ordered() {
     let plan = Plan {
@@ -30,6 +32,8 @@ fn run_op_is_deterministic_and_ordered() {
         "version_join_all",
         "party_without",
         "clock_sync",
+        "clock_join_all",
+        "party_join_all",
     ] {
         let op = ROSTER
             .iter()
@@ -38,11 +42,11 @@ fn run_op_is_deterministic_and_ordered() {
         let a = run_op(&plan, &samplers, op);
         let b = run_op(&plan, &samplers, op);
 
-        let cells = |atlas: &super::OpAtlas| -> Vec<(usize, u64, u64)> {
+        let cells = |atlas: &super::OpAtlas| -> Vec<(usize, usize, u64, u64)> {
             atlas
                 .samples
                 .iter()
-                .map(|s| (s.size, s.fuel, s.rejected))
+                .map(|s| (s.size, s.arity, s.fuel, s.rejected))
                 .collect()
         };
         assert_eq!(
@@ -98,20 +102,20 @@ fn split_budget_yields_positive_compositions() {
     }
 }
 
-/// The slice arity draw reaches every count the budget can feed.
+/// The arity draw reaches every count under its cap.
 ///
-/// Uniform over `1..=total`, so at a small total every arity appears
-/// across a modest draw budget — a draw that silently skipped an arity
-/// band would skew every slice column's measure and hide the fold's
+/// Uniform over `1..=cap`, so at a small cap every arity appears across
+/// a modest draw budget — a draw that silently skipped an arity band
+/// would skew every variable-arity column's measure and hide the fold's
 /// boundary arities (the drain first combines at 3, the merged–merged
 /// carry at 4, the drain of two merged groups at 6: all reachable only
 /// if no count is skipped).
 #[test]
-fn slice_arity_reaches_every_count() {
+fn arity_draw_reaches_every_count() {
     let mut rng = cell_rng(0xc0de, "arity-reach", 9, 0);
     let mut seen = std::collections::BTreeSet::new();
     for _ in 0..2_000 {
-        seen.insert(slice_arity(9, &mut rng));
+        seen.insert(draw_arity(9, &mut rng));
     }
     assert_eq!(
         seen,
@@ -120,26 +124,26 @@ fn slice_arity_reaches_every_count() {
     );
 }
 
-/// The slice arity draw is uniform over `1..=total`, not merely total.
+/// The arity draw is uniform over `1..=cap`, not merely total.
 ///
 /// The module doc claims *uniform* stratification (equal representation
-/// per arity), and the atlas's slice-column measure rests on it — but a
-/// reachability check alone cannot pin uniformity: a biased-but-total
-/// draw (e.g. the min of two `gen_range` draws, `P(1) = 17/81` vs the
-/// uniform `1/9` at total 9, chi-square 723.2 at the committed seed
-/// over 2000 draws) reaches
+/// per arity), and every variable-arity column's measure rests on it —
+/// but a reachability check alone cannot pin uniformity: a
+/// biased-but-total draw (e.g. the min of two `gen_range` draws,
+/// `P(1) = 17/81` vs the uniform `1/9` at cap 9, chi-square 723.2 at
+/// the committed seed over 2000 draws) reaches
 /// every count in the same budget and passes it. This one-sided
 /// chi-square pin (8 degrees of freedom, mean 8 + 6σ = 32, the sampler
 /// pins' own 6σ idiom) reads red on any such skew while a fixed seed
 /// keeps the run deterministic.
 #[test]
-fn slice_arity_draws_uniformly_over_every_count() {
+fn arity_draw_is_uniform_over_every_count() {
     const TOTAL: usize = 9;
     const DRAWS: usize = 2_000;
     let mut rng = cell_rng(0xc0de, "arity-uniformity", TOTAL, 0);
     let mut observed = [0u64; TOTAL];
     for _ in 0..DRAWS {
-        observed[slice_arity(TOTAL, &mut rng) - 1] += 1;
+        observed[draw_arity(TOTAL, &mut rng) - 1] += 1;
     }
     let expected = DRAWS as f64 / TOTAL as f64;
     let chi2: f64 = observed
@@ -155,6 +159,58 @@ fn slice_arity_draws_uniformly_over_every_count() {
         chi2 <= threshold,
         "chi-square {chi2:.1} exceeds {threshold:.1} over {TOTAL} arities"
     );
+}
+
+/// The fold panels can read the fold's arity out of the bulk cloud: at
+/// a fixed size column, samples that drew a larger arity burn more
+/// fuel.
+///
+/// This is what the variable-arity draw buys the two guest-split fold
+/// rows. With the arity pinned to a constant, the balanced fold's
+/// log-arity factor is the same in every sample, and the panel is
+/// structurally incapable of separating a fold that costs `O(n)` from
+/// one that costs `O(n · log k)`; the per-sample draw puts the arity
+/// axis inside each column, where the spread and the reference slopes
+/// can price it. Fuel is deterministic wasm instruction metering, so
+/// the comparison is exact at the committed seed and load-immune.
+#[test]
+fn fold_rows_expose_the_arity_axis_in_fuel() {
+    let plan = Plan {
+        base_seed: 0x5eed,
+        samples_per_column: 32,
+        max_bytes: 32,
+    };
+    let samplers = Samplers::build(&plan);
+    for name in ["party_join_all", "clock_join_all"] {
+        let op = ROSTER
+            .iter()
+            .find(|op| op.name == name)
+            .expect("fold rows are roster rows");
+        let atlas = run_op(&plan, &samplers, op);
+        let mut column: Vec<(usize, u64)> = atlas
+            .samples
+            .iter()
+            .filter(|s| s.size == plan.max_bytes)
+            .map(|s| (s.arity, s.fuel))
+            .collect();
+        column.sort_unstable();
+        let arities: std::collections::BTreeSet<usize> =
+            column.iter().map(|&(arity, _)| arity).collect();
+        assert!(
+            arities.len() > 1,
+            "{name}: the drawn arity must vary within a column, got only {arities:?}"
+        );
+        let half = column.len() / 2;
+        let mean = |cells: &[(usize, u64)]| {
+            cells.iter().map(|&(_, fuel)| fuel).sum::<u64>() as f64 / cells.len() as f64
+        };
+        let (low, high) = (mean(&column[..half]), mean(&column[half..]));
+        assert!(
+            high > low,
+            "{name}: mean fuel must rise with the drawn arity at a fixed size \
+             (low-arity half {low:.0}, high-arity half {high:.0})"
+        );
+    }
 }
 
 /// The split reaches every composition.

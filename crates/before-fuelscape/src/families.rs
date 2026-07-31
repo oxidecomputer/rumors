@@ -24,6 +24,11 @@ pub struct FamilyInput {
     pub family: &'static str,
     /// Packed encodings, one per operand.
     pub inputs: Vec<Vec<u8>>,
+    /// The arity handed to the row's measure function. [`ramp`] defaults
+    /// it to the operand count, which every host-drawn row either equals
+    /// or ignores; the guest-split party-fold row's families override it
+    /// with their declared share count.
+    pub arity: usize,
 }
 
 /// A packed event shape's stored version encoding.
@@ -58,7 +63,12 @@ fn ramp(
         if total > max_bytes {
             break;
         }
-        out.push(FamilyInput { family, inputs });
+        let arity = inputs.len();
+        out.push(FamilyInput {
+            family,
+            inputs,
+            arity,
+        });
         t *= 2;
     }
     out
@@ -88,6 +98,8 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
         Inputs::Packed(operands) => (operands, false),
         Inputs::PackedDistinct(operands) => (operands, true),
         Inputs::VersionSlice => return slice_overlays(op.name, max_bytes),
+        Inputs::ClockSlice => return clock_fold_overlays(max_bytes),
+        Inputs::PartyShares => return party_fold_overlays(max_bytes),
     };
     let mut out = Vec::new();
     match operands {
@@ -215,26 +227,6 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
                 ])
             }));
         }
-        // The clock fold row (one party fork-split over four version
-        // riders): the committed stagger population adapted to the fold's
-        // version halves — arity fixed at the row's four clocks, feed
-        // order preserved through the operand order — plus the composed
-        // clock families' cross as the non-stagger shape.
-        [Operand::Party, Operand::Version, Operand::Version, Operand::Version, Operand::Version] => {
-            out.extend(ramp("scattered_id × stagger (n=4)", max_bytes, |t| {
-                let mut inputs = vec![party_bytes(&Shape::ScatteredId.packed1(t))];
-                inputs.extend(stagger_versions(4, t));
-                Some(inputs)
-            }));
-            out.extend(ramp("id_spine × hugeleaf⁴", max_bytes, |t| {
-                let mut inputs = vec![party_bytes(&Shape::IdSpine.packed_flagged(t, false))];
-                inputs.extend(
-                    std::iter::repeat_with(|| version_bytes(&Shape::Hugeleaf.packed1(8 * t)))
-                        .take(4),
-                );
-                Some(inputs)
-            }));
-        }
         [Operand::Party] => {
             out.extend(ramp("scattered_id", max_bytes, |t| {
                 Some(vec![party_bytes(&Shape::ScatteredId.packed1(t))])
@@ -314,6 +306,60 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
             }));
         }
         other => panic!("no overlay mapping for operand signature {other:?}"),
+    }
+    out
+}
+
+/// The clock-fold row's committed families (one party, then the version
+/// riders the row composes into disjoint clocks): the committed stagger
+/// population adapted to the fold's version halves — each family at a
+/// fixed, labeled clock count, feed order preserved through the operand
+/// order — plus the composed clock families' cross as the non-stagger
+/// shape. The drawn-arity axis belongs to the bulk cloud; these
+/// committed points keep fixed arities so their readings compare across
+/// commits.
+fn clock_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
+    let mut out = Vec::new();
+    out.extend(ramp("scattered_id × stagger (n=4)", max_bytes, |t| {
+        let mut inputs = vec![party_bytes(&Shape::ScatteredId.packed1(t))];
+        inputs.extend(stagger_versions(4, t));
+        Some(inputs)
+    }));
+    out.extend(ramp("id_spine × hugeleaf⁴", max_bytes, |t| {
+        let mut inputs = vec![party_bytes(&Shape::IdSpine.packed_flagged(t, false))];
+        inputs.extend(
+            std::iter::repeat_with(|| version_bytes(&Shape::Hugeleaf.packed1(8 * t))).take(4),
+        );
+        Some(inputs)
+    }));
+    out
+}
+
+/// The declared share count of the party-fold row's committed overlay
+/// points, stated in every family label — the bulk cloud carries the
+/// drawn-arity axis, and these points keep one fixed arity so their
+/// readings compare across commits.
+const PARTY_FOLD_OVERLAY_SHARES: usize = 8;
+
+/// The party-fold row's committed families: the committed id shapes,
+/// each split into and re-merged from [`PARTY_FOLD_OVERLAY_SHARES`]
+/// balanced shares by the row's measure.
+fn party_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
+    let mut out = Vec::new();
+    out.extend(ramp("scattered_id (k=8)", max_bytes, |t| {
+        Some(vec![party_bytes(&Shape::ScatteredId.packed1(t))])
+    }));
+    out.extend(ramp("id_spine (k=8)", max_bytes, |t| {
+        Some(vec![party_bytes(&Shape::IdSpine.packed_flagged(t, false))])
+    }));
+    out.extend(ramp("memo_chain_id (k=8)", max_bytes, |t| {
+        Some(vec![party_bytes(&Shape::MemoChainId.packed1(t))])
+    }));
+    out.extend(ramp("nested_left_full_id (k=8)", max_bytes, |t| {
+        Some(vec![party_bytes(&Shape::NestedLeftFullId.packed1(t))])
+    }));
+    for family in &mut out {
+        family.arity = PARTY_FOLD_OVERLAY_SHARES;
     }
     out
 }
