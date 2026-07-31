@@ -71,204 +71,7 @@
 //!
 //! # Pin of record
 //!
-//! Re-pinned 2026-07-31 at the small-operand bands round: [`SMALL_BANDS`]
-//! lands with one constant-classified band per bootstrap-hot kernel,
-//! calibrated from the main corpus's own sub-floor samples pooled with
-//! the deterministic bootstrap stream (tick level 4.476 +0.782/−0.492
-//! over 10..127 bits, join 4.454 +0.395/−0.765 over 20..127, encode
-//! 2.729 +0.304/−0.139 over 10..127, decode 3.685 +0.683/−0.308 over
-//! 16..120). This round's own movement on the size-law bands is ZERO —
-//! attribution parent-measured, fit against fit: a fresh calibration at
-//! the parent commit reproduced this pin's `BANDS` and `REFIT_COVERAGE`
-//! sections byte-identically (the guest source, the corpus stream, and
-//! the roster draws are untouched by the round). The re-pin absorbs
-//! pre-existing drift accumulated since the previous pin's tree —
-//! 45 of 49 keys moved, everything at the third decimal or below except
-//! `ff_rank_add` intercept +0.0176 (~4% fuel), `ff_clock_seed` −0.0157,
-//! `ff_rank_checked_sub` intercept +0.0104 with width_below −0.0128, and
-//! `ff_party_seed` −0.0112 — guest code layout from the `before` rounds
-//! landed since, within the drift window the enforcement legs held green
-//! through.
-//!
-//! Re-pinned 2026-07-30 at the Bytes-backed at-rest form (`codec::Bits`
-//! over a refcounted byte buffer: clones are refcount bumps, the empty
-//! version and the seed id are static buffers, and the identity-law
-//! fast paths dispatch on clone identity). Attribution is
-//! parent-measured, fit against fit (a fresh parent calibration at
-//! 3a4f3c8e moved every band only at the third decimal — fit wobble —
-//! with `ff_clock_seed` unmoved). Three movements are the change's own
-//! mechanisms: `ff_clock_seed` intercept 3.136 → 2.228 (the seed
-//! allocates nothing off the static streams; ~1,369 → ~169 fuel),
-//! `ff_party_seed` intercept 2.695 → 2.196 (same mechanism), and
-//! `ff_clock_version` slope 0.865 → 0.000 with intercept 1.122 → 2.401
-//! (the accessor's version clone is a refcount bump, so the kernel is
-//! flat — the old size law was the clone's byte copy). Alongside the
-//! re-fit, pair steps whose operands dispatch an identity-law fast
-//! path (clone-shared buffers under cmp/concurrent, equal values under
-//! distance/lag/join/meet) leave the sample stream (`Step::identity`):
-//! their cost is `O(1)` by mechanism, not a size law, and fitting them
-//! alongside the walked cloud would smear both bands decoration-wide —
-//! their liveness is owned by before's `identity_fast_paths` meter
-//! pins. Every other band key moved at the second decimal or below —
-//! clone-cost constants inside the clock composites (fork/send/recv
-//! hand a version over by refcount now) and the parent refit's own
-//! wobble band.
-//!
-//! Re-pinned 2026-07-29 at the fused sync (`Clock::sync`'s party leg
-//! is one sum-split walk: the union's spine read in lockstep off both
-//! operands, the branch children delegated to `sum` or spliced
-//! verbatim where one side alone owns them; `sum` and `split`
-//! themselves are untouched). Attribution is parent-measured, fit
-//! against fit (a fresh parent calibration reproduced the committed
-//! pin byte-identically before the change): 24 of 48 band keys moved.
-//! The sync arms are the change's own mechanism — `ff_clock_sync`
-//! success slope 1.0062 → 0.9971 (intercept +0.0049: the fused walk
-//! undercuts the composition as operands grow), and its rejection
-//! arm's intercept 0.2897 → 0.0498 (−0.24 decades, ~42% fuel at the
-//! fit line, slope −0.012: an overlap refusal is now the walk's own
-//! early full-meets-nonempty exit, with none of the join-and-hand-back
-//! plumbing around it). Every other movement is guest code layout from
-//! `sum` and `split` gaining a second caller (inlining shifts — their
-//! own algorithms are byte-untouched, and every non-sync board counter
-//! reading is byte-identical to the parent at both scales):
-//! `ff_party_join` slope +0.0197 with intercept −0.0174 and its
-//! rejection arm's intercept +0.0809, `ff_clock_join` rejection slope
-//! +0.0216 with intercept +0.0119, the fork trio's intercepts +0.0106
-//! to +0.0140, and everything else at the third decimal or below. The
-//! enforcement leg held green at the previous pin before the re-fit.
-//!
-//! Re-pinned 2026-07-29 at the overlay migration (the remaining
-//! hand-rolled overlay advances — projection, the masked walk's n-ary
-//! loop, the id difference — onto the plateau-cursor law, plus the
-//! shared two-skyline opening whose unread opening-height buffers now
-//! drop at the destructure instead of living to function end). Every
-//! deterministic limb, scan, touch, and segment reading held
-//! byte-identical at both board scales against the parent; the heap
-//! column alone moved, per-byte transient-peak constants down on the
-//! wide-opening families (the freed opening buffers) with
-//! second-decimal exponent wobble from the reduced peaks, zero verdict
-//! flips, and the worst-case pin clean. Attribution is parent-measured,
-//! fit against fit (a fresh parent calibration reproduced the committed
-//! pin byte-identically before the change): 29 of 49 band keys moved,
-//! every slope and intercept at the third decimal or below, and every
-//! width leg likewise except the comparison pair's below-line widths,
-//! which narrowed (`ff_version_cmp` −0.0115, `ff_version_concurrent`
-//! −0.0116: the re-fit's one-sided residual cloud pulled in from
-//! below, tightening the liveness allowance). The walk kernels'
-//! constants:
-//! `ff_version_cmp`/`ff_version_concurrent` intercepts
-//! +0.0053/+0.0052 (~1.2% fuel at the fit line, slopes −0.0014),
-//! `ff_version_project` +0.0047, `ff_version_lag` +0.0032,
-//! `ff_version_distance` +0.0028, join/meet and their n-ary folds
-//! +0.0019 to +0.0028, `ff_party_without` +0.0011 (its rejection arm
-//! +0.0002), with `ff_version_rank`, `ff_version_min_ticks`, and
-//! `ff_version_tick` unmoved past the fourth decimal. The single
-//! largest constant movement is an untouched kernel — `ff_rank_add`
-//! intercept +0.0099 at slope −0.0034, Rank addition, which shares
-//! nothing with the walk seam — so that scale of residue is guest code
-//! layout from the recompile, and the walk kernels' own constant
-//! movement sits at or under the ~1.2% pair. The enforcement leg held
-//! green at the previous pin before the re-fit.
-//!
-//! Re-pinned 2026-07-29 at the overlay-advance unification (the
-//! plateau-cursor trait and the one generic binary `advance` in
-//! `version/skyline/sweep.rs`, traversal separated from algebra: the
-//! cursors yield their crossings and the clients fold them). Every
-//! value and every deterministic meter reading held byte-identical —
-//! the amplification board renders byte-identically at both scales of
-//! record against the parent — so the movement here is instruction
-//! count alone, code layout from the guest recompile. Attribution is
-//! parent-measured, fit against fit at the parent and the tip: this
-//! change moved 15 bands, all at the third decimal or below — the
-//! largest is the comparison pair's intercept (+0.005 decades, ~1.1%
-//! fuel at the fit line: `ff_version_cmp` 1.7557 → 1.7606,
-//! `ff_version_concurrent` 1.7579 → 1.7627, at slopes −0.0009 and
-//! −0.0008), then the pair integrals' intercepts
-//! (`ff_version_distance` +0.0022, `ff_version_lag` +0.0024), with
-//! every other movement — join, meet, rank, min_ticks, project, and
-//! the clock compositions — at ±0.0015 or below (largest
-//! `ff_version_meet` intercept −0.0014). The diff on top of the
-//! committed pin is larger than that: 24 bands carried pre-existing
-//! drift from the rounds since the first-freeze pin below, which held
-//! enforcement green without recalibrating (largest
-//! `ff_version_encode` width_above +0.099 and `ff_version_fromstr`
-//! intercept +0.024, neither a sweep kernel; the sweep kernels' own
-//! drift tops out at ±0.0016, `ff_version_min_ticks`
-//! width_below) — this re-pin absorbs that drift, and
-//! the numbers above are this change's own movement only. The
-//! enforcement leg held green at the previous pin before the re-fit.
-//!
-//! Re-pinned 2026-07-29 at the first-freeze segment gate (round #87:
-//! the query integrator's segment and window feeds open at the first
-//! freeze, so never-freezing sweeps — most of the organic corpus —
-//! deposit no interval mass; same corpus, toolchain, and strategy as
-//! the cluster-delegated pin below, the movement is the kernels'):
-//! the linear-functional trio's intercepts dropped with slopes
-//! marginally flatter — `ff_version_rank` 2.095 → 2.046 (−0.049
-//! decades, ~11% fuel at the fit line) at slope 1.1289 → 1.1274,
-//! `ff_version_distance` 2.206 → 2.179 at slope −0.0006,
-//! `ff_version_lag` 2.155 → 2.130 at slope −0.0017 — and
-//! `ff_version_min_ticks` wobbled at the sixth decimal with every
-//! other band at the third or below (code layout from the guest
-//! recompile; the min_ticks fold does not ride the integrator). The
-//! enforcement leg held green at the previous pin before the re-fit.
-//!
-//! Re-pinned 2026-07-28 at the cluster-delegated settle (the settle
-//! products through the backend's multiplication, mass-balanced
-//! ledger tree; same corpus, toolchain, and strategy as the meet-fold
-//! pin below — the movement is the kernels'): every enforcement leg
-//! held at the previous pin without a trip, and the re-fit moved one
-//! band at the sixth decimal — `ff_version_min_ticks` slope
-//! 1.097606 → 1.097638 — with the linear-functional trio
-//! byte-identical: the organic corpus rarely arms the ledger, its
-//! settles sit inside the pinned tolerances, and min_ticks' wobble is
-//! code layout alone (its own kernels are untouched; `mul_into` lost
-//! its query-settle callers, which moves inlining, not work).
-//!
-//! Re-pinned 2026-07-28 at the balanced meet fold and the window-digit
-//! combine tap (same corpus, toolchain, and strategy as the
-//! product-tree pin below — the movement is the kernels'):
-//! `ff_version_meet_all` slope 1.020 → 1.109 with intercept
-//! 2.068 → 2.491 and width_above 0.897 → 0.289 — the fold left the
-//! sequential reduce for the join folds' balanced binary counter, so
-//! its organic law now sits at `ff_version_join_all`'s shape (slope
-//! 1.144) with a much tighter ceiling: the wide positive residuals
-//! were the reduce's non-shrinking-accumulator re-walks, exactly what
-//! the cure forecloses (its committed adversarial record is the
-//! `meet_fold` band and tripwire, `tests/meter.rs`; this band prices
-//! the organic corpus). `ff_version_join_all` width_below
-//! 2.03 → 2.39 (the shared reduction's drain starts from the heaviest
-//! group instead of folding from the empty identity, so the cheapest
-//! draws got cheaper); the linear-functional trio and every other
-//! band moved at the third decimal or below (the guest builds
-//! `before` at default features, so the combine tap compiles to
-//! nothing there — any fuel movement from it is code layout alone).
-//!
-//! Re-pinned 2026-07-28 at the balanced product-tree ledger settle
-//! (same corpus, toolchain, and strategy as the #78 pin below — the
-//! movement is the kernels'): the linear-functional trio moved at the
-//! fourth decimal (`ff_version_rank` slope 1.1291 → 1.1289 with
-//! intercept +0.0006, `ff_version_distance` and `ff_version_lag`
-//! alike) — the corpus's organic draws rarely promote, so the settle's
-//! tree registers only at the margin — and `ff_version_min_ticks`
-//! drifted at the same decimal with them (guest codegen layout from
-//! the query module's new settle code, not a kernel change; the
-//! min_ticks fold does not ride the integrator). No width moved past
-//! the third decimal; the staleness leg stayed green through the cure.
-//!
-//! Re-pinned 2026-07-28 at the cure round #78 merge (same corpus,
-//! toolchain, and strategy as the 2026-07-27 pin below — the movement is
-//! the kernels'): `ff_version_min_ticks` slope 1.123 → 1.098 with
-//! intercept 2.176 → 2.568 — the anchor-web fold's trade, a flatter law
-//! bought with ~0.39 decades of small-operand setup (the prior law
-//! read the retired pending-minima fold, and the new fold's ~180k fuel
-//! at 167 bits sat 1.7× over the stale ceiling); `ff_version_rank`
-//! +0.05 decades intercept at a marginally flatter slope (the
-//! anchored-segment integrator); every other band moved at the third
-//! decimal (the zero-run ledger's per-write upkeep riding every
-//! accumulator kernel).
-//!
-//! Pinned 2026-07-27: corpus 4096 programs (~2.64M measured steps), guest
+//! The pin of record: corpus 4096 programs (~2.64M measured steps), guest
 //! at wasm32-unknown-unknown release (codegen-units 1, panic=abort) under
 //! the toolchain in [`PINNED_RUSTC`], wasmtime 47 fuel. 49 band keys: 44
 //! kernels, of which five have sampled rejection arms (`clock_join` and
@@ -277,6 +80,20 @@
 //! unpriced outcome is `meet_all([])`'s `None`: production-reachable but
 //! structurally constant — no operand exists, so there is nothing for a
 //! regression to scale with and nothing to denominate a cost against.
+//!
+//! [`SMALL_BANDS`] carries one constant-classified band per bootstrap-hot
+//! kernel, calibrated from the main corpus's own sub-floor samples pooled
+//! with the deterministic bootstrap stream (tick level 4.476 +0.782/−0.492
+//! over 10..127 bits, join 4.454 +0.395/−0.765 over 20..127, encode
+//! 2.729 +0.304/−0.139 over 10..127, decode 3.685 +0.683/−0.308 over
+//! 16..120).
+//!
+//! Pair steps whose operands dispatch an identity-law fast path
+//! (clone-shared buffers under cmp/concurrent, equal values under
+//! distance/lag/join/meet) leave the sample stream (`Step::identity`):
+//! their cost is `O(1)` by mechanism, not a size law, and fitting them
+//! alongside the walked cloud would smear both bands decoration-wide —
+//! their liveness is owned by before's `identity_fast_paths` meter pins.
 //!
 //! All 49 band keys read linear-or-flatter within every family above the
 //! 128-bit fit floor — the within-case shape diagnostic's maximum healthy
@@ -293,7 +110,9 @@
 //! on the join/sync arms, covered operands settled in one block scan
 //! on the emptiness arm — while the full-scan rejections hold the top,
 //! where each arm's own per-bit medians read flat; legitimate full-scan
-//! rejections at small n price inside each arm's own ceiling width.
+//! rejections at small n price inside each arm's own ceiling width (the
+//! committed enforcement sentry seed — a 139-bit full-scan overlap
+//! rejection at 6805 fuel — prices in-band under this pin).
 //! `party_without`'s success arm reads sublinear (0.72) as the mirror
 //! of the same mixture: the sweep's covered-block early exits win
 //! proportionally more at scale, and the arm's per-bit medians fall
@@ -305,29 +124,11 @@
 //! ladder (fold width is budget-capped, so the factor is bounded and the
 //! band prices it).
 //!
-//! Movement against the previous pin (2026-07-27, the DsiCursor pin),
-//! by mechanism. This re-pin is the #72 merge round's owner-approved
-//! evidence widening: the corpus of record grew 1536 → 4096 programs
-//! (~985k → ~2.64M steps) with no guest, generator, strategy, or
-//! toolchain change riding along, so the lines replay within sampling
-//! noise (slopes move in the third decimal) and every movement is
-//! evidence, not fuel:
-//!
-//! - **The rejection arms learned the full-scan genre at small
-//!   denominators.** Tripled evidence on every rejection band
-//!   (`clock_join` [err] 146 → 409 samples) prices the genre the old
-//!   corpus under-sampled: a legitimate full-scan rejection at small n
-//!   sits above the cheap-early-detection line that dominates the small
-//!   buckets, and the widened corpus draws enough of them that the
-//!   ceiling learns their spread (`clock_join` [err] width_above
-//!   0.335 → 0.550, slope 1.370 → 1.374 — the committed enforcement
-//!   sentry seed, a 139-bit full-scan overlap rejection at 6805 fuel,
-//!   prices in-band under this pin; it was the escape that motivated
-//!   the widening).
-//! - **Floor widths widen where the new draws populate cheap tails**
-//!   (`rank_cmp` width_below 1.141 → 1.455, `clock_join` success
-//!   1.305 → 1.490): more small-denominator mass, honest dispersion,
-//!   no slope movement.
+//! Movement between pins belongs to the re-pinning commit, not this doc:
+//! attribution is parent-measured, fit against fit (a fresh calibration
+//! at the parent commit separates the change's own movement from
+//! accumulated drift), and the enforcement legs must hold green at the
+//! previous pin before any re-fit.
 
 /// One pinned band (see the module doc for the membership predicate).
 #[derive(Debug, Clone, Copy)]
@@ -364,8 +165,8 @@ pub struct Band {
 /// (`bin/calibrate` replays the enforcement suite's fixed escalation
 /// programs — deterministic enforcement-context executions outside the
 /// calibration corpus — and re-derives their worst ceiling excess on
-/// every re-pin): the observed maximum is +0.024 decades (2026-07-31,
-/// `ff_version_project` at the depth-1792 escalation replay), so the
+/// every re-pin): the observed maximum is +0.024 decades
+/// (`ff_version_project` at the depth-1792 escalation replay), so the
 /// margin sits ~8× above the honest enforcement-context excess. The ceiling carries the
 /// regression claim, so its slack stays tight; contrast
 /// [`ENFORCE_MARGIN_BELOW`].
@@ -376,7 +177,7 @@ pub const ENFORCE_MARGIN: f64 = 0.2;
 /// The floor carries the liveness claim: a dead meter or an unmeasured
 /// path reads at nop level, and every pinned floor still clears that
 /// reading with this slack subtracted. Measured at pin time
-/// (`bin/calibrate` re-derives the minimum on every re-pin, 2026-07-31,
+/// (`bin/calibrate` re-derives the minimum on every re-pin over
 /// the 4096-program corpus): the narrowest gap is 0.113 decades,
 /// `ff_rank_cmp` at its 128-bit fit floor — its floor width carries the
 /// unequal-pair fast-path tail, widened by the corpus's extra
@@ -387,7 +188,7 @@ pub const ENFORCE_MARGIN: f64 = 0.2;
 /// key), and above the honest cheap tail (fresh draws legitimately
 /// undercut the corpus minimum — the committed rejection-shape seed's
 /// `join_all` step read 0.29 below the pinned floor width at this
-/// margin's original derivation, 2026-07-26 — because a liveness
+/// margin's derivation — because a liveness
 /// threshold left inside the honest distribution's tail relocates that
 /// dispersion into flakiness).
 pub const ENFORCE_MARGIN_BELOW: f64 = 0.8;
@@ -406,7 +207,7 @@ pub const REFIT_PREFIX_PROGRAMS: usize = 256;
 /// Largest allowed [`crate::fit::line_divergence`] between the prefix
 /// refit and the pin, in `log₁₀` units.
 ///
-/// Measured 2026-07-31 at pin time (`bin/calibrate` re-derives the
+/// Measured at pin time (`bin/calibrate` re-derives the
 /// evidence on every re-pin; the 4096-program corpus): the prefix's own
 /// sampling difference from the full corpus peaks at 0.497
 /// (`ff_party_join`'s rejection arm, the thinnest-sampled band key

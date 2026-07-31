@@ -914,7 +914,7 @@ fn parity_halves(d: usize) -> (Party, Party) {
 /// that cost visible to no deterministic counter. Floor = the measured
 /// reading ×0.75 (the envelope suite's liveness-floor convention);
 /// re-derive it in any diff that legitimately does fewer probes.
-/// \[Measured 135_196 bits at d = 10, dev profile, 2026-07-28; the
+/// \[Measured 135_196 bits at d = 10, dev profile; the
 /// cursor co-walk reads 6_140 bits on the same pair, so a de-metered
 /// search would read more than an order under the floor.\]
 #[cfg(feature = "scan-meter")]

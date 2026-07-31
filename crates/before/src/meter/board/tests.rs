@@ -132,11 +132,10 @@ fn rendered_text_is_honest_and_padding_trips() {
 /// The pipeline records from three sites — the delegated radix conversion
 /// (one width-proportional count per materialized value), the gamma
 /// encoder's arithmetic, and the validator's wide decodes — and the radix
-/// site alone contributes ~33% on hugeleaf and ~17% on bigroot \[measured
-/// 2026-07-31 — pipeline totals 752 and 24_399; 502 and 20_272 with the
-/// radix recording deleted. The radix side's own contribution (250 and
-/// 4_127) is unmoved since the 2026-07-24 record; the other sites' bigroot
-/// share grew under the standing ceiling\]. A floor at ×0.85 (639 and
+/// site alone contributes ~33% on hugeleaf and ~17% on bigroot \[measured:
+/// pipeline totals 752 and 24_399; 502 and 20_272 with the radix
+/// recording deleted; the radix side's own contribution is 250 and
+/// 4_127\]. A floor at ×0.85 (639 and
 /// 20_739) sits above what the other two sites can reach, so a parse path
 /// that stops recording trips it; the values' mandatory limbs alone cannot
 /// separate that bypass (the encode-side arithmetic already covers them).

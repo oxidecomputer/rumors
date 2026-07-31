@@ -197,8 +197,8 @@ const BIGROOT_BASE_DEPTH: usize = 2_000;
 /// Sized so the level doubling stays inside one backend
 /// decimal-conversion regime: the backend's divide-and-conquer parser
 /// switches algorithm between 16,000 and 20,000 value bits (its parse
-/// transient steps from ~1× to ~4× the value bytes there, measured
-/// 2026-07-29), and a probe pair straddling that switch reads the
+/// transient steps from ~1× to ~4× the value bytes there, by
+/// measurement), and a probe pair straddling that switch reads the
 /// step as a heap exponent — a 16,000-bit base fits e 1.41 on the
 /// noncanon parse cell from a flat 2 B/B constant, while this base's
 /// pair and every deeper one fit e ≤ 1.0. A two-point fit prices
@@ -462,7 +462,7 @@ const WIDE_ARMING_BASE_DIGITS: usize = 512;
 /// board's own cost: the family's packed construction spells the
 /// plateau once per turn, so every bundle build pays `Θ(s²)` packed
 /// bits, and this knob owns the board's dominant build cost.
-/// Calibration (measured 2026-07-29, dev profile, exact counters,
+/// Calibration (dev profile, exact counters,
 /// the query fold's committed schoolbook kernel): across the level
 /// doubling PP(384, 384) → PP(768, 768) the known-bad settle reads
 /// ×1.879 touch and ×1.579 limb per byte — above the shipped

@@ -144,7 +144,7 @@ pub(super) const NA_SCAN_SEED_PARTY: &str =
     "the forked party is the seed: its packed form is empty";
 /// Scan NA: the whole-interval party's projection is the version itself.
 ///
-/// Declared 2026-07-31, truing the floor to the seed fast path: the
+/// The floor is trued to the seed fast path: the
 /// materialization is an `O(1)` buffer-sharing clone, so no stream walk
 /// is forced and the honest floor is zero.
 pub(super) const NA_SCAN_SEED_PROJECTION: &str = "the whole-interval (seed) party's projection \
@@ -206,9 +206,9 @@ const WHY_HEAP_MATERIALIZES: &str =
 /// Heap NA: the forked child's version hand-over shares the refcounted
 /// stored buffer.
 ///
-/// Declared 2026-07-31, truing the floor to the `bytes::Bytes`-backed
-/// at-rest form: a version clone is a refcount bump, so the byte-copy
-/// premise the old floor asserted is gone and the honest floor is zero.
+/// The floor is trued to the `bytes::Bytes`-backed at-rest form: a
+/// version clone is a refcount bump, so no byte copy is semantically
+/// forced and the honest floor is zero.
 pub(super) const NA_HEAP_FORK_SHARES: &str = "the forked child's version hand-over is a \
      refcount bump on the shared stored buffer, never a byte copy, and no other allocation \
      is semantically forced";

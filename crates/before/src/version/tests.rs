@@ -1493,8 +1493,8 @@ fn rank_decoding_rejects_each_genre() {
 /// (wide counters, answer-embedding products) and exponent depth
 /// (spines), plus the dense-fraction staircase that maximizes set bits
 /// per level — and the pin holds each family's encoded size at or
-/// under 1.0 bit per packed input bit. Measured \[2026-07-29, this
-/// test instrumented\]: wide counter 0.56 (the worst — a lone
+/// under 1.0 bit per packed input bit. Measured \[by this
+/// test's own instrumentation\]: wide counter 0.56 (the worst — a lone
 /// counter's version pays gamma's doubled width where the encoding
 /// pays the width once), deep spine 0.38, dense staircase 0.38, deep
 /// wide counter 0.27, plateau puncture 0.18; the 1.0 pin leaves
@@ -2274,10 +2274,9 @@ fn div_can_fragment_and_raise_min_ticks() {
 /// regression here means the storage grew a field beside the container —
 /// the cached live length must ride inside it, since the wire
 /// legitimately omits it.
-// 24/48 -> 40/80 (2026-07-30, the Bytes-backed at-rest form: the
-// refcounted handle carries one more word than the owning bit-vector,
-// plus the live bit length beside it — the handle growth that buys the
-// O(1) clone).
+// The Bytes-backed at-rest form: the refcounted handle carries one
+// more word than an owning bit-vector would, plus the live bit length
+// beside it — the handle growth that buys the O(1) clone.
 #[test]
 fn at_rest_size_is_one_container_per_stream() {
     assert_eq!(core::mem::size_of::<Version>(), 40);

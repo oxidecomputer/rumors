@@ -51,7 +51,7 @@
 //!   two bound legs; the named test anchors the reduction.
 //! - [`Leg::Excluded`]: not bound, with the reason. The function-space
 //!   boundary's exclusion dispositions are the owner's, marked
-//!   "ratified by owner, 2026-07-26" at each reason.
+//!   "ratified by owner" at each reason.
 //!
 //! # Exclusion families
 //!

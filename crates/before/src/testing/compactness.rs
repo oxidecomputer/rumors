@@ -31,7 +31,7 @@ mod tests;
 /// Per-node envelope constant: `tier2_bits <= 2 * current_bits +
 /// TIER2_NODE_ENVELOPE_BITS * nodes` on every measured sample.
 ///
-/// Provenance: measured (2026-07-23; ~13k samples: 5000 arbitrary trees,
+/// Provenance: measured (~13k samples: 5000 arbitrary trees,
 /// ~7800 organic-history versions at trace lengths up to 400, the
 /// adversarial-shape and comb grids, and realistic gossip populations). The
 /// derivation (each stored base charged at most twice, O(1) bits per gamma
@@ -47,7 +47,7 @@ pub(crate) const TIER2_NODE_ENVELOPE_BITS: f64 = 0.0;
 /// 2 * stored_base_bits + EULER_LEAF_CHARGE_BITS * leaves` on every measured
 /// sample.
 ///
-/// Provenance: measured (same 2026-07-23 sweep as
+/// Provenance: measured (the same sweep as
 /// [`TIER2_NODE_ENVELOPE_BITS`]), with the delta stream priced at its
 /// zigzag-gamma lengths (what the codec would emit; at most 2 bits per leaf
 /// over `gamma(|delta|)`), so the constant covers the sign convention too.

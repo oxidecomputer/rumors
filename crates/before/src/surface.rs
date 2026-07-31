@@ -80,7 +80,7 @@ const fn codec_row(op: &'static str) -> SurfaceRow {
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
-             semantic domain quotients away — ratified by owner, 2026-07-26",
+             semantic domain quotients away — ratified by owner",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     }
@@ -119,8 +119,7 @@ const fn span_row(op: &'static str) -> SurfaceRow {
 /// family of rows; the reason carries the half-binding rationale.
 const HANDBACK: &str = "hand-back value identity and order against the fixed accumulator \
      are not functions of the geometry, and a verdict-only binding would read as \
-     coverage while the hand-back contract stayed unbound — ratified by owner, \
-     2026-07-26";
+     coverage while the hand-back contract stayed unbound — ratified by owner";
 
 /// The roster over the mechanically-extracted inherent `pub fn` surface.
 /// The surface-coverage suite's `roster_is_total_over_the_public_fn_surface` holds
@@ -138,7 +137,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Bound("is_seed_matches_the_oracle"),
         prod_fs: Leg::Excluded(
             "API-convenience predicate; the function-space boundary excludes Rust API \
-             mechanics — ratified by owner, 2026-07-26",
+             mechanics — ratified by owner",
         ),
         tree_fs: Leg::Excluded(
             "definitional: in normal form the full region is exactly the oracle seed \
@@ -209,9 +208,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
             "aliasing violates production linearity by design; the Clone oracle has no \
              counterpart — pinned on production by the alias_is_byte_identical_overlap law",
         ),
-        prod_fs: Leg::Excluded(
-            "linearity mechanics of the Rust API — ratified by owner, 2026-07-26",
-        ),
+        prod_fs: Leg::Excluded("linearity mechanics of the Rust API — ratified by owner"),
         tree_fs: Leg::Excluded("linearity mechanics of the Rust API"),
     },
     codec_row("Party::encode"),
@@ -291,11 +288,11 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Trans("join_all_equals_the_sequential_fold"),
         prod_fs: Leg::Excluded(
             "n-ary pointwise-max realization not adopted; the operation stays bound \
-             on its prod↔tree leg — ratified by owner, 2026-07-26",
+             on its prod↔tree leg — ratified by owner",
         ),
         tree_fs: Leg::Excluded(
             "n-ary pointwise-max realization not adopted; the operation stays bound \
-             on its prod↔tree leg — ratified by owner, 2026-07-26",
+             on its prod↔tree leg — ratified by owner",
         ),
     },
     SurfaceRow {
@@ -303,11 +300,11 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Bound("meet_all_matches_oracle"),
         prod_fs: Leg::Excluded(
             "n-ary pointwise-min realization not adopted; the operation stays bound \
-             on its prod↔tree leg — ratified by owner, 2026-07-26",
+             on its prod↔tree leg — ratified by owner",
         ),
         tree_fs: Leg::Excluded(
             "n-ary pointwise-min realization not adopted; the operation stays bound \
-             on its prod↔tree leg — ratified by owner, 2026-07-26",
+             on its prod↔tree leg — ratified by owner",
         ),
     },
     SurfaceRow {
@@ -442,9 +439,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
             "linearity mechanics; an O(1) two-field composition over the party alias, \
              which the alias_is_byte_identical_overlap law pins",
         ),
-        prod_fs: Leg::Excluded(
-            "linearity mechanics of the Rust API — ratified by owner, 2026-07-26",
-        ),
+        prod_fs: Leg::Excluded("linearity mechanics of the Rust API — ratified by owner"),
         tree_fs: Leg::Excluded("linearity mechanics of the Rust API"),
     },
     // ───────────────────────────── Rank / Ranked ─────────────────────────────
@@ -471,7 +466,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
-             semantic domain quotients away — ratified by owner, 2026-07-26",
+             semantic domain quotients away — ratified by owner",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
@@ -484,7 +479,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
-             semantic domain quotients away — ratified by owner, 2026-07-26",
+             semantic domain quotients away — ratified by owner",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
@@ -498,7 +493,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
-             semantic domain quotients away — ratified by owner, 2026-07-26",
+             semantic domain quotients away — ratified by owner",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
@@ -545,7 +540,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
-             semantic domain quotients away — ratified by owner, 2026-07-26",
+             semantic domain quotients away — ratified by owner",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
@@ -566,7 +561,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
-             semantic domain quotients away — ratified by owner, 2026-07-26",
+             semantic domain quotients away — ratified by owner",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
@@ -665,7 +660,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
-             semantic domain quotients away — ratified by owner, 2026-07-26",
+             semantic domain quotients away — ratified by owner",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     },
@@ -741,11 +736,11 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Trans("join_all_equals_the_sequential_fold"),
         prod_fs: Leg::Excluded(
             "n-ary pointwise-max realization not adopted; the operation stays bound \
-             on its prod↔tree leg — ratified by owner, 2026-07-26",
+             on its prod↔tree leg — ratified by owner",
         ),
         tree_fs: Leg::Excluded(
             "n-ary pointwise-max realization not adopted; the operation stays bound \
-             on its prod↔tree leg — ratified by owner, 2026-07-26",
+             on its prod↔tree leg — ratified by owner",
         ),
     },
     SurfaceRow {
