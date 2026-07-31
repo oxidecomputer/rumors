@@ -1113,6 +1113,211 @@ pub extern "C" fn ff_span_decode(dst: u32) -> i32 {
     })
 }
 
+/// `Span | Span`: the containment join of the spans in `a` and `b`
+/// into `dst` (operands read in place; the union's endpoints are
+/// minted owned).
+#[no_mangle]
+pub extern "C" fn ff_span_union(dst: u32, a: u32, b: u32) -> i32 {
+    let r = with_s(a, |sa| with_s(b, |sb| sa | sb));
+    match r {
+        Some(Some(s)) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        _ => ERR_REG,
+    }
+}
+
+/// `Span & Span`: the containment meet of the spans in `a` and `b`
+/// into `dst`.
+///
+/// Returns 1 with `dst` written when the segments share a version, 0
+/// with `dst` untouched on the empty intersection — both measured
+/// verdicts, not errors.
+#[no_mangle]
+pub extern "C" fn ff_span_intersect(dst: u32, a: u32, b: u32) -> i32 {
+    let r = with_s(a, |sa| with_s(b, |sb| sa & sb));
+    match r {
+        Some(Some(Some(s))) => {
+            put(dst, Val::S(s));
+            1
+        }
+        Some(Some(None)) => 0,
+        _ => ERR_REG,
+    }
+}
+
+/// `Span + Span`: the pointwise join of the spans in `a` and `b` into
+/// `dst`.
+#[no_mangle]
+pub extern "C" fn ff_span_sum(dst: u32, a: u32, b: u32) -> i32 {
+    let r = with_s(a, |sa| with_s(b, |sb| sa + sb));
+    match r {
+        Some(Some(s)) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        _ => ERR_REG,
+    }
+}
+
+/// `Span * Span`: the pointwise meet of the spans in `a` and `b` into
+/// `dst`.
+#[no_mangle]
+pub extern "C" fn ff_span_product(dst: u32, a: u32, b: u32) -> i32 {
+    let r = with_s(a, |sa| with_s(b, |sb| sa * sb));
+    match r {
+        Some(Some(s)) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        _ => ERR_REG,
+    }
+}
+
+/// Borrow the spans in `src..src + n` as (receiver, items) and run
+/// one n-ary span door over them.
+///
+/// The span in `src` is the receiver, the rest ride as the iterator,
+/// feed order preserved; every operand is borrowed — the balanced
+/// fold reads them in place and mints its endpoints owned.
+fn span_fold<T>(
+    src: u32,
+    n: u32,
+    door: impl FnOnce(&Span<'static>, Vec<&Span<'static>>) -> T,
+) -> Option<T> {
+    if n == 0 {
+        return None;
+    }
+    REGS.with_borrow(|regs| {
+        let span = |i: u32| match regs.get(i as usize) {
+            Some(Some(Val::S(s))) => Some(s),
+            _ => None,
+        };
+        let receiver = span(src)?;
+        let others: Vec<&Span<'static>> = (1..n).map(|i| span(src + i)).collect::<Option<_>>()?;
+        Some(door(receiver, others))
+    })
+}
+
+/// `Span::union_all`: the containment join of the spans in
+/// `src..src + n` into `dst` (the receiver-seeded balanced fold; the
+/// span in `src` is the receiver, feed order preserved).
+#[no_mangle]
+pub extern "C" fn ff_span_union_all(dst: u32, src: u32, n: u32) -> i32 {
+    match span_fold(src, n, |receiver, others| receiver.union_all(others)) {
+        Some(s) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        None => ERR_REG,
+    }
+}
+
+/// `Span::intersect_all`: the containment meet of the spans in
+/// `src..src + n` into `dst` (the receiver-seeded balanced fold).
+///
+/// Returns 1 with `dst` written on a shared segment, 0 with `dst`
+/// untouched on the empty intersection — both measured verdicts.
+#[no_mangle]
+pub extern "C" fn ff_span_intersect_all(dst: u32, src: u32, n: u32) -> i32 {
+    match span_fold(src, n, |receiver, others| receiver.intersect_all(others)) {
+        Some(Some(s)) => {
+            put(dst, Val::S(s));
+            1
+        }
+        Some(None) => 0,
+        None => ERR_REG,
+    }
+}
+
+/// `Span::sum_all`: the pointwise join of the spans in `src..src + n`
+/// into `dst` (the receiver-seeded balanced fold).
+#[no_mangle]
+pub extern "C" fn ff_span_sum_all(dst: u32, src: u32, n: u32) -> i32 {
+    match span_fold(src, n, |receiver, others| receiver.sum_all(others)) {
+        Some(s) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        None => ERR_REG,
+    }
+}
+
+/// `Span::product_all`: the pointwise meet of the spans in
+/// `src..src + n` into `dst` (the receiver-seeded balanced fold).
+#[no_mangle]
+pub extern "C" fn ff_span_product_all(dst: u32, src: u32, n: u32) -> i32 {
+    match span_fold(src, n, |receiver, others| receiver.product_all(others)) {
+        Some(s) => {
+            put(dst, Val::S(s));
+            OK
+        }
+        None => ERR_REG,
+    }
+}
+
+/// The span projection, materialized: `dst = (&span / &party).to_span()`
+/// (the view construction is O(1) and prices nothing; this kernel
+/// prices the two-endpoint materialization).
+#[no_mangle]
+pub extern "C" fn ff_span_project(dst: u32, s: u32, p: u32) -> i32 {
+    let out = with_s(s, |span| with_p(p, |party| (span / party).to_span()));
+    match out {
+        Some(Some(projected)) => {
+            put(dst, Val::S(projected));
+            OK
+        }
+        _ => ERR_REG,
+    }
+}
+
+/// `OwnSpan::place`: the nine-way placement of the version in `probe`
+/// against the projection of the span in `s` by the party in `p`,
+/// encoded 0..=8 as `ff_span_place` encodes its verdict.
+#[no_mangle]
+pub extern "C" fn ff_own_span_place(s: u32, p: u32, probe: u32) -> i32 {
+    let r = with_s(s, |span| {
+        with_p(p, |party| with_v(probe, |v| (span / party).place(v)))
+    });
+    match r {
+        Some(Some(Some(placement))) => match placement {
+            Placement::Before => 0,
+            Placement::At(Endpoint::Start) => 1,
+            Placement::At(Endpoint::End) => 2,
+            Placement::At(Endpoint::Both) => 3,
+            Placement::Between => 4,
+            Placement::Concurrent(Endpoint::Start) => 5,
+            Placement::Concurrent(Endpoint::End) => 6,
+            Placement::Concurrent(Endpoint::Both) => 7,
+            Placement::After => 8,
+        },
+        _ => ERR_REG,
+    }
+}
+
+/// `OwnSpan::dominance_of`: the three-way dominance coarsening of the
+/// version in `probe` against the projection of the span in `s` by
+/// the party in `p`, encoded 0 `Before`, 1 `Between`, 2 `After`.
+///
+/// The coarse question buys the projected placement's early exit: a
+/// probe the projected start refutes never walks the end, so its fuel
+/// can undercut `ff_own_span_place`'s there.
+#[no_mangle]
+pub extern "C" fn ff_own_span_dominance(s: u32, p: u32, probe: u32) -> i32 {
+    let r = with_s(s, |span| {
+        with_p(p, |party| with_v(probe, |v| (span / party).dominance_of(v)))
+    });
+    match r {
+        Some(Some(Some(dominance))) => match dominance {
+            Dominance::Before => 0,
+            Dominance::Between => 1,
+            Dominance::After => 2,
+        },
+        _ => ERR_REG,
+    }
+}
+
 // ─── instrument self-test (measured, deliberately not a kernel) ──────────────
 
 /// A deliberately quadratic burner: `n²` iterations, each pinned by
