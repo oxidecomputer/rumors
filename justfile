@@ -181,9 +181,11 @@ features:
     cargo check -p before --no-default-features --features limb-meter
     cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
+    cargo check -p before --no-default-features --features doc-images
     cargo check -p rumors --no-default-features
     cargo check -p rumors --features protocol-v1
     cargo check -p rumors --features meter
+    cargo check -p rumors --no-default-features --features conformance
 
 # The viz engine must keep compiling for its real target, not just the host.
 wasm-check:
