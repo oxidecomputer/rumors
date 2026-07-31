@@ -43,10 +43,12 @@ fn scan(dir: &Path, root: &Path, found: &mut BTreeMap<String, usize>) {
 }
 
 /// The library's `#[doc(hidden)]` occurrences match the committed
-/// roster exactly — both directions, so a new hidden public item (an
-/// escape from the surface-totality pincer, which cannot see hidden
-/// items in rustdoc JSON) fails here until it gains a reviewed roster
-/// entry, and a removed one orphans its entry.
+/// roster exactly, in both directions.
+///
+/// A new hidden public item (an escape from the surface-totality
+/// pincer, which cannot see hidden items in rustdoc JSON) fails here
+/// until it gains a reviewed roster entry, and a removed one orphans
+/// its entry.
 #[test]
 fn doc_hidden_occurrences_match_the_committed_roster() {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
