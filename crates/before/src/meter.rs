@@ -68,6 +68,10 @@ pub mod tier2;
 /// suite can pin its validator's transient state and limb behavior.
 pub use crate::version::skyline;
 
+/// The pair-hull rung snapshot, re-exported beside its readers
+/// ([`span_traffic`]/[`reset_span_traffic`]).
+pub use crate::version::hull_traffic::SpanTraffic;
+
 use crate::codec::{self, Base, BitsMut};
 
 /// A generator's output: canonical packed bytes plus the exact bit length.
@@ -2927,6 +2931,27 @@ pub fn limb_ops() -> u64 {
 #[cfg(feature = "limb-meter")]
 pub fn reset_limb_ops() {
     crate::codec::limb_meter::reset()
+}
+
+/// The pair-hull ladder's rung counters since the last
+/// [`reset_span_traffic`]: how many span constructions each fast path
+/// answered, and how many reached the emitting walk.
+///
+/// The deterministic stand-in for a *consumer's* traffic mix, which no
+/// per-operation envelope can see: whether a workload's pair hulls are
+/// mostly comparable (hand-back at one comparison sweep) or mostly
+/// concurrent (the emitting walk) is a property of the caller's pairs,
+/// and it decides which kernel regime the consumer actually pays.
+/// Counts every [`Version::span`](crate::Version::span) and every leaf
+/// combine of `span_all`. Process-global, same isolation requirement as
+/// [`stack_segments`].
+pub fn span_traffic() -> SpanTraffic {
+    crate::version::hull_traffic::snapshot()
+}
+
+/// Reset the rung counters behind [`span_traffic`] to zero.
+pub fn reset_span_traffic() {
+    crate::version::hull_traffic::reset()
 }
 
 /// The packed-stream bits scanned and written since the last
