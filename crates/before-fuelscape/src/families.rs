@@ -24,10 +24,12 @@ pub struct FamilyInput {
     pub family: &'static str,
     /// Packed encodings, one per operand.
     pub inputs: Vec<Vec<u8>>,
-    /// The arity handed to the row's measure function. [`ramp`] defaults
-    /// it to the operand count, which every host-drawn row either equals
-    /// or ignores; the guest-split party-fold row's families override it
-    /// with their declared share count.
+    /// The arity handed to the row's measure function.
+    ///
+    /// [`ramp`] defaults it to the operand count, which every
+    /// host-drawn row either equals or ignores; the guest-split
+    /// party-fold row's families override it with their declared share
+    /// count.
     pub arity: usize,
 }
 
@@ -311,13 +313,14 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
 }
 
 /// The clock-fold row's committed families (one party, then the version
-/// riders the row composes into disjoint clocks): the committed stagger
-/// population adapted to the fold's version halves — each family at a
-/// fixed, labeled clock count, feed order preserved through the operand
-/// order — plus the composed clock families' cross as the non-stagger
-/// shape. The drawn-arity axis belongs to the bulk cloud; these
-/// committed points keep fixed arities so their readings compare across
-/// commits.
+/// riders the row composes into disjoint clocks).
+///
+/// The committed stagger population adapted to the fold's version
+/// halves — each family at a fixed, labeled clock count, feed order
+/// preserved through the operand order — plus the composed clock
+/// families' cross as the non-stagger shape. The drawn-arity axis
+/// belongs to the bulk cloud; these committed points keep fixed
+/// arities so their readings compare across commits.
 fn clock_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
     let mut out = Vec::new();
     out.extend(ramp("scattered_id × stagger (n=4)", max_bytes, |t| {
@@ -336,9 +339,10 @@ fn clock_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
 }
 
 /// The declared share count of the party-fold row's committed overlay
-/// points, stated in every family label — the bulk cloud carries the
-/// drawn-arity axis, and these points keep one fixed arity so their
-/// readings compare across commits.
+/// points, stated in every family label.
+///
+/// The bulk cloud carries the drawn-arity axis, and these points keep
+/// one fixed arity so their readings compare across commits.
 const PARTY_FOLD_OVERLAY_SHARES: usize = 8;
 
 /// The party-fold row's committed families: the committed id shapes,
