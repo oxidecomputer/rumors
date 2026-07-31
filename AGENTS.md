@@ -128,6 +128,12 @@ they pin are perfectly intact.
   which means a new protocol version, never a mutation of an existing one.
   To re-accept deliberately: `just test-all`, then `cargo insta review`
   (install: `cargo install cargo-insta`), then commit the updated
-  `tests/snapshots/*.snap`.
+  `tests/snapshots/*.snap`. One sanctioned exception for tamper sweeps
+  attributing snapshot history: the bookmark `frame_non_trivial` pin
+  (`src/bookmark/format/`) is a ratified *fixture re-pin* — its fixture
+  deliberately carries nested versions so the pin exercises real skyline
+  payload bytes, and the format is attested unchanged by the untouched
+  `frame_empty` pin and the round-trip/corruption suite. Attribute that
+  pin's history to the fixture, never to a protocol change.
 - Redaction leaves no tombstones: deletion-honoring rides on version bounds.
   When reasoning about it, think version ceilings/floors, not markers.
