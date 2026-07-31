@@ -558,7 +558,11 @@ amp-board-shard-pin:
 # nightly rustdoc JSON — the compiler's own account of the public
 # surface — so a public fn or method added anywhere (a new file, a new
 # module, a feature-gated tree) fails the gate until it gains a roster
-# row or a named, dated exception in crates/before/surfacecheck. The
+# row or a named, dated exception in crates/before/surfacecheck. Trait
+# impls (operators, codecs, derives) and non-function items (associated
+# consts and types, statics, macros) are held to the same standard by
+# the pinned censuses in crates/before/surfacecheck/src/census.rs,
+# reconciled both ways, so a new impl or item reads red until pinned. The
 # in-tree roster test scans a hand-named source-file list; this leg is
 # the other jaw of the pincer, with no file list to forget. The checker
 # lives in a detached workspace (the fuzzfit idiom), so ordinary
