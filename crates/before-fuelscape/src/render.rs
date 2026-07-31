@@ -15,12 +15,22 @@
 //! Every render carries a provenance stamp drawn into the image: commit,
 //! base seed, samples per column, the row's declared size measure
 //! (verbatim from its roster entry), and the fuel currency.
+//!
+//! The renderer's input is [`AtlasData`], a plain-data form deliberately
+//! decoupled from the roster: a measuring run converts its [`OpAtlas`]
+//! with [`AtlasData::from_atlas`], and a persisted run loads the same
+//! type back from a dump ([`crate::dump`]), so both paths feed the
+//! identical renderer. The heatmap's binned form is computed by
+//! [`aggregate`] into a [`HeatGrid`]; the drawing consumes the grid, and
+//! the dump persists it, so the plotted cells and the persisted cells
+//! are one computation.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
+use serde::{Deserialize, Serialize};
 
 use crate::plan::OpAtlas;
 
@@ -28,6 +38,8 @@ use crate::plan::OpAtlas;
 mod tests;
 
 /// Provenance drawn into every output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RenderMeta {
     /// The commit the run measured (from the recipe's `FUELSCAPE_TIP`).
     pub commit: String,
@@ -35,6 +47,206 @@ pub struct RenderMeta {
     pub base_seed: u64,
     /// Samples per size column.
     pub samples_per_column: usize,
+}
+
+/// One operation's atlas as plain data: everything one panel render
+/// consumes, decoupled from the roster so a live measuring run and a
+/// loaded dump feed the identical renderer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AtlasData {
+    /// The operation's atlas name (also the output file stem).
+    pub op_name: String,
+    /// Whether the x axis is one operand's own size (`true`) rather
+    /// than a total over several operands (`false`); picks the axis
+    /// caption.
+    pub unary: bool,
+    /// The row's declared size measure, stamped verbatim.
+    pub size_measure: String,
+    /// Every bulk sample, all columns.
+    pub samples: Vec<SampleData>,
+    /// The adversarial family points.
+    pub overlay: Vec<OverlayData>,
+}
+
+/// One measured bulk sample, as plain data (the persisted form of
+/// [`crate::plan::CellSample`], field for field).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SampleData {
+    /// The column's total input size in packed bytes.
+    pub size: usize,
+    /// The sample's drawn arity.
+    pub arity: usize,
+    /// Fuel consumed by the one measured kernel call.
+    pub fuel: u64,
+    /// Whole-sample rejections spent drawing the inputs.
+    pub rejected: u64,
+}
+
+/// One measured adversarial overlay point, as plain data (the persisted
+/// form of [`crate::plan::OverlayPoint`], the family name owned).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverlayData {
+    /// The family generator's name.
+    pub family: String,
+    /// Total packed input bytes.
+    pub size: usize,
+    /// Fuel consumed by the one measured kernel call.
+    pub fuel: u64,
+}
+
+impl AtlasData {
+    /// Convert a measured [`OpAtlas`] into the renderer's plain-data
+    /// form, deriving the roster-bound fields (name, axis kind, size
+    /// measure) from the roster row.
+    pub fn from_atlas(atlas: &OpAtlas) -> AtlasData {
+        // One-operand rows take the whole column size (the party-fold
+        // row's single party included: its shares are guest-minted, not
+        // input bytes); everything else plots a total (the stamp carries
+        // the row's exact measure declaration).
+        let unary = matches!(atlas.op.inputs, crate::ops::Inputs::Packed(operands) if operands.len() == 1)
+            || matches!(atlas.op.inputs, crate::ops::Inputs::PartyShares);
+        AtlasData {
+            op_name: atlas.op.name.to_string(),
+            unary,
+            size_measure: atlas.op.size_measure.to_string(),
+            samples: atlas
+                .samples
+                .iter()
+                .map(|s| SampleData {
+                    size: s.size,
+                    arity: s.arity,
+                    fuel: s.fuel,
+                    rejected: s.rejected,
+                })
+                .collect(),
+            overlay: atlas
+                .overlay
+                .iter()
+                .map(|p| OverlayData {
+                    family: p.family.to_string(),
+                    size: p.size,
+                    fuel: p.fuel,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The heatmap's binned form: axis domains and per-column histograms,
+/// exactly the cells [`render_op`] draws.
+///
+/// Computed from an [`AtlasData`] by [`aggregate`]; persisted alongside
+/// the raw samples by [`crate::dump`] so downstream consumers read the
+/// plotted cells without redoing the binning. Coordinates are the plot's
+/// own: the domains and bin grid live in `log2` space, medians in raw
+/// fuel units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeatGrid {
+    /// Left x-domain edge, `log2(bytes)`.
+    pub x_lo: f64,
+    /// Right x-domain edge, `log2(bytes)`.
+    pub x_hi: f64,
+    /// Bottom y-domain edge, `log2(fuel)`.
+    pub y_lo: f64,
+    /// Top y-domain edge, `log2(fuel)`.
+    pub y_hi: f64,
+    /// Fuel-axis bin count across the whole y domain (bin `i` spans
+    /// `y_lo + i·(y_hi − y_lo)/fuel_bins` upward, half-open).
+    pub fuel_bins: usize,
+    /// One histogram per size column, ascending by size.
+    pub columns: Vec<HeatColumn>,
+}
+
+/// One size column's conditional fuel histogram.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeatColumn {
+    /// The column's total input size in packed bytes.
+    pub size: usize,
+    /// The column's median fuel, in raw fuel units (the reference-slope
+    /// anchor).
+    pub median: f64,
+    /// The column's peak bin count (the per-column normalizer: a cell's
+    /// plotted density is `count / peak`).
+    pub peak: u32,
+    /// Sample counts per fuel bin, index aligned to the grid's bin grid.
+    pub counts: Vec<u32>,
+}
+
+/// Bin an atlas into its [`HeatGrid`]: axis domains over samples and
+/// overlay together, then one per-column histogram and median.
+///
+/// # Panics
+///
+/// Panics if the atlas has no samples: every roster row has at least
+/// one column, and the dump loader rejects empty sample lists, so an
+/// empty atlas here is a programmer error.
+pub fn aggregate(data: &AtlasData) -> HeatGrid {
+    // Column geometry: sizes are doublings, so log2(size) lands on an
+    // integer grid with unit spacing.
+    let mut sizes: Vec<usize> = data.samples.iter().map(|s| s.size).collect();
+    sizes.sort_unstable();
+    sizes.dedup();
+    assert!(!sizes.is_empty(), "an atlas without samples cannot render");
+    let x_lo = lg(sizes[0] as u64) - 0.55;
+    let x_hi = lg(*sizes.last().unwrap() as u64) + 0.55;
+
+    let fuel_lo = data
+        .samples
+        .iter()
+        .map(|s| s.fuel)
+        .chain(data.overlay.iter().map(|o| o.fuel))
+        .min()
+        .unwrap_or(1);
+    let fuel_hi = data
+        .samples
+        .iter()
+        .map(|s| s.fuel)
+        .chain(data.overlay.iter().map(|o| o.fuel))
+        .max()
+        .unwrap_or(2);
+    let y_lo = lg(fuel_lo) - 0.4;
+    let y_hi = lg(fuel_hi) + 0.7;
+
+    let bin_h = (y_hi - y_lo) / FUEL_BINS as f64;
+    let columns = sizes
+        .iter()
+        .map(|&size| {
+            let mut fuels: Vec<u64> = data
+                .samples
+                .iter()
+                .filter(|s| s.size == size)
+                .map(|s| s.fuel)
+                .collect();
+            fuels.sort_unstable();
+            let median = median(&fuels);
+            let mut counts = vec![0u32; FUEL_BINS];
+            for &f in &fuels {
+                let idx = ((lg(f) - y_lo) / bin_h).floor() as usize;
+                counts[idx.min(FUEL_BINS - 1)] += 1;
+            }
+            let peak = *counts.iter().max().unwrap();
+            HeatColumn {
+                size,
+                median,
+                peak,
+                counts,
+            }
+        })
+        .collect();
+
+    HeatGrid {
+        x_lo,
+        x_hi,
+        y_lo,
+        y_hi,
+        fuel_bins: FUEL_BINS,
+        columns,
+    }
 }
 
 /// Chart surface (light): the reference palette's chart surface.
@@ -97,52 +309,44 @@ fn pow2_label(v: f64) -> String {
 }
 
 /// Render one operation's atlas to `dir/<op>.svg`, returning the path.
-pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<PathBuf> {
-    let path = dir.join(format!("{}.svg", atlas.op.name));
+///
+/// `font_scale` multiplies every text size and every piece of
+/// text-metric-derived geometry (label areas, the caption strip, label
+/// collision gaps) for print output; `1.0` is the reference rendering.
+pub fn render_op(
+    data: &AtlasData,
+    meta: &RenderMeta,
+    dir: &Path,
+    font_scale: f64,
+) -> io::Result<PathBuf> {
+    let path = dir.join(format!("{}.svg", data.op_name));
     let (width, height) = (960u32, 640u32);
+    // Text-metric-derived pixel geometry, scaled with the fonts so
+    // larger print text keeps its clearances.
+    let px = |v: f64| (v * font_scale).round() as u32;
     let root = SVGBackend::new(&path, (width, height)).into_drawing_area();
     root.fill(&SURFACE).map_err(draw_err)?;
 
-    // Column geometry: sizes are doublings, so log2(size) lands on an
-    // integer grid with unit spacing.
-    let mut sizes: Vec<usize> = atlas.samples.iter().map(|s| s.size).collect();
-    sizes.sort_unstable();
-    sizes.dedup();
-    assert!(!sizes.is_empty(), "an atlas without samples cannot render");
-    let x_lo = lg(sizes[0] as u64) - 0.55;
-    let x_hi = lg(*sizes.last().unwrap() as u64) + 0.55;
+    let grid = aggregate(data);
+    let HeatGrid {
+        x_lo,
+        x_hi,
+        y_lo,
+        y_hi,
+        ..
+    } = grid;
 
-    let fuel_lo = atlas
-        .samples
-        .iter()
-        .map(|s| s.fuel)
-        .chain(atlas.overlay.iter().map(|o| o.fuel))
-        .min()
-        .unwrap_or(1);
-    let fuel_hi = atlas
-        .samples
-        .iter()
-        .map(|s| s.fuel)
-        .chain(atlas.overlay.iter().map(|o| o.fuel))
-        .max()
-        .unwrap_or(2);
-    let y_lo = lg(fuel_lo) - 0.4;
-    let y_hi = lg(fuel_hi) + 0.7;
+    let (chart_area, caption_area) = root.split_vertically(height - px(58.0));
 
-    let (chart_area, caption_area) = root.split_vertically(height - 58);
-
-    // One-operand rows take the whole column size (the party-fold row's
-    // single party included: its shares are guest-minted, not input
-    // bytes); everything else plots a total (the stamp carries the row's
-    // exact measure declaration).
-    let unary = matches!(atlas.op.inputs, crate::ops::Inputs::Packed(operands) if operands.len() == 1)
-        || matches!(atlas.op.inputs, crate::ops::Inputs::PartyShares);
-    let title = format!("{} — p(fuel | size)", atlas.op.name);
+    let title = format!("{} — p(fuel | size)", data.op_name);
     let mut chart = ChartBuilder::on(&chart_area)
-        .caption(title, ("sans-serif", 17).into_font().color(&INK))
+        .caption(
+            title,
+            ("sans-serif", 17.0 * font_scale).into_font().color(&INK),
+        )
         .margin(10)
-        .x_label_area_size(42)
-        .y_label_area_size(64)
+        .x_label_area_size(px(42.0))
+        .y_label_area_size(px(64.0))
         .build_cartesian_2d(x_lo..x_hi, y_lo..y_hi)
         .map_err(draw_err)?;
 
@@ -150,14 +354,18 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
         .configure_mesh()
         .disable_mesh()
         .axis_style(INK_SOFT.stroke_width(1))
-        .label_style(("sans-serif", 12).into_font().color(&INK_SOFT))
-        .x_desc(if unary {
+        .label_style(
+            ("sans-serif", 12.0 * font_scale)
+                .into_font()
+                .color(&INK_SOFT),
+        )
+        .x_desc(if data.unary {
             "input size (bytes, log scale)"
         } else {
             "total input size (bytes, log scale)"
         })
         .y_desc("fuel (wasm instructions, log scale)")
-        .x_labels(sizes.len().min(12))
+        .x_labels(grid.columns.len().min(12))
         .x_label_formatter(&|v| pow2_label((*v).round()))
         .y_labels(8)
         .y_label_formatter(&|v| pow2_label(*v))
@@ -166,27 +374,15 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
 
     // The bulk cloud: per-column histograms over one global bin grid,
     // normalized per column (each column's mode is the ramp's dark end).
-    let bin_h = (y_hi - y_lo) / FUEL_BINS as f64;
-    let mut column_medians: Vec<(usize, f64)> = Vec::new();
-    for &size in &sizes {
-        let mut fuels: Vec<u64> = atlas
-            .samples
-            .iter()
-            .filter(|s| s.size == size)
-            .map(|s| s.fuel)
-            .collect();
-        fuels.sort_unstable();
-        column_medians.push((size, median(&fuels)));
-        let mut bins = vec![0u32; FUEL_BINS];
-        for &f in &fuels {
-            let idx = ((lg(f) - y_lo) / bin_h).floor() as usize;
-            bins[idx.min(FUEL_BINS - 1)] += 1;
-        }
-        let peak = *bins.iter().max().unwrap() as f64;
-        let cx = lg(size as u64);
+    let bin_h = (y_hi - y_lo) / grid.fuel_bins as f64;
+    for column in &grid.columns {
+        let peak = column.peak as f64;
+        let cx = lg(column.size as u64);
         chart
             .draw_series(
-                bins.iter()
+                column
+                    .counts
+                    .iter()
                     .enumerate()
                     .filter(|(_, &c)| c > 0)
                     .map(|(i, &c)| {
@@ -207,7 +403,12 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
 
     // Reference slopes, anchored at the smallest column of at least two
     // bytes (n log n is degenerate at one byte): fuel ∝ n, n², n·log₂ n.
-    if let Some(&(n0, m0)) = column_medians.iter().find(|(s, _)| *s >= 2) {
+    if let Some((n0, m0)) = grid
+        .columns
+        .iter()
+        .find(|c| c.size >= 2)
+        .map(|c| (c.size, c.median))
+    {
         let x0 = lg(n0 as u64);
         let y0 = m0.max(1.0).log2();
         let steps: Vec<f64> = (0..=100)
@@ -250,11 +451,11 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
                 .draw_series(std::iter::once(Text::new(
                     (*label).to_string(),
                     if exited_top {
-                        (lx - 0.06, ly - 0.25)
+                        (lx - 0.06, ly - 0.25 * font_scale)
                     } else {
-                        (lx - 0.06, ly + 0.35)
+                        (lx - 0.06, ly + 0.35 * font_scale)
                     },
-                    ("sans-serif", 12)
+                    ("sans-serif", 12.0 * font_scale)
                         .into_font()
                         .color(&INK_SOFT)
                         .pos(Pos::new(HPos::Right, VPos::Center)),
@@ -267,26 +468,25 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
     // family at its largest point, labels nudged apart when they collide.
     chart
         .draw_series(
-            atlas
-                .overlay
+            data.overlay
                 .iter()
                 .map(|p| Cross::new((lg(p.size as u64), lg(p.fuel)), 4, ACCENT.stroke_width(2))),
         )
         .map_err(draw_err)?;
     let mut anchors: Vec<(&str, f64, f64)> = Vec::new();
-    for point in &atlas.overlay {
+    for point in &data.overlay {
         let (x, y) = (lg(point.size as u64), lg(point.fuel));
         match anchors
             .iter_mut()
             .find(|(name, _, _)| *name == point.family)
         {
-            Some(slot) if slot.1 <= x => *slot = (point.family, x, y),
+            Some(slot) if slot.1 <= x => *slot = (point.family.as_str(), x, y),
             Some(_) => {}
-            None => anchors.push((point.family, x, y)),
+            None => anchors.push((point.family.as_str(), x, y)),
         }
     }
     anchors.sort_by(|a, b| a.2.total_cmp(&b.2));
-    let min_gap = (y_hi - y_lo) / 26.0;
+    let min_gap = (y_hi - y_lo) / 26.0 * font_scale;
     for i in 1..anchors.len() {
         if anchors[i].2 - anchors[i - 1].2 < min_gap {
             anchors[i].2 = anchors[i - 1].2 + min_gap;
@@ -305,7 +505,7 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
             Text::new(
                 (*name).to_string(),
                 at,
-                ("sans-serif", 12)
+                ("sans-serif", 12.0 * font_scale)
                     .into_font()
                     .color(&ACCENT)
                     .pos(Pos::new(hpos, VPos::Center)),
@@ -315,8 +515,8 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
 
     // The caption strip: a layer key and the provenance stamp.
     caption_area.fill(&SURFACE).map_err(draw_err)?;
-    let rejected: u64 = atlas.samples.iter().map(|s| s.rejected).sum();
-    let accepted = atlas.samples.len() as u64;
+    let rejected: u64 = data.samples.iter().map(|s| s.rejected).sum();
+    let accepted = data.samples.len() as u64;
     let acceptance = if rejected > 0 {
         format!(
             " · sampler acceptance {:.0}%",
@@ -328,20 +528,24 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
     let key = "▮ bulk density (per-column normalized)   ✕ committed adversarial families   ┄ reference slopes";
     let stamp = format!(
         "commit {} · seed {:#x} · {} samples/column · measure: {}{} · fuel: wasmtime instruction metering",
-        meta.commit, meta.base_seed, meta.samples_per_column, atlas.op.size_measure, acceptance,
+        meta.commit, meta.base_seed, meta.samples_per_column, data.size_measure, acceptance,
     );
     caption_area
         .draw_text(
             key,
-            &("sans-serif", 12).into_font().color(&INK_SOFT),
-            (74, 8),
+            &("sans-serif", 12.0 * font_scale)
+                .into_font()
+                .color(&INK_SOFT),
+            (px(74.0) as i32, px(8.0) as i32),
         )
         .map_err(draw_err)?;
     caption_area
         .draw_text(
             &stamp,
-            &("sans-serif", 11).into_font().color(&INK_SOFT),
-            (74, 28),
+            &("sans-serif", 11.0 * font_scale)
+                .into_font()
+                .color(&INK_SOFT),
+            (px(74.0) as i32, px(28.0) as i32),
         )
         .map_err(draw_err)?;
 

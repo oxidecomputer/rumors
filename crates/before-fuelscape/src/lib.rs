@@ -43,8 +43,14 @@
 //! chosen for totality: no unmetered path can read as zero. Every cell's
 //! RNG is seeded from (operation, size, sample index), so a run is exactly
 //! reproducible and no entropy comes from time or the OS.
+//!
+//! Measurement and rendering are decoupled: a survey can persist every
+//! operation's raw atlas as it is measured ([`dump`]) and be re-rendered
+//! later — any styling, no re-measure — with the round trip pinned
+//! byte-identical to a direct render.
 
 pub mod count;
+pub mod dump;
 pub mod enumerate;
 pub mod families;
 pub mod ops;

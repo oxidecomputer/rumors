@@ -46,6 +46,16 @@ plotters = { version = "0.3", default-features = false, features = [
     "svg_backend",
     "line_series",
 ] }
+# The dump format: one well-formed JSON document per operation, read back
+# by the re-render mode and directly by downstream document tooling
+# (typst's `json()` loader) with no converter. serde already rides in
+# this graph through the wasmtime driver; serde_json adds only its two
+# tiny number formatters over the cost of hand-rolling a strict parser.
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: the loader's grid verification compares stored f64
+# axis domains and medians bit-for-bit against a recomputation, so JSON
+# number parsing must be exact to the last ULP, not merely close.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [dev-dependencies]
 proptest = "1"

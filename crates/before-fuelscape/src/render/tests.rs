@@ -1,7 +1,7 @@
 use crate::ops::ROSTER;
 use crate::plan::{run_op, Plan, Samplers};
 
-use super::{render_gallery, render_op, RenderMeta};
+use super::{render_gallery, render_op, AtlasData, OverlayData, RenderMeta, SampleData};
 
 /// The whole pipeline runs end to end at tiny scale.
 ///
@@ -41,7 +41,8 @@ fn pipeline_smoke_samples_measures_and_renders() {
             "{}: a measured kernel call cannot consume zero fuel",
             op.name
         );
-        let path = render_op(&atlas, &meta, &out).expect("render must succeed");
+        let data = AtlasData::from_atlas(&atlas);
+        let path = render_op(&data, &meta, &out, 1.0).expect("render must succeed");
         let svg = std::fs::read_to_string(&path).expect("rendered SVG exists");
         assert!(
             svg.contains("commit smoke") && svg.contains("seed 0x5eed"),
@@ -60,4 +61,64 @@ fn pipeline_smoke_samples_measures_and_renders() {
         );
     }
     std::fs::remove_dir_all(&out).expect("smoke output cleans up");
+}
+
+/// The font-scale knob is alive and rendering is deterministic.
+///
+/// At any fixed scale two renders of the same atlas are byte-identical,
+/// and a non-unit scale changes the output — a dead parameter would
+/// silently ship print figures with unreadable text while every gate
+/// stays green.
+#[test]
+fn font_scale_changes_the_svg_and_rendering_is_deterministic() {
+    let meta = RenderMeta {
+        commit: "scale".into(),
+        base_seed: 1,
+        samples_per_column: 2,
+    };
+    let data = AtlasData {
+        op_name: "synthetic".into(),
+        unary: false,
+        size_measure: "synthetic measure".into(),
+        samples: vec![
+            SampleData {
+                size: 2,
+                arity: 2,
+                fuel: 100,
+                rejected: 0,
+            },
+            SampleData {
+                size: 4,
+                arity: 2,
+                fuel: 350,
+                rejected: 1,
+            },
+        ],
+        overlay: vec![OverlayData {
+            family: "synthetic family".into(),
+            size: 4,
+            fuel: 500,
+        }],
+    };
+    let out = std::env::temp_dir().join(format!("before-fuelscape-scale-{}", std::process::id()));
+    let (a, b, c) = (out.join("a"), out.join("b"), out.join("c"));
+    for dir in [&a, &b, &c] {
+        std::fs::create_dir_all(dir).expect("temp output dir");
+    }
+
+    let unit = render_op(&data, &meta, &a, 1.0).expect("render must succeed");
+    let unit_again = render_op(&data, &meta, &b, 1.0).expect("render must succeed");
+    assert_eq!(
+        std::fs::read(&unit).expect("rendered SVG exists"),
+        std::fs::read(&unit_again).expect("rendered SVG exists"),
+        "two renders of the same atlas at the same scale must be byte-identical"
+    );
+
+    let scaled = render_op(&data, &meta, &c, 2.0).expect("render must succeed");
+    assert_ne!(
+        std::fs::read(&unit).expect("rendered SVG exists"),
+        std::fs::read(&scaled).expect("rendered SVG exists"),
+        "a non-unit font scale must change the rendered text geometry"
+    );
+    std::fs::remove_dir_all(&out).expect("scale output cleans up");
 }
