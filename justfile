@@ -429,7 +429,7 @@ bench target *filter:
 bench-quick target *filter:
     cargo bench --workspace --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
-# One allocation-strategy A/B run (benches/presize.rs, benches/stacks.rs):
+# One allocation-strategy A/B run (benches/presize.rs):
 # compiles the named arm into the library — "shipped" compiles no cfg (the
 # shipped library, byte-identical); any other arm goes in through
 # `--cfg before_alloc_ab="<arm>"`, so expect a full rebuild per arm switch —
@@ -445,7 +445,7 @@ bench-quick target *filter:
 # Reduced-sampling smoke: append `--sample-size 10 --measurement-time 1`
 # (never quoted).
 bench-alloc-ab target arm="shipped" *filter:
-    @case "{{ arm }}" in (shipped|projection_growth|projection_shrink|display_growth|id_stack_vec|text_stack_vec) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
+    @case "{{ arm }}" in (shipped|projection_growth|projection_shrink|display_growth) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
     RUSTFLAGS='{{ if arm == "shipped" { "" } else { '--cfg before_alloc_ab="' + arm + '"' } }}' cargo bench -p before --bench {{ target }} -- --save-baseline {{ target }}-{{ arm }} {{ filter }}
 
 # The amplification board's time leg: the board itself judges deterministic
