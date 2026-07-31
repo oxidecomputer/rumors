@@ -138,8 +138,9 @@ open ancestor, the overlay walk's one path bit per level per cursor:
 two bits per level either way, by two different routes — with two
 stated exceptions, the
 watermark stack's bounded differences (@tick-web) and the route
-fold's pending cost pairs (@tick-fusion: two machine words per open
-id _branch_ against the id's own two bits per level, a bounded
+fold's pending cost pairs (@tick-fusion: a log-width pair per open
+id _branch_, stacked at twice its own width in packed bits against
+the id's own two bits per level — a bounded
 transient multiplier on the id operand alone), both still linear,
 both priced. A tree $10^5$ levels deep — a thirty-seven-kilobyte
 message —
@@ -148,7 +149,7 @@ kilobytes of packed stack state against that operand's own
 thirty-seven kilobytes, and no native stack at all —
 no overflow, no guard pages, no frame setup and teardown in the hot
 loop. The direct transcription's
-$approx 800 times$ frame amplification (@naive-recursion) is
+thousandfold frame amplification (@naive-recursion) is
 replaced by a constant near one-third for a single-cursor walk (the
 validator's two state bits per level make it two-thirds) — either
 way the state is _smaller_ than
