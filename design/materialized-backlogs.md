@@ -349,8 +349,9 @@ checks, gates) is specified inside the doc for the future implementer.
   stated in the codec docs, never a surprise.
 - `BacklogRecord` carries no format version (policy parity with
   `CanonicalRoot`); additive borsh evolution only.
-- Open pre-merge item from the parent campaign still stands: task #16
-  (A1 interning back-out call) blocks PR #8's merge, not this plan.
+- The parent campaign's pre-merge item is resolved: task #16 (the A1
+  interning back-out call) was ruled 2026-07-30 and the interning is
+  retired — the appendix decision record has the ruling and its basis.
 
 ---
 
