@@ -93,6 +93,37 @@ fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
     assert_join_all_matches_recursive_oracle(acc, children);
 }
 
+/// A group retained on the stack by a failed weight-1 combine — the
+/// over-full counter slot — keeps coalescing with later inputs exactly
+/// as the recursive oracle says, versions riding along.
+///
+/// The clock twin of the party suite's deterministic witness for the
+/// fold's hand-back-retention arm (`fold.rs`, the failed-combine path
+/// whose newer group has already coalesced): feed order
+/// [a, b, alias(a), c, d, e] over pairwise-disjoint forks retains
+/// alias∪c on the stack at the failed weight-1 combine, then coalesces
+/// d∪e into it, so the hand-back is the four-input group and the
+/// accumulator absorbs only a∪b — with each input carrying a distinct
+/// ticked version, so the clock fold's version merges ride the same
+/// decisions.
+#[test]
+fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
+    let mut acc = Clock::seed();
+    let mut children: Vec<Clock> = acc.forks(5).collect();
+    for (n, child) in children.iter_mut().enumerate() {
+        for _ in 0..=n {
+            child.tick();
+        }
+    }
+    let e = children.pop().expect("five forks");
+    let d = children.pop().expect("five forks");
+    let c = children.pop().expect("five forks");
+    let b = children.pop().expect("five forks");
+    let a = children.pop().expect("five forks");
+    let alias = Clock::from_parts(a.party().dangerously_alias(), a.version().clone());
+    assert_join_all_matches_recursive_oracle(acc, vec![a, b, alias, c, d, e]);
+}
+
 /// Run the production clock fold and the recursive oracle's `join_all`
 /// over one input population and assert identical outcomes, compared over
 /// logical trees.
