@@ -850,10 +850,10 @@ mod memo_fold_cost {
 /// entries), `Children<()>` = 160 (the bounds-span memo, the
 /// version-bytes memo, the leaf count, and the fan), `NodeInner<()>` =
 /// 208 (prefix `Vec` + hash memo + children).
-// A stored `Version` handle is 40 bytes under the Bytes-backed at-rest
-// form, so the branch variant's bounds-span memo — two `Cow<Version>`
-// endpoints — dominates the budget: the handle cost that buys the O(1)
-// clone every memo fold and hand-back rides on.
+// The dominant term is the branch variant's bounds-span memo: its two
+// `Cow<Version>` endpoints each carry a 40-byte Bytes-backed `Version`
+// handle — the handle cost that buys the O(1) clone every memo fold
+// and hand-back rides on.
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn node_inner_stays_within_budget() {
