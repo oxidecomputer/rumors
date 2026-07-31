@@ -228,13 +228,18 @@ def checked_median(name, side, value):
     return value
 
 
-def fit_exponent(median_lo, median_hi, denom_lo, denom_hi, name):
-    """The board's scaling-exponent fit over one cell's two medians."""
+def checked_denominators(name, denom_lo, denom_hi):
+    """Reject a denominator pair that fails to grow across the scale pair."""
     if denom_lo <= 0 or denom_hi <= denom_lo:
         raise JudgeError(
             f"{name}: denominator bytes must grow across the scales, "
             f"got {denom_lo} -> {denom_hi}"
         )
+
+
+def fit_exponent(median_lo, median_hi, denom_lo, denom_hi, name):
+    """The board's scaling-exponent fit over one cell's two medians."""
+    checked_denominators(name, denom_lo, denom_hi)
     return math.log(median_hi / median_lo) / math.log(denom_hi / denom_lo)
 
 
@@ -245,7 +250,8 @@ def judge_cells(cells):
     Returns `(verdict, name, exponent, ceiling, row)` tuples where verdict
     is one of GREEN, RED, SKIP; the exponent is None for SKIP (a sub-floor
     median has no judged exponent). Malformed medians — nonpositive or
-    non-finite at either scale — raise JudgeError before any floor
+    non-finite at either scale — and malformed denominator pairs — flat or
+    shrinking across the scales — raise JudgeError before any floor
     comparison: an input error is never laundered into a sub-floor SKIP.
     """
     rows = []
@@ -257,15 +263,19 @@ def judge_cells(cells):
             )
         median_lo = checked_median(name, "lo", median_lo)
         median_hi = checked_median(name, "hi", median_hi)
+        checked_denominators(name, denom_lo, denom_hi)
         if median_hi < MIN_JUDGED_MEDIAN_NANOS:
+            # Raw nanoseconds on both sides: `nanos` rounds a just-sub-floor
+            # median up to the floor's own rendering, and a row must never
+            # assert a value is below a floor it appears to equal.
             rows.append(
                 (
                     "SKIP",
                     name,
                     None,
                     ceiling,
-                    f"SKIP  {label(name)}  hi median {nanos(median_hi)} below the "
-                    f"{nanos(MIN_JUDGED_MEDIAN_NANOS)} judgment floor",
+                    f"SKIP  {label(name)}  hi median {int(median_hi)}ns below "
+                    f"the {MIN_JUDGED_MEDIAN_NANOS}ns judgment floor",
                 )
             )
             continue
@@ -610,6 +620,13 @@ def self_test():
     assert verdicts([("op/tiny", floor / 32, floor / 2, 1000, 4000, "general")]) == [
         ("SKIP", "op/tiny")
     ]
+    # A just-sub-floor median renders in raw nanoseconds: the compact
+    # formatter would round it up to the floor's own rendering, and a row
+    # must never assert a value is below a floor it appears to equal.
+    [(_, _, _, _, row)] = judge_cells(
+        [("op/near", floor / 32, floor - 1, 1000, 4000, "general")]
+    )
+    assert f"{floor - 1}ns below the {floor}ns judgment floor" in row, row
     # The general ceiling binds tightly: a hair under 1.3 green, over red.
     under = floor * 4 ** (MAX_WALL_SCALING_EXPONENT - 0.01)
     over = floor * 4 ** (MAX_WALL_SCALING_EXPONENT + 0.01)
@@ -671,12 +688,16 @@ def self_test():
     assert dc_verdict == "GREEN", rows
     assert MAX_TEXT_SCALING_EXPONENT - dc_e > 2 * TEXT_FIT_NOISE_EXPONENT_BAND, rows
     # Malformed inputs are errors, never scores and never sub-floor skips:
-    # a shrinking or flat denominator; a nonpositive median at either
-    # scale (the hi side must NOT fall through to SKIP); a NaN or infinite
-    # median at either scale; an unknown ceiling class.
+    # a shrinking or flat denominator — including on a sub-floor cell, where
+    # the judgment floor must not outrank denominator validation into a
+    # silent SKIP; a nonpositive median at either scale (the hi side must
+    # NOT fall through to SKIP); a NaN or infinite median at either scale;
+    # an unknown ceiling class.
     for bad in [
         ("op/shrunk", 1e6, 4e6, 4000, 1000, "general"),
         ("op/flat", 1e6, 4e6, 1000, 1000, "general"),
+        ("op/shrunk_subfloor", floor / 32, floor / 2, 4000, 1000, "general"),
+        ("op/flat_subfloor", floor / 32, floor / 2, 1000, 1000, "general"),
         ("op/lo_negative", -1.0, 4e6, 1000, 4000, "general"),
         ("op/lo_zero", 0.0, 4e6, 1000, 4000, "general"),
         ("op/hi_negative", 1e6, -5.0, 1000, 4000, "general"),
