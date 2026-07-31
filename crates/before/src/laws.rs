@@ -1251,7 +1251,7 @@ fn forks_matches_from_array(p: &Party) -> bool {
     const N: usize = 4;
     let array: [Party; N] = p.dangerously_alias().into();
     let mut keeper = p.dangerously_alias();
-    let yielded: Vec<Party> = keeper.forks(N - 1).collect();
+    let yielded: Vec<Party> = keeper.forks(N as u64 - 1).collect();
     let reconstructed: Vec<Party> = std::iter::once(keeper).chain(yielded).collect();
     array.iter().eq(reconstructed.iter())
 }
@@ -1577,7 +1577,7 @@ fn party_join_all_accepts_iff_family_pairwise_disjoint(p: &Party, items: &[Party
 fn party_join_all_reunites_forks_at_any_width(p: &Party, items: &[Party]) -> bool {
     let width = items.len();
     let mut keeper = p.dangerously_alias();
-    let shares: Vec<Party> = keeper.forks(width).collect();
+    let shares: Vec<Party> = keeper.forks(width as u64).collect();
     let half = &shares[..width / 2];
     let mut seq = keeper.dangerously_alias();
     if !half
@@ -1609,7 +1609,7 @@ fn party_join_all_reunites_forks_at_any_width(p: &Party, items: &[Party]) -> boo
 fn party_join_all_is_best_effort_at_any_width(p: &Party, items: &[Party]) -> bool {
     let width = items.len();
     let mut keeper = p.dangerously_alias();
-    let mut fed: Vec<Party> = keeper.forks(width).collect();
+    let mut fed: Vec<Party> = keeper.forks(width as u64).collect();
     let residual = keeper.dangerously_alias();
     fed.insert(width / 2, keeper.dangerously_alias());
     match keeper.join_all(fed) {
@@ -2121,7 +2121,7 @@ fn clock_forks_matches_from_array(c: &Clock) -> bool {
     const N: usize = 4;
     let array: [Clock; N] = c.dangerously_alias().into();
     let mut keeper = c.dangerously_alias();
-    let yielded: Vec<Clock> = keeper.forks(N - 1).collect();
+    let yielded: Vec<Clock> = keeper.forks(N as u64 - 1).collect();
     let reconstructed: Vec<Clock> = std::iter::once(keeper).chain(yielded).collect();
     array.iter().eq(reconstructed.iter())
 }
@@ -2403,7 +2403,7 @@ fn clock_join_all_accepts_iff_parties_pairwise_disjoint(c: &Clock, items: &[Cloc
 fn clock_join_all_reunites_forks_at_any_width(c: &Clock, items: &[Clock]) -> bool {
     let width = items.len();
     let mut keeper = c.dangerously_alias();
-    let mut children: Vec<Clock> = keeper.forks(width).collect();
+    let mut children: Vec<Clock> = keeper.forks(width as u64).collect();
     for child in &mut children {
         child.tick();
     }

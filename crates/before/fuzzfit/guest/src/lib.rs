@@ -707,7 +707,7 @@ pub extern "C" fn ff_party_fork(dst: u32, src: u32) -> i32 {
 /// the iterator borrows the source, which keeps its remainder).
 #[no_mangle]
 pub extern "C" fn ff_party_forks(dst: u32, src: u32, n: u32) -> i32 {
-    let shares = with_p_mut(src, |p| p.forks(n as usize).collect::<Vec<_>>());
+    let shares = with_p_mut(src, |p| p.forks(u64::from(n)).collect::<Vec<_>>());
     match shares {
         Some(shares) => {
             for (i, share) in shares.into_iter().enumerate() {
