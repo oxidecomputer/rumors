@@ -138,11 +138,13 @@ proptest! {
     }
 }
 
-/// A scoped IPv6 advertised name is refused at `encode`: the 18-byte
-/// wire name cannot carry the scope, and the unscoped address does not
-/// dial the same peer (a link-local peer is reachable only through the
-/// scoped interface), so the loss must be a loud configuration error at
-/// endpoint construction, never a silent alteration on the wire.
+/// A scoped IPv6 advertised name is refused at `encode`.
+///
+/// The 18-byte wire name cannot carry the scope, and the unscoped
+/// address does not dial the same peer (a link-local peer is reachable
+/// only through the scoped interface), so the loss must be a loud
+/// configuration error at endpoint construction, never a silent
+/// alteration on the wire.
 #[test]
 #[should_panic(expected = "a scoped IPv6 address has no 18-byte wire name")]
 fn scoped_v6_advertised_name_is_refused() {

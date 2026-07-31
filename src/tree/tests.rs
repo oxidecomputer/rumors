@@ -1164,13 +1164,14 @@ proptest! {
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
-    /// The changed flag stays exact through deep divergent descent: pairs
-    /// whose paths share a drawn-length spine (the constructed analogue of
-    /// a hash-prefix collision) drive the merge's divergent arm at every
-    /// level down to the split, where content-addressed pairs scatter at
-    /// the root fan and never descend. Zero novelty widths are drawn too,
-    /// so subset, identical, and ceiling-only merges — the flag's `false`
-    /// arm — are sampled at depth alongside the gains.
+    /// The changed flag stays exact through deep divergent descent.
+    ///
+    /// The pairs' paths share a drawn-length spine (the constructed
+    /// analogue of a hash-prefix collision), driving the merge's divergent
+    /// arm at every level down to the split, where content-addressed pairs
+    /// scatter at the root fan and never descend. Zero novelty widths are
+    /// drawn too, so subset, identical, and ceiling-only merges — the
+    /// flag's `false` arm — are sampled at depth alongside the gains.
     #[test]
     fn join_changed_flag_tracks_the_root_hash_at_depth(
         (a, b) in crate::tree::arb::arb_deep_divergent_pair(),
@@ -1183,10 +1184,12 @@ proptest! {
 }
 
 /// The changed-flag biconditional at full depth, on the three shapes that
-/// decide it: gain in both directions (changed), deletion honoring at
-/// depth (changed), and the subtle no-op — merging a strict subset with
-/// concurrent versions runs the divergent descent over the whole 31-byte
-/// shared prefix and must still report unchanged.
+/// decide it.
+///
+/// Gain in both directions and deletion honoring at depth report changed;
+/// the subtle no-op — merging a strict subset with concurrent versions —
+/// runs the divergent descent over the whole 31-byte shared prefix and
+/// must still report unchanged.
 #[test]
 fn deep_divergent_join_changed_flag_is_exact() {
     // Gain in both directions.
