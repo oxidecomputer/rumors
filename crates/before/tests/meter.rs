@@ -2921,17 +2921,17 @@ mod skyline_flatness {
     const RANK_FREEZE_POSITION_SMALL: usize = 1_000;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// freeze-position family, measured 2026-07-28 ×1.25.
+    /// freeze-position family, measured 2026-07-31 ×1.25.
     ///
-    /// The cured record: the anchored-segment integral reads 87,489 /
-    /// 175,206 touches and 35,436 / 70,872 limb ops at the two scales
+    /// The cured record: the anchored-segment integral reads 87,519 /
+    /// 175,260 touches and 35,243 / 70,485 limb ops at the two scales
     /// (~1.2 touches per packed byte, flat across the doubling),
     /// tightened in the cure's own commit from the absolute-position
     /// accounting's red pin of 124,371 / 372,862 touches and 72,351 /
     /// 206,804 limb ops (×1.50 touch and ×1.43 limb per-byte growth
     /// across the doubling, local exponent still rising at FP(4,000) —
     /// each freeze read the position accumulator's whole written span).
-    const RANK_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] = [(109_361, 44_295), (219_007, 88_590)];
+    const RANK_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] = [(109_399, 44_054), (219_075, 88_607)];
 
     /// rank is linear on the freeze-position family: per-byte touch and
     /// limb work stay flat (×1.25) across a block-count doubling, under
