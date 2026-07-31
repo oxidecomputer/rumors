@@ -1356,3 +1356,117 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
         "the escaped leaf re-plants into a fresh replica",
     );
 }
+
+/// The pair-hull traffic mix at the tree's bounds-memo door, in
+/// `before`'s span-ladder rung counters.
+///
+/// Which span-ladder rung a memo's pair hull takes decides which kernel
+/// regime the tree pays — a comparable pair is handed back at one
+/// comparison sweep, only a concurrent pair reaches the emitting walk —
+/// and the mix is a property of the workload's versions, not of the
+/// kernel. Two structural facts anchor the readings: an interior memo's
+/// `lo.span(&hi)` operands are ordered by construction (the meet of the
+/// floors never exceeds the join of the ceilings), so interior-regime
+/// traffic is never concurrent; and a fringe memo's `span_all` leaf
+/// combines read sibling leaf versions, whose relation tracks the
+/// writers'. The counters are process-global and meaningful one
+/// scenario per process (nextest's model).
+#[cfg(feature = "meter")]
+mod span_door_traffic {
+    use before::meter;
+    use bytes::Bytes;
+
+    use super::{Tree, insert_action, party_of};
+
+    /// One writer's batch of distinct payloads, tagged so no two
+    /// workloads' leaves collide by content.
+    fn batch(writer: &str, round: usize, count: usize) -> impl Iterator<Item = Bytes> + use<> {
+        let writer = writer.to_owned();
+        (0..count).map(move |i| Bytes::from(format!("{writer}-{round}-{i}")))
+    }
+
+    /// The four rung cells of one measured workload run.
+    fn cells(work: impl FnOnce()) -> (u64, u64, u64, u64) {
+        meter::reset_span_traffic();
+        work();
+        let read = meter::span_traffic();
+        (read.equal, read.empty, read.comparable, read.concurrent)
+    }
+
+    /// A single-writer tree never presents a concurrent pair at the
+    /// bounds-memo door: one party's versions form a chain, every
+    /// bound folded from a chain stays on it, and the door's traffic
+    /// is entirely fast-path (comparable or coincident), zero
+    /// emissions.
+    #[test]
+    fn single_writer_bounds_never_emit() {
+        let (equal, empty, comparable, concurrent) = cells(|| {
+            let mut tree: Tree<Bytes> = Tree::new();
+            for round in 0..8 {
+                tree.act(
+                    &party_of("A"),
+                    batch("a", round, 64).map(insert_action),
+                );
+                tree.warm_caches();
+            }
+        });
+        eprintln!(
+            "MEASURED span_door_single_writer: equal={equal} empty={empty} \
+             comparable={comparable} concurrent={concurrent}"
+        );
+        assert!(
+            comparable > 0,
+            "a warmed single-writer tree folds bounds through the comparable rung"
+        );
+        assert_eq!(
+            concurrent, 0,
+            "one party's versions form a chain: no memo pair is ever concurrent"
+        );
+    }
+
+    /// Divergent writers split the door's traffic: fringe combines of
+    /// concurrent leaf versions reach the emitting walk, while the
+    /// interior regime (ordered by construction) and same-writer
+    /// sibling runs stay on the fast paths — both rungs read live on
+    /// one merged four-writer tree, incremental rounds included.
+    #[test]
+    fn merged_writers_split_the_door() {
+        let (equal, empty, comparable, concurrent) = cells(|| {
+            let mut merged: Tree<Bytes> = Tree::new();
+            for label in ["A", "B", "C", "D"] {
+                let mut tree: Tree<Bytes> = Tree::new();
+                for round in 0..4 {
+                    tree.act(
+                        &party_of(label),
+                        batch(label, round, 32).map(insert_action),
+                    );
+                }
+                tree.warm_caches();
+                merged.join(tree);
+            }
+            merged.warm_caches();
+            // Incremental rounds on the merged tree: acts invalidate
+            // ancestor memos, so re-warming re-folds them against the
+            // merged population.
+            for round in 100..104 {
+                merged.act(
+                    &party_of("A"),
+                    batch("a", round, 32).map(insert_action),
+                );
+                merged.warm_caches();
+            }
+        });
+        eprintln!(
+            "MEASURED span_door_merged_writers: equal={equal} empty={empty} \
+             comparable={comparable} concurrent={concurrent}"
+        );
+        assert!(
+            comparable > 0,
+            "interior memos are ordered by construction: the comparable rung stays live"
+        );
+        assert!(
+            concurrent > 0,
+            "divergent writers' sibling leaves are concurrent: the emitting rung stays live"
+        );
+    }
+}
