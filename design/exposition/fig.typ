@@ -1,5 +1,13 @@
-// Figure helpers for the skyline exposition. Pure Typst drawing: no
-// external assets, no packages.
+// Figure helpers for the skyline exposition. The hand-drawn helpers
+// here are pure Typst — no external assets, no packages; the
+// document's data charts share their defaults through `viz.typ`,
+// which carries the one pinned plotting package (lilaq).
+//
+// The palette is semantic, not decorative: ink is structure (topology
+// bits, first operands, primary linework), accent is content (payload
+// bits, second operands) — a cool/warm pair whose hue and lightness
+// gaps keep it separable under the common color-vision deficiencies
+// and in grayscale print.
 
 #let ink = rgb("#1a3a5c")
 #let ink-light = ink.lighten(72%)
@@ -7,12 +15,21 @@
 #let accent-light = accent.lighten(75%)
 #let gray-line = rgb("#999999")
 
+// Type tokens for text inside figures. Nothing a figure renders may
+// go below `fig-label-size` at print.
+#let fig-label-size = 7pt // cell labels in strips, lanes, and bitrows
+#let fig-annot-size = 7.5pt // annotation lines, axis digits, oprow labels
+#let fig-legend-size = 8.5pt // legends, card compartments, tree nodes
+
 // ---------------------------------------------------------------------
 // A skyline: a step function over [0, 1), drawn as filled plateaus.
 //
 // `plateaus`: array of (width, height) pairs, widths summing to 1.0,
 // heights in integer units. `ticks`: array of (position, label) pairs
 // for the x axis. `unit`: point size of one height unit.
+// `bare: true` draws plateaus and baseline only — no grid, no axis
+// digits, no height labels — for marks and ornament-scale uses (the
+// title block's signature drawing of the running example).
 #let skyline(
   plateaus,
   w: 220pt,
@@ -22,26 +39,36 @@
   ticks: (),
   y-max: none,
   show-heights: true,
+  bare: false,
 ) = {
   let maxh = plateaus.fold(0, (m, p) => calc.max(m, p.at(1)))
   let ymax = if y-max != none { y-max } else { maxh }
   let h = (ymax + 0.55) * unit
-  box(width: w + 34pt, height: h + 16pt, {
-    // y-axis grid lines and labels
-    for lvl in range(0, ymax + 1) {
-      let y = h - lvl * unit
-      place(top + left, dx: 24pt, dy: y - 0.25pt, line(
-        length: w,
-        stroke: (paint: gray-line.lighten(50%), thickness: 0.4pt, dash: "dotted"),
-      ))
-      place(top + left, dx: 0pt, dy: y - 5pt, box(width: 20pt,
-        align(right, text(size: 7.5pt, fill: gray-line.darken(20%), str(lvl)))))
+  let pad-l = if bare { 0pt } else { 24pt }
+  box(width: w + pad-l + if bare { 0pt } else { 10pt }, height: h + if bare { 1pt } else { 16pt }, {
+    // y-axis grid lines, with digit labels only where the drawing is
+    // quantitative: a schematic skyline (`show-heights: false` — card
+    // drawings whose heights stand in for off-scale values) keeps the
+    // gridlines for shape reading but drops the digits, which would
+    // mislabel it.
+    if not bare {
+      for lvl in range(0, ymax + 1) {
+        let y = h - lvl * unit
+        place(top + left, dx: 24pt, dy: y - 0.25pt, line(
+          length: w,
+          stroke: (paint: gray-line.lighten(50%), thickness: 0.4pt, dash: "dotted"),
+        ))
+        if show-heights {
+          place(top + left, dx: 0pt, dy: y - 5pt, box(width: 20pt,
+            align(right, text(size: fig-annot-size, fill: gray-line.darken(20%), str(lvl)))))
+        }
+      }
     }
     // plateaus
     let x = 0.0
     for p in plateaus {
       let (pw, ph) = p
-      let px = 24pt + x * w
+      let px = pad-l + x * w
       let pwid = pw * w
       if ph > 0 {
         place(top + left, dx: px, dy: h - ph * unit,
@@ -51,20 +78,20 @@
         place(top + left, dx: px, dy: h - 0.45pt,
           line(length: pwid, stroke: (paint: stroke, thickness: 1.6pt)))
       }
-      if show-heights {
+      if show-heights and not bare {
         place(top + left, dx: px, dy: h - ph * unit - 11pt,
           box(width: pwid, align(center, text(size: 8pt, fill: stroke.darken(10%), str(ph)))))
       }
       x = x + pw
     }
     // baseline
-    place(top + left, dx: 24pt, dy: h, line(length: w, stroke: 0.7pt + black))
+    place(top + left, dx: pad-l, dy: h, line(length: w, stroke: 0.7pt + black))
     // x ticks
     for t in ticks {
       let (pos, lab) = t
-      place(top + left, dx: 24pt + pos * w, dy: h, line(angle: 90deg, length: 3pt, stroke: 0.7pt + black))
-      place(top + left, dx: 24pt + pos * w - 12pt, dy: h + 5pt,
-        box(width: 24pt, align(center, text(size: 7.5pt, lab))))
+      place(top + left, dx: pad-l + pos * w, dy: h, line(angle: 90deg, length: 3pt, stroke: 0.7pt + black))
+      place(top + left, dx: pad-l + pos * w - 12pt, dy: h + 5pt,
+        box(width: 24pt, align(center, text(size: fig-annot-size, lab))))
     }
   })
 }
@@ -118,7 +145,7 @@
     for lvl in range(0, ymax + 1) {
       let y = h - lvl * unit
       place(top + left, dx: 0pt, dy: y - 5pt, box(width: 20pt,
-        align(right, text(size: 7.5pt, fill: gray-line.darken(20%), str(lvl)))))
+        align(right, text(size: fig-annot-size, fill: gray-line.darken(20%), str(lvl)))))
       place(top + left, dx: 24pt, dy: y - 0.25pt, line(
         length: w, stroke: (paint: gray-line.lighten(55%), thickness: 0.4pt, dash: "dotted")))
     }
@@ -134,15 +161,16 @@
     for t in ticks {
       let (pos, lab) = t
       place(top + left, dx: 24pt + pos * w - 12pt, dy: h + 5pt,
-        box(width: 24pt, align(center, text(size: 7.5pt, lab))))
+        box(width: 24pt, align(center, text(size: fig-annot-size, lab))))
     }
-    // legend
-    place(top + right, dx: 0pt, dy: 2pt, box({
+    // legend, on a paper-white knockout so it stays legible over
+    // lines and gridlines behind it
+    place(top + right, dx: 0pt, dy: 2pt, box(fill: white, inset: 3pt, {
       stack(dir: ttb, spacing: 4pt,
         stack(dir: ltr, spacing: 4pt,
-          box(baseline: -2.5pt, line(length: 14pt, stroke: 1.5pt + ink)), text(size: 8.5pt, label-a)),
+          box(baseline: -2.5pt, line(length: 14pt, stroke: 1.5pt + ink)), text(size: fig-legend-size, label-a)),
         stack(dir: ltr, spacing: 4pt,
-          box(baseline: -2.5pt, line(length: 14pt, stroke: 1.5pt + accent)), text(size: 8.5pt, label-b)))
+          box(baseline: -2.5pt, line(length: 14pt, stroke: 1.5pt + accent)), text(size: fig-legend-size, label-b)))
     }))
   })
 }
@@ -159,7 +187,7 @@
     grid(columns: 1, align: center, row-gutter: 2.5pt,
       box(inset: (x: 4pt, y: 3.5pt), stroke: 0.6pt + gray-line.darken(30%), fill: bg,
         raw(bits)),
-      text(size: 7pt, fill: gray-line.darken(35%), label))
+      text(size: fig-label-size, fill: gray-line.darken(35%), label))
   }))
 }
 
@@ -173,7 +201,7 @@
     grid(columns: 1, align: center, row-gutter: 2.5pt,
       box(inset: (x: 8pt, y: 4.5pt), stroke: 0.7pt + ink, fill: ink-light.lighten(40%),
         raw(val)),
-      text(size: 7pt, fill: gray-line.darken(35%), [#idx]))
+      text(size: fig-label-size, fill: gray-line.darken(35%), [#idx]))
   })))
 }
 
@@ -202,7 +230,7 @@
       }
       place(top + left, dx: cx - r, dy: cy - r,
         box(width: 2 * r, height: 2 * r, fill: node-fill, stroke: 0.8pt + ink,
-          radius: r, align(center + horizon, text(size: 8.5pt, lab))))
+          radius: r, align(center + horizon, text(size: fig-legend-size, lab))))
     }
     draw(node, width / 2, r + 1pt, width / 4)
   })
@@ -240,17 +268,17 @@
     dir: ttb,
     block(width: 100%, fill: ink-light.lighten(45%), inset: (x: 9pt, y: 5pt),
       grid(columns: (auto, 1fr), align: (left, right),
-        text(size: 8.5pt, weight: "bold", smallcaps(name)),
-        text(size: 8.5pt, style: "italic")[attacks: #target])),
+        text(size: fig-legend-size, weight: "bold", smallcaps(name)),
+        text(size: fig-legend-size, style: "italic")[attacks: #target])),
     block(width: 100%, inset: (x: 10pt, y: 9pt), align(center, input)),
     block(width: 100%, inset: (x: 9pt, y: 6pt),
       stroke: (top: 0.5pt + gray-line.lighten(30%)),
-      text(size: 8.5pt)[#text(fill: accent.darken(10%), weight: "bold",
+      text(size: fig-legend-size)[#text(fill: accent.darken(10%), weight: "bold",
         smallcaps("extracts")) #h(0.6em) #forces]),
     ..if cure != none {
       (block(width: 100%, inset: (x: 9pt, y: 6pt),
         stroke: (top: 0.5pt + gray-line.lighten(30%)),
-        text(size: 8.5pt)[#text(fill: ink, weight: "bold",
+        text(size: fig-legend-size)[#text(fill: ink, weight: "bold",
           smallcaps("defeated by")) #h(0.6em) #cure]),)
     } else { () },
   ),
@@ -265,7 +293,7 @@
   let bg = if role == "t" { ink-light } else if role == "p" { accent-light } else if role == "w" { accent-light.darken(12%) } else { white }
   let strk = if role == "x" { none } else { 0.6pt + gray-line.darken(20%) }
   box(width: w, height: h, fill: bg, stroke: strk,
-    align(center + horizon, text(size: 6.8pt, label)))
+    align(center + horizon, text(size: fig-label-size, label)))
 }))
 
 // A labeled row for multi-operand attack cards: a small left label, a
@@ -273,5 +301,5 @@
 #let oprow(label, body) = grid(
   columns: (52pt, 1fr), align: (right + horizon, left + horizon),
   column-gutter: 8pt,
-  text(size: 7.5pt, fill: gray-line.darken(40%), label), body,
+  text(size: fig-annot-size, fill: gray-line.darken(40%), label), body,
 )
