@@ -666,7 +666,9 @@ fn deep_tree_query_and_causal_stack_safety() {
     assert_eq!(hull.join(), &late);
 
     // Range bound classification: the fused two-bounded 3-stream walk.
-    let range = causally::since(&early).known_at(&late).expect("early <= late");
+    let range = causally::since(&early)
+        .known_at(&late)
+        .expect("early <= late");
     assert!(range.contains(&late));
     let _ = range.placement_of(&early);
     let _ = range.bounded(&early);
@@ -674,6 +676,41 @@ fn deep_tree_query_and_causal_stack_safety() {
     // Projection through the deep id (the masked walk), materialized.
     let own = &late / clock.party();
     assert_eq!(own.to_version(), late);
+}
+
+/// The text mirror and the tick-floor fold survive depth 100k: a deep
+/// clock renders to paper notation and parses back equal, and
+/// `min_ticks` runs its epoch-ledger/min-web walk over the deep event
+/// tree.
+///
+/// `codec::tests::deep_id_text_roundtrip` proves the *id* text parser
+/// at this depth; the event tree's text walk is a separate parser
+/// (its parked-stack frames live in `version::skyline::text`), and
+/// nothing else drives it or `min_ticks` past proptest depths. Both
+/// are iterative walks on explicit heap stacks, exercised here at a
+/// depth no program stack could carry.
+#[test]
+fn deep_tree_text_and_min_ticks_stack_safety() {
+    const DEPTH: usize = 100_000;
+    let party = deep_left_spine_party(DEPTH);
+    let mut clock = Clock::from_parts(party, Version::new());
+    clock.tick();
+    let version = clock.version().clone();
+
+    // The version text mirror: render the deep event tree, parse it
+    // back, and land on the same version.
+    let text = version.to_string();
+    let parsed: Version = text.parse().expect("a deep rendered version parses");
+    assert_eq!(parsed, version);
+
+    // The clock text mirror carries both deep components at once.
+    let text = clock.to_string();
+    let parsed: Clock = text.parse().expect("a deep rendered clock parses");
+    assert_eq!(parsed.version(), &version);
+
+    // The tick floor: one tick raised one leaf, so the minimal
+    // construction is that single tick.
+    assert_eq!(version.min_ticks(), crate::Ticks::from(1u64));
 }
 
 proptest! {
