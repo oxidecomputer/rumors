@@ -1,6 +1,6 @@
-//! The foreign re-export roster: every `pub use` of a dependency crate
-//! is pinned by name, so re-exporting foreign surface past the totality
-//! pincer is tamper-evident.
+//! The foreign re-export roster: every public re-export of a dependency
+//! crate is pinned by name, so re-exporting foreign surface past the
+//! totality pincer is tamper-evident.
 //!
 //! A `pub use` of another crate's type (say `pub use bytes::Bytes;` at
 //! the root) makes that type's entire inherent method surface reachable
@@ -11,15 +11,19 @@
 //! roster scan covers only inherent `pub fn`s declared in its named
 //! source files. Demonstrated: with `pub use bytes::Bytes;` added at
 //! the crate root, the surface-totality leg reads the same 197 items
-//! and exits clean. This pin closes the channel: the committed roster
-//! below names every dependency re-export in the library source
-//! (today: none), so adding one is a reviewable diff here — the
-//! reviewer then decides whether the foreign surface needs roster rows,
-//! an exception, or a wrapper type — never a silent escape.
+//! and exits clean. `pub extern crate <dep>` and a `pub type` alias of
+//! a foreign type open the same door through different spellings, so
+//! the scan matches all three. This pin closes the channel: the
+//! committed roster below names every dependency re-export in the
+//! library source (today: none), so adding one is a reviewable diff
+//! here — the reviewer then decides whether the foreign surface needs
+//! roster rows, an exception, or a wrapper type — never a silent
+//! escape.
 
 use std::path::{Path, PathBuf};
 
-/// Every allowed `pub use <dependency>::…` occurrence, as
+/// Every allowed public re-export of a dependency (`pub use`,
+/// `pub extern crate`, or a `pub type` alias of a foreign type), as
 /// `(file, line-content)` — empty at this tip: `before` re-exports no
 /// foreign surface.
 const FOREIGN_REEXPORT_ROSTER: &[(&str, &str)] = &[];
@@ -64,11 +68,23 @@ fn scan(dir: &Path, root: &Path, deps: &[String], found: &mut Vec<(String, Strin
             let text = std::fs::read_to_string(&path).expect("source file is readable");
             for line in text.lines() {
                 let trimmed = line.trim_start();
-                if trimmed.starts_with("//") || !trimmed.contains("pub use") {
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+                // The three spellings that publish foreign surface: a
+                // re-export, a whole-crate re-export, and a type alias
+                // whose target is foreign (its inherent methods become
+                // reachable at the alias).
+                let pathed = trimmed.contains("pub use") || trimmed.contains("pub type");
+                let whole_crate = trimmed.contains("pub extern crate");
+                if !(pathed || whole_crate) {
                     continue;
                 }
                 if deps.iter().any(|dep| {
-                    trimmed.contains(&format!("{dep}::")) || trimmed.contains(&format!("::{dep}"))
+                    (pathed
+                        && (trimmed.contains(&format!("{dep}::"))
+                            || trimmed.contains(&format!("::{dep}"))))
+                        || (whole_crate && trimmed.contains(&format!(" {dep}")))
                 }) {
                     let rel = path
                         .strip_prefix(root)
