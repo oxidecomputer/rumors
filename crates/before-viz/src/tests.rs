@@ -197,17 +197,21 @@ proptest! {
     }
 }
 
-/// WITNESS (r141 audit): `oplog::read_varint` does not bound its shift, so a
-/// hostile URL fragment whose varint carries ten continuation bytes drives
-/// `<<` past 64 bits: a panic under debug assertions, a masked shift (silent
-/// misdecode instead of a `BadFragment` error) in the release wasm build.
-/// The fragment below is `[tag 1, 0x80 x 10, 0x01]` base64url-encoded — any
-/// shared link can carry it. The cure is a shift bound (reject varints wider
-/// than usize) in `read_varint`; this test then flips to asserting a clean
-/// `BadFragment` error.
+/// A hostile URL fragment whose varint overflows the index space rejects
+/// cleanly as `BadFragment`: `read_varint` bounds its shift, so an
+/// over-wide varint can neither panic (debug assertions) nor silently
+/// mask into a wrong value (the release wasm the site ships). The
+/// fragments are `[tag 1, 0x80 x 10, 0x01]` base64url-encoded and its
+/// `0x00`-terminated alias — under a masked shift the second decodes to
+/// a valid index, making two distinct fragments alias one op. Any shared
+/// link can carry either.
 #[test]
-#[should_panic(expected = "attempt to shift left with overflow")]
-fn overlong_varint_fragment_panics_instead_of_erroring() {
-    let mut e = crate::Engine::new();
-    let _ = e.load_fragment("AYCAgICAgICAgIAB");
+fn overlong_varint_fragment_rejects_cleanly() {
+    for hostile in ["AYCAgICAgICAgIAB", "AYCAgICAgICAgIAA"] {
+        let mut e = crate::Engine::new();
+        match e.load_fragment(hostile) {
+            Err(crate::EngineError::BadFragment(_)) => {}
+            other => panic!("an over-wide varint must reject as BadFragment, got {other:?}"),
+        }
+    }
 }
