@@ -7,7 +7,7 @@ use futures::future::{Either, select, try_join};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::header::{self, Token};
-use super::{Config, Dial, Endpoint, Incoming, LinkError, LinkInfo, RoutedLink};
+use super::{Config, Dial, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, RoutedLink};
 use crate::link::{Acceptor, Connector, Link, STREAM_COUNT};
 use crate::testing::{MemoryDial, MemoryName, MemoryNet};
 
@@ -23,7 +23,7 @@ fn endpoint(
 ) {
     let name = MemoryName::new(name);
     let listen = net.listen(&name);
-    Endpoint::new(listen, name, net.dial(), config)
+    Endpoint::new(listen, name, net.dial(), config).expect("a valid construction")
 }
 
 /// Run `scenario` to completion while `routers` drives; a router that
@@ -442,4 +442,103 @@ fn cancelled_opens_leave_the_link_usable() {
         })
         .await;
     });
+}
+
+/// A dialer over socket addresses for construction tests; endpoint
+/// construction never dials, so its `dial` is unreachable.
+#[derive(Clone)]
+struct SocketDial;
+
+impl Dial for SocketDial {
+    type Addr = std::net::SocketAddr;
+    type Conn = tokio::io::DuplexStream;
+
+    async fn dial(&self, _addr: &Self::Addr) -> io::Result<Self::Conn> {
+        unreachable!("construction tests never dial")
+    }
+}
+
+/// An advertised name the address type refuses to encode fails
+/// construction as `EndpointError::Unencodable`, never a panic: the
+/// stock `SocketAddr` instantiation refuses a scoped IPv6 name (the
+/// 18-byte wire form cannot carry the scope, and the unscoped address
+/// dials a different peer), and construction is the one place the
+/// router encodes, so the refusal surfaces exactly here.
+#[test]
+fn scoped_advertised_name_fails_construction() {
+    use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+
+    let net = MemoryNet::new();
+    let scoped = SocketAddr::V6(SocketAddrV6::new(
+        Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+        9000,
+        0, // flowinfo
+        3, // scope_id: interface index 3
+    ));
+    let Err(error) = Endpoint::new(
+        net.listen(&MemoryName::new("scoped")),
+        scoped,
+        SocketDial,
+        Config::default(),
+    ) else {
+        panic!("a scoped advertised name must fail construction");
+    };
+    assert!(matches!(error, EndpointError::Unencodable(_)));
+}
+
+/// An advertised name encoding outside the header's one-byte length
+/// bound (empty, or past `MAX_ADDR_LEN`) fails construction as
+/// `EndpointError::NameLength` carrying the offending length: an
+/// empty name cannot be dialed back, and a longer one does not fit
+/// the length prefix.
+#[test]
+fn out_of_bound_advertised_name_fails_construction() {
+    let net = MemoryNet::new();
+    for name in [String::new(), "x".repeat(header::MAX_ADDR_LEN + 1)] {
+        let len = name.len();
+        let Err(error) = Endpoint::new(
+            net.listen(&MemoryName::new("bound")),
+            MemoryName::new(name),
+            net.dial(),
+            Config::default(),
+        ) else {
+            panic!("an out-of-bound advertised name must fail construction");
+        };
+        assert!(matches!(error, EndpointError::NameLength(reported) if reported == len));
+    }
+}
+
+/// A zero `Config` bound fails construction with the arm naming the
+/// bound: a zero incoming backlog could never deliver a link, and
+/// zero pending headers could never admit a connect header.
+#[test]
+fn zero_config_bounds_fail_construction() {
+    let net = MemoryNet::new();
+    let zero_backlog = Config {
+        incoming_backlog: 0,
+        ..Config::default()
+    };
+    let Err(error) = Endpoint::new(
+        net.listen(&MemoryName::new("zero")),
+        MemoryName::new("zero"),
+        net.dial(),
+        zero_backlog,
+    ) else {
+        panic!("a zero incoming backlog must fail construction");
+    };
+    assert!(matches!(error, EndpointError::ZeroIncomingBacklog));
+
+    let zero_headers = Config {
+        pending_headers: 0,
+        ..Config::default()
+    };
+    let Err(error) = Endpoint::new(
+        net.listen(&MemoryName::new("zero")),
+        MemoryName::new("zero"),
+        net.dial(),
+        zero_headers,
+    ) else {
+        panic!("zero pending headers must fail construction");
+    };
+    assert!(matches!(error, EndpointError::ZeroPendingHeaders));
 }

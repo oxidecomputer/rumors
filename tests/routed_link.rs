@@ -61,7 +61,8 @@ async fn tcp_endpoint(buffers: Option<u32>) -> (Endpoint<TcpDial>, Incoming<TcpD
             send_buffer: buffers,
         },
         Config::default(),
-    );
+    )
+    .expect("an unscoped loopback name is routable");
     tokio::spawn(router);
     (endpoint, incoming, addr)
 }
@@ -108,11 +109,13 @@ async fn memory_pair(dialer_first: bool) -> (RoutedLink<MemoryDial>, RoutedLink<
         name_a.clone(),
         net.dial(),
         Config::default(),
-    );
+    )
+    .expect("a valid construction");
     tokio::spawn(a_router);
     let name_b = MemoryName::new("b");
     let (b, _b_incoming, b_router) =
-        Endpoint::new(net.listen(&name_b), name_b, net.dial(), Config::default());
+        Endpoint::new(net.listen(&name_b), name_b, net.dial(), Config::default())
+            .expect("a valid construction");
     tokio::spawn(b_router);
     let (linked, arrival) = tokio::join!(b.link(name_a), a_incoming.accept());
     let dialed = linked.expect("establishment succeeds");
