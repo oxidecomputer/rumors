@@ -200,6 +200,15 @@ fn differential_seeds_exercise_their_genre_seams() {
                     "a rank prefix the version does not measure is non-canonical"
                 );
             }
+            "span_coincident" => {
+                let span = Span::decode(&bytes[..]).expect("the coincident composite decodes");
+                assert_eq!(
+                    span.meet(),
+                    span.join(),
+                    "the coincident seed's endpoints are one version"
+                );
+                assert_eq!(&span.encode(), bytes, "span seed re-encode is not stable");
+            }
             other => panic!("unknown differential seed {other}"),
         }
     }
