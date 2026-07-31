@@ -615,6 +615,67 @@ fn deep_tree_stack_safety() {
     assert!(!format!("{clock:?}").is_empty());
 }
 
+/// The query folds and causal-interval walks survive depth 100k: rank,
+/// distance, lag, `Ranked` ordering, the `Rank` wire round-trip at a
+/// 100k exponent, span hulls (pair and n-ary), `Span` validation,
+/// decode, placement, and dominance, `Range` bound classification, and
+/// projection through a deep id.
+///
+/// `deep_tree_stack_safety` above proves the clock ops at this depth;
+/// this is the same proof for the surfaces it does not drive — every
+/// one an iterative walk whose depth lives on explicit heap or bit
+/// stacks, exercised here at a depth no program stack could carry.
+#[test]
+fn deep_tree_query_and_causal_stack_safety() {
+    use crate::causally;
+    use crate::Rank;
+
+    const DEPTH: usize = 100_000;
+    let party = deep_left_spine_party(DEPTH);
+    let mut clock = Clock::from_parts(party, Version::new());
+    clock.tick();
+    let early = clock.version().clone();
+    clock.tick();
+    let late = clock.version().clone();
+
+    // Query folds at depth: the single-stream rank integral and the
+    // fused pair co-sweeps (distance, lag, the Ranked signed compare).
+    let r_early = early.rank();
+    let r_late = late.rank();
+    assert!(r_early < r_late);
+    let d = early.distance(&late);
+    assert_eq!(early.lag(&late) + late.lag(&early), d);
+    assert!(early.ranked() < late.ranked());
+
+    // The Rank wire form round-trips at a 100k-deep exponent.
+    let bytes = r_late.encode();
+    assert_eq!(Rank::decode(&bytes[..]).expect("canonical rank"), r_late);
+
+    // Span hulls (pair and n-ary), the fused decode/admit walk, and the
+    // 3-stream placement walks.
+    let span = early.span(&late);
+    assert_eq!(span.meet(), &early);
+    assert_eq!(span.join(), &late);
+    let span_bytes = span.encode();
+    let decoded = causally::Span::decode(&span_bytes[..]).expect("canonical span");
+    assert_eq!(decoded.meet(), &early);
+    let validated = causally::Span::new(&early, &late).expect("early <= late");
+    let _ = validated.place(&early);
+    let _ = validated.dominance_of(&late);
+    let hull = early.span_all([late.clone()]);
+    assert_eq!(hull.join(), &late);
+
+    // Range bound classification: the fused two-bounded 3-stream walk.
+    let range = causally::since(&early).known_at(&late).expect("early <= late");
+    assert!(range.contains(&late));
+    let _ = range.placement_of(&early);
+    let _ = range.bounded(&early);
+
+    // Projection through the deep id (the masked walk), materialized.
+    let own = &late / clock.party();
+    assert_eq!(own.to_version(), late);
+}
+
 proptest! {
     /// `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`.
     ///
