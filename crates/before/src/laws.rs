@@ -73,10 +73,11 @@ pub type Law<F> = (&'static str, F);
 
 /// Emits the registration surface from one group list.
 ///
-/// The name chain ([`registered_names`]) and the group roster
-/// ([`REGISTERED_GROUPS`]) come from a single spelling of the groups,
-/// so they cannot drift from each other — and the totality pin in this
-/// module's tests holds that one spelling equal to the `pub static`
+/// The name chain (`registered_names`) and the group roster
+/// (`REGISTERED_GROUPS`) — both test-only, so code spans rather than
+/// links here — come from a single spelling of the groups, so they
+/// cannot drift from each other; the totality pin in this module's
+/// tests holds that one spelling equal to the `pub static`
 /// declarations in this file and present in every consumer, closing
 /// the unwired-group hole (a group static that compiles, ships, and
 /// never executes).
