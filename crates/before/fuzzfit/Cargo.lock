@@ -54,7 +54,6 @@ dependencies = [
  "bytes",
  "dashu-int",
  "dsi-bitstream",
- "smallvec",
  "static_assertions",
  "suanpan",
  "thiserror",
