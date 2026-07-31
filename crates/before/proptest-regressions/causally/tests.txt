@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 4aac13b910cb9b1a7f12a86b94752fc61e6d288a0b307628a3b498598f45cd9c # shrinks to ov = Leaf(Base(2)), op = Node(Base(36893488147419103223), Leaf(Base(0)), Leaf(Base(251432297535054945856923798994264092418)))
+cc b90763b080356ab5110113039c225f232af5ce84a426a2fa67b7d15983732f65 # shrinks to ov = Node(Base(36893488147419103233), Node(Base(0), Node(Base(0), Leaf(Base(0)), Leaf(Base(1))), Leaf(Base(919766581917117132126464874911429))), Leaf(Base(36893488147419103232))), op = Node(Base(2), Node(Base(12426682706623145498), Leaf(Base(0)), Leaf(Base(10046463565646060006))), Node(Base(0), Leaf(Base(73786976294838206464)), Leaf(Base(0))))
