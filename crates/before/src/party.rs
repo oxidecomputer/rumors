@@ -150,10 +150,10 @@ impl Party {
 
     /// Advances `version` by one event for this party.
     ///
-    /// One party can stamp many histories through this borrowing form;
-    /// histories that ever meet are bound by the tick-chain rule of the
-    /// [safety rules](crate#safety-rules) — each of the party's ticks
-    /// lands on a version dominating the one its previous tick produced.
+    /// One party can stamp many histories through this borrowing form.
+    /// A tick is a pure function of `version` and this party: ticking
+    /// two clones of one version mints equal successors, and that is
+    /// valid — a version records causal knowledge, not event identity.
     ///
     /// # Complexity
     ///
