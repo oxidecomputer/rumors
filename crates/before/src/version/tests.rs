@@ -2366,12 +2366,13 @@ proptest! {
 }
 
 /// The cheapest canonical deep spine costs exactly 3 stored bits per
-/// marginal level, which is the basis for the depth-guard prose on the
-/// skyline query kernels: a stream deeper than `u32::MAX` levels
-/// (where the rank exponent would overflow its `u32`) must exceed
-/// 3 · 2³² bits = 1.5 GiB. If the grammar ever admits a cheaper
-/// per-level spelling, this pin moves and that prose must be
-/// re-derived with it.
+/// marginal level.
+///
+/// This is the basis for the depth-guard prose on the skyline query
+/// kernels: a stream deeper than `u32::MAX` levels (where the rank
+/// exponent would overflow its `u32`) must exceed 3 · 2³² bits =
+/// 1.5 GiB. If the grammar ever admits a cheaper per-level spelling,
+/// this pin moves and that prose must be re-derived with it.
 #[test]
 fn deep_spine_marginal_cost_is_three_bits_per_level() {
     let spine = |depth: usize| -> usize {

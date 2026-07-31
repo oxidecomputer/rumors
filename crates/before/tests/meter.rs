@@ -3665,10 +3665,11 @@ mod skyline_flatness {
     /// 333,979 touches, under the standing ceilings.
     const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (212_660, 425_320);
     /// The limb ceilings paired with
-    /// [`DISTANCE_JUMP_PAIR_TOUCH_CEILINGS`]: measured 53,905 /
-    /// 107,753 (0.40 per byte, flat), tightened from the composed
-    /// form's 973,702 / 3,341,816 (7.2 → 12.4 per byte). Live
-    /// 2026-07-30: 53,559 / 107,048, under the standing ceilings.
+    /// [`DISTANCE_JUMP_PAIR_TOUCH_CEILINGS`].
+    ///
+    /// Measured 53,905 / 107,753 (0.40 per byte, flat), tightened from
+    /// the composed form's 973,702 / 3,341,816 (7.2 → 12.4 per byte).
+    /// Live 2026-07-30: 53,559 / 107,048, under the standing ceilings.
     const DISTANCE_JUMP_PAIR_LIMB_CEILINGS: (u64, u64) = (67_382, 134_692);
 
     /// The jump-pair distance is linear in the packed pair: per-byte
