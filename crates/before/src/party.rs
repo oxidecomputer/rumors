@@ -230,23 +230,14 @@ impl Party {
     /// drops are [`join`](Party::join)ed back into `self`. The handed-out
     /// shares together with `self` reconstruct the original region.
     ///
+    /// Total over every `n`, with one saturating corner: the split carves
+    /// `n + 1` subregions (the residual needs its own count), so at
+    /// `n == u64::MAX` the count saturates and the iterator yields
+    /// `u64::MAX − 1` shares — one fewer than asked, at the single input
+    /// where the asked-for count has no headroom.
+    ///
     /// For the consuming counterpart that splits into exactly `N` shares with no
     /// residual, see [`From<Party>`](Party) for `[Party; N]`.
-    ///
-    /// # Panics
-    ///
-    /// In builds with debug assertions, `n == usize::MAX` panics with an
-    /// arithmetic overflow (the split carves `n + 1` subregions, and the
-    /// count has no headroom for the residual share). The panic strikes
-    /// after `self`'s region has been moved into the split, so a caller
-    /// that catches the unwind is left holding an emptied `Party` whose
-    /// region was dropped — destroyed, never duplicated, so the Law of
-    /// Disjointness is safe, but the handle is no longer usable as an
-    /// identity. Without debug assertions the count wraps instead: the
-    /// returned iterator yields no shares while reporting `usize::MAX`
-    /// remaining — violating [`ExactSizeIterator`]'s contract and the
-    /// "hands out `n`" promise at exactly this one input — and `self`
-    /// keeps its whole region.
     ///
     /// # Complexity
     ///
@@ -268,7 +259,7 @@ impl Party {
     /// p.join_all(shares).unwrap();
     /// assert!(p.is_seed());
     /// ```
-    pub fn forks(&mut self, n: usize) -> Forks<'_> {
+    pub fn forks(&mut self, n: u64) -> Forks<'_> {
         Forks::new(self, n)
     }
 

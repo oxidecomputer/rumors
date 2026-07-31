@@ -404,14 +404,12 @@ const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 /// # Panics
 ///
 /// Panics if the operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes — or is
-/// deeper than `u32::MAX` levels (the rank exponent would overflow; the
-/// cheapest spine spends 3 bits per level, so such a stream exceeds
-/// 1.5 GiB).
+/// [`validate`](fn@super::validate) first on untrusted bytes.
 pub fn rank(bits: &BitsSlice) -> Rank {
     let max_depth = max_depth(bits);
-    let scale =
-        u32::try_from(max_depth).expect("rank exponent overflows u32: stream deeper than 2^32");
+    // Depth counts levels of a stream held in memory, so it always
+    // fits the u64 rank exponent.
+    let scale = max_depth as u64;
     let (mut cursor, first) = LeafCursor::open(bits);
     // The single-stream instance of the anchored-segment integral: the
     // integrand is the height itself, opened at the first leaf's
@@ -651,8 +649,8 @@ fn charge_digits(total: &mut Accumulator, neg: bool, factor: &Base, digits: &[(u
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
-/// levels, exactly as [`rank`](fn@rank) does.
+/// Panics on a non-canonical operand, exactly as [`rank`](fn@rank)
+/// does.
 pub fn distance(a: &BitsSlice, b: &BitsSlice) -> Rank {
     // `∫ |D|`: σ is `sign(D)` itself, so the integrand `σ·D` is `|D|`.
     pair_integral(a, b, |sign| match sign {
@@ -673,8 +671,8 @@ pub fn distance(a: &BitsSlice, b: &BitsSlice) -> Rank {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
-/// levels, exactly as [`rank`](fn@rank) does.
+/// Panics on a non-canonical operand, exactly as [`rank`](fn@rank)
+/// does.
 pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
     // `∫ (−D)⁺`: σ is `−1` exactly where `D < 0`, so the integrand
     // keeps the history `b` records beyond `a` and nothing else.
@@ -699,8 +697,8 @@ pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
-/// levels, exactly as [`rank`](fn@rank) does.
+/// Panics on a non-canonical operand, exactly as [`rank`](fn@rank)
+/// does.
 pub fn rank_cmp(a: &BitsSlice, b: &BitsSlice) -> Ordering {
     // `∫ D`, signed: σ is constantly `+1`, the total is
     // `rank(a) − rank(b)`, and only its sign is kept.
@@ -739,19 +737,19 @@ fn pair_integral(
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
-/// levels, exactly as [`rank`](fn@rank) does.
+/// Panics on a non-canonical operand, exactly as [`rank`](fn@rank)
+/// does.
 fn pair_fold(
     a_bits: &BitsSlice,
     b_bits: &BitsSlice,
     orientation: impl Fn(Ordering) -> i8,
-) -> (Ordering, UBig, u32) {
+) -> (Ordering, UBig, u64) {
     // The overlay's scale: elementary intervals nest inside both
     // operands' leaves, so the deepest one sits at the deeper operand's
-    // maximum depth.
+    // maximum depth. Depth counts levels of streams held in memory, so
+    // it always fits the u64 rank exponent.
     let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
-    let scale =
-        u32::try_from(overlay_depth).expect("rank exponent overflows u32: stream deeper than 2^32");
+    let scale = overlay_depth as u64;
     let OpenedPair {
         a: mut ca,
         b: mut cb,

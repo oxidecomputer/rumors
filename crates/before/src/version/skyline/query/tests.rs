@@ -937,7 +937,7 @@ mod adequacy {
     /// span, which `FP(k)`'s descending spine grows with every block.
     fn absolute_position_rank(bits: &BitsSlice) -> Rank {
         let max_depth = max_depth(bits);
-        let scale = u32::try_from(max_depth).expect("the tripwire streams stay shallow");
+        let scale = max_depth as u64;
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut total = Accumulator::new();
         let mut live_height = Accumulator::new();
@@ -1192,7 +1192,7 @@ mod adequacy {
             }
             let (sign, num) = self.total.sign_magnitude();
             debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
-            let scale = u32::try_from(closing_shift).expect("the tripwire streams stay shallow");
+            let scale = closing_shift;
             Rank::from_raw(Base::from(num), scale)
         }
     }
@@ -1561,7 +1561,7 @@ mod adequacy {
             }
             let (sign, num) = self.total.sign_magnitude();
             debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
-            let scale = u32::try_from(closing_shift).expect("the tripwire streams stay shallow");
+            let scale = closing_shift;
             Rank::from_raw(Base::from(num), scale)
         }
     }
@@ -1876,7 +1876,7 @@ mod adequacy {
         }
         let (sign, num) = integ.total.sign_magnitude();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-        let scale = u32::try_from(closing_shift).expect("the tripwire streams stay shallow");
+        let scale = closing_shift;
         Rank::from_raw(Base::from(num), scale)
     }
 
@@ -2102,7 +2102,7 @@ mod adequacy {
         }
         let (sign, num) = integ.total.sign_magnitude();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-        let scale = u32::try_from(closing_shift).expect("the tripwire streams stay shallow");
+        let scale = closing_shift;
         Rank::from_raw(Base::from(num), scale)
     }
 

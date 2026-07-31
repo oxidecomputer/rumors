@@ -1,75 +1,62 @@
-//! `forks(usize::MAX)`: the documented behavior at the split count's
-//! overflow boundary, pinned in both profiles.
+//! `forks(u64::MAX)`: the documented behavior at the split count's
+//! saturation boundary, pinned in both profiles.
 //!
-//! The split carves `n + 1` shares, so `n == usize::MAX` has no headroom
-//! for the residual. In builds with debug assertions the addition panics
-//! (and a caught unwind leaves the caller's `Party` emptied — destroyed,
-//! never duplicated); without them the count wraps and the returned
-//! iterator yields nothing while reporting `usize::MAX` remaining. These
-//! tests hold the `# Panics` sections on [`Party::forks`] and
-//! [`Clock::forks`] to what actually happens, so any change at this
-//! boundary moves a committed reading instead of drifting silently.
+//! The split carves `n + 1` shares and the count saturates, so
+//! `n == u64::MAX` is total: no panic in any profile, the caller's
+//! handle keeps a valid region throughout, and the iterator claims (and
+//! would yield) `u64::MAX − 1` shares — one fewer than asked, at the
+//! single input where the asked-for count has no headroom for the
+//! residual. These tests hold [`Party::forks`] and [`Clock::forks`] to
+//! exactly that contract, so any change at this boundary moves a
+//! committed reading instead of drifting silently.
 
-use before::Party;
+use before::{Clock, Party};
 
-#[cfg(debug_assertions)]
-use before::Clock;
-
-/// Debug profile: `Party::forks(usize::MAX)` panics on the unguarded
-/// `n + 1`, exactly as its `# Panics` section states.
-#[cfg(debug_assertions)]
+/// `Party::forks(u64::MAX)` is total: no panic, the iterator reports
+/// `u64::MAX - 1` shares (the saturated count minus the residual), the
+/// first shares are genuinely produced and disjoint from the keeper,
+/// and dropping the iterator folds everything back into the caller's
+/// party.
 #[test]
-#[should_panic(expected = "attempt to add with overflow")]
-fn party_forks_max_panics_in_debug() {
+fn party_forks_max_saturates_without_panic() {
     let mut p = Party::seed();
-    let _ = p.forks(usize::MAX);
+    let share = {
+        let mut it = p.forks(u64::MAX);
+        let expected = usize::try_from(u64::MAX - 1).expect("64-bit test host");
+        assert_eq!(it.size_hint(), (expected, Some(expected)));
+        assert_eq!(it.len(), expected);
+        it.next().expect("a saturated split still yields shares")
+    };
+    // Drop folded the untaken shares back; only the taken share is
+    // still out, disjoint from everything the keeper holds.
+    assert!(
+        p.is_disjoint(&share),
+        "a yielded share is disjoint from the keeper's holdings"
+    );
+    p.join(share).expect("disjoint shares rejoin");
+    assert!(p.is_seed(), "the borrowed party recovers the entire region");
 }
 
-/// Debug profile: `Clock::forks` inherits the same overflow panic
-/// through the party split it drives.
-#[cfg(debug_assertions)]
+/// `Clock::forks(u64::MAX)` rides the same saturating split: no panic,
+/// one child fewer than asked, and the borrowed clock stays a valid
+/// identity holding its whole region after the drop.
 #[test]
-#[should_panic(expected = "attempt to add with overflow")]
-fn clock_forks_max_panics_in_debug() {
+fn clock_forks_max_saturates_without_panic() {
     let mut c = Clock::seed();
-    let _ = c.forks(usize::MAX);
-}
-
-/// Debug profile: a caller that catches the unwind is left holding an
-/// emptied `Party`.
-///
-/// The region was moved into the split before the overflow, so it is
-/// dropped during unwind (destroyed, never duplicated: the Law of
-/// Disjointness is safe, the handle is not).
-#[cfg(debug_assertions)]
-#[test]
-fn party_forks_max_caught_unwind_leaves_an_emptied_party() {
-    use std::panic;
-    let mut p = Party::seed();
-    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        let _ = p.forks(usize::MAX);
-    }));
-    assert!(result.is_err(), "the overflow must panic in debug");
-    // The whole region was moved out and dropped during unwind; the
-    // caller's binding holds the anonymous party.
-    assert_eq!(p.to_string(), "0");
-}
-
-/// Release profile: the wrap yields an iterator that claims
-/// `usize::MAX` shares and yields none.
-///
-/// The [`ExactSizeIterator`] contract is violated at exactly this
-/// input, while the borrowed party soundly keeps the whole region.
-#[cfg(not(debug_assertions))]
-#[test]
-fn party_forks_max_wraps_in_release() {
-    let mut p = Party::seed();
-    {
-        let mut it = p.forks(usize::MAX);
-        assert_eq!(it.size_hint(), (usize::MAX, Some(usize::MAX)));
-        assert_eq!(it.len(), usize::MAX);
-        assert!(it.next().is_none(), "claims usize::MAX shares, yields none");
-    }
-    // Soundness: the borrowed party still holds the entire region.
-    assert!(p.is_seed());
+    let child = {
+        let mut it = c.forks(u64::MAX);
+        let expected = usize::try_from(u64::MAX - 1).expect("64-bit test host");
+        assert_eq!(it.len(), expected);
+        it.next().expect("a saturated split still yields children")
+    };
+    // Drop rejoined the untaken party shares; only the taken child is
+    // still out, disjoint and carrying a clone of the parent version.
+    assert!(c.party().is_disjoint(child.party()));
+    assert_eq!(child.version(), c.version(), "children clone the version");
+    c.join(child).expect("disjoint children rejoin");
+    assert_eq!(
+        c.party().to_string(),
+        "1",
+        "the borrowed clock recovers the entire region"
+    );
 }

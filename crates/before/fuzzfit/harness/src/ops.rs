@@ -775,7 +775,7 @@ impl Mirror {
             Op::PartyForks { dst, src, n } => {
                 let input = self.party(src).ok_or_else(malformed)?.encoded_bits() as u64;
                 let shares = match self.regs.get_mut(src as usize) {
-                    Some(Some(NVal::P(party))) => party.forks(n as usize).collect::<Vec<_>>(),
+                    Some(Some(NVal::P(party))) => party.forks(u64::from(n)).collect::<Vec<_>>(),
                     _ => return Err(malformed()),
                 };
                 // Share splitting: the output is n packed parties.
