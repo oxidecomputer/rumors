@@ -142,10 +142,11 @@ pub(super) const NA_SCAN_NO_STREAM: &str =
 /// Scan NA: a trivial (seed) operand stores no bits to scan.
 pub(super) const NA_SCAN_SEED_PARTY: &str =
     "the forked party is the seed: its packed form is empty";
-/// Scan NA: the whole-interval party's projection is the version itself
-/// (declared 2026-07-31, truing the floor to the seed fast path: the
+/// Scan NA: the whole-interval party's projection is the version itself.
+///
+/// Declared 2026-07-31, truing the floor to the seed fast path: the
 /// materialization is an `O(1)` buffer-sharing clone, so no stream walk
-/// is forced and the honest floor is zero).
+/// is forced and the honest floor is zero.
 pub(super) const NA_SCAN_SEED_PROJECTION: &str = "the whole-interval (seed) party's projection \
      is the version itself, handed back as a buffer-sharing clone: no stream walk is in the \
      contract";
@@ -203,10 +204,11 @@ pub(super) const NA_LIMB_DEPENDENCY: &str =
 const WHY_HEAP_MATERIALIZES: &str =
     "materializes a result at least as large as the packed bytes it codes";
 /// Heap NA: the forked child's version hand-over shares the refcounted
-/// stored buffer (declared 2026-07-31, truing the floor to the
-/// `bytes::Bytes`-backed at-rest form: a version clone is a refcount
-/// bump, so the byte-copy premise the old floor asserted is gone and
-/// the honest floor is zero).
+/// stored buffer.
+///
+/// Declared 2026-07-31, truing the floor to the `bytes::Bytes`-backed
+/// at-rest form: a version clone is a refcount bump, so the byte-copy
+/// premise the old floor asserted is gone and the honest floor is zero.
 pub(super) const NA_HEAP_FORK_SHARES: &str = "the forked child's version hand-over is a \
      refcount bump on the shared stored buffer, never a byte copy, and no other allocation \
      is semantically forced";

@@ -5289,16 +5289,17 @@ mod id_walk_scan_cost {
         bits: u64,
     }
 
-    /// Exact scan readings at the [`ID_DEPTH`] pair (measured
-    /// 2026-07-31, deterministic counters): every stored tag of both
-    /// operands read exactly once through the metered primitives —
-    /// [`SCAN_EXACT_BITS_SMALL`] on 62,502 packed bytes at the half
-    /// depth, [`SCAN_EXACT_BITS_LARGE`] on 125,002 at the full depth,
-    /// identical for the covers and disjoint walks (the same full
-    /// lockstep walk). Pinned with equality, not a ceiling: a uniform
-    /// tap undercount halves the reading yet clears every slack floor
-    /// in the tree, so only the exact number is tamper-evident in both
-    /// directions.
+    /// Exact scan readings at the [`ID_DEPTH`] pair, measured
+    /// 2026-07-31 with deterministic counters.
+    ///
+    /// Every stored tag of both operands is read exactly once through
+    /// the metered primitives — [`SCAN_EXACT_BITS_SMALL`] on 62,502
+    /// packed bytes at the half depth, [`SCAN_EXACT_BITS_LARGE`] on
+    /// 125,002 at the full depth, identical for the covers and disjoint
+    /// walks (the same full lockstep walk). Pinned with equality, not a
+    /// ceiling: a uniform tap undercount halves the reading yet clears
+    /// every slack floor in the tree, so only the exact number is
+    /// tamper-evident in both directions.
     const SCAN_EXACT_BITS_SMALL: u64 = 500_004;
 
     /// The full-depth reading paired with [`SCAN_EXACT_BITS_SMALL`].
