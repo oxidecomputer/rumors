@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf, split};
 use tokio::sync::mpsc;
 
-use super::header::{self, Addr, Token};
+use super::header::{self, Addr, Token, Unencodable};
 use super::router::{self, Table};
 use super::stream::{StreamAcceptor, StreamConnector};
 use super::{Dial, Link, Listen};
@@ -65,6 +65,39 @@ impl Default for Config {
             pending_headers: DEFAULT_PENDING_HEADERS,
         }
     }
+}
+
+/// How constructing an endpoint can fail; see [`Endpoint::new`].
+///
+/// Every variant is a configuration bug: nothing here depends on the
+/// network, so a construction that succeeds once succeeds always (for
+/// that configuration), and a failure wants a fixed deployment, not a
+/// retry.
+#[derive(Debug, thiserror::Error)]
+pub enum EndpointError {
+    /// The address type refused to encode the advertised name: its
+    /// wire form cannot carry the name faithfully (the stock
+    /// [`SocketAddr`](std::net::SocketAddr) instantiation refuses
+    /// scoped IPv6 addresses this way). The source says what could
+    /// not be carried.
+    #[error("the advertised name has no wire encoding")]
+    Unencodable(#[from] Unencodable),
+    /// The advertised name encoded outside 1..=[`MAX_ADDR_LEN`](super::MAX_ADDR_LEN)
+    /// bytes: the connect header's one-byte length prefix cannot
+    /// carry more, and a peer cannot dial back an empty name.
+    #[error(
+        "the advertised name must encode to 1..={max} bytes, not {0}",
+        max = header::MAX_ADDR_LEN
+    )]
+    NameLength(usize),
+    /// [`Config::incoming_backlog`] is zero: the router could never
+    /// hand the application a single peer-established link.
+    #[error("incoming backlog must admit a link")]
+    ZeroIncomingBacklog,
+    /// [`Config::pending_headers`] is zero: the router could never
+    /// hold a connection long enough to read its connect header.
+    #[error("pending headers must admit a connection")]
+    ZeroPendingHeaders,
 }
 
 /// How establishing a link can fail; see [`Endpoint::link`].
@@ -130,38 +163,45 @@ impl<D: Dial> Endpoint<D> {
     /// must drive for the endpoint's lifetime (see the [module
     /// docs](super#driving-the-router)).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If `advertised` encodes to nothing or to more than
-    /// [`MAX_ADDR_LEN`](super::MAX_ADDR_LEN) bytes, if the address
-    /// type's `encode` refuses the name itself (the stock
-    /// [`SocketAddr`](std::net::SocketAddr) instantiation refuses scoped
-    /// IPv6 addresses, whose scope the wire name cannot carry), or if
-    /// either [`Config`] bound is zero: each is a configuration bug
-    /// caught at construction rather than at the first link.
+    /// Each is a configuration bug caught at construction rather than
+    /// at the first link:
+    ///
+    /// - [`EndpointError::Unencodable`] when the address type's
+    ///   `encode` refuses `advertised` itself (the stock
+    ///   [`SocketAddr`](std::net::SocketAddr) instantiation refuses
+    ///   scoped IPv6 addresses, whose scope the wire name cannot
+    ///   carry);
+    /// - [`EndpointError::NameLength`] when `advertised` encodes to
+    ///   nothing or to more than
+    ///   [`MAX_ADDR_LEN`](super::MAX_ADDR_LEN) bytes;
+    /// - [`EndpointError::ZeroIncomingBacklog`] and
+    ///   [`EndpointError::ZeroPendingHeaders`] when the corresponding
+    ///   [`Config`] bound is zero.
     pub fn new(
         listen: impl Listen<Conn = D::Conn>,
         advertised: D::Addr,
         dial: D,
         config: Config,
-    ) -> (
-        Self,
-        Incoming<D>,
-        impl Future<Output = io::Result<()>> + Send + 'static,
-    ) {
-        let encoded = advertised.encode();
-        assert!(
-            (1..=header::MAX_ADDR_LEN).contains(&encoded.len()),
-            "advertised name must encode to 1..=255 bytes"
-        );
-        assert!(
-            config.incoming_backlog > 0,
-            "incoming backlog must admit a link"
-        );
-        assert!(
-            config.pending_headers > 0,
-            "pending headers must admit a connection"
-        );
+    ) -> Result<
+        (
+            Self,
+            Incoming<D>,
+            impl Future<Output = io::Result<()>> + Send + 'static,
+        ),
+        EndpointError,
+    > {
+        let encoded = advertised.encode()?;
+        if !(1..=header::MAX_ADDR_LEN).contains(&encoded.len()) {
+            return Err(EndpointError::NameLength(encoded.len()));
+        }
+        if config.incoming_backlog == 0 {
+            return Err(EndpointError::ZeroIncomingBacklog);
+        }
+        if config.pending_headers == 0 {
+            return Err(EndpointError::ZeroPendingHeaders);
+        }
         let table: Table<D::Conn> = Arc::new(Mutex::new(HashMap::new()));
         let (arrivals, incoming) = mpsc::channel(config.incoming_backlog);
         let endpoint = Endpoint {
@@ -172,7 +212,7 @@ impl<D: Dial> Endpoint<D> {
             }),
         };
         let router = router::drive(listen, dial, table, arrivals, config.pending_headers);
-        (endpoint, Incoming { links: incoming }, router)
+        Ok((endpoint, Incoming { links: incoming }, router))
     }
 
     /// Establish one link to the peer reachable at `peer`.
