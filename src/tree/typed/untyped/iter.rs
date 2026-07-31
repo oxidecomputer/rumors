@@ -8,7 +8,6 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::ops::{Bound, RangeBounds, RangeFull};
-use std::sync::Arc;
 
 use tinyvec::ArrayVec;
 
@@ -466,9 +465,7 @@ impl<T> Leaf<T> {
             return self.0;
         }
         match &self.0.inner.children {
-            Children::Leaf { version, message } => {
-                Node::leaf_interned(Arc::clone(version), message.clone())
-            }
+            Children::Leaf { version, message } => Node::leaf(version.clone(), message.clone()),
             Children::Branch { .. } => {
                 unreachable!("a Leaf wraps a leaf node, by construction")
             }

@@ -366,9 +366,16 @@ record-decode failures panic; eager child maps in handles; exhaustive
 failure-path testing (fault + cancellation batteries, mutation-verified
 instruments); height erasure deferred; imbl is test-only with its diff
 denylisted (upstream defect #161 pinned, mitigated on both branches);
-A1 version-interning is provisional pending before's Bytes refactor
-(pre-merge call = task #16); the Kv closures-may-rerun clause needs its
-RetryKv ratchet post-merge (task #17). The campaign landed as PR #8
+A1 version-interning: RETIRED (owner ruling 2026-07-30, resolving task
+#16 as the provisional clause anticipated) — before's #120 made
+`Version` Bytes-backed, so a plain `Version::clone` is the same O(1)
+refcount bump the `Arc<Version>` handles bought (pinned in before by
+`join_all_equal_operands_is_clone_cheap`'s flatness leg), no cross-node
+dedup or version pointer identity ever relied on the shared handles,
+and the interning's whole remaining economy was a 40-byte handle copy
+per yield; the read surfaces yield owned `Version`s again. The Kv
+closures-may-rerun clause needs its RetryKv ratchet post-merge (task
+#17). The campaign landed as PR #8
 (20 commits, tip 7a832183): Store/Backlogs-style capability layering,
 commit-lock write protocol, Kv/Memory/conformance::kv, KvBackend with
 pending-node custody and recovery, Peer::seed_in/open, read paths

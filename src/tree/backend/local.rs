@@ -2,7 +2,6 @@ use std::convert::Infallible;
 use std::mem;
 use std::ops::Bound;
 use std::pin::{Pin, pin};
-use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use async_stream::try_stream;
@@ -89,8 +88,8 @@ impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {
         self.message()
     }
 
-    fn version(&self) -> &Arc<Version> {
-        self.version_interned()
+    fn version(&self) -> &Version {
+        self.version()
     }
 
     // Custody is free: the handle owns the payload and the tree it will

@@ -35,7 +35,7 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
 /// carrying an executor. Order is the stream's own (unspecified).
 pub fn collect<T: Send + Sync + 'static, S: Store<T>>(
     snapshot: &Snapshot<T, S>,
-) -> Vec<(Key, Arc<Version>, Arc<T>)> {
+) -> Vec<(Key, Version, Arc<T>)> {
     pollster::block_on(snapshot.iter().try_collect()).expect("the backend answered every item")
 }
 
@@ -43,11 +43,11 @@ pub fn collect<T: Send + Sync + 'static, S: Store<T>>(
 /// iterator, synchronously, at the end of a method chain.
 pub trait SnapshotCollect<T> {
     /// Drain into `Vec` and hand back its iterator; see [`collect`].
-    fn collected(&self) -> IntoIter<(Key, Arc<Version>, Arc<T>)>;
+    fn collected(&self) -> IntoIter<(Key, Version, Arc<T>)>;
 }
 
 impl<T: Send + Sync + 'static, S: Store<T>> SnapshotCollect<T> for Snapshot<T, S> {
-    fn collected(&self) -> IntoIter<(Key, Arc<Version>, Arc<T>)> {
+    fn collected(&self) -> IntoIter<(Key, Version, Arc<T>)> {
         collect(self).into_iter()
     }
 }
@@ -60,7 +60,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> SnapshotCollect<T> for Snapshot<T, S
 pub fn collect_range<T: Send + Sync + 'static, S: Store<T>, R: RangeBounds<Version>>(
     snapshot: &Snapshot<T, S>,
     range: R,
-) -> Vec<(Key, Arc<Version>, Arc<T>)> {
+) -> Vec<(Key, Version, Arc<T>)> {
     pollster::block_on(snapshot.range(range).try_collect())
         .expect("the backend answered every item")
 }

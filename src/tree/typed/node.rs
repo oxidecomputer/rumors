@@ -1,4 +1,4 @@
-use std::{fmt::Debug, iter::Map, marker::PhantomData, sync::Arc};
+use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -374,9 +374,9 @@ impl<T> Node<T, Z> {
             .expect("typed leaf failed to be a leaf")
     }
 
-    /// The interned version handle of this leaf node.
-    pub(crate) fn version_interned(&self) -> &Arc<Version> {
-        self.inner.version_interned()
+    /// The version of this leaf node.
+    pub(crate) fn version(&self) -> &Version {
+        self.inner.version()
     }
 
     /// View an owned bare leaf from the untyped walk at its typed height.

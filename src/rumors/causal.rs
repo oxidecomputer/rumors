@@ -51,7 +51,7 @@ pub struct CausalMessages<T: Send + Sync + 'static, S: Store<T> = Local> {
     /// The undelivered backlog, in causal-rank order. Always the residue of
     /// a *single* ingest (a new pass opens only once this empties), whose
     /// range start was `checkpoint` and whose ceiling is `ingested`.
-    staged: BTreeMap<(Rank, Key), (Arc<Version>, Arc<T>)>,
+    staged: BTreeMap<(Rank, Key), (Version, Arc<T>)>,
 }
 
 /// A wait for the channel to change, owning the receiver; resolves to
@@ -61,7 +61,7 @@ type WaitForChange<T, S> =
 
 /// One pass's staged additions: each selected leaf as its rank-keyed
 /// owned entry, the backlog's own row shape.
-type Additions<T> = Vec<((Rank, Key), (Arc<Version>, Arc<T>))>;
+type Additions<T> = Vec<((Rank, Key), (Version, Arc<T>))>;
 
 /// One whole pass over a frozen snapshot, owning the receiver while it
 /// runs; resolves to the staged additions, the snapshot's ceiling, and the
@@ -127,7 +127,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> CausalMessages<T, S> {
             while let Some(item) = walk.next().await {
                 match item {
                     Ok((key, leaf)) => {
-                        let version = Arc::clone(leaf.version());
+                        let version = leaf.version().clone();
                         additions.push((
                             (version.rank(), key),
                             (version, leaf.message().as_arc().clone()),
@@ -145,7 +145,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> CausalMessages<T, S> {
     /// Lets the resume point catch up when this empties the backlog (the
     /// popped message is in the caller's hands by the time the checkpoint
     /// can be read).
-    fn pop(&mut self) -> Option<(Key, Arc<Version>, Arc<T>)> {
+    fn pop(&mut self) -> Option<(Key, Version, Arc<T>)> {
         let ((_, key), (version, value)) = self.staged.pop_first()?;
         if self.staged.is_empty() {
             self.checkpoint = self.ingested.clone();
@@ -162,7 +162,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> CausalMessages<T, S> {
     /// Advance to the next message in causal order.
     async fn next_inner(
         &mut self,
-    ) -> Result<Option<(Key, Arc<Version>, Arc<T>)>, StorageError<S::Error>> {
+    ) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<S::Error>> {
         loop {
             // Deliver the staged backlog before consulting the channel:
             // everything staged became deliverable when its pass finished
@@ -236,14 +236,12 @@ impl<T: Send + Sync + 'static, S: Store<T>> CausalMessages<T, S> {
     }
 
     /// Advance to the next message in causal order, yielding it as an
-    /// owned `(Key, Arc<Version>, Arc<T>)` — the same items the
-    /// [`Stream`] impl yields as `Result`s.
+    /// owned `(Key, Version, Arc<T>)` — the same items the [`Stream`]
+    /// impl yields as `Result`s.
     ///
     /// Awaits quietly while the set is unchanged; resolves `Ok(None)` once
     /// no further change is possible and the backlog has drained.
-    pub async fn next(
-        &mut self,
-    ) -> Result<Option<(Key, Arc<Version>, Arc<T>)>, StorageError<S::Error>> {
+    pub async fn next(&mut self) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<S::Error>> {
         self.next_inner().await
     }
 
@@ -270,7 +268,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> CausalMessages<T, S> {
 /// materialized as owned futures, exactly as in
 /// [`UnorderedMessages`](super::UnorderedMessages).
 impl<T: Send + Sync + 'static, S: Store<T>> Stream for CausalMessages<T, S> {
-    type Item = Result<(Key, Arc<Version>, Arc<T>), StorageError<S::Error>>;
+    type Item = Result<(Key, Version, Arc<T>), StorageError<S::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();

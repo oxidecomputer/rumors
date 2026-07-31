@@ -42,14 +42,11 @@ impl<T: Send + Sync + 'static, S: Store<T>> std::fmt::Debug for Snapshot<T, S> {
 }
 
 /// The stream of [`Snapshot::iter`] and [`Snapshot::range`]: every selected
-/// live message as an owned `(Key, Arc<Version>, Arc<T>)`, in unspecified
-/// order.
+/// live message as an owned `(Key, Version, Arc<T>)`, in unspecified order.
 ///
 /// Fully owned and lifetime-free: hold it across awaits or in long-lived
 /// state; it pins only its unvisited frontier (plus each yielded message's
-/// shared payload). Versions arrive as shared handles — the backend interns
-/// one `Arc<Version>` per resident leaf, so a yield never deep-clones the
-/// ITC event tree. With the in-memory backend every item is immediately
+/// shared payload). With the in-memory backend every item is immediately
 /// ready and the error is uninhabited; a storage-owning backend's items
 /// resolve as its reads do, and surface its failures.
 pub struct Messages<T: Send + Sync + 'static, S: Store<T> = Local> {
@@ -57,17 +54,13 @@ pub struct Messages<T: Send + Sync + 'static, S: Store<T> = Local> {
 }
 
 impl<T: Send + Sync + 'static, S: Store<T>> Stream for Messages<T, S> {
-    type Item = Result<(Key, Arc<Version>, Arc<T>), StorageError<S::Error>>;
+    type Item = Result<(Key, Version, Arc<T>), StorageError<S::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.get_mut().walk.poll_next_unpin(cx).map(|item| {
             item.map(|item| {
                 item.map(|(key, leaf)| {
-                    (
-                        key,
-                        Arc::clone(leaf.version()),
-                        leaf.message().as_arc().clone(),
-                    )
+                    (key, leaf.version().clone(), leaf.message().as_arc().clone())
                 })
                 .map_err(StorageError)
             })
@@ -134,16 +127,16 @@ impl<T: Send + Sync + 'static, S: Store<T>> Snapshot<T, S> {
         self.tree.hash()
     }
 
-    /// Looks up a single live message by its [`Key`], returning its shared
-    /// version handle and shared payload.
+    /// Looks up a single live message by its [`Key`], returning its version
+    /// and shared payload.
     pub async fn get(
         &self,
         key: &Key,
-    ) -> Result<Option<(Arc<Version>, Arc<T>)>, StorageError<S::Error>> {
+    ) -> Result<Option<(Version, Arc<T>)>, StorageError<S::Error>> {
         self.tree.get(key).await.map_err(StorageError)
     }
 
-    /// Streams every live message as owned `(Key, Arc<Version>, Arc<T>)`.
+    /// Streams every live message as owned `(Key, Version, Arc<T>)`.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: a message may be yielded before another that causally precedes

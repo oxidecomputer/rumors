@@ -20,7 +20,6 @@
 //! implementation proves its account.
 
 use std::pin::{Pin, pin};
-use std::sync::Arc;
 
 use futures::{Stream, StreamExt as _, stream};
 
@@ -262,14 +261,14 @@ pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
     /// The message stored at this leaf node.
     fn message(&self) -> &Message<T>;
 
-    /// The leaf's version as its interned shared handle.
+    /// The leaf's version.
     ///
-    /// Every read surface yields versions through this accessor, so a
-    /// backend keeps one `Arc<Version>` per resident leaf and a yield is
-    /// a refcount bump — never a deep clone of the ITC event tree. The
-    /// same value is both endpoints of the leaf's coincident
-    /// [`Node::span`].
-    fn version(&self) -> &Arc<Version>;
+    /// Every read surface yields versions through this accessor, cloning
+    /// the borrow it hands out — an `O(1)` copy of a refcounted handle,
+    /// never a deep copy of the ITC event tree, because a [`Version`]
+    /// clone shares its packed encoding. The same value is both endpoints
+    /// of the leaf's coincident [`Node::span`].
+    fn version(&self) -> &Version;
 
     /// Construct a leaf node from one decoded wire record, taking custody
     /// of its payload.

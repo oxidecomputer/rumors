@@ -397,7 +397,7 @@ impl World {
         let mut version = None;
         for (_key, leaf_version, value) in snapshot.collected() {
             if *value == id {
-                version = Some((*leaf_version).clone());
+                version = Some(leaf_version);
                 break;
             }
         }

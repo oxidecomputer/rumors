@@ -43,7 +43,7 @@ fn step(obs: &mut UnorderedMessages<u64>) -> Step {
     match obs.next().now_or_never() {
         None => Step::Quiet,
         Some(Ok(None)) => Step::Ended,
-        Some(Ok(Some((k, v, m)))) => Step::Item((k, (*v).clone(), *m)),
+        Some(Ok(Some((k, v, m)))) => Step::Item((k, v, *m)),
         Some(Err(e)) => match e.0 {},
     }
 }

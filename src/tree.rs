@@ -266,8 +266,8 @@ impl<T: Send + Sync + 'static, S: Store<T>> Tree<T, S> {
     }
 
     /// Looks up a single live message by its [`Key`], returning its
-    /// interned version handle and shared payload.
-    pub async fn get(&self, key: &Key) -> Result<Option<(Arc<Version>, Arc<T>)>, S::Error> {
+    /// version and shared payload.
+    pub async fn get(&self, key: &Key) -> Result<Option<(Version, Arc<T>)>, S::Error> {
         Ok(self
             .backend
             .clone()
@@ -275,7 +275,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> Tree<T, S> {
             .await?
             .map(|leaf| {
                 (
-                    Arc::clone(backend::Leaf::version(&leaf)),
+                    backend::Leaf::version(&leaf).clone(),
                     leaf.message().as_arc().clone(),
                 )
             }))
@@ -590,7 +590,7 @@ impl<T: Send + Sync + 'static> Tree<T, Local> {
 
     /// [`get`](Self::get) driven to completion synchronously, unwrapping
     /// the in-memory backend's uninhabited error.
-    pub fn get_now(&self, key: &Key) -> Option<(Arc<Version>, Arc<T>)> {
+    pub fn get_now(&self, key: &Key) -> Option<(Version, Arc<T>)> {
         use futures::FutureExt as _;
         self.get(key)
             .now_or_never()

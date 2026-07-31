@@ -124,11 +124,8 @@ impl<T: Debug> Debug for Node<T> {
 enum Children<T> {
     /// A direct leaf, at the true bottom of the tree.
     Leaf {
-        /// The version of this leaf, interned behind an [`Arc`] so every
-        /// yield across the read surfaces is a refcount bump, never a
-        /// deep clone of the ITC event tree. Serialization, bounds, and
-        /// comparisons read through the deref.
-        version: Arc<Version>,
+        /// The version of this leaf.
+        version: Version,
         /// The payload of this leaf.
         message: Message<T>,
     },
@@ -344,14 +341,6 @@ impl<T> Node<T> {
 
     /// Construct a new leaf node.
     pub fn leaf(version: Version, value: Message<T>) -> Self {
-        Node::leaf_interned(Arc::new(version), value)
-    }
-
-    /// Construct a new leaf node around an already-interned version handle.
-    ///
-    /// The rebuild sites (bare-leaf minting in lookups and walks) reuse the
-    /// stored handle so re-expressing a leaf never re-clones its version.
-    pub(crate) fn leaf_interned(version: Arc<Version>, value: Message<T>) -> Self {
         Node::from_inner(Arc::new(NodeInner {
             prefix: Vec::new(),
             hash: OnceLock::new(),
@@ -370,13 +359,13 @@ impl<T> Node<T> {
         }
     }
 
-    /// The interned version handle of a leaf node.
+    /// The version of a leaf node.
     ///
     /// # Panics
     ///
     /// If `self` is a branch: callers hold a height-zero view, where a
     /// branch is unrepresentable.
-    pub(crate) fn version_interned(&self) -> &Arc<Version> {
+    pub(crate) fn version(&self) -> &Version {
         match &self.inner.children {
             Children::Leaf { version, .. } => version,
             Children::Branch { .. } => unreachable!("height-zero view over a branch"),
@@ -441,7 +430,7 @@ impl<T> Node<T> {
                     return Some(if node.inner.prefix.is_empty() {
                         node.clone()
                     } else {
-                        Node::leaf_interned(Arc::clone(version), message.clone())
+                        Node::leaf(version.clone(), message.clone())
                     });
                 }
                 Children::Branch { children, .. } => {
@@ -654,7 +643,7 @@ impl<T> Node<T> {
         bounds.get_or_init(|| {
             if children.values().all(Node::is_leaf) {
                 let mut versions = children.values().map(|child| match &child.inner.children {
-                    Children::Leaf { version, .. } => &**version,
+                    Children::Leaf { version, .. } => version,
                     Children::Branch { .. } => {
                         unreachable!("every child of a fringe branch is a leaf")
                     }

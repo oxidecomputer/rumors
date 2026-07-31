@@ -168,7 +168,7 @@ where
         self.0.message()
     }
 
-    fn version(&self) -> &std::sync::Arc<Version> {
+    fn version(&self) -> &Version {
         self.0.version()
     }
 

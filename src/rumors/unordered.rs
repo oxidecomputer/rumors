@@ -19,7 +19,7 @@ use tokio::sync::watch;
 /// There are two equivalent faces:
 ///
 /// - [`next`](Self::next) yields each message as an owned
-///   `(Key, Arc<Version>, Arc<T>)`, or the storage backend's error.
+///   `(Key, Version, Arc<T>)`, or the storage backend's error.
 /// - The [`Stream`] impl (for `T: 'static`) yields the same items as
 ///   `Result`s.
 ///
@@ -53,7 +53,7 @@ pub struct UnorderedMessages<T: Send + Sync + 'static, S: Store<T> = Local> {
 pub enum TryNext<T> {
     /// A message was ready, yielded owned (as [`next`](UnorderedMessages::next)
     /// yields it).
-    Message((Key, Arc<Version>, Arc<T>)),
+    Message((Key, Version, Arc<T>)),
     /// No message is ready yet, but handles are still live: ask again
     /// later. With a backend whose reads suspend, a fetch still in flight
     /// also reads as `Quiet`; with the in-memory backend, `Quiet` means
@@ -117,7 +117,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> UnorderedMessages<T, S> {
     /// Advance to the next message.
     async fn next_inner(
         &mut self,
-    ) -> Result<Option<(Key, Arc<Version>, Arc<T>)>, StorageError<S::Error>> {
+    ) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<S::Error>> {
         loop {
             match self.channel.as_mut().expect("channel state present") {
                 // Finish a wait the `Stream` face left in flight.
@@ -136,7 +136,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> UnorderedMessages<T, S> {
                         let (key, leaf) = item.map_err(StorageError)?;
                         return Ok(Some((
                             key,
-                            Arc::clone(leaf.version()),
+                            leaf.version().clone(),
                             leaf.message().as_arc().clone(),
                         )));
                     }
@@ -217,9 +217,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> UnorderedMessages<T, S> {
     /// Advance to the next message, yielding it owned. Awaits quietly while
     /// the set is unchanged; resolves `Ok(None)` once no further change is
     /// possible.
-    pub async fn next(
-        &mut self,
-    ) -> Result<Option<(Key, Arc<Version>, Arc<T>)>, StorageError<S::Error>> {
+    pub async fn next(&mut self) -> Result<Option<(Key, Version, Arc<T>)>, StorageError<S::Error>> {
         self.next_inner().await
     }
 
@@ -245,7 +243,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> UnorderedMessages<T, S> {
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future.
 impl<T: Send + Sync + 'static, S: Store<T>> Stream for UnorderedMessages<T, S> {
-    type Item = Result<(Key, Arc<Version>, Arc<T>), StorageError<S::Error>>;
+    type Item = Result<(Key, Version, Arc<T>), StorageError<S::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -269,7 +267,7 @@ impl<T: Send + Sync + 'static, S: Store<T>> Stream for UnorderedMessages<T, S> {
                         Poll::Ready(Some(Ok((key, leaf)))) => {
                             return Poll::Ready(Some(Ok((
                                 key,
-                                Arc::clone(leaf.version()),
+                                leaf.version().clone(),
                                 leaf.message().as_arc().clone(),
                             ))));
                         }
