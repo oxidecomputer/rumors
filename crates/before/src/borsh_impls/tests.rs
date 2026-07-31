@@ -1,5 +1,5 @@
 use borsh::io::{Error, ErrorKind, Read};
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
@@ -670,6 +670,160 @@ proptest! {
     }
 }
 
+/// Every ordered pair of the six wire types composes adjacently in one
+/// borsh stream with exact parse boundaries.
+///
+/// Self-delimitation totality across types: for each of the 36 ordered
+/// pairs `(A, B)`, serializing `a` then `b` into one stream and reading
+/// them back field by field consumes exactly the first encoding's bytes
+/// before the second begins, leaves nothing after the second, and each
+/// recovered value re-serializes to exactly its own segment — so no
+/// type's decoder can over- or under-read into a neighbor of any type.
+#[test]
+fn borsh_every_type_pair_composes_with_exact_boundaries() {
+    use crate::causally::Span;
+    use crate::{Rank, Ranked};
+
+    // Multi-byte, structure-bearing values of each type.
+    let mut party = Party::seed();
+    for _ in 0..4 {
+        let _ = party.fork(); // a several-byte id tree
+    }
+    let version: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
+    let clock = {
+        let mut c = Clock::seed();
+        for _ in 0..5 {
+            c.tick();
+        }
+        let _ = c.fork(); // a non-seed party beside a non-empty version
+        c
+    };
+    let rank = crate::version::Rank::from_raw(crate::codec::Base::from(129u8), 8);
+    let ranked: Ranked<'static> = Ranked::from(version.clone());
+    let span: Span<'static> = {
+        let mut c = Clock::seed();
+        let older = c.tick().clone();
+        let newer = c.tick().clone();
+        Span::new(&older, &newer).unwrap().into_owned()
+    };
+
+    // One ordered pair: serialize a then b, read them back, and hold
+    // both boundaries exact (values compared through their canonical
+    // re-serialization, which the round-trip pins elsewhere).
+    macro_rules! pair {
+        ($a:expr, $ta:ty, $b:expr, $tb:ty) => {{
+            let mut stream = Vec::new();
+            borsh::BorshSerialize::serialize(&$a, &mut stream).unwrap();
+            let first_len = stream.len();
+            borsh::BorshSerialize::serialize(&$b, &mut stream).unwrap();
+            let mut reader: &[u8] = &stream;
+            let got_a = <$ta>::deserialize_reader(&mut reader).unwrap_or_else(|e| {
+                panic!(
+                    "first field ({}) must decode ahead of {}: {e}",
+                    stringify!($ta),
+                    stringify!($tb),
+                )
+            });
+            assert_eq!(
+                stream.len() - reader.len(),
+                first_len,
+                "{} consumed past (or short of) its own encoding ahead of {}",
+                stringify!($ta),
+                stringify!($tb),
+            );
+            let got_b = <$tb>::deserialize_reader(&mut reader).unwrap_or_else(|e| {
+                panic!(
+                    "second field ({}) must decode after {}: {e}",
+                    stringify!($tb),
+                    stringify!($ta),
+                )
+            });
+            assert!(
+                reader.is_empty(),
+                "{} after {} left bytes unconsumed",
+                stringify!($tb),
+                stringify!($ta),
+            );
+            assert_eq!(
+                borsh::to_vec(&got_a).unwrap(),
+                &stream[..first_len],
+                "first value re-serializes to its own segment",
+            );
+            assert_eq!(
+                borsh::to_vec(&got_b).unwrap(),
+                &stream[first_len..],
+                "second value re-serializes to its own segment",
+            );
+        }};
+    }
+    // The full 6x6 ordered-pair matrix.
+    macro_rules! pairs_from {
+        ($a:expr, $ta:ty) => {
+            pair!($a, $ta, party, Party);
+            pair!($a, $ta, version, Version);
+            pair!($a, $ta, clock, Clock);
+            pair!($a, $ta, rank, Rank);
+            pair!($a, $ta, ranked, Ranked<'static>);
+            pair!($a, $ta, span, Span<'static>);
+        };
+    }
+    pairs_from!(party, Party);
+    pairs_from!(version, Version);
+    pairs_from!(clock, Clock);
+    pairs_from!(rank, Rank);
+    pairs_from!(ranked, Ranked<'static>);
+    pairs_from!(span, Span<'static>);
+}
+
+/// A defect inside element `N` of a borsh sequence keeps its genre and
+/// leaves the elements before it intact.
+///
+/// A `Vec<Version>` is a length prefix and then each element's
+/// self-delimiting encoding: a set padding bit inside the middle
+/// element's final byte crosses the boundary as `InvalidData` carrying
+/// [`Decode::TrailingBits`], and a stream cut inside the middle element
+/// surfaces as the reader's own `UnexpectedEof` — the sequence context
+/// neither masks the genre nor shifts the defect's attribution, and the
+/// same corrupted stream still yields element 0 when read field by
+/// field.
+#[test]
+fn borsh_sequence_defect_in_element_n_keeps_its_genre() {
+    let elems: Vec<Version> = ["(1, 2, (0, (1, 0, 2), 0))", "(1, 0, 4)", "(2, 0, 5)"]
+        .iter()
+        .map(|s| s.parse().unwrap())
+        .collect();
+    // The middle element must end mid-byte so a padding bit exists to set.
+    assert_ne!(elems[1].encoded_bits() % 8, 0, "the witness ends mid-byte");
+    let bytes = borsh::to_vec(&elems).unwrap();
+    let e0 = borsh::to_vec(&elems[0]).unwrap().len();
+    let e1 = borsh::to_vec(&elems[1]).unwrap().len();
+    let mid_last = 4 + e0 + e1 - 1; // length prefix, element 0, element 1's final byte
+
+    // Set a padding bit inside element 1's final byte.
+    let mut corrupted = bytes.clone();
+    corrupted[mid_last] |= 0x01;
+    let err = <Vec<Version>>::try_from_slice(&corrupted).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::TrailingBits)),
+        "expected TrailingBits from element 1, got: {inner:?}"
+    );
+    // Element 0 still reads intact off the corrupted stream.
+    let mut reader: &[u8] = &corrupted[4..];
+    assert_eq!(
+        Version::deserialize_reader(&mut reader).unwrap(),
+        elems[0],
+        "the defect in element 1 does not reach element 0"
+    );
+
+    // Cut the stream inside element 1: the reader's own truncation genre.
+    let err = <Vec<Version>>::try_from_slice(&bytes[..4 + e0 + e1 / 2]).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+}
+
 /// The borsh span door dedups the coincident span's storage exactly as
 /// the byte-slice decode does.
 ///
@@ -692,5 +846,93 @@ fn span_borsh_dedups_the_coincident_span() {
     assert!(
         decoded.meet().view().ptr_eq(decoded.join().view()),
         "the borsh admission verdict must dedup the coincident span's storage"
+    );
+}
+
+/// A coincident span inside a larger borsh stream consumes exactly its
+/// own bytes: the Equal admission arm keeps the container framing.
+///
+/// [`span_borsh_composes_and_keeps_its_genres`] drives a *dominating*
+/// span ahead of its neighbors; the Equal arm is the one admission
+/// verdict it never takes in a container, and that arm alone drops the
+/// parsed join bits and stores the meet's clone instead — the seam
+/// where an EOF-tolerant over-read in consumed bytes would silently
+/// corrupt every following field while every lone-value test (which
+/// sees a fully drained buffer either way) stays green. The witness: a
+/// coincident span, then a forked party, then a rank, in one unframed
+/// stream; each field decodes to its value, the reader drains exactly,
+/// and the composite re-serializes byte-identically.
+#[test]
+fn coincident_span_keeps_borsh_container_framing() {
+    use crate::causally::Span;
+    use crate::Rank;
+    let mut clock = Clock::seed();
+    for _ in 0..9 {
+        clock.tick();
+    }
+    let v = clock.version().clone();
+    let span = v.span(&v);
+    assert_eq!(span.meet(), span.join(), "the hull of (v, v) is coincident");
+    let mut party = Party::seed();
+    let _ = party.fork();
+    let rank = v.rank();
+    let mut stream = Vec::new();
+    BorshSerialize::serialize(&span, &mut stream).expect("span serializes");
+    BorshSerialize::serialize(&party, &mut stream).expect("party serializes");
+    BorshSerialize::serialize(&rank, &mut stream).expect("rank serializes");
+    let mut reader: &[u8] = &stream;
+    let decoded =
+        Span::deserialize_reader(&mut reader).expect("the coincident span decodes in place");
+    assert_eq!(decoded, span);
+    assert_eq!(
+        Party::deserialize_reader(&mut reader).expect("the party field survives"),
+        party,
+    );
+    assert_eq!(
+        Rank::deserialize_reader(&mut reader).expect("the rank field survives"),
+        rank,
+    );
+    assert!(reader.is_empty(), "every byte belonged to some field");
+    let mut again = Vec::new();
+    BorshSerialize::serialize(&decoded, &mut again).expect("re-serializes");
+    BorshSerialize::serialize(&party, &mut again).expect("re-serializes");
+    BorshSerialize::serialize(&rank, &mut again).expect("re-serializes");
+    assert_eq!(
+        again, stream,
+        "the composite re-serializes byte-identically"
+    );
+}
+
+/// The coincident span's padding check survives the Equal admission
+/// arm: a set padding bit in the join component's final byte rejects as
+/// `TrailingBits` through the borsh door.
+///
+/// The Equal arm drops the parsed join bits and stores the meet's
+/// clone, so a rewrite that settled the verdict before the cursor's
+/// final-byte padding check would accept a dirty join stream and
+/// re-encode it clean — invisible to every round-trip assert. The
+/// padding check outranks the pair verdict at this door exactly as the
+/// byte-slice decode orders them.
+#[test]
+fn coincident_span_borsh_rejects_tampered_join_padding() {
+    use crate::causally::Span;
+    let v: Version = "(1, 0, 4)".parse().unwrap();
+    assert_ne!(
+        v.encoded_bits() % 8,
+        0,
+        "the witness needs a mid-byte tail so a padding bit exists"
+    );
+    let span = v.span(&v);
+    let mut bytes = borsh::to_vec(&span).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] |= 0x01; // a padding bit inside the join's final byte
+    let err = <Span as BorshDeserialize>::try_from_slice(&bytes).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::TrailingBits)),
+        "expected TrailingBits from the tampered join padding, got: {inner:?}"
     );
 }

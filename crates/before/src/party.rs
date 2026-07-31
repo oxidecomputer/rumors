@@ -5,9 +5,14 @@
 //! [`tick`](Party::tick) against. [`fork`](Party::fork) splits a share in two;
 //! [`join`](Party::join) reunites disjoint shares and refuses overlapping ones,
 //! because everything ITCs guarantee rests on the Law of Disjointness (see the
-//! [crate docs](crate)' safety rules). Parties are deliberately `!Clone` and
-//! their operations consume `self`: linearity in the type system, leaving only
-//! serialization boundaries to the caller.
+//! [crate docs](crate)' safety rules). Parties are deliberately `!Clone`, and
+//! the operations that redistribute identity move it linearly — `fork` and
+//! `join` mutate their receiver and `join` consumes its operand, so no share
+//! is ever in two hands — while `tick` merely borrows. The type system
+//! enforces that linearity up to the documented escape hatches: the
+//! serialization and text/literal doors, which mint a second holder from
+//! bytes or notation, and [`dangerously_alias`](Party::dangerously_alias),
+//! the deliberate in-memory duplicate; each carries its hazard note.
 
 use core::fmt::Display;
 
@@ -227,6 +232,21 @@ impl Party {
     ///
     /// For the consuming counterpart that splits into exactly `N` shares with no
     /// residual, see [`From<Party>`](Party) for `[Party; N]`.
+    ///
+    /// # Panics
+    ///
+    /// In builds with debug assertions, `n == usize::MAX` panics with an
+    /// arithmetic overflow (the split carves `n + 1` subregions, and the
+    /// count has no headroom for the residual share). The panic strikes
+    /// after `self`'s region has been moved into the split, so a caller
+    /// that catches the unwind is left holding an emptied `Party` whose
+    /// region was dropped — destroyed, never duplicated, so the Law of
+    /// Disjointness is safe, but the handle is no longer usable as an
+    /// identity. Without debug assertions the count wraps instead: the
+    /// returned iterator yields no shares while reporting `usize::MAX`
+    /// remaining — violating [`ExactSizeIterator`]'s contract and the
+    /// "hands out `n`" promise at exactly this one input — and `self`
+    /// keeps its whole region.
     ///
     /// # Complexity
     ///
@@ -589,6 +609,13 @@ impl Party {
     /// Decodes a [`Party`] from a reader of canonical bytes, strictly rejecting
     /// non-canonical representations.
     ///
+    /// A decoded party is a *second holder* of whatever identity the
+    /// bytes spell: nothing ties bytes to their source, so decoding
+    /// while the original handle — or any other copy of the bytes — can
+    /// still act violates linearity. Treat encode-then-decode as a
+    /// move, and restore an identity only from its latest persisted
+    /// state ([Safety rules](crate#safety-rules)).
+    ///
     /// # Complexity
     ///
     /// `O(n)` time and space in the bytes read, accepted or rejected:
@@ -749,6 +776,12 @@ impl core::fmt::Debug for Party {
 /// Parses paper notation (`0 | 1 | (i1, i2)`), strictly rejecting non-normal-form input
 /// and the anonymous identity `0` (a standalone `Party` must be a nonzero share).
 ///
+/// Parsing *mints* the party its text names, tied to no existing
+/// handle: `"1".parse()` yields a party overlapping every seed's whole
+/// region. Text mints belong in tests and fresh universes; inside a
+/// live system, identity comes only from [`fork`](Party::fork)/
+/// [`join`](Party::join) ([Safety rules](crate#safety-rules)).
+///
 /// # Complexity
 ///
 /// `O(t + |p|)` time and space, the input text plus the packed party
@@ -826,6 +859,12 @@ impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
 /// An id leaf from a single bit: `1` (full) is a valid `Party`; `0` is the anonymous
 /// identity and is rejected here, though it is allowed as a sub-tree in the tuple form.
 ///
+/// Like every literal door, this *mints* identity tied to no existing
+/// handle — `try_from(1)` overlaps every seed's whole region — so it
+/// belongs in tests and fresh universes, never inside a live system
+/// ([Safety rules](crate#safety-rules)); the tuple form's note carries
+/// the same hazard.
+///
 /// # Complexity
 ///
 /// **Complexity**: `O(1)`.
@@ -843,6 +882,9 @@ impl TryFrom<u8> for Party {
 }
 
 /// An id leaf from a single boolean: `true` = `1`, `false` = `0`.
+///
+/// Mints identity exactly as the `u8` literal door does — a test and
+/// fresh-universe door ([Safety rules](crate#safety-rules)).
 ///
 /// # Complexity
 ///
@@ -862,6 +904,9 @@ impl TryFrom<bool> for Party {
 
 /// An id node from a `(left, right)` literal, e.g. `Party::try_from((1u8, (0u8, 1u8)))`.
 /// Rejects a collapsible `(v, v)` (non-canonical) and an all-`0` (anonymous) result.
+///
+/// Mints identity tied to no existing handle, like the other literal
+/// doors — a test and fresh-universe door ([Safety rules](crate#safety-rules)).
 ///
 /// # Complexity
 ///

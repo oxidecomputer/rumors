@@ -9024,4 +9024,88 @@ mod identity_fast_paths {
              touch meter"
         );
     }
+
+    /// An empty operand answers every lattice identity/absorption rung
+    /// without a walk.
+    ///
+    /// The identity ladder's empty rungs — `v ∨ 0 = v` (no-op),
+    /// `0 ∨ v = v` (adopt the incoming stream wholesale, an `O(1)`
+    /// refcount clone), `0 ∧ v = 0` / `v ∧ 0 = 0` (absorption), and the
+    /// span forms — must all settle with zero scanned bits, in both
+    /// orders at every door: the operators and `|=`/`&=` assigns (all of
+    /// which route through the in-place cores — `0 |= v` is the seed
+    /// pattern the fold accumulators hit on their first join), the span
+    /// doors, and two-element folds (whose single combine is the
+    /// borrowed-pair core, unreachable from the operator matrix). The
+    /// walking control below proves the zeros are fast paths firing,
+    /// not a dead meter: without these rungs the general emission walk
+    /// produces byte-identical values (every value law stays green), so
+    /// only this scan pin witnesses the rungs' existence.
+    #[test]
+    fn empty_operands_answer_without_a_walk() {
+        let (v, _, _) = fixture();
+        let empty = Version::new();
+
+        let cells: &[(&str, &dyn Fn())] = &[
+            ("join_adopt", &|| assert_eq!(&(&empty | &v), &v)),
+            ("join_noop", &|| assert_eq!(&(&v | &empty), &v)),
+            ("meet_absorb_l", &|| assert_eq!(&(&empty & &v), &empty)),
+            ("meet_absorb_r", &|| assert_eq!(&(&v & &empty), &empty)),
+            ("span_l", &|| assert_eq!(empty.span(&v).join(), &v)),
+            ("span_r", &|| assert_eq!(v.span(&empty).join(), &v)),
+            ("join_view_seed", &|| {
+                let mut acc = Version::new();
+                acc |= &v;
+                assert_eq!(&acc, &v);
+            }),
+            ("join_view_noop", &|| {
+                let mut acc = v.clone();
+                acc |= &empty;
+                assert_eq!(&acc, &v);
+            }),
+            ("meet_view_absorb", &|| {
+                let mut acc = v.clone();
+                acc &= &empty;
+                assert_eq!(&acc, &empty);
+            }),
+            ("meet_view_absorb_l", &|| {
+                let mut acc = Version::new();
+                acc &= &v;
+                assert_eq!(&acc, &empty);
+            }),
+            // The fold doors: a two-element fold's only combine is the
+            // borrowed-pair core, so these cells are what reach the
+            // `refs` rungs (the operator matrix routes through the
+            // in-place cores exclusively).
+            ("join_fold_noop", &|| {
+                assert_eq!(&Version::join_all([&v, &empty]), &v)
+            }),
+            ("join_fold_adopt", &|| {
+                assert_eq!(&Version::join_all([&empty, &v]), &v)
+            }),
+            ("meet_fold_absorb_r", &|| {
+                assert_eq!(Version::meet_all([&v, &empty]).as_ref(), Some(&empty))
+            }),
+            ("meet_fold_absorb_l", &|| {
+                assert_eq!(Version::meet_all([&empty, &v]).as_ref(), Some(&empty))
+            }),
+        ];
+        for (name, cell) in cells {
+            let read = scanned(cell);
+            assert_eq!(
+                read, 0,
+                "{name} over an empty operand must answer by the empty \
+                 rung, not a walk ({read} bits scanned)"
+            );
+        }
+
+        // The walking control: join over a concurrent pair still walks,
+        // so the zeros above are the rungs firing, not a dead meter.
+        let (a, _, w) = fixture();
+        assert!(
+            scanned(|| assert!((&a | &w) >= a)) > 0,
+            "join over a concurrent pair must walk: a zero here is a dead \
+             scan meter"
+        );
+    }
 }

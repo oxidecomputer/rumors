@@ -203,13 +203,17 @@ indistinguishable from a healthy one, and comparisons simply begin
 reporting causal order that never happened. Nothing panics; the answers
 are just wrong.
 
-The two rules below are what make the Law hold: obey them and every two
-live parties in a system are disjoint by construction. An overlap error
-from a join or sync is therefore always a symptom, never the disease —
-some rule was already broken upstream (a pre-fork copy came back into
-play, or a second seed leaked in), and the fence caught one visible
-consequence of it; the rest of the damage may already be silent. The
-caller must ensure both:
+The two rules below are what make the Law hold. Each is stated by its
+commonest trigger, and the discipline extends past the letter of both:
+a `Clock` restored from bytes persisted *before* its last
+`tick` brings an earlier state of the identity back
+into play with no fork anywhere in the history — the restored party
+overlaps its own descendant, and two distinct events receive one
+version. An overlap error from a join or sync is always a symptom,
+never the disease — some rule was already broken upstream (a stale
+copy came back into play, or a second seed leaked in), and the fence
+caught one visible consequence of it; the rest of the damage may
+already be silent. The caller must ensure both:
 
 1. **Singularity.** A system of clocks has one `Clock::seed` (or
    `Party::seed`), created once, from which every `Clock` and
