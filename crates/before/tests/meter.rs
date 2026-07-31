@@ -621,6 +621,7 @@ fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Ticks) -> (u64, u64, 
 /// bits against the law's 24,766 → 57,534). Judging two points in one
 /// regime keeps the ratio band tight; a probe straddling the knee
 /// legitimately reads up to ×3 without any superlinearity.
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_COUNT_BITS: usize = 8_192;
 
 /// The count-attributable growth bound: doubling the count's width may
@@ -642,9 +643,11 @@ const TICKS_WIDE_COUNT_BITS: usize = 8_192;
 /// regime above the site-width knee) and limb spans 834 → 1,730 on
 /// mirror-wide; touch spans 0 → 0 everywhere — the count's arithmetic
 /// lives on `Base`, never the accumulator.]
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_GROWTH_NUM: u64 = 5;
 
 /// See [`TICKS_WIDE_GROWTH_NUM`]: the ratio denominator.
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_GROWTH_DEN: u64 = 2;
 
 /// The wide-count flatness pin: `ticks(n)` stays width-linear in the
@@ -731,6 +734,7 @@ fn ticks_wide_count_flatness_holds_the_width_band() {
 /// legible against the band.
 const TICKS_POINT_LO: u64 = 512;
 /// See [`TICKS_POINT_LO`].
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_POINT_HI: u64 = 4_096;
 /// The scan movement band: up to two count-carrying codes x 2 bits per
 /// doubling x 3 doublings.
@@ -738,13 +742,16 @@ const TICKS_POINT_HI: u64 = 4_096;
 /// [Measured 2026-07-27: exactly 6 on all three families - one code
 /// carries the count there; the second code's budget covers operand
 /// shapes where the successor repair carries it too.]
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_SCAN_BAND: u64 = 12;
 /// The limb movement band: the count's arithmetic stays inside one
 /// digit across the band [measured 2026-07-27: exactly 0 on all three
 /// families; a word of slack for a digit-boundary crossing].
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_LIMB_BAND: u64 = 8;
 /// The touch movement band: see the limb band [measured 2026-07-27:
 /// exactly 0 on all three families].
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_TOUCH_BAND: u64 = 8;
 
 // ─── bigroot scenarios ──────────────────────────────────────────────────────

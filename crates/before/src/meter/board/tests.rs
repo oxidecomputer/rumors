@@ -12,22 +12,26 @@
 //! doubling, over a build-liveness floor) lives here too, beside the board
 //! row that carries it.
 
-use crate::meter::{bigroot, cliff_comb, dense, hugeleaf, reveal_comb, Packed};
+use crate::meter::{bigroot, dense, hugeleaf, reveal_comb, Packed};
 use crate::{Party, Version};
 
 use super::cell::assert_honest_text;
-use super::judge::exponent;
 use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_party, radix_units_version,
-    value_content_bytes,
 };
-use super::{MAX_SCALING_EXPONENT, TEXT_BYTES_PER_RADIX_UNIT};
+use super::TEXT_BYTES_PER_RADIX_UNIT;
 // The limb-priced tripwires read the touch counter, so they compile only
 // with the `limb-meter` feature; these names have no ungated user.
 #[cfg(feature = "limb-meter")]
-use super::operand::{stored_bases, version_output_bytes};
+use super::judge::exponent;
 #[cfg(feature = "limb-meter")]
-use super::{MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, TEXT_PIPELINE_LIMB_OPS_PER_VALUE};
+use super::operand::{stored_bases, value_content_bytes, version_output_bytes};
+#[cfg(feature = "limb-meter")]
+use super::{
+    MAX_SCALING_EXPONENT, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, TEXT_PIPELINE_LIMB_OPS_PER_VALUE,
+};
+#[cfg(feature = "limb-meter")]
+use crate::meter::cliff_comb;
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
