@@ -170,6 +170,14 @@ unexpected_cfgs = { level = "deny", check-cfg = [
 name = "amp_board"
 required-features = ["limb-meter", "scan-meter"]
 
+# The integer-code corpus study walks the board's shape bundles, which live
+# behind the meter surface. Measure-only: it re-parses stored streams and
+# prices candidate codes closed-form on the histograms; it reads no
+# counters, so the base `meter` feature is enough.
+[[example]]
+name = "code_study"
+required-features = ["meter"]
+
 [[bench]]
 name = "party"
 harness = false

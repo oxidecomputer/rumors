@@ -306,6 +306,7 @@ pub use ceilings::{
 pub use coverage::{ExpectedRed, BOARD_EXPECTED_REDS, BOARD_NOT_APPLICABLE};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
 pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
+pub use family::study_family_versions;
 pub use measure::HeapMeter;
 pub use render::{run, Summary};
 pub use shard::{
