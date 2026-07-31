@@ -3,8 +3,8 @@
 //! The [`Kv`] contract fixes each transaction closure's error type to the
 //! store's own, which leaves no channel for the one failure the backend
 //! itself detects mid-transaction: a stored row that fails to decode
-//! ([`Corruption`]). This module widens the channel. [`read`] and
-//! [`write`] run closures whose transaction views carry
+//! ([`Corruption`](super::Corruption)). This module widens the channel.
+//! [`read`] and [`write()`] run closures whose transaction views carry
 //! [`KvError<E>`](KvError) as their error type, so decode doors deep in
 //! the schema and custody layers refuse with plain `?`, and the refusal
 //! surfaces to the caller as [`KvError::Corrupt`].
@@ -113,7 +113,7 @@ impl<E> ReadTxn for CheckedRead<'_, E> {
 
 /// A write view whose error channel is [`KvError<E>`](KvError) and
 /// whose mutations buffer until [`flush`](Self::flush): the mechanism
-/// behind [`write`]'s refusals-apply-nothing guarantee.
+/// behind [`write()`]'s refusals-apply-nothing guarantee.
 pub(crate) struct CheckedWrite<'a, E> {
     inner: &'a mut (dyn WriteTxn<Error = E> + 'a),
     /// The pending write set: `Some` a put, `None` a delete tombstone.
@@ -124,7 +124,7 @@ pub(crate) struct CheckedWrite<'a, E> {
 
 impl<E> CheckedWrite<'_, E> {
     /// Applies the buffered write set to the underlying transaction, in
-    /// key order. Only [`write`] calls this, and only on closure `Ok`.
+    /// key order. Only [`write()`] calls this, and only on closure `Ok`.
     fn flush(&mut self) -> Result<(), E> {
         for (table, entries) in std::mem::take(&mut self.buffer) {
             for (key, slot) in entries {

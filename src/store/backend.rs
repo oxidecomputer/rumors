@@ -60,7 +60,7 @@
 //! refuses with [`Corruption`], surfacing through this backend's error
 //! type ([`KvError`]) as its own genre so a deployment can tell a store
 //! that failed from a store that lied. The refusal applies nothing: the
-//! [`checked`](super::checked) transaction views buffer every mutation
+//! [`checked`] transaction views buffer every mutation
 //! until the enclosing closure succeeds. A child edge pointing at an
 //! *absent* row is different — records are reachable only through
 //! counted edges and registrations, so absence means the custody

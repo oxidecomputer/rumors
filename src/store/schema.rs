@@ -38,9 +38,9 @@
 //! evidence the store no longer holds what was written. Every decode
 //! door here refuses such bytes with a [`Corruption`] naming the table
 //! and key: the enclosing transaction applies nothing (the
-//! [`checked`](super::checked) views guarantee it), and the refusal
+//! [`checked`] views guarantee it), and the refusal
 //! surfaces through the backend's error surface
-//! ([`KvError::Corrupt`](super::KvError::Corrupt)) as its own genre,
+//! ([`KvError::Corrupt`]) as its own genre,
 //! distinct from a store that merely *failed* — the deployment can then
 //! tell "retry against healthy storage" from "the stored replica lied",
 //! and decide what recovery means. Detecting the torn page itself —
