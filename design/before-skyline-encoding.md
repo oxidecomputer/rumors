@@ -252,8 +252,10 @@ append-and-truncate [derived; the §12 decision table]:
 packed/working form split and its `Zero` broadcast, `fill`'s deferred
 leaf, decode's value-carrying parse frames (§7), and — since nothing
 recurses on input depth any longer — most likely the `stacker`
-dependency and `recurse::descend!` themselves ([open] until the last
-walk is converted).
+dependency and `recurse::descend!` themselves ([landed]: every
+library walk is iterative; `stacker` and `descend!` survive only on
+the test surface, as a dev-dependency guarding the test-only deep
+walks).
 
 ## 7. Validation without arithmetic
 
@@ -274,7 +276,9 @@ completed code a zero delta." **About 2 bits per level and zero
 arithmetic** — the validator never materializes a single height.
 Decode's transient state drops from ~n/4 × 56 bytes to ~n/4 × 2 bits:
 the V5 row goes green by construction rather than by tuning
-[derived; to be pinned by the meter when built].
+[derived; pinned — the resource-envelope suite's validator rows hold
+the dense spine at ~3.1 bits per open ancestor: the 2-bit state plus
+the bit stacks' allocation growth].
 
 ## 8. Ticks as splices, queries as folds
 
