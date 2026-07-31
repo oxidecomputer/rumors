@@ -294,12 +294,13 @@ pub enum Family {
         /// Cross-battery size.
         ops: u32,
     },
-    /// The small-operand family: one universe held at seed scale, cycling
-    /// rumors' bootstrap hot path — tick, a fork rejoined (the success
-    /// join), and the clock codec round-trip — so the four small-band
-    /// kernels ([`crate::bands::SMALL_BAND_KERNELS`]) sample densely
-    /// below the fit floor, where every size-law leg is out of range by
-    /// design.
+    /// The small-operand family: one universe held at seed scale,
+    /// cycling rumors' bootstrap hot path.
+    ///
+    /// The path is tick, a fork rejoined (the success join), and the
+    /// clock codec round-trip — so the four small-band kernels
+    /// ([`crate::bands::SMALL_BAND_KERNELS`]) sample densely below the
+    /// fit floor, where every size-law leg is out of range by design.
     ///
     /// Not a roster draw: its region is judged deterministically (the
     /// corpus [`for_each_bootstrap_program`] enumerates feeds both the

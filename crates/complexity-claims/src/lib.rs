@@ -229,9 +229,10 @@ pub enum Bound {
     FoldSearch,
     /// The multiplication-bound time claim on one operand — the worst
     /// case and the width-bounded regime — where `M(·)` is an
-    /// arithmetic backend's integer-multiplication bound. Any proven
-    /// lower bound lives in the site's section prose, per the
-    /// upper-bounds-only rendering rule.
+    /// arithmetic backend's integer-multiplication bound.
+    ///
+    /// Any proven lower bound lives in the site's section prose, per
+    /// the upper-bounds-only rendering rule.
     MulBound,
     /// [`Bound::MulBound`] over an operand pair.
     MulBoundPair,
