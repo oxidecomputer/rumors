@@ -8,3 +8,5 @@ cc b187e79143e8821fb0e3c7c5d070a90ef9d77161138576d8c601af8c35253c26 # shrinks to
 cc f2e1622bbf94d90894d55b51d4dda12cae2f3f7d6d0fd55126c22d635387dfa5 # shrinks to scale = 125
 cc faa57c3bc7348f4066b5c01c54ae511709a6e957e09735cf7f03e17c17f2dab8 # shrinks to ops = [Fork(0), Fork(0), Tick(0), Fork(1)]
 cc fbe21a6b8be748c010305b5afdff9ca634c6a9382916c78ec119d042fb278898 # shrinks to ops = [Fork(0), Fork(0), Fork(0), Send(5, 0)]
+cc 74ce4200c603493725ae07af53ef08d6c519ddb55d231687fb8f216775126702 # shrinks to ov = Node(Base(0), Node(Base(3), Leaf(Base(0)), Node(Base(18446744073709551614), Leaf(Base(0)), Leaf(Base(5)))), Node(Base(0), Leaf(Base(73786976294838206465)), Leaf(Base(0))))
+cc d3805b35d9eb4352d80cedc7c5df2ba4626b8c4f1791bc922ce44b01c455e514 # shrinks to oa = Node(Base(18446744073709551612), Node(Base(0), Leaf(Base(0)), Leaf(Base(1))), Node(Base(18446744073709551612), Leaf(Base(4)), Leaf(Base(0)))), ob = Node(Base(36893488147419103222), Node(Base(0), Node(Base(0), Leaf(Base(0)), Leaf(Base(18446744073709551611))), Leaf(Base(36893488147419103233))), Node(Base(0), Leaf(Base(2)), Leaf(Base(0))))

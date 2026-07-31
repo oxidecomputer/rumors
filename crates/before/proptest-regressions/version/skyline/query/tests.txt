@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4d132a4f284d42fcc8dc8f25aaba9b1510620e813c6add3dfde0910e31abf6ef # shrinks to oa = Node(Base(6029751236641685504), Node(Base(0), Leaf(Base(0)), Leaf(Base(174904762977233439282673810618045169660))), Node(Base(12416992837067866107), Node(Base(18446744073709551611), Leaf(Base(18446744073709551616)), Leaf(Base(0))), Leaf(Base(0)))), ob = Node(Base(0), Node(Base(28334374099001278464), Leaf(Base(0)), Node(Base(14199865138634710813), Leaf(Base(0)), Leaf(Base(7390460574846676525048462510791434468)))), Node(Base(0), Leaf(Base(36893488147419103232)), Leaf(Base(0))))

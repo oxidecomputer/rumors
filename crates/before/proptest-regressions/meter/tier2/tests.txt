@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 33c4844892fc0cdafd5edd8c20c496fde56e3ca555353315b7562708927ac96a # shrinks to (m1, p1) = (1, 1), (m2, p2) = (1, 1)
+cc 8041a344865b5a2f53d467aa9a95be93b375bc61413b1d9a7b8eff16bb551d5b # shrinks to a = Node(Base(1), Node(Base(73786976294838206465), Leaf(Base(0)), Leaf(Base(4))), Leaf(Base(0))), b = Node(Base(0), Node(Base(2645065635842752512), Leaf(Base(0)), Node(Base(15801678437866799113), Leaf(Base(0)), Leaf(Base(55340232221128654840)))), Leaf(Base(0)))
