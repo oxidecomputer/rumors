@@ -465,6 +465,58 @@ fn mul_bound_embedding_is_alive() {
     );
 }
 
+/// The pair door's answer-embedded-product liveness: the `MulBound`
+/// pair claims (distance, lag) enter the settle through the pair
+/// co-sweep — a distinct entry point from rank's single-stream fold,
+/// which every witness named on the class contract exercises — so the
+/// `Ω(M(a + b))` floor needs its embedding family constructed through
+/// the pair operations' own doors, not inferred from rank alone.
+///
+/// Against the empty version, the valuation identities collapse to
+/// `distance(v, ∅) = lag(∅, v) = rank(v)` and `lag(v, ∅) = 0`, so the
+/// plateau-puncture closed form (the factors' scaling and
+/// compaction-immunity are [`mul_bound_embedding_is_alive`]'s
+/// preconditions, asserted there at the same dimensions) must
+/// reproduce exactly through `Version::distance` and `Version::lag`.
+/// The co-operand is empty, *not equal*: the pair entries' only fast
+/// path is canonical equality, so both directed calls and the
+/// symmetric one run the pair integrator whole. An answer that stops
+/// embedding the product — or a pair-door rewiring that stops
+/// reaching the shared integrator exactly — loses the pair claims
+/// their floor witness here.
+#[test]
+fn mul_bound_pair_embedding_is_alive() {
+    let (w, d) = (64usize, 48usize);
+    let v = Shape::PlateauPuncture.packed2(w, d).version();
+    let empty = crate::Version::new();
+    assert!(
+        !v.is_empty() && empty.is_empty(),
+        "the pair must be unequal: an equal pair would answer through \
+         the canonical-equality rung without running the pair co-sweep"
+    );
+    let (x, y) = crate::meter::plateau_puncture_factors(w, d);
+    let closed = format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d);
+    assert_eq!(
+        v.distance(&empty).to_string(),
+        closed,
+        "distance against the empty version must be the plateau times the \
+         punctured turn mass: the pair door's answer no longer embeds the \
+         product, so the MulBound pair claims lost their floor witness"
+    );
+    assert_eq!(
+        empty.lag(&v).to_string(),
+        closed,
+        "the dominated side's lag must be the whole plateau-puncture rank: \
+         the pair door's answer no longer embeds the product"
+    );
+    assert_eq!(
+        v.lag(&empty),
+        crate::Rank::ZERO,
+        "the dominating side lags the empty version by nothing: the \
+         directed functional's zero side must stay exact"
+    );
+}
+
 /// The tripwire the roster's own vocabulary rests on: a doc block whose
 /// `# Complexity` section is missing, or whose section does not end
 /// where the scanner thinks, is detected — the scanner is not vacuously
