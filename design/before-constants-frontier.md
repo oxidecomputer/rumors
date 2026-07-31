@@ -278,8 +278,12 @@ concern, not a development-loop one.
 
 Two instruments, one per metric.
 
-Workload side (branch `code-study-60`, measure-only, its
-reconciliation pins exact over 165,834 versions): payload zeros are
+Workload side (the committed `code_study` example in `crates/before`,
+measure-only, run at the reduced parameters in its constants; the
+recorded run's reconciliation pins were exact over its 165,834
+versions — a re-run reproduces every figure quoted here, while the
+adversarial leg's version count tracks the live board roster):
+payload zeros are
 27.2% of values in the dynamic regime and 10.5% in the static — no
 majority-zero assumption holds — but the mass concentrates small
 regardless (P(v ≤ 15) is 85–93%), and gamma wins the data-dynamic

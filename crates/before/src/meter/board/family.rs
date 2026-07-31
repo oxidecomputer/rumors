@@ -1388,3 +1388,26 @@ impl XorShift {
         self.0
     }
 }
+
+/// Every packed version in each board family's operand bundle at `scale`,
+/// level 0, named per family: the shape corpus exactly as the board builds
+/// it.
+///
+/// A measure-only study surface for offline payload analysis — the
+/// `code_study` example re-parses these stored streams into per-class
+/// integer histograms to price candidate integer codes on the adversarial
+/// corpus. Nothing on the board consumes it.
+pub fn study_family_versions(scale: f64) -> Vec<(&'static str, Vec<Vec<u8>>)> {
+    FamilyId::board()
+        .map(|kind| {
+            let data = FamilyData::build(kind, scale, 0);
+            let mut versions = Vec::new();
+            versions.extend(data.version.clone());
+            versions.extend(data.version2.clone());
+            if let Some((vs, _)) = &data.fold {
+                versions.extend(vs.iter().cloned());
+            }
+            (data.name, versions)
+        })
+        .collect()
+}
