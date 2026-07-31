@@ -36,9 +36,11 @@ fn clock_forks_max_panics_in_debug() {
 }
 
 /// Debug profile: a caller that catches the unwind is left holding an
-/// emptied `Party` — the region was moved into the split before the
-/// overflow, so it is dropped during unwind (destroyed, never
-/// duplicated: the Law of Disjointness is safe, the handle is not).
+/// emptied `Party`.
+///
+/// The region was moved into the split before the overflow, so it is
+/// dropped during unwind (destroyed, never duplicated: the Law of
+/// Disjointness is safe, the handle is not).
 #[cfg(debug_assertions)]
 #[test]
 fn party_forks_max_caught_unwind_leaves_an_emptied_party() {
@@ -53,10 +55,11 @@ fn party_forks_max_caught_unwind_leaves_an_emptied_party() {
     assert_eq!(p.to_string(), "0");
 }
 
-/// Release profile: the wrap yields an iterator whose exact size claims
-/// `usize::MAX` shares but whose first `next()` is `None` (the
-/// [`ExactSizeIterator`] contract violated at exactly this input),
-/// while the borrowed party soundly keeps the whole region.
+/// Release profile: the wrap yields an iterator that claims
+/// `usize::MAX` shares and yields none.
+///
+/// The [`ExactSizeIterator`] contract is violated at exactly this
+/// input, while the borrowed party soundly keeps the whole region.
 #[cfg(not(debug_assertions))]
 #[test]
 fn party_forks_max_wraps_in_release() {

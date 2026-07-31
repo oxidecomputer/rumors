@@ -1,4 +1,5 @@
-//! The coincident-span clone-identity rungs, held live by scan parity:
+//! The coincident-span clone-identity rungs, held live by scan parity.
+//!
 //! `Span::place` and `Span::dominance_of` on a clone-coincident span must
 //! read exactly the scan bits of the collapsed form they document
 //! (one pairwise comparison / one containment), while the same verdicts

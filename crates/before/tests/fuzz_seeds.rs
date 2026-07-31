@@ -93,8 +93,10 @@ fn seed_directories_hold_exactly_the_set_of_record() {
 
 /// Every `fuzz_decode` seed decodes as the type its name declares and
 /// re-encodes byte-identically — or, for the corpus's non-canonical
-/// frontier, rejects with exactly its named genre: the seeds actually
-/// exercise the decode paths they were written for.
+/// frontier, rejects with exactly its named genre.
+///
+/// Either way the seeds actually exercise the decode paths they were
+/// written for.
 #[test]
 fn decode_seeds_decode_as_named_and_round_trip() {
     for seed in fuzz_seed_set::seed_set() {

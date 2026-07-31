@@ -1,7 +1,9 @@
 //! An adversarial operation sequence against the roster's *amortized*
-//! claims. An amortized bound holds over any operation sequence the
-//! caller can write, so the attack is a sequence: cheap writes that
-//! repeatedly force the expensive event the amortization must fund.
+//! claims.
+//!
+//! An amortized bound holds over any operation sequence the caller can
+//! write, so the attack is a sequence: cheap writes that repeatedly
+//! force the expensive event the amortization must fund.
 //!
 //! **Wide sign-flip oscillation** `S1(n, d)`: hold `-1` at digit 0,
 //! then alternate `add_wide_shl(1, d)` / `sign()` /

@@ -1,5 +1,6 @@
-//! Answer-embedded shapes for the measure folds (`min_ticks`, `rank`):
-//! inputs whose *answer* is a wide counter while the attacker-controlled
+//! Answer-embedded shapes for the measure folds (`min_ticks`, `rank`).
+//!
+//! Inputs whose *answer* is a wide counter while the attacker-controlled
 //! knob is a long tail of tiny deltas riding it — a coupling no board
 //! family drives (the committed families vary one axis at a time).
 //!
@@ -153,11 +154,13 @@ fn measure_folds_are_additive_on_wide_base_tiny_tail() {
 }
 
 /// Both measure folds stay per-input-byte flat on the wide-ladder
-/// family: near-equal wide subtree minima are each discriminated
-/// within the input bits that spelled them. Unlike the wide-base
-/// family, here the *input itself* carries the n x w product (every
-/// rung stores its own wide count), so the honest check is flatness
-/// per packed byte across all four grid cells.
+/// family.
+///
+/// Near-equal wide subtree minima are each discriminated within the
+/// input bits that spelled them. Unlike the wide-base family, here the
+/// *input itself* carries the n x w product (every rung stores its own
+/// wide count), so the honest check is flatness per packed byte across
+/// all four grid cells.
 #[test]
 fn measure_folds_are_flat_per_byte_on_wide_ladder() {
     let (n0, w0) = (64usize, 1500usize);

@@ -15,9 +15,11 @@
 use before::{Clock, Party, Version};
 
 /// One party ticking two divergent clones of the same base version
-/// yields equal versions: two events the caller meant as distinct
-/// concurrent occurrences compare as causally identical, with no
-/// `Party` or `Clock` ever duplicated.
+/// yields equal versions.
+///
+/// Two events the caller meant as distinct concurrent occurrences
+/// compare as causally identical, with no `Party` or `Clock` ever
+/// duplicated.
 #[test]
 fn same_party_divergent_clones_conflate() {
     let p = Party::seed();
@@ -34,7 +36,9 @@ fn same_party_divergent_clones_conflate() {
 }
 
 /// The dual corruption: joining the two conflated histories loses an
-/// event. The join of two lines carrying three distinct events is
+/// event.
+///
+/// The join of two lines carrying three distinct events is
 /// indistinguishable from either single line, so no reconciliation can
 /// recover the third event.
 #[test]
@@ -52,11 +56,14 @@ fn conflated_histories_join_loses_an_event() {
     assert_eq!(joined, v2);
 }
 
+/// A restored pre-tick backup conflates events with zero forks
+/// anywhere in the history.
+///
 /// A clock backed up (encode), advanced (tick = event X), then restored
-/// from the backup and ticked again (event Y): the two distinct events
-/// receive the *same* version, with no fork anywhere in the history —
-/// and the restored party overlaps the original, so the system holds
-/// two live non-disjoint parties from one seed and zero forks.
+/// from the backup and ticked again (event Y) hands both events the
+/// *same* version — and the restored party overlaps the original, so
+/// the system holds two live non-disjoint parties from one seed and
+/// zero forks.
 #[test]
 fn restored_pre_tick_clock_conflates_without_any_fork() {
     let mut c = Clock::seed();
@@ -71,10 +78,12 @@ fn restored_pre_tick_clock_conflates_without_any_fork() {
     assert!(!c.party().is_disjoint(restored.party()));
 }
 
-/// `Clock::from_parts` pairs a party with a version that does not carry
-/// the party's full tick history: the rebuilt clock re-mints an
-/// already-spent version for a new event. No fork, no decode — the
-/// pairing door alone reproduces the conflation.
+/// `Clock::from_parts` over a stale version re-mints an already-spent
+/// version for a new event.
+///
+/// The version handed in does not carry the party's full tick history;
+/// no fork, no decode — the pairing door alone reproduces the
+/// conflation.
 #[test]
 fn from_parts_stale_version_conflates() {
     let mut c = Clock::seed();
