@@ -284,6 +284,10 @@ impl Class {
                         "src/testing/complexity_claims/tests.rs",
                         "mul_bound_pair_embedding_is_alive",
                     ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "mul_bound_key_embedding_is_alive",
+                    ),
                 ],
             },
         }

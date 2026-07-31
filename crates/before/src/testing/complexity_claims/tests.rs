@@ -519,6 +519,49 @@ fn mul_bound_pair_embedding_is_alive() {
     );
 }
 
+/// The key doors' answer-embedded-product liveness: the `MulBound`
+/// key claims (`Ranked::encode_rank`, `Ranked::encode`,
+/// `Ranked::decode`) emit or verify the rank through their own fused
+/// entry points — distinct doors from `Version::rank`'s, which
+/// [`mul_bound_embedding_is_alive`] pins — so the embedding family
+/// must reproduce through them directly, not by composing the
+/// committed `encode_rank == to_rank().encode()` law (whose sampled
+/// generators do not reach this family) with rank's pin.
+///
+/// On the plateau-puncture instance the key's rank component must
+/// decode back to the closed-form product rank, and the composite key
+/// must survive its own strict decode — whose verifying rank fold is
+/// the `Ranked::decode` claim's `MulBound` term, here demonstrated
+/// firing on the embedding family itself. An encode door that stops
+/// emitting the product's digits, or a decode door that stops
+/// verifying them, loses the key claims their floor witness here.
+#[cfg(feature = "meter")]
+#[test]
+fn mul_bound_key_embedding_is_alive() {
+    let (w, d) = (64usize, 48usize);
+    let v = Shape::PlateauPuncture.packed2(w, d).version();
+    let (x, y) = crate::meter::plateau_puncture_factors(w, d);
+    let closed = format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d);
+    let rank_key = crate::Ranked::from(&v).encode_rank();
+    assert_eq!(
+        crate::Rank::decode(&rank_key[..])
+            .expect("the fused rank key is canonical")
+            .to_string(),
+        closed,
+        "the fused rank-key emission must carry the plateau times the \
+         punctured turn mass: the key door's answer no longer embeds the \
+         product, so the MulBound key claims lost their floor witness"
+    );
+    let decoded = crate::Ranked::decode(&crate::Ranked::from(&v).encode()[..])
+        .expect("the composite key round-trips through its verifying decode");
+    assert_eq!(
+        decoded.version(),
+        &v,
+        "the composite key's strict decode must recover the embedding \
+         family's version through its own verifying rank fold"
+    );
+}
+
 /// The tripwire the roster's own vocabulary rests on: a doc block whose
 /// `# Complexity` section is missing, or whose section does not end
 /// where the scanner thinks, is detected — the scanner is not vacuously
