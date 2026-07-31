@@ -49,6 +49,12 @@ struct Shared {
     faults: BTreeMap<u64, WriteFault>,
     /// Write transactions attempted so far (the fault clock).
     writes: u64,
+    /// Completed [`sync`](Kv::sync) barriers.
+    syncs: u64,
+    /// The history index the last completed sync covered, when recording.
+    synced: usize,
+    /// Whether the next sync fails (one-shot).
+    sync_fault: bool,
 }
 
 /// The in-memory reference [`Kv`] store.
@@ -57,8 +63,8 @@ struct Shared {
 /// the right store for tests, simulations, and conformance runs. Cloning
 /// shares the store, per the [`Kv`] handle contract.
 ///
-/// Beyond the plain contract it offers two pieces of instrumentation no
-/// production store can:
+/// Beyond the plain contract it offers three pieces of instrumentation
+/// no production store can:
 ///
 /// - **A committed-state history.** Every committed transaction's
 ///   resulting state is retained (structural sharing makes each O(1)),
@@ -70,9 +76,19 @@ struct Shared {
 ///   ([`inject_abort`](Memory::inject_abort)) or commit and *then* report
 ///   failure ([`inject_commit_then_error`](Memory::inject_commit_then_error)
 ///   — the committed-or-not ambiguity of a dropped or offloaded commit,
-///   made deterministic).
+///   made deterministic); the next [`sync`](Kv::sync) can fail
+///   ([`inject_sync_error`](Memory::inject_sync_error)).
+/// - **A durability ledger.** `Memory`'s commits are durable when
+///   acknowledged, so its [`sync`](Kv::sync) is bookkeeping: it counts
+///   completed barriers ([`sync_count`](Memory::sync_count)) and, when
+///   recording, marks the history index it covered
+///   ([`synced_prefix`](Memory::synced_prefix)). Together with
+///   [`reopen_at`](Memory::reopen_at) this enumerates the crash model of
+///   a *write-behind* store: `reopen_at(synced_prefix())` is the worst
+///   state a legal power loss can leave — everything up to the last
+///   barrier, nothing since guaranteed.
 ///
-/// Both faces exist for test harnesses; neither perturbs the store's
+/// The faces exist for test harnesses; none perturbs the store's
 /// conformance when unused.
 #[derive(Debug, Clone, Default)]
 pub struct Memory {
@@ -157,6 +173,30 @@ impl Memory {
         let mut shared = self.shared.lock().expect("Memory lock poisoned");
         let at = shared.writes + nth;
         shared.faults.insert(at, WriteFault::CommitThenError);
+    }
+
+    /// Makes the next [`sync`](Kv::sync) fail with
+    /// [`MemoryError::Injected`] (one-shot), counting and covering
+    /// nothing: the durability barrier of a store whose flush machinery
+    /// is broken.
+    pub fn inject_sync_error(&self) {
+        self.shared.lock().expect("Memory lock poisoned").sync_fault = true;
+    }
+
+    /// Completed [`sync`](Kv::sync) barriers so far: the durability
+    /// ledger's clock (see the type docs).
+    pub fn sync_count(&self) -> u64 {
+        self.shared.lock().expect("Memory lock poisoned").syncs
+    }
+
+    /// The history index the last completed [`sync`](Kv::sync) covered —
+    /// zero before any sync, or when the store is not recording.
+    ///
+    /// `reopen_at(synced_prefix())` is the worst crash a write-behind
+    /// store's documented policy permits: acknowledged commits since the
+    /// last barrier are the ones a power loss may take.
+    pub fn synced_prefix(&self) -> usize {
+        self.shared.lock().expect("Memory lock poisoned").synced
     }
 }
 
@@ -262,6 +302,23 @@ impl Kv for Memory {
             Some(WriteFault::CommitThenError) => Err(MemoryError::Injected),
             _ => Ok(result),
         }
+    }
+
+    async fn sync(&self) -> Result<(), Self::Error> {
+        // Commits are durable when acknowledged, so the barrier's work
+        // is the ledger: count it and mark the history index it covers
+        // (see the type docs' durability face).
+        let mut shared = self.shared.lock().expect("Memory lock poisoned");
+        if std::mem::take(&mut shared.sync_fault) {
+            return Err(MemoryError::Injected);
+        }
+        shared.syncs += 1;
+        shared.synced = shared
+            .history
+            .as_ref()
+            .map(|history| history.len() - 1)
+            .unwrap_or_default();
+        Ok(())
     }
 }
 

@@ -70,6 +70,7 @@
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use borsh::BorshDeserialize;
@@ -144,7 +145,8 @@ impl<K: Kv, T: Send + Sync + 'static> std::fmt::Debug for KvBackend<K, T> {
 }
 
 /// The backend's shared state: the store handle, the ID allocator, the
-/// deferred-release queue, and the resident-node dedup map.
+/// deferred-release queue, the resident-node dedup map, and the wire
+/// barrier's watermarks.
 struct Shared<K: Kv, T: Send + Sync + 'static> {
     kv: K,
     ids: IdAllocator,
@@ -153,6 +155,15 @@ struct Shared<K: Kv, T: Send + Sync + 'static> {
     /// through here, so every traversal holding a node shares one
     /// [`Fetched`].
     dedup: Mutex<HashMap<u64, Weak<Fetched<K, T>>>>,
+    /// Identity-bearing commits acknowledged: every root flip and
+    /// identity record bumps this after its transaction acknowledges.
+    /// One half of the wire barrier's watermark pair (see
+    /// [`Store::barrier`]'s implementation below).
+    committed: AtomicU64,
+    /// The `committed` value some completed [`Kv::sync`] has covered:
+    /// the other half of the watermark pair. `barrier` compares the two
+    /// so a commit-free window costs no flush.
+    durable: AtomicU64,
 }
 
 /// One resident node: the decoded record (or staged pending body) plus
@@ -655,6 +666,8 @@ where
                 ids: IdAllocator::default(),
                 releases: ReleaseQueue::default(),
                 dedup: Mutex::new(HashMap::new()),
+                committed: AtomicU64::new(0),
+                durable: AtomicU64::new(0),
             }),
         }
     }
@@ -1222,6 +1235,12 @@ where
             // The reification guard held the root's fresh record
             // registered through the flip that just linked it.
             drop(guard);
+            if flipped.is_ok() {
+                // Acknowledged before the committer publishes: any
+                // snapshot that can carry this flip's versions is taken
+                // after the bump, so a later `barrier` sees it.
+                this.shared.committed.fetch_add(1, Ordering::Release);
+            }
             flipped
         })
     }
@@ -1236,13 +1255,30 @@ where
         // Boxed for the same layout reason as `commit`.
         Box::pin(async move {
             this.write_upkeep(move |txn| refcount::record_identity(txn, identity.clone()))
-                .await
+                .await?;
+            this.shared.committed.fetch_add(1, Ordering::Release);
+            Ok(())
         })
     }
 
     fn barrier(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {
         let this = self.clone();
-        async move { this.shared.kv.sync().await.map_err(KvError::Store) }
+        async move {
+            // The watermark pair makes the barrier idle-cheap: flush
+            // only when an identity-bearing commit postdates the last
+            // completed flush, so a caller may barrier before every
+            // transmission and pay at most one [`Kv::sync`] per
+            // commit-then-send window — sessions after local-only quiet
+            // wait on nothing. The count is snapshotted *before* the
+            // flush: commits acknowledged mid-flush may not be covered
+            // by it, and must not be marked durable here.
+            let mark = this.shared.committed.load(Ordering::Acquire);
+            if this.shared.durable.load(Ordering::Acquire) < mark {
+                this.shared.kv.sync().await.map_err(KvError::Store)?;
+                this.shared.durable.fetch_max(mark, Ordering::AcqRel);
+            }
+            Ok(())
+        }
     }
 }
 

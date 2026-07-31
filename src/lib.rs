@@ -249,8 +249,10 @@
 //! - [`Peer::open`] resumes the replica a store already holds — network,
 //!   content, and identity all reconstruct from the store's own records,
 //!   with no separate [`Bookmark`] required: identity is recorded
-//!   atomically with every commit, so a restarted peer can never re-mint
-//!   a version coordinate it already spent.
+//!   atomically with every commit and made durable before anything it
+//!   stamped reaches a peer, so a restarted peer can never re-mint a
+//!   version coordinate that survives anywhere — in its own store or at
+//!   any other replica — whatever the store's durability policy.
 //!
 //! ```
 //! use rumors::{KvBackend, Memory, Peer};
@@ -283,13 +285,19 @@
 //!   interruption equivalent to dropping every in-process handle at once:
 //!   a peer reopens to a consistent replica after any crash.
 //! - **Durability of acknowledged writes is the store's documented
-//!   policy.** [`Kv::sync`] is the barrier for deployments that need every
-//!   acknowledged commit to survive power loss; a store that acknowledges
-//!   before its writes are durable trades that guarantee for latency. The
-//!   loss is bounded and honest: a commit the store had not yet made
-//!   durable is absent after restart exactly as if it had never been
-//!   acknowledged, and content any other peer already learned flows back
-//!   at the next gossip.
+//!   policy — until they escape.** A store that acknowledges before its
+//!   writes are durable ([`Kv::sync`] is its flush) trades crash-window
+//!   durability for commit latency, and the crate preserves that trade
+//!   for local work: a send never waits on the flush. What no store
+//!   policy can weaken: **acknowledged and escaped implies durable.**
+//!   Every session waits out [`Kv::sync`] before transmitting, covering
+//!   each commit whose versions it could ship — at most one wait per
+//!   commit-then-send window, and none after local-only quiet — so a
+//!   commit a crash takes is one whose versions never crossed the wire:
+//!   absent after restart exactly as if it had never been acknowledged,
+//!   with no other replica holding coordinates the restarted peer could
+//!   re-mint. Content learned *from* other peers flows back at the next
+//!   gossip either way.
 //!
 //! Three deployment obligations ride along. A store holds exactly one
 //! replica, owned by one process at a time — the backend counts, caches,

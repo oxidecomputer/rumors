@@ -853,7 +853,11 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
         // clock beside the root, in one transaction), and the barrier makes
         // those flips crash-proof. Without it, a flip that evaporated with
         // its record would let a restart re-mint coordinates some
-        // counterparty already holds.
+        // counterparty already holds. The barrier is watermarked — the
+        // backend flushes only when a flip or identity record postdates
+        // the last completed flush — so a session following local-only
+        // quiet waits on nothing: lazy stores keep their commit-latency
+        // win while nothing unflushed ever crosses the wire.
         if S::PERSISTS
             && let Err(e) = Box::pin(prior_tree.barrier()).await
         {

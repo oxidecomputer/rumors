@@ -570,6 +570,148 @@ fn ambiguous_commits_are_superseded_cleanly() {
     }
 }
 
+/// The wire barrier's watermark discipline: the first barrier after an
+/// identity-bearing commit flushes, a commit-free window flushes
+/// nothing, and local churn alone never flushes — the lazy store's
+/// commit-latency win, priced at one [`Kv::sync`] per
+/// commit-then-send window.
+#[test]
+fn barrier_flushes_once_per_commit_window() {
+    use crate::tree::backend::Store as _;
+    pollster::block_on(async {
+        let (store, backend, rumors) = kv_peer();
+        rumors.send(1).await.expect("send");
+        rumors.send(2).await.expect("send");
+        assert_eq!(store.sync_count(), 0, "local churn never waits on a flush");
+        backend.barrier().await.expect("barrier");
+        assert_eq!(
+            store.sync_count(),
+            1,
+            "the first barrier after commits flushes"
+        );
+        backend.barrier().await.expect("barrier");
+        backend.barrier().await.expect("barrier");
+        assert_eq!(
+            store.sync_count(),
+            1,
+            "a commit-free window flushes nothing"
+        );
+        rumors.send(3).await.expect("send");
+        backend.barrier().await.expect("barrier");
+        assert_eq!(store.sync_count(), 2, "a fresh commit re-arms the barrier");
+    });
+}
+
+/// Acknowledged and escaped implies durable, for every store policy: a
+/// session flushes exactly once before transmitting, and at the worst
+/// crash a write-behind store's policy permits (everything since the
+/// last completed flush lost), the store still holds every message the
+/// session shipped — with the flush landing strictly before the
+/// session's closing transactions, i.e. before the wire moved, not
+/// after.
+#[test]
+fn escaped_state_is_durable_before_it_ships() {
+    pollster::block_on(async {
+        let store = Memory::recording();
+        let backend = KvBackend::<Memory, u64>::new(store.clone());
+        let peer: Peer<u64, _, KvBackend<Memory, u64>> = Peer::seed_in(backend.clone());
+        let rumors = peer.into_rumors();
+        rumors.send(0).await.expect("send");
+
+        // An established witness to gossip with (its bootstrap is a
+        // session of its own; the assertions below count from after it).
+        let (mut a, mut b) = memory();
+        let (served, joined) =
+            tokio::join!(rumors.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b));
+        served.expect("serve");
+        let witness = joined.expect("bootstrap").expect("real join").into_rumors();
+
+        for message in 1..8u64 {
+            rumors.send(message).await.expect("send");
+        }
+        let shipped = contents(&rumors);
+        let syncs_before = store.sync_count();
+
+        let (mut a, mut b) = memory();
+        let (ours, theirs) = tokio::join!(rumors.gossip(&mut a), witness.gossip(&mut b));
+        ours.expect("gossip");
+        theirs.expect("witness gossip");
+        assert_eq!(
+            store.sync_count(),
+            syncs_before + 1,
+            "one flush covers the whole commit-then-send window"
+        );
+        assert!(
+            store.synced_prefix() < store.history_len() - 1,
+            "the flush landed strictly before the session's closing transactions"
+        );
+
+        // The worst legal crash for a write-behind store: everything
+        // after the last completed flush is gone. Everything the wire
+        // carried must still be there.
+        let crashed = store.reopen_at(store.synced_prefix());
+        let reopened = Peer::<u64, _, _>::open(crashed)
+            .await
+            .expect("the synced prefix resumes")
+            .into_rumors();
+        assert_eq!(
+            contents(&reopened),
+            shipped,
+            "every version the session shipped survives the crash"
+        );
+    });
+}
+
+/// The send blocks on the flush: with a failing [`Kv::sync`], a session
+/// dies before anything escapes — the crash window between
+/// commit-acknowledge and durability can never contain a wire send, by
+/// construction rather than by luck.
+#[test]
+fn failing_sync_blocks_the_send() {
+    pollster::block_on(async {
+        let (store, _backend, rumors) = kv_peer();
+        rumors.send(0).await.expect("send");
+        let (mut a, mut b) = memory();
+        let (served, joined) =
+            tokio::join!(rumors.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b));
+        served.expect("serve");
+        let witness = joined.expect("bootstrap").expect("real join").into_rumors();
+        let before = contents(&witness);
+
+        rumors
+            .send(99)
+            .await
+            .expect("the commit itself never flushes");
+        store.inject_sync_error();
+        let (mut a, mut b) = memory();
+        let (ours, theirs) = tokio::join!(rumors.gossip(&mut a), witness.gossip(&mut b));
+        assert!(
+            matches!(
+                ours,
+                Err(crate::error::Error::Storage(crate::StorageError(
+                    KvError::Store(crate::store::MemoryError::Injected)
+                )))
+            ),
+            "the barrier's failure surfaces as the store-failed genre"
+        );
+        // The counterparty saw a session die, never the unflushed commit.
+        let _ = theirs.expect_err("the counterparty's session dies too");
+        assert_eq!(
+            contents(&witness),
+            before,
+            "nothing escaped ahead of durability"
+        );
+
+        // The flush machinery healed: the same session now completes and
+        // the commit escapes normally.
+        let (mut a, mut b) = memory();
+        let (ours, theirs) = tokio::join!(rumors.gossip(&mut a), witness.gossip(&mut b));
+        ours.expect("gossip after the fault window");
+        theirs.expect("witness gossip");
+        assert_eq!(contents(&witness), contents(&rumors));
+    });
+}
+
 /// The durable-identity shrink law: a donation is recorded before it ships.
 ///
 /// Serving a bootstrap writes the post-donation identity record before
