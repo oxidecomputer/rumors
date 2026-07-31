@@ -783,7 +783,7 @@ in $O(M(n))$ whenever the products land in a power-law tier of the
 backend's multiplication — cluster splitting keeps every densified
 span funded, and the mass balance telescopes the tree — which
 covers every input whose packed size is under roughly 64 kilobytes
-(no product's factor side clears the backend's quasilinear
+(no product's smaller side clears the backend's quasilinear
 threshold, near 32 kilobytes per side, before that) and every
 input of any size that arms the ledger $O(1)$ times. Past that
 tier the per-level products stop telescoping and the settle pays
@@ -1873,7 +1873,7 @@ splice's constant overheads.
 Second, the growth does not compound. In closed form, for $k$
 iterated ticks against the same party:
 
-$ "size"("tick"^k (i, e)) <= "size"("tick"(i, e)) + 4 dot "size"(i) + 4 ceil(log_2 (k + 1)) + 8 "bits" $
+$ "size"("tick"^k (i, e)) <= "size"("tick"(i, e)) + 4 dot "size"(i) + 4 (floor(log_2 (k + 1)) + 1) + 8 "bits" $
 
 — after the first tick's possible doubling, everything further is
 logarithmic in $k$: the doubling is a one-step transient, not a
@@ -1893,8 +1893,9 @@ budget is
 spent at most once, the explicit $4 dot "size"(i)$ being slack that
 covers whichever tick spends it. And $k$ ticks raise
 values by at most $k$, so the two re-coded payloads widen by at
-most $2 ceil(log_2 (k + 1))$ code bits apiece — gamma's two bits
-per magnitude bit — the logarithmic term. The closed form is
+most $2 (floor(log_2 (k + 1)) + 1)$ code bits apiece — gamma's two
+bits per magnitude bit, at the width of the count — the logarithmic
+term. The closed form is
 moreover _constructive_: the implementation offers the $k$-fold
 tick as one operation, byte-identical to $k$ sequential ticks and
 computed in a bounded number of passes — two fused walks and one
