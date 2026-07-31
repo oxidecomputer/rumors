@@ -158,6 +158,129 @@ fn deposited_supply_failure_outranks_a_racing_consequence() {
     }
 }
 
+/// AUDIT WITNESS (r141, seed a): a *backend* failure racing a dead stream
+/// supply is reported as `SupplyClosed`, losing the backend error's identity.
+///
+/// This pins the terminal's current behavior so the mechanism is visible:
+/// the final match in `Work::execute` outranks *every* protocol error with
+/// a deposited supply failure, including typed backend errors the supply
+/// cannot have caused (the store failing is independent of the transport).
+/// `proxy::Error`'s rustdoc promises the complement — "errors the supply
+/// did not cause surface from the failing operation itself" — which this
+/// construction falsifies: the local store's injected failure is replaced
+/// by a direction-granularity `SupplyClosed` carrying the acceptor's I/O
+/// error. Deciding whether to exempt backend-typed errors from the
+/// supply-outranking (they are distinguishable at the match site) or to
+/// weaken the `Error` rustdoc is the owner's call; exactly one of the two
+/// must move.
+#[test]
+fn deposited_supply_failure_masks_an_independent_backend_error() {
+    let ParkedSession {
+        mut work,
+        claims: _claims,
+        route: _route,
+        peer,
+    } = parked_session();
+
+    // The peer link is gone before the session's first poll, exactly as in
+    // `deposited_supply_failure_outranks_a_racing_consequence`.
+    drop(peer);
+
+    // An INDEPENDENT local failure, not a symptom of the dead transport:
+    // the backend (the local store) failing during conversion.
+    work.spawn(async {
+        Err(Error::Encode(EncodeError::Backend(Failure::Injected(
+            Operation::Children { height: 1 },
+        ))))
+    });
+
+    let error = run_to_quiescence(work.execute(future::pending::<Result<(), _>>()))
+        .expect("the racing backend failure must resolve the session")
+        .expect_err("the session must fail");
+
+    // Current behavior: the backend error's identity is gone; the session
+    // reports the supply as its cause.
+    assert!(
+        matches!(
+            error,
+            Error::Stream(StreamError::SupplyClosed {
+                source: Some(_),
+                ..
+            })
+        ),
+        "expected the masking this witness documents, got: {error:?}",
+    );
+}
+
+/// AUDIT WITNESS (r141, seed a): the terminal's queued-`SupplyClosed`
+/// recovery arm, reached deterministically.
+///
+/// A reporter that provably needed the dead supply publishes its
+/// stream-granularity `SupplyClosed` and parks; a consequence in the same
+/// poll wave resolves the protocol arm first, so the biased select never
+/// receives the queued report. The terminal must drain the queue, prefer
+/// the queued report's *stream*-granularity origin over the deposit's
+/// direction granularity, and attach the deposited I/O cause to it.
+#[test]
+fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() {
+    let ParkedSession {
+        mut work,
+        claims: _claims,
+        route,
+        peer,
+    } = parked_session();
+
+    // The supply is dead before the first poll: the accept driver's flush
+    // poll deposits the acceptor's own I/O failure.
+    drop(peer);
+
+    // A reporter that needed the supply: publishes SupplyClosed at stream
+    // granularity, then parks. Spawned first so it publishes in the same
+    // wave the consequence resolves.
+    let (claim_send, claim_receive) = oneshot::channel::<DuplexStream>();
+    drop(claim_send);
+    let mut receiver: StreamReceiver<DuplexStream, ()> = StreamReceiver::new(
+        claim_receive,
+        Speaker::Initiator,
+        Stream::new(3).expect("stream index 3 exists"),
+        route,
+        Recorder::default(),
+    );
+    work.spawn(async move {
+        receiver.next().await;
+        unreachable!("a reporter parks forever after publishing");
+    });
+
+    // The consequence, resolving the protocol arm in the same wave.
+    work.spawn(async {
+        Err(Error::Send(SendError::Connect {
+            origin: Origin::stream(Speaker::Responder, Stream::new(0).expect("stream 0 exists")),
+            source: std::io::ErrorKind::BrokenPipe.into(),
+        }))
+    });
+
+    let error = run_to_quiescence(work.execute(future::pending::<Result<(), _>>()))
+        .expect("the racing consequence must resolve the session, not hang it")
+        .expect_err("the session must fail");
+
+    match error {
+        Error::Stream(StreamError::SupplyClosed {
+            origin,
+            source: Some(cause),
+        }) => {
+            // The queued report names the stream that provably needed the
+            // supply: finer than the deposit's direction granularity.
+            assert_eq!(
+                origin,
+                Origin::stream(Speaker::Initiator, Stream::new(3).expect("stream 3 exists")),
+                "the queued report's stream-granularity origin must win",
+            );
+            assert_eq!(cause.kind(), std::io::ErrorKind::UnexpectedEof);
+        }
+        other => panic!("the queued SupplyClosed was not recovered: {other:?}"),
+    }
+}
+
 /// A published stream error resolves a session whose every future is parked.
 ///
 /// The incoming-stream reporters publish to the error route and then park
