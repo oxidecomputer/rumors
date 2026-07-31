@@ -2204,10 +2204,15 @@ fn own_version_seed_mask_coherence(a: &Version, b: &Version, p: &Party) -> bool 
 /// The quotient view of a span answers every verdict, and
 /// materializes, exactly as the eagerly projected span.
 ///
-/// Endpoints, all nine placements, the dominance coarsening, and both
-/// materialization doors — quantified over the pair's hull and the
-/// coincident span, with probes at the operands and the projected
-/// endpoints (reaching the at-endpoint corners).
+/// Endpoints, the placement verdicts, the dominance coarsening, and
+/// both materialization doors — quantified over the pair's hull and
+/// the coincident span, with probes at the operands and the projected
+/// endpoints (reaching the at-endpoint corners). Every probe built
+/// from the operands dominates the projected start (projection only
+/// shrinks a version), so the concurrent-to-start placements are this
+/// law's negative space: the committed
+/// `own_span_place_reaches_every_concurrent_corner` witness beside
+/// the span tests constructs them.
 ///
 /// The eager side exists at all because projection is monotone
 /// (`projection_monotone_in_version`), which this law re-witnesses by
