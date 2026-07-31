@@ -40,11 +40,13 @@ use std::collections::BTreeMap;
 use proptest::prelude::*;
 
 use fuzzfit_harness::bands::{
-    band_for, judge_against, Verdict, BANDS, PINNED_RUSTC, REFIT_COVERAGE, REFIT_PREFIX_PROGRAMS,
-    REFIT_TOLERANCE,
+    band_for, judge_against, judge_small, Verdict, BANDS, PINNED_RUSTC, REFIT_COVERAGE,
+    REFIT_PREFIX_PROGRAMS, REFIT_TOLERANCE, SMALL_BANDS, SMALL_BAND_KERNELS,
 };
 use fuzzfit_harness::curve::{local_slope_excess, SHAPE_EXEMPT, SLOPE_ALLOWANCE};
-use fuzzfit_harness::drive::{for_each_deterministic_program, run_program, Sample};
+use fuzzfit_harness::drive::{
+    for_each_bootstrap_program, for_each_deterministic_program, run_program, Sample,
+};
 use fuzzfit_harness::strategies::{any_program, build, Family, ESCALATION_REPLAYS};
 use fuzzfit_harness::wasm::Guest;
 
@@ -63,7 +65,46 @@ fn judge(samples: &[Sample]) {
         });
         let arm = if s.rejected { " [err]" } else { "" };
         match judge_against(band, s.denom_bits, s.fuel) {
-            Verdict::InBand | Verdict::BelowFloor => {}
+            Verdict::InBand => {}
+            // Below the size-law floor, the small-operand roster takes
+            // over where it prices the key: sub-floor steps of the
+            // bootstrap-hot kernels are judged against their constant
+            // band instead of skipped.
+            Verdict::BelowFloor => {
+                if let Some((small, verdict)) =
+                    judge_small(s.kernel, s.rejected, s.denom_bits, s.fuel)
+                {
+                    match verdict {
+                        Verdict::InBand | Verdict::BelowFloor => {}
+                        Verdict::Above => panic!(
+                            "ABOVE SMALL BAND (sub-floor regression): {}{arm} at {} bits \
+                             consumed {} fuel; the pinned constant level is ~10^{:.3} \
+                             +{:.3}/-{:.3} over {}..{} bits",
+                            s.kernel,
+                            s.denom_bits,
+                            s.fuel,
+                            small.intercept,
+                            small.width_above,
+                            small.width_below,
+                            small.min_denom,
+                            small.max_denom,
+                        ),
+                        Verdict::Below => panic!(
+                            "BELOW SMALL BAND (liveness): {}{arm} at {} bits consumed \
+                             only {} fuel; the pinned constant level is ~10^{:.3} \
+                             +{:.3}/-{:.3} over {}..{} bits",
+                            s.kernel,
+                            s.denom_bits,
+                            s.fuel,
+                            small.intercept,
+                            small.width_above,
+                            small.width_below,
+                            small.min_denom,
+                            small.max_denom,
+                        ),
+                    }
+                }
+            }
             Verdict::Above => panic!(
                 "ABOVE BAND (asymptotic regression): {}{arm} at {} bits consumed {} fuel; \
                  the pinned law predicts ~10^{:.3} +{:.3}/-{:.3}",
@@ -120,6 +161,79 @@ fn bands_are_pinned() {
         !BANDS.is_empty(),
         "no pinned bands: run `just fuzzfit-calibrate` and commit src/bands.rs"
     );
+}
+
+/// The small-operand roster is pinned exactly: one constant-classified
+/// band per [`SMALL_BAND_KERNELS`] entry (success arm), each judging
+/// strictly below the size-law fit floor, and no small band prices a
+/// kernel off the roster.
+///
+/// The roster is the committed expectation list: a calibration that
+/// drops a kernel's small band (a generator regression starving the
+/// sub-floor samples) fails here by name instead of silently reopening
+/// the sub-floor blind spot the bands exist to close.
+#[test]
+fn small_bands_are_pinned_for_the_bootstrap_kernels() {
+    for &kernel in SMALL_BAND_KERNELS {
+        let band = SMALL_BANDS
+            .iter()
+            .find(|b| b.kernel == kernel && !b.rejected)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{kernel} has no pinned small-operand band: re-run \
+                     `just fuzzfit-calibrate` and commit src/bands.rs"
+                )
+            });
+        assert!(
+            band.constant,
+            "{kernel}: a small band is constant-classified"
+        );
+        assert!(
+            band.max_denom < fuzzfit_harness::fit::FIT_FLOOR_BITS,
+            "{kernel}: a small band judges strictly below the fit floor"
+        );
+    }
+    for band in SMALL_BANDS {
+        assert!(
+            SMALL_BAND_KERNELS.contains(&band.kernel) && !band.rejected,
+            "small band {} prices no rostered kernel: a stale pin; re-run \
+             `just fuzzfit-calibrate` or extend SMALL_BAND_KERNELS",
+            band.kernel
+        );
+    }
+}
+
+/// The deterministic bootstrap corpus lands every step in its band —
+/// the sub-floor steps of the rostered kernels judged against their
+/// small bands, everything else against the main roster — and each
+/// rostered kernel is actually judged sub-floor at least once (the
+/// leg's own liveness floor: a small band no program ever lands in is
+/// decoration).
+///
+/// This is the deterministic verdict over rumors' production-hot
+/// operand region: bootstrap and per-message stamping live below the
+/// size-law fit floor, where the point, shape, and refit legs are all
+/// structurally out of range, so this replay is the region's only
+/// total judgment.
+#[test]
+fn the_bootstrap_regime_stays_in_the_pinned_small_bands() {
+    let mut judged_small: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for_each_bootstrap_program(|_, samples| {
+        judge(samples);
+        for s in samples {
+            if !s.rejected && judge_small(s.kernel, s.rejected, s.denom_bits, s.fuel).is_some() {
+                *judged_small.entry(s.kernel).or_default() += 1;
+            }
+        }
+    });
+    for &kernel in SMALL_BAND_KERNELS {
+        assert!(
+            judged_small.get(kernel).copied().unwrap_or(0) > 0,
+            "{kernel}: the bootstrap corpus never landed a step inside its small \
+             band's calibrated span — the leg is decoration for this kernel; \
+             re-derive the corpus or the band"
+        );
+    }
 }
 
 /// The fuel meter itself is alive: an empty kernel call costs a small,

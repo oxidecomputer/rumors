@@ -139,6 +139,25 @@ pub const ESCALATION_MAX_DEPTH: u32 = 1792;
 /// consumers must agree on the (depth, seed) pins.
 pub const ESCALATION_REPLAYS: [(u32, u64); 2] = [(1024, 0xE5CA), (ESCALATION_MAX_DEPTH, 0x1792)];
 
+/// The small-operand corpus size: how many [`Family::Bootstrap`] programs
+/// the deterministic bootstrap stream enumerates (seed = case index,
+/// rounds cycling `1..=BOOTSTRAP_MAX_ROUNDS`).
+///
+/// Sized so every rounds rung repeats under several seeds: the jitter
+/// across seeds populates the sub-floor span densely instead of pinning
+/// one fuel point per size.
+pub const BOOTSTRAP_PROGRAMS: usize = 96;
+
+/// The bootstrap family's growth cap, in rounds.
+///
+/// Measured against the mirror's denominators: at this cap the family's
+/// clock tops out just under the fit floor (`crate::fit::FIT_FLOOR_BITS`),
+/// so the corpus covers the sub-floor span end to end while the
+/// single-operand kernels stay inside the constant-overhead regime the
+/// small bands price. Re-derive by sweeping the printed denominator
+/// ranges in `bin/calibrate` when the growth-per-round changes.
+pub const BOOTSTRAP_MAX_ROUNDS: u32 = 12;
+
 /// The budget a family's programs run under (the builder enforces it
 /// unconditionally, whatever the drawn dimensions).
 pub fn budget_for(family: &Family) -> Budget {
@@ -274,6 +293,25 @@ pub enum Family {
         universes: u32,
         /// Cross-battery size.
         ops: u32,
+    },
+    /// The small-operand family: one universe held at seed scale, cycling
+    /// rumors' bootstrap hot path — tick, a fork rejoined (the success
+    /// join), and the clock codec round-trip — so the four small-band
+    /// kernels ([`crate::bands::SMALL_BAND_KERNELS`]) sample densely
+    /// below the fit floor, where every size-law leg is out of range by
+    /// design.
+    ///
+    /// Not a roster draw: its region is judged deterministically (the
+    /// corpus [`for_each_bootstrap_program`] enumerates feeds both the
+    /// small-band calibration and the enforcement replay), and keeping it
+    /// off [`any_family`] keeps the pinned calibration stream's draws
+    /// unchanged.
+    ///
+    /// [`for_each_bootstrap_program`]: crate::drive::for_each_bootstrap_program
+    Bootstrap {
+        /// Growth rounds; the corpus cycles `1..=BOOTSTRAP_MAX_ROUNDS` so
+        /// programs stop at staggered sizes across the sub-floor span.
+        rounds: u32,
     },
     /// The reach family: one universe grown far past the roster's fork
     /// cap, under [`ESCALATION_BUDGET`].
@@ -1430,6 +1468,38 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                 }
             }
         }
+        Family::Bootstrap { rounds } => {
+            let Some(seed) = b.clock_seed() else {
+                return pools;
+            };
+            // The dense-spine shape at seed scale: each round forks a
+            // child (halving the seed's interval, so the seed's next
+            // tick lands at a fresh position and its packed bits grow
+            // with the rounds) and folds the child into a sink — a
+            // *success* join whose operands grow round over round. A
+            // fork-and-rejoin schedule would not do: rejoining restores
+            // the interval, later events lift into counters, and the
+            // whole corpus stays pinned at the very bottom of the span.
+            let mut sink: Option<Reg> = None;
+            for _ in 0..rounds {
+                if let Some(child) = b.fork(seed) {
+                    b.tick(seed);
+                    let jitter = b.rng.gen_range(1..=2);
+                    b.tick_n(child, jitter);
+                    match sink {
+                        None => sink = Some(child),
+                        Some(s) => b.clock_join(s, child),
+                    }
+                }
+                // The clock codec round-trip at the current size.
+                b.clock_dup(seed);
+                b.tick(seed);
+            }
+            pools.clocks.push(seed);
+            if let Some(s) = sink {
+                pools.clocks.push(s);
+            }
+        }
         Family::Escalation { depth } => {
             let Some(seed) = b.clock_seed() else {
                 return pools;
@@ -1871,6 +1941,13 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
                     }
                 }
             }
+        }
+        // The bootstrap family is its construction: the battery's mixed
+        // draws would dilute the four-kernel schedule the small bands
+        // calibrate on without adding reach (everything here is sub-floor
+        // by design).
+        Family::Bootstrap { .. } => {
+            construct(&mut b, family);
         }
         ref coupled => {
             let mut pools = construct(&mut b, coupled);
