@@ -837,11 +837,11 @@ pub const ROSTER: &[OpSpec] = &[
             g.call("ff_rank_display", &[1])
         },
     },
-    // ───────────────────────────── causally::Span ─────────────────────────────
+    // ───────────────────────────────── Span ─────────────────────────────────
     OpSpec {
         name: "span_place",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
-        covers: &["causally::Span::place"],
+        covers: &["Span::place"],
         size_measure: M_SPAN_PROBE,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -854,7 +854,7 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "span_dominance",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
-        covers: &["causally::Span::dominance_of"],
+        covers: &["Span::dominance_of"],
         size_measure: M_SPAN_PROBE,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -867,7 +867,7 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "span_encode",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
-        covers: &["causally::Span::encode"],
+        covers: &["Span::encode"],
         size_measure: M_SPAN_HULL,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -879,7 +879,7 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "span_decode",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
-        covers: &["causally::Span::decode"],
+        covers: &["Span::decode"],
         size_measure: M_SPAN_HULL,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1072,7 +1072,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          prices; no guest kernel exports the composite key",
     ),
     (
-        "causally::Span::encode_to",
+        "Span::encode_to",
         "the identical composite emission with a writer sink; the span_encode panel \
          prices the emission",
     ),
@@ -1178,36 +1178,36 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          panel's pair sweep — both identities meter-pinned",
     ),
     (
-        "causally::Span::new",
+        "Span::new",
         "validating constructor: the check is literally one Version PartialOrd \
          call (the version_cmp panel's measured operation) around an O(1) \
          construction, so a panel would re-measure version_cmp under another name",
     ),
     (
-        "causally::Span::new_unchecked",
+        "Span::new_unchecked",
         "O(1) span constructor over two borrowed versions (the trusted \
          door performs no comparison)",
     ),
     (
-        "causally::Span::meet",
+        "Span::meet",
         "O(1) borrow of a stored endpoint: no walk, no comparison",
     ),
     (
-        "causally::Span::join",
+        "Span::join",
         "O(1) borrow of a stored endpoint: no walk, no comparison",
     ),
     (
-        "causally::Span::into_parts",
+        "Span::into_parts",
         "borrow-settling destructure: at most one refcount-bump clone per \
          endpoint, no walk, no byte copy",
     ),
     (
-        "causally::Span::reborrow",
+        "Span::reborrow",
         "O(1) span over two fresh borrows of the stored endpoints: no walk, \
          no comparison",
     ),
     (
-        "causally::Span::into_owned",
+        "Span::into_owned",
         "borrow-settling conversion: at most one refcount-bump clone per \
          endpoint, no walk, no byte copy",
     ),
