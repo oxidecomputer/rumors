@@ -239,6 +239,10 @@ fuzz-build:
 # Short fuzz smoke: run each libFuzzer target for `secs` seconds.
 [working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
+    # libFuzzer requires its write-corpus directory to exist, and the
+    # discovery corpus is deliberately untracked (fuzz/.gitignore), so a
+    # fresh checkout must create the directories before the first run.
+    mkdir -p corpus/fuzz_decode corpus/fuzz_decode_differential corpus/fuzz_decode_ops corpus/fuzz_laws corpus/fuzz_parse
     cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_differential corpus/fuzz_decode_differential seeds/fuzz_decode_differential -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
