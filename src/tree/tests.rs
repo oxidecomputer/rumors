@@ -1558,7 +1558,7 @@ mod span_door_traffic {
                     tree.act(&party_of(label), batch(label, round, 32).map(insert_action));
                 }
                 tree.warm_caches();
-                merged.join(tree);
+                merged.join_now(tree);
             }
             merged.warm_caches();
             // Incremental rounds on the merged tree: acts invalidate
