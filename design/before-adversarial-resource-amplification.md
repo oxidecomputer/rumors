@@ -1,16 +1,16 @@
 # `before`: adversarial resource amplification in Version and Party computation
 
-Status (2026-07-30): the campaign is at its tail on branch
+Status (2026-07-31): the campaign is at its tail on branch
 `before-hardening`. The audit's amplifier classes and every
 adversarial round's findings are cured or owner-modeled: the board's
 red-triage buffer (`BOARD_EXPECTED_REDS`, `meter::board`) is empty and
 asserted empty at acceptance, with every former standing red resolved
 to a cure or a dated owner-declared model at its declaration site
 (`meter::board`'s ceilings module). What remains is the tail this
-document plans: the in-flight review and instrument rounds, the
-decided representation and law rounds, the survey/soak and benchmark
-legs, the final adversarial review, and the go-criteria for merging
-to main (§14, with per-item acceptance contracts in §17.2). This
+document plans: the fuelscape rank-view kernel item, the tick-seam
+probe, the closeout obligations, the survey/soak and benchmark legs,
+the final adversarial review (in flight), and the go-criteria for
+merging to main (§14, with per-item acceptance contracts in §17.2). This
 document is the single canonical source for the criteria the
 instrumentation enforces and the work that remains, written to the
 current state of the tree; the compact history is the decision record
@@ -724,8 +724,9 @@ the commits the entries name.
   `dangerously_alias`, confined to predicate scope. Bespoke law
   tests dissolved name-for-name; kept deliberately outside: the
   exhaustive small-scope point laws, the population/fold laws
-  (later reached by the arity-five clauses; §17.2's variadic
-  item), and the internal byte-equality seam law.
+  (later reached by the arity-five clauses, then the variadic
+  drawn-arity drivers — the 2026-07-31 amendment below), and the
+  internal byte-equality seam law.
 - **DECIDED 2026-07-27 (Finch; landed #71, probed #68):
   `ticks(n)` — the fused multi-tick — is a first-class public
   operation, and every count-of-ticks surface is denominated in
@@ -1101,8 +1102,10 @@ the commits the entries name.
     against `crate::surface` are its committed checks) and may
     read the roster but never mint a threshold. Guest kernels
     landed for five walks the atlas could not price; the
-    remaining queued exemptions are §17.2's causally-kernel
-    round.
+    then-queued span exemptions dissolved with the
+    causally-kernel round's span half (the 2026-07-31 amendment
+    below), and the surviving rank-view exemptions are §17.2's
+    open item.
   - *The validation index* (`testing::validation_index`): the
     documentation-only map of every instrument, what failure
     class each catches that the others cannot, and the triage
@@ -1130,7 +1133,8 @@ the commits the entries name.
   - *The entropy pin*: the exhaustive decoder census
     byte-compared against the count tables to 24 bits
     (`design/before-version-entropy.md`'s companion instrument).
-  - *The Span wire form* (at this tip; review in flight, §17.2):
+  - *The Span wire form* (at this tip; its review since merged —
+    the 2026-07-31 amendment below):
     a canonical composite encoding with a one-pass fused decode,
     `Span::new_unchecked` the trusted door, reborrow/into_owned
     doors, codec laws and pins (verdict identity, rejection
@@ -1147,6 +1151,28 @@ the commits the entries name.
   against the tree at this tip; every retained number re-verified
   against the code or replaced by the mechanically-enforced home
   the prose cites (the structure-not-tallies rule, §17.10).
+- **AMENDED 2026-07-31 (review #141 fix round): the remaining
+  tail's first five items landed; §14/§17.2 re-derived to the
+  survivors.** Landed shapes, at the commits this entry names:
+  the Span wire-format review merged on the mainline (the serde
+  half of the Rank/Ranked/Span transport matrix at 1bd2c94c,
+  total structural rejection-genre ordering in Span decode at
+  8209cd7c, the review sweep at 1718dd48/712b8bd3); the
+  causally-kernel round's span half (978dfcdd: span guest kernels
+  with the span_place/span_dominance/span_encode/span_decode
+  panels — the rank-view half survives as §17.2's open item, its
+  exemptions carrying reasons, none citing a kernel that now
+  exists); the `step!` retirement under the ratchet
+  (05b40a62/72e3681f/3a4f3c8e, the replacement demonstrated red
+  first through the board scan column), with the
+  stacker/`descend!` remainder resolved in this fix round —
+  `stacker` is a dev-dependency only, and the keep is a dated
+  decision in `recurse.rs`'s module doc; the variadic law suites
+  (8e35f95a/cfe4853c/8afeff30/30133936, the fixed-arity clauses
+  dissolved under the retirement ratchet at 71dd0edc); and the
+  Bytes representation round, both phases and its review closed
+  (92ed2202/8ce1aac4/deb2cb76/20bd3c19/ee8e5fd7; review #157
+  fixes af7bdc83/41f8ae80/2a701f85).
 
 ## 13. The metering gate
 
@@ -1390,38 +1416,25 @@ acceptance contracts in §17.2; nothing else remains.
 
 **The remaining tail:**
 
-1. **The Span wire-format review** — in flight (its first
-   corrections are on the review branch: the serde half of the
-   Rank/Ranked/Span transport matrix, and total structural
-   rejection-genre ordering in Span decode).
-2. **The fuelscape causally-kernel round** — in flight: guest
-   kernels for the walks the atlas's exemption roster marks
-   queued, dissolving those exemptions into panels.
-3. **The `step!` retirement** — in flight: the test-only step
-   counter retires under the retirement ratchet (replacement red
-   first), with the stacker/`descend!` audit remainder resolved
-   in the same genre.
-4. **The variadic law suites** — the fixed-arity fold/hull
-   clauses become drawn-arity drivers.
-5. **The Bytes representation round** — two phases (the at-rest
-   container, the span fast-path ladder, and dedup; then the
-   equality-shortcut census under no-law-no-shortcut, with the
-   broad heap re-pin last), then its adversarial review.
-6. **The tick-seam cache probe** — measure-first, with its kill
+1. **The fuelscape rank-view kernels** — the causally-kernel
+   round's surviving half: guest kernels for the rank-view walks
+   whose exemptions record that no guest kernel exports them,
+   dissolving those exemptions into panels.
+2. **The tick-seam cache probe** — measure-first, with its kill
    bar.
-7. **Closeout obligations** — the proportional fuzz heap cap
+3. **Closeout obligations** — the proportional fuzz heap cap
    decision, the board-ceiling finalization leg, and the
-   documentation closeout items (P5-genre; §17.2 item 7).
-8. **The comprehensive fuelscape survey of record and the fuzz
+   documentation closeout items (P5-genre; §17.2 item 3).
+4. **The comprehensive fuelscape survey of record and the fuzz
    soak** — on the remote machine, at the final tip.
-9. **The final adversarial review** — the lens deck plus the
-   carried items.
-10. **The wall-clock benchmark legs on the machine of record** —
-    the bench judge at record sampling, both scales and modes,
-    and the before/after table of record.
-11. **The benchmark section and the final prose cycle** — the
-    crate-doc Efficiency section re-measured, the remaining
-    factual doc items, and the owner's sentence-level pass.
+5. **The final adversarial review** — in flight: the lens deck
+   plus the carried items.
+6. **The wall-clock benchmark legs on the machine of record** —
+   the bench judge at record sampling, both scales and modes,
+   and the before/after table of record.
+7. **The benchmark section and the final prose cycle** — the
+   crate-doc Efficiency section re-measured, the remaining
+   factual doc items, and the owner's sentence-level pass.
 
 Then the go-criteria below gate the merge to main.
 
@@ -1455,14 +1468,14 @@ judged):
   red buffer empty; bench judge roster-satisfied at both scales,
   both modes, at record sampling — only permanent expectations
   standing, which means the display-pair class question (§17.2
-  item 9) is resolved or explicitly re-ratified by the owner at
+  item 5) is resolved or explicitly re-ratified by the owner at
   the sweep.
 - The before/after table of record shows the parity floor met
-  everywhere and improvement where claimed (§17.2 item 10's
+  everywhere and improvement where claimed (§17.2 item 6's
   protocol).
 - The fuzz soak and the fuelscape survey of record completed at
   the final tip on the remote machine, findings triaged to zero
-  or owner-ratified (item 8).
+  or owner-ratified (item 4).
 - The coverage audit re-run with an empty gap list: every public
   operation names its oracle legs and its resource pin through
   the roster (surface totality from rustdoc JSON), and every
@@ -1472,7 +1485,7 @@ judged):
   "this is wrong" to "you might want to think about this", every
   landed finding a committed check, the carried items each
   resolved or explicitly owner-deferred with a dated record
-  (item 9).
+  (item 5).
 - The integration review against main: merge-seam re-sweep
   (mechanical greps plus marker/ledger checks) across everything
   merged since the last sweep, and function-level integration
@@ -1484,103 +1497,21 @@ judged):
 
 ### 17.2 Open items, with acceptance contracts
 
-1. **The Span wire-format review** [in flight, 2026-07-30]. The
-   wire form is landed at this tip (§12's tranche entry): the
-   canonical composite encoding with the one-pass fused decode,
-   its laws, meter legs, board and worst-map rows, and rejection
-   witnesses. The review's charter is the campaign's standing
-   review genre: construct the wrong artifact the criteria bless
-   — decode-seam mutations, rejection-genre ordering, composite
-   prefix-freedom, the fused walk against the composed oracle —
-   evaluate seeds, don't confirm them. Its first corrections are
-   on the review branch: the serde half of the Rank/Ranked/Span
-   transport matrix (the borsh half landed with the wire form),
-   and total structural rejection-genre ordering in Span decode
-   (structural genres outrank the pair verdict). *Acceptance*:
-   every finding lands as a committed pin or fix on the review
-   branch; the branch merges by reported SHA with the gate's
-   doclint/rustdoc legs run at the merge; wire snapshots move
-   only if a deliberate protocol change is ruled (none expected).
-2. **The fuelscape causally-kernel round** [in flight,
-   2026-07-30]. The atlas's exemption roster
-   (`before-fuelscape`'s ops module) carries entries whose reason
-   is "queued for the guest-kernel census round" —
-   `causally::Span::encode`/`decode` — plus rank-view entries
-   whose reason is that no guest kernel exports the walk (the
-   `Ranked` comparisons and encodings). The round adds the guest
+1. **The fuelscape rank-view kernels** (the causally-kernel
+   round's surviving half; the span half landed — §12's
+   2026-07-31 amendment). The atlas's exemption roster
+   (`before-fuelscape`'s ops module) carries rank-view entries —
+   the `Ranked` comparisons and encodings — whose reason is that
+   no guest kernel exports the walk. The item adds the guest
    kernels (a `crates/before/fuzzfit` change, as the exemption
-   text records) and the matching atlas panels, dissolving the
-   queued exemptions. *Acceptance*: the queued exemption entries
-   are gone, replaced by panels; the ops parity test
+   text records) and the matching atlas panels, dissolving those
+   exemptions. *Acceptance*: the rank-view exemption entries are
+   gone, replaced by panels; the ops parity test
    (`panels_and_exemptions_tile_the_coverage_roster`) holds the
    tiling; new fuel bands pinned with the standing
    liveness-margin convention; no surviving exemption cites a
    kernel that now exists.
-3. **The `step!` retirement** [in flight, 2026-07-30; the
-   retirement-ratchet obligation]. The crate-root `step!` macro
-   and `testing::metrics` count node-header reads under
-   `cfg(test)` — the campaign's oldest traversal-cost instrument,
-   predating the judged scan/touch currencies that now price the
-   same walks on every committed family. Retirement follows the
-   instrument-retirement ratchet: the replacement must
-   demonstrate it catches what the step counter caught — every
-   step-count complexity assertion re-denominated onto a judged
-   currency, with the known-bad kernel (a re-scanning walk)
-   reading red through the new home *before* the counter and its
-   call sites delete. The stacker/`descend!` remainder resolves
-   in the same genre (P4.2 left `descend!` compiling only for
-   the test-surface oracle bridge): drop `recurse::descend!` and
-   the `stacker` dependency, re-denominate
-   `clock::tests::deep_tree_stack_safety`, and update the
-   crate's AGENTS.md hard rule in the same change — or record
-   which test-only sites stay and why. *Acceptance*: no
-   `step!`/`metrics` (and, per the resolution, no
-   `stacker`/`descend!`) remains, or the keep is a dated
-   decision at the site; no traversal-cost assertion lost its
-   red-demonstrated successor; the gate green.
-4. **The variadic law suites.** The law tier's n-ary clauses are
-   fixed-arity: the arity-five fold and hull laws
-   (`fold_all_arity_five_matches_the_pair_folds`,
-   `span_all_is_the_lattice_hull`'s wide leg) reach every combine
-   arm of today's balanced counter, but the reach is a property
-   of the hand-picked arity, argued in each law's doc comment
-   against the current counter shape. The item: variadic drivers
-   — arity and population drawn, the counter's grouping exercised
-   at arbitrary weights — so the law tier's reach is the driver's
-   property and survives any future fold reshaping; shrunk
-   counterexamples ride as committed seeds. *Acceptance*: the
-   fold/hull laws run at drawn arity through all three law
-   consumers (the proptest drivers and `fuzz_laws`); the
-   fixed-arity clauses are retained as fast deterministic
-   witnesses or dissolved under the ratchet (the variadic driver
-   demonstrated red on a planted wrong-arm mutant first); the
-   law-table citation seal holds throughout.
-5. **The Bytes representation round** (owner-decided scope; two
-   phases, then its review). The at-rest packed container
-   (`codec::Bits`, today a `bitvec` bit-vector over bytes) moves
-   to the byte-buffer representation, with the round's charter
-   carrying the decided shape: *phase 1* — the representation
-   itself, the span fast-path ladder, and dedup; *phase 2* — the
-   whole-implementation equality-shortcut census under
-   **no-law-no-shortcut** (every equality fast path in any walk
-   is licensed by a committed law of the
-   `byte_equality_matches_bit_equality` genre, or it goes), with
-   the **broad heap re-pin last** — one deliberate, annotated
-   re-pin across the envelope and board heap records after the
-   representation settles, never incremental drift. Then the
-   round's adversarial review. Standing constraints that bind
-   it: wire bytes are unchanged (the representation is in-memory
-   only — any wire movement is a protocol change requiring a new
-   version, which nothing here rules); the representation-pin
-   directive forces the deliberate re-pin path; acceptance is
-   identical-or-better on the work columns (the owner's
-   2026-07-29 ruling), with every improvement parent-measured
-   and every regression a finding. *Acceptance*: both phases
-   landed with their census artifacts committed; the heap re-pin
-   is one reviewed diff with movement annotated against the
-   parent; differential and law suites untouched; the review
-   closed with findings landed.
-6. **The tick-seam cache probe** (coordinator-seeded; measure
+2. **The tick-seam cache probe** (coordinator-seeded; measure
    first, kill bar). The seam: rumors' `Tree::act` advances the
    running version by one full fused tick walk per action (the
    tick-and-clone chain recorded at §12's batch-removal entry).
@@ -1597,7 +1528,7 @@ judged):
    way; a landed cache rides the standing ratchets (instruments
    before cures; movement parent-measured; no new unmetered
    state).
-7. **Closeout obligations** (the P5-genre remainders, each small
+3. **Closeout obligations** (the P5-genre remainders, each small
    and already scoped):
    - *The proportional fuzz heap cap*: the fuzz harness runs
      every input under a flat 1 GiB peak-heap cap
@@ -1618,8 +1549,8 @@ judged):
      in `rumors`' `src/tree/key.rs` gains its same-code-version
      qualifier; the bookmark version-mismatch semantics stated
      at the bookmark docs. These are the factual-docs half; the
-     style half is item 11's prose cycle.
-8. **The comprehensive fuelscape survey of record and the fuzz
+     style half is item 7's prose cycle.
+4. **The comprehensive fuelscape survey of record and the fuzz
    soak** (remote machine, final tip). Both run on ox-east-1 at
    the tip every other item has landed on: the fuelscape atlas's
    survey of record (heavy sampling across every panel — the
@@ -1636,10 +1567,10 @@ judged):
    its fix or an owner-ratified disposition; survey anomalies
    triaged to instruments or explicitly recorded as expected
    strata.
-9. **The final adversarial review** (the campaign's closing
-   review; independent agent, blind-spot-targeted). The lens
-   deck, each lens a pass with a constructed-wrong-artifact win
-   condition:
+5. **The final adversarial review** [in flight, 2026-07-31] (the
+   campaign's closing review; independent agent,
+   blind-spot-targeted). The lens deck, each lens a pass with a
+   constructed-wrong-artifact win condition:
    - *mutation-adequacy attack*: plant wrong kernels/mutants and
      verify the committed instruments convict them (the
      adequacy ratchet audited end to end);
@@ -1676,28 +1607,28 @@ judged):
    class; the owner rules). *Acceptance*: the review closes when
    findings shift from "wrong" to "consider"; every landed
    finding is a committed check.
-10. **The wall-clock benchmark legs on the machine of record.**
-    The bench judge at record sampling, both scales, both modes,
-    on a checked-quiet machine (poll-until-quiet, bounded; load
-    disclosed in the report if any) — record sampling belongs to
-    this sweep alone. And **the before/after table of record**
-    (judged under §14's two bars). Protocol, mandatory: re-bench
-    the pre-C2 tip under the FINAL harness — a temp worktree at
-    the last pre-flip commit with the current bench files
-    grafted on (they call only the public API), full sampling
-    both tips, warm target dirs — **never the stored `base`
-    baselines**, which are contaminated for delta purposes (the
-    RNG consolidation regenerated every bench input family, and
-    they mix sampling modes). Any benign regression beyond
-    "slight" is a finding; the parity floor is the bar.
-11. **The benchmark section and the final prose cycle.** The
-    crate-doc Efficiency section re-measured under the landed
-    representation with `just readme` re-derivation (the READMEs
-    are derived, never hand-edited); the space-consumption
-    figure re-drawn if its numbers moved; then the owner's
-    sentence-level copy-edit pass over the user-facing prose —
-    explicitly non-blocking for everything except itself, and
-    the owner's final say on style (the standing docs policy).
+6. **The wall-clock benchmark legs on the machine of record.**
+   The bench judge at record sampling, both scales, both modes,
+   on a checked-quiet machine (poll-until-quiet, bounded; load
+   disclosed in the report if any) — record sampling belongs to
+   this sweep alone. And **the before/after table of record**
+   (judged under §14's two bars). Protocol, mandatory: re-bench
+   the pre-C2 tip under the FINAL harness — a temp worktree at
+   the last pre-flip commit with the current bench files
+   grafted on (they call only the public API), full sampling
+   both tips, warm target dirs — **never the stored `base`
+   baselines**, which are contaminated for delta purposes (the
+   RNG consolidation regenerated every bench input family, and
+   they mix sampling modes). Any benign regression beyond
+   "slight" is a finding; the parity floor is the bar.
+7. **The benchmark section and the final prose cycle.** The
+   crate-doc Efficiency section re-measured under the landed
+   representation with `just readme` re-derivation (the READMEs
+   are derived, never hand-edited); the space-consumption
+   figure re-drawn if its numbers moved; then the owner's
+   sentence-level copy-edit pass over the user-facing prose —
+   explicitly non-blocking for everything except itself, and
+   the owner's final say on style (the standing docs policy).
 
 *Risk register for the tail*: a cell green at default but red at
 record is the two-scale design working — the cell's owner
@@ -1743,7 +1674,7 @@ in `meter::board`'s ceilings module:
   render-merge cure lands, forcing the declaration's
   re-derivation in the same change. Ratified 2026-07-28. The
   anchor-web discipline remains the candidate cure, gated on the
-  display class question (§17.2 item 9).
+  display class question (§17.2 item 5).
 - **The capacity-chain peak** on the materialization pair
   (`capacity_chain_peak`'s declared model, band two-sided): the
   ratified stated-band residual of a non-derivable output (§12's
@@ -1838,7 +1769,7 @@ owned by the final review.
   per agent; never iterate on timing.
 - **Docs policy**: agents correct user-facing rustdoc that is
   factually wrong, toward the code, always surfaced; style and
-  substance improvements gated on the user (§17.2 item 11 is the
+  substance improvements gated on the user (§17.2 item 7 is the
   slot).
 - **The justfile is documentation** (user directive 2026-07-24):
   every recipe's comment block ends in a self-standing one-liner
