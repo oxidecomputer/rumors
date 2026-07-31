@@ -2942,8 +2942,12 @@ pub fn reset_limb_ops() {
 /// mostly comparable (hand-back at one comparison sweep) or mostly
 /// concurrent (the emitting walk) is a property of the caller's pairs,
 /// and it decides which kernel regime the consumer actually pays.
-/// Counts every [`Version::span`](crate::Version::span) and every leaf
-/// combine of `span_all`. Process-global, same isolation requirement as
+/// Counts every pair-hull construction: every
+/// [`Version::span`](crate::Version::span), every leaf combine of
+/// `span_all`, and every point-combine of the span union doors
+/// (`Span | Span` and [`Span::union_all`](crate::Span::union_all) on
+/// coincident operands), which derive their hull through the same
+/// kernel. Process-global, same isolation requirement as
 /// [`stack_segments`].
 pub fn span_traffic() -> SpanTraffic {
     crate::version::hull_traffic::snapshot()
