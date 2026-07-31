@@ -12,22 +12,26 @@
 //! doubling, over a build-liveness floor) lives here too, beside the board
 //! row that carries it.
 
-use crate::meter::{bigroot, cliff_comb, dense, hugeleaf, reveal_comb, Packed};
+use crate::meter::{bigroot, dense, hugeleaf, reveal_comb, Packed};
 use crate::{Party, Version};
 
 use super::cell::assert_honest_text;
-use super::judge::exponent;
 use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_party, radix_units_version,
-    value_content_bytes,
 };
-use super::{MAX_SCALING_EXPONENT, TEXT_BYTES_PER_RADIX_UNIT};
+use super::TEXT_BYTES_PER_RADIX_UNIT;
 // The limb-priced tripwires read the touch counter, so they compile only
 // with the `limb-meter` feature; these names have no ungated user.
 #[cfg(feature = "limb-meter")]
-use super::operand::{stored_bases, version_output_bytes};
+use super::judge::exponent;
 #[cfg(feature = "limb-meter")]
-use super::{MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, TEXT_PIPELINE_LIMB_OPS_PER_VALUE};
+use super::operand::{stored_bases, value_content_bytes, version_output_bytes};
+#[cfg(feature = "limb-meter")]
+use super::{
+    MAX_SCALING_EXPONENT, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, TEXT_PIPELINE_LIMB_OPS_PER_VALUE,
+};
+#[cfg(feature = "limb-meter")]
+use crate::meter::cliff_comb;
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -729,6 +733,24 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
         over_allowance.red.contains(&"heap exponent"),
         "heap readings clearing the allowance must be judged and red: {:?}",
         over_allowance.red
+    );
+    // A probe pair straddling the allowance boundary manufactures an
+    // exponent: the flat term the constant leg forgives deflates the
+    // base reading and releases at the large one, so the fit measures
+    // the boundary, not a scaling class. The straddling pair stays
+    // unjudged; the class is judged at the next doubling, where both
+    // probes sit in the scaling regime (the over-allowance probe above).
+    let straddling = evaluate(
+        "guard_probe",
+        "straddle-allowance",
+        sample(100_000, HEAP_FLAT_ALLOWANCE_BYTES as u64 / 2, 0),
+        sample(200_000, 3 * HEAP_FLAT_ALLOWANCE_BYTES as u64, 0),
+    );
+    assert!(
+        !straddling.red.iter().any(|r| r.contains("heap exponent")),
+        "a probe pair straddling the flat allowance must leave the heap \
+         exponent unjudged: {:?}",
+        straddling.red
     );
 }
 

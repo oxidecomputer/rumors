@@ -85,10 +85,11 @@ pub(super) struct Score {
     /// Whether the exponent leg is judged.
     ///
     /// False where the denominator pair does not scale
-    /// ([`MIN_EXPONENT_DENOM_GROWTH`]) or, on the heap column, where both
-    /// readings sit inside the flat allowance the constant leg already
-    /// forgives (a sub-allowance exponent is allocator size-class noise,
-    /// not scaling).
+    /// ([`MIN_EXPONENT_DENOM_GROWTH`]) or, on the heap column, where
+    /// either reading sits inside the flat allowance the constant leg
+    /// already forgives (a sub-allowance exponent is allocator size-class
+    /// noise, and a fit from a sub-allowance base manufactures an
+    /// exponent at the boundary).
     pub(super) exp_judged: bool,
     pub(super) per_unit: Option<f64>,
 }
@@ -151,10 +152,17 @@ pub(super) fn evaluate(
         // the doubling chain quantizes the peak by powers of two, so a
         // probe pair straddling a k step manufactures an exponent and one
         // inside a step reads sublinear; the model judgment below is what
-        // binds instead.
+        // binds instead. Every other cell's heap exponent is fitted only
+        // where BOTH probes clear the flat allowance the constant leg
+        // already forgives: a base inside the forgiven flat zone deflates
+        // the fit and manufactures an exponent at the allowance boundary
+        // (the flat term masks the scaling part at the small probe and
+        // releases it at the large one), so a straddling pair stays
+        // unjudged and the class is judged at the next doubling, where
+        // both probes sit in the scaling regime.
         let exp_judged = denom_scales
             && (c != Currency::Heap
-                || (!capacity_model && m1.max(m2) > HEAP_FLAT_ALLOWANCE_BYTES as u64));
+                || (!capacity_model && m1.min(m2) > HEAP_FLAT_ALLOWANCE_BYTES as u64));
         let per_unit = match c {
             Currency::Heap => {
                 m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64) as f64 / s2.denom_bytes as f64

@@ -621,6 +621,7 @@ fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Ticks) -> (u64, u64, 
 /// bits against the law's 24,766 → 57,534). Judging two points in one
 /// regime keeps the ratio band tight; a probe straddling the knee
 /// legitimately reads up to ×3 without any superlinearity.
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_COUNT_BITS: usize = 8_192;
 
 /// The count-attributable growth bound: doubling the count's width may
@@ -642,9 +643,11 @@ const TICKS_WIDE_COUNT_BITS: usize = 8_192;
 /// regime above the site-width knee) and limb spans 834 → 1,730 on
 /// mirror-wide; touch spans 0 → 0 everywhere — the count's arithmetic
 /// lives on `Base`, never the accumulator.]
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_GROWTH_NUM: u64 = 5;
 
 /// See [`TICKS_WIDE_GROWTH_NUM`]: the ratio denominator.
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_GROWTH_DEN: u64 = 2;
 
 /// The wide-count flatness pin: `ticks(n)` stays width-linear in the
@@ -731,6 +734,7 @@ fn ticks_wide_count_flatness_holds_the_width_band() {
 /// legible against the band.
 const TICKS_POINT_LO: u64 = 512;
 /// See [`TICKS_POINT_LO`].
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_POINT_HI: u64 = 4_096;
 /// The scan movement band: up to two count-carrying codes x 2 bits per
 /// doubling x 3 doublings.
@@ -738,13 +742,16 @@ const TICKS_POINT_HI: u64 = 4_096;
 /// [Measured 2026-07-27: exactly 6 on all three families - one code
 /// carries the count there; the second code's budget covers operand
 /// shapes where the successor repair carries it too.]
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_SCAN_BAND: u64 = 12;
 /// The limb movement band: the count's arithmetic stays inside one
 /// digit across the band [measured 2026-07-27: exactly 0 on all three
 /// families; a word of slack for a digit-boundary crossing].
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_LIMB_BAND: u64 = 8;
 /// The touch movement band: see the limb band [measured 2026-07-27:
 /// exactly 0 on all three families].
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_TOUCH_BAND: u64 = 8;
 
 // ─── bigroot scenarios ──────────────────────────────────────────────────────
@@ -2921,17 +2928,17 @@ mod skyline_flatness {
     const RANK_FREEZE_POSITION_SMALL: usize = 1_000;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// freeze-position family, measured 2026-07-28 ×1.25.
+    /// freeze-position family, measured 2026-07-31 ×1.25.
     ///
-    /// The cured record: the anchored-segment integral reads 87,489 /
-    /// 175,206 touches and 35,436 / 70,872 limb ops at the two scales
+    /// The cured record: the anchored-segment integral reads 87,519 /
+    /// 175,260 touches and 35,243 / 70,485 limb ops at the two scales
     /// (~1.2 touches per packed byte, flat across the doubling),
     /// tightened in the cure's own commit from the absolute-position
     /// accounting's red pin of 124,371 / 372,862 touches and 72,351 /
     /// 206,804 limb ops (×1.50 touch and ×1.43 limb per-byte growth
     /// across the doubling, local exponent still rising at FP(4,000) —
     /// each freeze read the position accumulator's whole written span).
-    const RANK_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] = [(109_361, 44_295), (219_007, 88_590)];
+    const RANK_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] = [(109_399, 44_054), (219_075, 88_607)];
 
     /// rank is linear on the freeze-position family: per-byte touch and
     /// limb work stay flat (×1.25) across a block-count doubling, under
@@ -5268,12 +5275,14 @@ fn id_without_envelope() {
 // nothing, and do no arithmetic, so the `ID_COVERS`/`ID_DISJOINT` envelope
 // columns are all structurally near-zero and this counter is the one
 // deterministic meter that sees the work. These pins hold each walk's scan
-// reading to an absolute ceiling (measured ×1.25) over a full-examination
-// liveness floor (one bit per packed operand byte — the diverted pair
-// forces both walks to full lockstep depth), and to per-byte flatness
-// (×1.25) across a depth doubling, so a re-scanning walk or a walk that
-// leaves the metered primitives moves a committed number instead of
-// passing every near-zero column unchanged.
+// reading to an exact measured value at both depths (the walk reads every
+// stored tag of both operands exactly once, so the reading is
+// deterministic and two-sided: an undercounting tap and a re-scanning
+// walk both move it) over a full-examination liveness floor (one bit per
+// packed operand byte — the diverted pair forces both walks to full
+// lockstep depth), and to per-byte flatness (×1.25) across a depth
+// doubling, so a walk that leaves the metered primitives moves a
+// committed number instead of passing every near-zero column unchanged.
 #[cfg(feature = "scan-meter")]
 mod id_walk_scan_cost {
     use super::{id_pair_input_bytes, party_of, ID_DEPTH};
@@ -5287,15 +5296,21 @@ mod id_walk_scan_cost {
         bits: u64,
     }
 
-    /// Absolute scan ceilings at the [`ID_DEPTH`] pair, measured
-    /// 2026-07-26 ×1.25: covers 1,000,004 bits on 125,002 packed bytes
-    /// (8 bits per byte: every stored tag read once, both operands).
-    const COVERS_SCAN_CEILING_BITS: u64 = 1_250_005;
+    /// Exact scan readings at the [`ID_DEPTH`] pair, measured
+    /// 2026-07-31 with deterministic counters.
+    ///
+    /// Every stored tag of both operands is read exactly once through
+    /// the metered primitives — [`SCAN_EXACT_BITS_SMALL`] on 62,502
+    /// packed bytes at the half depth, [`SCAN_EXACT_BITS_LARGE`] on
+    /// 125,002 at the full depth, identical for the covers and disjoint
+    /// walks (the same full lockstep walk). Pinned with equality, not a
+    /// ceiling: a uniform tap undercount halves the reading yet clears
+    /// every slack floor in the tree, so only the exact number is
+    /// tamper-evident in both directions.
+    const SCAN_EXACT_BITS_SMALL: u64 = 500_004;
 
-    /// The disjoint walk's ceiling paired with
-    /// [`COVERS_SCAN_CEILING_BITS`] (measured 1,000,004 bits, the same
-    /// full lockstep walk).
-    const DISJOINT_SCAN_CEILING_BITS: u64 = 1_250_005;
+    /// The full-depth reading paired with [`SCAN_EXACT_BITS_SMALL`].
+    const SCAN_EXACT_BITS_LARGE: u64 = 1_000_004;
 
     /// Run one id-pair walk at `depth` and read the scan counter over
     /// the body alone, enforcing the full-examination liveness floor.
@@ -5335,13 +5350,15 @@ mod id_walk_scan_cost {
         );
     }
 
-    /// The covers walk's scan bits are absolute-pinned, floored, and flat
-    /// per byte across a depth doubling of the diverted spine pair (which
-    /// admits no early exit).
+    /// The covers walk's scan bits are exact-pinned at both depths,
+    /// floored, and flat per byte across the depth doubling of the
+    /// diverted spine pair (which admits no early exit).
     ///
-    /// The walk's cost is invisible to every other deterministic meter, so
-    /// this pin is what a re-scanning `covers` (quadratic restarts) or an
-    /// unmetered raw-indexing walk moves.
+    /// The walk's cost is invisible to every other deterministic meter,
+    /// so this pin is what a re-scanning `covers` (quadratic restarts),
+    /// an unmetered raw-indexing walk, or a tap under- or over-count
+    /// moves — the equality is the two-sided form a ceiling-plus-slack
+    /// floor cannot give.
     #[test]
     fn id_covers_scan_cost_is_pinned_and_flat() {
         let small = walk_run("covers_small", ID_DEPTH / 2, |a, b| {
@@ -5351,19 +5368,21 @@ mod id_walk_scan_cost {
             assert!(!a.covers(b), "the divert arms are disjoint");
         });
         assert_flat("covers", &small, &large);
-        assert!(
-            large.bits <= COVERS_SCAN_CEILING_BITS,
-            "id_covers: {} scanned bits exceed the pinned ceiling {COVERS_SCAN_CEILING_BITS}",
-            large.bits,
+        assert_eq!(
+            (small.bits, large.bits),
+            (SCAN_EXACT_BITS_SMALL, SCAN_EXACT_BITS_LARGE),
+            "id_covers: the scanned bits moved off the exact pin: a moved \
+             reading is a walk or tap change to re-pin deliberately",
         );
     }
 
-    /// The disjoint walk's scan bits are absolute-pinned, floored, and
-    /// flat per byte across a depth doubling of the diverted spine pair
-    /// (disjoint operands, so the walk runs to completion).
+    /// The disjoint walk's scan bits are exact-pinned at both depths,
+    /// floored, and flat per byte across the depth doubling of the
+    /// diverted spine pair (disjoint operands, so the walk runs to
+    /// completion).
     ///
     /// Same rationale as the covers pin: scan is the one live column on
-    /// this walk.
+    /// this walk, and only the exact equality reads a tap undercount.
     #[test]
     fn id_disjoint_scan_cost_is_pinned_and_flat() {
         let small = walk_run("disjoint_small", ID_DEPTH / 2, |a, b| {
@@ -5373,11 +5392,11 @@ mod id_walk_scan_cost {
             assert!(a.is_disjoint(b), "the divert arms own disjoint regions");
         });
         assert_flat("disjoint", &small, &large);
-        assert!(
-            large.bits <= DISJOINT_SCAN_CEILING_BITS,
-            "id_disjoint: {} scanned bits exceed the pinned ceiling \
-             {DISJOINT_SCAN_CEILING_BITS}",
-            large.bits,
+        assert_eq!(
+            (small.bits, large.bits),
+            (SCAN_EXACT_BITS_SMALL, SCAN_EXACT_BITS_LARGE),
+            "id_disjoint: the scanned bits moved off the exact pin: a moved \
+             reading is a walk or tap change to re-pin deliberately",
         );
     }
 }

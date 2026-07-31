@@ -465,6 +465,105 @@ fn mul_bound_embedding_is_alive() {
     );
 }
 
+/// The pair door's answer-embedded-product liveness.
+///
+/// The `MulBound` pair claims (distance, lag) enter the settle through
+/// the pair co-sweep — a distinct entry point from rank's single-stream
+/// fold, which the class contract's other embedding and schoolbook
+/// witnesses exercise — so the `Ω(M(a + b))` floor needs its embedding
+/// family constructed through the pair operations' own doors, not
+/// inferred from rank alone.
+///
+/// Against the empty version, the valuation identities collapse to
+/// `distance(v, ∅) = lag(∅, v) = rank(v)` and `lag(v, ∅) = 0`, so the
+/// plateau-puncture closed form (the factors' scaling and
+/// compaction-immunity are [`mul_bound_embedding_is_alive`]'s
+/// preconditions, asserted there at the same dimensions) must
+/// reproduce exactly through `Version::distance` and `Version::lag`.
+/// The co-operand is empty, *not equal*: the pair entries' only fast
+/// path is canonical equality, so both directed calls and the
+/// symmetric one run the pair integrator whole. An answer that stops
+/// embedding the product — or a pair-door rewiring that stops
+/// reaching the shared integrator exactly — loses the pair claims
+/// their floor witness here.
+#[cfg(feature = "meter")]
+#[test]
+fn mul_bound_pair_embedding_is_alive() {
+    let (w, d) = (64usize, 48usize);
+    let v = Shape::PlateauPuncture.packed2(w, d).version();
+    let empty = crate::Version::new();
+    assert!(
+        !v.is_empty() && empty.is_empty(),
+        "the pair must be unequal: an equal pair would answer through \
+         the canonical-equality rung without running the pair co-sweep"
+    );
+    let (x, y) = crate::meter::plateau_puncture_factors(w, d);
+    let closed = format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d);
+    assert_eq!(
+        v.distance(&empty).to_string(),
+        closed,
+        "distance against the empty version must be the plateau times the \
+         punctured turn mass: the pair door's answer no longer embeds the \
+         product, so the MulBound pair claims lost their floor witness"
+    );
+    assert_eq!(
+        empty.lag(&v).to_string(),
+        closed,
+        "the dominated side's lag must be the whole plateau-puncture rank: \
+         the pair door's answer no longer embeds the product"
+    );
+    assert_eq!(
+        v.lag(&empty),
+        crate::Rank::ZERO,
+        "the dominating side lags the empty version by nothing: the \
+         directed functional's zero side must stay exact"
+    );
+}
+
+/// The key doors' answer-embedded-product liveness.
+///
+/// The `MulBound` key claims (`Ranked::encode_rank`, `Ranked::encode`,
+/// `Ranked::decode`) emit or verify the rank through their own fused
+/// entry points — distinct doors from `Version::rank`'s, which
+/// [`mul_bound_embedding_is_alive`] pins — so the embedding family
+/// must reproduce through them directly, not by composing the
+/// committed `encode_rank == to_rank().encode()` law (whose sampled
+/// generators do not reach this family) with rank's pin.
+///
+/// On the plateau-puncture instance the key's rank component must
+/// decode back to the closed-form product rank, and the composite key
+/// must survive its own strict decode — whose verifying rank fold is
+/// the `Ranked::decode` claim's `MulBound` term, here demonstrated
+/// firing on the embedding family itself. An encode door that stops
+/// emitting the product's digits, or a decode door that stops
+/// verifying them, loses the key claims their floor witness here.
+#[cfg(feature = "meter")]
+#[test]
+fn mul_bound_key_embedding_is_alive() {
+    let (w, d) = (64usize, 48usize);
+    let v = Shape::PlateauPuncture.packed2(w, d).version();
+    let (x, y) = crate::meter::plateau_puncture_factors(w, d);
+    let closed = format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d);
+    let rank_key = crate::Ranked::from(&v).encode_rank();
+    assert_eq!(
+        crate::Rank::decode(&rank_key[..])
+            .expect("the fused rank key is canonical")
+            .to_string(),
+        closed,
+        "the fused rank-key emission must carry the plateau times the \
+         punctured turn mass: the key door's answer no longer embeds the \
+         product, so the MulBound key claims lost their floor witness"
+    );
+    let decoded = crate::Ranked::decode(&crate::Ranked::from(&v).encode()[..])
+        .expect("the composite key round-trips through its verifying decode");
+    assert_eq!(
+        decoded.version(),
+        &v,
+        "the composite key's strict decode must recover the embedding \
+         family's version through its own verifying rank fold"
+    );
+}
+
 /// The tripwire the roster's own vocabulary rests on: a doc block whose
 /// `# Complexity` section is missing, or whose section does not end
 /// where the scanner thinks, is detected — the scanner is not vacuously

@@ -344,7 +344,55 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ),
     ("span_is_the_pair_hull", span_is_the_pair_hull),
     ("span_codec_roundtrip", span_codec_roundtrip),
+    (
+        "range_composition_is_order_agnostic",
+        range_composition_is_order_agnostic,
+    ),
+    (
+        "range_rebinding_keeps_the_latest",
+        range_rebinding_keeps_the_latest,
+    ),
 ];
+
+/// Range construction commutes across the free-fn/method seam, for
+/// all four start/end pairings.
+///
+/// A free-fn start refined by an end method equals the matching
+/// free-fn end refined by the start method — same stored bounds — and
+/// the two orders reject the same crossed pairs.
+///
+/// This is where the start-refinement methods' bound *storage* (which
+/// kind lands in which field) is quantified: the placement laws build
+/// every range start-first through the free constructors, and their
+/// verdict checks read the range's own accessors, so an internally
+/// coherent mis-storage inside [`causally::Range::since`] or
+/// [`causally::Range::not_before`] is invisible to them under any
+/// construction order. Only the equation against the free constructor separates the
+/// method's storage from the constructor's.
+fn range_composition_is_order_agnostic(s: &Version, e: &Version) -> bool {
+    causally::since(s).known_at(e) == causally::known_at(e).since(s)
+        && causally::since(s).before(e) == causally::before(e).since(s)
+        && causally::not_before(s).known_at(e) == causally::known_at(e).not_before(s)
+        && causally::not_before(s).before(e) == causally::before(e).not_before(s)
+}
+
+/// Re-setting a bound keeps the latest value: a rebinding chain equals
+/// the direct construction of its final state, for both start kinds,
+/// both end kinds, and the unbounded start.
+///
+/// Total over every version pair — each chain's opposite bound is
+/// unbounded, so validation always admits it — and, like
+/// [`range_composition_is_order_agnostic`], the equation runs against
+/// the free constructors, so a rebinding that stores the wrong bound
+/// kind (or keeps the earlier value) diverges on every pair.
+fn range_rebinding_keeps_the_latest(a: &Version, b: &Version) -> bool {
+    causally::since(a).since(b) == Ok(causally::since(b))
+        && causally::since(a).not_before(b) == Ok(causally::not_before(b))
+        && causally::not_before(a).since(b) == Ok(causally::since(b))
+        && causally::known_at(a).before(b) == Ok(causally::before(b))
+        && causally::before(a).known_at(b) == Ok(causally::known_at(b))
+        && causally::all().since(b) == Ok(causally::since(b))
+}
 
 /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
 /// order).
@@ -1098,9 +1146,12 @@ fn span_all_is_rotation_invariant(receiver: &Version, items: &[Version]) -> bool
 /// Laws over one live party.
 ///
 /// The fork/join round-trip and its disjointness geometry, the balanced
-/// n-way fork's two forms, `join_all`'s fold laws, the covering order's
-/// point laws (with a constructed transitivity chain), `without` at the
-/// reflexive corner, aliasing, and the representational round-trips.
+/// n-way fork's two forms, the covering order's point laws (with a
+/// constructed transitivity chain), `without` at the reflexive corner,
+/// aliasing, and the representational round-trips. `join_all`'s fold
+/// laws are [`PARTY_AND_LIST`]'s: the width-quantified family
+/// (reunion, acceptance, best-effort at every arity) subsumes any
+/// fixed-width point instance.
 pub static PARTY_SOLO: &[Law<fn(&Party) -> bool>] = &[
     ("fork_join_roundtrip", fork_join_roundtrip),
     ("fork_halves_disjoint", fork_halves_disjoint),
@@ -1113,15 +1164,6 @@ pub static PARTY_SOLO: &[Law<fn(&Party) -> bool>] = &[
         "forks_partial_drop_folds_back",
         forks_partial_drop_folds_back,
     ),
-    (
-        "party_join_all_reunites_a_fork",
-        party_join_all_reunites_a_fork,
-    ),
-    (
-        "party_join_all_empty_is_identity",
-        party_join_all_empty_is_identity,
-    ),
-    ("party_join_all_best_effort", party_join_all_best_effort),
     ("join_overlap_hands_back", join_overlap_hands_back),
     ("covers_reflexive", covers_reflexive),
     (
@@ -1197,35 +1239,6 @@ fn forks_partial_drop_folds_back(p: &Party) -> bool {
     let mut keeper = p.dangerously_alias();
     let taken: Vec<Party> = keeper.forks(5).take(2).collect(); // iterator dropped after 2
     keeper.join_all(taken).is_ok() && keeper == *p
-}
-
-/// `join_all` reunites a fork: folding a balanced fork's shares back
-/// recovers the original region (`self` seeds the fold; balanced-fork
-/// shares are pairwise disjoint, so the fold is defined the whole way).
-fn party_join_all_reunites_a_fork(p: &Party) -> bool {
-    let mut keeper = p.dangerously_alias();
-    let shares: Vec<Party> = keeper.forks(3).collect();
-    keeper.join_all(shares).is_ok() && keeper == *p
-}
-
-/// `join_all` of the empty iterator leaves the party unchanged (`self`
-/// seeds the fold; the partial monoid has no identity element of its own).
-fn party_join_all_empty_is_identity(p: &Party) -> bool {
-    let mut q = p.dangerously_alias();
-    q.join_all(std::iter::empty::<Party>()).is_ok() && q == *p
-}
-
-/// `join_all` is best-effort and lossless: given a clashing alias *before*
-/// a genuine disjoint share, the share is still absorbed and only the alias
-/// comes back (fail-fast would abandon the share after the clash).
-fn party_join_all_best_effort(p: &Party) -> bool {
-    let mut keeper = p.dangerously_alias();
-    let share = keeper.fork(); // keeper holds one half...
-    let clash = keeper.dangerously_alias(); // ...and this aliases it (overlaps)
-    match keeper.join_all([clash, share]) {
-        Err(returned) => returned.len() == 1 && keeper == *p,
-        Ok(()) => false,
-    }
 }
 
 /// Joining an overlapping party errors and hands it back unchanged: a

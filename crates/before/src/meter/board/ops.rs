@@ -28,13 +28,13 @@ use super::family::{
     OVERLAP_FOLD_INPUT_DIVISOR,
 };
 use super::floors::{
-    clock_overlap_floors, comparison_floors, heap_fork_child, heap_materializes,
-    id_rejection_floors, limb_stream, limb_wide, masked_cmp_floors, na, rejection_floors,
-    scan_examines, scan_touch, seg_ceiling_only, sync_floors, text_rejection_floors,
-    tick_walk_floors, touch_delta_fold, touch_fold_first_merges, touch_pair_fold,
-    touch_wide_stream, walk_floors, NA_HEAP_IN_PLACE, NA_LIMB_DEPENDENCY, NA_LIMB_ID_TREE,
-    NA_LIMB_NARROW, NA_LIMB_NOT_FORCED, NA_LIMB_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES,
-    NA_SCAN_NO_STREAM, NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_TOUCH_GROW, NA_TOUCH_ID_TREE,
+    clock_overlap_floors, comparison_floors, heap_materializes, id_rejection_floors, limb_stream,
+    limb_wide, masked_cmp_floors, na, rejection_floors, scan_examines, scan_touch,
+    seg_ceiling_only, sync_floors, text_rejection_floors, tick_walk_floors, touch_delta_fold,
+    touch_fold_first_merges, touch_pair_fold, touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES,
+    NA_HEAP_IN_PLACE, NA_LIMB_DEPENDENCY, NA_LIMB_ID_TREE, NA_LIMB_NARROW, NA_LIMB_NOT_FORCED,
+    NA_LIMB_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_RANK_BYTES,
+    NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW, NA_TOUCH_ID_TREE,
     NA_TOUCH_NOT_FORCED, NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_REJECTION,
     NA_TOUCH_RENDER_SUMMARIES, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_DECODE,
     WHY_LIMB_RANK_ENCODE, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM, WHY_SCAN_EXAMINES,
@@ -1452,7 +1452,7 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (mut clock, n) = f.clock()?;
                 let floors = Floors {
-                    heap: heap_fork_child(clock.version()),
+                    heap: na(NA_HEAP_FORK_SHARES),
                     limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: if clock.party().is_seed() {
@@ -1556,9 +1556,24 @@ pub(super) fn ops() -> Vec<Op> {
                     });
                 }
                 let (clock, n) = f.clock()?;
+                // The whole-interval party's projection is the version
+                // itself, handed back as a buffer-sharing clone, so no
+                // stream walk is forced for a seed clock; any other
+                // party runs the projection walk whole.
+                let scan = if clock.party().is_seed() {
+                    na(NA_SCAN_SEED_PROJECTION)
+                } else {
+                    scan_examines(n)
+                };
                 Some(Cell::new(
                     n,
-                    walk_floors(n, na(NA_TOUCH_PROJECTION)),
+                    Floors {
+                        heap: na(NA_HEAP_IN_PLACE),
+                        limb: na(NA_LIMB_NOT_FORCED),
+                        segments: seg_ceiling_only(),
+                        scan,
+                        touch: na(NA_TOUCH_PROJECTION),
+                    },
                     move || (clock.own_version().to_version(), clock),
                 ))
             },

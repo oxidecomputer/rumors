@@ -60,6 +60,54 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
     }
 }
 
+/// `skip_int` meters exactly the code width it skips: the same scan
+/// movement `read_int` records over the identical code, which is the
+/// position delta both land on.
+///
+/// The skip tap is the topology walks' only scan accounting for
+/// payload codes they bypass, and this equality is its committed
+/// floor witness: the board's universal scan floor sits far under the
+/// stored rate, so a silenced or partial skip tap clears every slack
+/// floor and is otherwise caught only by an argmax ranking table. The
+/// pin is two-sided — an undercount and an overcount both move it —
+/// and covers both gamma arms (machine-word and wide).
+#[cfg(feature = "scan-meter")]
+#[test]
+fn skip_int_meters_exactly_the_code_width_read_int_pays() {
+    use dashu_int::UBig;
+    for value in [
+        Base::from(0u64),
+        Base::from(30u64),
+        Base::from(u64::MAX - 1), // k = 63: the machine arm's ceiling
+        Base::from(u64::MAX),     // k = 64: the first wide-arm code
+        Base::from(UBig::ONE << 100usize),
+    ] {
+        let mut bits = BitsMut::new();
+        codec::encode_int(&mut bits, &value);
+        let mut reader = DsiCursor::new(&bits);
+        crate::meter::reset_scan_bits();
+        reader
+            .read_int()
+            .expect("the reader reads its own encoding");
+        let read_record = crate::meter::scan_bits();
+        let width = reader.position() as u64;
+        let mut skipper = DsiCursor::new(&bits);
+        crate::meter::reset_scan_bits();
+        skipper
+            .skip_int()
+            .expect("the skip accepts what the read accepts");
+        let skip_record = crate::meter::scan_bits();
+        assert_eq!(
+            skip_record, width,
+            "skip_int must meter exactly the {width}-bit code it skips at {value}"
+        );
+        assert_eq!(
+            skip_record, read_record,
+            "skip_int and read_int must meter the identical code identically at {value}"
+        );
+    }
+}
+
 /// A code truncated at every cut point reads `Truncated` from the
 /// word-parallel reader exactly where the per-bit loop rejects it, at
 /// widths on both sides of the word seam.

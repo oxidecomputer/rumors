@@ -169,7 +169,8 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_fs: Leg::Excluded(HANDBACK),
         tree_fs: Leg::Excluded(
             "no oracle n-ary split; the balanced-split shape is law-pinned on \
-             production (forks_partial_drop_folds_back, party_join_all_reunites_a_fork)",
+             production (forks_partial_drop_folds_back, \
+             party_join_all_reunites_forks_at_any_width)",
         ),
     },
     SurfaceRow {
