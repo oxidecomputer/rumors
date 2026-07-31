@@ -295,4 +295,4 @@ pub(crate) const TRAIT_IMPLS: &[&str] = &[
 
 /// Every reachable associated const or type, module const, static, or
 /// macro outside the module-excepted trees.
-pub(crate) const ITEMS: &[&str] = &["Rank::ZERO", "Ticks::ZERO"];
+pub(crate) const ITEMS: &[&str] = &["Rank::ZERO", "Ticks::ZERO", "for_each_law_group"];
