@@ -194,7 +194,7 @@ const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64, _limb_floor: 
 // module doc's liveness-floor convention).
 #[rustfmt::skip]
 mod envelope {
-    use super::{envelope, Envelope};
+    use super::{envelope, sweep_envelope, Envelope, SweepEnvelope};
     //                                              peak heap,  segments, limb ops, limb floor           measured: peak heap, segments, limb ops
     pub const DECODE_DENSE: Envelope    = envelope(   120_045,        0,       625_003, 375_001); // 11_072_549 -> 96_036 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 250_002 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels)
     pub const CMP_DENSE: Envelope       = envelope(    30_740,        0,       312_505, 187_503); //          8 -> 24_592 -> 24_584 (2026-07-29, OpenedPair: the pair walk's opening move stated once) -> 24_576 (2026-07-30, the Bytes-backed at-rest form), 192 -> 0, 2_000_010 -> 250_004 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep) -> 250_002 (2026-07-30, the Bytes-backed at-rest form)
@@ -218,20 +218,25 @@ mod envelope {
     // replacement's transient, achieved — the dense row's 49 KB peak over
     // 125k levels is ~3.1 bits per open ancestor (bit stack plus
     // reallocation growth) against DECODE_DENSE's 11 MB parse frames on
-    // the same tree, ~56 B per level.
-    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope(    61_450,        0,       625_003, 375_001); //     49_160, 0,   500_002
-    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(     1_770,        0,        12_903, 7_741); //      1_416 -> 1_448 (2026-07-24, dashu-int backend), 0,    10_322
-    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(     1_520,        0,        42_325, 25_395); //      1_216 -> 1_408 (2026-07-28, the zero-run ledger's map node; the older ceiling stands), 0,    33_860
-    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope(    80_980,        0,         2_443, 1_465); //     64_784 -> 66_752 (2026-07-24, dashu-int backend), 0,     1_954
-    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope(    61_450,        0,       625_003, 375_001); //     49_160, 0,   500_002
+    // the same tree, ~56 B per level. The validator and decoder rows carry
+    // the sweep tables' scanned-bits column: their work is cursor reads
+    // end to end (the validator allocates near-nothing and, off the wide
+    // families, does little arithmetic), so scan is the column that sees
+    // a re-read the others cannot. Decode is validate plus the wrap, so
+    // each shape's scan reading equals its validate row's.
+    pub const SKYLINE_VALIDATE_DENSE: SweepEnvelope      = sweep_envelope(    61_450,        0,       625_003, 468_758, 375_001); //     49_160, 0,   500_002, scan 375_006
+    pub const SKYLINE_VALIDATE_CLIFF: SweepEnvelope      = sweep_envelope(     1_770,        0,        12_903, 17_923, 7_741); //      1_416 -> 1_448 (2026-07-24, dashu-int backend), 0,    10_322, scan 14_338
+    pub const SKYLINE_VALIDATE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(     1_520,        0,        42_325, 1_000_480, 25_395); //      1_216 -> 1_408 (2026-07-28, the zero-run ledger's map node; the older ceiling stands), 0,    33_860, scan 800_384
+    pub const SKYLINE_VALIDATE_HUGELEAF: SweepEnvelope   = sweep_envelope(    80_980,        0,         2_443, 312_503, 1_465); //     64_784 -> 66_752 (2026-07-24, dashu-int backend), 0,     1_954, scan 250_002
+    pub const SKYLINE_VALIDATE_ALT_SPINE: SweepEnvelope  = sweep_envelope(    61_450,        0,       625_003, 468_758, 375_001); //     49_160, 0,   500_002, scan 375_006
     // Skyline decoder rows: validation plus the wrap into storage — the
     // stored coding is the skyline stream itself, so decode materializes
     // nothing beyond the copy and stays priced by the wire input.
-    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope(   122_880,        0,       625_003, 375_001); // 18_138_292 -> 98_304, 0, 2_750_012 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
-    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope(     3_840,        0,        12_903, 7_741); //  1_787_704 -> 3_072, 0, 317_626 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
-    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope(   245_760,        0,        42_325, 25_395); //  1_699_472 -> 196_608, 0, 370_843 -> 33_860 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
-    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(    83_440,        0,         2_443, 1_465); //    101_803 -> 66_752, 0, 9_773 -> 1_954 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
-    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(   122_880,        0,       625_003, 375_001); // 15_778_996 -> 98_304, 0, 2_750_012 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
+    pub const SKYLINE_DECODE_DENSE: SweepEnvelope        = sweep_envelope(   122_880,        0,       625_003, 468_758, 375_001); // 18_138_292 -> 98_304, 0, 2_750_012 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap), scan 375_006
+    pub const SKYLINE_DECODE_CLIFF: SweepEnvelope        = sweep_envelope(     3_840,        0,        12_903, 17_923, 7_741); //  1_787_704 -> 3_072, 0, 317_626 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap), scan 14_338
+    pub const SKYLINE_DECODE_WIDE_TOOTH: SweepEnvelope   = sweep_envelope(   245_760,        0,        42_325, 1_000_480, 25_395); //  1_699_472 -> 196_608, 0, 370_843 -> 33_860 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap), scan 800_384
+    pub const SKYLINE_DECODE_HUGELEAF: SweepEnvelope     = sweep_envelope(    83_440,        0,         2_443, 312_503, 1_465); //    101_803 -> 66_752, 0, 9_773 -> 1_954 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap), scan 250_002
+    pub const SKYLINE_DECODE_ALT_SPINE: SweepEnvelope    = sweep_envelope(   122_880,        0,       625_003, 468_758, 375_001); // 15_778_996 -> 98_304, 0, 2_750_012 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap), scan 375_006
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -1207,7 +1212,7 @@ fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsMut {
 #[test]
 fn skyline_validate_dense_envelope() {
     let enc = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
-    let r = metered(
+    let r = sweep_metered(
         "skyline_validate_dense",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_DENSE,
@@ -1225,7 +1230,7 @@ fn skyline_validate_dense_envelope() {
 #[test]
 fn skyline_validate_cliff_envelope() {
     let enc = skyline_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
-    let r = metered(
+    let r = sweep_metered(
         "skyline_validate_cliff",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_CLIFF,
@@ -1241,7 +1246,7 @@ fn skyline_validate_cliff_envelope() {
 fn skyline_validate_wide_tooth_envelope() {
     let enc =
         skyline_of(&Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE));
-    let r = metered(
+    let r = sweep_metered(
         "skyline_validate_wide_tooth",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_WIDE_TOOTH,
@@ -1259,7 +1264,7 @@ fn skyline_validate_wide_tooth_envelope() {
 #[test]
 fn skyline_validate_hugeleaf_envelope() {
     let enc = skyline_of(&Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS));
-    let r = metered(
+    let r = sweep_metered(
         "skyline_validate_hugeleaf",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_HUGELEAF,
@@ -1275,7 +1280,7 @@ fn skyline_validate_hugeleaf_envelope() {
 #[test]
 fn skyline_validate_alt_spine_envelope() {
     let enc = skyline_of(&Shape::AltSpine.packed1(DENSE_DEPTH));
-    let r = metered(
+    let r = sweep_metered(
         "skyline_validate_alt_spine",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_ALT_SPINE,
@@ -1290,7 +1295,7 @@ fn skyline_validate_alt_spine_envelope() {
 fn skyline_decode_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
     let enc = skyline_of(&p);
-    let v = metered(
+    let v = sweep_metered(
         "skyline_decode_dense",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_DENSE,
@@ -1308,7 +1313,7 @@ fn skyline_decode_dense_envelope() {
 fn skyline_decode_cliff_envelope() {
     let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
     let enc = skyline_of(&p);
-    let v = metered(
+    let v = sweep_metered(
         "skyline_decode_cliff",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_CLIFF,
@@ -1323,7 +1328,7 @@ fn skyline_decode_cliff_envelope() {
 fn skyline_decode_wide_tooth_envelope() {
     let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let enc = skyline_of(&p);
-    let v = metered(
+    let v = sweep_metered(
         "skyline_decode_wide_tooth",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_WIDE_TOOTH,
@@ -1338,7 +1343,7 @@ fn skyline_decode_wide_tooth_envelope() {
 fn skyline_decode_hugeleaf_envelope() {
     let p = Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS);
     let enc = skyline_of(&p);
-    let v = metered(
+    let v = sweep_metered(
         "skyline_decode_hugeleaf",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_HUGELEAF,
@@ -1353,7 +1358,7 @@ fn skyline_decode_hugeleaf_envelope() {
 fn skyline_decode_alt_spine_envelope() {
     let p = Shape::AltSpine.packed1(DENSE_DEPTH);
     let enc = skyline_of(&p);
-    let v = metered(
+    let v = sweep_metered(
         "skyline_decode_alt_spine",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_ALT_SPINE,

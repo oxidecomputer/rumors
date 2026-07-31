@@ -98,9 +98,9 @@ impl BitCursor for SliceCursor<'_> {
         // `ok_or`'s eager argument is fine here: `Truncated` is a ZST.
         let bit = *self.bits.get(self.position).ok_or(Truncated)?;
         // One live bit scanned: this cursor is the sequential read primitive
-        // under `decode`, the gamma decoder, and the skyline
-        // validator/decoder, so the scan meter records here once for all of
-        // them.
+        // under the id-tree parsers and the per-bit gamma decode path, so
+        // the scan meter records here once for both. The skyline kernels
+        // read through `DsiCursor`, which carries its own records.
         super::scan::record_bits(1);
         self.position += 1;
         Ok(bit)
