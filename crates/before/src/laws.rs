@@ -643,6 +643,22 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
         span_dominance_coarsens_place,
     ),
     ("bounded_coarsens_span_place", bounded_coarsens_span_place),
+    (
+        "span_union_is_the_containment_join",
+        span_union_is_the_containment_join,
+    ),
+    (
+        "span_intersect_is_the_shared_segment",
+        span_intersect_is_the_shared_segment,
+    ),
+    (
+        "span_sum_is_the_pointwise_join",
+        span_sum_is_the_pointwise_join,
+    ),
+    (
+        "span_product_is_the_pointwise_meet",
+        span_product_is_the_pointwise_meet,
+    ),
 ];
 
 /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
@@ -1066,6 +1082,167 @@ fn span_codec_roundtrip(a: &Version, b: &Version) -> bool {
     framed && round && coincident
 }
 
+// ─────────────────────────── the span algebra ───────────────────────────
+
+/// The valid spans the operator laws quantify over, from a version
+/// pair: the pair's hull, the coincident span at the meet, and the raw
+/// pair whenever it happens to order — settled owned so the operand
+/// cells can consume them.
+fn operand_spans(b: &Version, c: &Version) -> Vec<Span<'static>> {
+    span_candidates(b, c)
+        .into_iter()
+        .map(|(lo, hi)| {
+            Span::new(&lo, &hi)
+                .expect("every candidate is ordered")
+                .into_owned()
+        })
+        .collect()
+}
+
+/// Whether `probe` lies on the span's chain segment (`lo <= p <= hi`):
+/// the order-sense membership the containment operators speak about.
+/// A `Concurrent` placement is *beside* the span, never within it.
+fn within(span: &Span<'_>, probe: &Version) -> bool {
+    matches!(span.place(probe), Placement::At(_) | Placement::Between)
+}
+
+/// `|` is the containment join: endpoints definitionally the meet of
+/// the meets and the join of the joins.
+///
+/// The same span from either operand order and from every
+/// owned/borrowed cell, idempotent, and covering both operands' whole
+/// segments.
+// The idempotence probes repeat an operand on purpose: `s | s == s` is
+// the law itself, not a typo the lint should flag.
+#[allow(clippy::eq_op)]
+fn span_union_is_the_containment_join(a: &Version, b: &Version, c: &Version) -> bool {
+    for s in &operand_spans(a, b) {
+        for t in &operand_spans(b, c) {
+            let union = s | t;
+            let definitional =
+                union == Span::new_unchecked(&(s.meet() & t.meet()), &(s.join() | t.join()));
+            let commutative = union == t | s;
+            let idempotent = (s | s) == *s;
+            let cells = (s.clone() | t.clone()) == union
+                && (s.clone() | t) == union
+                && (s | t.clone()) == union;
+            let covering = [s.meet(), s.join(), t.meet(), t.join()]
+                .into_iter()
+                .all(|v| within(&union, v));
+            if !(definitional && commutative && idempotent && cells && covering) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// `&` is the containment meet: the joined meets under the met joins
+/// when that pair orders, [`None`] exactly otherwise.
+///
+/// Commutative, idempotent, absorbing with `|`, and containing every
+/// version both operands contain (so two overlapping operands always
+/// intersect).
+// The idempotence probe repeats an operand on purpose: `s & s` is the law.
+#[allow(clippy::eq_op)]
+fn span_intersect_is_the_shared_segment(a: &Version, b: &Version, c: &Version) -> bool {
+    for s in &operand_spans(a, b) {
+        for t in &operand_spans(b, c) {
+            let inter = s & t;
+            let definitional = inter
+                == Span::new(&(s.meet() | t.meet()), &(s.join() & t.join()))
+                    .ok()
+                    .map(Span::into_owned);
+            let commutative = inter == (t & s);
+            let idempotent = (s & s) == Some(s.clone());
+            let cells = (s.clone() & t.clone()) == inter
+                && (s.clone() & t) == inter
+                && (s & t.clone()) == inter;
+            let absorbing = {
+                let u = s | t;
+                (s & &u) == Some(s.clone())
+            };
+            let membership = [a, b, c].into_iter().all(|probe| {
+                !(within(s, probe) && within(t, probe))
+                    || inter.as_ref().is_some_and(|i| within(i, probe))
+            });
+            if !(definitional && commutative && idempotent && cells && absorbing && membership) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// `+` is the pointwise join: endpoints definitionally the joins of
+/// the corresponding endpoints.
+///
+/// Commutative, idempotent, with the coincident empty span as identity
+/// — and on coincident operands it restricts to the version join
+/// exactly (the lifting is a lattice homomorphism on points, where `|`
+/// yields the hull instead).
+// The idempotence probe repeats an operand on purpose: `s + s == s` is
+// the law itself.
+#[allow(clippy::eq_op)]
+fn span_sum_is_the_pointwise_join(a: &Version, b: &Version, c: &Version) -> bool {
+    let empty = Version::new();
+    let identity = empty.span(&empty);
+    for s in &operand_spans(a, b) {
+        for t in &operand_spans(b, c) {
+            let sum = s + t;
+            let definitional =
+                sum == Span::new_unchecked(&(s.meet() | t.meet()), &(s.join() | t.join()));
+            let commutative = sum == (t + s);
+            let idempotent = (s + s) == *s;
+            let cells =
+                (s.clone() + t.clone()) == sum && (s.clone() + t) == sum && (s + t.clone()) == sum;
+            let identity_holds = (s + &identity) == *s;
+            if !(definitional && commutative && idempotent && cells && identity_holds) {
+                return false;
+            }
+        }
+    }
+    // The point identity: two coincident spans sum to the coincident
+    // span at their versions' join.
+    let bc = b | c;
+    (b.span(b) + c.span(c)) == bc.span(&bc)
+}
+
+/// `*` is the pointwise meet: endpoints definitionally the meets of
+/// the corresponding endpoints.
+///
+/// Commutative, idempotent, absorbing with `+` in the pointwise
+/// lattice — and on coincident operands it restricts to the version
+/// meet exactly.
+// The idempotence probe repeats an operand on purpose: `s * s == s` is
+// the law itself.
+#[allow(clippy::eq_op)]
+fn span_product_is_the_pointwise_meet(a: &Version, b: &Version, c: &Version) -> bool {
+    for s in &operand_spans(a, b) {
+        for t in &operand_spans(b, c) {
+            let product = s * t;
+            let definitional =
+                product == Span::new_unchecked(&(s.meet() & t.meet()), &(s.join() & t.join()));
+            let commutative = product == (t * s);
+            let idempotent = (s * s) == *s;
+            let cells = (s.clone() * t.clone()) == product
+                && (s.clone() * t) == product
+                && (s * t.clone()) == product;
+            let absorbing = {
+                let u = s + t;
+                (&u * s) == *s
+            };
+            if !(definitional && commutative && idempotent && cells && absorbing) {
+                return false;
+            }
+        }
+    }
+    // The point identity: two coincident spans multiply to the
+    // coincident span at their versions' meet.
+    let bc = b & c;
+    (b.span(b) * c.span(c)) == bc.span(&bc)
+}
+
 // ───────────────────────────── Version: lists ─────────────────────────────
 
 /// Laws over a list of versions, at any arity.
@@ -1153,6 +1330,18 @@ pub static VERSION_AND_LIST: &[Law<fn(&Version, &[Version]) -> bool>] = &[
         "span_all_is_rotation_invariant",
         span_all_is_rotation_invariant,
     ),
+    (
+        "span_folds_match_the_sequential_operators",
+        span_folds_match_the_sequential_operators,
+    ),
+    (
+        "span_folds_are_rotation_invariant",
+        span_folds_are_rotation_invariant,
+    ),
+    (
+        "span_union_of_points_is_span_all",
+        span_union_of_points_is_span_all,
+    ),
 ];
 
 /// The n-ary span at every arity: endpoints definitionally the n-ary
@@ -1202,6 +1391,90 @@ fn span_all_is_rotation_invariant(receiver: &Version, items: &[Version]) -> bool
         last.span_all(front.iter().rev().copied()) == hull
     };
     rotations && reversed
+}
+
+/// The item spans the fold-door laws quantify over: a deterministic
+/// mix of coincident and wide spans over the items.
+///
+/// The mix drives the doors' point and wide combine arms alike, at
+/// every counter boundary the list sweep reaches.
+fn item_spans(items: &[Version]) -> Vec<Span<'static>> {
+    items
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            if i % 2 == 0 {
+                v.span(v)
+            } else {
+                items[i - 1].span(v)
+            }
+        })
+        .collect()
+}
+
+/// The n-ary span doors are their binary operators folded
+/// left-to-right over `{seed} ∪ items`, at every arity.
+///
+/// The balanced regrouping inside each door is exactly what the
+/// equation quantifies away, and the right-hand sides are the bound
+/// binary operators, never the doors.
+///
+/// The containment doors run from the receiver's coincident span
+/// (union) and from the family hull (intersection — a wide seed keeps
+/// the nonempty path exercised deep into the fold, while disjoint item
+/// spans still reach [`None`]); the pointwise doors run from the
+/// coincident seed.
+fn span_folds_match_the_sequential_operators(receiver: &Version, items: &[Version]) -> bool {
+    let seed = receiver.span(receiver);
+    let hull = receiver.span_all(items);
+    let spans = item_spans(items);
+    let union = seed.union_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc | s);
+    // The sequential reference folds *through* `Option` with no early
+    // exit, deliberately: the door defers its verdict to the end, and
+    // the equation quantifies over the same completed fold (`try_fold`
+    // would exit at the first `None` — a different reference).
+    #[allow(clippy::manual_try_fold)]
+    let intersect = hull.intersect_all(&spans)
+        == spans
+            .iter()
+            .fold(Some(hull.clone()), |acc, s| acc.and_then(|a| &a & s));
+    let sum = seed.sum_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc + s);
+    let product = seed.product_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc * s);
+    union && intersect && sum && product
+}
+
+/// The n-ary span doors are item-order-independent at every arity:
+/// every rotation and the reversal of the item list fold to the same
+/// span (or the same [`None`]).
+///
+/// Each rotation regroups every door's balanced counter differently,
+/// so a combine arm wrong under one grouping diverges from the orbit
+/// — the span-door instance of `fold_all_is_order_invariant`.
+fn span_folds_are_rotation_invariant(receiver: &Version, items: &[Version]) -> bool {
+    let seed = receiver.span(receiver);
+    let hull = receiver.span_all(items);
+    let spans = item_spans(items);
+    let union = seed.union_all(&spans);
+    let intersect = hull.intersect_all(&spans);
+    let sum = seed.sum_all(&spans);
+    let product = seed.product_all(&spans);
+    let agrees = |ordered: &mut dyn Iterator<Item = &Span<'static>>| {
+        let ordered: Vec<&Span<'static>> = ordered.collect();
+        seed.union_all(ordered.iter().copied()) == union
+            && hull.intersect_all(ordered.iter().copied()) == intersect
+            && seed.sum_all(ordered.iter().copied()) == sum
+            && seed.product_all(ordered.iter().copied()) == product
+    };
+    agrees(&mut spans.iter().rev())
+        && (1..spans.len()).all(|r| agrees(&mut spans[r..].iter().chain(&spans[..r])))
+}
+
+/// A union of coincident spans is the version hull: on points the
+/// containment door restricts to [`Version::span_all`] exactly, so
+/// the two doors can never drift apart on the shapes both serve.
+fn span_union_of_points_is_span_all(receiver: &Version, items: &[Version]) -> bool {
+    let points: Vec<Span<'static>> = items.iter().map(|v| v.span(v)).collect();
+    receiver.span(receiver).union_all(&points) == receiver.span_all(items)
 }
 
 // ───────────────────────────── Party: one value ─────────────────────────────
@@ -1843,6 +2116,10 @@ pub static VERSION_PAIR_PARTY: &[Law<fn(&Version, &Version, &Party) -> bool>] = 
         "own_version_seed_mask_coherence",
         own_version_seed_mask_coherence,
     ),
+    (
+        "own_span_matches_the_projected_span",
+        own_span_matches_the_projected_span,
+    ),
 ];
 
 /// Projection is a homomorphism of the join: `(a | b) / p == (a/p) | (b/p)`
@@ -1913,6 +2190,43 @@ fn own_version_seed_mask_coherence(a: &Version, b: &Version, p: &Party) -> bool 
     let seed = Party::seed();
     let seeded = b / &seed;
     view.partial_cmp(&seeded) == view.partial_cmp(b) && (view == seeded) == (view == *b)
+}
+
+/// The quotient view of a span answers every verdict, and
+/// materializes, exactly as the eagerly projected span.
+///
+/// Endpoints, all nine placements, the dominance coarsening, and both
+/// materialization doors — quantified over the pair's hull and the
+/// coincident span, with probes at the operands and the projected
+/// endpoints (reaching the at-endpoint corners).
+///
+/// The eager side exists at all because projection is monotone
+/// (`projection_monotone_in_version`), which this law re-witnesses by
+/// validating the projected pair through [`Span::new`].
+fn own_span_matches_the_projected_span(a: &Version, b: &Version, party: &Party) -> bool {
+    let hull = a.span(b);
+    let coincident = a.span(a);
+    for span in [&hull, &coincident] {
+        let view = span / party;
+        let lo = (span.meet() / party).to_version();
+        let hi = (span.join() / party).to_version();
+        let Ok(eager) = Span::new(&lo, &hi) else {
+            return false; // monotone masking never crosses a valid pair
+        };
+        let endpoints = view.meet() == lo && view.join() == hi;
+        let materialized = view.to_span() == eager && Span::from(view) == eager;
+        if !(endpoints && materialized) {
+            return false;
+        }
+        for probe in [a, b, &lo, &hi] {
+            if view.place(probe) != eager.place(probe)
+                || view.dominance_of(probe) != eager.dominance_of(probe)
+            {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 // ───────────────────────────── Version × Party × Party ─────────────────────────────

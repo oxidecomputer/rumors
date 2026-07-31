@@ -71,6 +71,7 @@ assert_eq!(restored, alice);
 | `Version`         | a causal timestamp (history of known events)    | `tick`, `PartialOrd` (`<`, `<=`, `concurrent`), join (`\|`), meet (`&`), `rank`                        |
 | `Clock`           | a `Party` paired with its current `Version` | `tick`, `fork`(`s`), `join`, `send`, `recv`, join (`\|`, `\|=`) a `Version` |
 | `Rank`/`Ranked` | a total order extending the causal order       | `Ord` (`<`, `==`, `>`, etc.), summation (`+`), `checked_sub`, `encode`/`decode`                            |
+| `Span`            | an ordered pair of versions and the chain segment between them | `place`, `dominance_of`, union (`\|`), intersect (`&`), pointwise join/meet (`+`, `*`), projection (`/`)     |
 
 `Party`s and `Clock`s are linear (`!Clone`): moved, never
 duplicated, because duplicating identity is exactly what breaks a causal
