@@ -161,11 +161,9 @@ impl Version {
     /// Advances this version by one event for `party`.
     ///
     /// A tick is a pure function of this version and `party`, with no
-    /// memory of the party's other ticks: distinct events get distinct,
-    /// ordered versions only under the tick-chain rule of the
-    /// [safety rules](crate#safety-rules) — within any set of versions
-    /// that ever meet, apply each of a party's ticks to a version
-    /// dominating the one its previous tick produced.
+    /// memory of the party's other ticks: ticking two clones of one
+    /// version with the same party mints equal successors, and that is
+    /// valid — a version records causal knowledge, not event identity.
     ///
     /// # Complexity
     ///

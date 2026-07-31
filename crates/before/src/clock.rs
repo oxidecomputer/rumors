@@ -415,12 +415,11 @@ impl Clock {
 
     /// Pairs a [`Party`] with a [`Version`] to form a [`Clock`].
     ///
-    /// The version handed in must carry the party's full prior tick
-    /// history: pairing a party with a version that predates the party's
-    /// latest tick brings a retired state of the identity back into play
-    /// (the linearity rule of the [safety rules](crate#safety-rules)),
-    /// and the rebuilt clock re-mints versions the party already spent.
-    /// [`into_parts`](Clock::into_parts) and back is always safe.
+    /// Any version pairs with the party: a clock rebuilt over an earlier
+    /// version re-mints successors the party's later ticks already
+    /// produced, and that is valid — a version records causal knowledge,
+    /// not event identity. [`into_parts`](Clock::into_parts) and back is
+    /// always safe.
     ///
     /// # Complexity
     ///
