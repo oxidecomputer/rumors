@@ -265,10 +265,11 @@ fn reopen_resumes_the_replica() {
 }
 
 /// A store whose canonical record rotted refuses to open with the
-/// corruption genre — distinct from [`OpenError::Empty`],
-/// [`OpenError::Retired`], and a store failure — naming the corrupt
-/// row, so a deployment can tell "the store lied" from every other
-/// refusal to resume.
+/// corruption genre, naming the corrupt row.
+///
+/// The genre is distinct from [`OpenError::Empty`],
+/// [`OpenError::Retired`], and a store failure, so a deployment can
+/// tell "the store lied" from every other refusal to resume.
 #[test]
 fn open_reports_corruption_distinctly() {
     pollster::block_on(async {
@@ -574,11 +575,13 @@ fn ambiguous_commits_are_superseded_cleanly() {
     }
 }
 
-/// The wire barrier's watermark discipline: the first barrier after an
-/// identity-bearing commit flushes, a commit-free window flushes
-/// nothing, and local churn alone never flushes — the lazy store's
-/// commit-latency win, priced at one [`Kv::sync`] per
+/// The wire barrier's watermark discipline: at most one flush per
 /// commit-then-send window.
+///
+/// The first barrier after an identity-bearing commit flushes, a
+/// commit-free window flushes nothing, and local churn alone never
+/// flushes — the lazy store's commit-latency win, priced at one
+/// [`Kv::sync`] per commit-then-send window.
 #[test]
 fn barrier_flushes_once_per_commit_window() {
     use crate::tree::backend::Store as _;
@@ -606,11 +609,12 @@ fn barrier_flushes_once_per_commit_window() {
     });
 }
 
-/// Acknowledged and escaped implies durable, for every store policy: a
-/// session flushes exactly once before transmitting, and at the worst
-/// crash a write-behind store's policy permits (everything since the
-/// last completed flush lost), the store still holds every message the
-/// session shipped — with the flush landing strictly before the
+/// Acknowledged and escaped implies durable, for every store policy.
+///
+/// A session flushes exactly once before transmitting, and at the
+/// worst crash a write-behind store's policy permits (everything since
+/// the last completed flush lost), the store still holds every message
+/// the session shipped — with the flush landing strictly before the
 /// session's closing transactions, i.e. before the wire moved, not
 /// after.
 #[test]
@@ -667,9 +671,10 @@ fn escaped_state_is_durable_before_it_ships() {
 }
 
 /// The send blocks on the flush: with a failing [`Kv::sync`], a session
-/// dies before anything escapes — the crash window between
-/// commit-acknowledge and durability can never contain a wire send, by
-/// construction rather than by luck.
+/// dies before anything escapes.
+///
+/// The crash window between commit-acknowledge and durability can
+/// never contain a wire send, by construction rather than by luck.
 #[test]
 fn failing_sync_blocks_the_send() {
     pollster::block_on(async {

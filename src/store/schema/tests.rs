@@ -161,10 +161,11 @@ struct RawBranchRecord {
 }
 
 /// A stored branch whose bounds pair is crossed (meet strictly above
-/// join) refuses as an observable [`Corruption`]: the span field's
-/// validating parse is a decode door like any other, so bounds no write
-/// could produce surface as the same error, never a panic and never an
-/// unordered span handed to the classifiers.
+/// join) refuses as an observable [`Corruption`].
+///
+/// The span field's validating parse is a decode door like any other,
+/// so bounds no write could produce surface as the same error, never a
+/// panic and never an unordered span handed to the classifiers.
 #[test]
 fn crossed_span_record_refuses_as_corruption() {
     let party = before::Party::seed();

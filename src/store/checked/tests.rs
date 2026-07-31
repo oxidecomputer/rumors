@@ -90,11 +90,13 @@ fn steps() -> impl Strategy<Value = Vec<Step>> {
 
 proptest! {
     /// The checked write view is observationally identical to writing
-    /// directly: over any base state and mutation script, every `get`
-    /// and every `next_after` walk mid-transaction agrees with a raw
-    /// transaction running the same script, and the committed state
-    /// afterwards is identical too. This is the read-your-writes and
-    /// cursor-merge contract the custody closures rely on.
+    /// directly.
+    ///
+    /// Over any base state and mutation script, every `get` and every
+    /// `next_after` walk mid-transaction agrees with a raw transaction
+    /// running the same script, and the committed state afterwards is
+    /// identical too. This is the read-your-writes and cursor-merge
+    /// contract the custody closures rely on.
     #[test]
     fn checked_view_matches_direct_writes(
         base in proptest::collection::btree_map(any::<u8>(), any::<u8>(), 0..16),

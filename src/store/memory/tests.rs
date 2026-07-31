@@ -193,10 +193,12 @@ async fn injected_sync_error_is_one_shot() {
 }
 
 /// The re-execution schedule runs every closure twice with the first
-/// execution's effects discarded — observable through a deliberately
-/// leaked side effect — while the committed state reflects exactly one
-/// application: the adequacy witness that a closure leaking effects
-/// outside its transaction argument diverges under a retrying store.
+/// execution's effects discarded.
+///
+/// The double run is observable through a deliberately leaked side
+/// effect while the committed state reflects exactly one application:
+/// the adequacy witness that a closure leaking effects outside its
+/// transaction argument diverges under a retrying store.
 #[pollster::test]
 async fn retrying_reruns_closures_and_discards_the_first() {
     use std::sync::Arc;

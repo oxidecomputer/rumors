@@ -984,10 +984,11 @@ where
     }
 }
 
-/// The shape door for stored records entering a walk: a record fetched
-/// through an edge at height `H` must place its body exactly where the
-/// edge claims — a leaf's stored span ends at height zero
-/// (`prefix.len() == H`), a branch's strictly above it
+/// The shape door for stored records entering a walk.
+///
+/// A record fetched through an edge at height `H` must place its body
+/// exactly where the edge claims — a leaf's stored span ends at height
+/// zero (`prefix.len() == H`), a branch's strictly above it
 /// (`prefix.len() < H`).
 ///
 /// Every record enters the process through this check (child fetches
