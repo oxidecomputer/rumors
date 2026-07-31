@@ -1076,6 +1076,79 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "the identical composite emission with a writer sink; the span_encode panel \
          prices the emission",
     ),
+    (
+        "Span | Span (BitOr, owned and borrowed — the containment join)",
+        "one Version::meet over the lows and one Version::join over the highs; the \
+         version_meet and version_join panels price the walks",
+    ),
+    (
+        "Span & Span (BitAnd, owned and borrowed — the containment meet)",
+        "one Version::join over the lows, one Version::meet over the highs, and one \
+         endpoint comparison deciding the crossing; the version_join, version_meet, \
+         and version_cmp panels price the walks",
+    ),
+    (
+        "Span + Span (Add, owned and borrowed — the pointwise join)",
+        "Version::join on each endpoint; the version_join panel prices the walk",
+    ),
+    (
+        "Span * Span (Mul, owned and borrowed — the pointwise meet)",
+        "Version::meet on each endpoint; the version_meet panel prices the walk",
+    ),
+    (
+        "Span::union_all",
+        "the receiver-seeded balanced fold of the containment join; the \
+         version_span_all panel prices the hull fold, and the points bridge law \
+         pins union_all equal to span_all there",
+    ),
+    (
+        "Span::intersect_all",
+        "the receiver-seeded balanced fold of the containment meet; the \
+         version_join_all and version_meet_all panels price the balanced fold walks",
+    ),
+    (
+        "Span::sum_all",
+        "the receiver-seeded balanced fold of the pointwise join; the \
+         version_join_all panel prices the balanced fold walk",
+    ),
+    (
+        "Span::product_all",
+        "the receiver-seeded balanced fold of the pointwise meet; the \
+         version_meet_all panel prices the balanced fold walk",
+    ),
+    (
+        "&Span / &Party (Div — the lazy span projection view)",
+        "O(1) construction binding an endpoint pair of projection views; the walks \
+         live in the view's placement, comparison, and materialization ops",
+    ),
+    (
+        "OwnSpan::place",
+        "the quotient placement composed from the masked co-walks the \
+         own_version_cmp and own_version_pair_cmp panels price; no guest kernel \
+         exports the span view",
+    ),
+    (
+        "OwnSpan::dominance_of",
+        "the dominance coarsening of the quotient placement with the early exit; \
+         priced as OwnSpan::place",
+    ),
+    (
+        "OwnSpan::meet",
+        "O(1) accessor handing out the bound OwnVersion endpoint view",
+    ),
+    (
+        "OwnSpan::join",
+        "O(1) accessor handing out the bound OwnVersion endpoint view",
+    ),
+    (
+        "OwnSpan::to_span",
+        "two endpoint materializations, each the projection walk the \
+         version_project panel prices",
+    ),
+    (
+        "From<OwnSpan> for Span (explicit materialization)",
+        "the identical two-endpoint materialization as OwnSpan::to_span",
+    ),
     // ── representation mechanics ──
     (
         "Version Eq / Hash (canonical byte compare)",
