@@ -1163,6 +1163,68 @@ proptest! {
         let changed = tree.join(Tree { root: b });
         prop_assert_eq!(changed, tree.hash() != before);
     }
+
+    /// The changed flag stays exact through deep divergent descent.
+    ///
+    /// The pairs' paths share a drawn-length spine (the constructed
+    /// analogue of a hash-prefix collision), driving the merge's divergent
+    /// arm at every level down to the split, where content-addressed pairs
+    /// scatter at the root fan and never descend. Zero novelty widths are
+    /// drawn too, so subset, identical, and ceiling-only merges — the
+    /// flag's `false` arm — are sampled at depth alongside the gains.
+    #[test]
+    fn join_changed_flag_tracks_the_root_hash_at_depth(
+        (a, b) in crate::tree::arb::arb_deep_divergent_pair(),
+    ) {
+        let mut tree = Tree { root: a };
+        let before = tree.hash();
+        let changed = tree.join(Tree { root: b });
+        prop_assert_eq!(changed, tree.hash() != before);
+    }
+}
+
+/// The changed-flag biconditional at full depth, on the three shapes that
+/// decide it.
+///
+/// Gain in both directions and deletion honoring at depth report changed;
+/// the subtle no-op — merging a strict subset with concurrent versions —
+/// runs the divergent descent over the whole 31-byte shared prefix and
+/// must still report unchanged.
+#[test]
+fn deep_divergent_join_changed_flag_is_exact() {
+    // Gain in both directions.
+    let (a, b, expected) = crate::tree::arb::leaf_parent_dispute_pair();
+    for (receiver, counter) in [(a.clone(), b.clone()), (b, a.clone())] {
+        let mut tree = Tree { root: receiver };
+        let before = tree.hash();
+        let changed = tree.join(Tree { root: counter });
+        assert_eq!(changed, tree.hash() != before, "deep gain is biconditional");
+        assert!(changed, "a deep gain must report changed");
+    }
+
+    // The deep no-op: the receiver already holds everything the
+    // counterparty has, so the full-depth divergent descent nets nothing.
+    let mut tree = Tree { root: expected };
+    let before = tree.hash();
+    let changed = tree.join(Tree { root: a });
+    assert_eq!(
+        changed,
+        tree.hash() != before,
+        "a deep subset merge is biconditional"
+    );
+    assert!(!changed, "a subset merge must report unchanged");
+
+    // Deletion honoring at depth.
+    let (a, b, _survivor) = crate::tree::arb::leaf_parent_redaction_pair();
+    let mut tree = Tree { root: a };
+    let before = tree.hash();
+    let changed = tree.join(Tree { root: b });
+    assert_eq!(
+        changed,
+        tree.hash() != before,
+        "a deep redaction drop is biconditional"
+    );
+    assert!(changed, "deletion honoring must report changed");
 }
 
 /// A ceiling-only join reports unchanged.

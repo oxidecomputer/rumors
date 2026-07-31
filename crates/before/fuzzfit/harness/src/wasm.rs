@@ -42,10 +42,13 @@ const _: () = {
 
 /// The wasm stack ceiling handed to wasmtime.
 ///
-/// The guest's traversals recurse on tree depth and `stacker` cannot grow
-/// a wasm stack (its fallback runs the callback in place), so deep inputs
-/// consume real wasm stack; the strategies' budgets cap depth well below
-/// this.
+/// Slack, not a derived budget: every library walk in the guest is
+/// iterative (depth lives on explicit heap and bit stacks in linear
+/// memory, never the call stack), so guest stack consumption is bounded
+/// by the deepest static call chain and does not scale with input. The
+/// ceiling is a trap limit, not an allocation — no async calls are made,
+/// so no stack of this size is ever reserved — and the generous value
+/// keeps a stack trap from ever masquerading as a kernel divergence.
 const MAX_WASM_STACK: usize = 48 * 1024 * 1024;
 
 /// Locate the compiled guest module.

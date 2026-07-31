@@ -245,7 +245,17 @@ fn read_varint(bytes: &[u8], pos: &mut usize) -> Result<usize, String> {
     loop {
         let b = *bytes.get(*pos).ok_or("truncated varint")?;
         *pos += 1;
-        result |= ((b & 0x7f) as usize) << shift;
+        // Bound the shift: a fragment is caller input (any shared link can
+        // carry one), so a varint wider than the index space must reject
+        // cleanly — unbounded, the shift panics under debug assertions and
+        // silently masks (misdecodes) in the release wasm the site ships.
+        // Both guards are shift-safe: the width check runs first, and the
+        // lost-bits check shifts only when `shift` is in range.
+        let chunk = (b & 0x7f) as usize;
+        if shift >= usize::BITS || (chunk << shift) >> shift != chunk {
+            return Err("varint wider than the index space".to_owned());
+        }
+        result |= chunk << shift;
         if b & 0x80 == 0 {
             break;
         }

@@ -309,7 +309,6 @@ fn version_buffers_alias(a: &Version, b: &Version) -> bool {
     core::ptr::eq(ab.as_ptr(), bb.as_ptr()) && ab.len() == bb.len()
 }
 
-
 /// A mirrored execution error: the program is malformed (a generator bug,
 /// never a `before` bug).
 #[derive(Debug)]
@@ -592,7 +591,7 @@ impl Mirror {
                 };
                 let ticked = match self.regs.get_mut(v as usize) {
                     Some(Some(NVal::V(version))) => {
-                        party.tick(version);
+                        version.tick(&party);
                         true
                     }
                     _ => false,

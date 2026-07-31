@@ -133,9 +133,12 @@ impl<D: Dial> Endpoint<D> {
     /// # Panics
     ///
     /// If `advertised` encodes to nothing or to more than
-    /// [`MAX_ADDR_LEN`](super::MAX_ADDR_LEN) bytes, or if either
-    /// [`Config`] bound is zero: each is a configuration bug caught at
-    /// construction rather than at the first link.
+    /// [`MAX_ADDR_LEN`](super::MAX_ADDR_LEN) bytes, if the address
+    /// type's `encode` refuses the name itself (the stock
+    /// [`SocketAddr`](std::net::SocketAddr) instantiation refuses scoped
+    /// IPv6 addresses, whose scope the wire name cannot carry), or if
+    /// either [`Config`] bound is zero: each is a configuration bug
+    /// caught at construction rather than at the first link.
     pub fn new(
         listen: impl Listen<Conn = D::Conn>,
         advertised: D::Addr,

@@ -322,7 +322,7 @@ pub(crate) fn dead_bits_are_zero(bits: &Bits) -> bool {
 /// policy decision, not a reachable production state: the gamma window
 /// loader degrades to its bit-addressed fallback, the dsi cursor treats
 /// it as a violated precondition. The destructuring lives here once so
-/// the two callers cannot drift on the byte-alignment invariant while
+/// its callers cannot drift on the byte-alignment invariant while
 /// keeping their deliberately different failure policies.
 pub(crate) fn byte_view(bits: &BitsSlice) -> Option<(&[u8], Option<u8>)> {
     match bits.domain() {

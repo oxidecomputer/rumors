@@ -135,11 +135,17 @@ fn walk_use(
     names: &mut BTreeSet<String>,
     visited: &mut BTreeSet<(Vec<String>, Id)>,
 ) {
-    // `id` is `None` only for primitive re-exports; an id pointing
-    // outside the index is another crate's item, which is not `before`
-    // surface.
+    // `id` is `None` only for primitive re-exports; an id absent from the
+    // index is another crate's item (recorded in the `paths` table), which
+    // is not `before` surface. An id in neither table is malformed rustdoc
+    // JSON, and a malformed input must never read as a smaller surface —
+    // same discipline as `item_of`'s dangling-reference panic.
     let Some(id) = use_.id else { return };
     let Some(target) = krate.index.get(&id) else {
+        assert!(
+            krate.paths.contains_key(&id),
+            "rustdoc JSON has use target {id:?} in neither index nor paths"
+        );
         return;
     };
     if use_.is_glob {

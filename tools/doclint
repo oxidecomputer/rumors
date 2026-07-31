@@ -111,6 +111,15 @@ def main(argv):
         print("usage: doclint PATH...", file=sys.stderr)
         return 2
 
+    # A nonexistent root would match no files and read as a clean sweep, so a
+    # renamed or relocated directory would silently vacate its lint coverage
+    # forever. A missing root is a usage error, never a pass.
+    missing = [root for root in roots if not root.exists()]
+    if missing:
+        for root in missing:
+            print(f"doclint: no such file or directory: {root}", file=sys.stderr)
+        return 2
+
     found = False
     for root in roots:
         for path in rust_files(root):
