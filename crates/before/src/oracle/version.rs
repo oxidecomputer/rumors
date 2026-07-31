@@ -220,7 +220,7 @@ impl Version {
 
     /// The raw `(numerator, exponent)` area fold, in subtree-relative units
     /// (this subtree's interval has width 1).
-    fn rank_raw(&self) -> (Base, u32) {
+    fn rank_raw(&self) -> (Base, u64) {
         match self {
             Version::Leaf(n) => (n.clone(), 0),
             Version::Node(n, l, r) => {
