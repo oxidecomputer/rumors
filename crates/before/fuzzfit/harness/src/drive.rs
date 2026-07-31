@@ -130,10 +130,12 @@ pub fn for_each_deterministic_program(
     }
 }
 
-/// Drive the deterministic small-operand corpus: [`BOOTSTRAP_PROGRAMS`]
-/// programs of [`Family::Bootstrap`], rounds cycling
-/// `1..=BOOTSTRAP_MAX_ROUNDS` and each program's seed its case index, so
-/// any two consumers observe byte-identical samples.
+/// Drive the deterministic small-operand corpus.
+///
+/// The corpus is [`BOOTSTRAP_PROGRAMS`] programs of
+/// [`Family::Bootstrap`], rounds cycling `1..=BOOTSTRAP_MAX_ROUNDS` and
+/// each program's seed its case index, so any two consumers observe
+/// byte-identical samples.
 ///
 /// The calibration sweep derives the small-operand bands from this
 /// stream (pooled with the main corpus's own sub-floor samples); the

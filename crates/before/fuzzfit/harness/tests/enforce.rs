@@ -164,9 +164,10 @@ fn bands_are_pinned() {
 }
 
 /// The small-operand roster is pinned exactly: one constant-classified
-/// band per [`SMALL_BAND_KERNELS`] entry (success arm), each judging
-/// strictly below the size-law fit floor, and no small band prices a
-/// kernel off the roster.
+/// band per [`SMALL_BAND_KERNELS`] entry (success arm).
+///
+/// Each band judges strictly below the size-law fit floor, and no
+/// small band prices a kernel off the roster.
 ///
 /// The roster is the committed expectation list: a calibration that
 /// drops a kernel's small band (a generator regression starving the
@@ -203,12 +204,14 @@ fn small_bands_are_pinned_for_the_bootstrap_kernels() {
     }
 }
 
-/// The deterministic bootstrap corpus lands every step in its band —
-/// the sub-floor steps of the rostered kernels judged against their
-/// small bands, everything else against the main roster — and each
-/// rostered kernel is actually judged sub-floor at least once (the
-/// leg's own liveness floor: a small band no program ever lands in is
-/// decoration).
+/// The deterministic bootstrap corpus lands every step in its band,
+/// and each rostered kernel is actually judged sub-floor at least
+/// once.
+///
+/// The sub-floor steps of the rostered kernels judge against their
+/// small bands, everything else against the main roster; the
+/// at-least-once demand is the leg's own liveness floor (a small band
+/// no program ever lands in is decoration).
 ///
 /// This is the deterministic verdict over rumors' production-hot
 /// operand region: bootstrap and per-message stamping live below the

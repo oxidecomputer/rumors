@@ -19,11 +19,13 @@ use super::{cost_table, Claim, Evidence, CLAIMS, FAMILY_SURFACE, SOURCES};
 
 /// The (operation, witness) edges whose evidence flows through a stated
 /// mechanism instead of a direct invocation, mirroring the
-/// [`Evidence::Excluded`] reason discipline: each entry is
-/// `(op, witness fn, mechanism)`, the mechanism substantial and checked
-/// so, and the exemption is held *load-bearing* — a witness that starts
-/// invoking the operation orphans its entry here, so the list can never
-/// silently outlive the delegation it describes.
+/// [`Evidence::Excluded`] reason discipline.
+///
+/// Each entry is `(op, witness fn, mechanism)`, the mechanism
+/// substantial and checked so, and the exemption is held *load-bearing*
+/// — a witness that starts invoking the operation orphans its entry
+/// here, so the list can never silently outlive the delegation it
+/// describes.
 const REACH_EXEMPT: &[(&str, &str, &str)] = &[
     (
         "Accumulator::is_negative",
@@ -107,9 +109,11 @@ fn fn_bodies(source: &str) -> BTreeMap<String, String> {
 }
 
 /// Whether `body` invokes the method `name` — a `.name(` call, the only
-/// shape a receiver method takes (the leading dot bounds the token on
-/// the left; the parenthesis on the right), so `.shl(` never matches
-/// `.add_wide_shl(` and a prose mention never counts as an invocation.
+/// shape a receiver method takes.
+///
+/// The leading dot bounds the token on the left and the parenthesis on
+/// the right, so `.shl(` never matches `.add_wide_shl(` and a prose
+/// mention never counts as an invocation.
 fn invokes_method(body: &str, name: &str) -> bool {
     body.contains(&format!(".{name}("))
 }
@@ -355,9 +359,11 @@ fn cited_witnesses_exist() {
 /// Every (operation, witness) edge reaches: the witness's body — or a
 /// helper it calls in the same file — invokes the operation it
 /// evidences, unless the edge carries a stated-mechanism exemption in
-/// [`REACH_EXEMPT`]; and every exemption is well-formed (it names a
-/// real edge, states a substantial mechanism, and is load-bearing —
-/// the witness genuinely does not invoke the operation).
+/// [`REACH_EXEMPT`].
+///
+/// Every exemption must in turn be well-formed: it names a real edge,
+/// states a substantial mechanism, and is load-bearing — the witness
+/// genuinely does not invoke the operation.
 ///
 /// Existence alone (`cited_witnesses_exist`) cannot see a witness
 /// hollowed out from the inside: delete the one leg that drives the

@@ -484,10 +484,12 @@ pub fn small_band_for(kernel: &str, rejected: bool) -> Option<&'static Band> {
         .find(|b| b.kernel == kernel && b.rejected == rejected)
 }
 
-/// Judge one sub-floor step against the small-operand roster:
-/// `Some((band, verdict))` when a small band prices this key and the
-/// step lands inside the band's calibrated span, `None` when the step
-/// stays structurally unjudged (no small band, or outside the span).
+/// Judge one sub-floor step against the small-operand roster.
+///
+/// Returns `Some((band, verdict))` when a small band prices this key
+/// and the step lands inside the band's calibrated span, `None` when
+/// the step stays structurally unjudged (no small band, or outside the
+/// span).
 ///
 /// The span cut on both sides is deliberate: a constant band is the
 /// honest model only over the region it was calibrated on — above its
