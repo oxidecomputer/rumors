@@ -199,9 +199,12 @@ pub enum Site {
 ///
 /// The template vocabulary is uniform across a consuming roster, whose
 /// module doc defines its variables; a bare `O(...)` covers time and
-/// space, and forms that split the two say so. [`Bound::Custom`] is the
-/// escape hatch for a row whose honest bound fits no template — every use
-/// states its reason beside the line, as committed data.
+/// space, and forms that split the two say so. Rendered lines carry
+/// upper bounds only: a proven lower bound is stated in the site's
+/// section prose, above the line, never in the rendered headline.
+/// [`Bound::Custom`] is the escape hatch for a row whose honest bound
+/// fits no template — every use states its reason beside the line, as
+/// committed data.
 // The variant deliberately carries a class's own name (`MulBound` is the
 // claims vocabulary's multiplication-bound class), so the lint's suffix
 // rule loses to the one-name-per-concept rule here.
@@ -224,10 +227,11 @@ pub enum Bound {
     /// The indexed fold: [`Bound::Fold`] plus the per-node search
     /// allowance over the accumulator (`B log n`).
     FoldSearch,
-    /// The multiplication-bound three-part time claim on one operand —
-    /// the worst case, the mandatory floor, the width-bounded regime —
-    /// where `M(·)` is an arithmetic backend's integer-multiplication
-    /// bound.
+    /// The multiplication-bound time claim on one operand — the worst
+    /// case and the width-bounded regime — where `M(·)` is an
+    /// arithmetic backend's integer-multiplication bound. Any proven
+    /// lower bound lives in the site's section prose, per the
+    /// upper-bounds-only rendering rule.
     MulBound,
     /// [`Bound::MulBound`] over an operand pair.
     MulBoundPair,
@@ -253,13 +257,12 @@ impl Bound {
             Bound::Fold => "`O(D log k)` time, `O(D)` space.",
             Bound::FoldSearch => "`O(D log k + B log n)` time, `O(D)` space.",
             Bound::MulBound => {
-                "`O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, \
-                 `O(n log n)` with width-bounded parked drifts."
+                "`O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with \
+                 width-bounded parked drifts."
             }
             Bound::MulBoundPair => {
                 "`O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, \
-                 `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded \
-                 parked drifts."
+                 `O((a + b) log (a + b))` with width-bounded parked drifts."
             }
             Bound::Custom { line, .. } => line,
         };
