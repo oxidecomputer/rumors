@@ -177,11 +177,21 @@ impl Bits {
     /// Whether two frozen streams share one buffer: clone identity, the
     /// `O(1)` entry of [`canonical_eq`]'s ladder.
     ///
-    /// True only between clones of one freeze (same pointer, same byte
-    /// and bit lengths), which share every byte by construction — so
-    /// `ptr_eq` implies byte equality, never the converse: two
-    /// independently built equal streams live in distinct buffers and
-    /// fall through to the byte compare.
+    /// The guarantee a fast path may rest on is exactly *value
+    /// equality*: same pointer and same lengths name one memory region
+    /// (or, for the empty stream, no region), so `ptr_eq` implies byte
+    /// equality — never the converse: two independently built equal
+    /// nonempty streams live in distinct buffers and fall through to
+    /// the byte compare. Clone provenance is the *production* source
+    /// of sharing, not the predicate's meaning: every zero-byte
+    /// allocation carries the same dangling pointer, so two
+    /// independently frozen **empty** streams also read `ptr_eq` true.
+    /// A rung may therefore derive from `ptr_eq` only what equality
+    /// gives it — a predicate that is not constant on the diagonal
+    /// (`is_disjoint`, vacuously true for the empty share against
+    /// itself) admits no rung here at all (the committed
+    /// `Leaf(false)`-pair seed in the party differential suite pins
+    /// the case).
     pub(crate) fn ptr_eq(&self, other: &Bits) -> bool {
         self.bit_len == other.bit_len
             && self.bytes.len() == other.bytes.len()

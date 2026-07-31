@@ -107,9 +107,11 @@ impl Party {
         // The seed id is exactly the 2-bit terminal tag `00` (the whole
         // interval, owned), so the stored form is one static zero byte:
         // construction allocates nothing, and every seed shares the one
-        // static buffer. The codec round-trip and text laws pin the
-        // constant against the parsed form.
-        const SEED_STREAM: &[u8] = &[0x00];
+        // static buffer. A `static`, not a `const`: a const's promoted
+        // allocation has no guaranteed unique address, and the
+        // cross-call sharing claim rests on one. The codec round-trip
+        // and text laws pin the constant against the parsed form.
+        static SEED_STREAM: &[u8] = &[0x00];
         Party(codec::Bits::from_canonical(
             bytes::Bytes::from_static(SEED_STREAM),
             2,
