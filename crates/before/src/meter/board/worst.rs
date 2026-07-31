@@ -724,6 +724,27 @@ pub(super) fn render_map(
 ///   touch (dominance refutes at the first excess interval, dropping
 ///   the difference; what remains ranked is the first component's
 ///   validation folds plus the walk's prefix).
+///
+/// Movement (the rank pre-scan recalibration: the maximum-depth
+/// topology pre-scan records each payload skip once — `skip_int`'s own
+/// record is the skip's only one — so every op that runs the pre-scan
+/// sheds a second count of its payload widths from the scan column;
+/// fourteen scan argmaxes re-pinned, every other cell byte-identical
+/// at both scales):
+///
+/// - **the walk rows' scan argmax leaves hugeleaf** (version_rank,
+///   version_distance, version_lag, ranked_cmp, ranked_encode,
+///   ranked_encode_rank — staircase at the default scale;
+///   dense-suffix for the single-operand rows and freeze-pos for the
+///   pair rows at acceptance): the payload-dominated families were
+///   the double count's chief beneficiaries (wide-tooth's rank scan
+///   reads 24.0 → 16.0 bits per packed byte), so the argmax falls
+///   back to the topology-dense families whose scan was near-honest
+///   already — the saturated-scan genre the comparison walks rank.
+/// - **ranked_decode's scan argmax moves jump-pair → concurrent-pair**
+///   (both scales): the strict parse's verifying rank fold sheds the
+///   same payload re-count, and the widest-stream-per-content
+///   near-tie resolves to the organic pair.
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_decode", ["hugeleaf", "dense", "staircase", "staircase"]),
     ("default", "version_encode", ["promo-rearm", "-", "-", "-"]),
@@ -740,17 +761,17 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("default", "version_ticks", ["ascend-cliff", "mirror-narrow", "reveal-comb", "mirror-narrow"]),
     ("default", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
-    ("default", "version_rank", ["wide-arming", "staircase", "hugeleaf", "harmonic"]),
+    ("default", "version_rank", ["wide-arming", "staircase", "staircase", "harmonic"]),
     ("default", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
     ("default", "rank_sum", ["plateau-puncture", "hugeleaf", "-", "freeze-pos"]),
     ("default", "rank_encode", ["hugeleaf", "concurrent-pair", "-", "-"]),
     ("default", "rank_decode", ["freeze-parade", "benign,concurrent-pair", "-", "-"]),
-    ("default", "version_distance", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
-    ("default", "version_lag", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
-    ("default", "ranked_cmp", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
-    ("default", "ranked_encode", ["wide-arming", "staircase", "hugeleaf", "harmonic"]),
-    ("default", "ranked_encode_rank", ["wide-arming", "staircase", "hugeleaf", "harmonic"]),
-    ("default", "ranked_decode", ["wide-arming", "staircase", "jump-pair", "staircase"]),
+    ("default", "version_distance", ["wide-arming", "staircase", "staircase", "staircase"]),
+    ("default", "version_lag", ["wide-arming", "staircase", "staircase", "staircase"]),
+    ("default", "ranked_cmp", ["wide-arming", "staircase", "staircase", "staircase"]),
+    ("default", "ranked_encode", ["wide-arming", "staircase", "staircase", "harmonic"]),
+    ("default", "ranked_encode_rank", ["wide-arming", "staircase", "staircase", "harmonic"]),
+    ("default", "ranked_decode", ["wide-arming", "staircase", "concurrent-pair", "staircase"]),
     ("default", "version_min_ticks", ["ascend-cliff", "staircase", "staircase", "staircase"]),
     ("default", "version_join_all", ["-", "stagger", "benign", "stagger"]),
     ("default", "version_meet_all", ["-", "stagger", "stagger", "stagger"]),
@@ -823,17 +844,17 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("acceptance", "version_ticks", ["ascend-cliff", "comb-scatter", "comb-scatter", "mirror-narrow"]),
     ("acceptance", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
-    ("acceptance", "version_rank", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
+    ("acceptance", "version_rank", ["wide-arming", "staircase", "dense-suffix", "staircase"]),
     ("acceptance", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
     ("acceptance", "rank_sum", ["bigroot", "hugeleaf", "-", "freeze-pos"]),
     ("acceptance", "rank_encode", ["hugeleaf", "concurrent-pair", "-", "-"]),
     ("acceptance", "rank_decode", ["freeze-parade", "concurrent-pair", "-", "-"]),
-    ("acceptance", "version_distance", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
-    ("acceptance", "version_lag", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
-    ("acceptance", "ranked_cmp", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
-    ("acceptance", "ranked_encode", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
-    ("acceptance", "ranked_encode_rank", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
-    ("acceptance", "ranked_decode", ["wide-arming", "staircase", "jump-pair", "staircase"]),
+    ("acceptance", "version_distance", ["wide-arming", "staircase", "freeze-pos", "staircase"]),
+    ("acceptance", "version_lag", ["wide-arming", "staircase", "freeze-pos", "staircase"]),
+    ("acceptance", "ranked_cmp", ["wide-arming", "staircase", "freeze-pos", "staircase"]),
+    ("acceptance", "ranked_encode", ["wide-arming", "staircase", "dense-suffix", "staircase"]),
+    ("acceptance", "ranked_encode_rank", ["wide-arming", "staircase", "dense-suffix", "staircase"]),
+    ("acceptance", "ranked_decode", ["wide-arming", "staircase", "concurrent-pair", "staircase"]),
     ("acceptance", "version_min_ticks", ["ascend-cliff", "staircase", "dense-suffix", "staircase"]),
     ("acceptance", "version_join_all", ["weave", "stagger", "benign", "stagger"]),
     ("acceptance", "version_meet_all", ["weave", "stagger", "stagger", "stagger"]),

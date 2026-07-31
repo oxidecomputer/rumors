@@ -1758,15 +1758,9 @@ fn max_depth(bits: &BitsSlice) -> usize {
     let mut walk = LeafWalk::new();
     while let Some(depth) = walk.descend(&mut cursor) {
         deepest = deepest.max(depth);
-        // TODO-recalibrate: `skip_int` already records the skipped code's
-        // width internally, so this caller-side record double-counts every
-        // payload code (uniformly 2x, deterministic). Deleting it is a
-        // separate recalibration: the scan envelopes in `tests/meter.rs`
-        // and the board's pinned scan constants that price this walk must
-        // be re-measured when the caller-side record goes.
-        let code_start = cursor.position();
+        // `skip_int` records the skipped code's full width itself, so the
+        // pre-scan's payload skips carry exactly one scan record each.
         cursor.skip_int().expect("canonical skyline bits");
-        codec::scan::record_bits(cursor.position() - code_start);
     }
     deepest
 }
