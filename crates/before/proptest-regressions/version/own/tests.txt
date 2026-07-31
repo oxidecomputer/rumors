@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 80df376c8006d989b10b2f539a9146ec7b4edb9169ce185ae55211dd57b959b2 # shrinks to ops = [Fork(0), Tick(5)], i = 0, j = 1, k = 2
+cc 2d42c535ee54b9bf071dbb53dac516eda71e1c9e122d600d60e2d51ae0e385a8 # shrinks to v = Leaf(Base(0)), w = Node(Base(129127208515966861313), Node(Base(1939140103989088402943300), Leaf(Base(19342813113834066795298814)), Leaf(Base(0))), Node(Base(0), Leaf(Base(6007357103781316008)), Leaf(Base(0)))), p = Node(Leaf(true), Node(Leaf(false), Leaf(true))), q = Node(Leaf(false), Node(Leaf(true), Leaf(false)))
+cc 5049ca094690e5cf30cba46ce489722a3c075537f2f487beec2baaa8bb168f7a # shrinks to v = Leaf(Base(1420186787257147)), w = Node(Base(33197641335655215611), Node(Base(0), Node(Base(0), Leaf(Base(0)), Leaf(Base(12406992794635587340))), Node(Base(213516680733356070186256137808704190754), Leaf(Base(0)), Leaf(Base(4)))), Node(Base(61756787491099967853470814519801365529), Leaf(Base(0)), Node(Base(134966271739424006011936374279751669614), Node(Base(0), Leaf(Base(72057594037927937)), Leaf(Base(0))), Node(Base(6), Leaf(Base(2)), Leaf(Base(0)))))), p = Node(Leaf(true), Leaf(false))
