@@ -137,3 +137,49 @@ proptest! {
         }
     }
 }
+
+/// A scoped IPv6 advertised name is refused at `encode`: the 18-byte
+/// wire name cannot carry the scope, and the unscoped address does not
+/// dial the same peer (a link-local peer is reachable only through the
+/// scoped interface), so the loss must be a loud configuration error at
+/// endpoint construction, never a silent alteration on the wire.
+#[test]
+#[should_panic(expected = "a scoped IPv6 address has no 18-byte wire name")]
+fn scoped_v6_advertised_name_is_refused() {
+    use std::net::{Ipv6Addr, SocketAddrV6};
+
+    let scoped = SocketAddr::V6(SocketAddrV6::new(
+        Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+        9000,
+        0, // flowinfo
+        3, // scope_id: interface index 3
+    ));
+    let _ = scoped.encode();
+}
+
+/// `flowinfo` labels a flow, not a peer: it is not part of the wire
+/// name, so a flowinfo-bearing (unscoped) IPv6 address encodes, and the
+/// round trip lands on the same peer with flowinfo zero.
+#[test]
+fn flowinfo_is_not_part_of_the_name() {
+    use std::net::{Ipv6Addr, SocketAddrV6};
+
+    let flowed = SocketAddr::V6(SocketAddrV6::new(
+        Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
+        9000,
+        7, // flowinfo
+        0, // scope_id
+    ));
+    let encoded = flowed.encode();
+    assert_eq!(encoded.len(), SOCKET_ADDR_LEN);
+    let decoded = <SocketAddr as Addr>::decode(&encoded).expect("18 bytes decode");
+    match decoded {
+        SocketAddr::V6(v6) => {
+            assert_eq!(*v6.ip(), Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
+            assert_eq!(v6.port(), 9000);
+            assert_eq!(v6.scope_id(), 0);
+            assert_eq!(v6.flowinfo(), 0, "flowinfo is not carried; same peer");
+        }
+        SocketAddr::V4(_) => panic!("2001:db8::1 is not v4-mapped"),
+    }
+}
