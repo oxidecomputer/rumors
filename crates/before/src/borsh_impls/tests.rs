@@ -1,5 +1,5 @@
 use borsh::io::{Error, ErrorKind, Read};
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
@@ -846,5 +846,93 @@ fn span_borsh_dedups_the_coincident_span() {
     assert!(
         decoded.meet().view().ptr_eq(decoded.join().view()),
         "the borsh admission verdict must dedup the coincident span's storage"
+    );
+}
+
+/// A coincident span inside a larger borsh stream consumes exactly its
+/// own bytes: the Equal admission arm keeps the container framing.
+///
+/// [`span_borsh_composes_and_keeps_its_genres`] drives a *dominating*
+/// span ahead of its neighbors; the Equal arm is the one admission
+/// verdict it never takes in a container, and that arm alone drops the
+/// parsed join bits and stores the meet's clone instead — the seam
+/// where an EOF-tolerant over-read in consumed bytes would silently
+/// corrupt every following field while every lone-value test (which
+/// sees a fully drained buffer either way) stays green. The witness: a
+/// coincident span, then a forked party, then a rank, in one unframed
+/// stream; each field decodes to its value, the reader drains exactly,
+/// and the composite re-serializes byte-identically.
+#[test]
+fn coincident_span_keeps_borsh_container_framing() {
+    use crate::causally::Span;
+    use crate::Rank;
+    let mut clock = Clock::seed();
+    for _ in 0..9 {
+        clock.tick();
+    }
+    let v = clock.version().clone();
+    let span = v.span(&v);
+    assert_eq!(span.meet(), span.join(), "the hull of (v, v) is coincident");
+    let mut party = Party::seed();
+    let _ = party.fork();
+    let rank = v.rank();
+    let mut stream = Vec::new();
+    BorshSerialize::serialize(&span, &mut stream).expect("span serializes");
+    BorshSerialize::serialize(&party, &mut stream).expect("party serializes");
+    BorshSerialize::serialize(&rank, &mut stream).expect("rank serializes");
+    let mut reader: &[u8] = &stream;
+    let decoded =
+        Span::deserialize_reader(&mut reader).expect("the coincident span decodes in place");
+    assert_eq!(decoded, span);
+    assert_eq!(
+        Party::deserialize_reader(&mut reader).expect("the party field survives"),
+        party,
+    );
+    assert_eq!(
+        Rank::deserialize_reader(&mut reader).expect("the rank field survives"),
+        rank,
+    );
+    assert!(reader.is_empty(), "every byte belonged to some field");
+    let mut again = Vec::new();
+    BorshSerialize::serialize(&decoded, &mut again).expect("re-serializes");
+    BorshSerialize::serialize(&party, &mut again).expect("re-serializes");
+    BorshSerialize::serialize(&rank, &mut again).expect("re-serializes");
+    assert_eq!(
+        again, stream,
+        "the composite re-serializes byte-identically"
+    );
+}
+
+/// The coincident span's padding check survives the Equal admission
+/// arm: a set padding bit in the join component's final byte rejects as
+/// `TrailingBits` through the borsh door.
+///
+/// The Equal arm drops the parsed join bits and stores the meet's
+/// clone, so a rewrite that settled the verdict before the cursor's
+/// final-byte padding check would accept a dirty join stream and
+/// re-encode it clean — invisible to every round-trip assert. The
+/// padding check outranks the pair verdict at this door exactly as the
+/// byte-slice decode orders them.
+#[test]
+fn coincident_span_borsh_rejects_tampered_join_padding() {
+    use crate::causally::Span;
+    let v: Version = "(1, 0, 4)".parse().unwrap();
+    assert_ne!(
+        v.encoded_bits() % 8,
+        0,
+        "the witness needs a mid-byte tail so a padding bit exists"
+    );
+    let span = v.span(&v);
+    let mut bytes = borsh::to_vec(&span).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] |= 0x01; // a padding bit inside the join's final byte
+    let err = <Span as BorshDeserialize>::try_from_slice(&bytes).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::TrailingBits)),
+        "expected TrailingBits from the tampered join padding, got: {inner:?}"
     );
 }

@@ -2395,3 +2395,62 @@ proptest! {
         prop_assert_eq!(swapped_a.cmp(&swapped_b), expect, "{} vs {}", a, b);
     }
 }
+
+/// Fan-shaped operand sets at counter-boundary arities fold to the
+/// sequential pair fold, with adjacent clones and empties interleaved.
+///
+/// Three separately-tested mechanisms meet in one deterministic
+/// construction: the balanced binary counter (whose grouping diverges
+/// most from the sequential fold at arities that fill or straddle a
+/// counter level — k = 4 and k = 6), the run-dedup adapter (driven by
+/// an adjacent clone run), and the empty-operand identity rungs. Each
+/// operand is one tick on its own fork of one seed, so every pair is
+/// concurrent and no combine short-circuits; on the same input list the
+/// sequential fold reads verbatim, and `span_all`'s two legs agree.
+#[test]
+fn boundary_arity_fan_folds_match_the_sequential_fold() {
+    for k in [4usize, 6] {
+        // k concurrent single-tick versions on k disjoint forks.
+        let mut clocks = vec![Clock::seed()];
+        while clocks.len() < k {
+            let next = clocks.last_mut().expect("nonempty").fork();
+            clocks.push(next);
+        }
+        let fan: Vec<Version> = clocks
+            .iter_mut()
+            .map(|c| {
+                c.tick();
+                c.version().clone()
+            })
+            .collect();
+
+        // The raw fan, and the fan salted with an adjacent clone run
+        // and an empty version (idempotence and identity make both
+        // value-invisible; the machinery they exercise differs).
+        let mut salted = fan.clone();
+        salted.insert(1, fan[0].clone()); // adjacent clone: dedup fires
+        salted.insert(1, fan[0].clone()); // a run of three total
+        salted.push(Version::new()); // identity rung on the drain side
+        for pool in [&fan, &salted] {
+            let join_seq = pool.iter().fold(Version::new(), |acc, v| acc | v);
+            assert_eq!(
+                Version::join_all(pool.iter()),
+                join_seq,
+                "join_all diverged from the sequential fold at k={k}",
+            );
+            let meet_seq = pool
+                .iter()
+                .cloned()
+                .reduce(|acc, v| acc & v)
+                .expect("nonempty pool");
+            assert_eq!(
+                Version::meet_all(pool.iter()),
+                Some(meet_seq.clone()),
+                "meet_all diverged from the sequential fold at k={k}",
+            );
+            let hull = pool[0].span_all(pool[1..].iter());
+            assert_eq!(hull.meet(), &meet_seq, "span_all meet leg at k={k}");
+            assert_eq!(hull.join(), &join_seq, "span_all join leg at k={k}");
+        }
+    }
+}
