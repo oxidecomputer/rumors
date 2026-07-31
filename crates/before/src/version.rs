@@ -160,6 +160,11 @@ impl Version {
 
     /// Advances this version by one event for `party`.
     ///
+    /// A tick is a pure function of this version and `party`, with no
+    /// memory of the party's other ticks: ticking two clones of one
+    /// version with the same party mints equal successors, and that is
+    /// valid — a version records causal knowledge, not event identity.
+    ///
     /// # Complexity
     ///
     /// `O(|v| + |p|)` time and space, the packed sizes of the version and

@@ -411,6 +411,12 @@ impl Clock {
 
     /// Pairs a [`Party`] with a [`Version`] to form a [`Clock`].
     ///
+    /// Any version pairs with the party: a clock rebuilt over an earlier
+    /// version re-mints successors the party's later ticks already
+    /// produced, and that is valid — a version records causal knowledge,
+    /// not event identity. [`into_parts`](Clock::into_parts) and back is
+    /// always safe.
+    ///
     /// # Complexity
     ///
     /// **Complexity**: `O(1)`.
