@@ -76,10 +76,11 @@ ciborium = "0.2"
 # Compile-fail tests pinning the linearity guarantees (`Party`/`Clock` `!Clone`,
 # by-value `BitOr`).
 trybuild = "1"
-# Peak-tracking global allocator for the resource-envelope test binary
-# (`tests/meter.rs`). A dependency rather than a hand-rolled GlobalAlloc: the
-# workspace policy prefers a maintained crate over owning unsafe code, even in
-# a test binary.
+# Counting global allocator for the resource-envelope test binary
+# (`tests/meter.rs`) and the allocation-strategy bench's resident-bytes
+# column (`benches/presize.rs`). A dependency rather than a hand-rolled
+# GlobalAlloc: the workspace policy prefers a maintained crate over owning
+# unsafe code, even in a test binary.
 peak_alloc = "0.3"
 # Snapshot tests where a literal expected value is clearer inline than maintained by hand.
 insta = "1"
@@ -144,6 +145,19 @@ limb-meter = ["meter", "suanpan/touch-meter"]
 # and the metering suites that assert it.
 scan-meter = ["meter"]
 
+[lints.rust]
+# The allocation-strategy benches (`benches/presize.rs`, `benches/stacks.rs`)
+# compile alternative arms into library sites through this cfg, one value per
+# site arm; each seam's comment names its site. RUSTFLAGS-only by design —
+# registering it here guarantees no cargo feature can ever select an arm, and
+# `deny` fails the build of any seam or bench that queries an arm missing
+# from this roster, so the roster cannot drift from the code. (It cannot see
+# a mistyped RUSTFLAGS value nothing queries; the `bench-alloc-ab` recipe
+# validates the arm name at invocation for exactly that hole.)
+unexpected_cfgs = { level = "deny", check-cfg = [
+    'cfg(before_alloc_ab, values("projection_growth", "projection_shrink", "display_growth", "id_stack_vec", "text_stack_vec"))',
+] }
+
 [[bench]]
 name = "party"
 harness = false
@@ -166,4 +180,12 @@ harness = false
 
 [[bench]]
 name = "tripwire"
+harness = false
+
+[[bench]]
+name = "presize"
+harness = false
+
+[[bench]]
+name = "stacks"
 harness = false

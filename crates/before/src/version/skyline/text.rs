@@ -344,7 +344,18 @@ pub fn render(bits: &BitsSlice) -> String {
 
     // Emit: preorder over the finalized topology and arena, one phase bit
     // per open node.
+    //
+    // Allocation-strategy seam: the shipped arm requests the exact size,
+    // one allocation, never grown (the assert below pins the exactness).
+    // The `before_alloc_ab` cfg — `RUSTFLAGS`-only, never a cargo
+    // feature, so no dependent build can select it — compiles in the
+    // growth-from-empty arm so the allocation benchmark can price the
+    // exact request against doubling growth on this site; shipped builds
+    // always take the exact arm.
+    #[cfg(not(before_alloc_ab = "display_growth"))]
     let mut out = String::with_capacity(exact);
+    #[cfg(before_alloc_ab = "display_growth")]
+    let mut out = String::new();
     let mut pending = BitsMut::new();
     let mut next_entry = 0usize;
     for (node, internal) in topology.iter().by_vals().enumerate() {

@@ -221,6 +221,36 @@ pub fn oracle_versions(plan: &Plan, groups: u8) -> Vec<oracle::Version> {
         .collect()
 }
 
+/// The allocation-strategy arms compiled into this binary, for run
+/// provenance: the `before_alloc_ab` cfg values in effect, joined with
+/// `+`, or `"shipped"` when none is set.
+///
+/// The allocation A/B benches print this beside every measurement they
+/// emit, so a saved baseline or resident-bytes table can never be
+/// mis-attributed to the wrong build.
+pub fn alloc_arms() -> String {
+    let mut arms = Vec::new();
+    if cfg!(before_alloc_ab = "projection_growth") {
+        arms.push("projection_growth");
+    }
+    if cfg!(before_alloc_ab = "projection_shrink") {
+        arms.push("projection_shrink");
+    }
+    if cfg!(before_alloc_ab = "display_growth") {
+        arms.push("display_growth");
+    }
+    if cfg!(before_alloc_ab = "id_stack_vec") {
+        arms.push("id_stack_vec");
+    }
+    if cfg!(before_alloc_ab = "text_stack_vec") {
+        arms.push("text_stack_vec");
+    }
+    if arms.is_empty() {
+        arms.push("shipped");
+    }
+    arms.join("+")
+}
+
 /// Move every member labelled `g` out of `slots`, in ascending member order (the same
 /// order for impl and oracle, so the fold builds identical trees on both sides).
 fn take_group<T>(slots: &mut [Option<T>], label: &[u8], g: u8) -> std::vec::IntoIter<T> {

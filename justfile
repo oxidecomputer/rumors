@@ -384,6 +384,25 @@ bench target *filter:
 bench-quick target *filter:
     cargo bench --workspace --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
+# One allocation-strategy A/B run (benches/presize.rs, benches/stacks.rs):
+# compiles the named arm into the library — "shipped" compiles no cfg (the
+# shipped library, byte-identical); any other arm goes in through
+# `--cfg before_alloc_ab="<arm>"`, so expect a full rebuild per arm switch —
+# and saves the criterion baseline `<target>-<arm>`, which is where the
+# side's label lives (nothing in-process distinguishes the sides; each
+# binary also prints its compiled arm as provenance). Record protocol: one
+# "shipped" run per target at full sampling, then one run per site arm
+# filtered to that site's cells; compare baselines pairwise per site. The
+# recipe validates the arm name (a mistyped arm sets a cfg nothing queries,
+# which would silently benchmark the shipped code under a mislabeled
+# baseline); the same roster is registered as check-cfg values in
+# crates/before/Cargo.toml, whose `deny` keeps roster and seams in sync.
+# Reduced-sampling smoke: append `--sample-size 10 --measurement-time 1`
+# (never quoted).
+bench-alloc-ab target arm="shipped" *filter:
+    @case "{{ arm }}" in (shipped|projection_growth|projection_shrink|display_growth|id_stack_vec|text_stack_vec) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
+    RUSTFLAGS='{{ if arm == "shipped" { "" } else { '--cfg before_alloc_ab="' + arm + '"' } }}' cargo bench -p before --bench {{ target }} -- --save-baseline {{ target }}-{{ arm }} {{ filter }}
+
 # The amplification board's time leg: the board itself judges deterministic
 # counters and floors only (its output is byte-identical under any machine
 # load), so the time-exponent judgment runs here, over criterion medians.

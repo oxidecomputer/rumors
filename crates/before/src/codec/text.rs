@@ -1,7 +1,9 @@
+#[cfg(not(before_alloc_ab = "text_stack_vec"))]
 use smallvec::SmallVec;
 
 use crate::error::Parse;
 
+#[cfg(not(before_alloc_ab = "text_stack_vec"))]
 use super::tree::PARSE_STACK_INLINE;
 use super::{validate_id, Base, BitsMut};
 
@@ -98,6 +100,19 @@ enum IdKind {
     Node,
 }
 
+/// The text id parser's explicit stack: one frame per unfinished
+/// ancestor, [`PARSE_STACK_INLINE`] frames inline.
+///
+/// Allocation-strategy seam, the text-side counterpart of the packed
+/// parser's: the `before_alloc_ab = "text_stack_vec"` cfg —
+/// `RUSTFLAGS`-only, exactly as there — swaps in a heap-only `Vec` so
+/// the stack benchmark can price this site independently of the packed
+/// one. Shipped builds always take the `SmallVec` arm.
+#[cfg(not(before_alloc_ab = "text_stack_vec"))]
+type TextIdStack = SmallVec<[IdFrame; PARSE_STACK_INLINE]>;
+#[cfg(before_alloc_ab = "text_stack_vec")]
+type TextIdStack = Vec<IdFrame>;
+
 /// While building a node bottom-up, what its subtree still needs from the
 /// text: the node's reserved 2-bit tag slot rides in the frame so the
 /// children's presence patches in at the close paren.
@@ -126,7 +141,7 @@ enum IdFrame {
 /// the canonicality check, exactly the token order of the grammar). One
 /// frame per unfinished ancestor, [`PARSE_STACK_INLINE`] frames inline.
 fn parse_id_tree(cur: &mut Cur, bits: &mut BitsMut) -> Result<(), Parse> {
-    let mut stack: SmallVec<[IdFrame; PARSE_STACK_INLINE]> = SmallVec::new();
+    let mut stack = TextIdStack::new();
     loop {
         // One atom: a leaf token, or a `(` opening the next unfinished node.
         let mut kind = match cur.bump() {
