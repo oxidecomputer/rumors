@@ -518,9 +518,9 @@ proptest! {
 /// builds over it) survive every public op, the codec, and the `Debug`
 /// printer with no stack overflow.
 ///
-/// Each traversal recurses, but
-/// [`crate::recurse`] grows the stack onto the heap before a deep input can
-/// overflow it.
+/// Every library walk is iterative — depth lives on explicit heap and bit
+/// stacks, never the call stack — and this test is the depth-100k proof of
+/// that claim (the hard rule in the crate's AGENTS.md names it as such).
 /// Beyond the single-clock ops (tick, fork, join, partial_cmp,
 /// `|`, encode, decode, Debug), this drives the composite ops on deep
 /// structures: `sync` between two deep clocks, `send`/`recv` of a deep
@@ -543,10 +543,10 @@ fn deep_tree_stack_safety() {
     clock.tick();
     clock.tick();
 
-    // Snapshot this deep version before the clock advances further. Used below to
-    // drive the shared join/meet `combine` recursion against a *distinct* deep
-    // version: equal operands short-circuit on `trivially_eq` before recursing,
-    // so only distinct ones exercise the depth-100k descent.
+    // Snapshot this deep version before the clock advances further. Used below
+    // to drive the skyline join/meet sweep against a *distinct* deep version:
+    // equal operands short-circuit on `codec::canonical_eq`'s byte compare at
+    // the top of join/meet, so only distinct ones reach the full-length sweep.
     let early = clock.version().clone();
 
     // Observing ops over the deep version do not overflow.
@@ -569,12 +569,13 @@ fn deep_tree_stack_safety() {
     let msg = clock.send().clone();
     clock.recv(&msg);
 
-    // A join and a meet of two *distinct* deep versions drive the shared
-    // `combine` recursion (the `|`/`&` walk) at full depth. `early` predates the
-    // `send`/`recv` ticks, so `early < clock.version()`: their meet (GLB) is the
-    // older `early`, their join (LUB) the newer current version. The operands
-    // differ, so neither short-circuits on `trivially_eq` — the depth-100k
-    // descent is genuinely exercised, not skipped.
+    // A join and a meet of two *distinct* deep versions drive the skyline
+    // join/meet sweep (the `|`/`&` walk) over the full deep encoding. `early`
+    // predates the `send`/`recv` ticks, so `early < clock.version()`: their
+    // meet (GLB) is the older `early`, their join (LUB) the newer current
+    // version. The operands are distinct and non-empty, so neither the
+    // `codec::canonical_eq` nor the empty-operand fast path fires — the
+    // full-length sweep is genuinely exercised, not skipped.
     let current = clock.version().clone();
     assert!(early.clone() & current.clone() == early);
     assert!(early | current.clone() == current);

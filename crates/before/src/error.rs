@@ -2,8 +2,7 @@
 //! (crossed causal-range bounds), [`Decode`] (non-canonical bytes), and
 //! [`Parse`] (malformed display text).
 
-/// Two parties were not disjoint during [`Party::join`](crate::Party::join) or
-/// [`Clock::join`](crate::Clock::join).
+/// Two parties were not disjoint during [`Clock::sync`](crate::Clock::sync).
 ///
 /// ```
 /// use before::Clock;
