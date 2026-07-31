@@ -78,8 +78,8 @@ impl Corruption {
 /// operation, so it is the `E` that public error enums carry for a
 /// persistent peer (for example
 /// [`Error::Storage`](crate::error::Error::Storage) wraps it). The
-/// [module docs](self) state how the two arms differ in handling; in
-/// short, [`Store`](Self::Store) is the store's own failure and worth
+/// two arms differ in handling:
+/// [`Store`](Self::Store) is the store's own failure and worth
 /// retrying per the store's docs, while [`Corrupt`](Self::Corrupt) is
 /// evidence the stored bytes changed underneath the backend and will
 /// not decode any better on retry.
