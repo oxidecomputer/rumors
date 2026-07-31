@@ -5,25 +5,64 @@
 
 #import "fig.typ": *
 
+// The document's type system. One serif family throughout (Libertinus,
+// the face Typst embeds, so the build renders identically on any
+// machine); the personality lives in treatment, not family: level-1
+// headings and the running head speak the same small-caps voice as the
+// attack cards' compartment labels, so the document and its figures
+// form one system. Sizes: 20/14/11/10 display-to-body, 9pt captions
+// and code, figure text per fig.typ's tokens (7pt floor).
+#set document(title: "Interval Tree Clocks, Compiled to a Skyline")
 #set page(
   paper: "a4",
   margin: (x: 2.6cm, y: 2.8cm),
   numbering: "1",
+  // Running head: the current chapter, on every page after the
+  // contents — except pages that open a chapter, which announce
+  // themselves.
+  header: context {
+    let pg = here().page()
+    if pg <= 2 { return }
+    let chapters = query(heading.where(level: 1))
+    if chapters.any(h => h.location().page() == pg) { return }
+    let prev = chapters.filter(h => h.location().page() < pg)
+    if prev.len() == 0 { return }
+    let ch = prev.last()
+    align(center, text(size: 8pt, fill: gray-line.darken(30%),
+      tracking: 0.06em,
+      smallcaps[#counter(heading).at(ch.location()).at(0) · #ch.body]))
+  },
 )
-#set text(size: 10pt)
-#set par(justify: true, leading: 0.62em)
+#set text(font: "Libertinus Serif", size: 10pt)
+#set par(justify: true, leading: 0.65em)
 #set heading(numbering: "1.1")
 #show heading: it => { v(0.35em); it; v(0.25em) }
-#show heading.where(level: 1): it => { v(0.8em); text(size: 14pt, it); v(0.35em) }
+#show heading.where(level: 1): it => {
+  v(0.9em)
+  let head = if it.numbering == none { it.body } else {
+    [#counter(heading).display() #h(0.45em) #it.body]
+  }
+  block(text(size: 14pt, weight: "bold", tracking: 0.02em,
+    smallcaps(head)))
+  v(0.45em)
+}
 #set math.equation(numbering: none)
 #show figure.caption: it => text(size: 9pt, it)
 #show raw: set text(size: 9pt)
 
 // Title block ---------------------------------------------------------
+//
+// The mark above the title is the running example itself — the value
+// (0, 1, (0, 0, 2)) whose sixteen bits thread the whole document (the
+// first skyline figure, the packed stream, the worked join, the worked
+// tick) — drawn by the same helper that draws every figure.
 
 #align(center, {
-  v(1.2em)
-  text(size: 19pt, weight: "bold")[Interval Tree Clocks, Compiled to a Skyline]
+  v(1.6em)
+  skyline(((0.5, 1), (0.25, 0), (0.25, 2)), w: 132pt, unit: 11pt,
+    bare: true)
+  v(1.4em)
+  text(size: 20pt, weight: "bold")[Interval Tree Clocks, Compiled to a Skyline]
   v(0.7em)
   text(size: 11.5pt)[The representation, the algorithms, and the costs]
   v(0.5em)
