@@ -1263,9 +1263,9 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash_at_depth(
         (a, b) in crate::tree::arb::arb_deep_divergent_pair(),
     ) {
-        let mut tree = Tree { root: a };
+        let mut tree = Tree { backend: Local, root: a };
         let before = tree.hash();
-        let changed = tree.join(Tree { root: b });
+        let changed = tree.join_now(Tree { backend: Local, root: b });
         prop_assert_eq!(changed, tree.hash() != before);
     }
 }
@@ -1282,18 +1282,30 @@ fn deep_divergent_join_changed_flag_is_exact() {
     // Gain in both directions.
     let (a, b, expected) = crate::tree::arb::leaf_parent_dispute_pair();
     for (receiver, counter) in [(a.clone(), b.clone()), (b, a.clone())] {
-        let mut tree = Tree { root: receiver };
+        let mut tree = Tree {
+            backend: Local,
+            root: receiver,
+        };
         let before = tree.hash();
-        let changed = tree.join(Tree { root: counter });
+        let changed = tree.join_now(Tree {
+            backend: Local,
+            root: counter,
+        });
         assert_eq!(changed, tree.hash() != before, "deep gain is biconditional");
         assert!(changed, "a deep gain must report changed");
     }
 
     // The deep no-op: the receiver already holds everything the
     // counterparty has, so the full-depth divergent descent nets nothing.
-    let mut tree = Tree { root: expected };
+    let mut tree = Tree {
+        backend: Local,
+        root: expected,
+    };
     let before = tree.hash();
-    let changed = tree.join(Tree { root: a });
+    let changed = tree.join_now(Tree {
+        backend: Local,
+        root: a,
+    });
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1303,9 +1315,15 @@ fn deep_divergent_join_changed_flag_is_exact() {
 
     // Deletion honoring at depth.
     let (a, b, _survivor) = crate::tree::arb::leaf_parent_redaction_pair();
-    let mut tree = Tree { root: a };
+    let mut tree = Tree {
+        backend: Local,
+        root: a,
+    };
     let before = tree.hash();
-    let changed = tree.join(Tree { root: b });
+    let changed = tree.join_now(Tree {
+        backend: Local,
+        root: b,
+    });
     assert_eq!(
         changed,
         tree.hash() != before,
