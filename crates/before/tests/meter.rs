@@ -9012,9 +9012,12 @@ mod identity_fast_paths {
     /// The identity ladder's empty rungs — `v ∨ 0 = v` (no-op),
     /// `0 ∨ v = v` (adopt the incoming stream wholesale, an `O(1)`
     /// refcount clone), `0 ∧ v = 0` / `v ∧ 0 = 0` (absorption), and the
-    /// span forms — must all settle with zero scanned bits, in both the
-    /// borrowed-pair (`refs`) and in-place (`view`, the `|=` seed
-    /// pattern the fold accumulators hit on their first join) doors. The
+    /// span forms — must all settle with zero scanned bits, in both
+    /// orders at every door: the operators and `|=`/`&=` assigns (all of
+    /// which route through the in-place cores — `0 |= v` is the seed
+    /// pattern the fold accumulators hit on their first join), the span
+    /// doors, and two-element folds (whose single combine is the
+    /// borrowed-pair core, unreachable from the operator matrix). The
     /// walking control below proves the zeros are fast paths firing,
     /// not a dead meter: without these rungs the general emission walk
     /// produces byte-identical values (every value law stays green), so
@@ -9036,10 +9039,36 @@ mod identity_fast_paths {
                 acc |= &v;
                 assert_eq!(&acc, &v);
             }),
+            ("join_view_noop", &|| {
+                let mut acc = v.clone();
+                acc |= &empty;
+                assert_eq!(&acc, &v);
+            }),
             ("meet_view_absorb", &|| {
                 let mut acc = v.clone();
                 acc &= &empty;
                 assert_eq!(&acc, &empty);
+            }),
+            ("meet_view_absorb_l", &|| {
+                let mut acc = Version::new();
+                acc &= &v;
+                assert_eq!(&acc, &empty);
+            }),
+            // The fold doors: a two-element fold's only combine is the
+            // borrowed-pair core, so these cells are what reach the
+            // `refs` rungs (the operator matrix routes through the
+            // in-place cores exclusively).
+            ("join_fold_noop", &|| {
+                assert_eq!(&Version::join_all([&v, &empty]), &v)
+            }),
+            ("join_fold_adopt", &|| {
+                assert_eq!(&Version::join_all([&empty, &v]), &v)
+            }),
+            ("meet_fold_absorb_r", &|| {
+                assert_eq!(Version::meet_all([&v, &empty]).as_ref(), Some(&empty))
+            }),
+            ("meet_fold_absorb_l", &|| {
+                assert_eq!(Version::meet_all([&empty, &v]).as_ref(), Some(&empty))
             }),
         ];
         for (name, cell) in cells {
