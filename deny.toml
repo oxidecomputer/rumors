@@ -22,49 +22,10 @@ multiple-versions = "deny"
 # so stale entries name themselves. Requirements match the tolerated minor
 # line only: a third version of any of these still fails the check.
 skip = [
-    # Deliberate local pin: before's dev-dependencies hold rand 0.8 +
-    # rand_chacha 0.3 for value-stable seed streams (the committed corpus
-    # seeds; rationale at the pin in crates/before/Cargo.toml). iroh and
-    # proptest ride the current rand line.
-    { name = "rand", version = "0.8" },
-    { name = "rand_core", version = "0.6" },
-    # getrandom 0.2 is rand_core 0.6's backend (the pin above) and ring
-    # 0.17's; both lift together.
-    { name = "getrandom", version = "0.2" },
     # embed-doc-image (the doc-images rustdoc feature) has not moved to
     # the current base64.
     { name = "base64", version = "0.13" },
-    # system-configuration 0.7 (macOS arm of iroh's netwatch) lags
-    # core-foundation 0.10.
-    { name = "core-foundation", version = "0.9" },
-    # RustCrypto migration straddle in iroh's crypto stack: the stable
-    # aes/aead/cipher/polyval line sits on the 0.1/0.2 series while
-    # curve25519-dalek 5.0.0-pre rides the next one.
-    { name = "crypto-common", version = "0.1" },
-    { name = "cpufeatures", version = "0.2" },
-    # derive_builder 0.20 lags darling 0.23 (the darling trio moves as
-    # one).
-    { name = "darling", version = "0.20" },
-    { name = "darling_core", version = "0.20" },
-    { name = "darling_macro", version = "0.20" },
-    # kasuari (before-viz layout) lags hashbrown 0.17.
-    { name = "hashbrown", version = "0.16" },
-    # iroh 1.0.0-rc.1 (pinned exact in rumormill) ships a mix of rc and
-    # pre-rc n0-* crates; converges when iroh releases.
-    { name = "n0-error", version = "0.1" },
-    { name = "n0-error-macros", version = "0.1" },
-    { name = "n0-watcher", version = "0.6" },
-    # netdev 0.43 (iroh's Linux netlink arm) lags netwatch's
-    # netlink-packet-route line.
-    { name = "netlink-packet-route", version = "0.29" },
-    # heapless 0.7 (via postcard 1) holds spin 0.9; futures-buffered is on
-    # 0.10.
-    { name = "spin", version = "0.9" },
-    # data-encoding-macro-internal (proc-macro in iroh's chain) is still
-    # on syn 1.
+    # embed-doc-image (the pin above) and wezterm-dynamic-derive
+    # (before-viz's terminal layer) are still on syn 1.
     { name = "syn", version = "1" },
-    # ring 0.17 holds windows-sys 0.52 (Windows arm).
-    { name = "windows-sys", version = "0.52" },
-    # wasip3 pre-release (iroh's wasm arm) holds the older wit-bindgen.
-    { name = "wit-bindgen", version = "0.51" },
 ]
