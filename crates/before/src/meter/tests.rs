@@ -521,6 +521,65 @@ fn scan_meter_counts_deterministically_and_resets() {
     );
 }
 
+/// The span-traffic counters classify one constructed witness per rung,
+/// and reset to zero.
+///
+/// One witness pair per rung — byte-equal streams in distinct buffers,
+/// an empty operand, a ticked chain (comparable), a forked divergence
+/// (concurrent) — read as the full four-cell snapshot, so a miswired
+/// rung shows as the wrong cell moving, not merely a total. The counter
+/// is process-global, so the per-call readings are meaningful under
+/// nextest's one-test-per-process isolation (this workspace's runner).
+#[test]
+fn span_traffic_classifies_each_rung() {
+    use crate::Clock;
+    let mut main = Clock::seed();
+    let mut other = main.fork();
+    main.tick();
+    let v = main.version().clone();
+    main.tick();
+    let w = main.version().clone();
+    other.tick();
+    let d = other.version().clone();
+    let v_copy = Version::decode(&v.encode()[..]).expect("a version re-decodes");
+
+    let cells = |a: &Version, b: &Version| {
+        super::reset_span_traffic();
+        let _ = a.span(b);
+        let read = super::span_traffic();
+        (read.equal, read.empty, read.comparable, read.concurrent)
+    };
+
+    assert_eq!(
+        cells(&v, &v_copy),
+        (1, 0, 0, 0),
+        "byte-equal operands answer at the equal rung: {ISOLATION_NOTE}"
+    );
+    assert_eq!(
+        cells(&Version::new(), &v),
+        (0, 1, 0, 0),
+        "an empty operand answers at the empty rung: {ISOLATION_NOTE}"
+    );
+    assert_eq!(
+        cells(&w, &v),
+        (0, 0, 1, 0),
+        "a ticked chain answers at the comparable rung: {ISOLATION_NOTE}"
+    );
+    assert_eq!(
+        cells(&v, &d),
+        (0, 0, 0, 1),
+        "a forked divergence reaches the emitting walk: {ISOLATION_NOTE}"
+    );
+
+    super::reset_span_traffic();
+    let zero = super::span_traffic();
+    assert_eq!(
+        (zero.equal, zero.empty, zero.comparable, zero.concurrent),
+        (0, 0, 0, 0),
+        "reset returns every rung to zero: {ISOLATION_NOTE}"
+    );
+}
+
 /// `I(d, divert)` is canonical normal form at exactly `2d + 2` bits for both
 /// divert arms, and the two arms own disjoint regions (the property that
 /// drives two-operand id walks to full lockstep depth).

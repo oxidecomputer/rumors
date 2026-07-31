@@ -43,7 +43,9 @@ fn version_of(p: &Packed) -> Version {
 /// emitted stream.
 ///
 /// The fused hull sweep rides the same comparison: it must reproduce
-/// both single-op outputs byte for byte from its one walk.
+/// both single-op outputs byte for byte from its one walk, and its
+/// carried relation must match the oracle's lattice reading of the
+/// pair ([`oracle_relation`]).
 fn assert_emits(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
@@ -58,9 +60,35 @@ fn assert_emits(a: &Version, b: &Version) {
         assert_eq!(out, met, "meet must match the oracle: {a} vs {b}");
         validate(&out).expect("an emitted meet is canonical");
         assert_pointwise(x, y, &out, true);
-        let (lo, hi) = hull(x, y);
-        assert_eq!(lo, met, "the fused hull's meet must match: {a} vs {b}");
-        assert_eq!(hi, joined, "the fused hull's join must match: {a} vs {b}");
+        let hulled = hull(x, y);
+        assert_eq!(
+            hulled.relation,
+            oracle_relation(&met, x, y),
+            "the fused verdict must match the oracle's lattice reading: {a} vs {b}"
+        );
+        assert_eq!(hulled.lo, met, "the fused hull's meet must match: {a} vs {b}");
+        assert_eq!(hulled.hi, joined, "the fused hull's join must match: {a} vs {b}");
+    }
+}
+
+/// The pair's causal order, read off the oracle's meet by the lattice
+/// laws alone: `x <= y` iff `x ∧ y = x`, and canonical uniqueness makes
+/// that one byte comparison per direction.
+///
+/// Independent of the sweep under test on both faces — the meet comes
+/// from the recursive oracle, the reading from the order-theoretic
+/// definition — so the fused verdict differential shares nothing with
+/// the fold it checks.
+fn oracle_relation(
+    met: &BitsMut,
+    x: &BitsMut,
+    y: &BitsMut,
+) -> Option<core::cmp::Ordering> {
+    match (met == x, met == y) {
+        (true, true) => Some(core::cmp::Ordering::Equal),
+        (true, false) => Some(core::cmp::Ordering::Less),
+        (false, true) => Some(core::cmp::Ordering::Greater),
+        (false, false) => None,
     }
 }
 
@@ -259,8 +287,14 @@ fn exhaustive_small_scope_emits_identically() {
                 met,
                 "meet must match the oracle: {va} vs {vb}"
             );
+            let hulled = hull(ea, eb);
             assert_eq!(
-                hull(ea, eb),
+                hulled.relation,
+                oracle_relation(&met, ea, eb),
+                "the fused verdict must match the oracle's lattice reading: {va} vs {vb}"
+            );
+            assert_eq!(
+                (hulled.lo, hulled.hi),
                 (met, joined),
                 "the fused hull must match both single-op outputs: {va} vs {vb}"
             );
@@ -374,8 +408,14 @@ proptest! {
                     met.clone(),
                     "meet must match the oracle: {} vs {}", va, vb
                 );
+                let hulled = hull(ea, eb);
                 prop_assert_eq!(
-                    hull(ea, eb),
+                    hulled.relation,
+                    oracle_relation(&met, ea, eb),
+                    "the fused verdict must match the oracle's lattice reading: {} vs {}", va, vb
+                );
+                prop_assert_eq!(
+                    (hulled.lo, hulled.hi),
                     (met, joined),
                     "the fused hull must match both single-op outputs: {} vs {}", va, vb
                 );
