@@ -779,6 +779,53 @@ fn reject_intra_byte_padding() {
     }
 }
 
+/// The `Version` and `Clock` decode doors reject a set padding bit
+/// *inside* the final byte, functionally (an `Err`, not a debug assert).
+///
+/// The shared padding validator is bit-granular, and the `Party` door
+/// pins that at its own byte ([`reject_intra_byte_padding`]); these are
+/// the per-door witnesses for the two doors whose other committed
+/// rejection tests perturb only whole spurious bytes — which the
+/// validator's *length* arm rejects on its own. A set bit within the
+/// final byte's padding is the one defect only the bit arm sees, and
+/// the buffer-adopting representation makes round-trip checks blind to
+/// it (an accepted dirty buffer re-encodes to itself, and byte equality
+/// is what `Eq`/`Hash` rest on), so the rejection must be asserted
+/// directly at each door. The clock gets the defect in both components:
+/// the party's byte-aligned padding mid-stream and the version's final
+/// byte — and at the party leg the length arm is vacuous (the id's byte
+/// count is exactly its bit length rounded up), so the bit arm is the
+/// entire check there.
+#[test]
+fn version_and_clock_doors_reject_intra_byte_padding_functionally() {
+    // The empty version is the 2-bit stream `11` in one byte: bits 2..8
+    // are padding. Set each in turn; every one must reject.
+    let clean = Version::new().encode();
+    assert_eq!(clean, vec![0b1100_0000]);
+    for bit in 2u8..8 {
+        let mut bytes = clean.clone();
+        bytes[0] |= 0b1000_0000u8 >> bit;
+        assert!(
+            matches!(Version::decode(&bytes[..]), Err(Decode::TrailingBits)),
+            "version: set padding bit {bit} must be rejected",
+        );
+    }
+
+    // The seed clock is the party byte `0x00` (2 live bits) then the
+    // version byte `0xC0` (2 live bits): four defect sites, two per
+    // component's padding.
+    let clock = Clock::seed().encode();
+    assert_eq!(clock, vec![0x00, 0b1100_0000]);
+    for (byte, bit) in [(0usize, 2u8), (0, 7), (1, 2), (1, 7)] {
+        let mut bytes = clock.clone();
+        bytes[byte] |= 0b1000_0000u8 >> bit;
+        assert!(
+            matches!(Clock::decode(&bytes[..]), Err(Decode::TrailingBits)),
+            "clock: set padding bit {bit} of byte {byte} must be rejected",
+        );
+    }
+}
+
 /// Non-normal event spellings are refused where they can be spelled at all.
 ///
 /// The skyline wire coding is a function of the step function alone, so a
