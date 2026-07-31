@@ -1,7 +1,7 @@
 //! The Tier 2 ratio meter: every input family holds the size envelope and
 //! the Euler-tour charge bound (see the module doc for both statements).
 //!
-//! Ratio record of the 2026-07-23 measurement sweep (thousands of samples
+//! Ratio record of the measurement sweep (thousands of samples
 //! per random family; the deterministic grids in full): the global maximum
 //! ratio is 1.9966 at the alternating comb with 2048-bit teeth and 1024
 //! pairs, and the maximum off-comb ratio is 1.9633 on an arbitrary-generator

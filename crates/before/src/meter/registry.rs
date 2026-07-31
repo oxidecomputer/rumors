@@ -1730,24 +1730,22 @@ pub const AXIS_BANDS: &[(&str, &str)] = &[
     (
         "ticks_flatness_holds_the_log_band",
         "prices the ticks count axis across three rostered families: an \
-         operation-argument axis, not a shape of its own — registry answer of record, \
-         2026-07-29",
+         operation-argument axis, not a shape of its own — registry answer of record",
     ),
     (
         "ticks_wide_count_flatness_holds_the_width_band",
         "prices the ticks count-width axis across the same three rostered families: an \
-         operation-argument axis, not a shape of its own — registry answer of record, \
-         2026-07-29",
+         operation-argument axis, not a shape of its own — registry answer of record",
     ),
     (
         "party_fold_alias_rejection_count_is_flat_per_unit",
         "the aliased population probes the fold's hand-back seam through \
          dangerously_alias, not a packed shape (aliases arrive only through decode or \
          dangerously_alias); the board prices the rejection fold on the \
-         party_join_all_overlap row — registry answer of record, 2026-07-29",
+         party_join_all_overlap row — registry answer of record",
     ),
     (
         "party_fold_alias_rejection_depth_is_flat_per_unit",
-        "as the alias-count band's — registry answer of record, 2026-07-29",
+        "as the alias-count band's — registry answer of record",
     ),
 ];

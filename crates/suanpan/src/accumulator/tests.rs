@@ -528,7 +528,7 @@ fn scaled_read_costs_the_written_span() {
     );
 }
 
-/// Green pin (cure of adversarial review 2026-07-28, task #37 F3): an
+/// Green pin: an
 /// alternating shifted pair costs its operand, not the zero run under
 /// it — exact totals, identical across a shift doubling.
 ///
@@ -881,7 +881,7 @@ fn held_width_rows_cost_the_held_digits() {
 /// `6n + 1` touches for `n` add/sub pairs — 2 per delta, 1 per sign
 /// read, plus one extra on the first crossing (its carry run reaches
 /// digit 2 once; every later pair repays exactly what it disturbs) —
-/// at `k = 4096` and `k = 8192` alike. Measured 2026-07-29
+/// at `k = 4096` and `k = 8192` alike. Measured
 /// (deterministic counter; word-pairing keeps counts
 /// target-independent).
 #[cfg(feature = "touch-meter")]
@@ -1195,8 +1195,8 @@ fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
 /// digits below sum to `−(2^33 − 1)·(2^32 + 1)`, which exceeds
 /// `2 · 2^64` by `2^32 − 1`: the true value is `−(2^32 − 1)`, negative.
 /// Committed because the mutation `SIGN_DECIDED: 3 → 2` — which reads
-/// this value as positive — passed the whole differential suite
-/// (2026-07-31): random streams essentially never stack two adjacent
+/// this value as positive — passed the whole differential suite:
+/// random streams essentially never stack two adjacent
 /// extreme digits under a partial of exactly 2, so the tight corner
 /// needs this constructed pin. The mirrored spelling checks the
 /// negative-partial side of the same boundary.
@@ -1244,7 +1244,7 @@ fn sign_threshold_survives_extreme_cancellation() {
 /// the test demonstrates. Committed because the mutation
 /// `floor.saturating_add(2) → floor.saturating_add(1)` — which
 /// certifies domination here — passed the entire committed workspace
-/// suite (suanpan and before both, 2026-07-31); the certificate is
+/// suite (suanpan and before both); the certificate is
 /// consumed by before's rank/query sweeps to skip folds entirely, so a
 /// wrongly-decided verdict would corrupt values silently.
 #[test]

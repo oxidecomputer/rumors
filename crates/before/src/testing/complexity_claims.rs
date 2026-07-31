@@ -411,9 +411,8 @@ const PARTY_FORKS_TYPE_BOUND: Bound = Bound::Custom {
 /// The clock split's bound, shared by `Clock::forks`'s own doc and the
 /// clock `Forks` iterator's type doc: the party split plus one version
 /// clone per child.
-// 2026-07-30, the Bytes-backed at-rest form: was `O(S + n·|v|)` — a
-// version clone was a byte copy; it is now a refcount bump, so the
-// per-child term drops to a constant.
+// A version clone is a refcount bump under the Bytes-backed at-rest
+// form, so the per-child term is a constant.
 const CLOCK_SPLIT_BOUND: Bound = Bound::Custom {
     line: "`O(S + n)`: the party split plus one `O(1)` version clone per child.",
     reason: "an n-ary hand-out denominated in its shares and per-child clones, not one \
@@ -564,8 +563,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             bound: Bound::Constant,
         }],
-        // 2026-07-30, the Bytes-backed at-rest form: was Linear (one
-        // byte copy); the alias now shares the refcounted stored buffer.
+        // The alias shares the refcounted stored buffer.
         cells: Cells::Uncelled("one refcount bump (the board's coverage table)"),
     },
     Claim {
@@ -923,9 +921,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             bound: Bound::Constant,
         }],
-        // 2026-07-30, the Bytes-backed at-rest form: was Linear (one
-        // byte copy per part); the alias now shares each part's
-        // refcounted stored buffer.
+        // The alias shares each part's refcounted stored buffer.
         cells: Cells::Uncelled("one refcount bump per part (the board's coverage table)"),
     },
     // ───────────────────────────── Rank / Ranked ─────────────────────────────
@@ -986,9 +982,8 @@ pub(crate) const CLAIMS: &[Claim] = &[
         // version, so the row of record is Version::rank's.
         cells: Cells::Board(&[("version_rank", Class::MulBound)]),
     },
-    // 2026-07-30, the Bytes-backed at-rest form: was `O(n)` when
-    // borrowed — settling a borrow cloned the version's bytes; a clone
-    // is now a refcount bump, so the settle is constant either way.
+    // A clone is a refcount bump, so the settle is constant whether
+    // the version is owned or borrowed.
     Claim {
         op: "Ranked::into_owned",
         checks: &[Check {
@@ -1108,10 +1103,8 @@ pub(crate) const CLAIMS: &[Claim] = &[
     ),
     constant("causally::Span::meet"),
     constant("causally::Span::join"),
-    // 2026-07-30, the Bytes-backed at-rest form: was `O(n)` when
-    // borrowed — settling a borrow cloned each endpoint's bytes; a
-    // clone is now a refcount bump, so the settle is constant either
-    // way.
+    // A clone is a refcount bump, so the settle is constant whether
+    // the endpoints are owned or borrowed.
     Claim {
         op: "causally::Span::into_parts",
         checks: &[Check {
@@ -1123,8 +1116,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ),
     },
     constant("causally::Span::reborrow"),
-    // 2026-07-30, the Bytes-backed at-rest form: was `O(n)` when
-    // borrowed, as `into_parts`.
+    // Constant whether owned or borrowed, as `into_parts`.
     Claim {
         op: "causally::Span::into_owned",
         checks: &[Check {

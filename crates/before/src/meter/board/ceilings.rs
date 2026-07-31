@@ -117,7 +117,7 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 /// organic shapes — and the heaviest honest reader measured is the
 /// mirror-narrow tick cross (the memo machinery's per-site resolution) at
 /// 30.8 touches per input byte at the default scale, 24.3 at the record
-/// scale \[measured 2026-07-26, release, both scales\]. The ceiling sits
+/// scale \[measured in release, both scales\]. The ceiling sits
 /// at 96, scan's own margin convention, so only a walk that re-reads
 /// digit state growing with the input — the width-circulation genre —
 /// goes red on this column's constant.
@@ -261,7 +261,7 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// a constant per level — never flat, at any implementation of the
 /// balanced reduction. Derivation of the constant: the fold cells read
 /// 9.1–10.0 scan bits per byte per level across both scales and both
-/// committed populations \[measured 2026-07-28, release: the benign
+/// committed populations \[measured in release: the benign
 /// control at k = 512 reads 100.1 bits/B over 10 levels, at k = 2048
 /// reads 116.9 over 12\]; 12 leaves the worst honest reading ~20%
 /// headroom while a fold whose per-level constant regresses by a third
@@ -282,7 +282,7 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 /// probes of one table word each. The allowance is that bound summed
 /// over the inputs' both-present nodes, computed from the operands at
 /// prepare; it is tight-ish where the searches dominate \[measured
-/// 2026-07-28, release, the weave family: readings sit within ~10% of
+/// in release, the weave family: readings sit within ~10% of
 /// the fold model plus this allowance at both scales\], zero on
 /// populations with no both-present structure (scatter's single-leaf
 /// operands), and absent from the version fold, which runs no overlap
@@ -311,7 +311,7 @@ pub(super) fn both_present_nodes(p: &Party) -> u64 {
 /// `[CAPACITY_MODEL_FLOOR, CAPACITY_MODEL_CEILING] × model`.
 ///
 /// The capacity-chain model fits the committed probe points within 2%
-/// \[measured 2026-07-28, release: measured/model 1.005–1.017 across
+/// \[measured in release: measured/model 1.005–1.017 across
 /// teeth 128–1024\], so ±10% absorbs the walk's small non-chain
 /// allocations while a regressed builder — an unanchored doubling chain,
 /// an extra buffer copy — overshoots the ceiling, and an improved
@@ -336,8 +336,7 @@ pub const CAPACITY_MODEL_FLOOR: f64 = 0.90;
 /// fit is honestly unjudgeable across this chain — a probe pair
 /// straddling a `k` step manufactures an exponent out of the quantized
 /// capacity, one inside a step reads sublinear — which is exactly why
-/// these cells are judged against the model instead (owner ratification
-/// 2026-07-27: the doubling-chain band is the accepted stated-band
+/// these cells are judged against the model instead (owner-ratified: the doubling-chain band is the accepted stated-band
 /// residual — no pre-walk, no segmented output).
 pub(super) fn capacity_chain_peak(input_bytes: usize, output_bytes: usize) -> f64 {
     let anchor = input_bytes as f64;
@@ -384,10 +383,10 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
 /// positions; the bound verified against the ledger code) — so the tick
 /// walk's live certificate state is honest `Θ(input)` work-state with a
 /// large constant, intended and modeled, not amplification. Measured
-/// 2026-07-28 (release, both acceptance scales): 123.8 → 125.9 B per
+/// (release, both acceptance scales): 123.8 → 125.9 B per
 /// input byte at heap exponent 1.00 — a constant, not a class; the
-/// ceiling is the worst reading ×1.25, rounded up (owner ratification
-/// 2026-07-28, conditional on exactly this flat-constant profile). A
+/// ceiling is the worst reading ×1.25, rounded up (owner-ratified,
+/// conditional on exactly this flat-constant profile). A
 /// reading over it is a genuine certificate-memory regression on the
 /// one shape that defeats consumption.
 pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 158.0;
@@ -403,10 +402,10 @@ pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 158.0;
 /// once, so the fold legitimately holds `Θ(k)` live reign records
 /// (~119 B each, the state that keeps the fold's *exponent* linear) at
 /// a flat per-byte constant: intended and modeled, not amplification.
-/// Measured 2026-07-28 (release, both acceptance scales):
+/// Measured (release, both acceptance scales):
 /// 138.7 → 141.3 B per input byte at heap exponent 1.00 — a constant,
 /// not a class; the ceiling is the worst reading ×1.25, rounded up
-/// (owner ratification 2026-07-28, conditional on exactly this
+/// (owner-ratified, conditional on exactly this
 /// flat-constant profile). A reading over it is a genuine reign-state
 /// regression on the one shape that defeats batching.
 pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 177.0;
@@ -423,7 +422,7 @@ pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 177.0;
 /// display impls' `# Complexity` sections; judge-rostered red on the
 /// wall leg), so on the mirror-wide cross the limb column honestly
 /// reads a superlinear exponent against `n_io` — intended and modeled,
-/// not a regression. Measured 2026-07-28 (release, the two acceptance
+/// not a regression. Measured (release, the two acceptance
 /// scales): fitted limb exponents 1.55 → 1.81 (`version_display`) and
 /// 1.56 → 1.81 (`clock_display`). The ceiling is the worst measured
 /// exponent plus the linear cells' slack (1.81 + 0.15, the
@@ -432,7 +431,7 @@ pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 177.0;
 /// banded here: the class's liveness floor is the committed
 /// `render_merge_superlinearity_is_alive` pin, which reads red the day
 /// a render-merge cure lands and forces this declaration's
-/// re-derivation in the same change (owner ratification 2026-07-28:
+/// re-derivation in the same change (owner-ratified:
 /// the display pair's superlinearity is the documented, judge-rostered
 /// class).
 pub const MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING: f64 = 1.96;
@@ -445,10 +444,10 @@ pub const MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING: f64 = 1.96;
 /// merge re-folds wide summaries beyond conversion, so its per-`R`
 /// constant honestly exceeds κ at the acceptance scales — the same
 /// mechanism as the exponent ceiling above, priced on the constant leg.
-/// Measured 2026-07-28 (release, both acceptance scales): 0.7 → 1.4
+/// Measured (release, both acceptance scales): 0.7 → 1.4
 /// (`version_display`) and 0.6 → 1.3 (`clock_display`) limb per `R`
-/// unit; the ceiling is the worst reading ×1.25 (owner ratification
-/// 2026-07-28, conditional on the render-merge mechanism the liveness
+/// unit; the ceiling is the worst reading ×1.25 (owner-ratified, conditional
+/// on the render-merge mechanism the liveness
 /// pin holds).
 pub const MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT: f64 = 1.75;
 

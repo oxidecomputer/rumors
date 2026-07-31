@@ -424,7 +424,7 @@ fn exhaustive_small() {
 /// pair-product (~4.3 billion pairs) dominates everything else — the per-id
 /// checks are seconds, and the `tick` grid (65536 ids × 691 events with the
 /// brute-force minimality pin) extrapolates linearly along its id axis to
-/// about a minute. Measured state (2026-07-27, aarch64-apple-darwin, 16
+/// about a minute. Measured state (aarch64-apple-darwin, 16
 /// cores, release, quiet machine): two fully parallel runs were stopped at a
 /// 45-minute cap, one row-major and one cache-tiled, the row-major one
 /// profiled still inside the verdict pair product at 31 minutes — budget

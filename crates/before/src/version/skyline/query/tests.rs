@@ -1004,7 +1004,7 @@ mod adequacy {
     /// between linear and the measured x1.50, while the shipped
     /// kernel's flatness band holds the same family at x1.25.
     ///
-    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// [measured in the dev profile, exact counters: touches
     /// 124,368 -> 372,859 across FP(1,000) -> FP(2,000), packed
     /// 73,328B -> 146,579B: per-byte growth x1.50.]
     #[test]
@@ -1317,7 +1317,7 @@ mod adequacy {
     /// between linear and the measured x1.74, while the shipped
     /// kernel's re-arm flatness band holds the same family at x1.25.
     ///
-    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// [measured in the dev profile, exact counters: touches
     /// 1,440,756 -> 5,006,506 across PR(1,000) -> PR(2,000), packed
     /// 246,501B -> 493,001B: per-byte growth x1.74.]
     #[test]
@@ -1344,7 +1344,7 @@ mod adequacy {
     /// The committed proof that the pair family drives promotions
     /// through the co-sweep, not just freezes.
     ///
-    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// [measured in the dev profile, exact counters: touches
     /// 1,504,885 -> 5,134,635 across p = 1,000 -> 2,000, packed pair
     /// 269,001B -> 538,001B: per-byte growth x1.71; the floor 1.36
     /// sits midway between linear and the measured growth, as the rank
@@ -1686,13 +1686,9 @@ mod adequacy {
     /// linear and the measured x1.75, while the shipped kernel's
     /// dense-suffix flatness band holds the same family at x1.25.
     ///
-    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// [measured in the dev profile, exact counters: touches
     /// 698,584 -> 2,449,356 across DS(500, 500) -> DS(1,000, 1,000),
-    /// packed 119,593B -> 239,030B: per-byte growth x1.75. Movement
-    /// same date (the cure round: the kernel's per-arming charges ride
-    /// the clustered products now, so its constants fell ~5x from
-    /// 3,417,450 -> 13,357,237 while the per-arming walk kept its
-    /// class, x1.96 -> x1.75 per byte).]
+    /// packed 119,593B -> 239,030B: per-byte growth x1.75.]
     #[test]
     fn suffix_walk_settle_reads_superlinear_on_dense_suffix() {
         let (small_bytes, small_touches) = suffix_walk_rank_run(500);
@@ -1718,13 +1714,11 @@ mod adequacy {
     /// The committed proof that the pair family drives the ledger
     /// settle through the co-sweep, not just freezes.
     ///
-    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// [measured in the dev profile, exact counters: touches
     /// 810,227 -> 2,749,954 across p = 500 -> 1,000, packed pair
     /// 127,033B -> 253,909B: per-byte growth x1.70; the floor 1.48
     /// sits between linear and the measured growth, as the rank
-    /// tripwire's. Movement same date (the cure round, as the rank
-    /// tripwire's: constants ~8x down from 6,426,091 -> 25,224,970 at
-    /// x1.96, the walk's class intact).]
+    /// tripwire's.]
     #[test]
     fn suffix_walk_settle_reads_superlinear_on_dense_suffix_pair() {
         let (small_bytes, small_touches) = suffix_walk_pair_run(500);
@@ -1930,7 +1924,7 @@ mod adequacy {
     /// shipped kernel's dense-suffix flatness band holds the same
     /// family at x1.25 in the same currency.
     ///
-    /// [measured 2026-07-30, dev profile, exact counters: limb ops
+    /// [measured in the dev profile, exact counters: limb ops
     /// 725,957 -> 2,702,714 across DS(500, 500) -> DS(1,000, 1,000),
     /// packed 119,593B -> 239,030B: per-byte growth x1.86 — against
     /// the shipped settle's 97,381 -> 195,491 (x1.00/byte) on the
@@ -2155,7 +2149,7 @@ mod adequacy {
     /// measured growth, while the shipped kernel's `ledger_wide_arming`
     /// band holds the same family at x1.25.
     ///
-    /// [measured 2026-07-30, dev profile, exact counters: touches
+    /// [measured in the dev profile, exact counters: touches
     /// 285,747 -> 1,079,383 and limb ops 293,119 -> 1,094,191 across
     /// WA(500, 500) -> WA(1,000, 1,000), packed 14,263B -> 28,451B:
     /// per-byte growth x1.89 touch and x1.87 limb.]
@@ -2194,7 +2188,7 @@ mod adequacy {
     /// lower measured currency, while the shipped kernel's
     /// `answer_embedded_product` band holds the same family at x1.25.
     ///
-    /// [measured 2026-07-30, dev profile, exact counters: touches
+    /// [measured in the dev profile, exact counters: touches
     /// 482,968 -> 1,843,181 and limb ops 198,320 -> 653,131 across
     /// PP(500, 500) -> PP(1,000, 1,000), packed 20,376B -> 40,751B:
     /// per-byte growth x1.91 touch and x1.65 limb.]

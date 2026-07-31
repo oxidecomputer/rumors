@@ -22,8 +22,8 @@
 //! side per input, quadratic on exactly the many-small-inputs
 //! populations the fold exists for (the overlap rows and the flatness
 //! pin in `meter::board`'s tests price that regression), while the
-//! searches tie or win wall time on every committed fold population
-//! \[measured 2026-07-28: the design doc's F4 decision entry\]. Every
+//! searches tie or win wall time on every committed fold population,
+//! by measurement. Every
 //! probe records one table word in the scan currency
 //! ([`metered_partition_point`]), the board's weave family prices the
 //! term under its declared search allowance, and the parity-halves

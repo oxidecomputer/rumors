@@ -131,7 +131,7 @@ MAX_WALL_SCALING_EXPONENT = 1.3
 # the honest class from the schoolbook (quadratic) class it replaces the
 # retired wall-ratio canary in catching. Placement is derived from the
 # measured classes at the wide-display pair's widths (128k -> 512k bits,
-# n_io span x4.0, quick mode, bench profile, 2026-07-24): the crate's
+# n_io span x4.0, quick mode, bench profile): the crate's
 # divide-and-conquer render fitted e 1.47 and the schoolbook renderer
 # fitted e 1.99, and each sits more than twice the fit-noise band at this
 # ceiling (TEXT_FIT_NOISE_EXPONENT_BAND ~ 0.088, so 2x ~ 0.175) away from
@@ -667,7 +667,7 @@ def self_test():
         ("GREEN", "op/cliff")
     ]
     # The committed tripwire's measured shape (benches/tripwire.rs via
-    # `just bench-judge-tripwire`, quick mode, 2026-07-24: the machine-word
+    # `just bench-judge-tripwire`, quick mode: the machine-word
     # quadratic every board counter reads zero on — medians 239.39 us ->
     # 3.84 ms across n 512 -> 2048): red on the fitted exponent, ~2.0
     # against the 1.3 ceiling.
@@ -677,8 +677,8 @@ def self_test():
     [(verdict, _, exponent, _, _)] = rows
     assert verdict == "RED" and 1.8 <= exponent <= 2.2, rows
     # The committed schoolbook display tripwire's measured shape
-    # (benches/board.rs `display_schoolbook/hugeleaf`, quick mode,
-    # 2026-07-24: medians 27.80 ms -> 440.09 ms across n_io
+    # (benches/board.rs `display_schoolbook/hugeleaf`, quick mode:
+    # medians 27.80 ms -> 440.09 ms across n_io
     # 70533 -> 282129 B) fits above the text ceiling by more than twice
     # the text fit-noise band, while the honest divide-and-conquer render
     # at the same widths (`version_display_wide/hugeleaf`, medians

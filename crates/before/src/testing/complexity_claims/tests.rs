@@ -273,7 +273,7 @@ fn render_limb_ops(s: usize) -> u64 {
 ///
 /// Deterministic counter, dev profile; linear rendering would read ~2.0
 /// across the doubling, and the current merge reads x2.93 (8 558 ->
-/// 25 114 ops, measured 2026-07-27 at this shape and scale). The floor
+/// 25 114 ops, measured at this shape and scale). The floor
 /// sits midway in that gap, so only a class change (never noise — the
 /// counter is exact) crosses it.
 #[cfg(feature = "limb-meter")]

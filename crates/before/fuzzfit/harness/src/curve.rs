@@ -61,7 +61,7 @@ pub const MIN_DECADES: f64 = 1.0;
 /// The measured allowance above the pinned slope for a within-case local
 /// slope.
 ///
-/// Measured 2026-07-31 over the calibration corpus of record (4096
+/// Measured over the calibration corpus of record (4096
 /// programs, ~2.62M steps; `bin/calibrate` re-derives the evidence on
 /// every re-pin): the maximum healthy within-case excess across every
 /// evidence-bearing (band key, case) pair was +0.013 (`ff_clock_join`,

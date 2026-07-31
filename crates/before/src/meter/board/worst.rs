@@ -386,365 +386,43 @@ pub(super) fn render_map(
 /// The tamper-evident ranking pin: [`check_worst_map`] entry-compares the
 /// live fold against this table, so "which committed shape is worst for
 /// operation X" is a drift-detected fact. A ranking flip is news: either
-/// a family legitimately overtook (re-pin deliberately, with a movement
-/// annotation dated at the changed entry) or a code change made some
+/// a family legitimately overtook (re-pin deliberately, with the movement
+/// annotated in the re-pinning commit) or a code change made some
 /// shape relatively worse (investigate first). Exact ties are stable
 /// deterministic facts and the whole tied set is pinned, so a tie cannot
 /// flap this table.
 ///
 /// Pinned from the release-profile fold (the board's profile of record)
-/// at both [`WORST_MAP_SCALES`], 2026-07-29.
+/// at both [`WORST_MAP_SCALES`].
 ///
-/// Movement 2026-07-29 (the wide-arming family promotion riding the
-/// text-parse cure; 36 entries re-pinned from the live release fold —
-/// beyond this table, the only readings that moved against the parent
-/// renders are the five text-parse rows, the cure's own columns, and
-/// the hugeleaf column, its base re-size; both are annotated at their
-/// sites):
+/// # Reading the map
 ///
-/// - **wide-arming takes 9 heap argmaxes** (version_rank,
-///   version_distance, version_lag, and version_decode_truncated at
-///   both scales; clock_recv at the default): one input-wide arming
-///   parked over an input-dense trailing mass makes the query settle's
-///   aggregate-product buffers — and the decode/recv paths that
-///   materialize the wide climb — the roster's densest per-byte heap
-///   on those rows.
-/// - **the text touch argmaxes revert to the densest organic delta
-///   streams** (version_from_str, version_parse_trailing,
-///   version_parse_noncanon touch: dense-suffix → staircase;
-///   clock_from_str, clock_parse_trailing touch: dense-suffix →
-///   concurrent-pair; both scales): the parse cure — a reset in place
-///   of the compensating subtraction at each leaf's delta extraction —
-///   removed the per-block swing re-walk that had made dense-suffix
-///   the parse touch argmax, so the ranking falls back to the streams
-///   with the most stored deltas per text byte.
-/// - **tooth-tail takes 5 parse heap argmaxes** (clock_from_str and
-///   clock_parse_trailing at both scales, version_parse_trailing at
-///   the default): the chunked open-node stacks cut the deep spines'
-///   parse transient severalfold, so the argmax lands on the densest
-///   node-per-text-byte stream, whose transient is the materialized
-///   tree itself.
-/// - **hugeleaf takes 10 heap argmaxes at the default scale**
-///   (version_decode, version_concurrent, version_join_assign,
-///   rank_pair_ops, rank_sum, causally_contains, clock_join,
-///   clock_sync, version_decode_trailing, version_decode_noncanon):
-///   the doubled base magnitude raises the materialized value's share
-///   over the flat allowance, edging past plateau-puncture's
-///   near-ties.
-/// - **the version_decode_truncated scan tie sets grow by wide-arming**
-///   (both scales): the truncation defect scans every version-carrying
-///   family's bytes identically, and the fold pins the whole tied set.
+/// The rationale for any single entry — why that family maximizes that
+/// operation x currency cell — lives in the commit that pinned the
+/// entry; `git blame` on the row is the lookup. Genre-level regularities
+/// hold across the table:
 ///
-/// Movement 2026-07-29 (the dense-suffix, plateau-puncture, and
-/// lone-freeze family promotions; 56 entries re-pinned from the live
-/// release fold, every pre-existing cell's reading byte-identical to
-/// the parent renders):
-///
-/// - **plateau-puncture takes 17 heap argmaxes** (the decode, merge,
-///   query, rank, and version-rejection rows, both scales): the family
-///   stores one input-wide plateau magnitude behind dense plunge
-///   topology, so the cells that materialize the wide value read
-///   hugeleaf's genre at a denser per-byte budget (near-ties,
-///   ×1.02–1.24 over hugeleaf, weight-comb, and freeze-parade), and
-///   the query cells buffer the answer-embedded product at Θ(input)
-///   width (version_rank ×1.88, distance/lag ×1.49–1.82 over the
-///   prior worsts).
-/// - **lone-freeze takes 14 touch argmaxes** (clock_decode, the clock
-///   merges, the own-version comparisons and materializations, and the
-///   decode-rejection rows, both scales): its canonical encoding is
-///   the board's densest nonzero-delta stream (~5 bits per oscillating
-///   unit leaf), so every accumulator-running walk folds the most
-///   digit touches per packed byte — small margins (×1.02–1.32) over
-///   benign, staircase, and concurrent-pair.
-/// - **lone-freeze takes 3 heap argmaxes at the acceptance scale**
-///   (version_join/meet/meet_assign): the merge output materializes
-///   the wide plateau code over the dense unit stream, and at ×4 the
-///   operand outgrows the flat allowance that masks the constant at
-///   the default scale (×1.05–1.17 over plateau-puncture).
-/// - **dense-suffix takes 8 touch argmaxes** (the text-parse and
-///   from_str rows, both scales): the parse's per-leaf delta
-///   accumulator pays each block boundary's fixed 608-bit swing — the
-///   constant-width shadow of the mechanism the wide-arming
-///   superlinearity pin holds red beside the parse kernel — at 1.0–1.4
-///   touches per text byte (×1.07–2.05 over staircase,
-///   concurrent-pair, and hugeleaf).
-/// - **dense-suffix takes 5 scan argmaxes at the acceptance scale**
-///   (decode, min_ticks, the projection materializations,
-///   decode_trailing): whole-stream scans saturate at 8 bits per
-///   packed byte (16 on the two-walk projections), so the argmax among
-///   saturated families is a hairline constant (margins render ×1.00
-///   over freeze-pos and promo-rearm); the flip is the exact
-///   deterministic argmax, not a class movement.
-/// - **the version_decode_truncated scan tie sets grow by the three
-///   promoted families** (both scales): the truncation defect scans
-///   every byte of every version-carrying family identically, and the
-///   fold pins the whole tied set.
-///
-/// Movement 2026-07-29 (the plateau-puncture board re-size, 512 → 384
-/// base digits — the calibration argument at
-/// `PLATEAU_PUNCTURE_BASE_DIGITS`; 4 entries re-pinned from the live
-/// release fold, all in plateau-puncture's own rows; every non-PP
-/// cell's reading byte-identical to the parent renders at both
-/// scales):
-///
-/// - **plateau-puncture yields its three default-scale merge heap
-///   argmaxes** (version_join 3.51 → 3.0/B, hugeleaf takes it at
-///   3.37/B over wide-arming ×1.04; version_meet 3.79 → 3.3/B,
-///   wide-arming takes it at 3.61/B over lone-freeze ×1.06;
-///   version_meet_assign 2.95 → 2.5/B, hugeleaf takes it at 2.87/B
-///   over wide-arming ×1.01): the merge cells' heap is the
-///   materialized wide plateau magnitude, whose share of the
-///   per-byte budget moves with the knob, so at the smaller knob PP
-///   drops out of the near-tie band it had led — the same hairline
-///   genre contest the earlier hugeleaf note records, resolved the
-///   other way.
-/// - **plateau-puncture takes the default rank_sum heap argmax**
-///   (0.6531 → 0.8707/B, over hugeleaf's unchanged 0.6826/B, ×1.28):
-///   the sum row's transient is near-flat in absolute terms, so its
-///   share per denominator byte rises as the operand shrinks, lifting
-///   PP's intercept past hugeleaf's reading.
-///
-/// Movement 2026-07-30 (the Bytes-backed at-rest form's Clock::decode:
-/// the id is parsed once against the borrowed buffer where handing byte
-/// ranges to the component decoders re-parsed it, so the id-heavy
-/// families' scan readings on the clock decode rows drop by one id
-/// parse and the version-heavy dense-suffix overtakes id-pair on the
-/// trailing rejection's scan column at the acceptance scale — the
-/// relative flip is the improvement's shape, not a regression):
-///
-/// - **the clock decode rows' scan worsts flip at both scales**
-///   (dense-suffix at acceptance, promo-rearm/pure-comb at default,
-///   over clock_decode and its truncated/trailing genres): the
-///   composite's scan is dominated by the whole-buffer read; with the
-///   id read once, the version-dominated families' per-byte scan now
-///   ranks first.
-///
-/// - **pure-comb overtakes id-pair on clock_decode_truncated × scan
-///   (acceptance)**: the same single-id-parse drop, read through the
-///   truncation genre's cut-point sweep.
-///
-/// - **version_span's worsts flip across all four columns, both
-///   scales**: the span ladder hands a comparable pair back at one
-///   comparison sweep with zero emission (`span_is_the_pair_hull`), so
-///   the comparable families' readings drop to the classifier's and
-///   the pair families — the ladder's only emitting case — rank first
-///   (jump-pair on scan and heap, concurrent-pair on limb and touch;
-///   the coincident lone-freeze's heap drops to its shared buffer's
-///   clones).
-///
-/// - **version_join/version_meet × heap: hugeleaf overtakes** (the
-///   lone-freeze/wide-arming pins): the `&a | &b` value cells' lhs
-///   clone is a refcount bump, not a byte copy, so the join's peak is
-///   the emission's alone and the payload-buffer-heavy hugeleaf ranks
-///   first.
-///
-/// - **clock_fork/clock_recv × heap: id-pair overtakes** (default):
-///   the composites' version hand-over is a refcount bump, so the
-///   party-copy-bound id-pair family's peak ranks first.
-///
-/// - **wide-arming overtakes weight-comb/freeze-parade on
-///   span_decode_truncated × heap (both scales)**: the span decode
-///   adopts slices of ONE read buffer for both endpoints (no
-///   per-endpoint copy), so the copy-bound families' peaks drop and
-///   the validation-transient-bound wide-arming ranks first.
-///
-/// - **clock_own_version_to_version's worsts flip across all four
-///   columns, both scales**: a seed-partied clock's projection is the
-///   identity (`seed_projection_is_identity`) and materializes as an
-///   `O(1)` clone with no fold and no stream walk, so the seed-partied
-///   families' readings vanish and the real-projection families rank
-///   first (staircase on touch, nested-wide on scan, id-pair on limb
-///   and heap).
-///
-/// Movement 2026-07-29 (the fused sync sum-split walk; 2 entries
-/// re-pinned from the live release fold, every non-sync cell's reading
-/// byte-identical to the parent renders at both scales):
-///
-/// Movement 2026-07-29, second (the suffix-safe fraction framing and
-/// the streaming decode: group-framed fractions grow fraction-heavy
-/// encodings by 9⁄8, and the byte-at-a-time parser strips each
-/// magnitude's sink padding with one O(1) shift the old right-aligned
-/// assembly did not pay — right-alignment would trust the header's
-/// claimed width before the bits arrive, the allocation-bomb path the
-/// parser refuses):
-///
-/// - **benign rises into a tie with concurrent-pair on the
-///   rank_decode limb column** (default scale): the constant
-///   padding-strip shift weighs most against the organic pairs' tiny
-///   per-decode denominators, landing them exactly on the adversarial
-///   family's per-byte reading; concurrent-pair still co-holds the
-///   argmax, and the acceptance scale, where the constant is
-///   amortized, keeps it alone.
-///
-/// Movement 2026-07-29 (the rank wire form and the rank view: the
-/// rank_encode/rank_decode and ranked_cmp/ranked_encode rows join the
-/// table; 8 entries pinned from the live release fold, every
-/// pre-existing entry byte-identical to the parent renders at both
-/// scales):
-///
-/// - **hugeleaf takes the rank_encode heap argmax, concurrent-pair its
-///   limb argmax** (both scales): the emission's transient is the
-///   output buffer plus the integral extraction, densest per content
-///   byte on the one wide-numerator value; the arithmetic pass is one
-///   shift-and-bias, so the limb argmax lands on the pair family whose
-///   content is mostly numerator.
-/// - **freeze-parade takes the rank_decode heap argmax** (both
-///   scales): its rank's numerator-to-content share makes the decoded
-///   materialization (assembly buffers plus the shift-and-or) the
-///   densest per encoded byte; concurrent-pair keeps the limb column
-///   for the same numerator-share reason as the encode row.
-/// - **the fused rows read as their walk parents** (both scales):
-///   ranked_cmp takes wide-arming heap / staircase limb / hugeleaf
-///   scan / staircase touch — version_distance's genre exactly, the
-///   same co-sweep at constant orientation (hugeleaf edges the scan
-///   argmax at saturation because the comparison walks the pair
-///   without distance's overlay pre-scan reweighting) — and
-///   ranked_encode takes wide-arming heap / staircase limb /
-///   hugeleaf scan / harmonic-then-staircase touch — version_rank's
-///   genre under the same input denomination (the provenance pin
-///   bounds the mandatory output inside the packed input, so `n` is
-///   the honest denominator and the saturated-scan and touch
-///   near-ties resolve as the walk's own, not an `n_io` rescale).
-///
-/// Movement 2026-07-30 (the composite ranked key: `ranked_encode`
-/// becomes the composite emission — rank stream, then the version's
-/// bytes — `ranked_encode_rank` joins as the rank-only emission's row,
-/// and `ranked_decode` joins for the strict composite parse with its
-/// verifying rank fold; four new ranking entries — the two new rows at
-/// each scale — pinned from the live release fold, parent-measured at
-/// both scales):
-///
-/// - **ranked_cmp is byte-identical to the parent** (both scales, all
-///   cells): the rank-tie byte tiebreak is one unmetered slice compare,
-///   so no counter moves.
-/// - **ranked_encode_rank inherits the parent's ranked_encode readings
-///   byte-for-byte** (both scales, all cells): the renamed row is the
-///   same fused emission.
-/// - **ranked_encode keeps every argmax** (heap wide-arming 6.40/B
-///   default, 6.58/B acceptance, unchanged; limb/scan/touch columns
-///   byte-identical to the parent): the composite's version tail adds
-///   at most one packed-input-sized output copy, which registers only
-///   on the families whose rank-only emission sat near the flat heap
-///   allowance (dense 0.0 → 0.4/B, jump-pair 0.0 → 0.9/B,
-///   freeze-pos 0.0 → 1.0/B at the default scale, and kin) — every
-///   mover stays at or under 1.2/B default and 1.8/B acceptance
-///   against the 6.40/6.58 argmax, a ×3.6 margin at the tightest, so
-///   no ranking moves.
-/// - **ranked_decode pins wide-arming heap / staircase limb /
-///   jump-pair scan / staircase touch** (both scales): heap and limb
-///   read as the verifying rank fold plus the decoded materialization
-///   (limb roughly doubles ranked_encode_rank's constants — the parse
-///   assembles what the fold then recomputes); the scan argmax lands
-///   on jump-pair rather than the walk rows' hugeleaf because the
-///   strict version parse re-examines the packed tail that the
-///   composite denominator already counts once, weighting the
-///   widest-stream-per-content families (jump-pair 31.86/B over
-///   freeze-pos ×1.00 near-tie).
-///
-/// - **the clock_sync scan argmax falls back to the organic control**
-///   (mirror-narrow → benign, both scales): the fused walk splices any
-///   party subtree owned by one side alone without reading its nodes,
-///   so the disjoint-mounted adversarial pairs' sync scans collapsed
-///   (mirror-narrow 22.5 → 5.1 bits/B at the default scale) and the
-///   argmax lands on benign, whose organic interleaved pair still runs
-///   the full merge at composition parity (19.4 bits/B, byte-identical
-///   to the parent reading; runner-up id-pair ×1.21).
-///
-/// Movement 2026-07-31 (the placement rows join the board: `span_place`,
-/// `span_dominance`, and `range_bounded` price the arity-3 fused walk —
-/// one probe against the pair hull's two bounds, the probe a
-/// buffer-distinct re-decode so the coincidence rung cannot collapse
-/// the walk; six new ranking entries — the three new rows at each
-/// scale — pinned from the live release fold, every pre-existing entry
-/// verified unmoved at both scales):
-///
-/// - **the placement argmaxes mirror the comparison genre** (hugeleaf
-///   heap, staircase limb/touch at both scales; scan staircase at the
-///   default scale and freeze-pos at acceptance — exactly
-///   causally_contains' columns): a confirming placement reads all
-///   three streams to the end, so the shapes that maximize the pair
-///   sweep's density maximize the fused walk's.
-/// - **range_bounded's scan argmax lands on hugeleaf at both scales**:
-///   the row prices the composite a consumer reaches from owned
-///   endpoints — `known_at`'s validating comparison rides ahead of the
-///   query — and that extra lo-vs-hi sweep weights the widest
-///   payloads.
-///
-/// Movement 2026-07-31 (the fused span hull: `version_span` joins as
-/// the fused pair-hull row and `version_span_all` as the two-sided
-/// hull fold's row; four new ranking entries — the two new rows at
-/// each scale — pinned from the live release fold, every pre-existing
-/// entry verified unmoved at both scales):
-///
-/// - **version_span reads under the join+meet sum on the shared
-///   currencies** (both scales): limb lands on dense at 26.66/B
-///   against the single-op rows' 16.00 + 16.00 — the one shared
-///   crossing fold is the fusion's saving — while heap's argmax moves
-///   to lone-freeze (both output builders live simultaneously, where
-///   each single-op row holds one) and scan's to mirror-narrow (each
-///   input read once, so the density ranks by emitted output per
-///   input byte, which the interleaved narrow mirrors maximize).
-/// - **version_span_all rides the fold populations** (stagger, benign,
-///   weave — both scales) at densities near the meet_all + join_all
-///   sums less the leaf level's shared decodes; heap gains a real
-///   reading where the single-direction folds sat inside the flat
-///   allowance (stagger 0.72/B default, weave 0.94/B acceptance): the
-///   two-sided accumulator carries both endpoints' intermediates at
-///   once.
-///
-/// Movement 2026-07-30 (the span wire form: `span_encode` joins as the
-/// composite emission's row, `span_decode` as the fused
-/// parse-and-validate row, and `span_decode_truncated`/`_trailing`/
-/// `_crossed` as its rejection surface per the error-path precedent;
-/// ten new ranking entries — the five new rows at each scale — pinned
-/// from the live release fold, every pre-existing entry verified
-/// unmoved at both scales):
-///
-/// - **span_encode reads as version_encode** (promo-rearm heap at both
-///   scales, every other currency unranked): the composite emission is
-///   one byte copy per endpoint, so only the materialized output
-///   registers.
-/// - **span_decode takes hugeleaf heap / dense limb / weight-comb scan
-///   / staircase touch** (both scales): heap and limb are the decode
-///   genre (both endpoints materialize, every stored payload decodes
-///   once) and touch is the comparison walks' (the admission walk
-///   commits exactly the pair sweep's fold traffic on an accepted
-///   composite). The scan column saturates — the fused decode reads
-///   the first component twice (its parse, then the co-walk) and the
-///   second once — so the argmax among saturated families is a
-///   hairline constant, landing on weight-comb rather than the
-///   version_decode row's staircase.
-/// - **the rejection rows read as version_decode's rejection genre
-///   with pair operands** (dense limb / staircase touch everywhere:
-///   the fed composite still parses component streams and folds the
-///   co-walk up to its defect). The crossed row's distinctive columns
-///   are its own mechanism: hugeleaf scan (the whole composite is
-///   examined before the pair rejection is pronounced — no early
-///   defect shortens the scan as a placed cut does) and ascend-plateau
-///   touch (dominance refutes at the first excess interval, dropping
-///   the difference; what remains ranked is the first component's
-///   validation folds plus the walk's prefix).
-///
-/// Movement (the rank pre-scan recalibration: the maximum-depth
-/// topology pre-scan records each payload skip once — `skip_int`'s own
-/// record is the skip's only one — so every op that runs the pre-scan
-/// sheds a second count of its payload widths from the scan column;
-/// fourteen scan argmaxes re-pinned, every other cell byte-identical
-/// at both scales):
-///
-/// - **the walk rows' scan argmax leaves hugeleaf** (version_rank,
-///   version_distance, version_lag, ranked_cmp, ranked_encode,
-///   ranked_encode_rank — staircase at the default scale;
-///   dense-suffix for the single-operand rows and freeze-pos for the
-///   pair rows at acceptance): the payload-dominated families were
-///   the double count's chief beneficiaries (wide-tooth's rank scan
-///   reads 24.0 → 16.0 bits per packed byte), so the argmax falls
-///   back to the topology-dense families whose scan was near-honest
-///   already — the saturated-scan genre the comparison walks rank.
-/// - **ranked_decode's scan argmax moves jump-pair → concurrent-pair**
-///   (both scales): the strict parse's verifying rank fold sheds the
-///   same payload re-count, and the widest-stream-per-content
-///   near-tie resolves to the organic pair.
+/// - **Materialization rows rank by per-byte payload density.** Cells
+///   whose cost is a materialized wide value (decode, merge outputs,
+///   the query settles' aggregate-product buffers) land on the families
+///   that pack the widest magnitude behind the fewest bytes (hugeleaf,
+///   plateau-puncture, wide-arming), and the contests between those
+///   families are hairline near-ties inside the flat-allowance band.
+/// - **Accumulator-running walks rank by nonzero-delta density.**
+///   Comparison sweeps, query folds, and text parses land on the
+///   streams with the most stored deltas per packed or text byte
+///   (staircase, lone-freeze, dense-suffix, and the organic pairs).
+/// - **Saturated scans tie exactly.** Whole-stream reads saturate at
+///   8 bits per packed byte (16 on the two-walk projections), so a
+///   scan argmax among saturated families is a hairline deterministic
+///   constant, and a rejection defect that scans every byte identically
+///   pins the whole tied set.
+/// - **O(1) fast paths unrank their families.** Refcount-bump clones,
+///   owned-subtree splices, and identity projections drop a family's
+///   reading to size-independent machinery, so the argmax lands on the
+///   families the operation still walks — the organic control ranking
+///   first on a cell is the adversaries having been cured, not the
+///   control regressing.
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_decode", ["hugeleaf", "dense", "staircase", "staircase"]),
     ("default", "version_encode", ["promo-rearm", "-", "-", "-"]),

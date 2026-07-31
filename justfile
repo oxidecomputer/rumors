@@ -325,7 +325,7 @@ fuzzfit: fuzzfit-build
 # Re-fit the pinned bands from the committed deterministic corpus (4096
 # programs; byte-reproducible, so any diff is a real change). Rewrites
 # harness/src/bands.rs atomically: review the diff like a snapshot and
-# commit with a dated movement annotation in the module doc.
+# commit with the movement annotated in the commit message.
 
 # Re-fit and rewrite the fuzz-fit harness's pinned fuel bands.
 [working-directory("crates/before/fuzzfit")]
@@ -584,7 +584,7 @@ amp-board-shard-pin:
 # nightly rustdoc JSON — the compiler's own account of the public
 # surface — so a public fn or method added anywhere (a new file, a new
 # module, a feature-gated tree) fails the gate until it gains a roster
-# row or a named, dated exception in crates/before/surfacecheck. Trait
+# row or a named, reasoned exception in crates/before/surfacecheck. Trait
 # impls (operators, codecs, derives) and non-function items (associated
 # consts and types, statics, macros) are held to the same standard by
 # the pinned censuses in crates/before/surfacecheck/src/census.rs,

@@ -52,7 +52,7 @@
 //! per pair — plus the oracle's boxed clones and the lowering for the
 //! structural compare — which prices at roughly seven eighths of the pair
 //! worker (measured on a stride-sampled quarter of the deep corpus,
-//! 2026-07-27, aarch64-apple-darwin, 16 cores, release: the difference leg
+//! aarch64-apple-darwin, 16 cores, release: the difference leg
 //! ~66 and the join leg ~12 of a ~91 ns/pair wall worker), and at the full
 //! corpus the allocate-per-pair legs additionally contend the allocator
 //! across the pool — all to re-check structure the small scope already pins

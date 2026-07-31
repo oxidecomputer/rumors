@@ -54,7 +54,7 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
 /// known-quadratic conversion class it times, where green means the
 /// tripwire went dark; the display pair's red is the conversion-dominated
 /// hugeleaf-width render (measured e 1.39/1.42 at the general 1.3
-/// ceiling, 2026-07-27), owned by the text column with the class question
+/// ceiling), owned by the text column with the class question
 /// open. Removing an owned red silences a standing judgment and adding
 /// one launders a new regression as expected, so both directions must
 /// show up as a diff of this pin.
