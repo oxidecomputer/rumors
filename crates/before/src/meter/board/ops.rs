@@ -35,10 +35,11 @@ use super::floors::{
     touch_wide_stream, walk_floors, NA_HEAP_IN_PLACE, NA_LIMB_DEPENDENCY, NA_LIMB_ID_TREE,
     NA_LIMB_NARROW, NA_LIMB_NOT_FORCED, NA_LIMB_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES,
     NA_SCAN_NO_STREAM, NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_TOUCH_GROW, NA_TOUCH_ID_TREE,
-    NA_TOUCH_NOT_FORCED, NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_REJECTION,
-    NA_TOUCH_RENDER_SUMMARIES, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_DECODE,
-    WHY_LIMB_RANK_ENCODE, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM, WHY_SCAN_EXAMINES,
-    WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
+    NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC,
+    NA_TOUCH_REJECTION, NA_TOUCH_RENDER_SUMMARIES, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF,
+    WHY_LIMB_RANK_DECODE, WHY_LIMB_RANK_ENCODE, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM,
+    WHY_SCAN_EXAMINES, WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED, WHY_SCAN_REJECT_END,
+    WHY_TOUCH_RANK_SUM,
 };
 use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_clock, radix_units_party,
@@ -1111,6 +1112,81 @@ pub(super) fn ops() -> Vec<Op> {
                     let hit = causally::since(&v).contains(&w);
                     (hit, v, w)
                 }))
+            },
+        },
+        // The placement rows: the arity-3 fused walk (one probe against
+        // two bounds) on the pair's own hull, probed by a buffer-distinct
+        // re-decode of one input. Clone identity between the probe and an
+        // endpoint is impossible while byte equality holds, so the
+        // coincidence rung cannot collapse the walk; and the probe always
+        // lies within its own pair's hull, so the verdict is confirming
+        // — full examination of all three streams is forced, and the
+        // full-examination scan floor is honest on every family.
+        Op {
+            name: "span_place",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let probe = decode_version(&v.encode());
+                let n =
+                    span.meet().encode().len() + span.join().encode().len() + probe.encode().len();
+                Some(Cell::new(
+                    n,
+                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
+                    move || {
+                        let verdict = span.place(&probe);
+                        (verdict, span, probe)
+                    },
+                ))
+            },
+        },
+        Op {
+            name: "span_dominance",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let probe = decode_version(&v.encode());
+                let n =
+                    span.meet().encode().len() + span.join().encode().len() + probe.encode().len();
+                Some(Cell::new(
+                    n,
+                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
+                    move || {
+                        let verdict = span.dominance_of(&probe);
+                        (verdict, span, probe)
+                    },
+                ))
+            },
+        },
+        Op {
+            name: "range_bounded",
+            group: OpGroup::Version,
+            prepare: |f| {
+                // The two-bounded range door over the same operands. The
+                // range borrows its bounds, so the measured body builds
+                // it in place: `known_at`'s validating comparison (at
+                // most one pair sweep, the same walk class as the query)
+                // rides along, pricing exactly the composite a consumer
+                // reaches from owned endpoints.
+                let (v, w, _) = f.version_pair()?;
+                let (lo, hi) = v.span(&w).into_parts();
+                let probe = decode_version(&v.encode());
+                let n = lo.encode().len() + hi.encode().len() + probe.encode().len();
+                Some(Cell::new(
+                    n,
+                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
+                    move || {
+                        let verdict = {
+                            let range = causally::not_before(&lo)
+                                .known_at(&hi)
+                                .expect("a hull's endpoints are ordered");
+                            range.bounded(&probe)
+                        };
+                        (verdict, lo, hi, probe)
+                    },
+                ))
             },
         },
         // ── Party ──────────────────────────────────────────────────────

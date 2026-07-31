@@ -1043,11 +1043,11 @@ pub(crate) const CLAIMS: &[Claim] = &[
     ),
     causally(
         "causally::Range::placement_of",
-        Cells::Board(&[("causally_contains", Class::Linear)]),
+        Cells::Board(&[("range_bounded", Class::Linear)]),
     ),
     causally(
         "causally::Range::bounded",
-        Cells::Board(&[("causally_contains", Class::Linear)]),
+        Cells::Board(&[("range_bounded", Class::Linear)]),
     ),
     causally(
         "causally::Span::new",
@@ -1062,11 +1062,11 @@ pub(crate) const CLAIMS: &[Claim] = &[
     ),
     causally(
         "causally::Span::place",
-        Cells::Board(&[("causally_contains", Class::Linear)]),
+        Cells::Board(&[("span_place", Class::Linear)]),
     ),
     causally(
         "causally::Span::dominance_of",
-        Cells::Board(&[("causally_contains", Class::Linear)]),
+        Cells::Board(&[("span_dominance", Class::Linear)]),
     ),
     constant("causally::Span::meet"),
     constant("causally::Span::join"),
