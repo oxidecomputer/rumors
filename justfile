@@ -88,17 +88,19 @@ clippy:
 # `clippy` above lints under --all-features, and the dev-dependency cycle
 # forces the meter/oracle features onto the lib for every test build — so a
 # surface that is dead under *default* features (test-only helpers left
-# ungated) never trips it. These are the default-feature library builds,
-# exactly what `cargo build -p <crate>` compiles, warnings denied: test- and
-# meter-only surface must be cfg-gated, not left dangling. Each package is
-# linted alone so workspace feature unification cannot re-light the gated
-# features.
+# ungated) never trips it. These are the default-feature library and
+# test-target builds, warnings denied: test- and meter-only surface must be
+# cfg-gated, not left dangling, in the integration-test and cfg(test) trees
+# just as in the lib (`just test` compiles the test targets under default
+# features with warnings not denied, so without this leg that surface never
+# meets -D warnings anywhere). Each package is linted alone so workspace
+# feature unification cannot re-light the gated features.
 
-# Lint the default-feature library builds, warnings denied.
+# Lint the default-feature library and test builds, warnings denied.
 clippy-default:
-    cargo clippy -p suanpan -- -D warnings
-    cargo clippy -p before -- -D warnings
-    cargo clippy -p rumors -- -D warnings
+    cargo clippy -p suanpan --lib --tests -- -D warnings
+    cargo clippy -p before --lib --tests -- -D warnings
+    cargo clippy -p rumors --lib --tests -- -D warnings
 
 # Format the whole workspace.
 fmt:
