@@ -132,14 +132,19 @@ fn rendered_text_is_honest_and_padding_trips() {
 /// The pipeline records from three sites — the delegated radix conversion
 /// (one width-proportional count per materialized value), the gamma
 /// encoder's arithmetic, and the validator's wide decodes — and the radix
-/// site alone contributes ~33% on hugeleaf and ~25% on bigroot \[measured
-/// — pipeline totals 752 and 16_387; 502 and 12_260 with the radix
-/// recording deleted\]. A floor at ×0.85 (639 and 13_928) therefore sits
-/// above what the other two sites can reach, so a parse path that stops
-/// recording trips it; the values' mandatory limbs alone cannot separate
-/// that bypass (the encode-side arithmetic already covers them).
+/// site alone contributes ~33% on hugeleaf and ~17% on bigroot \[measured
+/// 2026-07-31 — pipeline totals 752 and 24_399; 502 and 20_272 with the
+/// radix recording deleted. The radix side's own contribution (250 and
+/// 4_127) is unmoved since the 2026-07-24 record; the other sites' bigroot
+/// share grew under the standing ceiling\]. A floor at ×0.85 (639 and
+/// 20_739) sits above what the other two sites can reach, so a parse path
+/// that stops recording trips it; the values' mandatory limbs alone cannot
+/// separate that bypass (the encode-side arithmetic already covers them).
+/// The bigroot separation margin is thin — a 20_739 floor over the
+/// bypass's 20_272 reading — so a re-measure that moves the other sites
+/// up must re-derive both readings before trusting the floor separates.
 #[cfg(feature = "limb-meter")]
-const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 639), ("bigroot", 13_928)];
+const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 639), ("bigroot", 20_739)];
 
 /// The production parser's recorded limb work sits under the text-row limb
 /// ceiling κ on the wide-magnitude families, with a live counter.
