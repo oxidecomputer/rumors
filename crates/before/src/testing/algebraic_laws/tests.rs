@@ -1,11 +1,14 @@
 //! The law drivers: one generic proptest per signature group, iterating
 //! [`crate::laws`]' slices so every assertion names the law it checks.
 //!
-//! Each driver's doc comment states the meta-invariant; the individual
-//! laws' statements live with their predicates in [`crate::laws`]. No
-//! assertion's right-hand side mentions the oracle: the laws hold by the
-//! ITC algebra, so they catch a defect the impl and the recursive oracle
-//! would share.
+//! Both driver genres — the per-group proptests and the
+//! organic-populations drive list — expand from the law-group roster
+//! (`crate::for_each_law_group!`), so every registered group is driven
+//! here by construction. Each driver's doc comment states the
+//! meta-invariant; the individual laws' statements live with their
+//! predicates in [`crate::laws`]. No assertion's right-hand side mentions
+//! the oracle: the laws hold by the ITC algebra, so they catch a defect
+//! the impl and the recursive oracle would share.
 
 use proptest::prelude::*;
 
@@ -16,7 +19,7 @@ use crate::testing::generators::{
     arb_party_family, arb_version_family,
 };
 use crate::testing::optrace::{run, step_impl, world_strategy};
-use crate::{Clock, Party, Version};
+use crate::{Clock, Party, Rank, Version};
 
 /// Build a fresh impl `Version` from an oracle source tree. The oracle tree
 /// is only a carrier of canonical bits here.
@@ -42,207 +45,327 @@ macro_rules! assert_laws {
 
 // ───────────────────── arbitrary normal-form inputs ─────────────────────
 
-proptest! {
-    /// Every [`laws::VERSION_SOLO`] law holds on arbitrary normal-form
-    /// versions, including large-base events.
-    #[test]
-    fn version_solo_laws(a in arb_oracle_version()) {
-        assert_laws!(laws::VERSION_SOLO, &ver(&a));
-    }
+/// Expands the law-group roster into the per-group drivers: one proptest
+/// per group, named by the roster's driver column, keyed on the group's
+/// input signature, feeding it the arbitrary normal-form generators.
+///
+/// The arms carry each signature's input regime (and its doc comment);
+/// the *list* of groups lives only in `crate::for_each_law_group!`, so a
+/// group added to the roster with a known signature is driven here with
+/// no further wiring, and one with a novel signature refuses to compile
+/// until an arm says how to feed it.
+macro_rules! group_drivers {
+    (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
+        $( group_drivers!(@one $group, $driver, $shape); )*
+    };
+    (@one $group:ident, $driver:ident, (version)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary normal-form
+            /// versions, including large-base events.
+            #[test]
+            fn $driver(a in arb_oracle_version()) {
+                assert_laws!(laws::$group, &ver(&a));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, version)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary normal-form
+            /// version pairs.
+            #[test]
+            fn $driver(a in arb_oracle_version(), b in arb_oracle_version()) {
+                assert_laws!(laws::$group, &ver(&a), &ver(&b));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, version, version)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary normal-form
+            /// version triples.
+            #[test]
+            fn $driver(
+                a in arb_oracle_version(),
+                b in arb_oracle_version(),
+                c in arb_oracle_version(),
+            ) {
+                assert_laws!(laws::$group, &ver(&a), &ver(&b), &ver(&c));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (party)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary non-empty
+            /// normal-form ids.
+            #[test]
+            fn $driver(p in arb_oracle_party_nonempty()) {
+                assert_laws!(laws::$group, &party(&p));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (party, party)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary non-empty id
+            /// pairs — typically unrelated and frequently overlapping,
+            /// shapes the op pipeline never produces.
+            #[test]
+            fn $driver(p in arb_oracle_party_nonempty(), q in arb_oracle_party_nonempty()) {
+                assert_laws!(laws::$group, &party(&p), &party(&q));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (party, party, party)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary non-empty id
+            /// triples.
+            #[test]
+            fn $driver(
+                p in arb_oracle_party_nonempty(),
+                q in arb_oracle_party_nonempty(),
+                r in arb_oracle_party_nonempty(),
+            ) {
+                assert_laws!(laws::$group, &party(&p), &party(&q), &party(&r));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, party)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary version/id
+            /// pairings — the tick and projection laws on regions
+            /// unrelated to the history they act on.
+            #[test]
+            fn $driver(a in arb_oracle_version(), p in arb_oracle_party_nonempty()) {
+                assert_laws!(laws::$group, &ver(&a), &party(&p));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, version, party)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary version-pair/id
+            /// combinations.
+            #[test]
+            fn $driver(
+                a in arb_oracle_version(),
+                b in arb_oracle_version(),
+                p in arb_oracle_party_nonempty(),
+            ) {
+                assert_laws!(laws::$group, &ver(&a), &ver(&b), &party(&p));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, party, party)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary version/id-pair
+            /// combinations.
+            #[test]
+            fn $driver(
+                a in arb_oracle_version(),
+                p in arb_oracle_party_nonempty(),
+                q in arb_oracle_party_nonempty(),
+            ) {
+                assert_laws!(laws::$group, &ver(&a), &party(&p), &party(&q));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, version, party, party)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary
+            /// version-pair/id-pair combinations.
+            #[test]
+            fn $driver(
+                a in arb_oracle_version(),
+                b in arb_oracle_version(),
+                p in arb_oracle_party_nonempty(),
+                q in arb_oracle_party_nonempty(),
+            ) {
+                assert_laws!(laws::$group, &ver(&a), &ver(&b), &party(&p), &party(&q));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (rank, rank, rank)) => {
+        proptest! {
+            /// Every law in the group holds on ranks derived from
+            /// arbitrary normal-form versions (their own ranks and a
+            /// genuine distance) — organically related magnitudes.
+            ///
+            /// The adversarial spilled-magnitude regime is driven where
+            /// the rank machinery lives, in the version suite's rank
+            /// driver.
+            #[test]
+            fn $driver(a in arb_oracle_version(), b in arb_oracle_version()) {
+                let (va, vb) = (ver(&a), ver(&b));
+                let (ra, rb, rc) = (va.rank(), vb.rank(), va.distance(&vb));
+                assert_laws!(laws::$group, &ra, &rb, &rc);
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (clock)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary canonical
+            /// party/version pairings — every such pairing is a valid
+            /// clock, including ones no op sequence reaches.
+            #[test]
+            fn $driver(p in arb_oracle_party_nonempty(), a in arb_oracle_version()) {
+                assert_laws!(laws::$group, &Clock::from_parts(party(&p), ver(&a)));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (clock, version)) => {
+        proptest! {
+            /// Every law in the group holds on arbitrary clocks paired
+            /// with arbitrary (typically concurrent, unrelated) messages.
+            #[test]
+            fn $driver(
+                p in arb_oracle_party_nonempty(),
+                a in arb_oracle_version(),
+                m in arb_oracle_version(),
+            ) {
+                assert_laws!(laws::$group, &Clock::from_parts(party(&p), ver(&a)), &ver(&m));
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (versions)) => {
+        proptest! {
+            /// Every law in the group holds on pool-indexed version
+            /// lists whose arities sweep the balanced fold's boundary
+            /// band (`arb_fold_arity` documents the derivation).
+            #[test]
+            fn $driver((_, xs) in arb_version_family()) {
+                let xs: Vec<Version> = xs.iter().map(ver).collect();
+                assert_laws!(laws::$group, &xs);
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, versions)) => {
+        proptest! {
+            /// Every law in the group holds on pool-indexed version
+            /// families — a receiver plus boundary-swept items, repeats
+            /// and the empty version under mass at every arity.
+            #[test]
+            fn $driver((r, xs) in arb_version_family()) {
+                let receiver = ver(&r);
+                let xs: Vec<Version> = xs.iter().map(ver).collect();
+                assert_laws!(laws::$group, &receiver, &xs);
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (party, parties)) => {
+        proptest! {
+            /// Every law in the group holds on pool-indexed party
+            /// families — aliased repeats keep the refusal arm under
+            /// mass, the constructed laws' fork trees the accepted arm,
+            /// at every boundary-band arity.
+            #[test]
+            fn $driver((r, items) in arb_party_family()) {
+                let receiver = party(&r);
+                let items: Vec<Party> = items.iter().map(party).collect();
+                assert_laws!(laws::$group, &receiver, &items);
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (clock, clocks)) => {
+        proptest! {
+            /// Every law in the group holds on pool-indexed clock
+            /// families — arbitrary canonical party/version pairings,
+            /// aliased parties under mass, at every boundary-band arity.
+            #[test]
+            fn $driver((r, items) in arb_clock_family()) {
+                let clock = |(p, v): &(oracle::Party, oracle::Version)| {
+                    Clock::from_parts(party(p), ver(v))
+                };
+                let receiver = clock(&r);
+                let items: Vec<Clock> = items.iter().map(clock).collect();
+                assert_laws!(laws::$group, &receiver, &items);
+            }
+        }
+    };
 }
 
-proptest! {
-    /// Every [`laws::VERSION_PAIR`] law holds on arbitrary normal-form
-    /// version pairs.
-    #[test]
-    fn version_pair_laws(a in arb_oracle_version(), b in arb_oracle_version()) {
-        assert_laws!(laws::VERSION_PAIR, &ver(&a), &ver(&b));
-    }
-}
-
-proptest! {
-    /// Every [`laws::VERSION_TRIPLE`] law holds on arbitrary normal-form
-    /// version triples.
-    #[test]
-    fn version_triple_laws(
-        a in arb_oracle_version(),
-        b in arb_oracle_version(),
-        c in arb_oracle_version(),
-    ) {
-        assert_laws!(laws::VERSION_TRIPLE, &ver(&a), &ver(&b), &ver(&c));
-    }
-}
-
-proptest! {
-    /// Every [`laws::PARTY_SOLO`] law holds on arbitrary non-empty
-    /// normal-form ids.
-    #[test]
-    fn party_solo_laws(p in arb_oracle_party_nonempty()) {
-        assert_laws!(laws::PARTY_SOLO, &party(&p));
-    }
-}
-
-proptest! {
-    /// Every [`laws::PARTY_PAIR`] law holds on arbitrary non-empty id pairs
-    /// — typically unrelated and frequently overlapping, shapes the op
-    /// pipeline never produces.
-    #[test]
-    fn party_pair_laws(p in arb_oracle_party_nonempty(), q in arb_oracle_party_nonempty()) {
-        assert_laws!(laws::PARTY_PAIR, &party(&p), &party(&q));
-    }
-}
-
-proptest! {
-    /// Every [`laws::PARTY_TRIPLE`] law holds on arbitrary non-empty id
-    /// triples.
-    #[test]
-    fn party_triple_laws(
-        p in arb_oracle_party_nonempty(),
-        q in arb_oracle_party_nonempty(),
-        r in arb_oracle_party_nonempty(),
-    ) {
-        assert_laws!(laws::PARTY_TRIPLE, &party(&p), &party(&q), &party(&r));
-    }
-}
-
-proptest! {
-    /// Every [`laws::VERSION_PARTY`] law holds on arbitrary version/id
-    /// pairings — the tick and projection laws on regions unrelated to the
-    /// history they act on.
-    #[test]
-    fn version_party_laws(a in arb_oracle_version(), p in arb_oracle_party_nonempty()) {
-        assert_laws!(laws::VERSION_PARTY, &ver(&a), &party(&p));
-    }
-}
-
-proptest! {
-    /// Every [`laws::VERSION_PAIR_PARTY`] law holds on arbitrary
-    /// version-pair/id combinations.
-    #[test]
-    fn version_pair_party_laws(
-        a in arb_oracle_version(),
-        b in arb_oracle_version(),
-        p in arb_oracle_party_nonempty(),
-    ) {
-        assert_laws!(laws::VERSION_PAIR_PARTY, &ver(&a), &ver(&b), &party(&p));
-    }
-}
-
-proptest! {
-    /// Every [`laws::VERSION_PARTY_PAIR`] law holds on arbitrary
-    /// version/id-pair combinations.
-    #[test]
-    fn version_party_pair_laws(
-        a in arb_oracle_version(),
-        p in arb_oracle_party_nonempty(),
-        q in arb_oracle_party_nonempty(),
-    ) {
-        assert_laws!(laws::VERSION_PARTY_PAIR, &ver(&a), &party(&p), &party(&q));
-    }
-}
-
-proptest! {
-    /// Every [`laws::VERSION_PAIR_PARTY_PAIR`] law holds on arbitrary
-    /// version-pair/id-pair combinations.
-    #[test]
-    fn version_pair_party_pair_laws(
-        a in arb_oracle_version(),
-        b in arb_oracle_version(),
-        p in arb_oracle_party_nonempty(),
-        q in arb_oracle_party_nonempty(),
-    ) {
-        assert_laws!(laws::VERSION_PAIR_PARTY_PAIR, &ver(&a), &ver(&b), &party(&p), &party(&q));
-    }
-}
-
-proptest! {
-    /// Every [`laws::RANK_TRIPLE`] law holds on ranks derived from
-    /// arbitrary normal-form versions (their own ranks and a genuine
-    /// distance) — organically related magnitudes.
-    ///
-    /// The adversarial spilled-magnitude regime is driven where the rank
-    /// machinery lives, in the version suite's rank driver.
-    #[test]
-    fn rank_triple_laws(a in arb_oracle_version(), b in arb_oracle_version()) {
-        let (va, vb) = (ver(&a), ver(&b));
-        let (ra, rb, rc) = (va.rank(), vb.rank(), va.distance(&vb));
-        assert_laws!(laws::RANK_TRIPLE, &ra, &rb, &rc);
-    }
-}
-
-proptest! {
-    /// Every [`laws::CLOCK_SOLO`] law holds on arbitrary canonical
-    /// party/version pairings — every such pairing is a valid clock,
-    /// including ones no op sequence reaches.
-    #[test]
-    fn clock_solo_laws(p in arb_oracle_party_nonempty(), a in arb_oracle_version()) {
-        assert_laws!(laws::CLOCK_SOLO, &Clock::from_parts(party(&p), ver(&a)));
-    }
-}
-
-proptest! {
-    /// Every [`laws::CLOCK_VERSION`] law holds on arbitrary clocks paired
-    /// with arbitrary (typically concurrent, unrelated) messages.
-    #[test]
-    fn clock_version_laws(
-        p in arb_oracle_party_nonempty(),
-        a in arb_oracle_version(),
-        m in arb_oracle_version(),
-    ) {
-        assert_laws!(laws::CLOCK_VERSION, &Clock::from_parts(party(&p), ver(&a)), &ver(&m));
-    }
-}
-
-proptest! {
-    /// Every [`laws::VERSION_LIST`] law holds on pool-indexed version
-    /// lists whose arities sweep the balanced fold's boundary band
-    /// (`arb_fold_arity` documents the derivation).
-    #[test]
-    fn version_list_laws((_, xs) in arb_version_family()) {
-        let xs: Vec<Version> = xs.iter().map(ver).collect();
-        assert_laws!(laws::VERSION_LIST, &xs);
-    }
-}
-
-proptest! {
-    /// Every [`laws::VERSION_AND_LIST`] law holds on pool-indexed
-    /// version families — a receiver plus boundary-swept items, repeats
-    /// and the empty version under mass at every arity.
-    #[test]
-    fn version_and_list_laws((r, xs) in arb_version_family()) {
-        let receiver = ver(&r);
-        let xs: Vec<Version> = xs.iter().map(ver).collect();
-        assert_laws!(laws::VERSION_AND_LIST, &receiver, &xs);
-    }
-}
-
-proptest! {
-    /// Every [`laws::PARTY_AND_LIST`] law holds on pool-indexed party
-    /// families — aliased repeats keep the refusal arm under mass, the
-    /// constructed laws' fork trees the accepted arm, at every
-    /// boundary-band arity.
-    #[test]
-    fn party_and_list_laws((r, items) in arb_party_family()) {
-        let receiver = party(&r);
-        let items: Vec<Party> = items.iter().map(party).collect();
-        assert_laws!(laws::PARTY_AND_LIST, &receiver, &items);
-    }
-}
-
-proptest! {
-    /// Every [`laws::CLOCK_AND_LIST`] law holds on pool-indexed clock
-    /// families — arbitrary canonical party/version pairings, aliased
-    /// parties under mass, at every boundary-band arity.
-    #[test]
-    fn clock_and_list_laws((r, items) in arb_clock_family()) {
-        let clock = |(p, v): &(oracle::Party, oracle::Version)| Clock::from_parts(party(p), ver(v));
-        let receiver = clock(&r);
-        let items: Vec<Clock> = items.iter().map(clock).collect();
-        assert_laws!(laws::CLOCK_AND_LIST, &receiver, &items);
-    }
-}
+crate::for_each_law_group!(group_drivers);
 
 // ───────────────────── organic op-trace populations ─────────────────────
+
+/// One organic population's picks, borrowed: the pools the
+/// roster-derived organic drive list selects each group's inputs from.
+struct Organic<'a> {
+    /// Three organically related versions from the trace.
+    v: [&'a Version; 3],
+    /// Three live parties from the same trace.
+    p: [&'a Party; 3],
+    /// Ranks derived from the versions: two own ranks and a genuine
+    /// distance.
+    r: [&'a Rank; 3],
+    /// One reachable clock, replayed from the trace on the impl.
+    c: &'a Clock,
+    /// Pool-indexed lists at fold-boundary arities. Repeated picks are
+    /// repeated raw versions and *aliased* live parties/clocks — the
+    /// input classes the list laws' fold and refusal arms exist for.
+    versions: &'a [Version],
+    parties: &'a [Party],
+    clocks: &'a [Clock],
+}
+
+/// Expands the law-group roster into the organic drive list: one
+/// `assert_laws!` per group, keyed on the group's input signature,
+/// selecting that signature's inputs from an [`Organic`] environment.
+///
+/// The group list lives only in `crate::for_each_law_group!`; a roster
+/// signature without an arm here refuses to compile.
+macro_rules! organic_drive {
+    (args: ($env:expr); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
+        $( organic_drive!(@one $env, $group, $shape); )*
+    };
+    (@one $env:expr, $group:ident, (version)) => {
+        assert_laws!(laws::$group, $env.v[0]);
+    };
+    (@one $env:expr, $group:ident, (version, version)) => {
+        assert_laws!(laws::$group, $env.v[0], $env.v[1]);
+    };
+    (@one $env:expr, $group:ident, (version, version, version)) => {
+        assert_laws!(laws::$group, $env.v[0], $env.v[1], $env.v[2]);
+    };
+    (@one $env:expr, $group:ident, (party)) => {
+        assert_laws!(laws::$group, $env.p[0]);
+    };
+    (@one $env:expr, $group:ident, (party, party)) => {
+        assert_laws!(laws::$group, $env.p[0], $env.p[1]);
+    };
+    (@one $env:expr, $group:ident, (party, party, party)) => {
+        assert_laws!(laws::$group, $env.p[0], $env.p[1], $env.p[2]);
+    };
+    (@one $env:expr, $group:ident, (version, party)) => {
+        assert_laws!(laws::$group, $env.v[0], $env.p[1]);
+    };
+    (@one $env:expr, $group:ident, (version, version, party)) => {
+        assert_laws!(laws::$group, $env.v[0], $env.v[1], $env.p[2]);
+    };
+    (@one $env:expr, $group:ident, (version, party, party)) => {
+        assert_laws!(laws::$group, $env.v[0], $env.p[1], $env.p[2]);
+    };
+    (@one $env:expr, $group:ident, (version, version, party, party)) => {
+        assert_laws!(laws::$group, $env.v[0], $env.v[1], $env.p[1], $env.p[2]);
+    };
+    (@one $env:expr, $group:ident, (rank, rank, rank)) => {
+        assert_laws!(laws::$group, $env.r[0], $env.r[1], $env.r[2]);
+    };
+    (@one $env:expr, $group:ident, (clock)) => {
+        assert_laws!(laws::$group, $env.c);
+    };
+    (@one $env:expr, $group:ident, (clock, version)) => {
+        assert_laws!(laws::$group, $env.c, $env.v[1]);
+    };
+    (@one $env:expr, $group:ident, (versions)) => {
+        assert_laws!(laws::$group, $env.versions);
+    };
+    (@one $env:expr, $group:ident, (version, versions)) => {
+        assert_laws!(laws::$group, $env.v[0], $env.versions);
+    };
+    (@one $env:expr, $group:ident, (party, parties)) => {
+        assert_laws!(laws::$group, $env.p[0], $env.parties);
+    };
+    (@one $env:expr, $group:ident, (clock, clocks)) => {
+        assert_laws!(laws::$group, $env.c, $env.clocks);
+    };
+}
 
 proptest! {
     /// The whole law collection holds over organic op-trace populations.
@@ -267,29 +390,12 @@ proptest! {
         let (pc, vc) = cs[picks[2]].trees();
         let (ia, ib, ic) = (ver(va), ver(vb), ver(vc));
         let (qa, qb, qc) = (party(pa), party(pb), party(pc));
-
-        assert_laws!(laws::VERSION_SOLO, &ia);
-        assert_laws!(laws::VERSION_PAIR, &ia, &ib);
-        assert_laws!(laws::VERSION_TRIPLE, &ia, &ib, &ic);
-        assert_laws!(laws::PARTY_SOLO, &qa);
-        assert_laws!(laws::PARTY_PAIR, &qa, &qb);
-        assert_laws!(laws::PARTY_TRIPLE, &qa, &qb, &qc);
-        assert_laws!(laws::VERSION_PARTY, &ia, &qb);
-        assert_laws!(laws::VERSION_PAIR_PARTY, &ia, &ib, &qc);
-        assert_laws!(laws::VERSION_PARTY_PAIR, &ia, &qb, &qc);
-        assert_laws!(laws::VERSION_PAIR_PARTY_PAIR, &ia, &ib, &qb, &qc);
         let (ra, rb, rc) = (ia.rank(), ib.rank(), ia.distance(&ib));
-        assert_laws!(laws::RANK_TRIPLE, &ra, &rb, &rc);
 
         // Variadic families over the same population: pool-indexed picks
-        // at fold-boundary arities. Repeated picks are repeated raw
-        // versions and *aliased* live parties/clocks — the input classes
-        // the list laws' fold and refusal arms exist for.
+        // at fold-boundary arities.
         let vlist: Vec<Version> = list_picks.iter().map(|t| ver(cs[t % n].trees().1)).collect();
-        assert_laws!(laws::VERSION_LIST, &vlist);
-        assert_laws!(laws::VERSION_AND_LIST, &ia, &vlist);
         let plist: Vec<Party> = list_picks.iter().map(|t| party(cs[t % n].trees().0)).collect();
-        assert_laws!(laws::PARTY_AND_LIST, &qa, &plist);
 
         // Clocks: replay the trace on the impl for real, reachable clocks.
         let mut imp = vec![Clock::seed()];
@@ -297,12 +403,20 @@ proptest! {
             step_impl(&mut imp, op);
         }
         let ca = &imp[picks[0] % imp.len()];
-        assert_laws!(laws::CLOCK_SOLO, ca);
-        assert_laws!(laws::CLOCK_VERSION, ca, &ib);
         let clist: Vec<Clock> = list_picks
             .iter()
             .map(|t| imp[t % imp.len()].dangerously_alias())
             .collect();
-        assert_laws!(laws::CLOCK_AND_LIST, ca, &clist);
+
+        let organic = Organic {
+            v: [&ia, &ib, &ic],
+            p: [&qa, &qb, &qc],
+            r: [&ra, &rb, &rc],
+            c: ca,
+            versions: &vlist,
+            parties: &plist,
+            clocks: &clist,
+        };
+        crate::for_each_law_group!(organic_drive(&organic));
     }
 }

@@ -71,59 +71,98 @@ use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 /// hold on every admissible input.
 pub type Law<F> = (&'static str, F);
 
-/// Emits the registration surface from one group list.
+/// The group roster: every law-group static, the name of its per-group
+/// driver, and its input signature, spelled once.
 ///
-/// The name chain (`registered_names`) and the group roster
+/// Every consumer derives from this one list by callback: the macro
+/// hands the entries to a consumer-supplied macro, forwarding an
+/// optional argument clause (`consumer(args)`) ahead of them as
+/// `args: (...)`. The derived consumers:
+///
+/// - `registered_names` and `REGISTERED_GROUPS` (this module's tests'
+///   registration surface) chain it, so every name-facing check — the
+///   uniqueness pin, the coverage roster's citation haystack — resolves
+///   against exactly the entries the drivers run;
+/// - the algebraic-laws suite expands it twice: into the per-group
+///   proptest drivers (by the driver names carried here) and into the
+///   organic-populations drive list;
+/// - the law fuzz target expands it into its drive loop over decoded
+///   hostile-but-canonical values.
+///
+/// A group added here is therefore *executed by construction* in every
+/// consumer: each consumer keys its expansion arms on the input
+/// signature, so a new group with a known signature is driven with no
+/// further wiring, and one with a novel signature refuses to compile
+/// until every consumer says how to feed it. The reverse door — a
+/// `pub static` law group missing from this roster, which nothing would
+/// ever execute — is closed by the totality pin in this module's tests,
+/// which holds the roster equal to a source scan of the `pub static`
+/// declarations in this file.
+///
+/// The signature kinds name what each predicate borrows: `version`,
+/// `party`, `rank`, `clock` for single values, and `versions`,
+/// `parties`, `clocks` for the variadic item lists.
+#[cfg(any(test, feature = "laws"))]
+#[macro_export]
+macro_rules! for_each_law_group {
+    ($callback:ident) => { $crate::for_each_law_group!($callback()); };
+    ($callback:ident($($args:tt)*)) => {
+        $callback! {
+            args: ($($args)*);
+            (VERSION_SOLO, version_solo_laws, (version)),
+            (VERSION_PAIR, version_pair_laws, (version, version)),
+            (VERSION_TRIPLE, version_triple_laws, (version, version, version)),
+            (VERSION_LIST, version_list_laws, (versions)),
+            (VERSION_AND_LIST, version_and_list_laws, (version, versions)),
+            (PARTY_SOLO, party_solo_laws, (party)),
+            (PARTY_PAIR, party_pair_laws, (party, party)),
+            (PARTY_TRIPLE, party_triple_laws, (party, party, party)),
+            (PARTY_AND_LIST, party_and_list_laws, (party, parties)),
+            (VERSION_PARTY, version_party_laws, (version, party)),
+            (VERSION_PAIR_PARTY, version_pair_party_laws, (version, version, party)),
+            (VERSION_PARTY_PAIR, version_party_pair_laws, (version, party, party)),
+            (VERSION_PAIR_PARTY_PAIR, version_pair_party_pair_laws, (version, version, party, party)),
+            (RANK_TRIPLE, rank_triple_laws, (rank, rank, rank)),
+            (CLOCK_SOLO, clock_solo_laws, (clock)),
+            (CLOCK_VERSION, clock_version_laws, (clock, version)),
+            (CLOCK_AND_LIST, clock_and_list_laws, (clock, clocks)),
+        }
+    };
+}
+
+/// Emits the registration surface from the roster.
+///
+/// The name chain (`registered_names`) and the group list
 /// (`REGISTERED_GROUPS`) — both test-only, so code spans rather than
-/// links here — come from a single spelling of the groups, so they
-/// cannot drift from each other; the totality pin in this module's
-/// tests holds that one spelling equal to the `pub static`
-/// declarations in this file and present in every consumer, closing
-/// the unwired-group hole (a group static that compiles, ships, and
-/// never executes).
-macro_rules! register_groups {
-    ($($group:ident),* $(,)?) => {
+/// links here — expand from `for_each_law_group!`'s single spelling,
+/// so they cannot drift from each other or from what the derived
+/// drivers execute.
+#[cfg(test)]
+macro_rules! emit_registration {
+    (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         /// Every registered law name, across all groups.
         ///
         /// The collection read from the tables themselves — the same
-        /// entries the algebraic-laws drivers execute — so anything that
+        /// entries the roster-derived drivers execute — so anything that
         /// consumes law names (the uniqueness pin, the coverage roster's
         /// citation check) resolves against what actually runs, never
         /// against a text scan that a stray same-named `fn` could
         /// satisfy.
-        #[cfg(test)]
         pub(crate) fn registered_names() -> Vec<&'static str> {
             std::iter::empty()
                 $(.chain($group.iter().map(|(name, _)| *name)))*
                 .collect()
         }
 
-        /// Every group static [`registered_names`] chains, by name —
-        /// the same single list, stringified.
-        #[cfg(test)]
+        /// Every group static the roster carries, by name — the same
+        /// single list, stringified, for the totality pin against the
+        /// `pub static` declarations in this file.
         pub(crate) const REGISTERED_GROUPS: &[&str] = &[$(stringify!($group)),*];
     };
 }
 
-register_groups!(
-    VERSION_SOLO,
-    VERSION_PAIR,
-    VERSION_TRIPLE,
-    VERSION_LIST,
-    VERSION_AND_LIST,
-    PARTY_SOLO,
-    PARTY_PAIR,
-    PARTY_TRIPLE,
-    PARTY_AND_LIST,
-    VERSION_PARTY,
-    VERSION_PAIR_PARTY,
-    VERSION_PARTY_PAIR,
-    VERSION_PAIR_PARTY_PAIR,
-    RANK_TRIPLE,
-    CLOCK_SOLO,
-    CLOCK_VERSION,
-    CLOCK_AND_LIST,
-);
+#[cfg(test)]
+crate::for_each_law_group!(emit_registration);
 
 /// `a <= b` under the causal order (concurrency is not-`<=`).
 fn le(a: &Version, b: &Version) -> bool {
