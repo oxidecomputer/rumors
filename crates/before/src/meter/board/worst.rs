@@ -641,6 +641,26 @@ pub(super) fn render_map(
 ///   the full merge at composition parity (19.4 bits/B, byte-identical
 ///   to the parent reading; runner-up id-pair ×1.21).
 ///
+/// Movement 2026-07-31 (the placement rows join the board: `span_place`,
+/// `span_dominance`, and `range_bounded` price the arity-3 fused walk —
+/// one probe against the pair hull's two bounds, the probe a
+/// buffer-distinct re-decode so the coincidence rung cannot collapse
+/// the walk; six new ranking entries — the three new rows at each
+/// scale — pinned from the live release fold, every pre-existing entry
+/// verified unmoved at both scales):
+///
+/// - **the placement argmaxes mirror the comparison genre** (hugeleaf
+///   heap, staircase limb/touch at both scales; scan staircase at the
+///   default scale and freeze-pos at acceptance — exactly
+///   causally_contains' columns): a confirming placement reads all
+///   three streams to the end, so the shapes that maximize the pair
+///   sweep's density maximize the fused walk's.
+/// - **range_bounded's scan argmax lands on hugeleaf at both scales**:
+///   the row prices the composite a consumer reaches from owned
+///   endpoints — `known_at`'s validating comparison rides ahead of the
+///   query — and that extra lo-vs-hi sweep weights the widest
+///   payloads.
+///
 /// Movement 2026-07-31 (the fused span hull: `version_span` joins as
 /// the fused pair-hull row and `version_span_all` as the two-sided
 /// hull fold's row; four new ranking entries — the two new rows at
@@ -733,6 +753,9 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_from_str", ["mirror-narrow", "staircase", "jump-pair", "staircase"]),
     ("default", "version_hash", ["-", "-", "-", "-"]),
     ("default", "causally_contains", ["hugeleaf", "staircase", "staircase", "staircase"]),
+    ("default", "span_place", ["hugeleaf", "staircase", "staircase", "staircase"]),
+    ("default", "span_dominance", ["hugeleaf", "staircase", "staircase", "staircase"]),
+    ("default", "range_bounded", ["hugeleaf", "staircase", "hugeleaf", "staircase"]),
     ("default", "party_decode", ["id-pair", "-", "id-pair", "-"]),
     ("default", "party_encode", ["-", "-", "-", "-"]),
     ("default", "party_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
@@ -813,6 +836,9 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "version_from_str", ["mirror-narrow", "staircase", "jump-pair", "staircase"]),
     ("acceptance", "version_hash", ["-", "-", "-", "-"]),
     ("acceptance", "causally_contains", ["hugeleaf", "staircase", "freeze-pos", "staircase"]),
+    ("acceptance", "span_place", ["hugeleaf", "staircase", "freeze-pos", "staircase"]),
+    ("acceptance", "span_dominance", ["hugeleaf", "staircase", "freeze-pos", "staircase"]),
+    ("acceptance", "range_bounded", ["hugeleaf", "staircase", "hugeleaf", "staircase"]),
     ("acceptance", "party_decode", ["id-pair", "-", "id-pair", "-"]),
     ("acceptance", "party_encode", ["id-pair", "-", "-", "-"]),
     ("acceptance", "party_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
