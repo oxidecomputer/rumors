@@ -1521,7 +1521,18 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
     let mut height = Accumulator::new();
     height.add_magnitude(&first);
     let mut owned = ic.owned();
-    let mut out = SkylineBuilder::with_capacity(ev_bits.len() + id_bits.len());
+    // Allocation-strategy seam: the shipped arm pre-sizes to the operands'
+    // summed lengths — an estimate, since the projection's output is not
+    // derivable from its inputs and can outgrow them. The `before_alloc_ab`
+    // cfg is reachable only through `RUSTFLAGS` (never a cargo feature, so
+    // no dependent build can select it) and compiles in one alternative
+    // arm for the allocation benchmark to measure against the shipped
+    // pre-size; shipped builds always take the pre-sized arm.
+    #[cfg(not(before_alloc_ab = "projection_growth"))]
+    let capacity = ev_bits.len() + id_bits.len();
+    #[cfg(before_alloc_ab = "projection_growth")]
+    let capacity = 0;
+    let mut out = SkylineBuilder::with_capacity(capacity);
     let opening = if owned { first } else { Base::ZERO };
     out.leaf(sc.depth().max(ic.depth()), gamma_code(&opening));
     while !(sc.done() && ic.done()) {
@@ -1564,9 +1575,21 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
             gamma_code(&zigzag_signed(negative, magnitude)),
         );
     }
+    let bits = out.finish();
+    // Allocation-strategy arm (bench-only, as the seam above): one
+    // exact-size copy here, where the buffer is about to become storage —
+    // the freeze adopts the buffer without copying, so the pre-size
+    // estimate's slack otherwise stays resident for the value's whole
+    // life. The arm prices that copy against the stranded capacity.
+    #[cfg(before_alloc_ab = "projection_shrink")]
+    let bits = {
+        let mut bits = bits;
+        bits.shrink_to_fit();
+        bits
+    };
     // Canonicalizing the storage is `Version::from_bits`'s job, the
     // single gate a stream passes through when it becomes a stored value.
-    out.finish()
+    bits
 }
 
 /// The current absolute height, materialized at an ownership transition.

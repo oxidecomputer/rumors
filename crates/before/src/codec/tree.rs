@@ -1,3 +1,4 @@
+#[cfg(not(before_alloc_ab = "id_stack_vec"))]
 use smallvec::SmallVec;
 
 use crate::error::{Decode, Parse};
@@ -14,6 +15,21 @@ use super::{BitCursor, BitsSlice, SliceCursor};
 /// than none. Deeper trees spill to the heap transparently; depth still
 /// never lands on the call stack.
 pub(crate) const PARSE_STACK_INLINE: usize = 16;
+
+/// The packed id parser's explicit stack: one frame per unfinished
+/// ancestor, [`PARSE_STACK_INLINE`] frames inline.
+///
+/// Allocation-strategy seam: the `before_alloc_ab = "id_stack_vec"` cfg —
+/// reachable only through `RUSTFLAGS`, never a cargo feature, so no
+/// dependent build can select it — swaps in a heap-only `Vec` so the
+/// stack benchmark can price this site's inline stack against plain
+/// growth on identical walks. Shipped builds always take the `SmallVec`
+/// arm; each parse site carries its own seam so representations can be
+/// measured and adopted per site.
+#[cfg(not(before_alloc_ab = "id_stack_vec"))]
+type IdStack = SmallVec<[IdFrame; PARSE_STACK_INLINE]>;
+#[cfg(before_alloc_ab = "id_stack_vec")]
+type IdStack = Vec<IdFrame>;
 
 /// While building a node bottom-up, what we still need from the stream.
 enum IdFrame {
@@ -48,7 +64,7 @@ pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decod
 where
     Decode: From<C::Error>,
 {
-    let mut stack: SmallVec<[IdFrame; PARSE_STACK_INLINE]> = SmallVec::new();
+    let mut stack = IdStack::new();
     loop {
         let left = cursor.read_bit()?;
         let right = cursor.read_bit()?;
