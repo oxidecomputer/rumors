@@ -223,9 +223,11 @@ bench-build:
 # The fuzz targets live in a detached workspace (crates/before/fuzz) precisely
 # so the ordinary gate never compiles them: without this recipe they rot invisibly.
 
-# Build the libFuzzer targets (nightly).
+# Build the libFuzzer targets (nightly). The fmt line is the detached
+# workspace's formatting leg: the root `cargo fmt --all` cannot reach it.
 [working-directory("crates/before/fuzz")]
 fuzz-build:
+    cargo fmt --check
     {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
@@ -272,9 +274,15 @@ fuzzfit-build:
 # shrinks to a minimal out-of-band shape and writes a proptest seed
 # file — commit any seed that appears.
 
-# Run the fuzz-fit asymptotics suites against the pinned fuel bands.
+# Run the fuzz-fit asymptotics suites against the pinned fuel bands. The
+# fmt/clippy lines are the detached workspace's own lint leg (the root
+# `cargo fmt --all`/clippy cannot reach a detached workspace, so without
+# them its source rots invisibly through green gates — the fuelscape and
+# surfacecheck recipes carry the same discipline).
 [working-directory("crates/before/fuzzfit")]
 fuzzfit: fuzzfit-build
+    cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --cargo-profile release
 
 # Re-fit the pinned bands from the committed deterministic corpus (4096
