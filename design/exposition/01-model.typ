@@ -104,10 +104,11 @@ this exposition, its shape given here;
 or _measured_ — an observation from our implementation's instrumented
 test and benchmark apparatus, quoted at the level of mechanism. The
 setup behind every measured figure: one commodity 64-bit
-workstation, release builds, deterministic committed input
-generators, medians over repeated samples for wall-clock numbers;
-the resource counters (bits scanned, accumulator digit touches, peak
-transient bytes) are deterministic and machine-independent, so
+workstation and deterministic committed input generators.
+Wall-clock numbers are medians over repeated samples of release
+builds; the resource counters (bits scanned, accumulator digit
+touches, peak transient bytes) are deterministic — pinned under the
+development profile, where their readings are the binding ones — so
 nanosecond bands indicate a class while counter readings are exact.
 
 *Concessions.* Seven, each stated where it lives rather than
