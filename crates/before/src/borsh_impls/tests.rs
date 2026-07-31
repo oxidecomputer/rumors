@@ -4,7 +4,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::decode_error;
-use crate::codec::{self, BitCursor, BitsMut, PARSE_STACK_INLINE};
+use crate::codec::{self, BitCursor, BitsMut};
 use crate::error::Decode;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{
@@ -373,15 +373,18 @@ proptest! {
     }
 }
 
-/// Trees deeper than the parsers' inline stack capacity spill to the heap on
-/// the wire path with behavior unchanged.
+/// Trees far deeper than any real id or event tree round-trip on the wire
+/// path with the parse frames grown on the heap.
 ///
-/// A version and a party three times [`PARSE_STACK_INLINE`] deep round-trip
-/// through borsh with trailing bytes intact: the spill must disturb neither
-/// the normal-form checks the frames carry nor the cursor's byte consumption.
+/// A deep version and a deep party round-trip through borsh with trailing
+/// bytes intact: growing the frame stack mid-parse must disturb neither
+/// the normal-form checks the frames carry nor the cursor's byte
+/// consumption.
 #[test]
 fn deep_trees_roundtrip_through_borsh() {
-    const DEPTH: usize = 3 * PARSE_STACK_INLINE;
+    // Deep enough that the frame stack regrows several times mid-parse
+    // (`codec::tests::parse_stacks_handle_deep_spines` is the direct pin).
+    const DEPTH: usize = 48;
     const TRAILING: &[u8] = &[0xA5, 0x5A, 0xFF];
 
     // A right-spine event tree: every node has a base-0 left leaf, and the

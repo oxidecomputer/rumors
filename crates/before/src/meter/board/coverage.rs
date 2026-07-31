@@ -201,35 +201,90 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          identical comparison the causally_contains row prices",
     ),
     (
-        "causally::Span::new",
+        "Span::new",
         "stores two borrows plus one validating causal comparison, the \
          identical comparison the causally_contains row prices",
     ),
     (
-        "causally::Span::new_unchecked",
+        "Span::new_unchecked",
         "stores two borrows and performs no comparison at all: the trusted \
          door's debug assertion sits outside the cost contract",
     ),
     (
-        "causally::Span::meet",
+        "Span::meet",
         "a borrow of a stored endpoint: no walk, no allocation",
     ),
     (
-        "causally::Span::join",
+        "Span::join",
         "a borrow of a stored endpoint: no walk, no allocation",
     ),
     (
-        "causally::Span::into_parts",
+        "Span::into_parts",
         "at most one clone per borrowed endpoint (a refcount bump): no walk, no byte copy",
     ),
     (
-        "causally::Span::reborrow",
+        "Span::reborrow",
         "stores two fresh borrows of the stored endpoints: no walk, no \
          allocation, no comparison",
     ),
     (
-        "causally::Span::into_owned",
+        "Span::into_owned",
         "at most one clone per borrowed endpoint (a refcount bump): no walk, no byte copy",
+    ),
+    (
+        "OwnSpan::meet",
+        "O(1) view construction (two borrows); the comparison and \
+         materialization costs are celled at the OwnVersion rows",
+    ),
+    (
+        "OwnSpan::join",
+        "O(1) view construction (two borrows); the comparison and \
+         materialization costs are celled at the OwnVersion rows",
+    ),
+    (
+        "OwnSpan::place",
+        "two of the masked co-walks the OwnVersion comparison rows cell; the \
+         nine-state transcription adds no walk of its own",
+    ),
+    (
+        "OwnSpan::dominance_of",
+        "at most two of the masked co-walks the OwnVersion comparison rows \
+         cell, one when the start refutes",
+    ),
+    (
+        "OwnSpan::to_span",
+        "two of the materializations the OwnVersion to_version row cells, one \
+         per endpoint",
+    ),
+    (
+        "Span | Span (BitOr, owned and borrowed — the containment join)",
+        "the celled version meet/join, one per endpoint pair; a point-like \
+         operand pair fuses to the celled version_span walk",
+    ),
+    (
+        "Span & Span (BitAnd, owned and borrowed — the containment meet)",
+        "the celled version join/meet, one per endpoint pair, plus one \
+         validating causal comparison",
+    ),
+    (
+        "Span + Span (Add, owned and borrowed — the pointwise join)",
+        "the celled version join, one per endpoint pair; a point-like operand \
+         pair pays one join, shared across both legs",
+    ),
+    (
+        "Span * Span (Mul, owned and borrowed — the pointwise meet)",
+        "the celled version meet, one per endpoint pair; a point-like operand \
+         pair pays one meet, shared across both legs",
+    ),
+    (
+        "&Span / &Party (Div — the lazy span projection view)",
+        "O(1) view construction (two borrows); the verdict and materialization \
+         costs sit on the OwnSpan entries above",
+    ),
+    (
+        "From<OwnSpan> for Span (explicit materialization)",
+        "delegation to OwnSpan::to_span: two of the materializations the \
+         OwnVersion to_version row cells",
     ),
     (
         "&Version / &Party (Div — the lazy projection view)",

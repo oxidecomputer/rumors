@@ -12,7 +12,7 @@ use proptest::test_runner::TestCaseError;
 
 use super::{
     bytes_as_bits, decode_int, decode_int_from, encode_int, Base, BitCursor, BitsMut, BitsSlice,
-    DsiCursor, SliceCursor, PARSE_STACK_INLINE,
+    DsiCursor, SliceCursor,
 };
 use crate::causally::Span;
 use crate::oracle;
@@ -1260,19 +1260,20 @@ proptest! {
 
 // ───────────────────────────── parse stacks ─────────────────────────────
 
-/// Trees deeper than the parsers' inline stack capacity spill to the heap
-/// with behavior unchanged: they still validate, encode, and round-trip
-/// exactly.
+/// Trees far deeper than any real id or event tree validate, decode, and
+/// round-trip exactly, with the parse frames grown on the heap.
 ///
-/// The tree parsers keep their explicit stacks in [`PARSE_STACK_INLINE`]
-/// inline frames; a deeper tree moves the frames to the heap mid-parse. A
-/// right-spine event tree and a left-spine id tree three times that depth
-/// cross the spill boundary in both parsers (and, since the spill happens
-/// while ancestors are still open, the spilled frames must survive to
-/// complete the normal-form checks on the way back up).
+/// The tree parsers keep one explicit frame per unfinished ancestor, so a
+/// deep spine grows its frame stack through several doublings while every
+/// ancestor is still open — and the grown frames must survive to complete
+/// the normal-form checks on the way back up. A right-spine event tree
+/// and a left-spine id tree exercise both parsers.
 #[test]
-fn parse_stacks_spill_past_inline_capacity() {
-    const DEPTH: usize = 3 * PARSE_STACK_INLINE;
+fn parse_stacks_handle_deep_spines() {
+    // Deep enough that the frame stack regrows several times mid-parse;
+    // vastly deeper than any organic tree (the 100k-level extreme lives in
+    // `clock::tests::deep_tree_stack_safety`).
+    const DEPTH: usize = 48;
 
     // Event tree: a right spine `(1, 0, (1, 0, … 2))`. Every node has a
     // base-0 left leaf, and the innermost pair of leaves differ, so the
@@ -1303,7 +1304,7 @@ fn parse_stacks_spill_past_inline_capacity() {
 // `Syntax` defect outranks the `(0, 0)`/`(1, 1)` canonicality check at the
 // same node). The reference recurses on native frames, so the differential
 // runs at small scope; the production parser's depth behavior is pinned by
-// `parse_stacks_spill_past_inline_capacity` and the deep board families.
+// `parse_stacks_handle_deep_spines` and the deep board families.
 
 /// The reference mirror of the production parser's subtree classification:
 /// what a parsed id subtree turned out to be.

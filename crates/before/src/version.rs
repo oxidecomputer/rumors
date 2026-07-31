@@ -845,7 +845,7 @@ impl Version {
     /// identity path is the common seed pattern: folds seeded with
     /// [`Version::new`] (the `|=` accumulation shape) hit it on their
     /// first join.
-    fn join_view(&mut self, incoming: &codec::Bits) {
+    pub(crate) fn join_view(&mut self, incoming: &codec::Bits) {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∨ a = a
         }
@@ -871,7 +871,7 @@ impl Version {
     /// itself the answer. The general path emits the merged stream
     /// straight from the two views, so borrowing costs no clone and no
     /// transcoding.
-    fn join_refs(a: &Version, b: &Version) -> Version {
+    pub(crate) fn join_refs(a: &Version, b: &Version) -> Version {
         if codec::canonical_eq(&a.0, &b.0) {
             return a.clone(); // a ∨ a = a
         }
@@ -895,7 +895,7 @@ impl Version {
     /// empty version as the *absorbing* element, `0 ∧ v = 0` — an empty
     /// current is already the answer, and an empty incoming makes the result
     /// the empty version outright, no merge sweep either way.
-    fn meet_view(&mut self, incoming: &codec::Bits) {
+    pub(crate) fn meet_view(&mut self, incoming: &codec::Bits) {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∧ a == a
         }
@@ -917,7 +917,7 @@ impl Version {
     /// is owned, exactly as [`join_refs`](Self::join_refs) mirrors
     /// [`join_view`](Self::join_view): the same short-circuits in the
     /// same order — keep the two in lockstep.
-    fn meet_refs(a: &Version, b: &Version) -> Version {
+    pub(crate) fn meet_refs(a: &Version, b: &Version) -> Version {
         if codec::canonical_eq(&a.0, &b.0) {
             return a.clone(); // a ∧ a = a
         }
@@ -949,7 +949,7 @@ impl Version {
     /// decode each operand twice); the comparison it paid first is the
     /// sweep's early-exiting prefix, which stops at the second
     /// refuting interval.
-    fn span_refs(a: &Version, b: &Version) -> (Version, Version) {
+    pub(crate) fn span_refs(a: &Version, b: &Version) -> (Version, Version) {
         use hull_traffic::Rung;
         if codec::canonical_eq(&a.0, &b.0) {
             hull_traffic::record(Rung::Equal);

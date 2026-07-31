@@ -1,37 +1,13 @@
-#[cfg(not(before_alloc_ab = "id_stack_vec"))]
-use smallvec::SmallVec;
-
 use crate::error::{Decode, Parse};
 
 use super::{BitCursor, BitsSlice, SliceCursor};
 
-/// Inline capacity, in frames, of the parsers' explicit stacks.
-///
-/// One frame per level of unfinished ancestors, so the stack is as deep as
-/// the tree; real id and event trees stay well under 16 levels, so a parse
-/// normally touches no heap at all — worth having because the wire path runs
-/// one parse per decoded `Version` (~10k per gossip session), so a fresh
-/// `Vec` per call would put an allocation on every decoded version rather
-/// than none. Deeper trees spill to the heap transparently; depth still
-/// never lands on the call stack.
-pub(crate) const PARSE_STACK_INLINE: usize = 16;
-
-/// The packed id parser's explicit stack: one frame per unfinished
-/// ancestor, [`PARSE_STACK_INLINE`] frames inline.
-///
-/// Allocation-strategy seam: the `before_alloc_ab = "id_stack_vec"` cfg —
-/// reachable only through `RUSTFLAGS`, never a cargo feature, so no
-/// dependent build can select it — swaps in a heap-only `Vec` so the
-/// stack benchmark can price this site's inline stack against plain
-/// growth on identical walks. Shipped builds always take the `SmallVec`
-/// arm; each parse site carries its own seam so representations can be
-/// measured and adopted per site.
-#[cfg(not(before_alloc_ab = "id_stack_vec"))]
-type IdStack = SmallVec<[IdFrame; PARSE_STACK_INLINE]>;
-#[cfg(before_alloc_ab = "id_stack_vec")]
-type IdStack = Vec<IdFrame>;
-
 /// While building a node bottom-up, what we still need from the stream.
+///
+/// The parsers keep one frame per unfinished ancestor on an explicit
+/// heap `Vec` — as deep as the tree, never the call stack. A terminal
+/// parse pushes nothing and allocates nothing; deeper trees pay plain
+/// amortized growth, a rounding error against the per-node tag reads.
 enum IdFrame {
     /// A both-present node: the next subtree is its left child.
     BothNeedLeft,
@@ -64,7 +40,7 @@ pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decod
 where
     Decode: From<C::Error>,
 {
-    let mut stack = IdStack::new();
+    let mut stack: Vec<IdFrame> = Vec::new();
     loop {
         let left = cursor.read_bit()?;
         let right = cursor.read_bit()?;

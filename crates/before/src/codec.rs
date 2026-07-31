@@ -67,8 +67,3 @@ pub(crate) use tree::{parse_id, validate_id};
 // builds warning-free for downstream consumers.
 #[cfg(feature = "borsh")]
 pub(crate) use tree::parse_id_from;
-// Test-only: the spill tests (here and in `borsh_impls`) size their trees
-// relative to the inline capacity so they keep testing the heap spill if the
-// capacity is ever retuned.
-#[cfg(test)]
-pub(crate) use tree::PARSE_STACK_INLINE;
