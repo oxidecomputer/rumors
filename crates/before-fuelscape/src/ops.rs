@@ -69,6 +69,7 @@ pub enum Inputs {
     VersionSlice,
     /// One packed party followed by a version slice, composed into
     /// disjoint clocks in the guest: the clock-fold row's input space.
+    ///
     /// The clock count is drawn uniformly from every count the column's
     /// budget can feed (`1..=size − 1`: one byte for the party, one per
     /// version), then the total splits uniformly over the compositions
@@ -84,7 +85,9 @@ pub enum Inputs {
     ClockSlice,
     /// One packed party of exactly the column's size, split into a
     /// drawn number of balanced shares in the guest: the party-fold
-    /// row's input space. The share count is drawn uniformly over
+    /// row's input space.
+    ///
+    /// The share count is drawn uniformly over
     /// `1..=size` — a declared range, since the shares are minted in
     /// the guest and the byte budget therefore does not bound the
     /// count; `1..=size` mirrors the slice rows' arity-per-column
