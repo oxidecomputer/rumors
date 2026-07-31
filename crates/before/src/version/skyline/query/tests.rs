@@ -1926,14 +1926,14 @@ mod adequacy {
     /// combine tap: its per-byte limb cost grows across the doubling.
     ///
     /// A linear settle reads ~x1.00 here; the floor 1.42 sits midway
-    /// between linear and the measured x1.85, while the shipped
-    /// kernel's dense-suffix flatness band holds the same family at
-    /// x1.25 in the same currency.
+    /// between linear (x1.00) and the measured growth, while the
+    /// shipped kernel's dense-suffix flatness band holds the same
+    /// family at x1.25 in the same currency.
     ///
-    /// [measured 2026-07-28, dev profile, exact counters: limb ops
-    /// 735,678 -> 2,728,860 across DS(500, 500) -> DS(1,000, 1,000),
-    /// packed 119,593B -> 239,030B: per-byte growth x1.85 — against
-    /// the shipped settle's 100,400 -> 200,620 (x1.00/byte) on the
+    /// [measured 2026-07-30, dev profile, exact counters: limb ops
+    /// 725,957 -> 2,702,714 across DS(500, 500) -> DS(1,000, 1,000),
+    /// packed 119,593B -> 239,030B: per-byte growth x1.86 — against
+    /// the shipped settle's 97,381 -> 195,491 (x1.00/byte) on the
     /// same operands.]
     #[test]
     fn per_digit_window_absorb_reads_superlinear_on_dense_suffix() {
@@ -2155,8 +2155,8 @@ mod adequacy {
     /// measured growth, while the shipped kernel's `ledger_wide_arming`
     /// band holds the same family at x1.25.
     ///
-    /// [measured 2026-07-28, dev profile, exact counters: touches
-    /// 288,037 -> 1,083,963 and limb ops 293,649 -> 1,095,253 across
+    /// [measured 2026-07-30, dev profile, exact counters: touches
+    /// 285,747 -> 1,079,383 and limb ops 293,119 -> 1,094,191 across
     /// WA(500, 500) -> WA(1,000, 1,000), packed 14,263B -> 28,451B:
     /// per-byte growth x1.89 touch and x1.87 limb.]
     #[test]
@@ -2194,10 +2194,10 @@ mod adequacy {
     /// lower measured currency, while the shipped kernel's
     /// `answer_embedded_product` band holds the same family at x1.25.
     ///
-    /// [measured 2026-07-28, dev profile, exact counters: touches
-    /// 485,517 -> 1,848,277 and limb ops 198,320 -> 653,131 across
+    /// [measured 2026-07-30, dev profile, exact counters: touches
+    /// 482,968 -> 1,843,181 and limb ops 198,320 -> 653,131 across
     /// PP(500, 500) -> PP(1,000, 1,000), packed 20,376B -> 40,751B:
-    /// per-byte growth x1.90 touch and x1.65 limb.]
+    /// per-byte growth x1.91 touch and x1.65 limb.]
     #[test]
     fn schoolbook_settle_reads_superlinear_on_plateau_puncture() {
         let (small_bytes, small_touches, small_limbs) =

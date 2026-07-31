@@ -2509,7 +2509,9 @@ mod skyline_flatness {
     /// accumulator's zero-run walks) / 4,326 → 4,479 limbs on 24,085
     /// skyline bytes; large 12,390 → 10,350 touches (same change) /
     /// 8,662 → 8,967 limbs on 48,245 bytes (limb movement 2026-07-24,
-    /// metered `trailing_zeros`, under the standing ceilings).
+    /// metered `trailing_zeros`, under the standing ceilings). Live
+    /// 2026-07-30: 4,905 → 9,829 touches (−5.1%, accumulated since the
+    /// record; limbs unmoved), under the standing ceilings.
     const FREEZE_BAND_OVER_TOUCH_CEILINGS: (u64, u64) = (6_458, 12_938);
 
     /// The over-threshold limb ceilings paired with
@@ -2642,7 +2644,11 @@ mod skyline_flatness {
     /// small scale alone. Measured: small 5,138 touches / 2,128 → 2,280
     /// limbs on 4,961 skyline bytes; large 10,272 touches / 4,250 →
     /// 4,554 limbs on 9,921 bytes (limb movement 2026-07-24, metered
-    /// `trailing_zeros`, under the standing ceilings).
+    /// `trailing_zeros`, under the standing ceilings). Live 2026-07-30:
+    /// 5,134 / 10,264 touches and 2,580 / 5,152 limbs — the limb column
+    /// has accumulated +13% since the 2026-07-24 movement and now sits
+    /// ×1.03 under its standing ceilings, the thinnest margin on the
+    /// suite; the next reading over is real signal, not slack.
     const RANK_JUMP_TOUCH_CEILINGS: (u64, u64) = (6_423, 12_840);
 
     /// The jump-comb limb ceilings paired with
@@ -2931,6 +2937,8 @@ mod skyline_flatness {
     /// 206,804 limb ops (×1.50 touch and ×1.43 limb per-byte growth
     /// across the doubling, local exponent still rising at FP(4,000) —
     /// each freeze read the position accumulator's whole written span).
+    /// Live 2026-07-30: 87,519 / 175,260 touches and 35,243 / 70,485
+    /// limb ops, under the standing ceilings.
     const RANK_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] = [(109_361, 44_295), (219_007, 88_590)];
 
     /// rank is linear on the freeze-position family: per-byte touch and
@@ -3050,7 +3058,8 @@ mod skyline_flatness {
     /// The record: 258,676 / 517,516 touches and 115,878 / 231,750 limb
     /// ops across `k = 1,000 → 2,000` on a 73 → 146 KiB packed pair —
     /// three sweeps' worth, ~3.5 touches per byte, flat across the
-    /// doubling.
+    /// doubling. Live 2026-07-30: 256,037 / 512,297 touches and
+    /// 115,492 / 230,976 limb ops, under the standing ceilings.
     const DISTANCE_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] =
         [(323_345, 144_847), (646_895, 289_687)];
 
@@ -3156,7 +3165,9 @@ mod skyline_flatness {
     /// promotion's committed tripwire reads 1,440,756 → 5,006,506
     /// touches here (×1.74/byte, local exponent ~1.9 and rising —
     /// every promotion re-read the position accumulator's whole
-    /// written span).
+    /// written span). Live 2026-07-30: 368,546 → 737,232 touches
+    /// (−8.8%, accumulated since the record) and 205,479 → 411,125
+    /// limb ops, under the standing ceilings.
     const RANK_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
         [(504_890, 257_740), (1_010_122, 516_046)];
 
@@ -3528,7 +3539,9 @@ mod skyline_flatness {
     /// committed pair tripwire's record). Movement 2026-07-28 (the
     /// window-digit combine tap, parent 822,401 → 1,644,899 limb ops):
     /// +0.9% limb — the settle's window-digit traffic now metered —
-    /// touches unchanged.
+    /// touches unchanged. Live 2026-07-30: 988,333 → 1,976,657 touches
+    /// (−9.7%, accumulated since the record) and 864,999 → 1,730,291
+    /// limb ops, under the standing ceilings.
     const DISTANCE_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
         [(1_368_802, 1_083_031), (2_737_957, 2_167_143)];
 
@@ -3648,12 +3661,14 @@ mod skyline_flatness {
     /// across the doubling — the superlinear wedge this family was
     /// built to expose), then to 170,128 / 340,256 (1.26 per byte,
     /// still flat; 2026-07-28, certificate skips replace the
-    /// accumulator's zero-run walks).
+    /// accumulator's zero-run walks). Live 2026-07-30: 166,993 /
+    /// 333,979 touches, under the standing ceilings.
     const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (212_660, 425_320);
     /// The limb ceilings paired with
     /// [`DISTANCE_JUMP_PAIR_TOUCH_CEILINGS`]: measured 53,905 /
     /// 107,753 (0.40 per byte, flat), tightened from the composed
-    /// form's 973,702 / 3,341,816 (7.2 → 12.4 per byte).
+    /// form's 973,702 / 3,341,816 (7.2 → 12.4 per byte). Live
+    /// 2026-07-30: 53,559 / 107,048, under the standing ceilings.
     const DISTANCE_JUMP_PAIR_LIMB_CEILINGS: (u64, u64) = (67_382, 134_692);
 
     /// The jump-pair distance is linear in the packed pair: per-byte
@@ -4268,7 +4283,8 @@ mod skyline_flatness {
     /// limb ops): −18% touch, −21% limb — each aggregate charge is one
     /// backend product per dense cluster instead of a factor-wide
     /// product per window digit; the per-byte exponent stays ×1.00 in
-    /// both currencies.
+    /// both currencies. Live 2026-07-30: 177,264 → 354,542 touches and
+    /// 97,381 → 195,491 limb ops, under the standing ceilings.
     const RANK_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] = [(224_705, 125_500), (448_907, 250_775)];
 
     /// rank is flat per byte on the dense-suffix family under the
@@ -4378,7 +4394,8 @@ mod skyline_flatness {
     /// and 413,847 → 826,771 limb ops): −23% touch, −13% limb — one
     /// backend product per dense cluster instead of a factor-wide
     /// product per window digit; the per-byte exponent stays ×1.00 in
-    /// both currencies.
+    /// both currencies. Live 2026-07-30: 525,427 → 1,051,407 touches
+    /// and 355,553 → 712,993 limb ops, under the standing ceilings.
     const DISTANCE_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] =
         [(686_817, 452_301), (1_371_800, 904_066)];
 
@@ -4494,10 +4511,13 @@ mod ledger_wide_arming {
     /// the schoolbook settle's red reading of 288,037 → 1,083,963
     /// touches and 293,651 → 1,095,255 limb ops — measured at the
     /// parent as one whole fold, so 2 limb ops above the kernel's
-    /// own committed tip record, two measurement harnesses rather
-    /// than drift — (×1.89 and ×1.87 per
+    /// own committed tip record of that date, two measurement
+    /// harnesses rather than drift — (×1.89 and ×1.87 per
     /// byte, local exponent ~1.9: the aggregate product paid the
     /// parked width times the window density one digit at a time).
+    /// Live 2026-07-30: 32,452 → 64,793 touches (−6.6%, accumulated
+    /// since the record) and 41,412 → 82,774 limb ops, under the
+    /// standing ceilings.
     const WIDE_ARMING_CEILINGS: [(u64, u64); 2] = [(43_427, 52_427), (86_716, 104_795)];
 
     /// rank is flat per byte on the wide-arming family: per-byte touch
@@ -4773,10 +4793,12 @@ mod answer_embedded_product {
     /// ops across PP(500, 500) → PP(1,000, 1,000) on 20,376 B →
     /// 40,751 B packed operands (~2.4 touches per packed byte, flat
     /// across the doubling), while the committed schoolbook kernel
-    /// reads the same family red at 485,517 → 1,848,277 touches and
-    /// 198,320 → 653,131 limb ops (×1.90 and ×1.65 per byte: the
+    /// reads the same family red at 482,968 → 1,843,181 touches and
+    /// 198,320 → 653,131 limb ops (×1.91 and ×1.65 per byte: the
     /// close-time settle paying the parked plateau's width once per
-    /// trailing-mass digit).
+    /// trailing-mass digit). Live 2026-07-30: 45,871 → 91,751 touches
+    /// (−5.3%, accumulated since the record; limbs unmoved), under
+    /// the standing ceilings.
     const PLATEAU_PUNCTURE_CEILINGS: [(u64, u64); 2] = [(60_525, 91_103), (121_058, 182_197)];
 
     /// rank is flat per byte on the plateau-puncture family: per-byte
@@ -5003,7 +5025,9 @@ mod settle_flatness {
     /// packed pairs (×1.02 per byte); the committed schoolbook
     /// kernel keeps the plateau side's close-time settle — the site
     /// that dominates this pair — red on the same family in the
-    /// query fold's test suite.
+    /// query fold's test suite. Live 2026-07-30: 398,013 → 798,265
+    /// touches and 370,381 → 746,786 limb ops, under the standing
+    /// ceilings.
     const PAIR_PLATEAU_TRAIN_CEILINGS: [(u64, u64); 2] = [(507_805, 462_076), (1_019_693, 932_102)];
 
     /// The plateau-puncture × arming-train pair is flat per byte
@@ -5049,7 +5073,9 @@ mod settle_flatness {
     /// sums, inside the level-ratio model), tightened in the cure's
     /// own commit from the schoolbook charge's 57,542 → 127,612 →
     /// 279,963 touches (×1.17, ×1.13 per byte and rising with the
-    /// count).
+    /// count). Live 2026-07-30: 22,716 → 47,491 → 96,946 touches and
+    /// 33,487 → 70,210 → 144,081 limb ops, under the standing
+    /// ceilings.
     const TRAIN_SAME_SIGN_CEILINGS: [(u64, u64); 3] =
         [(29_240, 42_511), (60_208, 88_545), (122_261, 181_272)];
 
@@ -5061,7 +5087,9 @@ mod settle_flatness {
     /// under the backend-delegated products the parked sums' sign
     /// schedule moves constants only (cancellation narrows a product's
     /// factor; the bound never rests on it). The sign schedules' value
-    /// coverage lives in the promoting differential pool.
+    /// coverage lives in the promoting differential pool. Live
+    /// 2026-07-30: 23,219 → 48,849 → 99,484 touches and 33,330 →
+    /// 69,994 → 143,543 limb ops, under the standing ceilings.
     const TRAIN_ALTERNATING_CEILINGS: [(u64, u64); 3] =
         [(29_927, 42_313), (61_963, 88_273), (125_532, 180_466)];
 
@@ -7262,7 +7290,9 @@ mod memo_resolution_cost {
     /// pinned sizes (62,023 → 124,023 before the fused tick,
     /// 2026-07-26; 60,023 → 120,023 before the latent boundary
     /// register's O(1) tag work per close); ×3.94 under the refuted
-    /// recording-chain interval resolution].
+    /// recording-chain interval resolution. Live 2026-07-30: 65,021 →
+    /// 130,021 — +3 touches per site accumulated since the record,
+    /// still exactly ×2.00 across the doubling].
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(
@@ -7342,7 +7372,9 @@ mod memo_resolution_cost {
     /// b = 2,048 (94,725 before the fused tick, 2026-07-26; 88,726,
     /// from which the pinned band derives, before the latent boundary
     /// register's O(1) tag work per close; the older ceiling stands
-    /// over the rise) — a
+    /// over the rise; live 2026-07-30: 100,723 — +3 touches per site
+    /// accumulated since the record, ×1.10 under the standing
+    /// ceiling) — a
     /// per-site fan-out at that width would add ~64 touches per site
     /// on top of the ~43-touch linear slope].
     #[test]
@@ -7537,7 +7569,10 @@ mod width_circulation_cost {
     /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×2.00 on a ×2.00
     /// input (48,857 → 97,705 before the fused tick, 2026-07-26, the
     /// pinned band's derivation; 738,449 → 2,884,881 (×3.91) before
-    /// the latent boundary register landed)]: the consume-minted width-b
+    /// the latent boundary register landed); live 2026-07-30:
+    /// 51,853 → 103,701 — +3 touches per site accumulated since the
+    /// record, still ×2.00 on the ×2.00 input, under the standing
+    /// band]: the consume-minted width-b
     /// boundary difference parks in the latent register at the site's
     /// close and the next consume's arm recycles it by a narrow
     /// anchor-relative fold, so no hop re-reads the width. A reading
@@ -7676,7 +7711,8 @@ mod width_circulation_cost {
     ///
     /// Movement: 56,831 → 50,837 when the latent boundary register
     /// landed — the deleted close and consume folds this family paid
-    /// narrow.
+    /// narrow. Live 2026-07-30: 53,837 — +3 touches per site
+    /// accumulated since the record, under the standing ceiling.
     const HIFLOOR_TOUCH_CEILING: u64 = 63_547;
 
     /// Touch liveness floor paired with [`HIFLOOR_TOUCH_CEILING`]:
@@ -7690,7 +7726,8 @@ mod width_circulation_cost {
     /// Per-byte touches stay flat (×1.25) across the width QUADRUPLING
     /// the wide family scales with [measured: 19.1 → 16.9 per byte
     /// across b = 512 → 2,048 at k = 1,000; 21.4 → 18.9 before the
-    /// latent boundary register landed, 2026-07-26], under an absolute
+    /// latent boundary register landed, 2026-07-26; live 2026-07-30:
+    /// 20.2 → 17.9 per byte], under an absolute
     /// band on the larger run. The wide GAP is the cycle's cost driver
     /// — not the site forest, not the deferral, not the close-reveal
     /// schedule, all of which this family shares with the wide one.
