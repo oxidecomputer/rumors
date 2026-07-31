@@ -164,8 +164,9 @@ contents:
   counters — against a re-introduction of the design it refuted.
   The families sit in one committed roster crossed against the
   whole operation surface as a standing dashboard: at this
-  writing, a forty-six-family roster, thirty-two of them board
-  columns priced on every operation their operand bundles reach —
+  writing, a forty-six-family roster, thirty-two of its families
+  standing as board columns priced on every operation their
+  operand bundles reach —
   1,930 cells, every one green. Green is earned, not
   granted: red is reserved for _untriaged_ contradictions, a
   persistent red is a process failure rather than a status, and

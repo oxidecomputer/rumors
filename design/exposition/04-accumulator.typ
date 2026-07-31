@@ -17,9 +17,9 @@ the resilience thesis is won or lost there.
 == The contract <accum-contract>
 
 From the sweeps' side, the accumulator must support four value
-operations and — for the bookkeeping across a sweep's several live
-accumulators (@tick) and the one width introspection the weighted
-folds need (@measures) — four housekeeping ones:
+operations and four housekeeping ones — the latter for the
+bookkeeping across a sweep's several live accumulators (@tick) and
+the one width introspection the weighted folds need (@measures):
 
 + *apply a signed machine-word delta*, in amortized $O(1)$ work;
 + *apply a wide delta* of $ell$ machine words in amortized $O(ell)$
@@ -142,9 +142,9 @@ The lesson generalizes and is worth stating as a principle:
 
 The principle is a design heuristic, not a theorem, and a
 motivation rather than a load-bearing step: we do not prove
-that no cleverer boundary exists — a window whose width adapts to
-the widest delta yet seen is the natural candidate, and we know no
-funded form of it — and no claim below rests on the principle,
+that no cleverer boundary exists; the natural candidate, a window
+whose width adapts to the widest delta yet seen, has no funded
+form that we know. And no claim below rests on the principle,
 which is why it does not join @closing's concessions. The design
 takes the one escape that
 needs no such proof — remove the boundary. No digit is ever
@@ -198,11 +198,10 @@ digits a landing itself spans, a zone-bounded digit plus an incoming
 carry stays within $2^34$, so the carry passed onward obeys
 $|c| <= 4$ — four units of drift against the $3 dot 2^31$ the next
 digit must absorb before carrying in turn. Every carry is
-funded: a
-digit that carries cannot carry again
-until deltas — or carries, which are just more drift on the same
-ratchet — totalling $3 dot 2^31$ in net movement have landed on
-it, so the carries out of a digit are at most its arriving drift
+funded: a digit that carries cannot carry again until deltas
+totalling $3 dot 2^31$ in net movement have landed on it (carries
+included: a carry is just more drift on the same ratchet), so the
+carries out of a digit are at most its arriving drift
 divided by $3 dot 2^31$, and a word delta costs amortized $O(1)$
 digit touches on every
 stream. And because _every_ write recenters what it touches, no digit
@@ -232,8 +231,8 @@ hold it.
 One storage remark, so the accounting has no hidden pocket. Two
 quantities must not be confused: _allocated lanes_ — the dense
 little-endian vector, which only grows; and _held lanes_ — the
-lanes up to a tracked index of the highest nonzero digit, which
-writes raise, and which collapses and cancellations lower. A delta
+lanes up to a tracked index of the highest nonzero digit, an index
+raised by writes and lowered by collapses and cancellations. A delta
 landing
 at a new highest lane zero-fills the gap below it once, because the
 allocation high-water mark only rises; the total zero-fill over a
@@ -494,9 +493,9 @@ accumulators, and
 
 #block(inset: (x: 1.5em), [
   _every digit touch is paid for by one of exactly three sources: an
-  input code being consumed — together with the carries its landing
+  input code being consumed (together with the carries its landing
   provokes, which @redundant's ratchet charges back to earlier
-  arrivals on the same digit; an output code being
+  arrivals on the same digit); an output code being
   emitted, which licenses reads
   up to its own width; or held lanes dying that some earlier code
   already paid for — each lane dies at most once per write that

@@ -81,8 +81,8 @@ numbers entirely:
   the next leaf, pushing one path bit per level of descent. The deeper interval's end
   coincides with the shallower's exactly when the flipped level's
   depth is at most the shallower cursor's depth — a stack operation,
-  not a comparison of positions — and when it fires, the shallower
-  cursor advances too: its plateau ends at the same point. The test
+  not a comparison of positions — and when that test fires, the
+  shallower cursor advances too: its plateau ends at the same point. The test
   works because the deeper interval ends at the right endpoint of
   its highest all-right ancestor — the flipped level. If that level
   sits at or above the shallower cursor's depth, the ancestor
@@ -314,7 +314,8 @@ ceiling.
 
 One more design point closes the lattice story: the _n-ary_ folds.
 Joining or meeting a whole population is not a loop over the binary
-operation in arrival order; it is a *balanced reduction*, pairing
+operation in arrival order; it is a *balanced reduction* over a
+binary counter, pairing
 operands of similar accumulated weight so that every input passes
 through $O(log k)$ two-operand steps — $O(D log k)$ time and $O(D)$
 space over $k$ operands of $D$ total packed bits. The sequential
@@ -584,7 +585,9 @@ toggle alternates the walk between a sign read of a near-cancelled
 wide difference and a zero test of a masked height, each operand
 harmless alone. The accumulator's collapse and domination floors
 answer every such read in amortized $O(1)$; nothing is
-materialized. So we claim only what holds, and hold the
+materialized.
+
+So we claim only what holds, and hold the
 implementation to it: the materializing sweep is linear in _input
 plus output_, the view's comparisons are linear in input alone, and
 nothing else in this section has an _unbounded_ output ratio.
@@ -697,9 +700,9 @@ over payloads by their coded lengths — rank is one of the two-pass
 operations the introduction owned up to. The pre-pass earns its
 keep: the
 alternative anchors the total at the running maximum depth and
-rescales the held digits whenever it rises, a held-width rewrite
-per rise that a stream carrying width down every level turns
-quadratic — a one-leaf-per-depth staircase makes the running
+rescales the held digits whenever it rises — a held-width rewrite
+per rise. A stream that carries width down every level turns those
+rewrites quadratic: a one-leaf-per-depth staircase makes the running
 numerator as wide as the depth already walked at _every_ level.
 Knowing $S$ up front makes every landing final. The naive fold
 materializes $h_i$ per leaf — the boundary comb makes that
@@ -755,11 +758,12 @@ window decomposition turns into cross terms: entry $i$ owes
 $P_i dot w_j$ against every later window $w_j$. The ledger settles
 once, at the sweep's close, as one product tree over the entry
 sequence, balanced by _mass_ (parked digits plus window density,
-not entry count): each node contributes exactly one aggregate
-product — the left half's summed parked components times the right
-half's summed windows, parked sums folded digit-wise so opposing
-armings cancel before any product reads a width, window sums held
-as sparse balanced signed digits so a long climb's consumed mass
+not entry count). Each node contributes exactly one aggregate
+product: the left half's summed parked components times the right
+half's summed windows. Two representations keep that product
+honest — parked sums folded digit-wise, so opposing
+armings cancel before any product reads a width; window sums held
+as sparse balanced signed digits, so a long climb's consumed mass
 compacts to $O(1)$ terms — and each product is delegated,
 cluster-wise, to sub-quadratic integer multiplication. Every cross
 term rides exactly one aggregate product; no width or density is
@@ -783,11 +787,12 @@ input-funded factors at linear overhead, so $Omega(M(n))$ digit
 work is mandatory, with $M$ the integer-multiplication bound of
 the arithmetic backend. The matching upper bound: the settle runs
 in $O(M(n))$ whenever the products land in a power-law tier of the
-backend's multiplication — cluster splitting keeps every densified
-span funded, and the mass balance telescopes the tree — which
-covers every input whose packed size is under roughly 64 kilobytes
-(no product's smaller side clears the backend's quasilinear
-threshold, near 32 kilobytes per side, before that) and every
+backend's multiplication (cluster splitting keeps every densified
+span funded, and the mass balance telescopes the tree). That
+condition covers every input whose packed size is under roughly 64
+kilobytes — no product's smaller side clears the backend's
+quasilinear threshold, near 32 kilobytes per side, before that —
+and every
 input of any size that arms the ledger $O(1)$ times. Past that
 tier the per-level products stop telescoping and the settle pays
 at most one extra tree-depth factor, $O(M(n) dot log n)$ — and the
