@@ -149,7 +149,7 @@ kilobytes of packed stack state against that operand's own
 thirty-seven kilobytes, and no native stack at all —
 no overflow, no guard pages, no frame setup and teardown in the hot
 loop. The direct transcription's
-$approx 800 times$ frame amplification (@naive-recursion) is
+thousandfold frame amplification (@naive-recursion) is
 replaced by a constant near one-third for a single-cursor walk (the
 validator's two state bits per level make it two-thirds) — either
 way the state is _smaller_ than

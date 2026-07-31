@@ -95,7 +95,7 @@ $ 1 - 2 x^2 - 2 x^3 - 2 sqrt(2) x^4 = 0, $
 carries the smaller positive root and hence the operative
 singularity, $x_c = 0.514500dots$ (the other branch,
 $1 - 2 x^2 - 2 x^3 + 2 sqrt(2) x^4 = 0$, first vanishes near
-$0.707$) — safely inside $G$'s own radius of
+$0.706$) — safely inside $G$'s own radius of
 convergence $1 \/ sqrt(2)$, so the branch point governs. The
 grammar is aperiodic — $V = A + B$ has streams of both parities,
 a lone leaf even and a node odd — so $x_c$ is the unique dominant
@@ -118,11 +118,11 @@ changes nothing at the asymptote:
 $ n / H(n) --> 1 / alpha = 1.043017dots $
 
 *The coding sits within $4.3%$ of the information-theoretic floor,
-asymptotically.* (Derived; in our implementation the closed form is
-additionally cross-checked against an exact census of the grammar —
-a dynamic program over stream lengths, itself cross-pinned against
-brute-force enumeration of every bit string at small lengths — and
-agrees to hundredths of a bit at $n = 800$.)
+asymptotically.* (Derived, and cross-checked: an exact census of
+the grammar — a dynamic program over stream lengths, committed in
+our implementation and cross-pinned against brute-force enumeration
+of every bit string at small lengths — agrees with the closed form
+to thousandths of a bit at $n = 800$.)
 
 == The asymptotic tax is the sibling-merge rule, under this payload code <tax>
 
@@ -182,9 +182,11 @@ atom at zero, so the $ell^(-1\/2)$ _rate_ is the universality
 statement rather than the exact fluctuation identity. We lean on it solely for the
 asymptotic rate; the finite-$n$ numbers below come from exact
 bracketing counts that do not touch it, and the census corroborates
-the rate directly — about three bits of $H$ at $n = 800$, as the
-rate predicts: a capacity-achieving stream there carries
-$ell approx 100$ plateaus, and $1\/2 dot log_2 100 approx 3.3$.
+the rate directly — about three bits of $H$ at $n = 800$, the
+rigorous bracket pinning the pruning between $3.03$ and $3.29$, as
+the rate predicts: a capacity-achieving stream there carries on the
+order of a hundred plateaus, and $1\/2 dot log_2 ell$ at that count
+sits near three bits.
 
 == Finite sizes <finite>
 
@@ -293,13 +295,13 @@ pays for that on small values, pointwise — comparing coded payloads
 $v$ (each code
 spells $v + 1$), gamma is better than or equal to delta on every
 $v$ up to 30 and loses ground steadily from $v = 31$ on, while
-omega does not overtake gamma until values in the hundreds.
+omega does not overtake gamma until values past a hundred.
 Measured across organic gossip
 histories, 85 to 93 percent of payload values are at most 15 —
 and `fill`'s flattening, not the coding, is what keeps neighboring
 plateaus close (@coding). The corpora are the paper's own two
 simulation regimes, data churn and static message passing, replayed
-at scale on our implementation: some 165,000 versions. A count share alone cannot decide a bet
+on our implementation: some 165,000 versions. A count share alone cannot decide a bet
 about bytes — a thin tail of wide values could still lose it — so
 the deciding number is this one: re-coding those corpora under delta
 or omega costs six

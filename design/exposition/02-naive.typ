@@ -123,21 +123,16 @@ Time is $Theta(d dot W)$ bit-operations and transient memory is
 $Theta(d dot W)$ bits, on an input of $Theta(d + W)$ bits. Choosing
 $d approx W approx n\/2$ makes both quadratic: the amplification
 ratio scales as $d W \/ (d + W)$, growing without bound as the
-operand grows. This is not a corner case that needs contriving. On
-our direct transcription, before any cure, the committed
-`bigroot` regression instance — a $40,000$-bit root value under a
-$10,000$-level spine, a 29-kilobyte operand pair — drove transient
-memory to roughly $6,700 times$ the pair's bytes, approaching two
-hundred megabytes, inside a single comparison. The figure
-reconciles
-with the formula. Our transcription binds each paired node's _four_
-lifted
-children, both operands' and both halves', before evaluating the
-conjunction, so all four live across the descent; a
-short-circuiting form would halve the constant without changing
-the order. And
-$4 dot d dot W = 1.6 dot 10^9$ bits accounts for the two
-hundred megabytes measured. The ratio kept growing with
+operand grows. This is not a corner case that needs contriving. Before
+the cure, the committed
+`bigroot` instance — a $40,000$-bit root value under a
+$10,000$-level spine, a fifteen-kilobyte operand — drove a single
+comparison's transient memory to fifty-six megabytes, more than
+$3,700 times$ the operand's bytes (the committed movement record
+on the comparison cell). The figure reconciles
+with the formula: one live $W$-bit path sum per level of the
+descent is $d dot W = 4 dot 10^8$ bits — fifty megabytes — and
+the remainder is the walk's own overhead. The ratio grows with
 the operand, as the formula says it must.
 
 #figure(
@@ -159,7 +154,7 @@ the operand, as the formula says it must.
     ),
     [$d$ live $W$-bit path sums on one descent —
      $Theta(d dot W)$ time and transient memory from a
-     $Theta(d + W)$-bit operand pair (measured: $6,700 times$ the
+     $Theta(d + W)$-bit operand pair (measured: $3,700 times$ the
      input's bytes).],
     cure: [sweeps that never materialize an absolute: the running
       quantity is a difference the stream's own deltas update
@@ -201,14 +196,17 @@ $ sum_(j = 1)^(W) Theta(j) = Theta(W^2) "bit-work — on 64-bit words,"
   W^2 \/ 128 + O(W) "machine-word writes." $
 
 On `hugeleaf` this is the whole input, and the arithmetic reconciles
-with the wall clock. At $W = 4 dot 10^6$ bits the buffer grows to
-half a megabyte, and each append rewrites it: a quarter-megabyte on
-average, four million times, about a terabyte of write traffic
-(reads ride the cache). A half-megabyte, cache-resident working set
-streams at tens of gigabytes per second — the right order for what
-the measurement showed: over fourteen seconds for one value. The cured
-decoder — accumulate machine words, splice them once — does the same
-work linearly, in milliseconds (measured). The defect looks trivial once named —
+with the committed counter. The committed instance holds
+$W = 125,000$ bits — a sixteen-kilobyte value spelled as one
+thirty-one-kilobyte code — and the formula predicts
+$W^2\/128 approx 1.22 dot 10^8$ machine-word writes; the
+instrumented bit-at-a-time decoder counted $122$ million, the
+formula to within a percent. The cured
+decoder — accumulate machine words, splice them once — landed the
+same cell at $1,954$ word writes: the value's own words, exactly
+linear, a sixty-thousandfold drop (measured). And the quadratic
+scales past any patience: a value just thirty times wider — half a
+megabyte — pays the formula a further thousandfold. The defect looks trivial once named —
 of course you buffer words — but it is worth its own entry for two
 reasons. First, it is a _decode-time_ quadratic: it runs on arbitrary
 bytes before any validity judgment, which is the worst possible place
@@ -231,11 +229,11 @@ once, not $W$ payments of growing size.
         [the whole input is a single self-delimiting code]),
     ),
     [a bit-at-a-time decoder rewrites its growing buffer per
-     appended bit: $Theta(W^2)$ — fourteen seconds for one
-     half-megabyte value, about a terabyte of write traffic.],
+     appended bit: $Theta(W^2)$ — $122$ million machine-word
+     writes counted on the committed sixteen-kilobyte instance.],
     cure: [word-windowed reads: accumulate machine words, splice
-      once — the same work linearly, in milliseconds (@words runs
-      the instruction-level version).],
+      once — $1,954$ writes on the same instance, the value's own
+      word count (@words runs the instruction-level version).],
   ),
   kind: image,
   caption: [The `hugeleaf` attack card: the whole budget spent on
@@ -249,9 +247,11 @@ transcription runs it on the call stack: one native frame per tree
 level. A bare frame — return address, saved registers — is tens of
 bytes against the roughly *three bits* the level cost on the wire:
 already a hundredfold amplification. With each frame's spilled
-locals and temporaries, our transcription's stack cost measures near
-$300$ bytes per level, $800 times$ the wire. And there is a
-harder edge behind the constant: at 300 bytes per level, a default
+locals and temporaries, the heaviest recursive frame measures
+roughly half a kilobyte per level (per-level stack-pointer deltas,
+release build) — over a thousandfold the wire. And there is a
+harder edge behind the constant: at half a kilobyte per level, a
+default
 thread stack of a few megabytes overflows at $d$ around $10^4$ —
 `deep spine` at an input of a few _kilobytes_ — crashing the
 process, or forcing a guard-page fault handler. A library that can be
@@ -283,9 +283,9 @@ bounded, priced exceptions, stated where they live (@tick-web,
         [an alternating chain: about three bits per level,
          $d approx 10^5$ levels in a few tens of kilobytes]),
     ),
-    [one native frame per three-bit level — measured near 300 bytes,
-     an $800 times$ amplification — and a crashed process at
-     $d approx 10^4$: a few kilobytes of valid input overflow a
+    [one native frame per three-bit level — measured near half a
+     kilobyte, a thousandfold amplification — and a crashed process
+     at $d approx 10^4$: a few kilobytes of valid input overflow a
      default thread stack.],
     cure: [iterative walks with explicit packed state, about two
       _bits_ per suspended level (@depth-machine): the state is
