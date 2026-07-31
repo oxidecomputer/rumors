@@ -158,23 +158,18 @@ fn deposited_supply_failure_outranks_a_racing_consequence() {
     }
 }
 
-/// AUDIT WITNESS (r141, seed a): a *backend* failure racing a dead stream
-/// supply is reported as `SupplyClosed`, losing the backend error's identity.
+/// A typed backend failure racing a dead stream supply surfaces as itself:
+/// the supply-outranking terminal exempts backend-typed errors.
 ///
-/// This pins the terminal's current behavior so the mechanism is visible:
-/// the final match in `Work::execute` outranks *every* protocol error with
-/// a deposited supply failure, including typed backend errors the supply
-/// cannot have caused (the store failing is independent of the transport).
-/// `proxy::Error`'s rustdoc promises the complement — "errors the supply
-/// did not cause surface from the failing operation itself" — which this
-/// construction falsifies: the local store's injected failure is replaced
-/// by a direction-granularity `SupplyClosed` carrying the acceptor's I/O
-/// error. Deciding whether to exempt backend-typed errors from the
-/// supply-outranking (they are distinguishable at the match site) or to
-/// weaken the `Error` rustdoc is the owner's call; exactly one of the two
-/// must move.
+/// The terminal outranks protocol errors with a deposited supply failure
+/// because a consequence of the dead transport is a symptom, not a cause —
+/// but the local store failing is independent of the transport, so a dead
+/// supply cannot have caused it. `Error`'s attribution contract ("errors
+/// the supply did not cause surface from the failing operation itself")
+/// requires the backend error's identity to survive the race, never to be
+/// replaced by a direction-granularity `SupplyClosed`.
 #[test]
-fn deposited_supply_failure_masks_an_independent_backend_error() {
+fn an_independent_backend_error_survives_a_deposited_supply_failure() {
     let ParkedSession {
         mut work,
         claims: _claims,
@@ -198,22 +193,21 @@ fn deposited_supply_failure_masks_an_independent_backend_error() {
         .expect("the racing backend failure must resolve the session")
         .expect_err("the session must fail");
 
-    // Current behavior: the backend error's identity is gone; the session
-    // reports the supply as its cause.
+    // The backend error's identity survives: the deposited supply failure
+    // never outranks an error it cannot have caused.
     assert!(
         matches!(
             error,
-            Error::Stream(StreamError::SupplyClosed {
-                source: Some(_),
-                ..
-            })
+            Error::Encode(EncodeError::Backend(Failure::Injected(
+                Operation::Children { height: 1 },
+            )))
         ),
-        "expected the masking this witness documents, got: {error:?}",
+        "the backend error must surface as itself, got: {error:?}",
     );
 }
 
-/// AUDIT WITNESS (r141, seed a): the terminal's queued-`SupplyClosed`
-/// recovery arm, reached deterministically.
+/// The terminal's queued-`SupplyClosed` recovery arm, reached
+/// deterministically.
 ///
 /// A reporter that provably needed the dead supply publishes its
 /// stream-granularity `SupplyClosed` and parks; a consequence in the same
