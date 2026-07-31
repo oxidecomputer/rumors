@@ -229,6 +229,67 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
         .boxed()
 }
 
+/// A divergent pair whose sides share a spine of drawn depth before their
+/// novelty splits: the constructed analogue of a hash-prefix collision.
+///
+/// Content-addressed generators cannot produce this shape — blake3 scatters
+/// their keys at the root fan, so a merge's divergent descent below the
+/// root is reachable only through chosen paths like these. Both sides
+/// extend one shared leaf whose all-zero path pins the spine; each side's
+/// novelty diverges at the drawn byte position and rides its own disjoint
+/// party, so it is concurrent and survives deletion-pruning. Novelty
+/// widths draw zero too, so subset, identical, and ceiling-only merges —
+/// a changed flag's `false` arm — are sampled at depth alongside the
+/// gains.
+pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
+    (0usize..32, 0u8..5, 0u8..5)
+        .prop_map(|(depth, a_width, b_width)| {
+            let path_at = |branch: u8| {
+                let mut bytes = [0u8; 32];
+                bytes[depth] = branch;
+                Path::from(bytes)
+            };
+
+            let mut shared_version = Version::new();
+            shared_version.tick(&nth_party(0));
+            let base = act(
+                None,
+                vec![(
+                    path_at(0),
+                    shared_version.clone(),
+                    Action::Insert(Message::new(())),
+                )],
+                |_| (),
+            );
+
+            // One side: `width` sibling leaves diverging at `depth`, all on
+            // the side's own party. The branch ranges are disjoint across
+            // sides so novelty never collides into a same-path dispute.
+            let side = |party_index: usize, first_branch: u8, width: u8| {
+                let mut version = Version::new();
+                version.tick(&nth_party(party_index));
+                let leaves: Vec<_> = (first_branch..first_branch + width)
+                    .map(|branch| {
+                        (
+                            path_at(branch),
+                            version.clone(),
+                            Action::Insert(Message::new(())),
+                        )
+                    })
+                    .collect();
+                let node = if leaves.is_empty() {
+                    base.clone()
+                } else {
+                    act(base.clone(), leaves, |_| ())
+                };
+                root_with_ceiling(node, shared_version.clone() | version)
+            };
+
+            (side(1, 1, a_width), side(2, 5, b_width))
+        })
+        .boxed()
+}
+
 /// A deterministic pair with the streaming deadlock's trigger geometry.
 ///
 /// The radix-*first* root child is disputed (both sides hold divergent,
