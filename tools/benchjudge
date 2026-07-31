@@ -163,8 +163,18 @@ MIN_JUDGED_MEDIAN_NANOS = CRITERION_TIMER_ERROR_NANOS * RESOLUTION_DOMINANCE_FAC
 
 # The scale pair's nominal denominator span: the acceptance scale is x4, and
 # the judged families' denominator bytes grow at least in proportion
-# (most spans measure ~4.0; wider spans — the cliff comb's x15 — only
-# shrink resolution's pull on the fit).
+# (most spans measure ~4.0; the cliff comb's measures ~x15). Under the
+# worst-case model below, a span wider than nominal WIDENS the band: the
+# ceiling-fitted cell's lo median scales down as span^ceiling (its hi
+# median sits at the judgment floor), so the lo-side relative error grows
+# as span^ceiling — faster than the ln(span) divisor dampens the pull
+# (general ceiling: ~0.052 at x4, ~0.156 at x15; and once span^ceiling
+# reaches RESOLUTION_DOMINANCE_FACTOR the worst-case lo median falls to
+# the timer error and the model bounds nothing). The derived band
+# constants below are therefore exact at the nominal span and an
+# underestimate for a wider-span cell: a boundary-roster expectation on a
+# cell whose measured span exceeds the nominal must re-derive its band at
+# that cell's own span, not lean on these constants.
 NOMINAL_DENOMINATOR_SPAN = 4.0
 
 # How far timer resolution alone can pull a fitted exponent that sits at

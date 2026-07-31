@@ -246,6 +246,51 @@ fn admitted_boundary_compositions_have_exact_membership() {
     }
 }
 
+/// Generic [`RangeBounds`] dispatch reaches the causal membership verdict
+/// on a version concurrent to the start bound — exactly the probe where
+/// the trait's *provided* `contains` body diverges: its start arm demands
+/// dominance over the start (`start <= item` / `start < item`), so on a
+/// partial order it drops concurrent versions the causal semantics keep.
+/// The provided body is transcribed below and pinned to the wrong answer,
+/// witnessing the divergence the override cures.
+#[test]
+fn trait_contains_keeps_concurrent_versions_the_provided_body_drops() {
+    // A generic consumer: sees only the trait, so this dispatches to the
+    // `RangeBounds::contains` override, never the inherent method.
+    fn through_the_trait(range: &impl RangeBounds<Version>, probe: &Version) -> bool {
+        range.contains(probe)
+    }
+    // The trait's provided body, transcribed: its start arm requires the
+    // item to dominate the start bound.
+    fn provided_body(range: &impl RangeBounds<Version>, probe: &Version) -> bool {
+        (match range.start_bound() {
+            Bound::Included(start) => start <= probe,
+            Bound::Excluded(start) => start < probe,
+            Bound::Unbounded => true,
+        }) && (match range.end_bound() {
+            Bound::Included(end) => probe <= end,
+            Bound::Excluded(end) => probe < end,
+            Bound::Unbounded => true,
+        })
+    }
+    let (low, _, side) = fixtures();
+    for range in [since(&low), not_before(&low)] {
+        assert!(
+            range.contains(&side),
+            "concurrent-to-start is causally a member"
+        );
+        assert!(
+            through_the_trait(&range, &side),
+            "generic RangeBounds dispatch agrees with the inherent verdict"
+        );
+        assert!(
+            !provided_body(&range, &side),
+            "the provided body drops the concurrent version: the divergence \
+             the override exists to cure"
+        );
+    }
+}
+
 /// Every [`Bounded`] verdict on a constructed witness, for every bound
 /// kind it is reachable under.
 ///
@@ -562,6 +607,43 @@ proptest! {
                     range.contains(probe),
                     placement == Ordering::Equal,
                     "contains is exactly the Equal arm"
+                );
+            }
+        }
+    }
+
+    /// Trait-dispatched membership is the causal predicate on every
+    /// (range, probe): the `RangeBounds::contains` override agrees with
+    /// the inherent `Range::contains` across the unbounded range, every
+    /// single-bound range, and every admitted two-bound composition, on
+    /// probes spanning the lattice around the bounds.
+    #[test]
+    fn trait_contains_agrees_with_the_inherent_everywhere(
+        s in arb_oracle_version(),
+        e in arb_oracle_version(),
+        p in arb_oracle_version(),
+    ) {
+        let s = from_oracle_version(&s);
+        let e = from_oracle_version(&e);
+        let p = from_oracle_version(&p);
+        let probes = [Version::new(), s.clone(), e.clone(), &s | &e, &s & &e, p];
+        let mut ranges = vec![all(), since(&s), not_before(&s), known_at(&e), before(&e)];
+        ranges.extend(
+            [
+                since(&s).known_at(&e),
+                since(&s).before(&e),
+                not_before(&s).known_at(&e),
+                not_before(&s).before(&e),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+        for range in &ranges {
+            for probe in &probes {
+                prop_assert_eq!(
+                    RangeBounds::contains(range, probe),
+                    range.contains(probe),
+                    "trait dispatch and the inherent predicate agree"
                 );
             }
         }

@@ -167,6 +167,14 @@ fn pins_the_empty_frame() {
 /// The encoded non-trivial record pins byte-for-byte, so format drift cannot
 /// hide in a populated payload (multiple clocks under a network id) the way it
 /// could in an empty one.
+///
+/// The pinned bytes are fixture-derived: a re-accept whose only cause is a
+/// deliberate [`sample_record`] change — the format attested unchanged by the
+/// untouched `frame_empty` pin and the round-trip/corruption suite in the
+/// same commit — is a sanctioned *fixture re-pin*, not a format change. A
+/// snapshot tamper sweep attributes this pin's history to the fixture, never
+/// to a protocol or format revision (the sanctioned exception is also on the
+/// snapshot roster in `AGENTS.md`).
 #[test]
 fn pins_a_non_trivial_frame() {
     insta::assert_snapshot!("frame_non_trivial", hex::encode(encode(&sample_record())));

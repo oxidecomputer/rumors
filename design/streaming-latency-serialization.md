@@ -9,10 +9,9 @@
 
 Status: diagnosis complete (2026-07-17, at `d571c21f` on the
 archive branch, plus the latency benchmark harness); root cause confirmed
-by experiment. **Fix (a) landed the same day** as
-`Peer::max_in_flight_nodes` — since resized by the 2026-07-22
-amendment in §5.2: `sync_memory_budget(budget_bytes)` is the whole
-public knob today — see §5.2 for the shipped shape, §5.3
+by experiment. **Fix (a) landed the same day** as a pipelining
+window following the peer — `Peer::sync_memory_budget(budget_bytes)`
+is the whole public knob today — see §5.2 for the shipped shape, §5.3
 for the per-leaf fan-buffer follow-up — and
 `tests/gossip_pipelining.rs` pins the pipelining behavior against
 regression. **The zero-latency compute gap was profiled and largely
@@ -408,22 +407,22 @@ layer, which is where the public knob belongs, beside the existing
 
 ### 5.2 The shipped knob
 
-Landed as described in §5.1, with the knob denominated per §7's
-unit question — charged in node references, the quantity §6 prices:
+Landed as described in §5.1, first with the knob denominated per
+§7's unit question — charged in node references, the quantity §6
+prices:
 
-- **`Peer::max_in_flight_nodes(nodes)`**, following the peer like
-  `protocol()` through `into_rumors`, cloning, bookmarking, and
-  retirement. Internally a `Window`
-  (`src/tree/mirror/streaming/window.rs`) derives the per-edge scope
-  capacity as `K = nodes / (FAN × SATURABLE_LEVELS)`, floored at one
-  slot: each in-flight scope is charged a full possible fan, and at
-  most three level boundaries can run at full occupancy against
-  terabyte-scale sets (§6.5), so the budget is session-global rather
-  than per edge.
-- **Default: `DEFAULT_MAX_IN_FLIGHT_NODES = 3 × 256³`** (≈ 50M
-  references) ⇒ K = 65 536 = fan²: a fully fanned level's entire
-  cascade never blocks, for the ≈ 10 GB bounded worst case §6.5's
-  last row prices — reached only against multi-gigabyte divergence.
+- **A node budget following the peer** like `protocol()` through
+  `into_rumors`, cloning, bookmarking, and retirement. Internally a
+  `Window` (`src/tree/mirror/streaming/window.rs`) derived the
+  per-edge scope capacity by dividing the budget across a full
+  possible fan per in-flight scope and the saturable level
+  boundaries, floored at one slot: at most three level boundaries
+  can run at full occupancy against terabyte-scale sets (§6.5), so
+  the budget is session-global rather than per edge.
+- **Default: 3 × 256³ node references** (≈ 50M) ⇒ K = 65 536 = fan²:
+  a fully fanned level's entire cascade never blocks, for the
+  ≈ 10 GB bounded worst case §6.5's last row prices — reached only
+  against multi-gigabyte divergence.
 - **Test builds default to the floor.** Under `cfg(test)` and the
   `test-internals` feature the window defaults to one slot, so every
   existing test keeps exercising the capacity-one orderings whose
@@ -446,9 +445,10 @@ unit question — charged in node references, the quantity §6 prices:
 
 **Amendment (2026-07-22): the knob re-denominated; capacities are
 per-height population caps.** The tunable is now
-`Peer::sync_memory_budget(expected_messages, budget_bytes)` — the
-two quantities a deployment can state directly, replacing the
-node-reference denomination — and the window is no longer one
+`Peer::sync_memory_budget` — first landed taking the two quantities
+a deployment can state directly, an expected message count beside
+the byte budget, replacing the node-reference denomination (the
+second wave below drops the count) — and the window is no longer one
 uniform per-edge width: each channel's capacity is a **static
 per-height bound** `min(K, S(depth))`, where `S` is the integer
 stage-population envelope (deterministic occupied-slot caps, the
@@ -629,7 +629,7 @@ a supplied single-leaf subtree — the common case at I = 5000,
 where divergent keys sit alone under their 2-byte slot — had its
 ~30-byte compressed spine unwrapped level by level on encode
 (each level: an `Arc::make_mut` clone of the node innards plus a
-fresh single-entry `OrdMap`), and rebuilt level by level through
+fresh single-entry child map), and rebuilt level by level through
 `fold_parents` on decode (each level: a one-entry child group, a
 map, a `beneath`). Roughly 600 000 virtual-level crossings per
 session, every one through a nested `try_stream` generator frame
@@ -850,9 +850,12 @@ keep the same K with 3.3× headroom):
 | 10 GB      | 65 536  | ~7.2 GB (L_sat = 2)               |
 
 Each row is the largest power of two whose worst case fits the
-budget. In `Peer::max_in_flight_nodes` units (§5.2), a target K is
-requested as `nodes = K × 768` (fan × saturable levels); the
-shipped default is the 10 GB row. The envelope is
+budget. Under the node-denominated knob this table planned for
+(§5.2), a target K was requested as `K × 768` node references
+(fan × saturable levels), and the default was the 10 GB row; the
+shipped byte-denominated knob solves K from the budget through the
+backend-priced per-height derivation instead (§5.2's amendments,
+`design/sync-budget.md`). The envelope is
 conservative twice over (every in-flight
 scope at full fan, every saturable level saturated), so typical
 occupancy runs far below it — the benchmark geometry at K = 512
@@ -1027,8 +1030,8 @@ counts unchanged) plus a green gate.
   once. V2's format is still ours to change; V1 interop is
   unaffected (separate formats).
   Chunking [decision, 2026-07-18]: by *bytes*, not fan count — a
-  public knob `target_message_size` on `Peer` (the
-  `max_in_flight_nodes` pattern) bounds the encoded size of one
+  public knob `target_message_size` on `Peer` (the peer-following
+  builder-knob pattern of §5.2) bounds the encoded size of one
   run. A run flushes when the next leaf record would overflow the
   target; minimum one leaf per run, so a single oversized message
   ships alone and may exceed the target. Runs never span a
@@ -1107,8 +1110,9 @@ counts unchanged) plus a green gate.
   the construct+drop pair survives optimization — one glue call
   per bit, and version comparison gamma-decodes bit-by-bit on
   every join/meet. The profile puts 100 % of the
-  `drop_in_place<Decode>` time under `gamma::decode_int_from` ←
-  `version::compare::EvReader::read`: a version-comparison cost,
+  `drop_in_place<Decode>` time under `gamma::decode_int_from`
+  reached from the comparison walk's per-bit integer reads: a
+  version-comparison cost,
   not a wire cost, taxing every path that compares versions.
   Fix: `ok_or_else` as the one-liner; better, a fieldless `Copy`
   bit-level error enum converted to `Decode` only at the
@@ -1123,7 +1127,8 @@ counts unchanged) plus a green gate.
   28-byte spine costs 28 blake3 calls at first read — the same
   per-virtual-level disease §5.4 cured at the conversion
   boundary, alive in the hash convention. A one-compression
-  spine wrap (`blake3(SPINE_TAG ‖ prefix ‖ child_hash)`) is now
+  spine wrap (a single length-tagged preimage covering the
+  compressed prefix and the children) is now
   the largest absolute compute lever in the whole system, but it
   changes every tree hash — both protocols, all snapshots, any
   persisted state — so it moves total sync time, not the V2−V1
@@ -1179,30 +1184,30 @@ families overlap somewhat under inlining):
 
 | family | V2 | V1 | what it is |
 |---|---|---|---|
-| `version::compare` (whole walk) | 6.1 % | 8.2 % | causal compares over packed bits |
+| the causal compare walk | 6.1 % | 8.2 % | causal compares over packed bits |
 | `gamma::decode_int_from` | 5.1 % | 12.2 % | per-bit Elias-gamma integer reads |
-| `parse_ev_from` | 3.6 % | 7.7 % | canonical event-tree validation |
+| the canonical event-tree parse | 3.6 % | 7.7 % | canonical event-tree validation |
 | `ReaderCursor` (wire cursor) | 2.7 % | 5.9 % | borsh-side bit feed, byte at a time |
 | `drop_in_place<Decode>` | 2.8 % | 3.2 % | the per-bit error construct+drop |
 | `bitvec` ops | 1.7 % | 1.7 % | `extend_from_bitslice`, `push` |
-| `Batch` repack | 0.5 % | 0.2 % | working-form amortization — *working as designed* |
+| working-form repack | 0.5 % | 0.2 % | batched unpack/repack amortization — *working as designed* |
 
 Consumers, by nearest `rumors` caller: ~55 % the `unknown`
 pruning traversals (version-bound subtree pruning — pure
-packed-bits compares), ~23 % `parse_supply` (decoding each
+packed-bits compares), ~23 % supply decode (each
 supplied leaf's `Version` off the wire), ~22 % the level
 answering path (`answer::internal`'s version logic). V1 leans
 harder on the same machinery (more per-leaf versions shipped per
 message), which is why its share is higher.
 
 The pipeline, structurally: a `Version` at rest is a packed
-prefix-free bit stream (topology flag + gamma integer per node,
-`codec/gamma.rs`); comparison walks it in place through
-`SliceCursor` one bit at a time; mutation unpacks to the
-fixed-width `WorkingVersion` and repacks once per `Batch` (the
-18 ms `Batch` row says that amortization is doing its job); the
+prefix-free bit stream (a topology flag and a gamma-coded integer
+per node); comparison walked it in place one bit at a time;
+mutation unpacked to a fixed-width working form and repacked once
+per batch of edits (the repack row says that amortization is doing
+its job); the
 wire side re-validates canonicality through `ReaderCursor`,
-which refills its `Bits` buffer one byte per `read_exact` call.
+which refills its buffer one byte per `read_exact` call.
 The costs are therefore *per-bit machinery*, not algorithmic:
 each bit read pays an `Option` + bounds check + `bitvec` proxy
 deref + error construct/drop + `Result` wrap.
@@ -1222,11 +1227,11 @@ The rewrite ladder, independently landable:
   ≥ half the stored integers are zero (a zero is one bit), so
   the ≤ 64-bit window covers essentially every real integer;
   `k` exceeding the window falls back to the existing bit loop
-  (which is also the `Base::Big` path). `skip_int` gets the same
+  (which is also the wide-magnitude path). `skip_int` gets the same
   treatment (prefix length alone suffices). Constraints: no
   `unsafe` (bitvec's `BitField::load_be` or manual byte
-  arithmetic over `domain()`), and `EvReader::Packed`,
-  `WorkingVersion::unpack`, and `parse_ev_from` all route
+  arithmetic over `domain()`), and the comparison reader, the
+  working-form unpack, and the canonical event-tree parse all route
   through it, so one rewrite pays everywhere.
 - **D3 — wire-cursor refill** [est. ~0.5 ms/session]. The
   prefix-free encoding means the borsh reader cannot over-read,
@@ -1238,8 +1243,8 @@ The rewrite ladder, independently landable:
 - **D4 — decode less often** [open, needs its own measurement].
   Compares re-decode the same packed `Version`s repeatedly (a
   hot subtree's ceiling participates in every prune decision
-  above it). `EvReader::trivially_eq` already short-circuits
-  byte equality; whether further fast paths (root path-sum
+  above it). The comparison already short-circuits on canonical
+  byte equality first; whether further fast paths (root path-sum
   screening) or per-session memoization pay must be measured
   against the rest-form size trade `codec/gamma.rs` documents —
   the packed form's 1–2 order heap reduction is load-bearing
@@ -1261,15 +1266,15 @@ ceiling/floor memoization).
 
 **The ladder is complete** [checked, 2026-07-18]: an exhaustive
 sweep of `before`'s hot surface for further lever-D-class fruit
-(`design/before-lowhang-sweep.md`) found none at millisecond
-scale — the compare walks are allocation-free in practice,
-`Base`'s Big spills are already lazy, and `Batch` amortization
-is confirmed cheap. The sweep's five finds are API-quality wins
+found none at millisecond scale — the compare walks are
+allocation-free in practice, the wide-magnitude arithmetic spills
+are already lazy, and the batched unpack/repack amortization is
+confirmed cheap. The sweep's five finds are API-quality wins
 (equality proving *in*equality via the full walk instead of the
 canonical-bytes memcmp; `is_empty` allocating for an O(1)
 question) and riders on D2/D3 (per-call parse stacks, bit-wise
-`encode_int`, lattice-identity short-circuits); its CLEAN list
-records the negative space so the surface needn't be re-audited.
+`encode_int`, lattice-identity short-circuits); the sweep's record
+lives in the shipped commits below.
 
 **Shipped** [checked, 2026-07-18]: D1–D3 and all five sweep finds
 landed as five commits, one per fan-out agent, in dependency
@@ -1290,10 +1295,10 @@ parse stacks). Wire snapshots byte-identical throughout; the
 hop-trace suite pins hop counts unchanged.
 
 Two integration notes for future archaeology: the identity-join
-idiom `batch.join(&Version::new())` was how tests *forced*
-working-form materialization, which find 4 turns into a no-op —
-materialization-dependent tests now use the test-only
-`Batch::materialize()` hook. And D3's growing `BitVec` turned
+idiom (joining an empty version into a batch of edits) was how
+tests *forced* working-form materialization, which find 4 turns
+into a no-op — materialization-dependent tests moved to a
+test-only materialization hook. And D3's growing `BitVec` turned
 out to be the value under construction, not decode scratch, so
 the honest optimum was a byte buffer serving twice, not the
 discard-as-you-go ring first sketched.

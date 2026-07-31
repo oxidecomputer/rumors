@@ -177,11 +177,12 @@ use crate::Version;
 /// that exists is well-formed. The struct implements
 /// [`RangeBounds<Version>`] for use with version-ranged APIs.
 ///
-/// Note that [`Range::contains`] — the causal membership predicate — is
-/// deliberately *not* [`RangeBounds::contains`]: the trait's default method
-/// requires the item to dominate the start bound, which on a partial order
-/// silently drops versions concurrent to it. The inherent method shadows
-/// the default so the natural call gets the causal semantics.
+/// [`Range::contains`] — the causal membership predicate — is also the
+/// verdict the [`RangeBounds`] impl gives: the trait's *provided*
+/// `contains` body requires the item to dominate the start bound, which
+/// on a partial order silently drops versions concurrent to it, so the
+/// impl overrides the method with the causal semantics. Direct callers
+/// and generic [`RangeBounds`] consumers therefore agree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Range<'a> {
     start: Bound<&'a Version>,
@@ -365,9 +366,10 @@ impl<'a> Range<'a> {
     /// - end unbounded: everything kept; [`known_at(e)`](known_at): `v <= e`
     ///   kept; [`before(e)`](before): `v < e` kept.
     ///
-    /// This deliberately shadows the [`RangeBounds::contains`] default,
-    /// whose start check would also drop versions concurrent to the start
-    /// bound (see [`Range`]).
+    /// The [`RangeBounds`] impl overrides the trait's provided `contains`
+    /// to answer identically — the provided body's start check would drop
+    /// versions concurrent to the start bound (see [`Range`]) — so generic
+    /// [`RangeBounds`] consumers reach the same verdict as this method.
     pub fn contains(&self, version: &Version) -> bool {
         self.placement_of(version) == Ordering::Equal
     }
@@ -1196,6 +1198,31 @@ impl RangeBounds<Version> for Range<'_> {
 
     fn end_bound(&self) -> Bound<&Version> {
         self.end
+    }
+
+    /// The causal membership predicate, overriding the trait's provided
+    /// body: keep the item unless the start bound *subtracts* it
+    /// (`item <= start` under an excluded start, `item < start` under an
+    /// included one), and the end bound must contain it. The provided
+    /// body instead requires the item to *dominate* the start bound
+    /// (`start <= item` / `start < item`), which on a partial order
+    /// silently drops versions concurrent to the start — versions
+    /// [`Range::contains`] keeps. For `Version` probes this override and
+    /// the inherent method agree exactly (pinned in the module's tests).
+    fn contains<U>(&self, item: &U) -> bool
+    where
+        Version: PartialOrd<U>,
+        U: ?Sized + PartialOrd<Version>,
+    {
+        (match self.start {
+            Bound::Included(start) => !(item < start),
+            Bound::Excluded(start) => !(item <= start),
+            Bound::Unbounded => true,
+        }) && (match self.end {
+            Bound::Included(end) => item <= end,
+            Bound::Excluded(end) => item < end,
+            Bound::Unbounded => true,
+        })
     }
 }
 
