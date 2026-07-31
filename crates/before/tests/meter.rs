@@ -5268,12 +5268,14 @@ fn id_without_envelope() {
 // nothing, and do no arithmetic, so the `ID_COVERS`/`ID_DISJOINT` envelope
 // columns are all structurally near-zero and this counter is the one
 // deterministic meter that sees the work. These pins hold each walk's scan
-// reading to an absolute ceiling (measured ×1.25) over a full-examination
-// liveness floor (one bit per packed operand byte — the diverted pair
-// forces both walks to full lockstep depth), and to per-byte flatness
-// (×1.25) across a depth doubling, so a re-scanning walk or a walk that
-// leaves the metered primitives moves a committed number instead of
-// passing every near-zero column unchanged.
+// reading to an exact measured value at both depths (the walk reads every
+// stored tag of both operands exactly once, so the reading is
+// deterministic and two-sided: an undercounting tap and a re-scanning
+// walk both move it) over a full-examination liveness floor (one bit per
+// packed operand byte — the diverted pair forces both walks to full
+// lockstep depth), and to per-byte flatness (×1.25) across a depth
+// doubling, so a walk that leaves the metered primitives moves a
+// committed number instead of passing every near-zero column unchanged.
 #[cfg(feature = "scan-meter")]
 mod id_walk_scan_cost {
     use super::{id_pair_input_bytes, party_of, ID_DEPTH};
@@ -5287,15 +5289,20 @@ mod id_walk_scan_cost {
         bits: u64,
     }
 
-    /// Absolute scan ceilings at the [`ID_DEPTH`] pair, measured
-    /// 2026-07-26 ×1.25: covers 1,000,004 bits on 125,002 packed bytes
-    /// (8 bits per byte: every stored tag read once, both operands).
-    const COVERS_SCAN_CEILING_BITS: u64 = 1_250_005;
+    /// Exact scan readings at the [`ID_DEPTH`] pair (measured
+    /// 2026-07-31, deterministic counters): every stored tag of both
+    /// operands read exactly once through the metered primitives —
+    /// [`SCAN_EXACT_BITS_SMALL`] on 62,502 packed bytes at the half
+    /// depth, [`SCAN_EXACT_BITS_LARGE`] on 125,002 at the full depth,
+    /// identical for the covers and disjoint walks (the same full
+    /// lockstep walk). Pinned with equality, not a ceiling: a uniform
+    /// tap undercount halves the reading yet clears every slack floor
+    /// in the tree, so only the exact number is tamper-evident in both
+    /// directions.
+    const SCAN_EXACT_BITS_SMALL: u64 = 500_004;
 
-    /// The disjoint walk's ceiling paired with
-    /// [`COVERS_SCAN_CEILING_BITS`] (measured 1,000,004 bits, the same
-    /// full lockstep walk).
-    const DISJOINT_SCAN_CEILING_BITS: u64 = 1_250_005;
+    /// The full-depth reading paired with [`SCAN_EXACT_BITS_SMALL`].
+    const SCAN_EXACT_BITS_LARGE: u64 = 1_000_004;
 
     /// Run one id-pair walk at `depth` and read the scan counter over
     /// the body alone, enforcing the full-examination liveness floor.
@@ -5335,13 +5342,15 @@ mod id_walk_scan_cost {
         );
     }
 
-    /// The covers walk's scan bits are absolute-pinned, floored, and flat
-    /// per byte across a depth doubling of the diverted spine pair (which
-    /// admits no early exit).
+    /// The covers walk's scan bits are exact-pinned at both depths,
+    /// floored, and flat per byte across the depth doubling of the
+    /// diverted spine pair (which admits no early exit).
     ///
-    /// The walk's cost is invisible to every other deterministic meter, so
-    /// this pin is what a re-scanning `covers` (quadratic restarts) or an
-    /// unmetered raw-indexing walk moves.
+    /// The walk's cost is invisible to every other deterministic meter,
+    /// so this pin is what a re-scanning `covers` (quadratic restarts),
+    /// an unmetered raw-indexing walk, or a tap under- or over-count
+    /// moves — the equality is the two-sided form a ceiling-plus-slack
+    /// floor cannot give.
     #[test]
     fn id_covers_scan_cost_is_pinned_and_flat() {
         let small = walk_run("covers_small", ID_DEPTH / 2, |a, b| {
@@ -5351,19 +5360,21 @@ mod id_walk_scan_cost {
             assert!(!a.covers(b), "the divert arms are disjoint");
         });
         assert_flat("covers", &small, &large);
-        assert!(
-            large.bits <= COVERS_SCAN_CEILING_BITS,
-            "id_covers: {} scanned bits exceed the pinned ceiling {COVERS_SCAN_CEILING_BITS}",
-            large.bits,
+        assert_eq!(
+            (small.bits, large.bits),
+            (SCAN_EXACT_BITS_SMALL, SCAN_EXACT_BITS_LARGE),
+            "id_covers: the scanned bits moved off the exact pin: a moved \
+             reading is a walk or tap change to re-pin deliberately",
         );
     }
 
-    /// The disjoint walk's scan bits are absolute-pinned, floored, and
-    /// flat per byte across a depth doubling of the diverted spine pair
-    /// (disjoint operands, so the walk runs to completion).
+    /// The disjoint walk's scan bits are exact-pinned at both depths,
+    /// floored, and flat per byte across the depth doubling of the
+    /// diverted spine pair (disjoint operands, so the walk runs to
+    /// completion).
     ///
     /// Same rationale as the covers pin: scan is the one live column on
-    /// this walk.
+    /// this walk, and only the exact equality reads a tap undercount.
     #[test]
     fn id_disjoint_scan_cost_is_pinned_and_flat() {
         let small = walk_run("disjoint_small", ID_DEPTH / 2, |a, b| {
@@ -5373,11 +5384,11 @@ mod id_walk_scan_cost {
             assert!(a.is_disjoint(b), "the divert arms own disjoint regions");
         });
         assert_flat("disjoint", &small, &large);
-        assert!(
-            large.bits <= DISJOINT_SCAN_CEILING_BITS,
-            "id_disjoint: {} scanned bits exceed the pinned ceiling \
-             {DISJOINT_SCAN_CEILING_BITS}",
-            large.bits,
+        assert_eq!(
+            (small.bits, large.bits),
+            (SCAN_EXACT_BITS_SMALL, SCAN_EXACT_BITS_LARGE),
+            "id_disjoint: the scanned bits moved off the exact pin: a moved \
+             reading is a walk or tap change to re-pin deliberately",
         );
     }
 }
