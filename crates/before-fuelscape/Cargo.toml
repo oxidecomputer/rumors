@@ -15,8 +15,15 @@ edition = "2021"
 [dependencies]
 # The subject under audit: the samplers target its packed codecs, and the
 # `meter` feature exposes the committed adversarial family generators the
-# renders overlay as marked points.
-before = { path = "../before", features = ["meter"] }
+# renders overlay as marked points. The deterministic native counters
+# (`scan-meter`/`limb-meter`) feed the spanbands discriminator, which
+# measures work natively per sampled pair; the fuel pipeline never reads
+# them (the guest is a separate wasm build).
+before = { path = "../before", features = ["meter", "scan-meter", "limb-meter"] }
+# Read beside `before`'s counters: the accumulator digit-touch meter the
+# `limb-meter` feature lights (`suanpan/touch-meter`), read directly as
+# `suanpan::touch_meter` — `before` re-exports no reader for it.
+suanpan = { path = "../suanpan", features = ["touch-meter"] }
 # The fuel apparatus of record: the fuzzfit harness's wasmtime driver runs
 # one public operation per guest call under deterministic instruction-count
 # fuel. Reused whole rather than duplicated, so the atlas and the band

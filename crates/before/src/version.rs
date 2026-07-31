@@ -11,6 +11,7 @@ use crate::codec;
 use crate::error::{Decode, Parse};
 use crate::Party;
 
+pub(crate) mod hull_traffic;
 mod own;
 mod rank;
 mod ranked;
@@ -949,28 +950,47 @@ impl Version {
     /// sweep's early-exiting prefix, which stops at the second
     /// refuting interval.
     fn span_refs(a: &Version, b: &Version) -> (Version, Version) {
+        use hull_traffic::Rung;
         if codec::canonical_eq(&a.0, &b.0) {
+            hull_traffic::record(Rung::Equal);
             return (a.clone(), a.clone()); // a ∧ a = a = a ∨ a
         }
         if skyline::is_empty_stream(&a.0) {
             // 0 ∧ v = 0 (`a` is already the meet), 0 ∨ v = v.
+            hull_traffic::record(Rung::Empty);
             return (a.clone(), b.clone());
         }
         if skyline::is_empty_stream(&b.0) {
             // v ∧ 0 = 0, v ∨ 0 = v.
+            hull_traffic::record(Rung::Empty);
             return (Version::new(), a.clone());
         }
         match skyline::sweep::causal_cmp(&a.0, &b.0) {
             // The comparable case's answer IS an operand pair.
-            Some(Ordering::Less) => return (a.clone(), b.clone()),
-            Some(Ordering::Greater) => return (b.clone(), a.clone()),
+            Some(Ordering::Less) => {
+                hull_traffic::record(Rung::Comparable);
+                return (a.clone(), b.clone());
+            }
+            Some(Ordering::Greater) => {
+                hull_traffic::record(Rung::Comparable);
+                return (b.clone(), a.clone());
+            }
             Some(Ordering::Equal) => unreachable!(
                 "equal versions have byte-equal canonical streams, settled by the first rung"
             ),
             None => {}
         }
-        let (lo, hi) = skyline::emit::hull(&a.0, &b.0);
-        (Version::from_bits(lo), Version::from_bits(hi))
+        hull_traffic::record(Rung::Concurrent);
+        let hull = skyline::emit::hull(&a.0, &b.0);
+        // The fused walk folds the pair relation beside its emissions
+        // (an O(1) flag pair riding sign reads the walk performs
+        // anyway), so the ladder's classification is cross-checked at
+        // the only door that emits.
+        debug_assert!(
+            hull.relation.is_none(),
+            "the comparison rung admits only concurrent pairs to the emitting walk"
+        );
+        (Version::from_bits(hull.lo), Version::from_bits(hull.hi))
     }
 
     /// Encodes this [`Version`] to bytes.
