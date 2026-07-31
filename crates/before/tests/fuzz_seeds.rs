@@ -92,8 +92,9 @@ fn seed_directories_hold_exactly_the_set_of_record() {
 }
 
 /// Every `fuzz_decode` seed decodes as the type its name declares and
-/// re-encodes byte-identically: the seeds actually exercise the decode
-/// paths they were written for.
+/// re-encodes byte-identically — or, for the corpus's non-canonical
+/// frontier, rejects with exactly its named genre: the seeds actually
+/// exercise the decode paths they were written for.
 #[test]
 fn decode_seeds_decode_as_named_and_round_trip() {
     for seed in fuzz_seed_set::seed_set() {
@@ -101,6 +102,28 @@ fn decode_seeds_decode_as_named_and_round_trip() {
             continue;
         }
         let bytes = &seed.bytes;
+        // The rejection witnesses, by full name: each must reject with
+        // the exact error its genre pronounces (never fail an earlier
+        // parse), so the corpus keeps seeding the validator arm it was
+        // written for — the fused span walk cannot reach these arms, so
+        // these version-door seeds are their only corpus coverage.
+        match seed.name {
+            "version_negative_height" => {
+                assert!(
+                    matches!(Version::decode(&bytes[..]), Err(Decode::NotCanonical)),
+                    "a mid-stream negative running height is non-canonical"
+                );
+                continue;
+            }
+            "version_zero_sibling" => {
+                assert!(
+                    matches!(Version::decode(&bytes[..]), Err(Decode::NotCanonical)),
+                    "a collapsible sibling pair (zero right delta) is non-canonical"
+                );
+                continue;
+            }
+            _ => {}
+        }
         let (kind, _) = seed.name.split_once('_').expect("seed names are kind_case");
         match kind {
             "clock" => {
