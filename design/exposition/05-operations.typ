@@ -764,7 +764,7 @@ half's summed windows. Two representations keep that product
 honest — parked sums folded digit-wise, so opposing
 armings cancel before any product reads a width; window sums held
 as sparse balanced signed digits, so a long climb's consumed mass
-compacts to $O(1)$ terms — and each product is delegated,
+compacts to $O(1)$ terms. Each product is delegated,
 cluster-wise, to sub-quadratic integer multiplication. Every cross
 term rides exactly one aggregate product; no width or density is
 re-read more times than its node's depth, which the mass balance
