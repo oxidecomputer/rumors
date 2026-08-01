@@ -1,12 +1,16 @@
 # Run the no-rot sweep (`just ci`) on every push to main and every pull request.
 #
-# `ci` is the gate's superset minus one thing: fmt-check → doclint → testdoc → readme-check
-# → clippy → the `before` feature matrix → wasm-check → docs → docs-internal →
-# test → doctest → bench-build → fuzz-build → the viz bundle. It builds the fuzz
-# targets but does
-# not run the smoke (`just all` adds that locally — libFuzzer minutes are a poor
-# per-commit spend). CI invokes the recipe rather than re-listing its steps, so
-# the sweep has exactly one definition (the justfile) and the two can't drift.
+# `ci` is the build-everything tier: fmt-check → doclint → testdoc → readme-check
+# → clippy → clippy-default → the workspace feature matrix → wasm-check → docs →
+# docs-internal → test-all → doctest → bench-build → fuzz-build → the viz
+# bundle. It builds the fuzz targets but does not run the smoke (`just all`
+# adds that locally — libFuzzer minutes are a poor per-commit spend). The
+# `instruments` job beside it re-runs the gate's deterministic, counter-based
+# instrument legs — the board verdicts and pins, surface totality, and the
+# supply-chain leg; its job comment says which instrument legs stay local and
+# why. The `gate` recipe line in the justfile remains the roster of record.
+# CI invokes recipes rather than re-listing their steps, so every check has
+# exactly one definition (the justfile) and the two can't drift.
 #
 # What the runner has to supply that a dev machine already has:
 #   - a current stable toolchain (edition 2024 needs 1.85+), with clippy + rustfmt
@@ -92,3 +96,85 @@ jobs:
 
       - name: just ci
         run: just ci
+
+  # The gate's deterministic instrument legs, re-run on the runner. Only
+  # counter-based legs ride here: their readings are byte-identical under
+  # any machine load, so a shared runner cannot flake them. What stays
+  # local, and why:
+  #   - the judged wall-time legs (bench-judge and its tripwire): criterion
+  #     exponent fits need the quiet-machine regime a shared runner cannot
+  #     promise;
+  #   - the wasmtime fuel tier (the fuzzfit bands and the fuelscape pins):
+  #     deterministic, but it brings a wasm32 guest build plus wasmtime to
+  #     police asymptotics the board legs below already judge at the scales
+  #     of record — the gate keeps the second jaw;
+  #   - amp-board-determinism: its cross-process byte-compare runs at a
+  #     reduced scale for gate speed, and the shard-pin leg below already
+  #     byte-compares two process topologies at both scales of record.
+  #
+  # Runner fit: every step here builds `before` alone (release profile,
+  # counter features) plus the small detached surfacecheck workspace —
+  # never the rumors bench/release tier, whose lib-as-bench compile is
+  # known to exceed 16 GiB; that build lives in `ci`'s bench-build leg,
+  # not in this job.
+  #
+  # Toolchain coupling: surface-totality parses nightly rustdoc JSON
+  # through a `rustdoc-types` pin matched to the installed nightly's
+  # format_version. This job tracks nightly, so a format bump upstream can
+  # turn the leg red on an untouched tree — the checker refuses loudly,
+  # naming both version numbers, and the justfile's surface-totality
+  # comment documents the re-pin procedure.
+  instruments:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Nightly first, stable last (each dtolnay/rust-toolchain step runs
+      # `rustup default`, last one sticks): only the surface-json recipe
+      # invokes `cargo +nightly`; every other step must hit stable.
+      - name: Install nightly toolchain (surface-totality rustdoc JSON)
+        uses: dtolnay/rust-toolchain@nightly
+
+      # clippy and rustfmt are for the surfacecheck workspace's own lint
+      # legs, which the surface-totality recipe carries.
+      - name: Install stable toolchain (default)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install just, cargo-nextest, cargo-audit, and cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just,cargo-nextest,cargo-audit,cargo-deny
+
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          # The detached surfacecheck workspace has its own lockfile and
+          # target directory; cache it beside the root workspace.
+          workspaces: |
+            .
+            crates/before/surfacecheck
+
+      # Build-free and network-bound (the advisory database fetch), so it
+      # runs first.
+      - name: just supply-chain
+        run: just supply-chain
+
+      # The board verdicts at both scales of record: at these scales the
+      # runner's exit code carries the red/green judgment, so a red board
+      # fails the job.
+      - name: just amp-board (verdicts, default scale)
+        run: just amp-board
+
+      - name: just amp-board-acceptance (verdicts, acceptance scale)
+        run: just amp-board-acceptance
+
+      - name: just worst-cases-pin
+        run: just worst-cases-pin
+
+      - name: just amp-board-shard-pin
+        run: just amp-board-shard-pin
+
+      - name: just surface-totality
+        run: just surface-totality

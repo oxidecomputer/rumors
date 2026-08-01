@@ -11,8 +11,10 @@
 # wasm, bench builds, the fuzz-target build, the viz bundle), exactly as
 # GitHub CI builds them; `all` adds what CI cannot run (the fuzz smoke and the
 # formal tier). Neither sweep repeats the gate's instrument legs — the fuel
-# bands, the board pins, and surface totality run only in `just gate`. The
-# comment above each recipe states what it verifies and why.
+# bands, the board pins, and surface totality run in `just gate`, and GitHub
+# CI's `instruments` job re-runs the counter-based subset (the workflow file
+# says which legs stay local and why). The comment above each recipe states
+# what it verifies and why.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -653,8 +655,11 @@ worst-cases-pin:
 # and the viz bundle, ordered cheap-first so failures surface early. GitHub CI
 # runs exactly this. Neither `ci` nor `all` runs the gate's instrument legs —
 # the fuel bands, the fuelscape pins, the board determinism/shard/ranking
-# pins, and surface totality run only in `just gate` (its recipe line is the
-# roster of record), pre-commit on a developer machine.
+# pins, and surface totality run in `just gate` (its recipe line is the
+# roster of record), pre-commit on a developer machine; GitHub CI's
+# `instruments` job re-runs the counter-based subset (board verdicts, the
+# shard and ranking pins, surface totality, and the supply-chain leg) beside
+# the `ci` sweep, leaving the wall-time judge and the wasm fuel tier local.
 #
 # `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
 # per-commit spend), the formal tier (the runner has no Lean toolchain) —
