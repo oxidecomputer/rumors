@@ -5,6 +5,8 @@
 //! emitted directly), so these test the *codec* in isolation from the operation
 //! algorithms.
 
+use std::sync::Arc;
+
 use bitvec::prelude::*;
 use proptest::prelude::*;
 
@@ -714,7 +716,7 @@ proptest! {
 #[test]
 fn reject_noncanonical_id() {
     use oracle::Party::{Leaf, Node};
-    let denormal = Node(Box::new(Leaf(true)), Box::new(Leaf(true)));
+    let denormal = Node(Arc::new(Leaf(true)), Arc::new(Leaf(true)));
     let bytes = from_oracle_party(&denormal).encode();
     assert!(
         matches!(Party::decode(&bytes[..]), Err(Decode::NotCanonical)),
@@ -737,9 +739,9 @@ fn reject_deep_nested_denormal_id() {
     // wrapping. Each wrapper is itself normal (a node child paired with a `0`
     // leaf), so the only non-canonical node is the buried `(1, 1)`.
     const DEPTH: usize = 16;
-    let mut tree = Node(Box::new(Leaf(true)), Box::new(Leaf(true)));
+    let mut tree = Node(Arc::new(Leaf(true)), Arc::new(Leaf(true)));
     for _ in 0..DEPTH {
-        tree = Node(Box::new(tree), Box::new(Leaf(false)));
+        tree = Node(Arc::new(tree), Arc::new(Leaf(false)));
     }
     let bytes = from_oracle_party(&tree).encode();
 
@@ -843,13 +845,13 @@ fn reject_noncanonical_event() {
     // quotients the spelling onto the normalized tree's stream.
     let no_zero = Node(
         0u64.into(),
-        Box::new(Leaf(1u64.into())),
-        Box::new(Leaf(2u64.into())),
+        Arc::new(Leaf(1u64.into())),
+        Arc::new(Leaf(2u64.into())),
     );
     let normalized = Node(
         1u64.into(),
-        Box::new(Leaf(0u64.into())),
-        Box::new(Leaf(1u64.into())),
+        Arc::new(Leaf(0u64.into())),
+        Arc::new(Leaf(1u64.into())),
     );
     assert_eq!(
         from_oracle_version(&no_zero).encode(),

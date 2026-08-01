@@ -11,6 +11,8 @@
 //! Recursive over bounded test trees (the impl's own traversals are
 //! iterative).
 
+use std::sync::Arc;
+
 use crate::codec::{self, BitsMut};
 use crate::oracle;
 use crate::recurse::descend;
@@ -124,7 +126,7 @@ fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
     } else {
         oracle::Party::Leaf(false)
     };
-    (oracle::Party::Node(Box::new(l), Box::new(r)), next)
+    (oracle::Party::Node(Arc::new(l), Arc::new(r)), next)
 }
 
 /// Read one skyline subtree at `pos` into a raw oracle tree.
@@ -146,7 +148,7 @@ fn read_ev(
         let (l, after_l) = descend!(0, read_ev(bits, pos + 1, prev));
         let (r, after_r) = descend!(0, read_ev(bits, after_l, prev));
         return (
-            oracle::Version::Node(codec::Base::ZERO, Box::new(l), Box::new(r)),
+            oracle::Version::Node(codec::Base::ZERO, Arc::new(l), Arc::new(r)),
             after_r,
         );
     }

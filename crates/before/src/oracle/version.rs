@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
+use std::sync::Arc;
 
 use crate::codec::Base;
 
@@ -16,10 +17,15 @@ type Cost = (u32, u32); // (#expansions, depth), lexicographic
 /// — there is no `u64` truncation point. Literal/`u64` construction still works
 /// via `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the
 /// [`From<u64>`](Version) conversion.
+///
+/// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump:
+/// the paper's subtree-preserving cases (`shift` rebuilding only a root,
+/// `grow` keeping the sibling it didn't inflate) share structure instead of
+/// deep-copying, which keeps every oracle walk linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {
     Leaf(Base),
-    Node(Base, Box<Version>, Box<Version>),
+    Node(Base, Arc<Version>, Arc<Version>),
 }
 
 impl From<u64> for Version {
@@ -69,7 +75,7 @@ impl Version {
         let r = r.debase(&m);
         match (&l, &r) {
             (Version::Leaf(a), Version::Leaf(b)) if a == b => Version::Leaf(n + m + a),
-            _ => Version::Node(n + m, Box::new(l), Box::new(r)),
+            _ => Version::Node(n + m, Arc::new(l), Arc::new(r)),
         }
     }
 
@@ -264,12 +270,12 @@ impl Version {
                 let (er2, cr) = er.grow(&Party::Leaf(true));
                 if cl < cr {
                     (
-                        Version::Node(n.clone(), Box::new(el2), er.clone()),
+                        Version::Node(n.clone(), Arc::new(el2), er.clone()),
                         (cl.0, cl.1 + 1),
                     )
                 } else {
                     (
-                        Version::Node(n.clone(), el.clone(), Box::new(er2)),
+                        Version::Node(n.clone(), el.clone(), Arc::new(er2)),
                         (cr.0, cr.1 + 1),
                     )
                 }
@@ -278,8 +284,8 @@ impl Version {
             (Party::Node(..), Version::Leaf(n)) => {
                 let expanded = Version::Node(
                     n.clone(),
-                    Box::new(Version::leaf(0u64)),
-                    Box::new(Version::leaf(0u64)),
+                    Arc::new(Version::leaf(0u64)),
+                    Arc::new(Version::leaf(0u64)),
                 );
                 let (e2, c) = expanded.grow(id);
                 (e2, (c.0 + 1, c.1))
@@ -288,13 +294,13 @@ impl Version {
                 if il.is_empty() {
                     let (er2, cr) = er.grow(ir);
                     (
-                        Version::Node(n.clone(), el.clone(), Box::new(er2)),
+                        Version::Node(n.clone(), el.clone(), Arc::new(er2)),
                         (cr.0, cr.1 + 1),
                     )
                 } else if ir.is_empty() {
                     let (el2, cl) = el.grow(il);
                     (
-                        Version::Node(n.clone(), Box::new(el2), er.clone()),
+                        Version::Node(n.clone(), Arc::new(el2), er.clone()),
                         (cl.0, cl.1 + 1),
                     )
                 } else {
@@ -302,12 +308,12 @@ impl Version {
                     let (er2, cr) = er.grow(ir);
                     if cl < cr {
                         (
-                            Version::Node(n.clone(), Box::new(el2), er.clone()),
+                            Version::Node(n.clone(), Arc::new(el2), er.clone()),
                             (cl.0, cl.1 + 1),
                         )
                     } else {
                         (
-                            Version::Node(n.clone(), el.clone(), Box::new(er2)),
+                            Version::Node(n.clone(), el.clone(), Arc::new(er2)),
                             (cr.0, cr.1 + 1),
                         )
                     }

@@ -8,6 +8,7 @@
 //! embedding against a value the paper states.
 
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 use proptest::prelude::*;
 use rand::rngs::StdRng;
@@ -444,15 +445,15 @@ fn embedding_matches_paper_worked_value() {
     use oracle::Version as V;
     let e = V::Node(
         1u64.into(),
-        Box::new(V::Leaf(2u64.into())),
-        Box::new(V::Node(
+        Arc::new(V::Leaf(2u64.into())),
+        Arc::new(V::Node(
             0u64.into(),
-            Box::new(V::Node(
+            Arc::new(V::Node(
                 1u64.into(),
-                Box::new(V::Leaf(0u64.into())),
-                Box::new(V::Leaf(2u64.into())),
+                Arc::new(V::Leaf(0u64.into())),
+                Arc::new(V::Leaf(2u64.into())),
             )),
-            Box::new(V::Leaf(0u64.into())),
+            Arc::new(V::Leaf(0u64.into())),
         )),
     );
     let f = lift_ev(e);
@@ -473,8 +474,8 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
     // Left leaf 7 over [0,1/2), right leaf 9 over [1/2,1).
     let f = lift_ev(V::Node(
         0u64.into(),
-        Box::new(V::Leaf(7u64.into())),
-        Box::new(V::Leaf(9u64.into())),
+        Arc::new(V::Leaf(7u64.into())),
+        Arc::new(V::Leaf(9u64.into())),
     ));
     // Two finer-than-needed points inside [0,1/2) agree; two inside [1/2,1) agree.
     assert_eq!(f(Dyadic::grid(1, 4)), Base::from(7u64)); // 1/16

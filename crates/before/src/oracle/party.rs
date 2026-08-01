@@ -1,9 +1,17 @@
 //! The oracle id component: [`Party`] as the paper's plain recursive tree.
 
+use std::sync::Arc;
+
+/// An id tree, exactly as the paper defines it.
+///
+/// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump:
+/// the paper's subtree-preserving cases (`split` handing each half of a
+/// two-sided node to one fork, whole) share structure instead of
+/// deep-copying, which keeps every oracle walk linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Party {
     Leaf(bool),
-    Node(Box<Party>, Box<Party>),
+    Node(Arc<Party>, Arc<Party>),
 }
 
 impl Party {
@@ -16,7 +24,7 @@ impl Party {
         match (&l, &r) {
             (Party::Leaf(false), Party::Leaf(false)) => Party::Leaf(false),
             (Party::Leaf(true), Party::Leaf(true)) => Party::Leaf(true),
-            _ => Party::Node(Box::new(l), Box::new(r)),
+            _ => Party::Node(Arc::new(l), Arc::new(r)),
         }
     }
 
@@ -68,9 +76,10 @@ impl Party {
         match (self, other) {
             (Party::Leaf(false), b) => b,
             (a, Party::Leaf(false)) => a,
-            (Party::Node(l1, r1), Party::Node(l2, r2)) => {
-                Party::node((*l1).sum(*l2), (*r1).sum(*r2))
-            }
+            (Party::Node(l1, r1), Party::Node(l2, r2)) => Party::node(
+                Arc::unwrap_or_clone(l1).sum(Arc::unwrap_or_clone(l2)),
+                Arc::unwrap_or_clone(r1).sum(Arc::unwrap_or_clone(r2)),
+            ),
             _ => Party::Leaf(true), // overlap: unreachable (callers check disjointness)
         }
     }

@@ -24,6 +24,8 @@
 //! so its global minimum is computed over the full search space rather than the
 //! pruned one.
 
+use std::sync::Arc;
+
 use crate::oracle;
 
 /// The inflation cost the paper assigns: `(expansions, depth)`, lexicographic.
@@ -52,13 +54,13 @@ pub(crate) fn all_inflations(
             let mut out = Vec::new();
             for (el2, c) in all_inflations(&P::Leaf(true), el) {
                 out.push((
-                    V::Node(n.clone(), Box::new(el2), er.clone()),
+                    V::Node(n.clone(), Arc::new(el2), er.clone()),
                     (c.0, c.1 + 1),
                 ));
             }
             for (er2, c) in all_inflations(&P::Leaf(true), er) {
                 out.push((
-                    V::Node(n.clone(), el.clone(), Box::new(er2)),
+                    V::Node(n.clone(), el.clone(), Arc::new(er2)),
                     (c.0, c.1 + 1),
                 ));
             }
@@ -70,8 +72,8 @@ pub(crate) fn all_inflations(
         (P::Node(..), V::Leaf(n)) => {
             let expanded = V::Node(
                 n.clone(),
-                Box::new(V::Leaf(0u32.into())),
-                Box::new(V::Leaf(0u32.into())),
+                Arc::new(V::Leaf(0u32.into())),
+                Arc::new(V::Leaf(0u32.into())),
             );
             all_inflations(id, &expanded)
                 .into_iter()
@@ -83,13 +85,13 @@ pub(crate) fn all_inflations(
             let mut out = Vec::new();
             for (el2, c) in all_inflations(il, el) {
                 out.push((
-                    V::Node(n.clone(), Box::new(el2), er.clone()),
+                    V::Node(n.clone(), Arc::new(el2), er.clone()),
                     (c.0, c.1 + 1),
                 ));
             }
             for (er2, c) in all_inflations(ir, er) {
                 out.push((
-                    V::Node(n.clone(), el.clone(), Box::new(er2)),
+                    V::Node(n.clone(), el.clone(), Arc::new(er2)),
                     (c.0, c.1 + 1),
                 ));
             }
@@ -131,8 +133,8 @@ pub(crate) fn best_inflation(
         (P::Node(..), V::Leaf(n)) => {
             let expanded = V::Node(
                 n.clone(),
-                Box::new(V::Leaf(0u32.into())),
-                Box::new(V::Leaf(0u32.into())),
+                Arc::new(V::Leaf(0u32.into())),
+                Arc::new(V::Leaf(0u32.into())),
             );
             best_inflation(id, &expanded).map(|(e2, c)| (e2, (c.0 + 1, c.1)))
         }
@@ -156,13 +158,13 @@ pub(crate) fn best_inflation(
             if go_left {
                 let (el2, c) = best_inflation(idl, el)?;
                 Some((
-                    V::Node(n.clone(), Box::new(el2), er.clone()),
+                    V::Node(n.clone(), Arc::new(el2), er.clone()),
                     (c.0, c.1 + 1),
                 ))
             } else {
                 let (er2, c) = best_inflation(idr, er)?;
                 Some((
-                    V::Node(n.clone(), el.clone(), Box::new(er2)),
+                    V::Node(n.clone(), el.clone(), Arc::new(er2)),
                     (c.0, c.1 + 1),
                 ))
             }

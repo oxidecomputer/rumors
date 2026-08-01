@@ -7,6 +7,7 @@
 //! trees.
 
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 use proptest::prelude::*;
 
@@ -432,12 +433,12 @@ fn event_normalization() {
     assert_eq!(unit_pulse, leaf(3));
 
     // (2,(2,1,0),3) ~ (4,(0,1,0),1)
-    let left = V::Node(2u64.into(), Box::new(leaf(1)), Box::new(leaf(0))); // (2,1,0), already normal
+    let left = V::Node(2u64.into(), Arc::new(leaf(1)), Arc::new(leaf(0))); // (2,1,0), already normal
     let example = V::node(2u64, left, leaf(3));
     let expected = V::Node(
         4u64.into(),
-        Box::new(V::Node(0u64.into(), Box::new(leaf(1)), Box::new(leaf(0)))),
-        Box::new(leaf(1)),
+        Arc::new(V::Node(0u64.into(), Arc::new(leaf(1)), Arc::new(leaf(0)))),
+        Arc::new(leaf(1)),
     );
     assert_eq!(example, expected);
 }
@@ -464,24 +465,24 @@ fn split_equations() {
 
     // split(1) = ((1,0),(0,1))
     let (a, b) = Leaf(true).split();
-    assert_eq!(a, Node(Box::new(Leaf(true)), Box::new(Leaf(false))));
-    assert_eq!(b, Node(Box::new(Leaf(false)), Box::new(Leaf(true))));
+    assert_eq!(a, Node(Arc::new(Leaf(true)), Arc::new(Leaf(false))));
+    assert_eq!(b, Node(Arc::new(Leaf(false)), Arc::new(Leaf(true))));
 
     // split((1,0)) descends into the left: (((1,0),0), ((0,1),0))
-    let left_half = Node(Box::new(Leaf(true)), Box::new(Leaf(false)));
+    let left_half = Node(Arc::new(Leaf(true)), Arc::new(Leaf(false)));
     let (a, b) = left_half.split();
     assert_eq!(
         a,
         Node(
-            Box::new(Node(Box::new(Leaf(true)), Box::new(Leaf(false)))),
-            Box::new(Leaf(false)),
+            Arc::new(Node(Arc::new(Leaf(true)), Arc::new(Leaf(false)))),
+            Arc::new(Leaf(false)),
         )
     );
     assert_eq!(
         b,
         Node(
-            Box::new(Node(Box::new(Leaf(false)), Box::new(Leaf(true)))),
-            Box::new(Leaf(false)),
+            Arc::new(Node(Arc::new(Leaf(false)), Arc::new(Leaf(true)))),
+            Arc::new(Leaf(false)),
         )
     );
 }
@@ -494,14 +495,14 @@ fn sum_and_join() {
     use Version as V;
     let vleaf = |n: u64| V::leaf(n);
 
-    let left_half = PNode(Box::new(PLeaf(true)), Box::new(PLeaf(false)));
-    let right_half = PNode(Box::new(PLeaf(false)), Box::new(PLeaf(true)));
+    let left_half = PNode(Arc::new(PLeaf(true)), Arc::new(PLeaf(false)));
+    let right_half = PNode(Arc::new(PLeaf(false)), Arc::new(PLeaf(true)));
     assert_eq!(left_half.sum(right_half), PLeaf(true)); // sum((1,0),(0,1)) = 1
 
-    let a = V::Node(0u64.into(), Box::new(vleaf(1)), Box::new(vleaf(0))); // (0,1,0)
-    let b = V::Node(0u64.into(), Box::new(vleaf(0)), Box::new(vleaf(2))); // (0,0,2)
+    let a = V::Node(0u64.into(), Arc::new(vleaf(1)), Arc::new(vleaf(0))); // (0,1,0)
+    let b = V::Node(0u64.into(), Arc::new(vleaf(0)), Arc::new(vleaf(2))); // (0,0,2)
     let joined = a | b;
-    let expected = V::Node(1u64.into(), Box::new(vleaf(0)), Box::new(vleaf(1))); // (1,0,1)
+    let expected = V::Node(1u64.into(), Arc::new(vleaf(0)), Arc::new(vleaf(1))); // (1,0,1)
     assert_eq!(joined, expected);
 }
 
@@ -513,8 +514,8 @@ fn meet_is_pointwise_min() {
     use Version as V;
     let vleaf = |n: u64| V::leaf(n);
 
-    let a = V::Node(0u64.into(), Box::new(vleaf(1)), Box::new(vleaf(0))); // (0,1,0)
-    let b = V::Node(0u64.into(), Box::new(vleaf(0)), Box::new(vleaf(2))); // (0,0,2)
+    let a = V::Node(0u64.into(), Arc::new(vleaf(1)), Arc::new(vleaf(0))); // (0,1,0)
+    let b = V::Node(0u64.into(), Arc::new(vleaf(0)), Arc::new(vleaf(2))); // (0,0,2)
     let met = a & b;
     assert_eq!(met, vleaf(0));
 }
