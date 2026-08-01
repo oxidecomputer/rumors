@@ -168,29 +168,42 @@ pub(crate) fn register<W: WriteTxn + ?Sized>(
 ///
 /// A *decrement* against an already-reclaimed node is a no-op: IDs are
 /// never reused, so the absent row means the work is already done. An
-/// *increment* against one is a custody bug — something is linking a
-/// record it failed to keep registered — and panics rather than
+/// *increment* against one means something is linking a record whose
+/// registration the store no longer holds, and refuses rather than
 /// installing a dangling edge, as does a count that over- or
-/// underflows. Both asserts are the custody detector [`Kv`]'s
-/// exclusive-ownership requirement licenses: within one live backend
-/// they are unreachable, and a second backend sweeping this one's
-/// registrations is the documented usage violation the panic reports.
+/// underflows. Both checks are custody detectors: within one live
+/// backend the states are unreachable ([`Kv`]'s exclusive-ownership
+/// requirement), so reaching one is evidence the store's contents
+/// moved underneath the backend — a foreign sweep of this backend's
+/// registrations, or rot the decode layer cannot see — and both
+/// surface as [`Corruption`].
 pub(crate) fn adjust_strong<W>(txn: &mut W, node: NodeId, delta: i64) -> Result<(), W::Error>
 where
     W: WriteTxn + ?Sized,
     W::Error: From<Corruption>,
 {
     let Some(mut record) = read_node(txn, node)? else {
-        assert!(
-            delta < 0,
-            "linking a reclaimed record: custody accounting bug"
-        );
-        return Ok(());
+        if delta < 0 {
+            return Ok(());
+        }
+        return Err(Corruption::new(
+            NODES,
+            &node.key(),
+            "node registration (a link targeted an absent row)",
+        )
+        .into());
     };
-    record.strong = record
-        .strong
-        .checked_add_signed(delta)
-        .expect("strong count over/underflow: custody accounting bug");
+    record.strong = match record.strong.checked_add_signed(delta) {
+        Some(strong) => strong,
+        None => {
+            return Err(Corruption::new(
+                NODES,
+                &node.key(),
+                "strong count (no lawful transition reaches it)",
+            )
+            .into());
+        }
+    };
     txn.put(NODES, &node.key(), &record.encode())?;
     queue_if_dead(txn, node, record.strong)
 }

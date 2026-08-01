@@ -943,3 +943,44 @@ fn retirement_clears_the_record_before_it_ships() {
         assert!(cleared.contains(&(store.history_len() - 1)));
     });
 }
+
+/// A live edge that references an absent node record refuses as
+/// corruption, naming the swept row.
+///
+/// Every identifier a fetch resolves comes from a strong edge or a
+/// registration this backend wrote, so within one live backend the
+/// absent row is unreachable — reaching it is evidence of a foreign
+/// sweep or lost writes, and it surfaces exactly like every other way
+/// the store's contents can diverge from what this crate wrote.
+#[test]
+fn dangling_edge_refuses_as_corruption() {
+    pollster::block_on(async {
+        use crate::store::kv::Kv as _;
+        let (store, _backend, rumors) = kv_peer();
+        rumors.send(7).await.expect("send");
+        drop(rumors);
+
+        // Sweep the root node's record out from underneath the canonical
+        // edge that references it.
+        let root = crate::store::checked::read(&store, |txn| {
+            crate::store::schema::CanonicalRoot::read(txn)
+        })
+        .await
+        .expect("read the canonical record")
+        .root
+        .expect("a store that committed a send names a root");
+        store
+            .write(move |txn| txn.delete(crate::store::schema::NODES, &root.key()))
+            .await
+            .expect("sweep the row");
+
+        match Peer::<u64, _, _>::open(store).await {
+            Err(OpenError::Corrupt(corruption)) => {
+                assert_eq!(corruption.table(), crate::store::schema::NODES);
+                assert_eq!(corruption.key(), root.key());
+            }
+            Err(other) => panic!("a dangling edge must refuse as corruption, got {other:?}"),
+            Ok(_) => panic!("a dangling edge must refuse to open"),
+        }
+    });
+}

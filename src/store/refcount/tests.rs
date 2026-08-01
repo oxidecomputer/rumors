@@ -523,3 +523,47 @@ async fn canonical_root_row_lives_in_meta() {
     let ids = store.read(|txn| txn.get(META, IDS_KEY)).await.unwrap();
     assert!(ids.is_none(), "no allocation ran, so no ceiling row exists");
 }
+
+/// An increment against an absent registration refuses as corruption.
+///
+/// Within one live backend every link targets a row the same committed
+/// history installed and never deleted, so the absent row is evidence
+/// the store's contents moved underneath the backend.
+#[pollster::test]
+async fn increment_against_absent_row_refuses_as_corruption() {
+    let store = Memory::recording();
+    let allocator = IdAllocator::default();
+
+    let node = NodeId(allocator.allocate(&store).await.unwrap());
+    let err = checked::write(&store, move |txn| adjust_strong(txn, node, 1))
+        .await
+        .expect_err("a link against an absent row must refuse");
+    match err {
+        KvError::Corrupt(corruption) => assert_eq!(corruption.table(), NODES),
+        other => panic!("an absent-row link must refuse as corruption, got {other:?}"),
+    }
+}
+
+/// A strong count with no lawful transition refuses as corruption: every
+/// committed edge history keeps the next adjustment representable, so a
+/// count that over- or underflows diverged from what this crate wrote.
+#[pollster::test]
+async fn strong_count_overflow_refuses_as_corruption() {
+    let store = Memory::recording();
+    let allocator = IdAllocator::default();
+
+    let node = NodeId(allocator.allocate(&store).await.unwrap());
+    let pin = PinId(allocator.allocate(&store).await.unwrap());
+    let record = leaf_record(u64::MAX, b"leaf");
+    checked::write(&store, move |txn| install(txn, node, pin, &record))
+        .await
+        .unwrap();
+
+    let err = checked::write(&store, move |txn| adjust_strong(txn, node, 1))
+        .await
+        .expect_err("an overflowing count must refuse");
+    match err {
+        KvError::Corrupt(corruption) => assert_eq!(corruption.table(), NODES),
+        other => panic!("an overflowing count must refuse as corruption, got {other:?}"),
+    }
+}

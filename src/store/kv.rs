@@ -55,8 +55,9 @@
 //! references, and recovers on the assumption that nothing else touches
 //! its tables: opening a second peer on a store another live peer is
 //! using sweeps the live peer's held registrations (recovery defines
-//! every held row as dead process state — the failure surfaces as a
-//! custody panic, a detector, not corruption), and seeding into an
+//! every held row as dead process state — the custody accounting
+//! detects the foreign sweep and surfaces it as
+//! [`Corruption`](super::Corruption)), and seeding into an
 //! occupied store silently replaces the stored replica and identity at
 //! its first commit. A `Kv` implementation shared with other tables and
 //! other processes is fine; the backend's tables are not.

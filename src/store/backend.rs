@@ -757,15 +757,12 @@ where
     /// # Errors
     ///
     /// The store's failure, or [`Corruption`] when the record's bytes
-    /// or leaf payload fail to decode.
-    ///
-    /// # Panics
-    ///
-    /// If the record is *absent*: every caller resolves an ID out of a
-    /// strong edge or a registration, so within one live backend absence
-    /// is unreachable — the panic is the custody detector for a second
-    /// backend sweeping this one's registrations ([`Kv`]'s
-    /// exclusive-ownership requirement; see the module docs).
+    /// or leaf payload fail to decode — or when the record is *absent*:
+    /// every caller resolves an ID out of a strong edge or a
+    /// registration, so within one live backend absence is unreachable
+    /// ([`Kv`]'s exclusive-ownership requirement; see the module docs),
+    /// and the refusal is the custody detector for a second backend
+    /// sweeping this one's registrations.
     async fn fetch(
         &self,
         id: NodeId,
@@ -783,7 +780,9 @@ where
         }
         let record = checked::read(&self.shared.kv, move |txn| refcount::read_node(txn, id))
             .await?
-            .expect("dangling child edge or registration: custody accounting bug");
+            .ok_or_else(|| {
+                Corruption::new(NODES, &id.key(), "node record (a live edge references it)")
+            })?;
         let fetched = Arc::new(Fetched {
             body: Body::decode(id, record.body)?,
             provenance: Provenance::Stored {

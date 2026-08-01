@@ -10,9 +10,10 @@
 //!   docs say about the failure (transient contention, a full disk, a
 //!   closed handle) governs; retrying against healthy storage is
 //!   sensible, and nothing about the stored replica is in doubt.
-//! - [`KvError::Corrupt`] reports that the store served bytes this crate
-//!   never wrote: a record failed to decode, a row key has an impossible
-//!   shape, or a loaded value violates an invariant every write upholds.
+//! - [`KvError::Corrupt`] reports that the store's contents are not
+//!   what this crate wrote: a record failed to decode, a row key has an
+//!   impossible shape, a loaded value violates an invariant every write
+//!   upholds, or a row this crate wrote and never deleted is absent.
 //!   Retrying cannot help — the same bytes will come back — and the
 //!   replica's stored state is no longer trustworthy. The
 //!   [`Corruption`] payload names the table and key so the deployment
@@ -22,8 +23,8 @@
 
 use super::kv::Table;
 
-/// Evidence that a store served bytes the persistent backend never
-/// wrote.
+/// Evidence that a store's contents diverge from what the persistent
+/// backend wrote.
 ///
 /// Corruption is environmental — bit rot, a torn write the store's own
 /// integrity layer missed, an operator's misdirected script — so the
@@ -36,7 +37,7 @@ use super::kv::Table;
 /// diagnosis, which is what lets tests pin the exact refusal a
 /// constructed bad row produces.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("corrupt {what} at {table}[{key}]: the store returned bytes this crate never wrote", table = .table.0, key = hex(.key))]
+#[error("corrupt {what} at {table}[{key}]: the store's contents are not what this crate wrote", table = .table.0, key = hex(.key))]
 pub struct Corruption {
     table: Table,
     key: Box<[u8]>,
@@ -49,9 +50,9 @@ fn hex(key: &[u8]) -> String {
 }
 
 impl Corruption {
-    /// Records that the row at `key` in `table` failed to load as a
-    /// `what` (a short noun phrase naming the record kind or the
-    /// violated shape).
+    /// Records that the row at `key` in `table` failed to load as, or
+    /// cannot lawfully hold, a `what` (a short noun phrase naming the
+    /// record kind or the violated shape).
     pub(crate) fn new(table: Table, key: &[u8], what: &'static str) -> Self {
         Self {
             table,
@@ -90,8 +91,8 @@ pub enum KvError<E> {
     #[error(transparent)]
     Store(E),
 
-    /// The store served bytes the backend never wrote; the payload
-    /// names the row.
+    /// The store's contents diverge from what the backend wrote; the
+    /// payload names the row.
     #[error(transparent)]
     Corrupt(#[from] Corruption),
 }
