@@ -68,9 +68,9 @@ from the transport; this design buys none of them from the wire. §6
 records what genuinely remains of the difference.
 
 **Revision of record (2026-07-22, per Finch's closing ruling — read
-this before §1):** the *library* is the product; `rumormill` is a
-demonstration artifact. The product surface is therefore the `Link`
-contract itself — the library *requires* independent streams and ships
+this before §1):** the *library* is the product; demonstration
+transports are artifacts, never surface. The product surface is
+therefore the `Link` contract itself — the library *requires* independent streams and ships
 no transport; users discharge the requirement with whatever their
 environment tunes best (QUIC, HTTP/2, separate TCP connections). With
 the mux campaign complete, the conclusion of record (main:
