@@ -42,11 +42,17 @@ enum Val {
     S(Span<'static>),
 }
 
+// clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+// fallback-TLS lowering (illumos among the gate's targets) and denies
+// initializers that already sit in `const` blocks; the allow keeps
+// `-D warnings` honest on every platform the gate runs.
 thread_local! {
     /// The register file. wasm32-unknown-unknown is single-threaded, so a
     /// thread-local `RefCell` is an uncontended, unsafe-free global.
+    #[allow(clippy::missing_const_for_thread_local)]
     static REGS: RefCell<Vec<Option<Val>>> = const { RefCell::new(Vec::new()) };
     /// The staging buffer for bulk byte transfer across the ABI.
+    #[allow(clippy::missing_const_for_thread_local)]
     static STAGE: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
