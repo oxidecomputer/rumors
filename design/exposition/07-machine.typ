@@ -67,8 +67,8 @@ size doublings, and by the fuel survey's population panels
 (@measured), not by these wall-clock bands. End to end, against
 the direct transcription of @naive held in memory as its pointer
 tree, the corpus of record measures a trade rather than a rout,
-tabulated in @fig-trade: the identity and reconciliation
-operations run multiples to decades cheaper on the packed form,
+tabulated in @fig-trade: the identity and membership operations — fork, sync, and the
+party join — run multiples to decades cheaper on the packed form,
 the mutating sweeps a small bounded multiple dearer than pointer
 surgery on an already-materialized tree — a comparison that never
 charges the tree for arriving or leaving. On the adversarial
@@ -271,7 +271,7 @@ byte-identically. @fig-atlas is one panel.
     the committed adversarial families measured on the same axes.
     Both reference slopes anchor at the smallest column's median.
     The bulk rides slope 1 — the top decade of medians fits slope
-    $1.004$ — and every family lands on or below the bulk's own
+    $1.003$ — and every family lands on or below the bulk's own
     band: the dearest, a concurrent pair near the span's top, runs
     at about three quarters of the organic per-byte median. The
     strata below the main band are the operation's cheap exits,
@@ -281,7 +281,7 @@ byte-identically. @fig-atlas is one panel.
 What the panel asserts, no wall clock could: work per packed byte is
 a constant of the operation, not of the input's shape, magnitude, or
 luck of the draw — the join sweep's per-byte median settles near
-5,700 instructions and moves by less than a fifth from eight bytes
+5,700 instructions and moves by about a fifth from eight bytes
 to eight kibibytes, and the shapes engineered to maximize its work
 land on or below the band the uniform population already occupies.
 Sixty-two further panels cover the rest of the surface, and their
@@ -301,7 +301,8 @@ that lets a reader _see_ the population those instruments bracket
 (@method).
 
 *The wall-clock corpus* is statistical: one hundred timed samples
-per point, medians quoted, release builds, inputs prebuilt outside
+per point on the library sweeps (the slowest composition points
+collect fewer, never below ten), medians quoted, release builds, inputs prebuilt outside
 the timed region, on one quiet aarch64 workstation
 (an Apple M4 Max, 128 GiB). Its like-for-like comparison holds the
 implementation against the direct transcription of @naive — the
@@ -328,7 +329,7 @@ tree-flattering framing the corpus can construct.
     [sync], [8.34 ms], [5.02 ms],
     [parity at 8 members; $1.4$–$1.8 times$ cheaper beyond],
     [party join], [1.24 ms], [0.89 ms],
-    [$1.4$–$1.9 times$ cheaper past the smallest size],
+    [$1.4$–$1.8 times$ cheaper past the smallest size],
     [clock join], [4.24 ms], [4.99 ms],
     [$1.7 times$ dearer at 8 members; $1.0$–$1.2 times$ beyond],
     [version join], [2.35 ms], [4.05 ms],
@@ -351,8 +352,8 @@ tree-flattering framing the corpus can construct.
     form's re-coding against surgery on nodes the tree already
     holds materialized. Comparison is quoted on its ordered
     outcome, the full-length walk; the concurrent outcome exits
-    early on both representations and measures at parity,
-    nanoseconds flat across the sweep.],
+    early on both representations and measures in nanoseconds on
+    both, two orders below the ordered walk.],
 ) <fig-trade>
 
 Read the table as the price sheet of one architectural decision. The
@@ -374,7 +375,7 @@ _every_ input of the size. Third, the framing charges the packed
 form for canonicality and never credits it: equality on canonical
 bytes is a byte comparison — the corpus's self-comparison answers in
 $1.4$ nanoseconds flat across the sweep, where the transcription
-walks its whole structure to say yes, a full millisecond at the top
+walks its whole structure to say yes, a millisecond at the top
 size — and a hash, a dedup, or a wire frame is the same story, with
 no serialization pass anywhere on the skyline's side of the ledger.
 
