@@ -280,8 +280,14 @@ fn ramp(t: f64) -> RGBColor {
 
 /// `log2` with a floor of 1 so a degenerate zero reading cannot produce
 /// an infinite coordinate.
+///
+/// Routed through `libm` rather than the platform's math library: a
+/// dump commits the [`HeatGrid`] this function shapes, and the loader
+/// re-derives that grid bit-for-bit on whatever host opens the dump —
+/// platform libms disagree by an ulp at bin boundaries, `libm`'s
+/// pure-Rust kernels do not.
 fn lg(v: u64) -> f64 {
-    (v.max(1) as f64).log2()
+    libm::log2(v.max(1) as f64)
 }
 
 /// The median of a nonempty slice (mean of the middle pair when even).
@@ -296,7 +302,7 @@ fn median(sorted: &[u64]) -> f64 {
 
 /// Format `2^v` as a human-readable count for axis ticks.
 fn pow2_label(v: f64) -> String {
-    let x = 2f64.powf(v);
+    let x = libm::exp2(v);
     if x >= 1e9 {
         format!("{:.1}G", x / 1e9)
     } else if x >= 1e6 {
@@ -410,7 +416,7 @@ pub fn render_op(
         .map(|c| (c.size, c.median))
     {
         let x0 = lg(n0 as u64);
-        let y0 = m0.max(1.0).log2();
+        let y0 = libm::log2(m0.max(1.0));
         let steps: Vec<f64> = (0..=100)
             .map(|i| x0 + (x_hi - 0.15 - x0) * i as f64 / 100.0)
             .collect();
@@ -421,7 +427,7 @@ pub fn render_op(
             ("∝ n²", Box::new(move |x| y0 + 2.0 * (x - x0))),
             (
                 "∝ n·log n",
-                Box::new(move |x| y0 + (x - x0) + (x / x0.max(1.0)).log2().max(0.0)),
+                Box::new(move |x| y0 + (x - x0) + libm::log2(x / x0.max(1.0)).max(0.0)),
             ),
         ];
         // Each curve stops where it leaves the plot (a steeper guide often
