@@ -561,7 +561,12 @@ impl<T> Tree<T> {
 pub(crate) mod meter {
     use std::cell::Cell;
 
+    // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+    // fallback-TLS lowering (illumos among the gate's targets) and denies
+    // initializers that already sit in `const` blocks; the allow keeps
+    // `-D warnings` honest on every platform the gate runs.
     thread_local! {
+        #[allow(clippy::missing_const_for_thread_local)]
         static ROOT_HASH_READS: Cell<u64> = const { Cell::new(0) };
     }
 

@@ -19,7 +19,12 @@ struct Schedule {
     step: usize,
 }
 
+// clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+// fallback-TLS lowering (illumos among the gate's targets) and denies
+// initializers that already sit in `const` blocks; the allow keeps
+// `-D warnings` honest on every platform the gate runs.
 std::thread_local! {
+    #[allow(clippy::missing_const_for_thread_local)]
     static SCHEDULE: RefCell<Option<Schedule>> = const { RefCell::new(None) };
 }
 
