@@ -56,6 +56,11 @@ serde = { version = "1", features = ["derive"] }
 # axis domains and medians bit-for-bit against a recomputation, so JSON
 # number parsing must be exact to the last ULP, not merely close.
 serde_json = { version = "1", features = ["float_roundtrip"] }
+# The grid math (log2 bin geometry) must produce identical bits on every
+# host: a dump commits its HeatGrid, and the loader re-derives it
+# bit-for-bit wherever the dump is opened. Platform math libraries
+# disagree by an ulp at bin boundaries; libm's pure-Rust kernels do not.
+libm = "0.2"
 
 [dev-dependencies]
 proptest = "1"

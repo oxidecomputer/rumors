@@ -65,6 +65,7 @@ version = "0.0.0"
 dependencies = [
  "before",
  "fuzzfit-harness",
+ "libm",
  "num-bigint",
  "num-traits",
  "plotters",

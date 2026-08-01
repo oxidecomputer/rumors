@@ -122,3 +122,73 @@ fn font_scale_changes_the_svg_and_rendering_is_deterministic() {
     );
     std::fs::remove_dir_all(&out).expect("scale output cleans up");
 }
+
+/// The binned grid is a pure, platform-independent function of the
+/// samples: `aggregate` over a fixed synthetic atlas hashes to the same
+/// committed value on every host and architecture.
+///
+/// A dump commits its `HeatGrid`, and the loader re-derives that grid
+/// bit-for-bit on whatever machine opens the dump — so the bin geometry
+/// must not lean on the platform math library, whose `log2` differs by
+/// an ulp across libms exactly at bin boundaries. The sample set below
+/// spreads fuel values across ~48 octaves so a platform divergence
+/// anywhere in the log2 range flips at least one bin count and the
+/// hash. The committed constant was produced by this test's own first
+/// run; its value carries no meaning beyond cross-host agreement.
+#[test]
+fn aggregate_bins_identically_on_every_platform() {
+    // SplitMix64: a fixed, portable stream — no dependency on rand's
+    // version-to-version value stability.
+    let mut state = 0x9e3779b97f4a7c15u64;
+    let mut next = move || {
+        state = state.wrapping_add(0x9e3779b97f4a7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        z ^ (z >> 31)
+    };
+
+    let mut samples = Vec::new();
+    for col in 3..=13u32 {
+        let size = 1usize << col;
+        for _ in 0..500 {
+            let r = next();
+            let octave = next() % 48;
+            let fuel = 1 + (r % (1u64 << octave.max(1)));
+            samples.push(SampleData {
+                size,
+                arity: 2,
+                fuel,
+                rejected: 0,
+            });
+        }
+    }
+    let overlay = (0..24)
+        .map(|i| OverlayData {
+            family: format!("family_{i}"),
+            size: 1usize << (3 + (i % 11)),
+            fuel: 1 + (next() % (1u64 << 40)),
+        })
+        .collect();
+    let data = AtlasData {
+        op_name: "platform_pin".into(),
+        unary: true,
+        size_measure: "packed bytes".into(),
+        samples,
+        overlay,
+    };
+
+    let grid = super::aggregate(&data);
+    let bytes = serde_json::to_vec(&grid).expect("grid serializes");
+    // FNV-1a, inline: a stable checksum with no new dependency.
+    let mut hash = 0xcbf29ce484222325u64;
+    for &b in &bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    assert_eq!(
+        hash, 0xa11d493893d27963,
+        "aggregate produced a grid whose serialization hashes differently \
+         from the committed cross-platform value"
+    );
+}
