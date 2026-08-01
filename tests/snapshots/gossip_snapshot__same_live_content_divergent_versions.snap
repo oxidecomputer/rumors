@@ -13,12 +13,17 @@ version frame: 30 bytes
   0000: 00 00 00 1a 01 00 00 00
   0008: 00 00 00 00 01 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 a3 40
+  0018: 00 00 00 00 49 20
 listing frame: 25 bytes
   0000: 00 00 00 15 01 00 00 00
-  0008: b8 8e 2c 08 13 c9 ef 33
-  0010: e2 13 aa cb dd cb b0 de
-  0018: 1f
+  0008: 8a cf 92 a2 8d de 05 81
+  0010: 00 d7 59 f7 07 5d 49 c7
+  0018: ba
+Responder stream 0 (height 31), epoch 0
+  frame 0: Match(End)
+    0000: 11
+  frame 1: End(Stream)
+    0000: 99
 trailing frame: 1 bytes
   0000: 2e
 
@@ -33,16 +38,11 @@ version frame: 29 bytes
   0000: 00 00 00 19 01 00 00 00
   0008: 00 00 00 00 01 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 20
+  0018: 00 00 00 00 a0
 listing frame: 25 bytes
   0000: 00 00 00 15 01 00 00 00
-  0008: b8 8e 2c 08 13 c9 ef 33
-  0010: e2 13 aa cb dd cb b0 de
-  0018: 1f
-Responder stream 0 (height 31), epoch 0
-  frame 0: Match(End)
-    0000: 11
-  frame 1: End(Stream)
-    0000: 99
+  0008: 8a cf 92 a2 8d de 05 81
+  0010: 00 d7 59 f7 07 5d 49 c7
+  0018: ba
 trailing frame: 1 bytes
   0000: 2e

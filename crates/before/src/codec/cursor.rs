@@ -43,6 +43,23 @@ pub(crate) trait BitCursor {
     /// The position immediately after the last bit read.
     fn position(&self) -> usize;
 
+    /// Read the unary run at the cursor: the count of `false` bits
+    /// before — and consuming — the terminating `true` bit.
+    ///
+    /// The skyline walks' descent primitive: a topology run of internal
+    /// flags ends at the leaf flag, so one unary read is one whole
+    /// descent. The provided default is the per-bit loop; a cursor with
+    /// word-parallel access ([`DsiCursor`](super::DsiCursor)) overrides
+    /// it to take the run from a buffered window. Running out of bits
+    /// mid-run is the per-bit error, at the same position either way.
+    fn read_unary(&mut self) -> Result<usize, Self::Error> {
+        let mut k = 0usize;
+        while !self.read_bit()? {
+            k += 1;
+        }
+        Ok(k)
+    }
+
     /// Read one Elias-gamma-coded integer starting at the cursor.
     ///
     /// The provided default is the per-bit loop ([`decode_int_from`]); a
@@ -80,6 +97,11 @@ impl BitCursor for SliceCursor<'_> {
     fn read_bit(&mut self) -> Result<bool, Truncated> {
         // `ok_or`'s eager argument is fine here: `Truncated` is a ZST.
         let bit = *self.bits.get(self.position).ok_or(Truncated)?;
+        // One live bit scanned: this cursor is the sequential read primitive
+        // under the id-tree parsers and the per-bit gamma decode path, so
+        // the scan meter records here once for both. The skyline kernels
+        // read through `DsiCursor`, which carries its own records.
+        super::scan::record_bits(1);
         self.position += 1;
         Ok(bit)
     }
@@ -93,6 +115,11 @@ impl BitCursor for SliceCursor<'_> {
         // every reject included — is decided by the default per-bit loop, so
         // the two paths accept and reject identically by construction.
         if let Some((n, next)) = gamma::decode_int_window(self.bits, self.position) {
+            // The window proves the same `2k + 1` code bits the per-bit loop
+            // reads one at a time, so it records the same count: the scan
+            // meter prices work by bits examined, not by how the examining
+            // path batches them.
+            super::scan::record_bits(next - self.position);
             self.position = next;
             return Ok(Base::from(n));
         }

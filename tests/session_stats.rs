@@ -24,6 +24,7 @@ use rumors::{Gossiped, Led, Peer, Rumors, SessionStats};
 use tokio::io::AsyncWrite;
 
 use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_async};
+use rumors::testing::SnapshotCollect as _;
 
 /// Run one gossip session between two handles over an in-memory link,
 /// returning both sides' [`Gossiped`].
@@ -51,7 +52,7 @@ fn catchup_gains_the_providers_count_without_disputes() {
         let provider: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         // Fork while empty: the newcomer holds an identity but no content.
         let empty = bootstrap_fork_async(&provider).await;
-        provider.batch().send(1).send(2).send(3);
+        rumors::testing::commit(provider.batch().send(1).send(2).send(3));
 
         let (p, e) = gossip_pair(&provider, &empty).await;
         assert_eq!(p.led, Led::Local, "a one-shot call is this side's trigger");
@@ -77,7 +78,7 @@ fn converged_replicas_report_zero_stats() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
-        a.batch().send(7);
+        rumors::testing::commit(a.batch().send(7));
         let _ = gossip_pair(&a, &b).await;
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
@@ -93,15 +94,15 @@ fn converged_replicas_report_zero_stats() {
 fn honored_redaction_counts_as_shed() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-        a.batch().send(10).send(20);
+        rumors::testing::commit(a.batch().send(10).send(20));
         let b = bootstrap_fork_async(&a).await;
         let key = a
             .snapshot()
-            .iter()
-            .find(|(_, _, value)| ***value == 10)
+            .collected()
+            .find(|(_, _, value)| **value == 10)
             .map(|(key, _, _)| key)
             .expect("the sent message is live");
-        a.redact(key);
+        pollster::block_on(a.redact(key)).expect("the in-memory backend is infallible");
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
         assert_eq!(b_g.stats.messages_shed, 1, "b honors a's deletion");
@@ -120,8 +121,8 @@ fn floor_window_reports_one_granted_scope() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
-        a.batch().send(1);
-        b.batch().send(2);
+        rumors::testing::commit(a.batch().send(1));
+        rumors::testing::commit(b.batch().send(2));
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
         assert_eq!(a_g.stats.window_granted, 1);
@@ -136,7 +137,7 @@ fn gossip_when_reports_session_stats() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
-        a.batch().send(42);
+        rumors::testing::commit(a.batch().send(42));
 
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let mut a_drive = a.gossip_when(a.changes(), &mut a_link);
@@ -254,16 +255,12 @@ fn byte_counters_match_the_transport_tally() {
         let a: Rumors<Vec<u8>> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
         {
-            let mut batch = a.batch();
-            for i in 0u8..20 {
-                batch.send(vec![i; 64]);
-            }
+            rumors::testing::commit((0u8..20).fold(a.batch(), |batch, i| batch.send(vec![i; 64])));
         }
         {
-            let mut batch = b.batch();
-            for i in 0u8..20 {
-                batch.send(vec![0xa0 | (i & 0x0f); 96]);
-            }
+            rumors::testing::commit((0u8..20).fold(b.batch(), |batch, i| {
+                batch.send(vec![0xa0 | (i & 0x0f); 96])
+            }));
         }
 
         let (a_raw, b_raw) = rumors::link::memory_with_capacity(LINK_BUF);
@@ -306,8 +303,8 @@ fn v1_sessions_report_zero_stats() {
             .protocol(Protocol::V1)
             .into_rumors();
         let b = bootstrap_fork_async_with_protocol(&a, Protocol::V1).await;
-        a.batch().send(5);
-        b.batch().send(6);
+        rumors::testing::commit(a.batch().send(5));
+        rumors::testing::commit(b.batch().send(6));
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
         assert_eq!(a_g.stats, SessionStats::default());
@@ -334,16 +331,14 @@ proptest! {
             let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
             let b = bootstrap_fork_async(&a).await;
             {
-                let mut batch = a.batch();
-                for send in &a_sends {
-                    batch.send(*send);
-                }
+                rumors::testing::commit(
+                    a_sends.iter().fold(a.batch(), |batch, send| batch.send(*send)),
+                );
             }
             {
-                let mut batch = b.batch();
-                for send in &b_sends {
-                    batch.send(*send);
-                }
+                rumors::testing::commit(
+                    b_sends.iter().fold(b.batch(), |batch, send| batch.send(*send)),
+                );
             }
             let a_before = a.snapshot().len() as u64;
             let b_before = b.snapshot().len() as u64;

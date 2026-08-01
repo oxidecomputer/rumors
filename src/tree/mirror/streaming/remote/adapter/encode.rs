@@ -215,8 +215,12 @@ where
                         // The leaf is consumed by serialization alone: the
                         // run copies its version and message bytes straight
                         // out of the borrowed node, so no Version clone (ITC
-                        // allocations) and no Arc bump is paid per leaf.
-                        let version = leaf.ceiling();
+                        // allocations) and no Arc bump is paid per leaf. The
+                        // bounds span rides a local so its borrowed join
+                        // endpoint (the leaf's version) outlives both reads
+                        // below.
+                        let bounds = leaf.span();
+                        let version = bounds.join();
                         let message = leaf.message();
                         if !run.is_empty()
                             && !budget

@@ -2,21 +2,49 @@
 name = "before"
 version = "0.1.0"
 edition = "2021"
-description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed BitVec storage, transient fixed-width working form, linear-typed API."
+description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed bit-stream storage, transient fixed-width working form, linear-typed API."
 license = "MPL-2.0"
 readme = "README.md"
 
 [dependencies]
 bitvec = "1"
-num-bigint = "0.4.6"
-# Stack-growth guard for the recursive traversals: recurse natively on shallow
-# trees; grow the stack onto the heap before a deep one can overflow. The crate
-# stays `#![forbid(unsafe_code)]`; the platform stack manipulation lives here.
-stacker = "0.1"
-# Inline-capacity stacks for the iterative tree parsers (`codec/tree.rs`):
-# real trees fit the inline frames, deeper ones spill to the heap. Default
-# features only — no `union`/unchecked APIs — so the no-unsafe policy holds.
-smallvec = "1.15"
+# The refcounted backing store of the at-rest form (`codec::Bits`): freezing
+# a built stream is `BitVec::into_vec` -> `Bytes::from(vec)`, zero-copy, and
+# cloning a stored `Version` is a refcount bump instead of a byte copy. Bit
+# manipulation stays in `bitvec`; `bytes` owns only the frozen storage.
+bytes = "1"
+# Arbitrary-precision magnitudes behind `Base` (a thin metered newtype over
+# `UBig`): values up to two machine words stay inline, stored words are
+# borrowable as slices (the streamed comparisons and the accumulator's wide
+# path allocate nothing), and binary<->decimal conversion runs
+# divide-and-conquer in both directions. `Display` on spilled magnitudes
+# delegates to that conversion; the bench judge's wide-display pair
+# (benches/board.rs through tools/benchjudge) pins its complexity class at
+# the text-conversion ceiling, and dashu's divide-and-conquer rendering is
+# what fits under it. Default features stay off: `std` alone covers this
+# crate's use.
+dashu-int = { version = "0.5", default-features = false, features = ["std"] }
+# The cliff-immune signed accumulator (redundant balanced signed digits):
+# the running sums and differences behind the rank fold and the skyline
+# sweeps. Load-bearing in every build; `Base` plugs into its
+# width-dispatched entry points through the `Magnitude` seam in
+# `codec::base`, and the `limb-meter` feature below lights its digit-touch
+# counter alongside the limb shim's.
+suanpan = { path = "../suanpan" }
+# The word-parallel stream reader under `codec::dsi::DsiCursor`: buffered
+# big-endian bit reads (unary topology runs, tiered gamma codes) over the
+# byte-backed stores. Read side only — the writers stay in-house (dsi's
+# writer wants a word sink, and the stores are byte-backed). `alloc` alone,
+# no default features; MSRV 1.85 matches; Apache-2.0 OR MIT. The one
+# `ptr::read` in its `BufBitWriter::into_inner` is off the read path, and
+# this crate's `#![forbid(unsafe_code)]` is per-crate, unaffected.
+dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
+# Compile-time auto-trait pins (`src/auto_traits.rs`): every public API type
+# asserts `Send + Sync + Unpin`, so a field addition that would silently
+# revoke one becomes a compile error in every build, not a downstream
+# breakage. Macro-only: it contributes no runtime code and no transitive
+# dependencies.
+static_assertions = "1.1"
 thiserror = "2"
 serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
 borsh = { version = "1", optional = true }
@@ -30,6 +58,13 @@ proptest = "1"
 serde_json = "1"
 criterion = "0.5"
 rand = "0.8"
+# The corpus-generating sweeps' seeded word streams (`testing::rng`):
+# ChaCha8's output is documented-portable across platforms, and rand_core
+# 0.6 documents its `seed_from_u64` expansion as value-stable — so a
+# committed seed constant names a corpus (a major rand_core bump is a
+# deliberate corpus-regeneration event), where rand's `StdRng` explicitly
+# reserves the right to change streams.
+rand_chacha = "0.3"
 # Binary (non-self-describing) and self-describing serde formats, exercised by the
 # binary-serde round-trip tests: `postcard` emits a typed bytes value via `serialize_bytes`;
 # `ciborium` is a self-describing CBOR codec. Together they guard the binary serde path
@@ -39,6 +74,19 @@ ciborium = "0.2"
 # Compile-fail tests pinning the linearity guarantees (`Party`/`Clock` `!Clone`,
 # by-value `BitOr`).
 trybuild = "1"
+# Stack-growth backing for the test-surface depth recursion (the walks that
+# route through `recurse::descend!`): grow the stack onto the heap before a
+# deep input can overflow. Every library traversal is iterative and never
+# touches it, so it lives here, not in `[dependencies]`; the crate stays
+# `#![forbid(unsafe_code)]` — the platform stack manipulation lives in the
+# dependency.
+stacker = "0.1"
+# Counting global allocator for the resource-envelope test binary
+# (`tests/meter.rs`) and the allocation-strategy bench's resident-bytes
+# column (`benches/presize.rs`). A dependency rather than a hand-rolled
+# GlobalAlloc: the workspace policy prefers a maintained crate over owning
+# unsafe code, even in a test binary.
+peak_alloc = "0.3"
 # Snapshot tests where a literal expected value is clearer inline than maintained by hand.
 insta = "1"
 # Parallelizes the exhaustive small-scope cross-products (the `exhaustive` module)
@@ -46,11 +94,17 @@ insta = "1"
 rayon = "1"
 # Progress bars for the long-running `space_consumption` example.
 indicatif = "0.17"
-# Self-dependency that turns on the `oracle` feature for benches (and tests): a
-# recognized Cargo idiom so `cargo bench` builds the lib with the oracle exposed
-# without needing `--features oracle`. Dev-dependency cycles are explicitly allowed,
-# and dev-dependencies never affect a normal `cargo build`, so production stays clean.
-before = { path = ".", features = ["oracle"] }
+# Self-dependency that turns on the `oracle` and `meter` features for benches
+# (and tests): a recognized Cargo idiom so `cargo bench`/`cargo nextest` build
+# the lib with the oracle and the metering instruments exposed without needing
+# `--features`. Dev-dependency cycles are explicitly allowed, and
+# dev-dependencies never affect a normal `cargo build`, so production stays clean.
+before = { path = ".", features = ["oracle", "meter"] }
+# The workspace-shared complexity-claims machinery: the bound vocabulary and
+# its renderer, the doc-section scanner, and the surface extractor behind the
+# claims roster (`src/testing/complexity_claims.rs`) and the coverage roster
+# (`src/testing/surface_coverage.rs`).
+complexity-claims = { path = "../complexity-claims" }
 
 [features]
 default = []
@@ -62,6 +116,69 @@ doc-images = ["dep:embed-doc-image"]
 # Re-exports the reference oracle (`src/oracle.rs`) as `before::oracle`, so the benchmark
 # suite can time it against the optimized implementation. Bench/test-only.
 oracle = []
+# Exposes the adversarial input generators and deterministic resource meters
+# (`src/meter.rs`) as `before::meter`, so the metering test binaries can build
+# worst-case inputs and read the counters they envelope, and the public
+# operation surface roster (`src/surface.rs`) as `before::surface`, so
+# external instrument crates can bind their coverage to the rows the surface-coverage
+# suite enforces totality over. Bench/test-only.
+meter = []
+# Exposes the named algebraic-law predicates (`src/laws.rs`) as `before::laws`,
+# so the fuzz workspace can drive the same law collection the in-tree proptests
+# assert. Test/fuzz-only.
+laws = []
+# Counts big-integer limb-scale work (operand limbs per `Base` operation:
+# arithmetic, comparison, equality, and hashing; plus one value-width record
+# per decoded wide-gamma value) into a process-global counter read via
+# `before::meter`, and lights the accumulator's digit-touch counter
+# (`suanpan/touch-meter`, read via `suanpan::touch_meter`) beside it.
+# Arithmetic-width blowups are invisible to node-count and
+# heap meters; this one sees them. Additive and off by default: it adds one
+# relaxed atomic bump per `Base` operation, so it stays out of the bench
+# builds (deliberately not in the self-dev-dependency above) and is lit by
+# `--all-features` runs and the metering envelopes that assert it.
+limb-meter = ["meter", "suanpan/touch-meter"]
+# Counts packed-stream bits scanned and written (id tag reads and skip
+# steps, id-builder bit writes and splice lengths, event topology cursor
+# advances and gamma code-skips, every validator/decoder bit cursor) into a
+# process-global counter read via `before::meter`. Traversal work over the
+# packed forms is invisible to the heap, segment, and limb meters when it
+# allocates nothing, recurses nothing, and does no `Base` arithmetic — the
+# id-side walks are exactly that — so this is the column that sees it.
+# Additive and off by default, in the `limb-meter` idiom: one relaxed atomic
+# bump per primitive, out of the bench builds, lit by `--all-features` runs
+# and the metering suites that assert it.
+scan-meter = ["meter"]
+
+[lints.rust]
+# The allocation-strategy bench (`benches/presize.rs`) compiles alternative
+# arms into library sites through this cfg, one value per site arm; each
+# seam's comment names its site. RUSTFLAGS-only by design — registering it
+# here guarantees no cargo feature can ever select an arm, and `deny` fails
+# the build of any seam or bench that queries an arm missing from this
+# roster, so the roster cannot drift from the code. (It cannot see a
+# mistyped RUSTFLAGS value nothing queries; the `bench-alloc-ab` recipe
+# validates the arm name at invocation for exactly that hole.)
+unexpected_cfgs = { level = "deny", check-cfg = [
+    'cfg(before_alloc_ab, values("projection_growth", "projection_shrink", "display_growth"))',
+] }
+
+# The board example judges limb, scan, and touch work against pinned
+# floors and ceilings; built without the counter features those columns
+# read `off` and every one of their verdicts silently renders green.
+# Requiring the features makes the unfeatured invocation a loud cargo
+# error instead of a board that looks judged and isn't.
+[[example]]
+name = "amp_board"
+required-features = ["limb-meter", "scan-meter"]
+
+# The integer-code corpus study walks the board's shape bundles, which live
+# behind the meter surface. Measure-only: it re-parses stored streams and
+# prices candidate codes closed-form on the histograms; it reads no
+# counters, so the base `meter` feature is enough.
+[[example]]
+name = "code_study"
+required-features = ["meter"]
 
 [[bench]]
 name = "party"
@@ -73,4 +190,20 @@ harness = false
 
 [[bench]]
 name = "clock"
+harness = false
+
+[[bench]]
+name = "amplify"
+harness = false
+
+[[bench]]
+name = "board"
+harness = false
+
+[[bench]]
+name = "tripwire"
+harness = false
+
+[[bench]]
+name = "presize"
 harness = false

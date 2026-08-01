@@ -1,6 +1,11 @@
+use std::cmp::Ordering;
 use std::ops::{Bound, RangeBounds};
 
+use proptest::prelude::*;
+
 use super::*;
+use crate::testing::bridge::from_oracle_version;
+use crate::testing::generators::arb_oracle_version;
 use crate::Clock;
 
 /// Three versions exercising every comparison the predicates distinguish:
@@ -28,12 +33,12 @@ fn constructors_produce_documented_bounds() {
         (known_at(&high), Bound::Unbounded, Bound::Included(&high)),
         (before(&high), Bound::Unbounded, Bound::Excluded(&high)),
         (
-            delta(&low, &high),
+            delta(&low, &high).unwrap(),
             Bound::Excluded(&low),
             Bound::Included(&high),
         ),
         (
-            delta_before(&low, &high),
+            delta_before(&low, &high).unwrap(),
             Bound::Excluded(&low),
             Bound::Excluded(&high),
         ),
@@ -61,15 +66,15 @@ fn composition_is_order_agnostic() {
     );
 }
 
-/// Re-setting a bound keeps the latest value, so chains never panic and
-/// always mean their final state.
+/// Re-setting a bound keeps the latest value, so chains always mean their
+/// final state, revalidated against the opposite bound.
 #[test]
 fn rebinding_a_bound_keeps_the_latest() {
     let (low, high, _) = fixtures();
-    assert_eq!(since(&low).since(&high), since(&high));
-    assert_eq!(since(&low).not_before(&high), not_before(&high));
-    assert_eq!(known_at(&low).before(&high), before(&high));
-    assert_eq!(all().since(&low), since(&low));
+    assert_eq!(since(&low).since(&high).unwrap(), since(&high));
+    assert_eq!(since(&low).not_before(&high).unwrap(), not_before(&high));
+    assert_eq!(known_at(&low).before(&high).unwrap(), before(&high));
+    assert_eq!(all().since(&low).unwrap(), since(&low));
 }
 
 /// A start bound of either kind subtracts only its causal past: versions
@@ -114,7 +119,7 @@ fn deltas_are_their_compositions() {
     assert_eq!(delta(&low, &high), since(&low).known_at(&high));
     assert_eq!(delta_before(&low, &high), since(&low).before(&high));
 
-    let range = delta(&low, &high);
+    let range = delta(&low, &high).unwrap();
     assert!(range.contains(&high), "the end's novelty is in the delta");
     assert!(!range.contains(&low), "the start's knowledge is not");
     assert!(
@@ -158,7 +163,7 @@ fn placement_is_total() {
     use std::cmp::Ordering;
     let (low, high, side) = fixtures();
     let genesis = Version::new();
-    let range = delta(&low, &high);
+    let range = delta(&low, &high).unwrap();
 
     assert_eq!(range.placement_of(&genesis), Ordering::Less);
     assert_eq!(range.placement_of(&low), Ordering::Less);
@@ -176,4 +181,325 @@ fn placement_is_total() {
             range.placement_of(version) == Ordering::Equal,
         );
     }
+}
+
+/// Composition validates the pair at every boundary: a start within the
+/// end bound composes, a start beyond or concurrent to the end is rejected
+/// as `Crossed`.
+///
+/// The equal-bounds cases split exactly on the end bound's strictness
+/// (`start <= end` under `known_at`, `start < end` under `before`), for
+/// both start kinds and both composition orders.
+#[test]
+fn crossed_compositions_are_rejected_at_the_boundary() {
+    let (low, high, side) = fixtures();
+
+    // Distinct ordered bounds compose under every pairing.
+    assert!(since(&low).known_at(&high).is_ok());
+    assert!(since(&low).before(&high).is_ok());
+    assert!(not_before(&low).known_at(&high).is_ok());
+    assert!(not_before(&low).before(&high).is_ok());
+
+    // Equal bounds: within an inclusive end, not within an exclusive one.
+    assert!(since(&low).known_at(&low).is_ok(), "the empty delta");
+    assert!(not_before(&low).known_at(&low).is_ok(), "the singleton");
+    assert_eq!(since(&low).before(&low), Err(Crossed));
+    assert_eq!(not_before(&low).before(&low), Err(Crossed));
+
+    // A start beyond the end crosses; so does a start concurrent to it.
+    assert_eq!(since(&high).known_at(&low), Err(Crossed));
+    assert_eq!(not_before(&high).known_at(&low), Err(Crossed));
+    assert_eq!(since(&side).known_at(&high), Err(Crossed));
+    assert_eq!(not_before(&side).before(&high), Err(Crossed));
+
+    // The gate is order-agnostic: refining the start into an existing end
+    // rejects the same pairs.
+    assert_eq!(known_at(&low).since(&high), Err(Crossed));
+    assert_eq!(before(&low).not_before(&low), Err(Crossed));
+    assert_eq!(known_at(&high).since(&side), Err(Crossed));
+    assert!(known_at(&low).not_before(&low).is_ok());
+
+    // The shorthands are the same gate.
+    assert_eq!(delta(&high, &low), Err(Crossed));
+    assert_eq!(delta_before(&low, &low), Err(Crossed));
+    assert!(delta(&low, &low).is_ok());
+}
+
+/// The boundary compositions the gate admits mean what they say: the empty
+/// delta contains nothing, and the singleton `not_before(v).known_at(v)`
+/// contains exactly its bound.
+#[test]
+fn admitted_boundary_compositions_have_exact_membership() {
+    let (low, high, side) = fixtures();
+    let genesis = Version::new();
+
+    let empty = delta(&low, &low).unwrap();
+    let singleton = not_before(&low).known_at(&low).unwrap();
+    for version in [&genesis, &low, &high, &side] {
+        assert!(!empty.contains(version), "the empty delta keeps nothing");
+        assert_eq!(
+            singleton.contains(version),
+            *version == low,
+            "the singleton keeps exactly its bound"
+        );
+    }
+}
+
+/// Generic [`RangeBounds`] dispatch reaches the causal membership verdict
+/// on a version concurrent to the start bound — exactly the probe where
+/// the trait's *provided* `contains` body diverges.
+///
+/// The provided body's start arm demands dominance over the start
+/// (`start <= item` / `start < item`), so on a partial order it drops
+/// concurrent versions the causal semantics keep. That body is
+/// transcribed below and pinned to the wrong answer, witnessing the
+/// divergence the override cures.
+#[test]
+fn trait_contains_keeps_concurrent_versions_the_provided_body_drops() {
+    // A generic consumer: sees only the trait, so this dispatches to the
+    // `RangeBounds::contains` override, never the inherent method.
+    fn through_the_trait(range: &impl RangeBounds<Version>, probe: &Version) -> bool {
+        range.contains(probe)
+    }
+    // The trait's provided body, transcribed: its start arm requires the
+    // item to dominate the start bound.
+    fn provided_body(range: &impl RangeBounds<Version>, probe: &Version) -> bool {
+        (match range.start_bound() {
+            Bound::Included(start) => start <= probe,
+            Bound::Excluded(start) => start < probe,
+            Bound::Unbounded => true,
+        }) && (match range.end_bound() {
+            Bound::Included(end) => probe <= end,
+            Bound::Excluded(end) => probe < end,
+            Bound::Unbounded => true,
+        })
+    }
+    let (low, _, side) = fixtures();
+    for range in [since(&low), not_before(&low)] {
+        assert!(
+            range.contains(&side),
+            "concurrent-to-start is causally a member"
+        );
+        assert!(
+            through_the_trait(&range, &side),
+            "generic RangeBounds dispatch agrees with the inherent verdict"
+        );
+        assert!(
+            !provided_body(&range, &side),
+            "the provided body drops the concurrent version: the divergence \
+             the override exists to cure"
+        );
+    }
+}
+
+/// Every [`Bounded`] verdict on a constructed witness, for every bound
+/// kind it is reachable under.
+///
+/// An alice-chain `a1 < a2 < a3 < a4` against ranges over `[a1, a3]`
+/// places each chain version and the concurrent `b1`:
+/// `Before`/`AtStart`/`Between`/`AtEnd`/`After` on the line and
+/// `Concurrent` off it — and the verdicts are identical under every
+/// bound-kind combination, because bound kinds move only the coarsening.
+#[test]
+fn bounded_places_every_witness() {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let a1 = alice.tick().clone();
+    let a2 = alice.tick().clone();
+    let a3 = alice.tick().clone();
+    let a4 = alice.tick().clone();
+    let b1 = bob.tick().clone();
+    let genesis = Version::new();
+
+    for range in [
+        since(&a1).known_at(&a3).unwrap(),
+        since(&a1).before(&a3).unwrap(),
+        not_before(&a1).known_at(&a3).unwrap(),
+        not_before(&a1).before(&a3).unwrap(),
+    ] {
+        assert_eq!(range.bounded(&genesis), Bounded::Before);
+        assert_eq!(range.bounded(&a1), Bounded::AtStart);
+        assert_eq!(range.bounded(&a2), Bounded::Between);
+        assert_eq!(range.bounded(&a3), Bounded::AtEnd);
+        assert_eq!(range.bounded(&a4), Bounded::After);
+        assert_eq!(range.bounded(&b1), Bounded::Concurrent);
+    }
+}
+
+/// A version concurrent to the start bound but within the end bound is
+/// `Between`, never `Concurrent` — start bounds keep concurrent versions,
+/// so `Concurrent` is exclusively an end-bound verdict.
+#[test]
+fn concurrent_to_start_within_end_is_between() {
+    let (low, _, side) = fixtures();
+    let end = &low | &side; // dominates both, so `side` is within it
+    for range in [
+        since(&low).known_at(&end).unwrap(),
+        not_before(&low).known_at(&end).unwrap(),
+    ] {
+        assert!(low.concurrent(&side));
+        assert_eq!(range.bounded(&side), Bounded::Between);
+    }
+}
+
+/// An unbounded side makes its verdicts unreachable: with no end bound
+/// everything past the start is `Between` (including versions concurrent
+/// to the start), and with no start bound nothing is `Before` or
+/// `AtStart`.
+#[test]
+fn unbounded_sides_make_their_verdicts_unreachable() {
+    let (low, high, side) = fixtures();
+    let genesis = Version::new();
+
+    for range in [since(&low), not_before(&low)] {
+        assert_eq!(range.bounded(&high), Bounded::Between);
+        assert_eq!(range.bounded(&side), Bounded::Between);
+    }
+
+    for range in [known_at(&low), before(&low)] {
+        assert_eq!(range.bounded(&genesis), Bounded::Between);
+        assert_eq!(range.bounded(&high), Bounded::After);
+        assert_eq!(range.bounded(&side), Bounded::Concurrent);
+    }
+
+    for version in [&genesis, &low, &high, &side] {
+        assert_eq!(all().bounded(version), Bounded::Between);
+    }
+}
+
+/// The coincident-bounds corner is canonicalized to `AtStart`.
+///
+/// On a validated `start == end` range, a version equal to both bounds
+/// reports `AtStart`, and the coarsening stays sound for both admissible
+/// kind pairs (`Less` under the excluded start that subtracts the shared
+/// bound, `Equal` under the included one that keeps it).
+#[test]
+fn coincident_bounds_canonicalize_to_at_start() {
+    let (low, _, _) = fixtures();
+
+    let subtracting = since(&low).known_at(&low).unwrap();
+    assert_eq!(subtracting.bounded(&low), Bounded::AtStart);
+    assert_eq!(subtracting.placement_of(&low), Ordering::Less);
+    assert!(!subtracting.contains(&low));
+
+    let keeping = not_before(&low).known_at(&low).unwrap();
+    assert_eq!(keeping.bounded(&low), Bounded::AtStart);
+    assert_eq!(keeping.placement_of(&low), Ordering::Equal);
+    assert!(keeping.contains(&low));
+}
+
+/// `a <= b` under the impl causal order (`None` means concurrent, so not
+/// ordered).
+fn le(a: &Version, b: &Version) -> bool {
+    matches!(a.partial_cmp(b), Some(Ordering::Less | Ordering::Equal))
+}
+
+proptest! {
+    /// The gate's family claim, differentially against `partial_cmp`.
+    ///
+    /// For arbitrary version pairs and all four start/end pairings in both
+    /// composition orders, a composition succeeds exactly when the start
+    /// version is within the end bound (`s <= e` for an inclusive end,
+    /// `s < e` for an exclusive one); and every range the gate admits has a
+    /// coherent trichotomy: no probed version is both subtracted by the
+    /// start (`Less`) and outside the end bound, so `Less` placements are
+    /// always within the end and `contains` is exactly the `Equal` arm.
+    #[test]
+    fn gate_admits_exactly_the_uncrossed_and_they_cohere(
+        s in arb_oracle_version(),
+        e in arb_oracle_version(),
+    ) {
+        let s = from_oracle_version(&s);
+        let e = from_oracle_version(&e);
+
+        // Probes spanning the lattice around the bounds: bottom, the
+        // bounds themselves, their join (dominates both), and their meet
+        // (dominated by both).
+        let probes = [
+            Version::new(),
+            s.clone(),
+            e.clone(),
+            &s | &e,
+            &s & &e,
+        ];
+
+        let compositions: [(Result<Range<'_>, Crossed>, bool); 8] = [
+            (since(&s).known_at(&e), le(&s, &e)),
+            (since(&s).before(&e), le(&s, &e) && s != e),
+            (not_before(&s).known_at(&e), le(&s, &e)),
+            (not_before(&s).before(&e), le(&s, &e) && s != e),
+            (known_at(&e).since(&s), le(&s, &e)),
+            (before(&e).since(&s), le(&s, &e) && s != e),
+            (known_at(&e).not_before(&s), le(&s, &e)),
+            (before(&e).not_before(&s), le(&s, &e) && s != e),
+        ];
+        for (composed, expect_ok) in compositions {
+            prop_assert_eq!(
+                composed.is_ok(),
+                expect_ok,
+                "the gate admits exactly the uncrossed pairs"
+            );
+            let Ok(range) = composed else { continue };
+            for probe in &probes {
+                let placement = range.placement_of(probe);
+                let within_end = match range.end_bound() {
+                    Bound::Unbounded => true,
+                    Bound::Included(end) => le(probe, end),
+                    Bound::Excluded(end) => le(probe, end) && probe != end,
+                };
+                if placement == Ordering::Less {
+                    prop_assert!(
+                        within_end,
+                        "a subtracted version is still within the end: \
+                         the bounds cannot disagree about it"
+                    );
+                }
+                prop_assert_eq!(
+                    range.contains(probe),
+                    placement == Ordering::Equal,
+                    "contains is exactly the Equal arm"
+                );
+            }
+        }
+    }
+
+    /// Trait-dispatched membership is the causal predicate on every
+    /// (range, probe).
+    ///
+    /// The `RangeBounds::contains` override agrees with the inherent
+    /// `Range::contains` across the unbounded range, every single-bound
+    /// range, and every admitted two-bound composition, on probes
+    /// spanning the lattice around the bounds.
+    #[test]
+    fn trait_contains_agrees_with_the_inherent_everywhere(
+        s in arb_oracle_version(),
+        e in arb_oracle_version(),
+        p in arb_oracle_version(),
+    ) {
+        let s = from_oracle_version(&s);
+        let e = from_oracle_version(&e);
+        let p = from_oracle_version(&p);
+        let probes = [Version::new(), s.clone(), e.clone(), &s | &e, &s & &e, p];
+        let mut ranges = vec![all(), since(&s), not_before(&s), known_at(&e), before(&e)];
+        ranges.extend(
+            [
+                since(&s).known_at(&e),
+                since(&s).before(&e),
+                not_before(&s).known_at(&e),
+                not_before(&s).before(&e),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+        for range in &ranges {
+            for probe in &probes {
+                prop_assert_eq!(
+                    RangeBounds::contains(range, probe),
+                    range.contains(probe),
+                    "trait dispatch and the inherent predicate agree"
+                );
+            }
+        }
+    }
+
 }

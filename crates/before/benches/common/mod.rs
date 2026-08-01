@@ -1,5 +1,8 @@
 //! Shared input generation for the before differential benchmarks.
 //!
+//! The bench judge's shared knobs and denominator sidecar live in
+//! [`sidecar`].
+//!
 //! Every input is built through the *public* API. Fork a seed into a universe
 //! of pairwise-disjoint members, then preserve a random subset and `join` it
 //! back into a single tree. The members not preserved are simply dropped, so
@@ -21,6 +24,8 @@
 //! value per iteration.
 
 #![allow(dead_code)] // Each bench target compiles this module but uses only part of it.
+
+pub mod sidecar;
 
 use before::{oracle, Clock, Party, Version};
 use rand::rngs::StdRng;
@@ -214,6 +219,30 @@ pub fn oracle_versions(plan: &Plan, groups: u8) -> Vec<oracle::Version> {
         .into_iter()
         .map(|c| c.version())
         .collect()
+}
+
+/// The allocation-strategy arms compiled into this binary, for run
+/// provenance: the `before_alloc_ab` cfg values in effect, joined with
+/// `+`, or `"shipped"` when none is set.
+///
+/// The allocation A/B benches print this beside every measurement they
+/// emit, so a saved baseline or resident-bytes table can never be
+/// mis-attributed to the wrong build.
+pub fn alloc_arms() -> String {
+    let mut arms = Vec::new();
+    if cfg!(before_alloc_ab = "projection_growth") {
+        arms.push("projection_growth");
+    }
+    if cfg!(before_alloc_ab = "projection_shrink") {
+        arms.push("projection_shrink");
+    }
+    if cfg!(before_alloc_ab = "display_growth") {
+        arms.push("display_growth");
+    }
+    if arms.is_empty() {
+        arms.push("shipped");
+    }
+    arms.join("+")
 }
 
 /// Move every member labelled `g` out of `slots`, in ascending member order (the same

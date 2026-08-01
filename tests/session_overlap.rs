@@ -10,8 +10,8 @@
 //! the set the schedule's history prescribes. The symptom they exist to
 //! catch is silent divergence — a message nobody redacted vanishing, or
 //! peers converging on different sets — regardless of which layer's
-//! defect produces it. The discovering incident was a dependency fault
-//! (`imbl` issue 161) whose only visible face was exactly that symptom.
+//! defect produces it: the discovering incident's only visible face was
+//! exactly that symptom.
 
 mod common;
 
@@ -29,7 +29,7 @@ use rumors::{Key, Rumors};
 fn converged_trio(n: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
     let a = rumors::Peer::seed().into_rumors();
     for v in 0..n {
-        a.send(v);
+        pollster::block_on(a.send(v)).expect("the in-memory backend is infallible");
     }
     let b = bootstrap_fork(&a);
     let c = bootstrap_fork(&a);
@@ -70,11 +70,10 @@ fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Key, 
 /// converged outcome must always be exactly the original set minus the
 /// one redacted message: one deliberate deletion, no collateral.
 ///
-/// Discovering incident: `imbl` issue 161 — an upstream map-diff fault
-/// whose downstream symptom was precisely an innocent leaf silently
-/// deleted under this overlap, at 2 of the 25 sweep positions. The sweep
-/// is total, so any regression with the same *symptom* fails here no
-/// matter which layer produces it.
+/// The discovering incident's symptom was precisely an innocent leaf
+/// silently deleted under this overlap, at 2 of the 25 sweep positions.
+/// The sweep is total, so any regression with the same *symptom* fails
+/// here no matter which layer produces it.
 #[test]
 fn overlapped_install_never_loses_innocent_messages() {
     const MESSAGES: u64 = 25;
@@ -92,6 +91,21 @@ fn overlapped_install_never_loses_innocent_messages() {
         }
         polls
     };
+    // Liveness floor on the calibration itself: the instrument's reach is
+    // the parked states strictly inside a session, so a session that
+    // completes in a handful of polls has no interior to park in and the
+    // sweep would pass vacuously. The floor is mechanism-derived, not
+    // typical-case: one converged session must at least move its greeting
+    // both ways through the 48-byte link, and a 25-leaf tree's greeting
+    // alone spans several link-buffer fills, each of which is at least one
+    // alternation round. A calibration below this reads as the harness
+    // losing its poll granularity (e.g. a roomier link or joined polling),
+    // which is exactly the silent-decoration failure this floor flags.
+    assert!(
+        session_polls >= 8,
+        "calibration collapsed to {session_polls} polls: the parking sweep \
+         has lost its interior (link buffer or polling granularity changed?)",
+    );
 
     let keys: Vec<Key> = {
         let (a, _, _) = converged_trio(MESSAGES);
@@ -105,7 +119,7 @@ fn overlapped_install_never_loses_innocent_messages() {
             let mut expected = readout(&a.snapshot());
             expected.remove(&redacted);
 
-            b.redact(redacted);
+            pollster::block_on(b.redact(redacted)).expect("the in-memory backend is infallible");
             // S2 (A <-> C, both still converged at fork time) opens
             // first and parks after `n` polls...
             let s2 = {

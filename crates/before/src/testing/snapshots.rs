@@ -2,8 +2,9 @@
 
 use insta::assert_snapshot;
 
-use crate::codec::{encode_int, Base, Bits, BitsSlice};
-use crate::{Clock, Party, Version};
+use crate::codec::{encode_int, Base, BitsMut, BitsSlice};
+use crate::error::{Crossed, Decode, Overlap, Parse};
+use crate::{Clock, Party, Rank, Version};
 
 /// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`, the same
 /// order `encode_int` and the preorder codec emit. Empty stream renders as `""`.
@@ -22,7 +23,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// One Elias-gamma row: `n` then its code as an MSB-first bit string and the bit count.
 fn gamma_row(n: u64) -> String {
-    let mut bits = Bits::new();
+    let mut bits = BitsMut::new();
     encode_int(&mut bits, &Base::from(n));
     format!(
         "{:>20} -> {} ({} bits)",
@@ -37,7 +38,7 @@ fn gamma_row(n: u64) -> String {
 ///
 /// The golden table pins the layout across
 /// magnitudes — powers of two and their neighbours (where the unary prefix grows), plus
-/// a value past `u64::MAX` to witness the arbitrary-width (`BigUint`) code: the integer
+/// a value past `u64::MAX` to witness the arbitrary-width code: the integer
 /// magnitude has no cap, so the code must extend cleanly beyond 64 bits.
 #[test]
 fn gamma_bit_layout_table() {
@@ -65,7 +66,7 @@ fn gamma_bit_layout_table() {
 
     // Arbitrary-width witness: 2^64 has no u64 representation, but the gamma code (and
     // therefore an event base of this magnitude) encodes and round-trips regardless.
-    let mut big_bits = Bits::new();
+    let mut big_bits = BitsMut::new();
     let big = Base::from(1u8) << 64u32; // 2^64
     encode_int(&mut big_bits, &big);
     assert_snapshot!(
@@ -87,11 +88,12 @@ fn party_block(p: &Party) -> String {
 }
 
 fn version_block(v: &Version) -> String {
+    let bits = v.as_bits();
     format!(
         "display: {}\nbits:    {} ({} bits)\nbytes:   {}",
         v,
-        bits_to_string(v.as_bits()),
-        v.as_bits().len(),
+        bits_to_string(bits),
+        bits.len(),
         bytes_to_hex(&v.encode()),
     )
 }
@@ -133,24 +135,24 @@ fn party_canonical_forms() {
 #[test]
 fn version_canonical_forms() {
     let zero = Version::new();
-    assert_snapshot!(version_block(&zero), @r"
+    assert_snapshot!(version_block(&zero), @"
     display: 0
-    bits:    01 (2 bits)
-    bytes:   40
+    bits:    11 (2 bits)
+    bytes:   c0
     ");
 
     let leaf = Version::try_from(5u64).unwrap();
-    assert_snapshot!(version_block(&leaf), @r"
+    assert_snapshot!(version_block(&leaf), @"
     display: 5
-    bits:    000110 (6 bits)
-    bytes:   18
+    bits:    100110 (6 bits)
+    bytes:   98
     ");
 
     let node: Version = "(1, 0, (0, 1, 0))".parse().unwrap();
     assert_snapshot!(version_block(&node), @"
     display: (1, 0, (0, 1, 0))
-    bits:    10100111001001 (14 bits)
-    bytes:   a7 24
+    bits:    01010010111010 (14 bits)
+    bytes:   52 e8
     ");
 }
 
@@ -175,9 +177,101 @@ fn clock_canonical_form() {
     assert_snapshot!(fields, @"
     display: (1, 1)
     debug:   Clock { party: 1, version: 1 }
-    bits:    000010 (6 bits)
-    bytes:   00 20
+    bits:    001010 (6 bits)
+    bytes:   00 a0
     ");
+}
+
+/// One rank rendering row: a label, the rendered `Display`, and the
+/// `Debug ≡ Display` witness inline (`Debug` delegates, and this block is
+/// where that contract is pinned).
+fn rank_row(label: &str, r: &Rank) -> String {
+    assert_eq!(
+        format!("{r}"),
+        format!("{r:?}"),
+        "Rank's Debug must render exactly its Display"
+    );
+    format!("{label:<22} {r}")
+}
+
+/// `Rank`'s rendered representation across every rendering regime: zero,
+/// integral, fractional, normalized-after-subtraction, and a numerator
+/// spilled past `u64`.
+///
+/// `Rank` has no packed, serde, or borsh surface — its externally
+/// observable representation is exactly this text (and the `Ord`
+/// contract) — so this block is the type's representation pin, and every
+/// row also witnesses `Debug ≡ Display`. The spilled row's digits are the
+/// literal decimal of `2^100 + 1`: the rendering of a numerator wider
+/// than `u64` must not differ from the machine-word rendering in anything
+/// but length.
+#[test]
+fn rank_rendered_forms() {
+    let integral = Version::try_from(5u64).unwrap().rank();
+    let half: Version = "(0, 1, 0)".parse().unwrap();
+    let three_halves: Version = "(0, 3, 0)".parse().unwrap();
+    // 3/2 − 1/2 = 2/2: the raw difference is even over 2^1, so the
+    // subtraction's output normalizes back to the integral 1.
+    let normalized = three_halves
+        .rank()
+        .checked_sub(&half.rank())
+        .expect("3/2 dominates 1/2");
+    // 2^100 + 1: odd, so the numerator stays spilled after normalization.
+    let spilled: Version = "(0, 1267650600228229401496703205377, 0)".parse().unwrap();
+
+    let block = [
+        rank_row("zero", &Rank::ZERO),
+        rank_row("integral", &integral),
+        rank_row("fractional", &half.rank()),
+        rank_row("normalized after sub", &normalized),
+        rank_row("spilled numerator", &spilled.rank()),
+    ]
+    .join("\n");
+    assert_snapshot!(block, @r"
+    zero                   0
+    integral               5
+    fractional             1/2^1
+    normalized after sub   1
+    spilled numerator      1267650600228229401496703205377/2^1
+    ");
+}
+
+/// The error types' rendered `Display` strings, pinned verbatim.
+///
+/// These strings are the crate's error representation — what a caller's
+/// logs and wrapped error chains show — so a wording change must be a
+/// deliberate re-pin here, never a silent drift. `Decode::Io`'s rendering
+/// wraps the underlying `std::io::Error`'s own Display output, which std
+/// owns, so its row pins only the crate-owned prefix.
+#[test]
+fn error_display_strings() {
+    let block = [
+        format!("Overlap               {Overlap}"),
+        format!("Crossed               {Crossed}"),
+        format!("Decode::Truncated     {}", Decode::Truncated),
+        format!("Decode::TrailingBits  {}", Decode::TrailingBits),
+        format!("Decode::NotCanonical  {}", Decode::NotCanonical),
+        format!("Parse::Syntax         {}", Parse::Syntax),
+        format!("Parse::NotCanonical   {}", Parse::NotCanonical),
+        format!("Parse::Anonymous      {}", Parse::Anonymous),
+    ]
+    .join("\n");
+    assert_snapshot!(block, @r"
+    Overlap               parties are not disjoint
+    Crossed               range bounds cross: the start is not within the end
+    Decode::Truncated     unexpected end of input
+    Decode::TrailingBits  trailing or nonzero padding bits
+    Decode::NotCanonical  input is not canonical
+    Parse::Syntax         input is not well-formed paper notation
+    Parse::NotCanonical   input is not canonical
+    Parse::Anonymous      party is anonymous
+    ");
+
+    let io = Decode::Io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+    assert!(
+        io.to_string().starts_with("read error: "),
+        "Decode::Io renders with the crate-owned prefix: {io}"
+    );
 }
 
 /// The paper's §5.1 worked example, rendered step by step as `Clock` `Display`.

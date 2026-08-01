@@ -44,13 +44,14 @@
 //! its leaves' versions. The version bounds power both deletion honoring
 //! (a subtree whose ceiling the counterparty's version contains holds
 //! nothing it is missing — see [`traverse::unknown`]) and causal range
-//! queries ([`Tree::range`]), which prune whole subtrees without entering
-//! them.
+//! queries ([`Tree::range`]), which prune whole subtrees without
+//! entering them.
 //!
 //! # The traversal trio
 //!
 //! All mutation and reconciliation is three inductive traversals over the
-//! same structure ([`traverse`]): [`act`](Tree::act) applies a local batch
+//! same structure ([`traverse`]): act ([`react`](Tree::react), applying
+//! the reactions [`assign`](Tree::assign) stamps) applies a local batch
 //! in one pass; [`join`](Tree::join) merges two in-memory trees;
 //! [`mirror`] reconciles two trees over a wire. `join` and `mirror` are
 //! observationally identical — both delegate deletion honoring to the same
@@ -59,24 +60,29 @@
 
 use std::sync::Arc;
 
+pub(crate) mod backend;
 mod key;
-mod traverse;
+pub(crate) mod traverse;
 pub(crate) mod typed;
 
-use crate::{Version, message::Message, tree::typed::Node};
+use crate::{Version, message::Message};
+use backend::{Leaf as _, Local, Node as _, Store, VersionBounds};
 
 pub use key::Key;
 pub use typed::hash::MERKLE_HASH_LEN;
 
 pub mod mirror;
 
-/// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
-/// the engine beneath [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
-/// streams built over it.
-pub use typed::{Leaf, RangeOwned};
+/// A tree's root pair, concretely typed at a backend: the node structure
+/// (absent when empty) and the causal ceiling that rides *outside* it.
+///
+/// The ceiling outlives the nodes — it advances on effectual redactions and
+/// survives a tree emptying out — which is exactly what deletion honoring
+/// compares against.
+pub(crate) type Root<T, S = Local> = backend::Root<S, T>;
 
 /// A sparse Merkle radix trie with transparent path compression, whose
-/// leaves store versioned [`Message<T>`]s.
+/// leaves store versioned [`Message<T>`]s, resident in a [`Store`] backend.
 ///
 /// The tree has a branching factor of 256 and a depth of 32, so a leaf's
 /// 32-byte path is its content-addressed hash (see
@@ -84,71 +90,47 @@ pub use typed::{Leaf, RangeOwned};
 /// the path, so two content-identical messages inserted at distinct
 /// versions occupy distinct leaves; two leaves collide only when they carry
 /// the same `(version, value)` pair, which disjoint parties cannot produce.
-#[derive(Debug, Eq)]
-pub struct Tree<T> {
-    pub(crate) root: Root<T>,
-}
-
-/// A tree's root pair: the node structure (absent when empty) and the
-/// causal ceiling that rides *outside* it.
 ///
-/// The ceiling outlives the nodes — it advances on effectual redactions and
-/// survives a tree emptying out — which is exactly what deletion honoring
-/// compares against.
-#[derive(Debug, Eq)]
-pub struct Root<T> {
-    ceiling: Version,
-    root: Option<typed::node::Root<T>>,
+/// The tree carries its backend handle: every operation that touches node
+/// structure routes through the backend's [`Store`] seams, so one `Tree`
+/// type serves the in-memory backend (whose seams are the synchronous
+/// engines behind immediately-ready futures) and any storage-owning
+/// backend alike. Cloning shares the backend handle and the root by
+/// pointer, exactly as cheaply as before the backend rode along.
+pub struct Tree<T: Send + Sync + 'static, S: Store<T> = Local> {
+    pub(crate) backend: S,
+    pub(crate) root: Root<T, S>,
 }
 
-impl<T> From<Root<T>> for Option<typed::node::Root<T>> {
-    fn from(value: Root<T>) -> Self {
-        value.root
+/// A summary view (frontier and live count), independent of the backend's
+/// and payload's own `Debug`: nodes are not printed.
+impl<T: Send + Sync + 'static, S: Store<T>> std::fmt::Debug for Tree<T, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tree")
+            .field("latest", self.latest())
+            .field("len", &self.len())
+            .finish_non_exhaustive()
     }
 }
 
-impl<T> Clone for Root<T> {
+impl<T: Send + Sync + 'static, S: Store<T>> Clone for Tree<T, S> {
     fn clone(&self) -> Self {
         Self {
-            ceiling: self.ceiling.clone(),
+            backend: self.backend.clone(),
             root: self.root.clone(),
         }
     }
 }
 
-/// The empty root: the empty [`Version`] over no nodes. Lets callers
-/// `mem::take` a root out of a `&mut` borrow (e.g. to move it into a mirror
-/// exchange and write the merged result back) without an interim clone.
-impl<T> Default for Root<T> {
-    fn default() -> Self {
-        Root {
-            ceiling: Version::new(),
-            root: None,
-        }
-    }
-}
-
-impl<T> PartialEq for Root<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.ceiling == other.ceiling && self.root == other.root
-    }
-}
-
-impl<T> Clone for Tree<T> {
-    fn clone(&self) -> Self {
-        Self {
-            root: self.root.clone(),
-        }
-    }
-}
-
-impl<T> PartialEq for Tree<T> {
+impl<T: Send + Sync + 'static, S: Store<T>> PartialEq for Tree<T, S> {
     fn eq(&self, other: &Self) -> bool {
         self.root == other.root
     }
 }
 
-impl<T> Default for Tree<T> {
+impl<T: Send + Sync + 'static, S: Store<T>> Eq for Tree<T, S> {}
+
+impl<T: Send + Sync + 'static, S: Store<T> + Default> Default for Tree<T, S> {
     fn default() -> Self {
         Self::new()
     }
@@ -163,14 +145,16 @@ pub enum Action<T> {
     Forget(Key),
 }
 
-/// The iterator of [`Snapshot::iter`](crate::Snapshot::iter):
-/// a lazy depth-first walk over every live message as
-/// `(Key, &Version, &Arc<T>)`, in unspecified order.
+/// A lazy depth-first walk over every live message as
+/// `(Key, &Version, &Arc<T>)`, in unspecified order: the borrowing test
+/// oracle the owned public walks are pinned against.
 ///
 /// An [`ExactSizeIterator`] (the live-message count is known up front) and a
 /// [`DoubleEndedIterator`].
+#[cfg(test)]
 pub struct Iter<'a, T>(typed::Iter<'a, T>);
 
+#[cfg(test)]
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = (Key, &'a Version, &'a Arc<T>);
 
@@ -183,29 +167,45 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
+#[cfg(test)]
 impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back().map(|(k, v, m)| (k, v, m.as_arc()))
     }
 }
 
+#[cfg(test)]
 impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
-impl<T> Tree<T> {
-    /// Creates a new, empty tree carrying the empty [`Version`].
+impl<T: Send + Sync + 'static, S: Store<T>> Tree<T, S> {
+    /// Creates a new, empty tree carrying the empty [`Version`], resident
+    /// in `backend`.
     ///
     /// A tree owns no party identity: advancing the version is driven by a
-    /// [`Party`](before::Party) passed into [`act`](Self::act) by the caller (the
+    /// [`Party`](before::Party) passed into [`assign`](Self::assign) by the caller (the
     /// [`Peer`](crate::Peer) that owns the party). Forking a tree is a
     /// plain [`clone`](Clone); any party split happens on the owning
     /// [`Peer`](crate::Peer).
-    pub fn new() -> Self {
+    pub fn new_in(backend: S) -> Self {
         Tree {
-            root: Root {
-                ceiling: Version::new(),
-                root: None,
-            },
+            backend,
+            root: Root::default(),
         }
+    }
+
+    /// [`new_in`](Self::new_in) with the backend defaulted: the shape the
+    /// in-memory backend (a zero-sized handle) is always built through.
+    pub fn new() -> Self
+    where
+        S: Default,
+    {
+        Self::new_in(S::default())
+    }
+
+    /// Assemble a tree around a root the backend already holds: what
+    /// resuming a stored replica hands back.
+    pub(crate) fn resume(backend: S, root: Root<T, S>) -> Self {
+        Tree { backend, root }
     }
 
     /// Returns the latest version for the tree.
@@ -213,9 +213,14 @@ impl<T> Tree<T> {
         &self.root.ceiling
     }
 
-    /// Returns the earliest version present in the tree.
-    pub fn earliest(&self) -> Option<&Version> {
-        self.root.root.as_ref().map(Node::floor)
+    /// Returns the earliest version present in the tree, owned: the
+    /// backend's span accessor mints its bounds per read, so no
+    /// node-lifetime borrow exists to hand out.
+    pub fn earliest(&self) -> Option<Version> {
+        self.root
+            .root
+            .as_ref()
+            .map(|node| node.span().meet().clone())
     }
 
     /// Returns `true` if the tree holds no messages.
@@ -225,7 +230,11 @@ impl<T> Tree<T> {
 
     /// Returns the number of messages in the tree.
     pub fn len(&self) -> usize {
-        self.root.root.as_ref().map(Node::len).unwrap_or_default()
+        self.root
+            .root
+            .as_ref()
+            .map(backend::Node::len)
+            .unwrap_or_default()
     }
 
     /// The largest canonical version encoding among every bound the
@@ -240,25 +249,7 @@ impl<T> Tree<T> {
         self.root
             .root
             .as_ref()
-            .map(Node::version_bytes)
-            .unwrap_or_default()
-    }
-
-    /// The largest canonical encoding among every *per-node* version
-    /// bound the tree holds, recomputed by direct walk with no aggregate
-    /// memo: the oracle [`max_version_bytes`](Self::max_version_bytes)
-    /// is pinned against.
-    ///
-    /// Deliberately excludes the root ceiling riding outside the nodes:
-    /// that value is the greeting version, one per tree, priced outside
-    /// the per-node memory model. Test instrumentation; see
-    /// [`testing::max_bound_bytes`](crate::testing::max_bound_bytes).
-    #[cfg(any(test, feature = "test-internals"))]
-    pub(crate) fn max_bound_bytes(&self) -> usize {
-        self.root
-            .root
-            .as_ref()
-            .map(|node| node.max_bound_bytes())
+            .map(backend::Node::version_bytes)
             .unwrap_or_default()
     }
 
@@ -266,20 +257,42 @@ impl<T> Tree<T> {
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         #[cfg(test)]
         meter::record_root_hash_read();
-        Node::root_hash(&self.root.clone().into()).into()
-    }
-
-    /// Looks up a single live message by its [`Key`].
-    pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
         self.root
             .root
-            .as_ref()?
-            .get(&key.0)
-            .map(|(version, message)| (version, message.as_arc()))
+            .as_ref()
+            .map(backend::Node::hash)
+            .unwrap_or_else(typed::Hash::empty_root)
+            .into()
+    }
+
+    /// Looks up a single live message by its [`Key`], returning its
+    /// version and shared payload.
+    pub async fn get(&self, key: &Key) -> Result<Option<(Version, Arc<T>)>, S::Error> {
+        Ok(self
+            .backend
+            .clone()
+            .get(self.root.root.clone(), typed::Path::from(*key))
+            .await?
+            .map(|leaf| {
+                (
+                    backend::Leaf::version(&leaf).clone(),
+                    leaf.message().as_arc().clone(),
+                )
+            }))
+    }
+
+    /// Streams the live leaves whose versions fall within `bounds`, in
+    /// ascending path order, as bare leaf handles keyed by their [`Key`]s.
+    ///
+    /// Subtrees wholly outside the range are pruned by their resident
+    /// version bounds without being fetched, so streaming a small causal
+    /// delta against a large tree costs work proportional to the delta.
+    pub(crate) fn range(&self, bounds: VersionBounds) -> S::Walk {
+        self.backend.clone().range(self.root.root.clone(), bounds)
     }
 
     /// Forces every lazily-memoized structural value — the observable hash
-    /// and the ceiling/floor version bounds — for the whole tree.
+    /// and the version-bounds span — for the whole tree.
     ///
     /// Each accessor recurses, so one call apiece warms the entire subtree.
     ///
@@ -291,70 +304,12 @@ impl<T> Tree<T> {
     pub fn warm_caches(&self) {
         if let Some(root) = &self.root.root {
             let _ = root.hash();
-            let _ = root.ceiling();
-            let _ = root.floor();
+            let _ = root.span();
         }
     }
 
-    /// Lazily iterates every live leaf currently in the tree as
-    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
-    pub fn iter(&self) -> Iter<'_, T>
-    where
-        T: Send + Sync,
-    {
-        Iter(
-            self.root
-                .root
-                .as_ref()
-                .map(typed::node::Root::iter)
-                .unwrap_or_else(typed::Iter::empty),
-        )
-    }
-
-    /// Freezes a fully-owned walk over the live leaves whose versions fall
-    /// within the causal `range`.
-    ///
-    /// The lifetime-free counterpart of [`range`](Self::range), holdable
-    /// across awaits and in long-lived state, pinning only its unvisited
-    /// frontier.
-    pub fn range_owned<R>(&self, range: R) -> RangeOwned<T, R>
-    where
-        R: std::ops::RangeBounds<Version>,
-    {
-        typed::node::Root::range_owned(self.root.root.as_ref(), range)
-    }
-
-    /// Lazily iterates the live leaves whose versions fall within the causal
-    /// `range`.
-    ///
-    /// A leaf is yielded iff its version is contained in the
-    /// range's end bound and *not* contained in its start bound — a
-    /// difference of causal down-sets (see
-    /// [`untyped::Range`](typed::untyped::Range) for the
-    /// per-bound semantics). Subtrees wholly outside the range are pruned by
-    /// their memoized version bounds without being entered, so iterating a
-    /// small delta against a large tree costs work proportional to the delta
-    /// (plus the pruning frontier), not the tree.
-    ///
-    /// Unlike [`iter`](Self::iter), not an [`ExactSizeIterator`]: how many
-    /// leaves pass is unknown until they are visited.
-    pub fn range<R>(
-        &self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
-    where
-        T: Send + Sync,
-        R: std::ops::RangeBounds<Version> + Send + Sync,
-    {
-        typed::node::Root::range(self.root.root.as_ref(), range)
-            // The shared walk yields the full `&Message<T>`; the public
-            // contract hands out only the `&Arc<T>` value, a cheap projection
-            // of it.
-            .map(|(k, v, m)| (k, v, m.as_arc()))
-    }
-
-    /// Applies the specified actions as a batch to the tree, advancing its
-    /// internal version vector once per action.
+    /// Stamps each action with its committed version and key against the
+    /// tree's current frontier: the synchronous *prep* step of a commit.
     ///
     /// Each [`Action::Insert`] advances the local party's component of the
     /// version vector by one before the leaf's path is derived; the inserts
@@ -365,19 +320,90 @@ impl<T> Tree<T> {
     /// insert (the mirror protocol's deletion-honoring inference depends on
     /// that; see the body comment). A forget that targets a key derived from
     /// an earlier insert in the same batch overrides that insert (last
-    /// action on a path wins).
+    /// action on a path wins, once [`react`](Self::react) applies them).
     ///
-    /// A batch is applied to the tree in a single traversal, which is more
-    /// efficient than applying its actions one at a time: in theory an
-    /// O(log n) speedup over one-by-one insertion, in practice about 2-3x
-    /// since the log base is 256.
+    /// A commit built this way is "morally associative": partitioning a
+    /// sequence of actions across multiple commits produces the same tree
+    /// as a single commit over their concatenation, except possibly for
+    /// the tree's version when several actions address the same key. In
+    /// that case the version is incremented once per changed key,
+    /// regardless of how many actions pertain to it.
     ///
-    /// This function is "morally associative": partitioning a sequence of
-    /// actions across multiple `act` calls produces the same tree as a
-    /// single `act` over their concatenation, except possibly for the tree's
-    /// version when several actions address the same key. In that case the
-    /// version is incremented once per changed key, regardless of how many
-    /// actions pertain to it.
+    /// Split from [`react`](Self::react) (the build step) so a committer
+    /// can run the build outside the critical section that read the
+    /// frontier.
+    ///
+    /// Reads the frontier and the party; mutates nothing. The stamped
+    /// versions are only as fresh as the frontier they were read against:
+    /// the committer must hold the `(party, frontier)` pair stable (by
+    /// holding the commit lock — see `Peer::commit` — or by staying inside
+    /// one `watch` critical section) from `assign` through `react`'s
+    /// publication.
+    pub(crate) fn assign<I>(
+        &self,
+        party: &before::Party,
+        actions: I,
+    ) -> Vec<(Key, Version, Option<Message<T>>)>
+    where
+        I: IntoIterator<Item = Action<T>>,
+    {
+        // Track the running version across the batch, ticking the owning party
+        // once per action so that (a) content-identical messages produce
+        // distinct keys even when submitted together, and (b) forgets carry a
+        // version strictly greater than any prior insert at this party. The
+        // strict tick on forgets is required by the mirror protocol's
+        // deletion-honoring inference, which cannot distinguish "forgot it"
+        // from "never had it" when versions are equal. An empty batch is a
+        // complete no-op.
+        // The running version, advanced in place per action; each action
+        // clones the post-tick value as the committed version that keys
+        // its leaf.
+        let mut new_version = self.latest().clone();
+        actions
+            .into_iter()
+            .map(|action| {
+                // Advance the version. It must be unique for every action
+                // applied to the tree; otherwise the mirror protocol
+                // wrongly early-aborts when versions compare equal.
+                new_version.tick(party);
+                let version = new_version.clone();
+
+                // Convert unversioned, unlocalized actions into reactions
+                // independent of our party and current version. The key is
+                // derived from the post-tick version, which is unique per
+                // insert (see [`typed::Path::for_leaf`]).
+                let (key, value) = match action {
+                    Action::Forget(hash) => (hash, None),
+                    Action::Insert(value) => {
+                        let key = typed::Path::for_leaf(&version, value.bytes()).into();
+                        (key, Some(value))
+                    }
+                };
+                (key, version, value)
+            })
+            .collect()
+    }
+
+    /// Applies the specified *versioned* actions as a batch to the tree
+    /// without incrementing its internal version vector.
+    ///
+    /// In the specified iterator, `Some(message)` indicates an insert, and
+    /// `None` indicates that the key should be forgotten.
+    ///
+    /// If multiple actions refer to the same leaf of the tree, the causally
+    /// latest action wins, with order of specification breaking concurrency
+    /// and version ties. Each item is keyed by its version and content hash,
+    /// so if each party only stamps actions against its own tree through
+    /// [`assign`](Self::assign), these conflicts cannot arise.
+    ///
+    /// A batch is applied in a single traversal, which is more efficient
+    /// than applying its actions one at a time but semantically
+    /// equivalent: in theory an O(log n) speedup over one-by-one
+    /// insertion, in practice about 2-3x since the log base is 256.
+    ///
+    /// The *build* step of a commit; [`assign`](Self::assign) is the prep
+    /// step that stamps the reactions, and states the frontier-stability
+    /// obligation between the two.
     ///
     /// # The changed flag
     ///
@@ -392,110 +418,58 @@ impl<T> Tree<T> {
     /// - **`true` is conservative**: the tree changed *or* an action was
     ///   silently skipped as causally prior to the leaf it targeted. The skip
     ///   is unreachable when every leaf's version is bounded by the tree's
-    ///   ceiling — which `act` and `join` both maintain, so every honestly
-    ///   built tree qualifies — because each action ticks strictly above the
-    ///   ceiling. Only a store poisoned by nonconforming gossip (a leaf
-    ///   *above* the ceiling; session ingestion rejects the shape) can
+    ///   ceiling — which the commit paths and `join` both maintain, so every
+    ///   honestly built tree qualifies — because each action ticks strictly
+    ///   above the ceiling. Only a store poisoned by nonconforming gossip (a
+    ///   leaf *above* the ceiling; session ingestion rejects the shape) can
     ///   produce `true` without a hash change, and then the cost is one
     ///   spurious watch wakeup, never a missed one.
-    pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
+    pub(crate) async fn react<M, I>(&mut self, reactions: I) -> Result<bool, S::Error>
     where
-        T: Send + Sync,
-        I: IntoIterator<Item = Action<T>>,
-    {
-        // Track the running version across the batch, ticking the owning party
-        // once per action so that (a) content-identical messages produce
-        // distinct keys even when submitted together, and (b) forgets carry a
-        // version strictly greater than any prior insert at this party. The
-        // strict tick on forgets is required by the mirror protocol's
-        // deletion-honoring inference, which cannot distinguish "forgot it"
-        // from "never had it" when versions are equal. An empty batch is a
-        // complete no-op.
-        let mut new_version = self.latest().clone();
-
-        // Hold one version `Batch` open across the whole run: each `tick`
-        // advances the materialized working form in place, and `snapshot` reads
-        // the per-action committed version that keys the leaf. This pays the
-        // unpack cost once for the batch rather than once per action — a bare
-        // `Version::tick` opens and drops its own batch (an unpack and a repack)
-        // on every call. The reactions flow into `react` lazily; the whole
-        // chain materializes only once, at the traversal's radix sort.
-        let mut batch = new_version.batch();
-        self.react(actions.into_iter().map(|action| {
-            // Advance the version. It must be unique for every action
-            // applied to the tree; otherwise the mirror protocol
-            // wrongly early-aborts when versions compare equal.
-            batch.tick(party);
-            let version = batch.snapshot();
-
-            // Convert unversioned, unlocalized actions into reactions
-            // independent of our party and current version. The key is
-            // derived from the post-tick version, which is unique per
-            // insert (see [`typed::Path::for_leaf`]).
-            let (key, value) = match action {
-                Action::Forget(hash) => (hash, None),
-                Action::Insert(value) => {
-                    let key = typed::Path::for_leaf(&version, value.bytes()).into();
-                    (key, Some(value))
-                }
-            };
-            (key, version, value)
-        }))
-    }
-
-    /// Applies the specified *versioned* actions as a batch to the tree
-    /// without incrementing its internal version vector.
-    ///
-    /// In the specified iterator, `Some(message)` indicates an insert, and
-    /// `None` indicates that the key should be forgotten.
-    ///
-    /// If multiple actions refer to the same leaf of the tree, the causally
-    /// latest action wins, with order of specification breaking concurrency
-    /// and version ties. Each item is keyed by its version and content hash,
-    /// so if each party only manipulates its own tree through
-    /// [`Tree::act`], these conflicts cannot arise.
-    ///
-    /// As with [`act`](Self::act), a batch is applied in a single traversal,
-    /// which is more efficient than applying its actions one at a time but
-    /// semantically equivalent.
-    ///
-    /// Returns whether the effectual-action observer fired at all — the
-    /// changed flag [`act`](Self::act) hands out, with the contract stated
-    /// there. `false` means no observation and therefore no ceiling
-    /// movement either: the tree is untouched.
-    fn react<M, I>(&mut self, reactions: I) -> bool
-    where
-        T: Send + Sync,
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Key, Version, M)>,
     {
-        // Convert the specified actions, lazily, into the action specification
-        // required by the inductive traversal of the tree
-        let actions = reactions
+        // Convert the specified actions into the action specification
+        // required by the traversal seam. Materialized: the seam takes a
+        // `Vec` so the backend's tower monomorphizes over one flat item
+        // type, not this call site's iterator chain.
+        let actions: Vec<_> = reactions
             .into_iter()
             .map(|(key, version, message)| match message.into() {
-                None => (typed::Path::from(key), version, traverse::Action::Forget),
+                None => (
+                    typed::Path::from(key),
+                    version,
+                    backend::Action::<T>::Forget,
+                ),
                 Some(value) => (
                     typed::Path::from(key),
                     version,
-                    traverse::Action::Insert(value),
+                    backend::Action::Insert(value),
                 ),
-            });
+            })
+            .collect();
 
-        // Traverse the tree from the root, batch-applying the actions.
-        // The version join is deferred to the effectual-action observer so
-        // that zero-effect actions (e.g. forgetting a nonexistent key) do not
-        // bump the root version. The changed flag rides the same observer:
-        // no observation means no leaf was inserted, replaced, or removed
-        // and no version was joined, so the tree — hash and ceiling both —
-        // is exactly what it was.
+        // Apply the batch through the backend's seam, taking the root out
+        // so the traversal owns it uniquely (structural ops are then plain
+        // moves, never copy-on-write deep-clones). The version join is
+        // deferred to the effectual-action observer so that zero-effect
+        // actions (e.g. forgetting a nonexistent key) do not bump the root
+        // version. The changed flag rides the same observer: no observation
+        // means no leaf was inserted, replaced, or removed and no version
+        // was joined, so the tree — hash and ceiling both — is exactly what
+        // it was.
+        let Root { ceiling, root } = &mut self.root;
+        let taken = root.take();
         let mut changed = false;
-        let root_version = &mut self.root.ceiling;
-        self.root.root = traverse::act(self.root.root.take(), actions, |v: &Version| {
-            *root_version |= v;
-            changed = true;
-        });
-        changed
+        *root = self
+            .backend
+            .clone()
+            .act(taken, actions, |v: &Version| {
+                *ceiling |= v;
+                changed = true;
+            })
+            .await?;
+        Ok(changed)
     }
 
     /// Merges `other` into `self` by a single simultaneous recursion over
@@ -506,6 +480,11 @@ impl<T> Tree<T> {
     /// Deletions are honored by version dominance: a leaf one side lacks
     /// while its version is `<=` that side's version vector was deleted
     /// there and is dropped.
+    ///
+    /// Both trees must be resident in the same backend instance
+    /// ([`Store::join`] states why); the one production caller merges a
+    /// root that a mirror session materialized into this peer's own
+    /// backend.
     ///
     /// # The changed flag
     ///
@@ -521,32 +500,163 @@ impl<T> Tree<T> {
     /// whose every message we already hold or honor as deleted): the flag
     /// answers for what observers of the *set* can see, and a ceiling-only
     /// join leaves the set untouched.
-    pub fn join(&mut self, other: Tree<T>) -> bool
-    where
-        T: Send + Sync,
-    {
+    pub(crate) async fn join(&mut self, other: Tree<T, S>) -> Result<bool, S::Error> {
         let Root {
             ceiling: their_version,
             root: their_root,
         } = other.root;
 
         // Take our root out so the recursion owns it uniquely (structural ops
-        // are then plain moves, never `Arc::make_mut` deep-clones); the merged
+        // are then plain moves, never copy-on-write deep-clones); the merged
         // root is written straight back below. Our version stays in place to be
         // read as the deletion filter, then joined with theirs.
         let our_root = std::mem::take(&mut self.root.root);
         let mut changed = false;
-        let merged = traverse::join(
-            our_root,
-            their_root,
-            &self.root.ceiling,
-            &their_version,
-            &mut changed,
-        );
+        let merged = self
+            .backend
+            .clone()
+            .join(
+                our_root,
+                their_root,
+                &self.root.ceiling,
+                &their_version,
+                &mut changed,
+            )
+            .await?;
 
         self.root.ceiling |= their_version;
         self.root.root = merged;
-        changed
+        Ok(changed)
+    }
+
+    /// Persist the canonical root and identity clock through the backend's
+    /// [`Store::commit`] seam: the step a root-replacing committer runs
+    /// after its build and before its publish.
+    pub(crate) async fn persist(
+        &self,
+        clock: Option<before::Clock>,
+        network: crate::Network,
+    ) -> Result<(), S::Error> {
+        self.backend.commit(&self.root, clock, network).await
+    }
+
+    /// Record the identity clock alone through the backend's
+    /// [`Store::record`] seam: the party-shrink write a donation runs
+    /// before its party crosses the wire.
+    pub(crate) async fn record(&self, clock: Option<before::Clock>) -> Result<(), S::Error> {
+        self.backend.record(clock).await
+    }
+
+    /// The backend's durability barrier ([`Store::barrier`]): what a
+    /// session awaits before transmitting own-party versions.
+    pub(crate) async fn barrier(&self) -> Result<(), S::Error> {
+        self.backend.barrier().await
+    }
+}
+
+/// The in-memory oracles: borrowing walks and one-call commits, pinned at
+/// the backend whose engines they exercise directly.
+#[cfg(test)]
+impl<T: Send + Sync + 'static> Tree<T, Local> {
+    /// Applies the specified actions as one batch commit:
+    /// [`assign`](Self::assign) composed with [`react`](Self::react) in
+    /// place, for the tests and oracles that need a one-call commit.
+    ///
+    /// Returns [`react`](Self::react)'s changed flag; the two-direction
+    /// contract is stated there.
+    pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
+    where
+        I: IntoIterator<Item = Action<T>>,
+    {
+        let reactions = self.assign(party, actions);
+        self.react_now(reactions)
+    }
+
+    /// [`react`](Self::react) driven to completion synchronously: the
+    /// in-memory backend's seams are immediate, so tests and oracles can
+    /// build without an executor. Returns [`react`](Self::react)'s
+    /// changed flag.
+    pub fn react_now<M, I>(&mut self, reactions: I) -> bool
+    where
+        M: Into<Option<Message<T>>>,
+        I: IntoIterator<Item = (Key, Version, M)>,
+    {
+        use futures::FutureExt as _;
+        self.react(reactions)
+            .now_or_never()
+            .expect("the in-memory backend's seams are immediate")
+            .unwrap_or_else(|e| match e {})
+    }
+
+    /// [`get`](Self::get) driven to completion synchronously, unwrapping
+    /// the in-memory backend's uninhabited error.
+    pub fn get_now(&self, key: &Key) -> Option<(Version, Arc<T>)> {
+        use futures::FutureExt as _;
+        self.get(key)
+            .now_or_never()
+            .expect("the in-memory backend's seams are immediate")
+            .unwrap_or_else(|e| match e {})
+    }
+
+    /// [`join`](Self::join) driven to completion synchronously: the
+    /// in-memory backend's seams are immediate, so tests and oracles can
+    /// merge without an executor. Returns [`join`](Self::join)'s changed
+    /// flag.
+    pub fn join_now(&mut self, other: Tree<T, Local>) -> bool {
+        use futures::FutureExt as _;
+        self.join(other)
+            .now_or_never()
+            .expect("the in-memory backend's seams are immediate")
+            .unwrap_or_else(|e| match e {})
+    }
+
+    /// Lazily iterates the live leaves whose versions fall within the
+    /// causal `range`, borrowed: the oracle the owned range walks are
+    /// pinned against.
+    pub fn range_oracle<R>(
+        &self,
+        range: R,
+    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    where
+        R: std::ops::RangeBounds<Version> + Send + Sync,
+    {
+        typed::node::Root::range(self.root.root.as_ref(), range)
+            // The shared walk yields the full `&Message<T>`; the oracle
+            // hands out only the `&Arc<T>` value, a cheap projection of it.
+            .map(|(k, v, m)| (k, v, m.as_arc()))
+    }
+
+    /// Lazily iterates every live leaf currently in the tree as
+    /// `(Key, &Version, &Arc<T>)`, in unspecified order: the borrowing
+    /// oracle the owned walks are pinned against.
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter(
+            self.root
+                .root
+                .as_ref()
+                .map(typed::node::Root::iter)
+                .unwrap_or_else(typed::Iter::empty),
+        )
+    }
+}
+
+#[cfg(any(test, feature = "test-internals"))]
+impl<T: Send + Sync + 'static> Tree<T, Local> {
+    /// The largest canonical encoding among every *per-node* version
+    /// bound the tree holds, recomputed by direct walk with no aggregate
+    /// memo: the oracle [`max_version_bytes`](Self::max_version_bytes)
+    /// is pinned against.
+    ///
+    /// Deliberately excludes the root ceiling riding outside the nodes:
+    /// that value is the greeting version, one per tree, priced outside
+    /// the per-node memory model. Test instrumentation; see
+    /// [`testing::max_bound_bytes`](crate::testing::max_bound_bytes).
+    pub(crate) fn max_bound_bytes(&self) -> usize {
+        self.root
+            .root
+            .as_ref()
+            .map(|node| node.max_bound_bytes())
+            .unwrap_or_default()
     }
 }
 
@@ -566,7 +676,12 @@ impl<T> Tree<T> {
 pub(crate) mod meter {
     use std::cell::Cell;
 
+    // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+    // fallback-TLS lowering (illumos among the gate's targets) and denies
+    // initializers that already sit in `const` blocks; the allow keeps
+    // `-D warnings` honest on every platform the gate runs.
     thread_local! {
+        #[allow(clippy::missing_const_for_thread_local)]
         static ROOT_HASH_READS: Cell<u64> = const { Cell::new(0) };
     }
 

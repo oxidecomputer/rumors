@@ -1,10 +1,12 @@
-use crate::{Key, Network, Version, tree::Tree};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-/// The iterator of [`Snapshot::iter`], re-exported from the tree internals:
-/// every live message as `(Key, &Version, &Arc<T>)`, unspecified order,
-/// exact-size and double-ended.
-pub use crate::tree::Iter;
+use futures::{Stream, StreamExt as _};
+
+use crate::tree::Tree;
+use crate::tree::backend::{Leaf as _, Local, Store, VersionBounds};
+use crate::{Key, Network, StorageError, Version};
 
 /// A consistent point-in-time view of a set of rumors.
 ///
@@ -13,21 +15,68 @@ pub use crate::tree::Iter;
 /// it shares structure with the live set rather than copying it, and later
 /// changes never show through. Hold it as long as you like; it keeps its
 /// messages alive, not the [`Peer`](crate::Peer).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Snapshot<T> {
+#[derive(Clone)]
+pub struct Snapshot<T: Send + Sync + 'static, S: Store<T> = Local> {
     network: Network,
-    tree: Tree<T>,
+    tree: Tree<T, S>,
 }
 
-impl<T> Snapshot<T> {
+impl<T: Send + Sync + 'static, S: Store<T>> PartialEq for Snapshot<T, S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.network == other.network && self.tree == other.tree
+    }
+}
+
+impl<T: Send + Sync + 'static, S: Store<T>> Eq for Snapshot<T, S> {}
+
+/// A summary view (network, latest version, live-message count),
+/// independent of `T: Debug`: the messages themselves are not printed.
+impl<T: Send + Sync + 'static, S: Store<T>> std::fmt::Debug for Snapshot<T, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Snapshot")
+            .field("network", &self.network)
+            .field("latest", self.latest())
+            .field("len", &self.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The stream of [`Snapshot::iter`] and [`Snapshot::range`]: every selected
+/// live message as an owned `(Key, Version, Arc<T>)`, in unspecified order.
+///
+/// Fully owned and lifetime-free: hold it across awaits or in long-lived
+/// state; it pins only its unvisited frontier (plus each yielded message's
+/// shared payload). With the in-memory backend every item is immediately
+/// ready and the error is uninhabited; a storage-owning backend's items
+/// resolve as its reads do, and surface its failures.
+pub struct Messages<T: Send + Sync + 'static, S: Store<T> = Local> {
+    walk: S::Walk,
+}
+
+impl<T: Send + Sync + 'static, S: Store<T>> Stream for Messages<T, S> {
+    type Item = Result<(Key, Version, Arc<T>), StorageError<S::Error>>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_mut().walk.poll_next_unpin(cx).map(|item| {
+            item.map(|item| {
+                item.map(|(key, leaf)| {
+                    (key, leaf.version().clone(), leaf.message().as_arc().clone())
+                })
+                .map_err(StorageError)
+            })
+        })
+    }
+}
+
+impl<T: Send + Sync + 'static, S: Store<T>> Snapshot<T, S> {
     /// Makes a new snapshot.
-    pub(crate) fn new(network: Network, tree: Tree<T>) -> Self {
+    pub(crate) fn new(network: Network, tree: Tree<T, S>) -> Self {
         Self { network, tree }
     }
 
     /// The snapshotted tree, for crate-internal instruments.
     #[cfg(any(test, feature = "test-internals"))]
-    pub(crate) fn tree(&self) -> &Tree<T> {
+    pub(crate) fn tree(&self) -> &Tree<T, S> {
         &self.tree
     }
 
@@ -51,7 +100,9 @@ impl<T> Snapshot<T> {
     ///
     /// Returns `None` when `self.is_empty()` (unlike [`latest`](Self::latest),
     /// which is advanced by all operations and always returns a [`Version`]).
-    pub fn earliest(&self) -> Option<&Version> {
+    /// Owned, because the backend mints its bounds per read: no borrow into
+    /// the snapshot exists to hand out.
+    pub fn earliest(&self) -> Option<Version> {
         self.tree.earliest()
     }
 
@@ -62,6 +113,8 @@ impl<T> Snapshot<T> {
     }
 
     /// The number of live messages in this snapshot.
+    ///
+    /// Exact and O(1); the count [`iter`](Self::iter) will yield.
     pub fn len(&self) -> usize {
         self.tree.len()
     }
@@ -74,27 +127,27 @@ impl<T> Snapshot<T> {
         self.tree.hash()
     }
 
-    /// Looks up a single live message by its [`Key`].
-    pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
-        self.tree.get(key)
+    /// Looks up a single live message by its [`Key`], returning its version
+    /// and shared payload.
+    pub async fn get(
+        &self,
+        key: &Key,
+    ) -> Result<Option<(Version, Arc<T>)>, StorageError<S::Error>> {
+        self.tree.get(key).await.map_err(StorageError)
     }
 
-    /// Iterates every live message as `(Key, &Version, &Arc<T>)`.
+    /// Streams every live message as owned `(Key, Version, Arc<T>)`.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: a message may be yielded before another that causally precedes
     /// it. Sort by the yielded [`Version`]s if your application needs an
-    /// ordering consistent with causality.
-    pub fn iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + ExactSizeIterator + Send + Sync
-    where
-        T: Send + Sync,
-    {
-        self.tree.iter()
+    /// ordering consistent with causality. The stream yields exactly
+    /// [`len`](Self::len) messages.
+    pub fn iter(&self) -> Messages<T, S> {
+        self.range(..)
     }
 
-    /// Iterates the messages whose [`Version`]s fall within the causal `range`.
+    /// Streams the messages whose [`Version`]s fall within the causal `range`.
     ///
     /// A message is yielded if and only if its version is contained in the
     /// range's end bound and *not* contained in its start bound. Per bound
@@ -114,18 +167,16 @@ impl<T> Snapshot<T> {
     ///
     /// The [`causally`](crate::causally) constructors are an idiomatic way to
     /// specify causal ranges: `range(causally::since(&s))`,
-    /// `range(causally::delta(&s, &e))`,
-    /// `range(causally::not_before(&s).known_at(&e))`, and so on. Plain range
+    /// `range(causally::delta(&s, &e)?)`,
+    /// `range(causally::not_before(&s).known_at(&e)?)`, and so on (pairing a
+    /// start with an end validates that the start lies within the end
+    /// bound). Plain range
     /// syntax like `&v1..=&v2`, `&v1..` also works, as does any other
     /// [`RangeBounds<Version>`](std::ops::RangeBounds) value, such as a
     /// tuple of [`Bound`](std::ops::Bound)s.
     ///
-    /// Iterating a small causal delta against a large snapshot costs work
+    /// Streaming a small causal delta against a large snapshot costs work
     /// proportional to the delta, not the snapshot.
-    ///
-    /// Unlike [`iter`](Self::iter), this does not produce an
-    /// [`ExactSizeIterator`]: how many messages fall in the range is unknown
-    /// until they are visited.
     ///
     /// As with [`iter`](Self::iter), order is unspecified and does *not*
     /// follow the causal order: filtering by versions does not mean yielding
@@ -135,31 +186,40 @@ impl<T> Snapshot<T> {
     /// # Examples
     ///
     /// ```
+    /// use futures::TryStreamExt;
     /// use rumors::{Peer, causally};
     ///
+    /// # tokio::runtime::Builder::new_current_thread()
+    /// #     .build()
+    /// #     .unwrap()
+    /// #     .block_on(async {
     /// let rumors = Peer::<String>::seed().into_rumors();
-    /// rumors.send("first".to_string());
+    /// rumors.send("first".to_string()).await?;
     /// let then = rumors.snapshot().latest().clone();
-    /// rumors.send("second".to_string());
-    /// rumors.send("third".to_string());
+    /// rumors.send("second".to_string()).await?;
+    /// rumors.send("third".to_string()).await?;
     ///
     /// let snapshot = rumors.snapshot();
     /// // Everything not already contained in `then`: the two later sends.
-    /// assert_eq!(snapshot.range(causally::since(&then)).count(), 2);
+    /// let since: Vec<_> = snapshot.range(causally::since(&then)).try_collect().await?;
+    /// assert_eq!(since.len(), 2);
     /// // Everything `then` already contained: just the first.
-    /// assert_eq!(snapshot.range(causally::known_at(&then)).count(), 1);
+    /// let known: Vec<_> = snapshot.range(causally::known_at(&then)).try_collect().await?;
+    /// assert_eq!(known.len(), 1);
     /// // The two compose into the same partition of the live set.
-    /// assert_eq!(snapshot.range(causally::all()).count(), 3);
+    /// let all: Vec<_> = snapshot.range(causally::all()).try_collect().await?;
+    /// assert_eq!(all.len(), 3);
+    /// # Ok::<(), rumors::StorageError<std::convert::Infallible>>(())
+    /// # })?;
+    /// # Ok::<(), rumors::StorageError<std::convert::Infallible>>(())
     /// ```
-    pub fn range<R>(
-        &self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    pub fn range<R>(&self, range: R) -> Messages<T, S>
     where
-        T: Send + Sync,
-        R: std::ops::RangeBounds<Version> + Send + Sync,
+        R: std::ops::RangeBounds<Version>,
     {
-        self.tree.range(range)
+        Messages {
+            walk: self.tree.range(VersionBounds::from_range(range)),
+        }
     }
 
     /// Forces this set's tree to compute its lazy structural memos (observable
@@ -168,14 +228,5 @@ impl<T> Snapshot<T> {
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.tree.warm_caches();
-    }
-}
-
-impl<'a, T: Send + Sync> IntoIterator for &'a Snapshot<T> {
-    type Item = (Key, &'a Version, &'a Arc<T>);
-    type IntoIter = Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.tree.iter()
     }
 }

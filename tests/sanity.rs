@@ -42,18 +42,16 @@ proptest! {
         let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let alice = bootstrap_fork(&seed);
         {
-            let mut batch = alice.batch();
-            for v in &alice_values {
-                batch.send(*v);
-            }
+            rumors::testing::commit(
+                alice_values.iter().fold(alice.batch(), |batch, v| batch.send(*v)),
+            );
         }
 
         let bob = bootstrap_fork(&seed);
         {
-            let mut batch = bob.batch();
-            for v in &bob_values {
-                batch.send(*v);
-            }
+            rumors::testing::commit(
+                bob_values.iter().fold(bob.batch(), |batch, v| batch.send(*v)),
+            );
         }
 
         // Recombine a disjoint copy of alice with a carrier of bob's content.

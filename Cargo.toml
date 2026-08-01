@@ -2,7 +2,8 @@
 members = [
     "crates/before",
     "crates/before-viz",
-    "crates/rumormill",
+    "crates/complexity-claims",
+    "crates/suanpan",
 ]
 
 [package]
@@ -18,15 +19,29 @@ readme = "README.md"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[lib]
+# Keep `cargo bench` from compiling the library itself as a libtest bench
+# harness. That auto-target rebuilds the whole crate — every `#[cfg(test)]`
+# module included — at opt-level 3 in a single rustc invocation, and its
+# codegen peak is the heaviest compile in the workspace (it trips the
+# memwatch per-process ceiling). The harness would run nothing: stable Rust
+# has no bench items, and every real benchmark is a `harness = false`
+# criterion target below. The test modules keep their coverage through the
+# dev-profile test runs; `cargo bench` still builds this library once, as
+# the ordinary rlib the criterion targets link against.
+bench = false
+
 [features]
 # Test-only introspection and deterministic scheduling infrastructure.
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
-test-internals = ["tokio/rt"]
-# The public conformance suite for caller-built `Link` implementations:
-# enable from a dev-dependency to validate a custom transport against the
-# link contract. Documented; safe (though pointless) in an application.
-conformance = []
+test-internals = ["tokio/rt", "dep:pollster", "dep:imbl"]
+# The public conformance suites for caller-built `Link` and `Kv`
+# implementations, and the reference [`Memory`] store they validate
+# against: enable from a dev-dependency to check a custom transport or
+# store against its contract. Documented; safe (though pointless) in an
+# application.
+conformance = ["dep:imbl"]
 # The original strictly alternating wire protocol (`Protocol::V1`), kept for
 # wire compatibility with V1 peers and comparative measurement. Off by
 # default: its per-height state machines are a large monomorphization
@@ -34,8 +49,26 @@ conformance = []
 # crate's own tests always see it as streaming's behavioral oracle,
 # independent of this feature.)
 protocol-v1 = []
+# Lights `before`'s deterministic resource counters for this crate's own
+# metering tests (the branch bound memos' fold-cost comparison). Test-only
+# and off by default, in `before`'s limb-meter idiom: the counters add an
+# atomic bump per operation, so they stay out of the default test and
+# bench builds and are lit by `--all-features` runs (the gate's test-all).
+meter = ["before/limb-meter", "before/scan-meter"]
 
 [dependencies]
+# Optional, test-and-conformance only: `Memory`'s committed-state history
+# rides imbl's structural sharing. imbl's `OrdMap`/`OrdSet` diff — and
+# `PartialEq`, which is diff-backed — silently drops differences between
+# clone-derived maps (https://github.com/jneem/imbl/issues/161; pinned by
+# `imbl_diff_skips_updates_between_clone_derived_maps`). Production code
+# must never depend on imbl: the tree's child table is the crate's own
+# radix fan, and no production path may enable this dependency. Never use
+# the diff entry points nor `==` between imbl maps anywhere (clippy.toml
+# and tools/denylist enforce the method forms; the `==` residual is
+# stated in clippy.toml).
+imbl = { version = "7", optional = true }
+pollster = { version = "0.4", features = ["macro"], optional = true }
 before = { path = "crates/before", features = ["borsh"] }
 bytes = "1"
 blake3 = "1.8"
@@ -56,6 +89,7 @@ rand = "0.8"
 
 [dev-dependencies]
 rumors = { path = ".", features = ["test-internals", "conformance"] }
+pollster = { version = "0.4", features = ["macro"] }
 before = { path = "crates/before", features = ["borsh"] }
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -74,7 +108,6 @@ tokio = { version = "1", features = [
 clap = { version = "4", features = ["derive"] }
 rand = { version = "0.8", features = ["small_rng"] }
 arc-swap = "1"
-pollster = { version = "0.4", features = ["macro"] }
 ratatui = "0.30"
 
 [profile.dev]

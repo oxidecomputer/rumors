@@ -3,7 +3,10 @@
 # tries to build it (it needs nightly + libFuzzer). Build/run with cargo-fuzz only:
 #   cargo +nightly fuzz build
 #   cargo +nightly fuzz run fuzz_decode -- -max_total_time=20
+#   cargo +nightly fuzz run fuzz_decode_differential -- -max_total_time=20
 #   cargo +nightly fuzz run fuzz_decode_ops -- -max_total_time=20
+#   cargo +nightly fuzz run fuzz_laws -- -max_total_time=20
+#   cargo +nightly fuzz run fuzz_parse -- -max_total_time=20
 [workspace]
 
 [package]
@@ -17,9 +20,29 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+# Peak-tracking global allocator for the under-cap harness (src/lib.rs): every fuzz
+# input runs under a hard transient-heap ceiling, so a resource amplifier becomes a
+# crash finding instead of staying latent. A dependency rather than a hand-rolled
+# GlobalAlloc: the workspace policy prefers a maintained crate over owning unsafe
+# code, even in a fuzz binary.
+peak_alloc = "0.3"
+# The transport formats the differential target drives against the raw decodes:
+# borsh's `deserialize_reader` is the self-delimiting prefix read, postcard is the
+# byte-carrying serde format of record (the same one the crate's committed serde
+# tests pin the payload bytes through). `serde` supplies only the trait bounds.
+borsh = "1"
+postcard = { version = "1", features = ["use-std"] }
+serde = "1"
 
 [dependencies.before]
 path = ".."
+# `laws` exposes the named law predicates (`before::laws`) the fuzz_laws
+# target drives; `serde` and `borsh` light the transport impls the
+# fuzz_decode_differential target holds against the raw decodes.
+features = ["laws", "serde", "borsh"]
+
+# The package's lib (src/lib.rs) is the shared harness: the peak-tracking global
+# allocator and the per-input heap cap every target runs under.
 
 # Decode-only target: feed arbitrary bytes to every top-level `decode`. Asserts the
 # keystone invariant (COV-7) inline — an accepted value re-encodes stably and decodes
@@ -31,12 +54,44 @@ test = false
 doc = false
 bench = false
 
+# Differential decode target: every decode with a composed public-API counterpart
+# (the fused Span and Ranked decodes, the borsh and postcard transports) runs both
+# paths on the same bytes and asserts agreement on accept, value + re-encode, and
+# rejection genre — the axis plain round-trip fuzzing is blind to.
+[[bin]]
+name = "fuzz_decode_differential"
+path = "fuzz_targets/fuzz_decode_differential.rs"
+test = false
+doc = false
+bench = false
+
 # Decode-then-operate target: decode a `Clock` (or `Version`) from the input, then drive
-# the full op set (tick/fork/join/sync/send/receive + observers) so the working-form
-# arithmetic and repack run on adversarially-shaped trees, not just op-generated ones.
+# the full op set (tick/fork/join/sync/send/receive + observers) so the skyline kernels
+# run on adversarially-shaped trees, not just op-generated ones.
 [[bin]]
 name = "fuzz_decode_ops"
 path = "fuzz_targets/fuzz_decode_ops.rs"
+test = false
+doc = false
+bench = false
+
+# Law-driven target: decode versions, parties, and a clock from length-prefixed chunks,
+# then assert every named law in `before::laws` on them — the same collection the
+# in-tree proptests drive, here fed hostile-but-canonical values; a failure panics with
+# the violated law's name.
+[[bin]]
+name = "fuzz_laws"
+path = "fuzz_targets/fuzz_laws.rs"
+test = false
+doc = false
+bench = false
+
+# Text-parse target: feed arbitrary UTF-8 to every public `FromStr` (the paper-notation
+# parsers and the decimal tick count); an accepted value's display must re-parse to the
+# same value.
+[[bin]]
+name = "fuzz_parse"
+path = "fuzz_targets/fuzz_parse.rs"
 test = false
 doc = false
 bench = false

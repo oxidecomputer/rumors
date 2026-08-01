@@ -6,6 +6,7 @@ use proptest::prelude::*;
 use super::typed::{Hash, Path, hash::Hasher, untyped};
 use super::*;
 use crate::message::Message;
+use crate::tree::backend::Local;
 
 impl Arbitrary for Key {
     type Parameters = ();
@@ -73,16 +74,12 @@ fn party_of(label: impl AsRef<[u8]>) -> before::Party {
     crate::tree::arb::nth_party(idx(label))
 }
 
-/// Build the [`Version`] a party reaches after `ticks` events: tick its
-/// disjoint party `ticks` times from the empty version.
+/// Build the [`Version`] a party reaches after `ticks` events: advance
+/// its disjoint party by the whole count from the empty version.
 fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     let p = party_of(party);
     let mut v = Version::new();
-    let mut batch = v.batch();
-    for _ in 0..ticks {
-        batch.tick(&p);
-    }
-    drop(batch);
+    v.ticks(&p, ticks);
     v
 }
 
@@ -218,6 +215,68 @@ fn single_value_hash_matches_reference() {
     assert_eq!(&tree_hash, reference.as_bytes());
 }
 
+/// Pins an upstream `imbl` defect this crate must design around.
+///
+/// On two `OrdMap`s that share clone-derived chunk structure (`b` built by
+/// cloning `a` and inserting), `diff` can silently skip an *update*,
+/// yielding the pure additions while mis-reporting the changed key as
+/// unchanged. Fresh, independently built maps with the same content diff
+/// correctly.
+///
+/// The defect is why no production code touches imbl at all (the tree's
+/// child table is the crate's own radix fan), why imbl rides only the
+/// test-and-conformance features, and why `clippy.toml` disallows the
+/// diff entry points even there. The assertions here pin the *defect*:
+/// when an `imbl` upgrade makes this test fail, the bug is fixed
+/// upstream, and the deny-list (and this pin) can be lifted. The key set
+/// is the minimal shrunk shape that first exposed the skip (a 27-key map
+/// gaining 11 keys plus one update).
+#[test]
+#[allow(clippy::disallowed_methods)] // the sanctioned use: pinning the defect itself
+fn imbl_diff_skips_updates_between_clone_derived_maps() {
+    use imbl::OrdMap;
+    let base_keys: [u8; 27] = [
+        8, 29, 32, 35, 37, 40, 44, 57, 63, 67, 78, 79, 80, 87, 88, 91, 93, 104, 111, 114, 117, 118,
+        119, 126, 140, 141, 147,
+    ];
+    let adds: [u8; 11] = [17, 20, 22, 28, 38, 56, 62, 96, 124, 129, 131];
+    let mut a: OrdMap<u8, u64> = OrdMap::new();
+    for k in base_keys {
+        a.insert(k, 0);
+    }
+
+    // Clone-derived: ascending inserts plus one update, over shared chunks.
+    let mut derived = a.clone();
+    let mut ops: Vec<(u8, u64)> = adds.iter().map(|&k| (k, 0)).collect();
+    ops.push((93, 1));
+    ops.sort();
+    for (k, v) in ops {
+        derived.insert(k, v);
+    }
+
+    // Fresh: identical content, independently built chunks.
+    let mut fresh: OrdMap<u8, u64> = OrdMap::new();
+    for (k, v) in derived.iter() {
+        fresh.insert(*k, *v);
+    }
+    assert_eq!(derived, fresh);
+
+    let update_yielded = |ours: &OrdMap<u8, u64>, theirs: &OrdMap<u8, u64>| {
+        ours.diff(theirs) // denylist: allow — the pin exercises the banned entry point itself
+            .any(|item| matches!(item, imbl::ordmap::DiffItem::Update { old: (&93, _), .. }))
+    };
+    assert!(
+        update_yielded(&a, &fresh),
+        "diff against an independently built map reports the update",
+    );
+    assert!(
+        !update_yielded(&a, &derived),
+        "the upstream defect: diff against a clone-derived map skips the \
+         update; if this assertion fails, imbl fixed it upstream, and the \
+         diff deny-list (clippy.toml) and this pin can be lifted",
+    );
+}
+
 proptest! {
     /// The tree's root hash must equal the reference hash derived
     /// independently from the leaf-path set alone, for any sequence of
@@ -287,7 +346,7 @@ proptest! {
 
         // Route A: one react batch, base order.
         let mut direct = Tree::new();
-        direct.react(kept.iter().map(versioned));
+        direct.react_now(kept.iter().map(versioned));
 
         // Route B: shuffled order, split into two batches, with the extra
         // leaves inserted in between and redacted again afterwards.
@@ -297,9 +356,9 @@ proptest! {
             .map(|(i, b)| event(kept.len() + i, b))
             .collect();
         let mut detoured = Tree::new();
-        detoured.react(shuffled[..cut].iter().map(versioned));
-        detoured.react(extra_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
-        detoured.react(shuffled[cut..].iter().map(versioned));
+        detoured.react_now(shuffled[..cut].iter().map(versioned));
+        detoured.react_now(extra_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        detoured.react_now(shuffled[cut..].iter().map(versioned));
         detoured.act(
             &party_of("P"),
             extra_events.iter().rev().map(|(k, _, _)| Action::Forget(*k)),
@@ -307,10 +366,10 @@ proptest! {
 
         // Route C: two disjoint halves, merged in memory.
         let mut joined = Tree::new();
-        joined.react(kept[..cut].iter().map(versioned));
+        joined.react_now(kept[..cut].iter().map(versioned));
         let mut right = Tree::new();
-        right.react(kept[cut..].iter().map(versioned));
-        joined.join(right);
+        right.react_now(kept[cut..].iter().map(versioned));
+        joined.join_now(right);
 
         let serialize = |tree: &Tree<Bytes>| -> Option<Vec<u8>> {
             tree.root
@@ -366,7 +425,7 @@ proptest! {
         let version = version_for(&party, 1);
 
         let mut all_in_one = Tree::new();
-        all_in_one.react(
+        all_in_one.react_now(
             bytes
                 .iter()
                 .cloned()
@@ -383,7 +442,7 @@ proptest! {
                     .into_iter()
                     .map(|b| insert_at(version.clone(), &party, 1, b))
                     .collect();
-                partitioned.react(batch);
+                partitioned.react_now(batch);
             }
         }
 
@@ -412,7 +471,7 @@ proptest! {
             .collect();
 
         let mut t_react = Tree::new();
-        t_react.react(
+        t_react.react_now(
             versions
                 .into_iter()
                 .zip(bytes.iter().cloned())
@@ -640,15 +699,15 @@ proptest! {
         let v_b = version_for(&party, 2);
 
         let mut t_ab = Tree::new();
-        t_ab.react(
+        t_ab.react_now(
             bytes_a.iter().cloned().map(|b| insert_at(v_a.clone(), &party, 1, b)));
-        t_ab.react(
+        t_ab.react_now(
             bytes_b.iter().cloned().map(|b| insert_at(v_b.clone(), &party, 2, b)));
 
         let mut t_ba = Tree::new();
-        t_ba.react(
+        t_ba.react_now(
             bytes_b.iter().cloned().map(|b| insert_at(v_b.clone(), &party, 2, b)));
-        t_ba.react(
+        t_ba.react_now(
             bytes_a.iter().cloned().map(|b| insert_at(v_a.clone(), &party, 1, b)));
 
         prop_assert_eq!(t_ab, t_ba);
@@ -663,13 +722,13 @@ proptest! {
         let v = version_for(&party, 1);
 
         let mut t_once = Tree::new();
-        t_once.react(
+        t_once.react_now(
             bytes.iter().cloned().map(|b| insert_at(v.clone(), &party, 1, b)));
 
         let mut t_twice = Tree::new();
-        t_twice.react(
+        t_twice.react_now(
             bytes.iter().cloned().map(|b| insert_at(v.clone(), &party, 1, b)));
-        t_twice.react(
+        t_twice.react_now(
             bytes.iter().cloned().map(|b| insert_at(v.clone(), &party, 1, b)));
 
         prop_assert_eq!(t_once, t_twice);
@@ -700,13 +759,13 @@ proptest! {
             .collect();
 
         let mut t_base = Tree::new();
-        t_base.react(base.iter().cloned().map(|b| {
+        t_base.react_now(base.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             insert_at(v.clone(), &party, *scalar, b)
         }));
 
         let mut t_shuf = Tree::new();
-        t_shuf.react(shuffled.iter().cloned().map(|b| {
+        t_shuf.react_now(shuffled.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             insert_at(v.clone(), &party, *scalar, b)
         }));
@@ -736,7 +795,7 @@ proptest! {
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.latest().clone();
-            recorded.batch().tick(&party_of(&a_id));
+            recorded.tick(&party_of(&a_id));
             tree_a.act(&party_of("A"), [insert_action(value.clone())]);
             a_events.push(insert_at(recorded, &a_id, scalar, value.clone()));
         }
@@ -746,13 +805,13 @@ proptest! {
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.latest().clone();
-            recorded.batch().tick(&party_of(&b_id));
+            recorded.tick(&party_of(&b_id));
             tree_b.act(&party_of("B"), [insert_action(value.clone())]);
             b_events.push(insert_at(recorded, &b_id, scalar, value.clone()));
         }
 
-        tree_a.react(b_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
-        tree_b.react(a_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        tree_a.react_now(b_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        tree_b.react_now(a_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
 
         prop_assert_eq!(tree_a.latest(), tree_b.latest());
         prop_assert_eq!(tree_a.hash(), tree_b.hash());
@@ -826,7 +885,7 @@ proptest! {
         let path_v2 = leaf_path(&party, 2, &value);
 
         prop_assert_ne!(path_v1, path_v2);
-        let got = [tree.get(&path_v1).unwrap(), tree.get(&path_v2).unwrap()];
+        let got = [tree.get_now(&path_v1).unwrap(), tree.get_now(&path_v2).unwrap()];
         prop_assert!(got.iter().all(|b| b.1[..] == *value));
     }
 }
@@ -853,13 +912,24 @@ proptest! {
     /// For arbitrary
     /// divergent trees and an arbitrary causal bound pair (every `Bound`
     /// kind, over versions sampled from both trees' leaves and ceilings plus
-    /// genesis — so dominated, dominating, equal, and concurrent bounds all
-    /// occur), `Tree::range` yields exactly the leaves that
-    /// `before::causally`'s membership predicate admits from the unfiltered
+    /// genesis — so dominated, dominating, equal, concurrent, and crossed
+    /// bounds all occur), `Tree::range` yields exactly the leaves that the
+    /// documented per-bound membership predicate admits from the unfiltered
     /// walk — the prune/promote shortcuts are pure optimization — in
     /// ascending key order; and the frozen spine walk (`Tree::freeze`)
     /// yields the identical sequence. Two independent implementations of
-    /// the same partial-order semantics checking each other.
+    /// the same partial-order semantics checking each other. (The predicate
+    /// is stated inline over the raw `Bound` pair: `Tree::range`'s
+    /// `RangeBounds` surface accepts crossed pairs, which `before::causally`
+    /// validates away at composition.)
+    ///
+    /// Deliberate internal-entry decision: this differential pins the
+    /// crate-internal `Tree::range`/`Tree::iter` walks rather than the
+    /// public surface. The borrowing walk is not a user path — it is the
+    /// in-memory oracle the owned walk (and through it every public read)
+    /// is pinned against — so the suite must address it directly; the
+    /// public surface's own coverage rides on the behavioral suites over
+    /// `Snapshot` and the observers.
     #[test]
     fn range_and_freeze_match_the_naive_filter(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
@@ -870,8 +940,8 @@ proptest! {
     ) {
         use std::ops::Bound;
 
-        let tree = Tree { root: a };
-        let other = Tree { root: b };
+        let tree = Tree { backend: Local, root: a };
+        let other = Tree { backend: Local, root: b };
 
         // Bound candidates spanning the partial order's relationships to the
         // walked tree: its own leaf versions and ceiling (dominated/equal),
@@ -892,21 +962,33 @@ proptest! {
         let start = pick(&start_sel, start_kind);
         let end = pick(&end_sel, end_kind);
 
-        // Ground truth: compose the equivalent `causally` range and filter
-        // the unfiltered walk by its membership predicate.
+        // Ground truth: the documented per-bound predicate — contained in
+        // the end bound and not contained in the start bound — applied to
+        // the unfiltered walk. Stated directly over the raw `Bound` pair
+        // rather than a composed `causally` range: composition validates
+        // its bounds, and this generator deliberately also drives crossed
+        // pairs through `Tree::range`'s raw `RangeBounds` surface.
         let admits = |version: &Version| {
-            let mut range = crate::causally::all();
-            match &start {
-                Bound::Included(s) => range = range.not_before(s),
-                Bound::Excluded(s) => range = range.since(s),
-                Bound::Unbounded => {}
-            }
-            match &end {
-                Bound::Included(e) => range = range.known_at(e),
-                Bound::Excluded(e) => range = range.before(e),
-                Bound::Unbounded => {}
-            }
-            range.contains(version)
+            use std::cmp::Ordering;
+            let past_start = match &start {
+                Bound::Unbounded => true,
+                // Not in the start's causal past (greater than or
+                // concurrent to it): not subtracted.
+                Bound::Excluded(s) => {
+                    matches!(version.partial_cmp(s), None | Some(Ordering::Greater))
+                }
+                // As above, but the bound itself also survives.
+                Bound::Included(s) => matches!(
+                    version.partial_cmp(s),
+                    None | Some(Ordering::Equal | Ordering::Greater)
+                ),
+            };
+            let within_end = match &end {
+                Bound::Unbounded => true,
+                Bound::Included(e) => version <= e,
+                Bound::Excluded(e) => version < e,
+            };
+            past_start && within_end
         };
         let naive: Vec<_> = tree
             .iter()
@@ -914,17 +996,33 @@ proptest! {
             .map(owned)
             .collect();
 
-        let ranged: Vec<_> = tree.range((start.clone(), end.clone())).map(owned).collect();
+        let ranged: Vec<_> = tree.range_oracle((start.clone(), end.clone())).map(owned).collect();
         prop_assert_eq!(&ranged, &naive, "range must equal the naive filter");
         prop_assert!(
             ranged.windows(2).all(|pair| pair[0].0 < pair[1].0),
             "range yields ascending keys",
         );
 
-        let mut frozen = tree.range_owned((start, end));
+        let frozen = tree.range(crate::tree::backend::VersionBounds {
+            start: start.clone(),
+            end,
+        });
         let mut thawed = Vec::new();
-        while let Some((key, leaf)) = frozen.next() {
-            thawed.push((key, leaf.version().clone(), leaf.value().clone()));
+        {
+            use futures::{FutureExt as _, StreamExt as _};
+            let mut frozen = std::pin::pin!(frozen);
+            while let Some(item) = frozen
+                .next()
+                .now_or_never()
+                .expect("the in-memory backend's walk is immediate")
+            {
+                let (key, leaf) = item.unwrap_or_else(|e| match e {});
+                thawed.push((
+                    key,
+                    leaf.ceiling().clone(),
+                    leaf.message().as_arc().clone(),
+                ));
+            }
         }
         prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
     }
@@ -941,7 +1039,7 @@ proptest! {
         root in crate::tree::arb::arb_tree_root(0, 0..24),
         flip in any::<prop::sample::Index>(),
     ) {
-        let tree = Tree { root };
+        let tree = Tree { backend: Local, root };
 
         let forward: Vec<_> = tree.iter().map(owned).collect();
         prop_assert_eq!(tree.iter().len(), forward.len());
@@ -953,8 +1051,8 @@ proptest! {
 
         for (key, version, value) in &forward {
             prop_assert_eq!(
-                tree.get(key),
-                Some((version, value)),
+                tree.get_now(key),
+                Some((version.clone(), value.clone())),
                 "get resolves every iterated key",
             );
         }
@@ -967,7 +1065,7 @@ proptest! {
             // The flipped path could, in principle, name another live leaf;
             // only assert the miss when it does not.
             if !forward.iter().any(|(k, ..)| *k == perturbed) {
-                prop_assert_eq!(tree.get(&perturbed), None, "a foreign key misses");
+                prop_assert_eq!(tree.get_now(&perturbed), None, "a foreign key misses");
             }
         }
     }
@@ -1060,7 +1158,7 @@ proptest! {
         // the deletion-honoring arm, aimed at the argmax half the time
         // so the resize-down direction is exercised through the merge.
         let absorbed = right.clone();
-        left.join(absorbed);
+        left.join_now(absorbed);
         prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
 
         for forget in forgets {
@@ -1079,7 +1177,7 @@ proptest! {
             left.act(&party_of("A"), [Action::Forget(key)]);
         }
 
-        left.join(right);
+        left.join_now(right);
         prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
     }
 }
@@ -1147,11 +1245,91 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
     ) {
-        let mut tree = Tree { root: a };
+        let mut tree = Tree { backend: Local, root: a };
         let before = tree.hash();
-        let changed = tree.join(Tree { root: b });
+        let changed = tree.join_now(Tree { backend: Local, root: b });
         prop_assert_eq!(changed, tree.hash() != before);
     }
+
+    /// The changed flag stays exact through deep divergent descent.
+    ///
+    /// The pairs' paths share a drawn-length spine (the constructed
+    /// analogue of a hash-prefix collision), driving the merge's divergent
+    /// arm at every level down to the split, where content-addressed pairs
+    /// scatter at the root fan and never descend. Zero novelty widths are
+    /// drawn too, so subset, identical, and ceiling-only merges — the
+    /// flag's `false` arm — are sampled at depth alongside the gains.
+    #[test]
+    fn join_changed_flag_tracks_the_root_hash_at_depth(
+        (a, b) in crate::tree::arb::arb_deep_divergent_pair(),
+    ) {
+        let mut tree = Tree { backend: Local, root: a };
+        let before = tree.hash();
+        let changed = tree.join_now(Tree { backend: Local, root: b });
+        prop_assert_eq!(changed, tree.hash() != before);
+    }
+}
+
+/// The changed-flag biconditional at full depth, on the three shapes that
+/// decide it.
+///
+/// Gain in both directions and deletion honoring at depth report changed;
+/// the subtle no-op — merging a strict subset with concurrent versions —
+/// runs the divergent descent over the whole 31-byte shared prefix and
+/// must still report unchanged.
+#[test]
+fn deep_divergent_join_changed_flag_is_exact() {
+    // Gain in both directions.
+    let (a, b, expected) = crate::tree::arb::leaf_parent_dispute_pair();
+    for (receiver, counter) in [(a.clone(), b.clone()), (b, a.clone())] {
+        let mut tree = Tree {
+            backend: Local,
+            root: receiver,
+        };
+        let before = tree.hash();
+        let changed = tree.join_now(Tree {
+            backend: Local,
+            root: counter,
+        });
+        assert_eq!(changed, tree.hash() != before, "deep gain is biconditional");
+        assert!(changed, "a deep gain must report changed");
+    }
+
+    // The deep no-op: the receiver already holds everything the
+    // counterparty has, so the full-depth divergent descent nets nothing.
+    let mut tree = Tree {
+        backend: Local,
+        root: expected,
+    };
+    let before = tree.hash();
+    let changed = tree.join_now(Tree {
+        backend: Local,
+        root: a,
+    });
+    assert_eq!(
+        changed,
+        tree.hash() != before,
+        "a deep subset merge is biconditional"
+    );
+    assert!(!changed, "a subset merge must report unchanged");
+
+    // Deletion honoring at depth.
+    let (a, b, _survivor) = crate::tree::arb::leaf_parent_redaction_pair();
+    let mut tree = Tree {
+        backend: Local,
+        root: a,
+    };
+    let before = tree.hash();
+    let changed = tree.join_now(Tree {
+        backend: Local,
+        root: b,
+    });
+    assert_eq!(
+        changed,
+        tree.hash() != before,
+        "a deep redaction drop is biconditional"
+    );
+    assert!(changed, "deletion honoring must report changed");
 }
 
 /// A ceiling-only join reports unchanged.
@@ -1183,7 +1361,7 @@ fn ceiling_only_join_reports_unchanged() {
 
     let before = tree.hash();
     let ceiling_before = tree.latest().clone();
-    let changed = tree.join(other);
+    let changed = tree.join_now(other);
     assert!(
         !changed,
         "a merge that teaches the set nothing reports unchanged",
@@ -1215,9 +1393,15 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
     let receiver_party = super::arb::nth_party(0);
     let key = Key::from(path);
 
-    let mut tree = Tree { root: receiver };
+    let mut tree = Tree {
+        backend: Local,
+        root: receiver,
+    };
     assert!(
-        tree.join(Tree { root: poisoned }),
+        tree.join_now(Tree {
+            backend: Local,
+            root: poisoned,
+        }),
         "planting the escaped leaf is a real change",
     );
 
@@ -1233,7 +1417,7 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
         "the skipped forget left the root hash byte-identical",
     );
     assert!(
-        tree.get(&key).is_some(),
+        tree.get_now(&key).is_some(),
         "the escaped leaf survives the skipped forget",
     );
 }
@@ -1257,9 +1441,18 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 
     // Plant the escaped leaf by in-memory join: `Tree::join` is a local
     // merge, not wire ingestion, so no session tripwire guards it.
-    let mut tree = Tree { root: receiver };
-    tree.join(Tree { root: poisoned });
-    assert!(tree.get(&key).is_some(), "the join plants the escaped leaf");
+    let mut tree = Tree {
+        backend: Local,
+        root: receiver,
+    };
+    tree.join_now(Tree {
+        backend: Local,
+        root: poisoned,
+    });
+    assert!(
+        tree.get_now(&key).is_some(),
+        "the join plants the escaped leaf"
+    );
     assert!(
         !mirror::contained(&escaped, tree.latest()),
         "the merged ceiling never covers the escaped version",
@@ -1269,7 +1462,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     // ceiling, which the escaped version strictly dominates.
     tree.act(&receiver_party, [Action::Forget(key)]);
     assert!(
-        tree.get(&key).is_some(),
+        tree.get_now(&key).is_some(),
         "redacting the escaped leaf is silently skipped",
     );
 
@@ -1277,9 +1470,116 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     // receives it on merge, because no ceiling ever classifies it as
     // already-seen-and-deleted.
     let mut fresh: Tree<()> = Tree::new();
-    fresh.join(tree);
+    fresh.join_now(tree);
     assert!(
-        fresh.get(&key).is_some(),
+        fresh.get_now(&key).is_some(),
         "the escaped leaf re-plants into a fresh replica",
     );
+}
+
+/// The pair-hull traffic mix at the tree's bounds-memo door, in
+/// `before`'s span-ladder rung counters.
+///
+/// Which span-ladder rung a memo's pair hull takes decides which kernel
+/// regime the tree pays — a comparable pair is handed back at one
+/// comparison sweep, only a concurrent pair reaches the emitting walk —
+/// and the mix is a property of the workload's versions, not of the
+/// kernel. The door's traffic is the fringe regime's: a fringe memo's
+/// `span_all` leaf combines read sibling leaf versions, whose relation
+/// tracks the writers'. (An interior memo folds its children's spans
+/// through the union's per-endpoint legs, which construct totally and
+/// never enter the pair-hull ladder.) The counters are process-global
+/// and meaningful one scenario per process (nextest's model).
+#[cfg(feature = "meter")]
+mod span_door_traffic {
+    use before::meter;
+    use bytes::Bytes;
+
+    use super::{Tree, insert_action, party_of};
+
+    /// One writer's batch of distinct payloads, tagged so no two
+    /// workloads' leaves collide by content.
+    fn batch(writer: &str, round: usize, count: usize) -> impl Iterator<Item = Bytes> + use<> {
+        let writer = writer.to_owned();
+        (0..count).map(move |i| Bytes::from(format!("{writer}-{round}-{i}")))
+    }
+
+    /// The four rung cells of one measured workload run.
+    fn cells(work: impl FnOnce()) -> (u64, u64, u64, u64) {
+        meter::reset_span_traffic();
+        work();
+        let read = meter::span_traffic();
+        (read.equal, read.empty, read.comparable, read.concurrent)
+    }
+
+    /// A single-writer tree never presents a concurrent pair at the
+    /// bounds-memo door.
+    ///
+    /// One party's versions form a chain, every bound folded from a
+    /// chain stays on it, and the door's traffic is entirely
+    /// fast-path (comparable or coincident), zero emissions.
+    #[test]
+    fn single_writer_bounds_never_emit() {
+        let (equal, empty, comparable, concurrent) = cells(|| {
+            let mut tree: Tree<Bytes> = Tree::new();
+            for round in 0..8 {
+                tree.act(&party_of("A"), batch("a", round, 64).map(insert_action));
+                tree.warm_caches();
+            }
+        });
+        eprintln!(
+            "MEASURED span_door_single_writer: equal={equal} empty={empty} \
+             comparable={comparable} concurrent={concurrent}"
+        );
+        assert!(
+            comparable > 0,
+            "a warmed single-writer tree folds bounds through the comparable rung"
+        );
+        assert_eq!(
+            concurrent, 0,
+            "one party's versions form a chain: no memo pair is ever concurrent"
+        );
+    }
+
+    /// Divergent writers split the door's traffic between the fast
+    /// paths and the emitting walk.
+    ///
+    /// Fringe combines of concurrent leaf versions reach the
+    /// emitting walk, while same-writer sibling runs stay on the
+    /// fast paths — both rungs read live on one merged four-writer
+    /// tree, incremental rounds included.
+    #[test]
+    fn merged_writers_split_the_door() {
+        let (equal, empty, comparable, concurrent) = cells(|| {
+            let mut merged: Tree<Bytes> = Tree::new();
+            for label in ["A", "B", "C", "D"] {
+                let mut tree: Tree<Bytes> = Tree::new();
+                for round in 0..4 {
+                    tree.act(&party_of(label), batch(label, round, 32).map(insert_action));
+                }
+                tree.warm_caches();
+                merged.join_now(tree);
+            }
+            merged.warm_caches();
+            // Incremental rounds on the merged tree: acts invalidate
+            // ancestor memos, so re-warming re-folds them against the
+            // merged population.
+            for round in 100..104 {
+                merged.act(&party_of("A"), batch("a", round, 32).map(insert_action));
+                merged.warm_caches();
+            }
+        });
+        eprintln!(
+            "MEASURED span_door_merged_writers: equal={equal} empty={empty} \
+             comparable={comparable} concurrent={concurrent}"
+        );
+        assert!(
+            comparable > 0,
+            "same-writer sibling leaves form chains: the comparable rung stays live"
+        );
+        assert!(
+            concurrent > 0,
+            "divergent writers' sibling leaves are concurrent: the emitting rung stays live"
+        );
+    }
 }

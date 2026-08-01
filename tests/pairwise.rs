@@ -38,7 +38,9 @@ where
 /// The `(hash, latest)` fingerprint of a peer: equal fingerprints mean the
 /// same live content *and* the same causal frontier — gossip between two
 /// peers with equal fingerprints is a guaranteed no-op.
-fn fingerprint<T>(k: &Rumors<T>) -> ([u8; rumors::MERKLE_HASH_LEN], Version) {
+fn fingerprint<T: Send + Sync + 'static>(
+    k: &Rumors<T>,
+) -> ([u8; rumors::MERKLE_HASH_LEN], Version) {
     let snapshot = k.snapshot();
     (snapshot.hash(), snapshot.latest().clone())
 }
@@ -104,7 +106,8 @@ proptest! {
         prop_assert_eq!(fingerprint(&a), a_before);
         prop_assert_eq!(fingerprint(&b), b_before);
         prop_assert_eq!(
-            a.snapshot().range(causally::since(&checkpoint)).count(), 0,
+            rumors::testing::collect_range(&a.snapshot(), causally::since(&checkpoint)).len(),
+            0,
             "no new observations on second gossip",
         );
     }
@@ -171,7 +174,8 @@ proptest! {
 
         prop_assert_eq!(fingerprint(&a), a_before, "the populated side is unchanged");
         prop_assert_eq!(
-            a.snapshot().range(causally::since(&checkpoint)).count(), 0,
+            rumors::testing::collect_range(&a.snapshot(), causally::since(&checkpoint)).len(),
+            0,
             "the populated side observes nothing",
         );
         prop_assert_eq!(readout(&empty.snapshot()), readout(&a.snapshot()));
@@ -190,22 +194,22 @@ proptest! {
         let bob = dup(&seed);
 
         let pre_a = alice.snapshot().latest().clone();
-        alice.send(a_value);
+        pollster::block_on(alice.send(a_value)).expect("the in-memory backend is infallible");
         let snap_a = alice.snapshot();
-        let (_, va, _) = snap_a
-            .range(causally::since(&pre_a))
+        let (_, va, _) = rumors::testing::collect_range(&snap_a, causally::since(&pre_a))
+            .into_iter()
             .next()
             .expect("alice's insert mints a live leaf");
 
         let pre_b = bob.snapshot().latest().clone();
-        bob.send(b_value);
+        pollster::block_on(bob.send(b_value)).expect("the in-memory backend is infallible");
         let snap_b = bob.snapshot();
-        let (_, vb, _) = snap_b
-            .range(causally::since(&pre_b))
+        let (_, vb, _) = rumors::testing::collect_range(&snap_b, causally::since(&pre_b))
+            .into_iter()
             .next()
             .expect("bob's insert mints a live leaf");
 
-        prop_assert_eq!(va.partial_cmp(vb), None);
+        prop_assert_eq!(va.partial_cmp(&vb), None);
     }
 
     /// One session unions live content: after gossip, each side's readout

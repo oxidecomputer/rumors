@@ -41,7 +41,9 @@
 // Where we're going, we need to write some Complex Types.
 #![allow(clippy::type_complexity)]
 
-mod backend;
+// The materiality boundary lives with the tree it abstracts; the session
+// vocabulary re-exports here, where every streaming layer imports it.
+pub(crate) use crate::tree::backend;
 mod channel;
 pub(crate) mod convert;
 mod driver;

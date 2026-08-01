@@ -1,17 +1,19 @@
 use crate::error::Parse;
-use crate::recurse::descend;
 
-use super::{encode_int, validate_ev, validate_id, Base, Bits};
+use super::{validate_id, Base, BitsMut};
 
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure
 /// ASCII (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
-struct Cur<'a> {
+///
+/// Shared with the skyline text kernel (`version::skyline::text`), whose
+/// parser must make byte-identical grammar decisions to this module's.
+pub(crate) struct Cur<'a> {
     bytes: &'a [u8],
     pos: usize,
 }
 
 impl<'a> Cur<'a> {
-    fn new(s: &'a str) -> Self {
+    pub(crate) fn new(s: &'a str) -> Self {
         Cur {
             bytes: s.as_bytes(),
             pos: 0,
@@ -25,13 +27,13 @@ impl<'a> Cur<'a> {
     }
 
     /// The next non-whitespace byte, without consuming it.
-    fn peek(&mut self) -> Option<u8> {
+    pub(crate) fn peek(&mut self) -> Option<u8> {
         self.skip_ws();
         self.bytes.get(self.pos).copied()
     }
 
     /// Consume and return the next non-whitespace byte.
-    fn bump(&mut self) -> Option<u8> {
+    pub(crate) fn bump(&mut self) -> Option<u8> {
         self.skip_ws();
         let c = self.bytes.get(self.pos).copied();
         if c.is_some() {
@@ -44,35 +46,36 @@ impl<'a> Cur<'a> {
 /// Read a run of ASCII digits as a [`Base`] magnitude (no surrounding
 /// whitespace consumed except a leading skip). Arbitrary width: an event base
 /// has no value cap. Empty input is a syntax error.
-fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
+///
+/// The cursor slices the whole digit run and hands it to
+/// [`Base::parse_decimal`], which delegates the radix conversion to the
+/// backend's subquadratic divide-and-conquer parser; leading zeros are
+/// value-preserving (`"007"` is 7), exactly as digit-at-a-time
+/// accumulation would read them.
+pub(crate) fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
     cur.skip_ws();
-    let mut n = Base::ZERO;
-    let mut any = false;
-    while let Some(&d) = cur.bytes.get(cur.pos) {
-        if !d.is_ascii_digit() {
-            break;
-        }
-        any = true;
-        n *= 10u32;
-        n += u32::from(d - b'0');
+    let start = cur.pos;
+    while cur.bytes.get(cur.pos).is_some_and(|d| d.is_ascii_digit()) {
         cur.pos += 1;
     }
-    if any {
-        Ok(n)
-    } else {
-        Err(Parse::Syntax)
+    if cur.pos == start {
+        return Err(Parse::Syntax);
     }
+    let digits = core::str::from_utf8(&cur.bytes[start..cur.pos])
+        .expect("an ASCII digit run is valid UTF-8");
+    Ok(Base::parse_decimal(digits))
 }
 
 /// Parse one id tree in the paper's grammar (`0 | 1 | (i1, i2)`) into canonical
 /// bits, strictly validating normal form.
 ///
-/// Recursive, guarded by [`crate::recurse`] so deep nesting grows the stack onto
-/// the heap rather than overflowing.
-pub(crate) fn parse_id_str(s: &str) -> Result<Bits, Parse> {
+/// Iterative, like the packed-tree parsers in [`super::tree`]: depth lives on
+/// an explicit frame stack, never the call stack, so nesting depth cannot
+/// overflow.
+pub(crate) fn parse_id_str(s: &str) -> Result<BitsMut, Parse> {
     let mut cur = Cur::new(s);
-    let mut bits = Bits::new();
-    descend!(0, parse_id_node(&mut cur, &mut bits, 0))?;
+    let mut bits = BitsMut::new();
+    parse_id_tree(&mut cur, &mut bits)?;
     if cur.peek().is_some() {
         return Err(Parse::Syntax); // trailing junk
     }
@@ -92,94 +95,94 @@ enum IdKind {
     Node,
 }
 
-/// Parse one id subtree, appending its canonical bits and reporting what it was.
+/// While building a node bottom-up, what its subtree still needs from the
+/// text: the node's reserved 2-bit tag slot rides in the frame so the
+/// children's presence patches in at the close paren.
+///
+/// One frame per unfinished ancestor, on an explicit heap `Vec` — as
+/// deep as the nesting, never the call stack, exactly the packed
+/// parsers' discipline ([`super::tree`]).
+enum IdFrame {
+    /// The next subtree is the node's left child.
+    NeedLeft {
+        /// The node's tag position in the output bits.
+        tag: usize,
+    },
+    /// The left child is parsed and its `,` consumed; the next subtree is
+    /// the node's right child.
+    NeedRight {
+        /// The node's tag position in the output bits.
+        tag: usize,
+        /// What the left child was (the presence patch and the
+        /// collapsible-node check both need it).
+        left: IdKind,
+    },
+}
+
+/// Parse one id tree, appending its canonical bits.
 ///
 /// A `0` emits nothing (absence); a node reserves a 2-bit tag, parses its
 /// children, then patches the tag to their presence — rejecting a collapsible
-/// `(0, 0)` / `(1, 1)`. Routed through the amortized stack-growth guard.
-fn parse_id_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<IdKind, Parse> {
-    match cur.bump() {
-        Some(b'(') => {
-            let tag = bits.len();
-            bits.push(false); // placeholder, patched once the children are known
-            bits.push(false);
-            let left = descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?;
-            if cur.bump() != Some(b',') {
-                return Err(Parse::Syntax);
+/// `(0, 0)` / `(1, 1)` once its `)` has parsed (a structural defect outranks
+/// the canonicality check, exactly the token order of the grammar). One
+/// frame per unfinished ancestor.
+fn parse_id_tree(cur: &mut Cur, bits: &mut BitsMut) -> Result<(), Parse> {
+    let mut stack: Vec<IdFrame> = Vec::new();
+    loop {
+        // One atom: a leaf token, or a `(` opening the next unfinished node.
+        let mut kind = match cur.bump() {
+            Some(b'(') => {
+                let tag = bits.len();
+                bits.push(false); // placeholder, patched once the children are known
+                bits.push(false);
+                stack.push(IdFrame::NeedLeft { tag });
+                continue; // descend into the left child
             }
-            let right = descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?;
-            if cur.bump() != Some(b')') {
-                return Err(Parse::Syntax);
+            Some(b'0') => IdKind::Empty, // a `0` is absence: no bits
+            Some(b'1') => {
+                bits.push(false); // terminal tag `00`
+                bits.push(false);
+                IdKind::Terminal
             }
-            match (left, right) {
-                (IdKind::Empty, IdKind::Empty) => Err(Parse::NotCanonical), // (0, 0)
-                (IdKind::Terminal, IdKind::Terminal) => Err(Parse::NotCanonical), // (1, 1)
-                _ => {
-                    bits.set(tag, left != IdKind::Empty); // bit 0 = left present
-                    bits.set(tag + 1, right != IdKind::Empty); // bit 1 = right present
-                    Ok(IdKind::Node)
+            _ => return Err(Parse::Syntax),
+        };
+        // Attach the completed subtree to its parent, possibly completing
+        // the parent too.
+        loop {
+            match stack.pop() {
+                None => return Ok(()), // the root is complete
+                Some(IdFrame::NeedLeft { tag }) => {
+                    if cur.bump() != Some(b',') {
+                        return Err(Parse::Syntax);
+                    }
+                    stack.push(IdFrame::NeedRight { tag, left: kind });
+                    break; // go parse the right child
+                }
+                Some(IdFrame::NeedRight { tag, left }) => {
+                    if cur.bump() != Some(b')') {
+                        return Err(Parse::Syntax);
+                    }
+                    match (left, kind) {
+                        (IdKind::Empty, IdKind::Empty) => return Err(Parse::NotCanonical), // (0, 0)
+                        (IdKind::Terminal, IdKind::Terminal) => {
+                            return Err(Parse::NotCanonical); // (1, 1)
+                        }
+                        _ => {
+                            bits.set(tag, left != IdKind::Empty); // bit 0 = left present
+                            bits.set(tag + 1, kind != IdKind::Empty); // bit 1 = right present
+                            kind = IdKind::Node;
+                        }
+                    }
                 }
             }
         }
-        Some(b'0') => Ok(IdKind::Empty), // a `0` is absence: no bits
-        Some(b'1') => {
-            bits.push(false); // terminal tag `00`
-            bits.push(false);
-            Ok(IdKind::Terminal)
-        }
-        _ => Err(Parse::Syntax),
     }
 }
 
-/// Parse one event tree in the paper's grammar (`n | (n, e1, e2)`) into
-/// canonical bits, strictly validating normal form. Recursive, as
-/// [`parse_id_str`].
-pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, Parse> {
-    let mut cur = Cur::new(s);
-    let mut bits = Bits::new();
-    descend!(0, parse_ev_node(&mut cur, &mut bits, 0))?;
-    if cur.peek().is_some() {
-        return Err(Parse::Syntax); // trailing junk
-    }
-    validate_ev(&bits)?;
-    Ok(bits)
-}
-
-/// Parse one event subtree, appending its canonical bits. Routed through the
-/// amortized stack-growth guard.
-fn parse_ev_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), Parse> {
-    match cur.peek() {
-        Some(b'(') => {
-            cur.bump();
-            bits.push(true);
-            let base = parse_base(cur)?;
-            encode_int(bits, &base);
-            if cur.bump() != Some(b',') {
-                return Err(Parse::Syntax);
-            }
-            descend!(depth + 1, parse_ev_node(cur, bits, depth + 1))?; // left
-            if cur.bump() != Some(b',') {
-                return Err(Parse::Syntax);
-            }
-            descend!(depth + 1, parse_ev_node(cur, bits, depth + 1))?; // right
-            if cur.bump() != Some(b')') {
-                return Err(Parse::Syntax);
-            }
-            Ok(())
-        }
-        Some(c) if c.is_ascii_digit() => {
-            let n = parse_base(cur)?;
-            bits.push(false);
-            encode_int(bits, &n);
-            Ok(())
-        }
-        _ => Err(Parse::Syntax),
-    }
-}
-
-/// Parse a stamp `(i, e)` into its id and event bit streams. Splits at the
-/// top-level (depth-0) comma, then parses each side. Iterative.
-pub(crate) fn parse_clock_str(s: &str) -> Result<(Bits, Bits), Parse> {
+/// Parse a stamp `(i, e)` into its id bit stream and the event component's
+/// text. Splits at the top-level (depth-0) comma, parses the id side, and
+/// returns the event side for the caller's version parser. Iterative.
+pub(crate) fn parse_clock_str(s: &str) -> Result<(BitsMut, &str), Parse> {
     let t = s.trim();
     let bytes = t.as_bytes();
     if bytes.first() != Some(&b'(') || bytes.last() != Some(&b')') {
@@ -206,6 +209,5 @@ pub(crate) fn parse_clock_str(s: &str) -> Result<(Bits, Bits), Parse> {
     }
     let k = split.ok_or(Parse::Syntax)?;
     let id_bits = parse_id_str(&inner[..k])?;
-    let ev_bits = parse_ev_str(&inner[k + 1..])?;
-    Ok((id_bits, ev_bits))
+    Ok((id_bits, &inner[k + 1..]))
 }

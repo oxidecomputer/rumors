@@ -13,7 +13,10 @@ use crate::{
 /// Bootstrapping sends a freshly forked party from provider to newcomer;
 /// retirement sends the retiree's whole party toward its absorber. The exact
 /// frame boundary leaves a following session preamble untouched.
-pub(crate) async fn send<W>(party: Party, writer: &mut W) -> Result<(), Error>
+pub(crate) async fn send<W, E>(
+    party: Party,
+    writer: &mut W,
+) -> Result<(), Error<crate::bookmark::NoBookmark, E>>
 where
     W: AsyncWrite + Unpin + ?Sized,
 {
@@ -24,7 +27,9 @@ where
 }
 
 /// Receive the identity donation promised by the peer's preamble intent.
-pub(crate) async fn receive<R>(reader: &mut R) -> Result<Party, Error>
+pub(crate) async fn receive<R, E>(
+    reader: &mut R,
+) -> Result<Party, Error<crate::bookmark::NoBookmark, E>>
 where
     R: AsyncRead + Unpin + ?Sized,
 {

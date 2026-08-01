@@ -1,6 +1,8 @@
 //! The backend conformance suite, run against this crate's backends and
 //! against reference backends built to prove the suite has teeth.
 
+mod store;
+
 use std::convert::Infallible;
 use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,15 +13,16 @@ use futures::{StreamExt, stream as futures_stream};
 
 use super::{Charged, Measure, check, ledger};
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
+        backend::{LeafWalk, Store, VersionBounds, ranged},
         mirror::streaming::{
             Backend, BoxNodeStream, Leaf, Local, Node, NodeStream, convert::Convert,
         },
         typed::{
             self, Hash, Prefix,
-            height::{Height, S, Z},
+            height::{self as height, Height, S, Z},
         },
     },
 };
@@ -141,7 +144,7 @@ fn local_backend_conforms() {
 /// and anything less underprices — what the lying tests opt into
 /// through the knob's guard.
 #[derive(Clone, Copy, Debug)]
-struct Materializing;
+pub(crate) struct Materializing;
 
 /// The header bytes [`Materializing::node_bytes`] prices: honest at the
 /// real [`ROW_HEADER`], lying below it.
@@ -190,7 +193,7 @@ const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
 #[derive(Clone, Debug)]
-struct MaterializedNode<N> {
+pub(crate) struct MaterializedNode<N> {
     inner: N,
     row: Vec<u8>,
 }
@@ -212,12 +215,8 @@ where
     type Backend = Materializing;
     type Height = H;
 
-    fn ceiling(&self) -> &Version {
-        self.inner.ceiling()
-    }
-
-    fn floor(&self) -> &Version {
-        self.inner.floor()
+    fn span(&self) -> causally::Span<'_> {
+        self.inner.span()
     }
 
     fn hash(&self) -> Hash {
@@ -250,6 +249,10 @@ where
 {
     fn message(&self) -> &Message<T> {
         self.inner.message()
+    }
+
+    fn version(&self) -> &Version {
+        self.inner.version()
     }
 
     async fn leaf(version: Version, message: Message<T>) -> Result<Self, Infallible> {
@@ -381,6 +384,31 @@ where
     }
 }
 
+impl<T> Store<T> for Materializing
+where
+    T: Send + Sync + 'static,
+{
+    // Deliberately overrides nothing else: every local operation runs the
+    // generic default towers, which is exactly what the differential suite
+    // in [`store`] pins against the synchronous engines. (`Walk`/`range`
+    // are the boxed generic walk — the required spelling of the same
+    // default, since the associated type cannot be defaulted.)
+    //
+    // A materialized row owns its bytes outright — there is no shared
+    // allocation whose identity `same` could report — so it answers
+    // `false` everywhere and every equality falls back to the hash, the
+    // fallback the contract requires to be always sufficient.
+    fn same<H: Height>(_a: &Self::Node<H>, _b: &Self::Node<H>) -> bool {
+        false
+    }
+
+    type Walk = LeafWalk<T, Self>;
+
+    fn range(self, root: Option<Self::Node<height::Root>>, bounds: VersionBounds) -> Self::Walk {
+        ranged(self, root, bounds)
+    }
+}
+
 /// An honestly priced materializing backend passes the whole suite.
 ///
 /// Rows own real bytes (header, per-child entries, encoded bounds), the
@@ -392,6 +420,42 @@ where
 fn materializing_backend_conforms() {
     let _serial = serialized();
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+impl<T> Measure<T> for crate::store::KvBackend<crate::store::Memory, T>
+where
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+{
+    fn measure<H: Height>(node: &Self::Node<H>) -> usize {
+        node.resident_bytes()
+    }
+}
+
+/// The persistent backend's session account is honest.
+///
+/// `node_bytes` bounds each measured handle pointwise, and the window's
+/// measured admittance stays inside the stated budget, over the same
+/// controlled-divergence reconciliation every backend runs.
+///
+/// Payload bytes appear on neither side of the comparison, per the
+/// `node_bytes` contract's `children = 0` clause (custody happens at
+/// `Leaf::leaf`; in-flight payload is priced by `target_message_size`).
+///
+/// The store underneath runs the re-execution schedule
+/// ([`Memory::retrying`](crate::store::Memory::retrying)): every
+/// backend transaction closure the session drives runs twice, so one
+/// leaking an effect outside its transaction argument (a double-pushed
+/// release, a double-memoized install) diverges against the census and
+/// the convergence check.
+#[test]
+fn kv_backend_conforms() {
+    let _serial = serialized();
+    pollster::block_on(check(
+        crate::store::KvBackend::<crate::store::Memory, u64>::new(
+            crate::store::Memory::new().retrying(),
+        ),
+        MATERIALIZING_BUDGET,
+    ));
 }
 
 /// An underpricing cost function fails the run by name.

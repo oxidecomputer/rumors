@@ -66,10 +66,7 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
     if n == 0 {
         return;
     }
-    let mut batch = rumors.batch();
-    for _ in 0..n {
-        batch.send(rng.next_u64());
-    }
+    rumors::testing::commit((0..n).fold(rumors.batch(), |batch, _| batch.send(rng.next_u64())));
 }
 
 /// Serialized one-way hops one session spends on the wire, in exact
@@ -186,11 +183,9 @@ fn growth_during_a_session_only_serializes() {
         let mut rng = SmallRng::seed_from_u64(0x0b05_2026_c07e_0004);
         let race = async {
             for _ in 0..64 {
-                let mut batch = racer.batch();
-                for _ in 0..32 {
-                    batch.send(rng.next_u64());
-                }
-                drop(batch);
+                rumors::testing::commit(
+                    (0..32).fold(racer.batch(), |batch, _| batch.send(rng.next_u64())),
+                );
                 tokio::task::yield_now().await;
             }
         };
@@ -211,18 +206,26 @@ fn growth_during_a_session_only_serializes() {
     );
 }
 
-/// The honesty claims survive a real clock.
+/// The honesty claims survive a real clock: sessions burn genuinely
+/// elapsing time in at least the quantity the virtual model predicts —
+/// the model may overcharge, never undercharge.
 ///
-/// On genuinely elapsing timers,
-/// an asymmetric catch-up stays fast (ladder hops of real milliseconds),
-/// and a serialized session's waves burn real time in at least the
-/// quantity the virtual model predicts — the model may overcharge,
-/// never undercharge.
+/// Both legs assert floors only, because only the never-undercharge
+/// direction is load-immune on a wall clock: machine load inflates real
+/// elapsed time and can never compress it, so these assertions read the
+/// same under any suite parallelism. The other direction — promptness —
+/// is a property of the session *shape*, pinned load-immune as exact
+/// virtual hops by the catch-up and floor-wave siblings (the harness
+/// module doc's discipline: assertions belong on the virtual figure).
 #[test]
 fn real_clock_corners_match_the_virtual_model() {
     let delay = Duration::from_millis(2);
 
-    // Catch-up: ladder-bound, so a real link finishes promptly.
+    // Catch-up: even a ladder-bound session pays the wire's irreducible
+    // exchange on genuinely elapsing timers — completion depends on a
+    // reply to a delivered message, so at least two causally-chained
+    // one-way hops of real delay elapse. (Its promptness bound is the
+    // virtual-hops pin in `asymmetric_catch_up_is_ladder_bound_at_the_floor`.)
     let (left, right) = pair(0, 1, 10_000, 0);
     let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
     let start = std::time::Instant::now();
@@ -230,8 +233,8 @@ fn real_clock_corners_match_the_virtual_model() {
     let catch_up = start.elapsed();
     eprintln!("real-clock catch-up: {catch_up:?}");
     assert!(
-        catch_up < Duration::from_secs(5),
-        "a ladder-bound catch-up must stay prompt on a real link: {catch_up:?}",
+        catch_up >= 2 * delay,
+        "a catch-up session must pay the wire's real round trip: {catch_up:?}",
     );
 
     // Serialized divergence: the waves must actually cost wall time.

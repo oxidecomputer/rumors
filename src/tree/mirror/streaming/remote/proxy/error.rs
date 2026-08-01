@@ -3,6 +3,15 @@
 use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
 
 /// A protocol or adapter failure while proxying one remote counterparty.
+///
+/// A failed session reports its root cause, not a downstream symptom: when
+/// the link's incoming stream supply dies, the session surfaces
+/// [`Stream`](Self::Stream) with
+/// [`SupplyClosed`](streams::StreamError::SupplyClosed) carrying the
+/// supply's own failure, outranking any error the dead supply went on to
+/// cause on another surface (a write or flush failing against the torn
+/// transport). Errors the supply did not cause surface from the failing
+/// operation itself.
 #[derive(Debug, thiserror::Error)]
 pub enum Error<E> {
     /// Reading one of the peer's greeting frames failed.

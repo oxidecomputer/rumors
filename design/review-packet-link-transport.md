@@ -75,8 +75,8 @@ certifies peer completion), `d07b2ac9` (poisoning),
 
 ## Series C — `before` low-hanging fruit (D-ladder + sweep)
 
-`0003ad4c..afd94df3` (6 commits; sweep record in
-`design/before-lowhang-sweep.md`).
+`0003ad4c..afd94df3` (6 commits; the hot-surface sweep's record
+lives in the series' commit messages).
 - `0003ad4c` byte-equality Version eq; O(1) `is_empty`.
 - `1636f9d4` join/meet lattice-identity short-circuits (+ the
   `Batch::materialize()` test hook — note the identity-join

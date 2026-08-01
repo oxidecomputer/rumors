@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9a0cbb7b93448857c8adcaeb38a1201cfd6872504f23ec18447a1577b9ec73d5 # shrinks to ops = [Leaf, Leaf, Leaf, Branch { picks: [Index(6148914691236517206), Index(0)] }]

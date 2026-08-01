@@ -11,7 +11,7 @@ use std::ops::{Bound, RangeBounds, RangeFull};
 
 use tinyvec::ArrayVec;
 
-use crate::{Version, message::Message};
+use crate::{Version, causally, message::Message};
 
 use super::{Children, Node};
 
@@ -21,39 +21,49 @@ use super::{Children, Node};
 /// causal down-sets*: keep the leaves contained in the end bound, subtract
 /// the leaves contained in the start bound. [`Range`] states the per-bound
 /// semantics; the checks below resolve them against a subtree's memoized
-/// version bounds.
+/// version bounds, through each bound as its own single-bound
+/// [`causally::Range`]. The bounds stay split because the walk's raw
+/// [`RangeBounds`] surface admits *crossed* pairs (which `causally`
+/// validates away at composition): a single-bound range is always
+/// well-formed, so each bound keeps its independent per-bound meaning and
+/// its independent cost — one causal comparison per check, exactly.
 struct Bounds<'a> {
-    start: Bound<&'a Version>,
-    end: Bound<&'a Version>,
+    /// The subtracted down-set, as a start-only causal range.
+    start: causally::Range<'a>,
+    /// The kept down-set, as an end-only causal range.
+    end: causally::Range<'a>,
 }
 
-impl Bounds<'_> {
+impl<'a> Bounds<'a> {
+    /// Resolve a walk's raw bound pair into the two per-bound causal
+    /// ranges (an unbounded side resolves to [`causally::all`], which
+    /// subtracts and drops nothing).
+    fn resolve<R: RangeBounds<Version>>(range: &'a R) -> Self {
+        Bounds {
+            start: match range.start_bound() {
+                Bound::Unbounded => causally::all(),
+                Bound::Excluded(start) => causally::since(start),
+                Bound::Included(start) => causally::not_before(start),
+            },
+            end: match range.end_bound() {
+                Bound::Unbounded => causally::all(),
+                Bound::Included(end) => causally::known_at(end),
+                Bound::Excluded(end) => causally::before(end),
+            },
+        }
+    }
+
     /// Whether *no* leaf of a subtree with the given memoized version
     /// bounds can pass.
     ///
     /// Holds when every leaf falls inside the subtracted start down-set (each
-    /// is at most the node's ceiling), or none falls inside the kept end
-    /// down-set (each is at least the node's floor, and containment composes
-    /// through `<=`). Conservative in the right direction: `false` merely
-    /// means the walk must look deeper.
+    /// is at most the node's ceiling, and subtraction composes down `<=`), or
+    /// none falls inside the kept end down-set (each is at least the node's
+    /// floor, and escaping containment composes up). Conservative in the
+    /// right direction: `false` merely means the walk must look deeper.
     fn prunes<T>(&self, node: &Node<T>) -> bool {
-        let below_start = match self.start {
-            Bound::Unbounded => false,
-            Bound::Excluded(start) => node.ceiling() <= start,
-            Bound::Included(start) => node.ceiling() < start,
-        };
-        let beyond_end = || match self.end {
-            Bound::Unbounded => false,
-            Bound::Included(end) => matches!(
-                node.floor().partial_cmp(end),
-                None | Some(Ordering::Greater)
-            ),
-            Bound::Excluded(end) => matches!(
-                node.floor().partial_cmp(end),
-                None | Some(Ordering::Equal | Ordering::Greater)
-            ),
-        };
-        below_start || beyond_end()
+        self.start.placement_of(node.ceiling()) == Ordering::Less
+            || self.end.placement_of(node.floor()) == Ordering::Greater
     }
 
     /// Whether *every* leaf of a subtree with the given memoized version
@@ -64,23 +74,7 @@ impl Bounds<'_> {
     /// For a leaf — whose floor and ceiling are both its version —
     /// prune-or-promote is exhaustive: an unpruned leaf always passes.
     fn promotes<T>(&self, node: &Node<T>) -> bool {
-        let clears_start = match self.start {
-            Bound::Unbounded => true,
-            Bound::Excluded(start) => matches!(
-                node.floor().partial_cmp(start),
-                None | Some(Ordering::Greater)
-            ),
-            Bound::Included(start) => matches!(
-                node.floor().partial_cmp(start),
-                None | Some(Ordering::Equal | Ordering::Greater)
-            ),
-        };
-        clears_start
-            && match self.end {
-                Bound::Unbounded => true,
-                Bound::Included(end) => node.ceiling() <= end,
-                Bound::Excluded(end) => node.ceiling() < end,
-            }
+        self.start.contains(node.floor()) && self.end.contains(node.ceiling())
     }
 }
 
@@ -193,10 +187,7 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
             // Resolve this subtree against the range, unless an ancestor was
             // already promoted.
             let passes = passes || {
-                let bounds = Bounds {
-                    start: self.range.start_bound(),
-                    end: self.range.end_bound(),
-                };
+                let bounds = Bounds::resolve(&self.range);
                 if bounds.prunes(node) {
                     self.remaining -= node.len();
                     continue 'frontier;
@@ -308,6 +299,7 @@ impl<'a, T> Iter<'a, T> {
     }
 
     /// The empty iterator, for a tree with no root.
+    #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self {
             walk: Walk::new(None, &[], ..),
@@ -455,24 +447,12 @@ struct Level<T> {
     rollback: usize,
 }
 
-/// A live leaf popped out of a [`RangeOwned`] walk: an owned handle on the leaf
-/// node, lending its version and value to whoever holds it.
+/// A live leaf popped out of a [`RangeOwned`] walk: an owned handle on the
+/// leaf node, convertible to the bare height-zero handle the backend seams
+/// yield.
 pub struct Leaf<T>(Node<T>);
 
 impl<T> Leaf<T> {
-    /// The causal [`Version`] at which this message was observed.
-    pub fn version(&self) -> &Version {
-        self.0.ceiling()
-    }
-
-    /// The message's value.
-    pub fn value(&self) -> &std::sync::Arc<T> {
-        self.0
-            .as_leaf()
-            .expect("a Leaf wraps a leaf node, by construction")
-            .as_arc()
-    }
-
     /// Unwrap into a bare height-zero leaf node.
     ///
     /// The walk yields the leaf as stored, which usually carries the
@@ -570,10 +550,7 @@ impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
             // Resolve this subtree against the range, unless an ancestor was
             // already promoted.
             let passes = inherited || {
-                let bounds = Bounds {
-                    start: self.range.start_bound(),
-                    end: self.range.end_bound(),
-                };
+                let bounds = Bounds::resolve(&self.range);
                 if bounds.prunes(&node) {
                     self.path.truncate(rollback);
                     continue;

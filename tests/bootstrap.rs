@@ -20,6 +20,7 @@ use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use rumors::testing::SnapshotCollect as _;
 
 /// Capacity for each in-memory link stream. Roomy enough that the bootstrap
 /// descent's largest frames fit without the test depending on backpressure
@@ -78,10 +79,10 @@ proptest! {
         // The minted party is disjoint from the provider's retained half
         // and floored at the served tree's version, so a fresh origination
         // survives reconciliation on both sides.
-        bootstrapped.send(u64::MAX);
+        pollster::block_on(bootstrapped.send(u64::MAX)).expect("the in-memory backend is infallible");
         wire_gossip(&provider, &bootstrapped);
         prop_assert!(
-            provider.snapshot().iter().any(|(_, _, m)| **m == u64::MAX),
+            provider.snapshot().collected().any(|(_, _, m)| *m == u64::MAX),
             "the newcomer's origination must survive gossip into the provider",
         );
     }
@@ -108,10 +109,10 @@ proptest! {
             "serving a bootstrap must not change provider content",
         );
 
-        bootstrapped.send("newcomer's own".to_string());
+        pollster::block_on(bootstrapped.send("newcomer's own".to_string())).expect("the in-memory backend is infallible");
         wire_gossip(&provider, &bootstrapped);
         prop_assert!(
-            provider.snapshot().iter().any(|(_, _, m)| **m == "newcomer's own"),
+            provider.snapshot().collected().any(|(_, _, m)| *m == "newcomer's own"),
             "the newcomer's origination must survive gossip into the provider",
         );
     }
@@ -159,7 +160,7 @@ fn both_bootstrapping_bail_with_none() {
 #[test]
 fn zero_budget_bootstrap_converges() {
     let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    provider.batch().send(1).send(2).send(3);
+    rumors::testing::commit(provider.batch().send(1).send(2).send(3));
 
     let bootstrapped = block_on(async {
         let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
@@ -186,10 +187,13 @@ fn zero_budget_bootstrap_converges() {
 
     // The minted peer gossips under its retained zero budget: every
     // window edge at the liveness floor, and the session still converges.
-    bootstrapped.send(u64::MAX);
+    pollster::block_on(bootstrapped.send(u64::MAX)).expect("the in-memory backend is infallible");
     wire_gossip(&provider, &bootstrapped);
     assert!(
-        provider.snapshot().iter().any(|(_, _, m)| **m == u64::MAX),
+        provider
+            .snapshot()
+            .collected()
+            .any(|(_, _, m)| *m == u64::MAX),
         "the newcomer's origination must survive its zero-budget gossip",
     );
 }
@@ -226,7 +230,7 @@ fn wire_bookmarked_join(
 /// bootstrap from.
 fn populated_provider() -> Rumors<u64> {
     let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    provider.batch().send(1).send(2).send(3);
+    rumors::testing::commit(provider.batch().send(1).send(2).send(3));
     provider
 }
 
@@ -419,7 +423,7 @@ fn v1_bootstrap_selection_persists_into_gossip() {
         .sync_window_floor()
         .protocol(Protocol::V1)
         .into_rumors();
-    provider.send(1);
+    pollster::block_on(provider.send(1)).expect("the in-memory backend is infallible");
 
     let newcomer = block_on(async {
         let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
@@ -438,7 +442,7 @@ fn v1_bootstrap_selection_persists_into_gossip() {
         minted
     });
 
-    newcomer.send(2);
+    pollster::block_on(newcomer.send(2)).expect("the in-memory backend is infallible");
     wire_gossip(&provider, &newcomer);
     assert_eq!(readout(&provider.snapshot()), readout(&newcomer.snapshot()));
     assert_eq!(provider.snapshot().len(), 2);

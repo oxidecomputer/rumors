@@ -65,8 +65,12 @@ async fn barriered_sessions_reuse_the_connection() {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
     for round in 0..ROUNDS {
-        a.send(round);
-        b.send(round + 100);
+        a.send(round)
+            .await
+            .expect("the in-memory backend is infallible");
+        b.send(round + 100)
+            .await
+            .expect("the in-memory backend is infallible");
         let (a_out, b_out) = timeout(DEADLINE, async {
             tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
         })
@@ -102,13 +106,17 @@ async fn eager_reinitiation_reuses_the_connection() {
 
     let drive_a = async {
         for round in 0..ROUNDS {
-            a.send(round);
+            a.send(round)
+                .await
+                .expect("the in-memory backend is infallible");
             a.gossip(&mut a_link).await.expect("A's session");
         }
     };
     let drive_b = async {
         for round in 0..ROUNDS {
-            b.send(round + 100);
+            b.send(round + 100)
+                .await
+                .expect("the in-memory backend is infallible");
             b.gossip(&mut b_link).await.expect("B's session");
         }
     };
@@ -168,8 +176,12 @@ async fn empty_sessions_advance_epochs_in_lockstep() {
     );
 
     // Session 2, same link, real divergence: its streams carry epoch 1.
-    a.send(1);
-    b.send(2);
+    a.send(1)
+        .await
+        .expect("the in-memory backend is infallible");
+    b.send(2)
+        .await
+        .expect("the in-memory backend is infallible");
     let (a_out, b_out) = timeout(DEADLINE, async {
         tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
     })
@@ -206,8 +218,12 @@ async fn epoch_wrap_keeps_the_pair_in_lockstep() {
     }
 
     for round in 0..WRAP_ROUNDS {
-        a.send(round);
-        b.send(100 + round);
+        a.send(round)
+            .await
+            .expect("the in-memory backend is infallible");
+        b.send(100 + round)
+            .await
+            .expect("the in-memory backend is infallible");
         let (a_out, b_out) = timeout(DEADLINE, async {
             tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
         })

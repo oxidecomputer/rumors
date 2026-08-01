@@ -11,7 +11,7 @@ use crate::tree::{
     mirror::{
         Error as MirrorError,
         streaming::{
-            Local, Root,
+            Local,
             materialized::{Error as MaterializedError, Handshaking, Violation},
             mirror,
             remote::Handshaking as RemoteHandshaking,
@@ -31,8 +31,8 @@ async fn reconcile_results(
     Result<TreeRoot<()>, LeftError>,
     Result<TreeRoot<()>, RightError>,
 ) {
-    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let a = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
 
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     let remote_b = RemoteHandshaking::start(Local, a_link).window(WindowConfig::FLOOR);
@@ -40,8 +40,8 @@ async fn reconcile_results(
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     (
-        a.map(|(root, _control)| root.into()),
-        b.map(|(_control, root)| root.into()),
+        a.map(|(root, _control)| root),
+        b.map(|(_control, root)| root),
     )
 }
 

@@ -11,6 +11,7 @@
 //! | [`Error::Io`] | unchanged | transport failure (retry over a fresh link), or a Borsh framing fault outside the streaming mirror (counterparty bug: report it) |
 //! | [`Error::MagicMismatch`] | unchanged | the counterparty is not speaking rumors: fix the dial target |
 //! | [`Error::VersionMismatch`] | unchanged | select the same [`Protocol`] at both ends; if both already do, the selected protocol's wire version differs across the two releases: align crate versions |
+//! | [`Error::ProtocolUnsupported`] | unchanged | the selected protocol cannot run on this peer's storage backend (V1 assumes a resident tree; over a store it would materialize, worst case, the whole replica to send one message): select [`Protocol::V2`], or keep the peer in memory |
 //! | [`Error::NetworkMismatch`] | unchanged | unrelated universes: apply the dominance rule ([`Peer`](crate::Peer)'s "Bootstrapping without consensus") |
 //! | [`Error::PartyOverlap`] | unchanged | nothing was absorbed: the retiring peer's identity overlaps ours |
 //! | [`Error::Epilogue`] | **committed** (a bootstrapping side instead applies nothing) | none locally: what was certainly lost is the peer's confirmation (a donor's identity may be lost with it: see the variant) |
@@ -20,11 +21,12 @@
 //! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
 //! | [`Error::Bookmark`] | unchanged (committed if raised after absorbing a retirement) | fix or replace the bookmark storage, then retry |
 //! | [`Error::Mirror`] | unchanged | reconciliation failed: the nested source names the detecting side and the fault |
+//! | [`Error::Storage`] | unchanged | the storage backend failed on a local operation; a persistent peer's wrapped [`KvError`](crate::KvError) splits the genres — the store *failed* (fix or replace the storage, then retry) or the store *lied* ([`KvError::Corrupt`](crate::KvError::Corrupt): retrying cannot help; recover content from any other replica by ordinary gossip) |
 
 use std::convert::Infallible;
 
 use crate::{
-    Network, Protocol,
+    Network, Protocol, Ticks,
     bookmark::{BookmarkError, BookmarkIo, NoBookmark},
     tree::mirror::{self, handshake},
 };
@@ -40,18 +42,37 @@ pub use crate::tree::mirror::streaming::remote::{
     StreamClass, StreamError,
 };
 
-/// The concrete production mirror failure, retaining its detecting side.
-pub type MirrorError = mirror::Error<MaterializedError<Infallible>, RemoteError<Infallible>>;
+/// The production mirror failure, retaining its detecting side.
+///
+/// Generic over the storage backend's error `E`; the default in-memory
+/// backend is infallible.
+pub type MirrorError<E = Infallible> = mirror::Error<MaterializedError<E>, RemoteError<E>>;
+
+/// A storage-backend failure on a local operation.
+///
+/// Wraps the backend's own error wherever an operation touches stored
+/// tree state outside a session: sending, redacting, committing a batch,
+/// or reading through a snapshot or observer. The default in-memory
+/// backend is infallible, so for it this error cannot be constructed.
+/// For a [`KvBackend`](crate::KvBackend) peer the wrapped error is
+/// [`KvError`](crate::KvError), whose two arms separate a store that
+/// failed from a store that lied (corruption) — match on it when the
+/// handling differs.
+#[derive(Debug, thiserror::Error)]
+#[error("storage backend failed: {0}")]
+pub struct StorageError<E>(#[source] pub E);
 
 /// An error returned by bootstrap, gossip, or retirement.
 ///
 /// Generic over the bookmark `B` only to retain its backend error in
-/// [`Bookmark`](Self::Bookmark). Every wire and protocol variant is otherwise
-/// bookmark-independent. The default bookmark type has an uninhabited backend
-/// error.
+/// [`Bookmark`](Self::Bookmark), and over the storage backend's error `E`
+/// in [`Mirror`](Self::Mirror) and [`Storage`](Self::Storage). Every wire
+/// and protocol variant is otherwise independent of both. The default
+/// bookmark type and the default in-memory storage backend both have
+/// uninhabited errors.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
-pub enum Error<B: BookmarkError = NoBookmark> {
+pub enum Error<B: BookmarkError = NoBookmark, E = Infallible> {
     /// An underlying reader/writer error, or a Borsh framing failure outside
     /// the streaming mirror itself.
     #[error(transparent)]
@@ -68,21 +89,43 @@ pub enum Error<B: BookmarkError = NoBookmark> {
         remote_version: u16,
     },
 
+    /// The selected protocol cannot run against this peer's storage
+    /// backend.
+    ///
+    /// Raised before any wire traffic, so nothing moved and the link is
+    /// poisoned only by the usual session-interruption rule. Today this
+    /// names exactly one combination: [`Protocol::V1`] sessions require
+    /// the in-memory backend. V1's full-level alternation assumes a
+    /// resident tree — run over a storage backend, it would fault nodes
+    /// into memory level by level with no window bounding them, in the
+    /// worst case materializing the whole store to send a single
+    /// message. [`Protocol::V2`]'s fixed-memory streaming exists
+    /// precisely to bound that, so the pairing is refused here rather
+    /// than allowed to run into it. Select [`Protocol::V2`], or keep V1
+    /// peers on the in-memory backend.
+    #[error("the selected protocol ({protocol:?}) requires the in-memory storage backend")]
+    ProtocolUnsupported {
+        /// The protocol the peer had selected.
+        protocol: Protocol,
+    },
+
     /// Both peers were gossiping but belong to unrelated causal universes.
     #[error("peer belongs to a different network ({remote_network:?})")]
     NetworkMismatch {
         /// The network identifier advertised by the remote peer.
         remote_network: Network,
         /// A lower bound on events recorded in the remote universe.
-        remote_min_events: u64,
+        remote_min_events: Ticks,
         /// A lower bound on events recorded in the local universe, as this
         /// side declared it in the session's handshake.
         ///
         /// Together with `remote_min_events` this lets both sides of a
         /// mismatch apply one deterministic dominance rule from the error
         /// alone (see [`Peer`](crate::Peer)'s "Bootstrapping without
-        /// consensus").
-        local_min_events: u64,
+        /// consensus"): [`Ticks`] is totally ordered at any magnitude, so
+        /// the comparison never saturates or ties spuriously, however deep
+        /// the two universes' histories run.
+        local_min_events: Ticks,
     },
 
     /// A retiring peer offered an identity overlapping one already held here.
@@ -176,7 +219,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
         /// A lower bound on events recorded in the claimant's declared
         /// version, as [`NetworkMismatch`](Self::NetworkMismatch) counts
         /// them.
-        claimed_min_events: u64,
+        claimed_min_events: Ticks,
     },
 
     /// The application's bookmark failed to load, persist, or decode.
@@ -202,10 +245,18 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// The nested source retains the detecting side and remains matchable
     /// through backend, adapter, session, codec, and transport errors.
     #[error(transparent)]
-    Mirror(#[from] MirrorError),
+    Mirror(#[from] MirrorError<E>),
+
+    /// The storage backend failed on a local operation inside the session
+    /// driver, outside reconciliation itself.
+    ///
+    /// The replica is unchanged: the session's result was not committed.
+    /// Fix or replace the storage, then retry over a fresh link.
+    #[error(transparent)]
+    Storage(#[from] StorageError<E>),
 }
 
-impl From<handshake::Error> for Error<NoBookmark> {
+impl<E> From<handshake::Error> for Error<NoBookmark, E> {
     fn from(error: handshake::Error) -> Self {
         match error {
             handshake::Error::Io(error) => Error::Io(error),
@@ -225,13 +276,13 @@ impl From<handshake::Error> for Error<NoBookmark> {
     }
 }
 
-impl Error<NoBookmark> {
+impl<E> Error<NoBookmark, E> {
     /// Re-tags a bookmark-free session error under any bookmark `B`.
     ///
-    /// Wire and protocol machinery produces `Error<NoBookmark>`; peer-level
-    /// drivers return `Error<B>`. The only bookmark backend error here is
-    /// uninhabited, making the conversion total and lossless.
-    pub(crate) fn widen<B: BookmarkError>(self) -> Error<B> {
+    /// Wire and protocol machinery produces `Error<NoBookmark, E>`;
+    /// peer-level drivers return `Error<B, E>`. The only bookmark backend
+    /// error here is uninhabited, making the conversion total and lossless.
+    pub(crate) fn widen<B: BookmarkError>(self) -> Error<B, E> {
         match self {
             Error::Io(error) => Error::Io(error),
             Error::MagicMismatch { remote_magic } => Error::MagicMismatch { remote_magic },
@@ -252,6 +303,7 @@ impl Error<NoBookmark> {
                 local_min_events,
             },
             Error::PartyOverlap => Error::PartyOverlap,
+            Error::ProtocolUnsupported { protocol } => Error::ProtocolUnsupported { protocol },
             Error::Epilogue(error) => Error::Epilogue(error),
             Error::LinkPoisoned => Error::LinkPoisoned,
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
@@ -260,6 +312,7 @@ impl Error<NoBookmark> {
                 Error::BootstrapHistoryConflict { claimed_min_events }
             }
             Error::Mirror(error) => Error::Mirror(error),
+            Error::Storage(error) => Error::Storage(error),
             Error::Bookmark(error) => match error {
                 BookmarkIo::Io(never) => match never {},
                 BookmarkIo::Format(error) => Error::Bookmark(BookmarkIo::Format(error)),

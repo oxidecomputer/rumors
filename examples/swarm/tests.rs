@@ -88,10 +88,14 @@ fn controller_converges_through_retargeting() {
     let seed: Rumors<Payload> = Peer::seed().into_rumors();
     {
         let mut rng = SmallRng::seed_from_u64(0x5eed);
-        let mut batch = seed.batch();
-        for _ in 0..100 {
-            batch.send(random_message(&mut rng, TEST_MESSAGE_SIZE));
-        }
+        pollster::block_on(
+            (0..100)
+                .fold(seed.batch(), |batch, _| {
+                    batch.send(random_message(&mut rng, TEST_MESSAGE_SIZE))
+                })
+                .commit(),
+        )
+        .expect("the in-memory backend is infallible");
     }
     let mut parties = [
         Party::new(

@@ -214,10 +214,7 @@ fn diverged(divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
 
 /// Commit `n` random payloads as one batch.
 fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
-    let mut batch = rumors.batch();
-    for _ in 0..n {
-        batch.send(rng.next_u64());
-    }
+    rumors::testing::commit((0..n).fold(rumors.batch(), |batch, _| batch.send(rng.next_u64())));
 }
 
 /// Below the predicted knee the session is pipelined: hops are bounded

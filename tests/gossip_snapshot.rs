@@ -28,11 +28,12 @@ use crate::common::gossip_snapshot::capture_gossip_v1;
 #[cfg(feature = "protocol-v1")]
 use crate::common::wire::bootstrap_fork_async_with_protocol;
 use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
+use rumors::testing::SnapshotCollect as _;
 
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble is deterministic and these byte-level captures stay
 /// reproducible across runs.
-fn seeded<T>() -> Rumors<T> {
+fn seeded<T: Send + Sync + 'static>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()
@@ -44,8 +45,8 @@ fn seeded<T>() -> Rumors<T> {
 fn key_for(rumors: &Rumors<u64>, value: u64) -> Key {
     rumors
         .snapshot()
-        .iter()
-        .find_map(|(k, _, m)| (**m == value).then_some(k))
+        .collected()
+        .find_map(|(k, _, m)| (*m == value).then_some(k))
         .unwrap_or_else(|| panic!("no live message holds {value}"))
 }
 
@@ -77,7 +78,7 @@ fn one_sided_transfer() {
         // it is an empty peer in the same universe.
         let b = bootstrap_fork_async(&a).await;
 
-        a.batch().send(1).send(2);
+        rumors::testing::commit(a.batch().send(1).send(2));
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -85,14 +86,14 @@ fn one_sided_transfer() {
 
 /// Values whose two messages, batch-sent in this order into the seeded
 /// universe of [`batched_supply_run`], produce keys sharing their first two
-/// bytes (`67 99`; found by search over the second value).
+/// bytes (`b4 51`; found by search over the second value).
 ///
 /// The populated
 /// responder ships its root children as whole height-31 supplies, so the
 /// shared leading byte places both leaves inside one supplied subtree (the
 /// two-byte collision is stronger than that supply needs, and keeps the
 /// pair inside one subtree at height 30 as well).
-const COLLIDING_VALUES: (u64, u64) = (1, 15123);
+const COLLIDING_VALUES: (u64, u64) = (1, 106899);
 
 /// One supplied subtree holding two leaves pins a batched run on the wire.
 ///
@@ -107,14 +108,14 @@ fn batched_supply_run() {
         let a: Rumors<u64> = seeded();
         let b = bootstrap_fork_async(&a).await;
         let (first, second) = COLLIDING_VALUES;
-        a.batch().send(first).send(second);
+        rumors::testing::commit(a.batch().send(first).send(second));
         (a, b)
     });
     // Self-check the fixture: if hashing or version assignment drifts, fail
     // here with a clear message rather than in the snapshot hex.
     let prefixes: Vec<[u8; 2]> = a
         .snapshot()
-        .iter()
+        .collected()
         .map(|(k, _, _)| [k.as_bytes()[0], k.as_bytes()[1]])
         .collect();
     assert_eq!(
@@ -140,7 +141,7 @@ fn asymmetric_message_targets_unbatch_the_run() {
         let a: Rumors<u64> = seeded();
         let b = bootstrap_fork_async(&a).await;
         let (first, second) = COLLIDING_VALUES;
-        a.batch().send(first).send(second);
+        rumors::testing::commit(a.batch().send(first).send(second));
         let b = b
             .try_into_peer()
             .await
@@ -177,18 +178,18 @@ fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
 
 /// Values whose two messages, batch-sent in this order into the seeded
 /// universe of [`bulk_initiator_ships_opening_supplies`], produce keys
-/// `67 99` and `67 9e` (found by search over the second value).
+/// `b4 51` and `b4 85` (found by search over the second value).
 ///
 /// A shared
 /// first byte and distinct second bytes, so the initiator's one exclusive
 /// root child holds a two-leaf subtree whose leaves split one level down.
-const INITIATOR_SUBTREE_VALUES: (u64, u64) = (1, 336);
+const INITIATOR_SUBTREE_VALUES: (u64, u64) = (1, 148);
 
 /// First of three consecutive ballast values for the responder of
 /// [`bulk_initiator_ships_opening_supplies`].
 ///
 /// Their keys' first bytes
-/// (`21`, `2b`, `54`) avoid the initiator's exclusive radix (`67`), and the
+/// (`9f`, `e3`, `e5`) avoid the initiator's exclusive radix (`b4`), and the
 /// extra message makes the responder the larger set, so the subtree holder
 /// wins the initiator election.
 const RESPONDER_BALLAST_FROM: u64 = 100;
@@ -209,16 +210,16 @@ fn bulk_initiator_ships_opening_supplies() {
         let a: Rumors<u64> = seeded();
         let b = bootstrap_fork_async(&a).await;
         let (first, second) = INITIATOR_SUBTREE_VALUES;
-        a.batch().send(first).send(second);
+        rumors::testing::commit(a.batch().send(first).send(second));
         let y = RESPONDER_BALLAST_FROM;
-        b.batch().send(y).send(y + 1).send(y + 2);
+        rumors::testing::commit(b.batch().send(y).send(y + 1).send(y + 2));
         (a, b)
     });
 
     // Fixture self-checks: the initiator-exclusive subtree and the election.
     let akeys: Vec<[u8; 2]> = a
         .snapshot()
-        .iter()
+        .collected()
         .map(|(k, _, _)| [k.as_bytes()[0], k.as_bytes()[1]])
         .collect();
     assert_eq!(
@@ -234,7 +235,7 @@ fn bulk_initiator_ships_opening_supplies() {
     let radix = akeys[0][0];
     assert!(
         b.snapshot()
-            .iter()
+            .collected()
             .all(|(k, _, _)| k.as_bytes()[0] != radix),
         "the responder must lack the initiator's exclusive radix"
     );
@@ -263,13 +264,13 @@ fn bulk_initiator_ships_opening_supplies() {
 }
 
 /// Values for [`early_supplies_honor_redactions`]: the second, sent after
-/// the responder forks, lands its key (`b8 bc`) under the same root radix
-/// as the first's (`b8 11`), found by search.
-const REDACTION_SUBTREE_VALUE: u64 = 151;
+/// the responder forks, lands its key under the same root radix as the
+/// first's (keys `8a 44` and `8a fd`), found by search.
+const REDACTION_SUBTREE_VALUE: u64 = 33;
 
 /// First of three consecutive ballast values for the responder of
-/// [`early_supplies_honor_redactions`]: their keys' first bytes (`24`,
-/// `7a`, `b5`) avoid the shared radix (`b8`), and they make the responder
+/// [`early_supplies_honor_redactions`]: their keys' first bytes (`70`,
+/// `c8`, `eb`) avoid the shared radix (`8a`), and they make the responder
 /// the larger set.
 const REDACTION_BALLAST_FROM: u64 = 100;
 
@@ -288,12 +289,13 @@ const REDACTION_BALLAST_FROM: u64 = 100;
 fn early_supplies_honor_redactions() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1);
+        pollster::block_on(a.send(1)).expect("the in-memory backend is infallible");
         let b = bootstrap_fork_async(&a).await;
-        a.send(REDACTION_SUBTREE_VALUE);
-        b.redact(key_for(&b, 1));
+        pollster::block_on(a.send(REDACTION_SUBTREE_VALUE))
+            .expect("the in-memory backend is infallible");
+        pollster::block_on(b.redact(key_for(&b, 1))).expect("the in-memory backend is infallible");
         let y = REDACTION_BALLAST_FROM;
-        b.batch().send(y).send(y + 1).send(y + 2);
+        rumors::testing::commit(b.batch().send(y).send(y + 1).send(y + 2));
         (a, b)
     });
 
@@ -301,7 +303,7 @@ fn early_supplies_honor_redactions() {
     // and the election.
     let akeys: Vec<u8> = a
         .snapshot()
-        .iter()
+        .collected()
         .map(|(k, _, _)| k.as_bytes()[0])
         .collect();
     assert_eq!(akeys.len(), 2, "the initiator holds the pair");
@@ -313,7 +315,7 @@ fn early_supplies_honor_redactions() {
     let radix = akeys[0];
     assert!(
         b.snapshot()
-            .iter()
+            .collected()
             .all(|(k, _, _)| k.as_bytes()[0] != radix),
         "the responder must lack the shared radix outright: it redacted \
          its copy"
@@ -332,23 +334,23 @@ fn early_supplies_honor_redactions() {
         "one pruned Supply run: the survivor, not the full subtree"
     );
     assert!(
-        !a.snapshot().iter().any(|(_, _, m)| **m == 1),
+        !a.snapshot().collected().any(|(_, _, m)| *m == 1),
         "the redaction is contagious: the initiator drops the message"
     );
     assert!(
-        !b.snapshot().iter().any(|(_, _, m)| **m == 1),
+        !b.snapshot().collected().any(|(_, _, m)| *m == 1),
         "the redacted message must not resurrect at the responder"
     );
     assert!(
         a.snapshot()
-            .iter()
-            .any(|(_, _, m)| **m == REDACTION_SUBTREE_VALUE),
+            .collected()
+            .any(|(_, _, m)| *m == REDACTION_SUBTREE_VALUE),
         "the survivor converges to the initiator"
     );
     assert!(
         b.snapshot()
-            .iter()
-            .any(|(_, _, m)| **m == REDACTION_SUBTREE_VALUE),
+            .collected()
+            .any(|(_, _, m)| *m == REDACTION_SUBTREE_VALUE),
         "the survivor converges to the responder"
     );
     insta::assert_snapshot!(capture);
@@ -365,7 +367,7 @@ fn v1_one_sided_transfer() {
             .protocol(Protocol::V1)
             .into_rumors();
         let b = bootstrap_fork_async_with_protocol(&a, Protocol::V1).await;
-        a.batch().send(1).send(2);
+        rumors::testing::commit(a.batch().send(1).send(2));
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip_v1(a, b));
@@ -391,19 +393,19 @@ fn fork_insert_redact() {
         let a: Rumors<u64> = seeded();
 
         // (1) Two distinct common messages.
-        a.batch().send(1).send(2);
+        rumors::testing::commit(a.batch().send(1).send(2));
 
         // (2) Fork: B is a genuine disjoint fork sharing A's observations
         // (both hold 1 and 2, under the same keys).
         let b = bootstrap_fork_async(&a).await;
 
         // (3) Each fork inserts one distinct message.
-        a.send(3);
-        b.send(4);
+        pollster::block_on(a.send(3)).expect("the in-memory backend is infallible");
+        pollster::block_on(b.send(4)).expect("the in-memory backend is infallible");
 
         // (4) Each fork redacts a different one of the two common messages.
-        a.redact(key_for(&a, 1));
-        b.redact(key_for(&b, 2));
+        pollster::block_on(a.redact(key_for(&a, 1))).expect("the in-memory backend is infallible");
+        pollster::block_on(b.redact(key_for(&b, 2))).expect("the in-memory backend is infallible");
 
         (a, b)
     });
@@ -421,7 +423,7 @@ fn fork_insert_redact() {
 fn converged_forks_noop() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.batch().send(1).send(2);
+        rumors::testing::commit(a.batch().send(1).send(2));
         let b = bootstrap_fork_async(&a).await;
         (a, b)
     });
@@ -439,9 +441,9 @@ fn converged_forks_noop() {
 fn redaction_only() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.batch().send(1).send(2);
+        rumors::testing::commit(a.batch().send(1).send(2));
         let b = bootstrap_fork_async(&a).await;
-        a.redact(key_for(&a, 1));
+        pollster::block_on(a.redact(key_for(&a, 1))).expect("the in-memory backend is infallible");
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -469,16 +471,15 @@ fn deep_trie_divergence() {
         let a: Rumors<u64> = seeded();
         let b = bootstrap_fork_async(&a).await;
         {
-            let mut batch = a.batch();
-            for v in 0..DEEP_TRIE_PER_SIDE {
-                batch.send(v);
-            }
+            rumors::testing::commit(
+                (0..DEEP_TRIE_PER_SIDE).fold(a.batch(), |batch, v| batch.send(v)),
+            );
         }
         {
-            let mut batch = b.batch();
-            for v in DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE {
-                batch.send(v);
-            }
+            rumors::testing::commit(
+                (DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE)
+                    .fold(b.batch(), |batch, v| batch.send(v)),
+            );
         }
         (a, b)
     });
@@ -497,8 +498,10 @@ fn string_payload() {
     let (a, b) = block_on(async {
         let a: Rumors<String> = seeded();
         let b = bootstrap_fork_async(&a).await;
-        a.send("hello".to_string());
-        b.send("world".to_string());
+        pollster::block_on(a.send("hello".to_string()))
+            .expect("the in-memory backend is infallible");
+        pollster::block_on(b.send("world".to_string()))
+            .expect("the in-memory backend is infallible");
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -518,12 +521,12 @@ fn string_payload() {
 fn same_live_content_divergent_versions() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1);
+        pollster::block_on(a.send(1)).expect("the in-memory backend is infallible");
         let b = bootstrap_fork_async(&a).await;
 
         // A diverges in version but not in live content: insert 2, then drop it.
-        a.send(2);
-        a.redact(key_for(&a, 2));
+        pollster::block_on(a.send(2)).expect("the in-memory backend is infallible");
+        pollster::block_on(a.redact(key_for(&a, 2))).expect("the in-memory backend is infallible");
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -541,11 +544,11 @@ fn same_live_content_divergent_versions() {
 fn both_redact_same_key() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.batch().send(1).send(2);
+        rumors::testing::commit(a.batch().send(1).send(2));
         let b = bootstrap_fork_async(&a).await;
         let k1 = key_for(&a, 1);
-        a.redact(k1);
-        b.redact(k1);
+        pollster::block_on(a.redact(k1)).expect("the in-memory backend is infallible");
+        pollster::block_on(b.redact(k1)).expect("the in-memory backend is infallible");
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));

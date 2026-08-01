@@ -8,7 +8,8 @@ pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
-use crate::{Batch, Error, Gossiped, Key, Network, Peer, Snapshot, Version};
+use crate::tree::backend::{Local, Store};
+use crate::{Batch, Error, Gossiped, Key, Network, Peer, Snapshot, StorageError, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
 use std::sync::Arc;
@@ -24,8 +25,8 @@ use tokio::{
 /// Unlike [`Peer`], [`Rumors`] is [`Clone`]: any number of tasks may
 /// interact with the set concurrently. Synchronization is internal:
 /// anything one clone learns, all do.
-pub struct Rumors<T, B: BookmarkError = NoBookmark> {
-    peer: Peer<T, B>,
+pub struct Rumors<T: Send + Sync + 'static, B: BookmarkError = NoBookmark, S: Store<T> = Local> {
+    peer: Peer<T, B, S>,
     /// This handle's claim to existence; see [`Extant`].
     extant: Extant,
 }
@@ -59,7 +60,7 @@ impl Drop for Extant {
     }
 }
 
-impl<T, B: BookmarkError> Clone for Rumors<T, B> {
+impl<T: Send + Sync + 'static, B: BookmarkError, S: Store<T>> Clone for Rumors<T, B, S> {
     fn clone(&self) -> Self {
         Self {
             peer: Peer {
@@ -69,6 +70,7 @@ impl<T, B: BookmarkError> Clone for Rumors<T, B> {
                 run_budget: self.peer.run_budget,
                 inner: self.peer.inner.clone(),
                 bookmark: Arc::clone(&self.peer.bookmark),
+                commit: Arc::clone(&self.peer.commit),
             },
             extant: self.extant.clone(),
         }
@@ -77,7 +79,7 @@ impl<T, B: BookmarkError> Clone for Rumors<T, B> {
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T, B: BookmarkError> std::fmt::Debug for Rumors<T, B> {
+impl<T: Send + Sync + 'static, B: BookmarkError, S: Store<T>> std::fmt::Debug for Rumors<T, B, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.peer.inner.borrow();
         f.debug_struct("Rumors")
@@ -89,11 +91,11 @@ impl<T, B: BookmarkError> std::fmt::Debug for Rumors<T, B> {
     }
 }
 
-impl<T, B: BookmarkError> Rumors<T, B> {
+impl<T: Send + Sync + 'static, B: BookmarkError, S: Store<T>> Rumors<T, B, S> {
     /// Assemble the first handle of a fresh broadcast generation around `peer`,
     /// the only constructor: every other handle is a [`Clone`] of this one, so
     /// the token count faithfully counts handles.
-    pub(crate) fn new(peer: Peer<T, B>) -> Self {
+    pub(crate) fn new(peer: Peer<T, B, S>) -> Self {
         Self {
             peer,
             extant: Extant {
@@ -105,7 +107,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     }
 
     /// Await quiescence and restore the unique [`Peer`] handle.
-    async fn try_into_peer_inner(self) -> Option<Peer<T, B>> {
+    async fn try_into_peer_inner(self) -> Option<Peer<T, B, S>> {
         let Self { peer, extant } = self;
         let token = Arc::downgrade(extant.token.as_ref().expect("Some outside Drop"));
         let claimed = Arc::clone(&extant.claimed);
@@ -130,12 +132,10 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         }
     }
 
-    /// Send a message.
+    /// Send a message, committing it as its own one-action batch.
     ///
-    /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `rumors.send(message);` commits at the end of the statement, and
-    /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit.
+    /// To commit several sends and redactions atomically, accumulate them
+    /// with [`batch`](Self::batch) instead.
     ///
     /// `send` does not return the message's [`Key`]. Keys come back through
     /// observation: the observers and [`Snapshot`] attach every message to
@@ -147,32 +147,34 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///
     /// # Observe-then-send is domination
     ///
-    /// Every message this replica observed before a batch commits is in
-    /// the causal past of that batch's sends, which is the supersession
+    /// Every message this replica observed before a send commits is in
+    /// the causal past of that send, which is the supersession
     /// contract last-write-wins patterns lean on. The boundary: sends from
-    /// different threads or different batches carry **no** guaranteed
-    /// causal relationship to one another unless the application
-    /// synchronizes them itself (building a batch holds no lock, so
-    /// concurrent synchronization can land before the batch commits).
+    /// different tasks carry **no** guaranteed causal relationship to one
+    /// another unless the application synchronizes them itself.
+    ///
+    /// # Cancellation
+    ///
+    /// Dropping the future before it resolves either commits the message
+    /// or discards it, never anything in between; [`Batch::commit`] states
+    /// the full contract.
     ///
     /// # Panics
     ///
     /// If `message` fails to serialize (see [`Batch::send`]).
-    pub fn send(&self, message: T) -> Batch<'_, T>
+    pub async fn send(&self, message: T) -> Result<(), StorageError<S::Error>>
     where
-        T: BorshSerialize + Send + Sync,
+        T: BorshSerialize,
     {
-        self.peer.send(message)
+        self.peer.send(message).await
     }
 
-    /// Redact a message: remove the live message named by `key` from the set,
-    /// here and, through gossip, everywhere. Redacting a key not currently
-    /// held is a no-op.
+    /// Redact a message: remove the live message named by `key` from the
+    /// set, here and, through gossip, everywhere.
     ///
-    /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `rumors.redact(key);` commits at the end of the statement, and chaining
-    /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit.
+    /// Redacting a key not currently held is a no-op. Commits as its own
+    /// one-action batch; accumulate with [`batch`](Self::batch) to commit
+    /// several changes atomically.
     ///
     /// # Deletion is honored
     ///
@@ -199,34 +201,40 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// And batching breaks the correspondence anyway: a batch inserts all
     /// its messages at once, so sends are not 1:1 with insertions and a
     /// message's `Key` is not knowable until insertion.
-    pub fn redact(&self, key: Key) -> Batch<'_, T>
-    where
-        T: Send + Sync,
-    {
-        self.peer.redact(key)
+    pub async fn redact(&self, key: Key) -> Result<(), StorageError<S::Error>> {
+        self.peer.redact(key).await
     }
 
     /// Start an empty [`Batch`], for committing several changes as one
     /// atomic unit: observers and concurrent gossip sessions see either
     /// none of the batch or all of it, never a prefix.
     ///
+    /// The batch commits when [`commit`](Batch::commit) is awaited;
+    /// dropping it uncommitted aborts it.
+    ///
     /// # Examples
     ///
     /// ```
     /// use rumors::Peer;
     ///
+    /// # tokio::runtime::Builder::new_current_thread()
+    /// #     .build()
+    /// #     .unwrap()
+    /// #     .block_on(async {
     /// let rumors = Peer::<String>::seed().into_rumors();
     /// rumors
     ///     .batch()
     ///     .send("a".to_string())
-    ///     .send("b".to_string());
-    /// // The batch committed, atomically, when the statement ended.
+    ///     .send("b".to_string())
+    ///     .commit()
+    ///     .await?;
+    /// // The batch committed atomically: both messages, or neither.
     /// assert_eq!(rumors.snapshot().len(), 2);
+    /// # Ok::<(), rumors::StorageError<std::convert::Infallible>>(())
+    /// # })?;
+    /// # Ok::<(), rumors::StorageError<std::convert::Infallible>>(())
     /// ```
-    pub fn batch(&self) -> Batch<'_, T>
-    where
-        T: Send + Sync,
-    {
+    pub fn batch(&self) -> Batch<'_, T, S> {
         self.peer.batch()
     }
 
@@ -239,7 +247,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// Take a consistent point-in-time view of the live set: cheap
     /// (structure-sharing, no copy), atomic, and isolated from every later
     /// change. See [`Snapshot`] for what it can answer.
-    pub fn snapshot(&self) -> Snapshot<T> {
+    pub fn snapshot(&self) -> Snapshot<T, S> {
         self.peer.snapshot()
     }
 
@@ -247,30 +255,21 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// (*non-causal*) order.
     ///
     /// See [`UnorderedMessages`] for details.
-    pub fn unordered_messages(&self) -> UnorderedMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub fn unordered_messages(&self) -> UnorderedMessages<T, S> {
         self.peer.unordered_messages()
     }
 
     /// Monitor every message sent to this [`Rumors`] which is not already
     /// causally contained in `since`, then everything learned afterwards, in
     /// arbitrary (*non-causal*) order.
-    pub fn unordered_messages_since(&self, since: Version) -> UnorderedMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub fn unordered_messages_since(&self, since: Version) -> UnorderedMessages<T, S> {
         self.peer.messages_since(since)
     }
 
     /// Monitor every message sent to this [`Rumors`], in *causal order*.
     ///
     /// See [`CausalMessages`] for details.
-    pub fn causal_messages(&self) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub fn causal_messages(&self) -> CausalMessages<T, S> {
         self.peer.causal_messages()
     }
 
@@ -278,10 +277,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// causally contained in `since`, in *causal order*.
     ///
     /// See [`CausalMessages`] for details.
-    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T, S> {
         self.peer.causal_messages_since(since)
     }
 
@@ -291,7 +287,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// poll and then once per observed advance of the set's causal frontier.
     ///
     /// See [`Changes`] for details.
-    pub fn changes(&self) -> Changes<T> {
+    pub fn changes(&self) -> Changes<T, S> {
         Changes::subscribe(&self.peer.inner)
     }
 
@@ -312,7 +308,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     }
 }
 
-impl<T, B: Bookmark> Rumors<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark, S: Store<T>> Rumors<T, B, S> {
     /// Give up this handle and reclaim the [`Peer`]: resolves when no
     /// [`Rumors`] for this set remains, handing the `Peer` to exactly one
     /// caller.
@@ -322,7 +318,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// different from having dropped the `Rumors`. If every handle goes away
     /// with no [`try_into_peer`](Self::try_into_peer) pending, the `Peer` is
     /// gone for good: observers drain the final state and stop.
-    pub async fn try_into_peer(self) -> Option<Peer<T, B>> {
+    pub async fn try_into_peer(self) -> Option<Peer<T, B, S>> {
         self.try_into_peer_inner().await
     }
 
@@ -380,9 +376,9 @@ impl<T, B: Bookmark> Rumors<T, B> {
     pub async fn gossip<CR, CW, C, A>(
         &self,
         link: &mut Link<CR, CW, C, A>,
-    ) -> Result<Gossiped, Error<B>>
+    ) -> Result<Gossiped, Error<B, S::Error>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -476,7 +472,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// // A long-lived link between them, one driver per end.
     /// let (mut alice_side, mut bob_side) = rumors::link::memory();
     ///
-    /// alice.send("psst".to_string());
+    /// alice.send("psst".to_string()).await?;
     ///
     /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
     /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
@@ -492,18 +488,18 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// # Ok::<(), rumors::Error>(())
     /// ```
     #[must_use = "the driver does nothing until the returned stream is polled"]
-    pub fn gossip_when<'a, CR, CW, C, A, S>(
+    pub fn gossip_when<'a, CR, CW, C, A, W>(
         &'a self,
-        when: S,
+        when: W,
         link: &'a mut Link<CR, CW, C, A>,
-    ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
+    ) -> impl Stream<Item = Result<Gossiped, Error<B, S::Error>>> + Unpin + 'a
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
         A: Acceptor,
-        S: Stream<Item = ()> + 'a,
+        W: Stream<Item = ()> + 'a,
     {
         self.peer.gossip_when(when, link)
     }

@@ -40,6 +40,7 @@ use tokio::sync::Notify;
 
 use crate::common::flaky::{DurableStore, persisted_record};
 use crate::common::wire::tokio_block_on as block_on;
+use rumors::testing::SnapshotCollect as _;
 
 /// The message payload: a test-unique id.
 type Msg = u64;
@@ -192,9 +193,9 @@ async fn gossip(a: &Rumors<Msg, GatedBookmark>, b: &Rumors<Msg, GatedBookmark>) 
 fn leaf_version(rumors: &Rumors<Msg, GatedBookmark>, payload: Msg) -> Option<Version> {
     rumors
         .snapshot()
-        .iter()
-        .find(|(_, _, value)| ***value == payload)
-        .map(|(_, version, _)| version.clone())
+        .collected()
+        .find(|(_, _, value)| **value == payload)
+        .map(|(_, version, _)| version)
 }
 
 /// The staged world: A bookmarked and gated, B and C booted from it, one
@@ -225,7 +226,9 @@ async fn transmit_during_persist() -> Scene {
         .await
         .expect("a pristine seed attaches its bookmark without touching storage")
         .into_rumors();
-    a.send(M0);
+    a.send(M0)
+        .await
+        .expect("the in-memory backend is infallible");
 
     // Each serve records A's frontier, then slices the donated fork out of
     // the record — clearing the update-suppression token with no new own
@@ -254,7 +257,9 @@ async fn transmit_during_persist() -> Scene {
         })
     };
     bm_a.entered().await;
-    a.send(M1);
+    a.send(M1)
+        .await
+        .expect("the in-memory backend is infallible");
     bm_a.release();
     let (out_a, out_b) = tokio::join!(ga, gb);
     out_a.unwrap().expect("gated gossip side a");
@@ -293,8 +298,8 @@ fn record_dominates_the_transmitted_frontier() {
             .fold(Version::new(), |acc, clock| acc | clock.version());
         let transmitted = b.snapshot().latest().clone();
 
-        let own_transmitted = transmitted / &party;
-        let own_recorded = recorded / &party;
+        let own_transmitted = &transmitted / &party;
+        let own_recorded = &recorded / &party;
         assert!(
             own_transmitted <= own_recorded,
             "the session transmitted own-party events the persisted record does not \
@@ -332,14 +337,14 @@ fn cancelled_persist_never_suppresses_the_next_update() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        pollster::block_on(a.send(M0)).expect("the in-memory backend is infallible");
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
         let _c = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
         // M1 advances the frontier, so the next update stages a token for
         // M1's version and parks in the durable write; dropping the session
         // futures there cancels the persist mid-flight.
-        a.send(M1);
+        pollster::block_on(a.send(M1)).expect("the in-memory backend is infallible");
         bm_a.arm();
         let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
         let ga = {
@@ -380,8 +385,8 @@ fn cancelled_persist_never_suppresses_the_next_update() {
             .fold(Version::new(), |acc, clock| acc | clock.version());
         let transmitted = b.snapshot().latest().clone();
 
-        let own_transmitted = transmitted / &party;
-        let own_recorded = recorded / &party;
+        let own_transmitted = &transmitted / &party;
+        let own_recorded = &recorded / &party;
         assert!(
             own_transmitted <= own_recorded,
             "a session after a cancelled persist transmitted own-party events the durable \
@@ -440,7 +445,7 @@ fn restart_after_transmit_never_destroys_durable_messages() {
         // coordinate is the recycle this test exists to catch; several ticks
         // give a colliding placement every chance to occur.
         for i in 0..8 {
-            a2.send(100 + i);
+            pollster::block_on(a2.send(100 + i)).expect("the in-memory backend is infallible");
         }
 
         // Heal to a fixed point over clean wires.
@@ -507,7 +512,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        pollster::block_on(a.send(M0)).expect("the in-memory backend is infallible");
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
         let party_before = a
@@ -588,7 +593,7 @@ fn repeated_donation_aborts_normalize() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        pollster::block_on(a.send(M0)).expect("the in-memory backend is infallible");
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
         let party_before = a
             .dangerously_alias_party()

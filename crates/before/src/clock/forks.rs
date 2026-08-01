@@ -10,11 +10,23 @@ use crate::{party, Clock, Party, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
 ///
-/// Yields exactly `n` disjoint clocks, each pairing one balanced [`Party`]
-/// share with a clone of the parent's [`Version`]. The clock it borrows keeps
-/// the residual party share and its version, and is never left empty; party
-/// shares not taken before the iterator drops are rejoined into it (its version
-/// untouched).
+/// Yields exactly `n` disjoint clocks (at the one saturating input
+/// `n == u64::MAX`, one fewer — see [`Clock::forks`]), each pairing one
+/// balanced [`Party`] share with a clone of the parent's [`Version`]. The
+/// clock it borrows keeps the residual party share and its version, and is
+/// never left empty; party shares not taken before the iterator drops are
+/// rejoined into it (its version untouched).
+///
+/// # Complexity
+///
+/// A full drain is `O(S + n)` time and space: the party split's total
+/// packed share size `S` (see [`iter::Party`](crate::iter::Party)) plus
+/// one `O(1)` clone of the parent version per child (a clone shares the
+/// stored buffer). Each `next` pays one version clone plus its share of
+/// the split; an early drop rejoins as the party iterator does, cloning
+/// nothing.
+///
+/// **Complexity**: `O(S + n)`: the party split plus one `O(1)` version clone per child.
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.
@@ -26,7 +38,7 @@ pub struct Forks<'a> {
 impl<'a> Forks<'a> {
     /// Borrow `clock` and reserve `n` balanced child clocks. The public entry
     /// point is [`Clock::forks`].
-    pub(super) fn new(clock: &'a mut Clock, n: usize) -> Self {
+    pub(super) fn new(clock: &'a mut Clock, n: u64) -> Self {
         let Clock { party, version } = clock;
         let version: &Version = version; // the children only read it, to clone
         Forks {
@@ -62,6 +74,13 @@ impl ExactSizeIterator for Forks<'_> {}
 ///
 /// `N` must be at least 1, for the same reason as the [`Party`] split: a clock
 /// owns a nonempty party and cannot vanish into zero shares.
+///
+/// # Complexity
+///
+/// `O(S + N)` time and space: the party split's total packed share
+/// size `S` plus one `O(1)` clone of the version per child.
+///
+/// **Complexity**: `O(S + n)`: the party split plus one `O(1)` version clone per child.
 ///
 /// ```
 /// use before::Clock;

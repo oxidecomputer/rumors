@@ -1,8 +1,8 @@
-//! What can go wrong: [`Overlap`] (non-disjoint parties), [`Decode`]
-//! (non-canonical bytes), and [`Parse`] (malformed display text).
+//! What can go wrong: [`Overlap`] (non-disjoint parties), [`Crossed`]
+//! (crossed causal-range bounds), [`Decode`] (non-canonical bytes), and
+//! [`Parse`] (malformed display text).
 
-/// Two parties were not disjoint during [`Party::join`](crate::Party::join) or
-/// [`Clock::join`](crate::Clock::join).
+/// Two parties were not disjoint during [`Clock::sync`](crate::Clock::sync).
 ///
 /// ```
 /// use before::Clock;
@@ -14,8 +14,24 @@
 #[error("parties are not disjoint")]
 pub struct Overlap;
 
+/// A causal range's bounds crossed during composition: the start bound is
+/// not within the end bound (see [`causally::Range`](crate::causally::Range)).
+///
+/// ```
+/// use before::{Clock, causally};
+/// let mut clock = Clock::seed();
+/// let older = clock.tick().clone();
+/// let newer = clock.tick().clone();
+/// assert!(causally::delta(&newer, &older).is_err()); // the bounds cross
+/// ```
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, thiserror::Error)]
+#[error("range bounds cross: the start is not within the end")]
+pub struct Crossed;
+
 /// Why a byte string failed to decode into a [`Party`](crate::Party),
-/// [`Version`](crate::Version), or [`Clock`](crate::Clock).
+/// [`Version`](crate::Version), [`Clock`](crate::Clock),
+/// [`Rank`](crate::Rank), [`Ranked`](crate::Ranked), or
+/// [`Span`](crate::causally::Span).
 ///
 /// ```
 /// use before::Clock;
@@ -32,15 +48,17 @@ pub enum Decode {
     #[error("trailing or nonzero padding bits")]
     TrailingBits,
     /// The structure is well-formed but not in canonical normal form.
+    ///
+    /// Also the composite genre: well-formed components no encode ever
+    /// pairs — a [`Ranked`](crate::Ranked) key whose rank prefix the
+    /// version does not measure, a
+    /// [`Span`](crate::causally::Span) pair that is crossed or
+    /// concurrent — are the canonical spelling of no value, so they
+    /// reject here rather than under a per-type variant.
     #[error("input is not canonical")]
     NotCanonical,
-    /// The id region is the anonymous identity `0` (it owns no region). A
-    /// standalone [`Party`](crate::Party)/[`Clock`](crate::Clock) must own a
-    /// nonzero share of the unit interval `[0, 1)`.
-    #[error("party is anonymous")]
-    Anonymous,
     /// The underlying reader failed.
-    #[error("read error: {0:?}")]
+    #[error("read error: {0}")]
     Io(std::io::Error),
 }
 

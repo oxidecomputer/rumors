@@ -46,6 +46,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use latency::{DelayedReader, DelayedWriter, delayed_pipe};
+use rumors::testing::SnapshotCollect as _;
 
 /// One-way link delay; whole milliseconds per the timer wheel's grain.
 const DELAY: Duration = Duration::from_millis(10);
@@ -457,7 +458,7 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     send_random(&left, COMMON, &mut rng);
     let right = bootstrap_fork(&left);
 
-    let keys: Vec<Key> = left.snapshot().iter().map(|(k, _, _)| k).collect();
+    let keys: Vec<Key> = left.snapshot().collected().map(|(k, _, _)| k).collect();
     let mut shuffled = keys;
     shuffled.shuffle(&mut SmallRng::seed_from_u64(0x84f6_7932_1265_9eec));
     redact_all(&left, &shuffled[..REDACT_PER_SIDE]);
@@ -466,17 +467,14 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
 }
 
 fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut SmallRng) {
-    let mut batch = rumors.batch();
-    for _ in 0..count {
-        batch.send(rng.next_u64());
-    }
+    rumors::testing::commit((0..count).fold(rumors.batch(), |batch, _| batch.send(rng.next_u64())));
 }
 
 fn redact_all(rumors: &Rumors<u64>, keys: &[Key]) {
-    let mut batch = rumors.batch();
-    for key in keys {
-        batch.redact(*key);
-    }
+    rumors::testing::commit(
+        keys.iter()
+            .fold(rumors.batch(), |batch, key| batch.redact(*key)),
+    );
 }
 
 fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
@@ -525,29 +523,29 @@ fn trace_redaction_session() {
 /// side holding a two-leaf subtree under one root radix.
 ///
 /// The staging reuses `gossip_snapshot.rs`'s searched values: the
-/// initiator's two keys share first byte `67` and its ballast counterpart's
-/// three keys land at `21`, `2b`, and `54`, so no root child is populated
+/// initiator's two keys share first byte `b4` and its ballast counterpart's
+/// three keys land at `9f`, `e3`, and `e5`, so no root child is populated
 /// on both sides and the session is pure transfer in both directions.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let right = bootstrap_fork(&left);
-    left.batch().send(1).send(336);
-    right.batch().send(100).send(101).send(102);
+    rumors::testing::commit(left.batch().send(1).send(148));
+    rumors::testing::commit(right.batch().send(100).send(101).send(102));
 
     // Fixture self-checks: mirror the searched shape so drift in hashing or
     // version assignment fails here, not in the hop arithmetic.
     let radices: Vec<u8> = left
         .snapshot()
-        .iter()
+        .collected()
         .map(|(k, _, _)| k.as_bytes()[0])
         .collect();
     assert_eq!(radices.first(), radices.last(), "one exclusive subtree");
     assert!(
         right
             .snapshot()
-            .iter()
+            .collected()
             .all(|(k, _, _)| k.as_bytes()[0] != radices[0]),
         "no root child is populated on both sides"
     );

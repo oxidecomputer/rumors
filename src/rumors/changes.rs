@@ -4,6 +4,8 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use tokio::sync::watch;
 
+use crate::tree::backend::{Local, Store};
+
 use crate::Version;
 
 use super::unordered::Channel;
@@ -41,11 +43,11 @@ use super::unordered::Channel;
 /// A driver must also enter a session when the *remote* initiates, which is
 /// exactly what [`gossip_when`](crate::Rumors::gossip_when) adds; feed this
 /// stream to it rather than calling `gossip` yourself to gossip-on-change.
-pub struct Changes<T> {
+pub struct Changes<T: Send + Sync + 'static, S: Store<T> = Local> {
     /// The watch channel, or the in-flight wait for it to change; the same
     /// materialized-wait dance as [`UnorderedMessages`](crate::UnorderedMessages) (see its
     /// `channel` field docs for why the wait must own the receiver).
-    channel: Option<Channel<T>>,
+    channel: Option<Channel<T, S>>,
     /// The frontier most recently reported to the consumer: `None` until the
     /// first yield, so the first poll always finds news.
     seen: Option<Version>,
@@ -64,8 +66,8 @@ pub enum TryTick {
     Ended,
 }
 
-impl<T> Changes<T> {
-    pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
+impl<T: Send + Sync + 'static, S: Store<T>> Changes<T, S> {
+    pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T, S>>) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
             seen: None,
@@ -124,7 +126,7 @@ impl<T> Changes<T> {
 
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future, exactly as in [`UnorderedMessages`](crate::UnorderedMessages).
-impl<T: Send + Sync + 'static> Stream for Changes<T> {
+impl<T: Send + Sync + 'static, S: Store<T>> Stream for Changes<T, S> {
     type Item = ();
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

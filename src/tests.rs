@@ -17,8 +17,9 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::link::{Connector, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
 use crate::testing::{Quiescence, run_to_quiescence};
+use crate::tree::backend::Local;
 use crate::tree::{Root, Tree};
-use crate::{Error, Inner, Peer, Retire};
+use crate::{Error, Inner, Peer, Protocol, Retire};
 
 /// The preamble's wire length: magic(6) + proto_version(2) + network(16) +
 /// intent(1). The fault-injection budgets
@@ -27,11 +28,7 @@ const PREAMBLE_LEN: usize = 25;
 
 /// Insert each of `vals` into `k` as one committed batch.
 fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
-    let mut batch = k.batch();
-    for &v in vals {
-        batch.send(v);
-    }
-    drop(batch);
+    crate::testing::commit(vals.iter().fold(k.batch(), |batch, &v| batch.send(v)));
     k
 }
 
@@ -102,10 +99,12 @@ fn overlapping_retiree_party_is_rejected() {
         inner: watch::Sender::new(Inner {
             party: Some(party_of(&survivor)),
             tree: Tree {
+                backend: Local,
                 root: Root::default(),
             },
         }),
         bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+        commit: Arc::new(Mutex::new(())),
     };
 
     // Each side's future owns its link: the absorber rejects the overlap
@@ -267,7 +266,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized};
 
-    let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root.into();
+    let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root;
     let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root))
         .unwrap_or_else(|never| match never {});
     let listing = borsh::to_vec(&materialized::fan_listing(&fan)).expect("a listing serializes");
@@ -560,7 +559,10 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     let (escaped_root, _, escaped) =
         crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
     poisoned.inner.send_modify(|inner| {
-        inner.tree.join(Tree { root: escaped_root });
+        inner.tree.join_now(Tree {
+            backend: Local,
+            root: escaped_root,
+        });
     });
     assert!(
         !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),
@@ -630,17 +632,16 @@ fn root_hash_read_meter_is_live() {
 /// Pins the root-hash reads a batch commit performs: zero.
 ///
 /// The commit decides "did the tree change?" from the changed flag
-/// [`Tree::act`] returns, so no root hash is read — and none *forced* over
-/// the freshly rebuilt, memo-less copy-on-write spine — inside the watch
-/// critical section. Both the batch build and the commit run synchronously
-/// on this thread, so the bracketed count is exact.
+/// [`Tree::react`] returns, so no root hash is read — and none *forced*
+/// over the freshly rebuilt, memo-less copy-on-write spine — anywhere in
+/// the commit's phases. The commit future is driven to completion on this
+/// thread (`testing::commit` uses `pollster`, no spawns), so the bracketed
+/// count is exact.
 #[test]
 fn batch_commit_root_hash_reads() {
     let peer = with_messages(Peer::<u64>::seed(), &[1, 2]);
     let before = crate::tree::meter::root_hash_reads();
-    let mut batch = peer.batch();
-    batch.send(3);
-    drop(batch);
+    crate::testing::commit(peer.batch().send(3));
     assert_eq!(
         crate::tree::meter::root_hash_reads() - before,
         0,
@@ -680,5 +681,255 @@ fn gossip_session_root_hash_reads() {
         crate::tree::meter::root_hash_reads() - before,
         0,
         "a gossip session reads no root hash in either side's commit",
+    );
+}
+
+/// The gossip fork section waits on the commit lock.
+///
+/// Party linearity's first leg: a committer that stamped its actions from
+/// the pre-fork party but has not yet published must exclude any party
+/// *shrink*, or the donated fork's new owner could mint the coordinates
+/// the in-flight commit is about to publish (the classification lives at
+/// `Peer::commit`). This pins the mechanism, not just the stall: while
+/// the commit lock is parked — exactly a stalled `Batch::commit` — a
+/// session serving a bootstrap must not have *forked the party yet* (the
+/// donation happens inside the lock's critical section), and releasing
+/// the lock lets the donation and the session complete.
+#[tokio::test]
+async fn fork_section_waits_on_the_commit_lock() {
+    use futures::FutureExt as _;
+
+    let provider = Peer::<u64>::seed();
+    let parked = Arc::clone(&provider.commit);
+    let provider = provider.into_rumors();
+    crate::testing::commit(provider.batch().send(7));
+
+    // Park a committer: hold the commit lock as a commit stalled between
+    // its prep and publish would.
+    let guard = parked.lock_owned().await;
+    let before = provider
+        .dangerously_alias_party()
+        .expect("a live set holds its party");
+
+    // A newcomer bootstraps from the provider: serving the join *forks*
+    // the provider's party, and that fork happens inside the commit
+    // lock's critical section.
+    let (mut near, mut far) = memory();
+    let session = async {
+        tokio::join!(
+            Peer::<u64>::bootstrap().join(&mut near),
+            provider.gossip(&mut far),
+        )
+    };
+    let mut session = std::pin::pin!(session);
+
+    // Drive the joint session: it must park at the provider's fork
+    // section with the party still whole — the donation must not be
+    // sliced out from under the stalled committer.
+    for _ in 0..256 {
+        assert!(
+            session.as_mut().now_or_never().is_none(),
+            "the fork section must wait for the parked commit lock",
+        );
+    }
+    let during = provider
+        .dangerously_alias_party()
+        .expect("a live set holds its party");
+    assert_eq!(
+        before, during,
+        "no fork leaves the party while the commit lock is held",
+    );
+
+    // Release the committer; the donation proceeds and the session
+    // completes, narrowing the provider's party.
+    drop(guard);
+    let (joined, served) = session.await;
+    served.expect("the provider serves the join");
+    joined
+        .expect("the join session completes")
+        .expect("the provider is established");
+    let after = provider
+        .dangerously_alias_party()
+        .expect("a live set holds its party");
+    assert_ne!(before, after, "the released session donated a fork");
+}
+
+/// A V1 session on a storage-owning backend declines before any wire
+/// traffic.
+///
+/// The frozen alternating protocol runs on resident nodes, so a peer whose
+/// store owns its nodes must fail [`Protocol::V1`] sessions with
+/// [`Error::ProtocolUnsupported`] — and fail them *pre-wire*. One-sided
+/// completion is the pre-wire witness (an error that needed any round trip
+/// would park awaiting the absent counterparty), and a V1 counterparty
+/// that later drives the far end finds nothing to read.
+#[tokio::test]
+async fn v1_declines_a_storage_backed_peer_before_the_wire() {
+    let peer = Peer::<u64, NoBookmark, crate::conformance::backend::tests::Materializing>::seed_in(
+        crate::conformance::backend::tests::Materializing,
+    )
+    .protocol(Protocol::V1)
+    .into_rumors();
+    let (mut near, mut far) = memory();
+
+    let declined = run_to_quiescence(peer.gossip(&mut near)).expect("declines without a peer");
+    assert!(
+        matches!(
+            declined,
+            Err(Error::ProtocolUnsupported {
+                protocol: Protocol::V1
+            })
+        ),
+        "a storage-backed V1 session must decline as unsupported, got {declined:?}",
+    );
+
+    // Nothing crossed: a V1 counterparty on the far end writes its own
+    // preamble and then parks reading one that never arrived.
+    let counterparty = Peer::<u64>::seed().protocol(Protocol::V1).into_rumors();
+    let stalled = run_to_quiescence(counterparty.gossip(&mut far));
+    assert!(
+        matches!(stalled, Err(Quiescence::Stalled)),
+        "the declined side must have written nothing",
+    );
+}
+
+/// A V1 bootstrap on a storage-owning backend declines before any wire
+/// traffic.
+///
+/// The claimant-side twin of
+/// [`v1_declines_a_storage_backed_peer_before_the_wire`]: the entry gate
+/// fires in `bootstrap` exactly as in `gossip`, one-sided, before the
+/// preamble.
+#[tokio::test]
+async fn v1_declines_a_storage_backed_bootstrap_before_the_wire() {
+    let (mut near, _far) = memory();
+    let declined = run_to_quiescence(
+        Peer::<u64>::bootstrap()
+            .backend(crate::conformance::backend::tests::Materializing)
+            .protocol(Protocol::V1)
+            .join(&mut near),
+    )
+    .expect("declines without a peer");
+    assert!(
+        matches!(
+            declined,
+            Err(Error::ProtocolUnsupported {
+                protocol: Protocol::V1
+            })
+        ),
+        "a storage-backed V1 bootstrap must decline as unsupported",
+    );
+}
+
+/// A cancelled absorb recovers the retiree's donated identity.
+///
+/// The window: the retiring peer's party has crossed the wire and rides
+/// the absorber's install-or-recover guard while the session parks at the
+/// commit lock behind a stalled committer. Cancelling the session there
+/// must not strand the donation: the guard's drop joins it into the
+/// replica's party (pure growth, lock-free by the classification at
+/// `Peer::commit`).
+#[tokio::test]
+async fn cancelled_absorb_recovers_the_retirees_identity() {
+    use futures::FutureExt as _;
+
+    let absorber = Peer::<u64>::seed();
+    let lock = Arc::clone(&absorber.commit);
+    let absorber = absorber.into_rumors();
+
+    // The retiree joins the absorber's universe first: only a fellow
+    // member can retire into it.
+    let (mut a, mut b) = memory();
+    let (joined, served) = tokio::join!(
+        Peer::<u64>::bootstrap().join(&mut a),
+        absorber.gossip(&mut b),
+    );
+    served.expect("the absorber serves the join");
+    let retiree = joined
+        .expect("the join session completes")
+        .expect("the retiree is established");
+
+    let before = absorber
+        .dangerously_alias_party()
+        .expect("a live set holds its party");
+
+    // Park the commit lock before the session starts: the absorber's fork
+    // section queues on it first.
+    let guard = lock.clone().lock_owned().await;
+
+    let (mut far, mut near) = memory();
+    // The block scopes the session future: `pin!` pins it in a hidden
+    // local, so only leaving the block genuinely drops (cancels) it —
+    // dropping the `Pin<&mut _>` alone would not.
+    {
+        // `unconstrained`: the drive below hand-polls far past tokio's
+        // cooperative budget, which would otherwise freeze every tokio
+        // primitive mid-session and fake a park.
+        let session = tokio::task::unconstrained(async {
+            tokio::join!(absorber.gossip(&mut far), retiree.retire(&mut near))
+        });
+        let mut session = std::pin::pin!(session);
+
+        // Drive to the absorber's fork section, parked on the held lock.
+        for _ in 0..64 {
+            assert!(
+                session.as_mut().now_or_never().is_none(),
+                "the session must still be in flight",
+            );
+        }
+
+        // Queue a reclaim behind the parked fork section *before* releasing
+        // the guard: the mutex is queue-fair, so the lock passes fork section
+        // → reclaim, and the absorber's *install* — many wire round trips
+        // later — can only queue behind the reclaim. A single session poll
+        // can cross the whole wire exchange, so the reclaim must already be
+        // in the queue when the fork section releases.
+        let mut reclaim = Box::pin(lock.clone().lock_owned());
+        assert!(
+            (&mut reclaim).now_or_never().is_none(),
+            "the reclaim parks behind the held guard",
+        );
+        drop(guard);
+        let mut reclaimed = None;
+        for _ in 0..64 {
+            assert!(
+                session.as_mut().now_or_never().is_none(),
+                "the install queues behind the reclaim, never completing first",
+            );
+            if let Some(guard) = (&mut reclaim).now_or_never() {
+                reclaimed = Some(guard);
+                break;
+            }
+        }
+        let _guard = reclaimed.expect("the fork section releases the lock");
+
+        // Drive until the retiree's party has crossed and the absorber parks
+        // at the install's lock acquisition, donation riding the guard. The
+        // count is deliberately generous: every poll past the park is a cheap
+        // no-op, and the session must stay pending under all of them.
+        for _ in 0..65_536 {
+            assert!(
+                session.as_mut().now_or_never().is_none(),
+                "the install must wait for the reclaimed commit lock",
+            );
+        }
+        let during = absorber
+            .dangerously_alias_party()
+            .expect("a live set holds its party");
+        assert_eq!(
+            before, during,
+            "no donation installs while the lock is held"
+        );
+
+        // Leaving the block cancels the session with the donation in
+        // flight: the guard must recover it into the replica rather than
+        // strand it.
+    }
+    let after = absorber
+        .dangerously_alias_party()
+        .expect("a live set holds its party");
+    assert_ne!(
+        before, after,
+        "the cancelled absorb must recover the donated identity",
     );
 }

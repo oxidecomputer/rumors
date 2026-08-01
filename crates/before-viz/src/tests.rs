@@ -196,3 +196,24 @@ proptest! {
         prop_assert_eq!(run(), run());
     }
 }
+
+/// A hostile URL fragment whose varint overflows the index space rejects
+/// cleanly as `BadFragment`.
+///
+/// `read_varint` bounds its shift, so an over-wide varint can neither
+/// panic (debug assertions) nor silently mask into a wrong value (the
+/// release wasm the site ships). The fragments are
+/// `[tag 1, 0x80 x 10, 0x01]` base64url-encoded and its `0x00`-terminated
+/// alias — under a masked shift the second decodes to a valid index,
+/// making two distinct fragments alias one op. Any shared link can carry
+/// either.
+#[test]
+fn overlong_varint_fragment_rejects_cleanly() {
+    for hostile in ["AYCAgICAgICAgIAB", "AYCAgICAgICAgIAA"] {
+        let mut e = crate::Engine::new();
+        match e.load_fragment(hostile) {
+            Err(crate::EngineError::BadFragment(_)) => {}
+            other => panic!("an over-wide varint must reject as BadFragment, got {other:?}"),
+        }
+    }
+}

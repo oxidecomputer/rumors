@@ -239,6 +239,84 @@ proptest! {
         prop_assert_eq!(joined, root_version);
     }
 
+    /// Every node's floor is the meet of its descendant leaves' versions.
+    ///
+    /// The dual of `version_is_join_of_leaf_versions`: (a) the root floor
+    /// is ≤ every leaf's version, and (b) it is exactly the sequential
+    /// meet of all leaf versions, seeded from the first and folded in by
+    /// reference — the naive reference for the memoized balanced fold
+    /// (see `Node::floor`), so the memo never under- or over-reports the
+    /// history every leaf shares.
+    #[test]
+    fn floor_is_meet_of_leaf_versions(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
+    ) {
+        let root_floor = tree.floor().clone();
+        let leaves = enumerate_leaves(tree, Vec::new());
+
+        for (_, v, _) in &leaves {
+            prop_assert!(root_floor <= *v);
+        }
+
+        let mut versions = leaves.iter().map(|(_, v, _)| v);
+        let mut met = versions
+            .next()
+            .expect("a generated tree holds at least one leaf")
+            .clone();
+        for v in versions {
+            met &= v;
+        }
+        prop_assert_eq!(met, root_floor);
+    }
+
+    /// Every node's stored bounds span — not just the root's — is
+    /// exactly the hull of its own descendant leaves' versions.
+    ///
+    /// The root projections above can mask an interior drift: a wrong
+    /// child memo can meet/join away against its siblings'
+    /// contributions at the root. This walk holds the memoized span's
+    /// endpoints exact at every layer against the independent split
+    /// folds (`meet_all`/`join_all`, not the fused hull the memo
+    /// itself runs), and re-checks the interval ordering the stored
+    /// span carries by construction — the meet of a nonempty leaf set
+    /// never exceeds its join — so a broken hull door would surface as
+    /// a violated oracle here rather than ride the type unchecked.
+    #[test]
+    fn bounds_are_the_leaf_fold_at_every_node(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
+    ) {
+        fn check(node: &Node<()>) -> Result<Vec<Version>, TestCaseError> {
+            let floor = node.floor().clone();
+            let ceiling = node.ceiling().clone();
+            let leaves = match node.clone().into_children() {
+                Ok(children) => {
+                    let mut all = Vec::new();
+                    for (_, child) in children {
+                        all.extend(check(&child)?);
+                    }
+                    all
+                }
+                Err(leaf) => vec![leaf.ceiling().clone()],
+            };
+            prop_assert_eq!(
+                &Version::meet_all(&leaves).expect("every subtree holds a leaf"),
+                &floor,
+                "a node's floor must be its own leaves' meet"
+            );
+            prop_assert_eq!(
+                &Version::join_all(&leaves),
+                &ceiling,
+                "a node's ceiling must be its own leaves' join"
+            );
+            prop_assert!(
+                floor <= ceiling,
+                "the memoized bounds are an ordered interval at every node"
+            );
+            Ok(leaves)
+        }
+        check(&tree)?;
+    }
+
     /// Wrapping a child in N nested singleton branches accumulates an
     /// N-byte compressed prefix above it, committed in the child's own
     /// single preimage.
@@ -551,6 +629,216 @@ fn small_tree_hash_matches_byte_literal_preimage() {
     assert_eq!(tree.hash(), super::Hash::of(&preimage));
 }
 
+/// The branch bounds memo's fold-cost comparison, in deterministic
+/// counters, on a maximal-fanout branch.
+///
+/// The memo's one fold computes *both* bounds; its reading must sit
+/// strictly below the sequential by-reference two-fold shape.
+///
+/// The populations are `before`'s committed fold adversaries, one per
+/// lattice direction: the staggered join population (every operand's
+/// teeth land in every other's gaps, so a sequential accumulator never
+/// coalesces) and the meet-shade population (one deep carrier under
+/// dominating shades, so a sequential running meet never shrinks). Each
+/// population makes one direction adversarial; the sequential reference
+/// composes both directions, because that is what a memo delivering
+/// both bounds replaces. The counters are process-global and meaningful
+/// one scenario per process (nextest's model).
+#[cfg(feature = "meter")]
+mod memo_fold_cost {
+    use before::meter::{self, registry::Shape};
+
+    use super::super::{Node, fan::Fan};
+    use crate::{Version, message::Message};
+
+    /// Maximal branch fanout: one child per radix byte.
+    const FANOUT: usize = 256;
+
+    /// One full-fanout branch of leaves carrying `versions`, radix `i`
+    /// holding `versions[i]`, plus the same children for the reference
+    /// fold to walk (a fan clone bumps each child's `Arc`).
+    fn wide_branch(versions: Vec<Version>) -> (Node<()>, Fan<()>) {
+        assert_eq!(versions.len(), FANOUT, "one version per radix");
+        let children: Fan<()> = versions
+            .into_iter()
+            .enumerate()
+            .map(|(radix, version)| {
+                let radix = u8::try_from(radix).expect("radix fits: fanout is 256");
+                (radix, Node::leaf(version, Message::new(())))
+            })
+            .collect();
+        let node = Node::branch(children.clone()).expect("256 children make a branch");
+        (node, children)
+    }
+
+    /// `body`'s result with its `(limb ops, scanned bits)` reading.
+    fn metered<R>(body: impl FnOnce() -> R) -> (R, u64, u64) {
+        meter::reset_limb_ops();
+        meter::reset_scan_bits();
+        let out = body();
+        (out, meter::limb_ops(), meter::scan_bits())
+    }
+
+    /// The sequential by-reference two-fold reference over one child map.
+    ///
+    /// The running join of the ceilings and the running meet of the
+    /// floors (seeded from the first child, the meet's own seed rule),
+    /// with the composed `(limb ops, scan bits)` reading.
+    fn sequential_bounds(children: &Fan<()>) -> (Version, Version, u64, u64) {
+        let ((join, meet), limb, scan) = metered(|| {
+            let mut join = Version::new();
+            for child in children.values() {
+                join |= child.ceiling();
+            }
+            let mut values = children.values();
+            let mut meet = values
+                .next()
+                .expect("a branch always has >= 2 children")
+                .floor()
+                .clone();
+            for child in values {
+                meet &= child.floor();
+            }
+            (join, meet)
+        });
+        (join, meet, limb, scan)
+    }
+
+    /// Assert one currency's memo reading sits under the sequential
+    /// reading by at least `factor`, with both meters proven live.
+    fn assert_undercuts(name: &str, currency: &str, memo: u64, sequential: u64, factor: u64) {
+        assert!(
+            memo > 0 && sequential > 0,
+            "{name}: a zero {currency} reading means the fold left the metered kernels",
+        );
+        assert!(
+            memo * factor <= sequential,
+            "{name}: the span memo's {currency} ({memo}) is not {factor}x \
+             under the sequential two-fold shape's ({sequential})",
+        );
+    }
+
+    /// A maximal-fanout fringe branch's whole bounds memo undercuts the
+    /// sequential two-fold shape on the join-adversarial population.
+    ///
+    /// The memo's one fused balanced hull over the leaf versions buys
+    /// floor and ceiling together, and computes the identical bounds.
+    /// The staggered population keeps the sequential join accumulator
+    /// non-coalescing, so the left fold re-walks `O(k)` accumulated
+    /// teeth per child where the memo's balanced fold pays `O(log k)`
+    /// levels — and the memo's reading buys both bounds, where the
+    /// sequential reference must fold each direction separately; the
+    /// pinned x4 margin is conservative against the measured gap so
+    /// population drift cannot flake it.
+    #[test]
+    fn bounds_memo_undercuts_sequential_folds_on_the_stagger_population() {
+        let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
+        let versions: Vec<Version> = packed.iter().map(meter::Packed::version).collect();
+        let (node, children) = wide_branch(versions);
+
+        let (join, meet, seq_limb, seq_scan) = sequential_bounds(&children);
+        // Forcing either bound computes the whole span; the reading
+        // covers both.
+        let (ceiling, memo_limb, memo_scan) = metered(|| node.ceiling().clone());
+        assert_eq!(&ceiling, &join, "the memo ceiling is the sequential join");
+        assert_eq!(node.floor(), &meet, "the memo floor is the sequential meet");
+        eprintln!(
+            "MEASURED memo_bounds_fold_stagger: sequential limb={seq_limb} scan={seq_scan} \
+             span-memo limb={memo_limb} scan={memo_scan}",
+        );
+        assert_undercuts("stagger_bounds_memo", "limb ops", memo_limb, seq_limb, 4);
+        assert_undercuts("stagger_bounds_memo", "scan bits", memo_scan, seq_scan, 4);
+    }
+
+    /// A maximal-fanout fringe branch's whole bounds memo costs a small
+    /// fraction of the sequential two-fold shape on the
+    /// meet-adversarial population, and computes the identical bounds.
+    ///
+    /// The meet-shade population keeps the sequential running meet
+    /// carrier-sized at every step — a meet shrinks the value, never
+    /// necessarily the packed size — so the left fold re-sweeps the
+    /// deep carrier once per child where the memo's balanced fold
+    /// sweeps it once per level; the pinned x4 margin is conservative
+    /// against the measured gap so population drift cannot flake it.
+    #[test]
+    fn bounds_memo_undercuts_sequential_folds_on_the_meet_shade_population() {
+        let versions = Shape::MeetShade.versions(512, FANOUT);
+        let (node, children) = wide_branch(versions);
+
+        let (join, meet, seq_limb, seq_scan) = sequential_bounds(&children);
+        let (floor, memo_limb, memo_scan) = metered(|| node.floor().clone());
+        assert_eq!(&floor, &meet, "the memo floor is the sequential meet");
+        assert_eq!(
+            node.ceiling(),
+            &join,
+            "the memo ceiling is the sequential join"
+        );
+        eprintln!(
+            "MEASURED memo_bounds_fold_meet_shade: sequential limb={seq_limb} scan={seq_scan} \
+             span-memo limb={memo_limb} scan={memo_scan}",
+        );
+        assert_undercuts("meet_shade_bounds_memo", "limb ops", memo_limb, seq_limb, 4);
+        assert_undercuts(
+            "meet_shade_bounds_memo",
+            "scan bits",
+            memo_scan,
+            seq_scan,
+            4,
+        );
+    }
+
+    /// An interior branch's bounds memo — children handing up their own
+    /// memoized spans, folded through one balanced containment join —
+    /// still undercuts the sequential two-fold shape.
+    ///
+    /// The interior regime has no fused pair decode to share: different
+    /// children's floors and ceilings are distinct streams, so the
+    /// union's combines fold per endpoint, and the owned memo assembles
+    /// total with no separate hull walk to price. The population pairs
+    /// consecutive staggered versions into two-leaf child branches
+    /// (memos pre-forced, so the reading isolates the root's own fold),
+    /// keeping the sequential join accumulator non-coalescing across
+    /// the children's ceilings. The gap is structurally narrower than
+    /// the fringe tests' — half the fanout — so the pinned margin is x3
+    /// against a measured ~3.2x.
+    #[test]
+    fn interior_bounds_memo_undercuts_sequential_folds() {
+        let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
+        let mut versions = packed.iter().map(|packed| packed.version());
+        let children: Fan<()> = (0..FANOUT / 2)
+            .map(|radix| {
+                let pair: Fan<()> = [0u8, 1u8]
+                    .into_iter()
+                    .map(|slot| {
+                        let version = versions.next().expect("one version per slot");
+                        (slot, Node::leaf(version, Message::new(())))
+                    })
+                    .collect();
+                let child = Node::branch(pair).expect("two leaves make a branch");
+                // Force the child memo outside the measured window: the
+                // reading isolates the root's interior fold.
+                let _ = child.ceiling();
+                (
+                    u8::try_from(radix).expect("radix fits: half the fanout"),
+                    child,
+                )
+            })
+            .collect();
+        let node = Node::branch(children.clone()).expect("128 children make a branch");
+
+        let (join, meet, seq_limb, seq_scan) = sequential_bounds(&children);
+        let (ceiling, memo_limb, memo_scan) = metered(|| node.ceiling().clone());
+        assert_eq!(&ceiling, &join, "the memo ceiling is the sequential join");
+        assert_eq!(node.floor(), &meet, "the memo floor is the sequential meet");
+        eprintln!(
+            "MEASURED memo_bounds_fold_interior: sequential limb={seq_limb} scan={seq_scan} \
+             span-memo limb={memo_limb} scan={memo_scan}",
+        );
+        assert_undercuts("interior_bounds_memo", "limb ops", memo_limb, seq_limb, 3);
+        assert_undercuts("interior_bounds_memo", "scan bits", memo_scan, seq_scan, 3);
+    }
+}
+
 /// Growing the per-node allocation price must be a deliberate, reviewed
 /// decision, never a silent regression.
 ///
@@ -559,12 +847,17 @@ fn small_tree_hash_matches_byte_literal_preimage() {
 /// carry the branch variant's width, fan included.
 ///
 /// Measured on 64-bit: `Fan<()>` = 40 (8 capacity + 2 inline 16-byte
-/// entries), `Children<()>` = 136 (three memo cells, the leaf count, and
-/// the fan), `NodeInner<()>` = 184 (prefix `Vec` + hash memo + children).
+/// entries), `Children<()>` = 160 (the bounds-span memo, the
+/// version-bytes memo, the leaf count, and the fan), `NodeInner<()>` =
+/// 208 (prefix `Vec` + hash memo + children).
+// The dominant term is the branch variant's bounds-span memo: its two
+// `Cow<Version>` endpoints each carry a 40-byte Bytes-backed `Version`
+// handle — the handle cost that buys the O(1) clone every memo fold
+// and hand-back rides on.
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn node_inner_stays_within_budget() {
     assert!(std::mem::size_of::<Fan<()>>() <= 40);
-    assert!(std::mem::size_of::<super::Children<()>>() <= 136);
-    assert!(std::mem::size_of::<super::NodeInner<()>>() <= 184);
+    assert!(std::mem::size_of::<super::Children<()>>() <= 160);
+    assert!(std::mem::size_of::<super::NodeInner<()>>() <= 208);
 }

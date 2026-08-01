@@ -90,3 +90,115 @@ fn bootstrap_future_fits_budget() {
          see gossip_future_fits_budget for rationale",
     );
 }
+
+/// `Rumors::send` runs the commit protocol's build against the storage
+/// backend; its layout must stay handle-sized.
+///
+/// `send` carries `Batch::commit`'s state machine whole, so this also
+/// guards the commit path: the local traversal seams must not fold a
+/// protocol tower or a backend's build state into the public future.
+#[test]
+fn send_future_fits_budget() {
+    let alice: Rumors<u64> = Peer::seed().into_rumors();
+    let fut = alice.send(7);
+    let size = size_of_val(&fut);
+
+    assert!(
+        size <= PUBLIC_FUTURE_BUDGET,
+        "send future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+         see gossip_future_fits_budget for rationale",
+    );
+}
+
+/// `Batch::commit` on a multi-action batch is the same commit protocol as
+/// `send`, entered through the explicit builder.
+#[test]
+fn batch_commit_future_fits_budget() {
+    let alice: Rumors<u64> = Peer::seed().into_rumors();
+    let batch = alice.batch().send(1).send(2);
+    let fut = batch.commit();
+    let size = size_of_val(&fut);
+
+    assert!(
+        size <= PUBLIC_FUTURE_BUDGET,
+        "batch commit future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+         see gossip_future_fits_budget for rationale",
+    );
+}
+
+/// `Snapshot::get` descends through the backend's point-lookup seam; the
+/// public read future must stay a handle-sized descent, not a tower.
+#[test]
+fn snapshot_get_future_fits_budget() {
+    let alice: Rumors<u64> = Peer::seed().into_rumors();
+    let snapshot = alice.snapshot();
+    let key = rumors::Key::from([0u8; 32]);
+    let fut = snapshot.get(&key);
+    let size = size_of_val(&fut);
+
+    assert!(
+        size <= PUBLIC_FUTURE_BUDGET,
+        "snapshot get future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+         see gossip_future_fits_budget for rationale",
+    );
+}
+
+/// The KV entries' budget: the same order of magnitude, headroom for the
+/// honest handle delta.
+///
+/// A persistent node handle is four pointers wide (record `Arc`, span
+/// offset, resident hash) against the in-memory backend's one, and a
+/// session future legitimately carries several tree values; the failure
+/// mode this file exists to catch — a protocol tower inlined into the
+/// public layout — lands in the tens of KiB either way.
+const KV_PUBLIC_FUTURE_BUDGET: usize = 2 * 1024;
+
+/// The persistent backend's public futures stay flat.
+///
+/// The generic towers behind `Store`'s seams are `BoxFuture`-per-level,
+/// so a `send`, a batch `commit`, a snapshot `get`, and a `gossip` on a
+/// KV-backed set must not inline the 32-level descent into the caller's
+/// layout.
+#[test]
+fn kv_backed_futures_fit_budget() {
+    use rumors::{KvBackend, Memory, NoBookmark};
+    let alice: Rumors<(), NoBookmark, KvBackend<Memory, ()>> =
+        Peer::seed_in(KvBackend::new(Memory::default()))
+            .sync_window_floor()
+            .into_rumors();
+
+    let send = alice.send(());
+    assert!(
+        size_of_val(&send) <= KV_PUBLIC_FUTURE_BUDGET,
+        "KV send future is {} bytes, exceeds budget {KV_PUBLIC_FUTURE_BUDGET}",
+        size_of_val(&send),
+    );
+    drop(send);
+
+    let batch = alice.batch().send(()).commit();
+    assert!(
+        size_of_val(&batch) <= KV_PUBLIC_FUTURE_BUDGET,
+        "KV batch-commit future is {} bytes, exceeds budget {KV_PUBLIC_FUTURE_BUDGET}",
+        size_of_val(&batch),
+    );
+    drop(batch);
+
+    let snapshot = alice.snapshot();
+    let key = rumors::Key::from([0u8; 32]);
+    let get = snapshot.get(&key);
+    assert!(
+        size_of_val(&get) <= KV_PUBLIC_FUTURE_BUDGET,
+        "KV snapshot-get future is {} bytes, exceeds budget {KV_PUBLIC_FUTURE_BUDGET}",
+        size_of_val(&get),
+    );
+    drop(get);
+
+    let (mut link, other) = rumors::link::memory();
+    drop(other);
+    let gossip = alice.gossip(&mut link);
+    assert!(
+        size_of_val(&gossip) <= KV_PUBLIC_FUTURE_BUDGET,
+        "KV gossip future is {} bytes, exceeds budget {KV_PUBLIC_FUTURE_BUDGET}",
+        size_of_val(&gossip),
+    );
+}

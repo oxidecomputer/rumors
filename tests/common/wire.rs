@@ -16,10 +16,15 @@ use rumors::{Peer, Protocol, Rumors, testing::run_to_quiescence};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
+// clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+// fallback-TLS lowering (illumos among the gate's targets) and denies
+// initializers that already sit in `const` blocks; the allow keeps
+// `-D warnings` honest on every platform the gate runs.
 thread_local! {
     /// One current-thread tokio runtime per test thread, reused across
     /// cases so proptest doesn't pay the cost of spinning a runtime up per
     /// generated example.
+    #[allow(clippy::missing_const_for_thread_local)]
     static RT: OnceCell<Runtime> = const { OnceCell::new() };
 }
 

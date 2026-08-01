@@ -6,10 +6,10 @@
 //! multi-thread runtime. Neither samples a *chosen* interleaving: a
 //! session that forks its working state at one point in the schedule and
 //! installs at a later one, with arbitrary events (including whole other
-//! sessions) in between. That gap is where a real defect lived — a
-//! dependency fault whose downstream symptom was an innocent leaf lost
-//! under exactly such an overlap (`imbl` issue 161, discovered 2026-07)
-//! — so overlap is now a first-class, deterministically schedulable
+//! sessions) in between. That gap is where a real defect lived — its
+//! downstream symptom was an innocent leaf silently lost under exactly
+//! such an overlap — so overlap is a first-class, deterministically
+//! schedulable
 //! event: [`Session`] is one in-flight wire session driven by hand, and
 //! [`execute_overlap`] runs a generated [`OverlapSchedule`] whose
 //! sessions open, park, and close at generated points.

@@ -1,18 +1,28 @@
 //! `borsh` support (feature-gated).
 //!
 //! Each type's borsh representation is exactly its canonical byte encoding:
-//! [`Party::as_bytes`], [`Version::as_bytes`], or [`Clock::encode`]. The tree
-//! encodings are prefix-free, so a decoder finds their ends from the encoding
-//! itself; no borsh length prefix is needed. This also lets values compose
-//! inside a larger borsh stream while preserving their in-memory wire form.
+//! [`Party::as_bytes`], [`Version::as_bytes`], [`Clock::encode`],
+//! [`Rank::encode`], [`Ranked::encode`], or [`Span::encode`]. The encodings are
+//! self-delimiting — the tree codes prefix-free, the rank stream closed by
+//! its fraction's terminating bit — so a decoder finds their ends from the
+//! encoding itself; no borsh length prefix is needed. This also lets values
+//! compose inside a larger borsh stream while preserving their in-memory
+//! wire form.
+//!
+//! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
+//! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes
+//! to their source, so their linearity notes apply verbatim at this door
+//! ([Safety rules](crate#safety-rules)).
 
 use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
-    codec::{self, Base, BitCursor, Bits},
+    causally::Span,
+    codec::{self, Base, BitCursor, BitsMut},
     error::Decode,
-    Clock, Party, Version,
+    version::decode_rank_stream,
+    Clock, Party, Rank, Ranked, Version,
 };
 
 /// A bit cursor which reads only as far as one canonical tree requires.
@@ -53,8 +63,8 @@ impl<'a, R> ReaderCursor<'a, R> {
         }
     }
 
-    fn finish(self) -> Result<Bits, Decode> {
-        let mut bits = Bits::from_vec(self.bytes);
+    fn finish(self) -> Result<BitsMut, Decode> {
+        let mut bits = BitsMut::from_vec(self.bytes);
         codec::require_zero_padding(&bits, self.position)?;
         bits.truncate(self.position);
         Ok(bits)
@@ -102,16 +112,16 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
 }
 
 /// Read and validate one byte-aligned canonical id tree.
-fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<Bits> {
+fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<BitsMut> {
     let mut cursor = ReaderCursor::new(reader);
     codec::parse_id_from(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
 }
 
-/// Read and validate one byte-aligned canonical event tree.
-fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<Bits> {
+/// Read and validate one byte-aligned canonical skyline event stream.
+fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<BitsMut> {
     let mut cursor = ReaderCursor::new(reader);
-    codec::parse_ev_from(&mut cursor).map_err(decode_error)?;
+    crate::version::skyline::validate_from(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
 }
 
@@ -130,10 +140,10 @@ impl BorshSerialize for Party {
 
 impl BorshDeserialize for Party {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        // The id grammar has no empty production (a starved reader rejects
+        // inside the parse), so the parsed id is a nonzero share — the
+        // standalone-party invariant (paper §3: `i ≠ 0`) holds structurally.
         let bits = deserialize_id(reader)?;
-        if codec::id_is_empty(&bits) {
-            return Err(decode_error(Decode::Anonymous));
-        }
         Ok(Party::from_bits(bits))
     }
 }
@@ -161,6 +171,108 @@ impl BorshDeserialize for Clock {
         let party = Party::deserialize_reader(reader)?;
         let version = Version::deserialize_reader(reader)?;
         Ok(Clock::from_parts(party, version))
+    }
+}
+
+/// The canonical lexicographic bytes of [`Rank::encode`], unframed.
+///
+/// Borsh is a transport for the one wire form, never a second format,
+/// so byte-wise order on the serialized bytes is still [`Ord`] on
+/// ranks, and the numerator–exponent pair stays off the wire (the
+/// decompression-bomb hazard [`Rank::encode`] documents).
+impl BorshSerialize for Rank {
+    fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        self.encode_to(writer)
+    }
+}
+
+/// Reads exactly one canonical rank stream: self-delimiting, so the
+/// bytes after its closing bit belong to the next borsh field.
+impl BorshDeserialize for Rank {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        decode_rank_stream(|| {
+            let mut byte = [0];
+            reader.read_exact(&mut byte).map_err(Decode::Io)?;
+            Ok(byte[0])
+        })
+        .map_err(decode_error)
+    }
+}
+
+/// The canonical composite key of [`Ranked::encode`], unframed: the
+/// rank's self-delimiting stream, then the version's canonical bytes.
+///
+/// Borsh is a transport for the one wire form, never a second format,
+/// so byte-wise order on the serialized bytes is still [`Ord`] on the
+/// views, ties included — the causal ordering survives the transport.
+impl BorshSerialize for Ranked<'_> {
+    fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        self.encode_to(writer)
+    }
+}
+
+/// Reads exactly one composite key: the self-delimiting rank stream,
+/// then one canonical version stream.
+///
+/// The parsed rank is verified against the version's own rank fold
+/// ([`Ranked::decode`]'s contract), and the bytes after the version
+/// belong to the next borsh field.
+impl BorshDeserialize for Ranked<'static> {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let rank = decode_rank_stream(|| {
+            let mut byte = [0];
+            reader.read_exact(&mut byte).map_err(Decode::Io)?;
+            Ok(byte[0])
+        })
+        .map_err(decode_error)?;
+        let version = Version::deserialize_reader(reader)?;
+        if version.rank() != rank {
+            return Err(decode_error(Decode::NotCanonical));
+        }
+        Ok(Ranked::from(version))
+    }
+}
+
+/// The canonical composite of [`Span::encode`], unframed: the meet's
+/// canonical bytes, then the join's.
+///
+/// Borsh is a transport for the one wire form, never a second format;
+/// both components are byte-aligned and self-delimiting, so the
+/// composite needs no length prefix inside a larger stream.
+impl BorshSerialize for Span<'_> {
+    fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        self.encode_to(writer)
+    }
+}
+
+/// Reads exactly one composite span: two byte-aligned canonical version
+/// streams, the second parsed and validated against the first in one
+/// fused pass.
+///
+/// [`Span::decode`]'s contract exactly — crossed and concurrent pairs
+/// rejected — with the bytes after the join belonging to the next
+/// borsh field.
+impl BorshDeserialize for Span<'static> {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        use crate::version::skyline::Admission;
+        let lo = Version::deserialize_reader(reader)?;
+        let mut cursor = ReaderCursor::new(reader);
+        let admission = crate::version::skyline::validate_dominating_from(lo.view(), &mut cursor)
+            .map_err(decode_error)?;
+        // The final byte's padding check outranks the pair verdict,
+        // exactly as the byte-slice decode orders them.
+        let bits = cursor.finish().map_err(decode_error)?;
+        let hi = match admission {
+            Admission::Refuted => return Err(decode_error(Decode::NotCanonical)),
+            // The coincident span stores one buffer twice: the admission
+            // walk proved the second stream byte-equal to the first, so
+            // the join is the meet's clone — an `O(1)` refcount bump the
+            // ptr_eq fast paths then recognize — and the parsed bits are
+            // dropped unstored.
+            Admission::Equal => lo.clone(),
+            Admission::Dominates => Version::from_bits(bits),
+        };
+        Ok(Span::owned(lo, hi))
     }
 }
 

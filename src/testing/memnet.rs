@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::io::{DuplexStream, duplex};
 use tokio::sync::mpsc;
 
-use crate::link::routed::{Addr, Dial, Listen};
+use crate::link::routed::{Addr, Dial, Listen, Unencodable};
 
 /// Bytes each connection buffers per direction before its writer
 /// blocks on its reader.
@@ -40,8 +40,11 @@ impl MemoryName {
 }
 
 impl Addr for MemoryName {
-    fn encode(&self) -> Vec<u8> {
-        self.0.clone().into_bytes()
+    // UTF-8 carries every string faithfully, so encoding never
+    // refuses; the endpoint's construction-time length check still
+    // binds the name to the header's bounds.
+    fn encode(&self) -> Result<Vec<u8>, Unencodable> {
+        Ok(self.0.clone().into_bytes())
     }
 
     fn decode(bytes: &[u8]) -> Option<Self> {

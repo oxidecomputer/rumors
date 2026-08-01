@@ -19,7 +19,7 @@ use rumors::{Key, Rumors, Version, causally};
 use crate::common::wire::{block_on, wire_gossip_async};
 
 /// One simulated peer.
-pub struct Peer<T> {
+pub struct Peer<T: Send + Sync + 'static> {
     pub local: Rumors<T>,
     /// The causal frontier up to which `observations` is complete: each
     /// drain records the live leaves not contained here, then absorbs the
@@ -64,9 +64,10 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
     pub fn drain(&mut self) -> usize {
         let snapshot = self.local.snapshot();
         let mut new = 0;
-        for (key, version, message) in snapshot.range(causally::since(&self.checkpoint)) {
-            self.observations
-                .push((key, version.clone(), (**message).clone()));
+        for (key, version, message) in
+            rumors::testing::collect_range(&snapshot, causally::since(&self.checkpoint))
+        {
+            self.observations.push((key, version, (*message).clone()));
             new += 1;
         }
         self.checkpoint |= snapshot.latest();
@@ -78,7 +79,7 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
         // Catch the log up first, so the send's drain isolates exactly the
         // one new observation and its key.
         self.drain();
-        self.local.send(value);
+        pollster::block_on(self.local.send(value)).expect("the in-memory backend is infallible");
         let pre = self.observations.len();
         let drained = self.drain();
         assert_eq!(drained, 1, "a send mints exactly one new observation");
@@ -86,7 +87,7 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
     }
 
     pub fn redact_one(&mut self, key: Key) {
-        self.local.redact(key);
+        pollster::block_on(self.local.redact(key)).expect("the in-memory backend is infallible");
         // Redactions fire no observation; the drain just absorbs the
         // version tick into the checkpoint.
         self.drain();

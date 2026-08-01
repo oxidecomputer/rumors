@@ -82,7 +82,7 @@ fn streaming_mirror_sides_with_schedules(
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
 ) -> (Root<()>, Root<()>) {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
+    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a, b);
     let client = Handshaking::start(Local, a.clone()).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b.clone()).window(WindowConfig::FLOOR);
     let (result, trace) = with_trace(|| {
@@ -98,7 +98,7 @@ fn streaming_mirror_sides_with_schedules(
         // violations — which two honest local endpoints must never speak.
         .expect("local mirror speaks no violations");
     trace.assert_valid();
-    (ours.into(), theirs.into())
+    (ours, theirs)
 }
 
 /// Reconcile through the local backend, returning both roots, the validated
@@ -111,7 +111,7 @@ fn transcribed_mirror_sides<T: Send + Sync + 'static>(
     a: Root<T>,
     b: Root<T>,
 ) -> (Root<T>, Root<T>, Trace, Transcript) {
-    let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
+    let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a, b);
     let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let ((result, trace), transcript) =
@@ -120,7 +120,7 @@ fn transcribed_mirror_sides<T: Send + Sync + 'static>(
         .expect("streaming mirror became quiescent before completion")
         .expect("local mirror speaks no violations");
     trace.assert_valid();
-    (ours.into(), theirs.into(), trace, transcript)
+    (ours, theirs, trace, transcript)
 }
 
 /// Reconcile `a` and `b` through the streaming local backend, asserting the
@@ -252,7 +252,7 @@ fn uncontained_supply_is_rejected_by_streaming() {
 
     let (receiver, poisoned, _, _) = uncontained_supply_pair();
     let (receiver, poisoned): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
-        (receiver.into(), poisoned.into());
+        (receiver, poisoned);
     let client = Handshaking::start(Local, receiver).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, poisoned).window(WindowConfig::FLOOR);
     let result = run_to_quiescence(drive_streaming(client, server))

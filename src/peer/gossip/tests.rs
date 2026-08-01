@@ -67,8 +67,8 @@ fn concurrent_exchange_is_symmetric() {
 
     let (left, right) = pollster::block_on(async {
         tokio::join!(
-            epilogue(&mut left_read, &mut left_write),
-            epilogue(&mut right_read, &mut right_write),
+            epilogue::<std::convert::Infallible>(&mut left_read, &mut left_write),
+            epilogue::<std::convert::Infallible>(&mut right_read, &mut right_write),
         )
     });
     left.expect("left epilogue completes");
@@ -128,7 +128,11 @@ fn bytes_after_the_marker_stay_untouched() {
     let bytes = [EPILOGUE_MARKER, b'R', b'U'];
     let mut reader = &bytes[..];
     let mut writer = tokio::io::sink();
-    pollster::block_on(epilogue(&mut reader, &mut writer)).expect("the marker completes");
+    pollster::block_on(epilogue::<std::convert::Infallible>(
+        &mut reader,
+        &mut writer,
+    ))
+    .expect("the marker completes");
     assert_eq!(reader, b"RU", "the next session's bytes were consumed");
 }
 
@@ -145,19 +149,15 @@ fn bytes_after_the_marker_stay_untouched() {
 /// version.
 fn redacted_history_root(events: u64) -> tree::Root<u64> {
     let donor = Peer::<u64>::seed();
-    {
-        let mut batch = donor.batch();
-        for v in 0..events {
-            batch.send(v);
-        }
-    }
-    let keys: Vec<_> = donor.snapshot().iter().map(|(key, _, _)| key).collect();
-    {
-        let mut batch = donor.batch();
-        for key in keys {
-            batch.redact(key);
-        }
-    }
+    crate::testing::commit((0..events).fold(donor.batch(), |batch, v| batch.send(v)));
+    let keys: Vec<_> = crate::testing::collect(&donor.snapshot())
+        .into_iter()
+        .map(|(key, _, _)| key)
+        .collect();
+    crate::testing::commit(
+        keys.into_iter()
+            .fold(donor.batch(), |batch, key| batch.redact(key)),
+    );
     let snapshot = donor.snapshot();
     assert!(snapshot.is_empty(), "every message was redacted");
     assert!(
@@ -190,7 +190,7 @@ async fn claim_bootstrap_v2(
     )
     .await
     .map_err(Error::from)?;
-    let local_root: streaming::Root<Local, u64> = root.into();
+    let local_root: streaming::Root<Local, u64> = root;
     let local = materialized::Handshaking::start(Local, local_root);
     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
     let proxy = streaming_remote::Handshaking::start(Local, carrier);
@@ -201,7 +201,13 @@ async fn claim_bootstrap_v2(
     let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
     let party = party::receive(&mut read).await?;
     epilogue(&mut read, &mut write).await?;
-    Ok((party, Tree { root: root.into() }))
+    Ok((
+        party,
+        Tree {
+            backend: Local,
+            root,
+        },
+    ))
 }
 
 /// Drive one V1 session as a bootstrap claimant whose greeting version comes
@@ -234,18 +240,23 @@ async fn claim_bootstrap_v1(
     let (root, (read, _write)) = descent.await.map_err(alternating_error)?;
     let mut read = read.into_inner();
     let party = party::receive(&mut read).await?;
-    Ok((party, Tree { root }))
+    Ok((
+        party,
+        Tree {
+            backend: Local,
+            root,
+        },
+    ))
 }
 
 /// A provider holding `values`, plus its pre-session content hash.
 fn provider_with(values: &[u64]) -> Peer<u64> {
     let provider = Peer::<u64>::seed();
-    {
-        let mut batch = provider.batch();
-        for &v in values {
-            batch.send(v);
-        }
-    }
+    crate::testing::commit(
+        values
+            .iter()
+            .fold(provider.batch(), |batch, &v| batch.send(v)),
+    );
     provider
 }
 
@@ -279,6 +290,7 @@ fn v2_bootstrap_claimant_declaring_history_is_rejected() {
     let hash_before = provider.snapshot().hash();
     let party_before = party_of(&provider);
     let claimant_tree = Tree {
+        backend: Local,
         root: redacted_history_root(8),
     };
     let claimed_min_events = claimant_tree.latest().min_ticks();
@@ -344,6 +356,7 @@ fn v1_bootstrap_claimant_declaring_history_is_rejected() {
     let hash_before = provider.snapshot().hash();
     let party_before = party_of(&provider);
     let claimant_tree = Tree {
+        backend: Local,
         root: redacted_history_root(8),
     };
     let claimed_min_events = claimant_tree.latest().min_ticks();

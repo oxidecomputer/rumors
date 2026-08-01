@@ -45,9 +45,7 @@ pub fn arb_version() -> BoxedStrategy<Version> {
         .prop_map(|(party, ticks)| {
             let p = nth_party(party);
             let mut v = Version::new();
-            for _ in 0..ticks {
-                v.tick(&p);
-            }
+            v.ticks(&p, ticks);
             v
         })
         .boxed()
@@ -111,9 +109,7 @@ pub fn arb_tree_root(
             // empty tree exercises a non-default root version.
             let p = nth_party(party);
             let mut extra = Version::new();
-            for _ in 0..extra_ticks {
-                extra.tick(&p);
-            }
+            extra.ticks(&p, extra_ticks);
             crate::tree::Root {
                 ceiling: extra | inner,
                 root: node,
@@ -233,6 +229,67 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
         .boxed()
 }
 
+/// A divergent pair whose sides share a spine of drawn depth before their
+/// novelty splits: the constructed analogue of a hash-prefix collision.
+///
+/// Content-addressed generators cannot produce this shape — blake3 scatters
+/// their keys at the root fan, so a merge's divergent descent below the
+/// root is reachable only through chosen paths like these. Both sides
+/// extend one shared leaf whose all-zero path pins the spine; each side's
+/// novelty diverges at the drawn byte position and rides its own disjoint
+/// party, so it is concurrent and survives deletion-pruning. Novelty
+/// widths draw zero too, so subset, identical, and ceiling-only merges —
+/// a changed flag's `false` arm — are sampled at depth alongside the
+/// gains.
+pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
+    (0usize..32, 0u8..5, 0u8..5)
+        .prop_map(|(depth, a_width, b_width)| {
+            let path_at = |branch: u8| {
+                let mut bytes = [0u8; 32];
+                bytes[depth] = branch;
+                Path::from(bytes)
+            };
+
+            let mut shared_version = Version::new();
+            shared_version.tick(&nth_party(0));
+            let base = act(
+                None,
+                vec![(
+                    path_at(0),
+                    shared_version.clone(),
+                    Action::Insert(Message::new(())),
+                )],
+                |_| (),
+            );
+
+            // One side: `width` sibling leaves diverging at `depth`, all on
+            // the side's own party. The branch ranges are disjoint across
+            // sides so novelty never collides into a same-path dispute.
+            let side = |party_index: usize, first_branch: u8, width: u8| {
+                let mut version = Version::new();
+                version.tick(&nth_party(party_index));
+                let leaves: Vec<_> = (first_branch..first_branch + width)
+                    .map(|branch| {
+                        (
+                            path_at(branch),
+                            version.clone(),
+                            Action::Insert(Message::new(())),
+                        )
+                    })
+                    .collect();
+                let node = if leaves.is_empty() {
+                    base.clone()
+                } else {
+                    act(base.clone(), leaves, |_| ())
+                };
+                root_with_ceiling(node, shared_version.clone() | version)
+            };
+
+            (side(1, 1, a_width), side(2, 5, b_width))
+        })
+        .boxed()
+}
+
 /// A deterministic pair with the streaming deadlock's trigger geometry.
 ///
 /// The radix-*first* root child is disputed (both sides hold divergent,
@@ -290,9 +347,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
     };
     let burnt = |party: &Party, ticks: usize| {
         let mut version = Version::new();
-        for _ in 0..ticks {
-            version.tick(party);
-        }
+        version.ticks(party, ticks);
         version
     };
 
@@ -372,11 +427,36 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
     /// the pair is built.
     const ESCAPE_MARGIN: usize = 64;
 
+    // The party pair: disjoint parties whose single-tick versions order
+    // the *sender's* above the receiver's in canonical bytes, so the
+    // poisoned sender wins the initiator election (live counts tie at one
+    // leaf each, and greater version bytes initiate). As the initiator,
+    // the sender ships the escaped leaf up front and still owes protocol
+    // when the receiver aborts on ingesting it, which lets the wire-level
+    // tripwires pin that the sender's session dies with its counterparty.
+    // Version bytes are a function of the wire coding, so the ordered
+    // pair is searched, never hardcoded.
+    let single_tick = |n: usize| {
+        let party = nth_party(n);
+        let mut version = Version::new();
+        version.tick(&party);
+        (party, version)
+    };
+    let (receiver_party, receiver_version, sender_party, declared) = (0..8)
+        .flat_map(|r| (0..8).map(move |s| (r, s)))
+        .filter(|(r, s)| r != s)
+        .map(|(r, s)| {
+            let (receiver_party, receiver_version) = single_tick(r);
+            let (sender_party, declared) = single_tick(s);
+            (receiver_party, receiver_version, sender_party, declared)
+        })
+        .find(|(_, receiver_version, _, declared)| {
+            declared.as_bytes() > receiver_version.as_bytes()
+        })
+        .expect("some ordered pair of single-tick versions must order by canonical bytes");
+
     // The receiving side's honest content: one leaf on its own party,
     // ceiling covering it, exactly as `Tree::act` would leave it.
-    let receiver_party = nth_party(0);
-    let mut receiver_version = Version::new();
-    receiver_version.tick(&receiver_party);
     let receiver_message = Message::new(());
     let receiver_path = Path::for_leaf(&receiver_version, receiver_message.bytes());
     let receiver = root_with_ceiling(
@@ -391,11 +471,6 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
         ),
         receiver_version.clone(),
     );
-
-    // The sender's declared version: one tick on its own disjoint party.
-    let sender_party = nth_party(1);
-    let mut declared = Version::new();
-    declared.tick(&sender_party);
 
     // The escaped version: strictly above everything either side declared,
     // by a margin the test's own honest ticks never close.
@@ -436,7 +511,10 @@ fn leaf_sibling_path(last: u8) -> Path {
 
 /// Wrap an optional root node in a [`tree::Root`](crate::tree::Root) with the
 /// given ceiling.
-fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate::tree::Root<T> {
+fn root_with_ceiling<T: Send + Sync + 'static>(
+    node: Option<Node<T, Root>>,
+    ceiling: Version,
+) -> crate::tree::Root<T> {
     crate::tree::Root {
         ceiling,
         root: node,

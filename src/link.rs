@@ -336,7 +336,7 @@ impl SessionState {
     /// wire traffic, so a session that fails or is cancelled at any point,
     /// even before its first byte, leaves the link poisoned; only the
     /// session funnels' clean-completion [`finish`](Self::finish) clears it.
-    pub(crate) fn begin(&mut self) -> Result<u8, crate::Error> {
+    pub(crate) fn begin<E>(&mut self) -> Result<u8, crate::Error<crate::bookmark::NoBookmark, E>> {
         if self.poisoned {
             return Err(crate::Error::LinkPoisoned);
         }

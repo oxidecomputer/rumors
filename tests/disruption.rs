@@ -217,10 +217,12 @@ async fn run_proc_plan(plan: ProcPlan) {
     // so inbound sessions can overlap arbitrarily.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
-        let mut batch = seed.batch();
-        for &v in &plan.seed_messages {
-            batch.send(v);
-        }
+        plan.seed_messages
+            .iter()
+            .fold(seed.batch(), |batch, &v| batch.send(v))
+            .commit()
+            .await
+            .expect("the in-memory backend is infallible");
     }
     let mut casts: Vec<Rumors<u64>> = vec![seed];
     for _ in 1..plan.n_parent_peers {
@@ -458,7 +460,10 @@ async fn child_main(addr: String) -> i32 {
         let handle = cast.clone();
         tokio::spawn(async move {
             for s in 0..n_sends {
-                handle.send(child_value(index, s));
+                handle
+                    .send(child_value(index, s))
+                    .await
+                    .expect("the in-memory backend is infallible");
                 tokio::task::yield_now().await;
             }
         })

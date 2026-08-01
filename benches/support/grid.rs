@@ -55,10 +55,12 @@ pub const REDACTED: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 /// zero bytes, so fixtures measure tree / clock / hashing work, not payload
 /// serialization.
 pub fn send_units(rumors: &Rumors<()>, n: usize) {
-    let mut batch = rumors.batch();
-    for _ in 0..n {
-        batch.send(());
-    }
+    pollster::block_on(
+        (0..n)
+            .fold(rumors.batch(), |batch, _| batch.send(()))
+            .commit(),
+    )
+    .expect("the in-memory backend is infallible");
 }
 
 /// Criterion samples for a fixture of the given build magnitude. The largest
@@ -155,7 +157,10 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
     // The shared prefix's keys, for carving the redaction blocks; order is
     // immaterial (the blocks only need to be disjoint and deterministic, and
     // the snapshot iterates in a stable order).
-    let shared: Vec<Key> = left.snapshot().iter().map(|(k, _, _)| k).collect();
+    let shared: Vec<Key> = rumors::testing::collect(&left.snapshot())
+        .into_iter()
+        .map(|(k, _, _)| k)
+        .collect();
 
     let right = wire::bootstrap_fork(&left, Protocol::V2);
     send_units(&left, differing);
@@ -166,15 +171,20 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
         // prefix, so the other must honor `redacted` deletions it never made.
         // `cells` guarantees `common >= 2 * redacted`, so the slices don't
         // overlap and are in bounds.
-        let mut batch = left.batch();
-        for key in &shared[..redacted] {
-            batch.redact(*key);
-        }
-        drop(batch);
-        let mut batch = right.batch();
-        for key in &shared[redacted..2 * redacted] {
-            batch.redact(*key);
-        }
+        pollster::block_on(
+            shared[..redacted]
+                .iter()
+                .fold(left.batch(), |batch, key| batch.redact(*key))
+                .commit(),
+        )
+        .expect("the in-memory backend is infallible");
+        pollster::block_on(
+            shared[redacted..2 * redacted]
+                .iter()
+                .fold(right.batch(), |batch, key| batch.redact(*key))
+                .commit(),
+        )
+        .expect("the in-memory backend is infallible");
     }
 
     (left, right)

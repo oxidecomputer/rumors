@@ -11,6 +11,7 @@ use futures::{FutureExt, StreamExt};
 use rumors::{Peer, Rumors};
 
 use crate::common::wire::{bootstrap_fork_async, wire_gossip_async};
+use rumors::testing::SnapshotCollect as _;
 
 /// A fresh observer yields immediately — even on an empty set — because a
 /// new subscriber has seen nothing, so whatever the set holds is news.
@@ -32,24 +33,87 @@ async fn one_tick_per_observed_commit() {
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
     // One send: one tick.
-    rumors.send(1);
+    rumors
+        .send(1)
+        .await
+        .expect("the in-memory backend is infallible");
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     assert_eq!(changes.next().now_or_never(), None);
 
     // One batch of several changes: still one commit, one tick.
-    rumors.batch().send(2).send(3);
+    rumors
+        .batch()
+        .send(2)
+        .send(3)
+        .commit()
+        .await
+        .expect("the in-memory backend is infallible");
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     assert_eq!(changes.next().now_or_never(), None);
 
     // One redact: one tick.
     let key = rumors
         .snapshot()
-        .iter()
-        .find_map(|(k, _, m)| (**m == 1).then_some(k))
+        .collected()
+        .find_map(|(k, _, m)| (*m == 1).then_some(k))
         .expect("message 1 is live");
-    rumors.redact(key);
+    rumors
+        .redact(key)
+        .await
+        .expect("the in-memory backend is infallible");
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     assert_eq!(changes.next().now_or_never(), None);
+}
+
+/// A no-change commit produces no tick: a redact of a key that is not
+/// live and an empty batch both leave the frontier where it was.
+///
+/// A real commit afterwards still ticks, pinning that the quiet came from
+/// the unchanged frontier, not a dead observer.
+#[pollster::test]
+async fn no_change_commit_does_not_tick() {
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let mut changes = rumors.changes();
+    assert_eq!(changes.next().now_or_never(), Some(Some(())));
+
+    // Mint a key, then genuinely redact it (one tick consumed here).
+    rumors
+        .send(1)
+        .await
+        .expect("the in-memory backend is infallible");
+    let key = rumors
+        .snapshot()
+        .collected()
+        .find_map(|(k, _, m)| (*m == 1).then_some(k))
+        .expect("message 1 is live");
+    rumors
+        .redact(key)
+        .await
+        .expect("the in-memory backend is infallible");
+    assert_eq!(changes.next().now_or_never(), Some(Some(())));
+    assert_eq!(changes.next().now_or_never(), None);
+
+    // Redacting the same key again forgets nothing: no tick.
+    rumors
+        .redact(key)
+        .await
+        .expect("the in-memory backend is infallible");
+    assert_eq!(changes.next().now_or_never(), None, "no-op redact is quiet");
+
+    // An empty batch commits nothing: no tick.
+    rumors
+        .batch()
+        .commit()
+        .await
+        .expect("the in-memory backend is infallible");
+    assert_eq!(changes.next().now_or_never(), None, "empty batch is quiet");
+
+    // The observer is still alive: a real commit ticks.
+    rumors
+        .send(2)
+        .await
+        .expect("the in-memory backend is infallible");
+    assert_eq!(changes.next().now_or_never(), Some(Some(())));
 }
 
 /// Ticks coalesce: any number of commits between polls is one tick — the
@@ -60,9 +124,18 @@ async fn unpolled_commits_coalesce_to_one_tick() {
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
-    rumors.send(1);
-    rumors.send(2);
-    rumors.send(3);
+    rumors
+        .send(1)
+        .await
+        .expect("the in-memory backend is infallible");
+    rumors
+        .send(2)
+        .await
+        .expect("the in-memory backend is infallible");
+    rumors
+        .send(3)
+        .await
+        .expect("the in-memory backend is infallible");
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     assert_eq!(changes.next().now_or_never(), None);
 }
@@ -78,7 +151,9 @@ async fn gossip_join_ticks_the_observer() {
     assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
     assert_eq!(b_changes.next().now_or_never(), None);
 
-    a.send(7);
+    a.send(7)
+        .await
+        .expect("the in-memory backend is infallible");
     wire_gossip_async(&a, &b).await;
     assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
 }
@@ -92,7 +167,10 @@ async fn set_closure_ends_the_stream() {
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
-    rumors.send(1);
+    rumors
+        .send(1)
+        .await
+        .expect("the in-memory backend is infallible");
     drop(rumors);
 
     // The final commit is still reported, then the stream ends.
@@ -120,7 +198,7 @@ fn try_tick_coalesces_quiet_and_end() {
     use rumors::TryTick;
 
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    rumors::testing::commit(rumors.batch().send(1).send(2));
 
     let mut changes = rumors.changes();
     assert!(
@@ -132,15 +210,15 @@ fn try_tick_coalesces_quiet_and_end() {
         "with a handle live, a reported signal is quiet, not ended"
     );
 
-    rumors.send(3);
-    rumors.send(4);
+    pollster::block_on(rumors.send(3)).expect("the in-memory backend is infallible");
+    pollster::block_on(rumors.send(4)).expect("the in-memory backend is infallible");
     assert!(
         matches!(changes.try_next(), TryTick::Tick),
         "commits between steps coalesce into one tick"
     );
     assert!(matches!(changes.try_next(), TryTick::Quiet));
 
-    rumors.send(5);
+    pollster::block_on(rumors.send(5)).expect("the in-memory backend is infallible");
     drop(rumors);
     assert_eq!(
         changes.next().now_or_never(),

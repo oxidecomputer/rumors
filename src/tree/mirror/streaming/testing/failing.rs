@@ -10,7 +10,7 @@ use async_stream::stream;
 use futures::StreamExt;
 
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
         mirror::streaming::{Backend, Leaf, Node, backend::NodeStream},
@@ -142,12 +142,8 @@ where
     type Backend = Failing<N::Backend>;
     type Height = N::Height;
 
-    fn ceiling(&self) -> &Version {
-        self.0.ceiling()
-    }
-
-    fn floor(&self) -> &Version {
-        self.0.floor()
+    fn span(&self) -> causally::Span<'_> {
+        self.0.span()
     }
 
     fn hash(&self) -> Hash {
@@ -170,6 +166,10 @@ where
 {
     fn message(&self) -> &Message<T> {
         self.0.message()
+    }
+
+    fn version(&self) -> &Version {
+        self.0.version()
     }
 
     // Custody passes straight through: fault injection targets the

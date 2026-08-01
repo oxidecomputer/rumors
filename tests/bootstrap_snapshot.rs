@@ -39,7 +39,7 @@ use crate::common::gossip_snapshot::capture_session_v1;
 /// deterministic and these captures stay reproducible.
 ///
 /// Mirrors `gossip_snapshot::seeded`.
-fn seeded<T>() -> Rumors<T> {
+fn seeded<T: Send + Sync + 'static>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()
@@ -84,7 +84,7 @@ fn empty_provider() {
 #[test]
 fn populated_provider() {
     let provider: Rumors<u64> = seeded();
-    provider.batch().send(1).send(2).send(3);
+    rumors::testing::commit(provider.batch().send(1).send(2).send(3));
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 
@@ -97,7 +97,7 @@ fn v1_populated_provider() {
         .sync_window_floor()
         .protocol(Protocol::V1)
         .into_rumors();
-    provider.batch().send(1).send(2).send(3);
+    rumors::testing::commit(provider.batch().send(1).send(2).send(3));
     let capture = capture_session_v1(
         move |mut link| async move {
             provider
@@ -126,10 +126,12 @@ fn v1_populated_provider() {
 #[test]
 fn string_payload() {
     let provider: Rumors<String> = seeded();
-    provider
-        .batch()
-        .send("hello".to_string())
-        .send("world".to_string());
+    rumors::testing::commit(
+        provider
+            .batch()
+            .send("hello".to_string())
+            .send("world".to_string()),
+    );
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 

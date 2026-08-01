@@ -524,7 +524,7 @@ pub(crate) fn rank(e: &Event, g: u32) -> crate::Rank {
     for k in 0..(1u64 << g) {
         total += &e(Dyadic::grid(k, g));
     }
-    crate::Rank::from_raw(total, g)
+    crate::Rank::from_raw(total, u64::from(g))
 }
 
 fn order_of(le: bool, ge: bool) -> Option<Ordering> {

@@ -50,8 +50,10 @@ fn io_error(result: Result<Party, Error>) -> borsh::io::Error {
 fn a_donated_party_round_trips() {
     pollster::block_on(async {
         let mut wire = Vec::new();
-        send(nth_party(3), &mut wire).await.expect("donation sends");
-        let received = receive(&mut &wire[..])
+        send::<_, std::convert::Infallible>(nth_party(3), &mut wire)
+            .await
+            .expect("donation sends");
+        let received = receive::<_, std::convert::Infallible>(&mut &wire[..])
             .await
             .expect("a canonical donation decodes");
         assert_eq!(received, nth_party(3));
@@ -140,11 +142,13 @@ fn trailing_frame_bytes_are_rejected() {
 fn bytes_after_the_frame_stay_untouched() {
     pollster::block_on(async {
         let mut wire = Vec::new();
-        send(nth_party(3), &mut wire).await.expect("donation sends");
+        send::<_, std::convert::Infallible>(nth_party(3), &mut wire)
+            .await
+            .expect("donation sends");
         wire.extend_from_slice(b".RUMORS");
 
         let mut cursor = &wire[..];
-        receive(&mut cursor)
+        receive::<_, std::convert::Infallible>(&mut cursor)
             .await
             .expect("a canonical donation decodes");
         assert_eq!(cursor, b".RUMORS", "bytes after the donation were consumed");

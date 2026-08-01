@@ -13,13 +13,15 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::tree::Tree;
+use crate::tree::backend::{Local, Store};
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::tree::mirror::streaming::remote::RunBudget;
 pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::mirror::streaming::window::WindowConfig;
+
 use crate::{
-    Batch, Bookmark, CausalMessages, Key, Network, Protocol, Rumors, Snapshot, UnorderedMessages,
-    Version,
+    Batch, Bookmark, CausalMessages, Key, Network, Protocol, Rumors, Snapshot, StorageError,
+    UnorderedMessages, Version,
 };
 
 mod bootstrap;
@@ -139,7 +141,7 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// quickly reaches a stable steady state, disrupted only if a group of new
 /// peers joins exclusively with one another and spends a long time
 /// partitioned before reuniting with the rest of the network.
-pub struct Peer<T, B: BookmarkError = NoBookmark> {
+pub struct Peer<T: Send + Sync + 'static, B: BookmarkError = NoBookmark, S: Store<T> = Local> {
     pub(crate) network: Network,
     pub(crate) protocol: Protocol,
     /// The reconciliation window choice selected by
@@ -149,13 +151,40 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// The supply-run byte budget selected by
     /// [`target_message_size`](Self::target_message_size).
     pub(crate) run_budget: RunBudget,
-    pub(crate) inner: watch::Sender<Inner<T>>,
+    pub(crate) inner: watch::Sender<Inner<T, S>>,
     /// The identity bookmark: persistence handle and its in-memory record,
     /// behind an async mutex and shared with every [`Rumors`] clone.
     ///
     /// Separate from `inner` because persisting is `async` and the record is
     /// `!Clone`; see [`Bookmarked`].
     pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
+    /// Serializes every commit that reads the `(party, frontier)` pair and
+    /// later publishes from it: root replacements, and party *shrinks*.
+    ///
+    /// A committer acquires this, stamps its actions against the pair in
+    /// one quick read, builds the new root off the `watch` (readers and
+    /// observers are never blocked by a build), and publishes in one final
+    /// `send_if_modified` — a plain swap, sound because the lock kept the
+    /// published root exactly the one the build started from. The write
+    /// sites, classified:
+    ///
+    /// - [`Batch::commit`] and the gossip install (root-replacing: build
+    ///   off the watch, swap-publish under the lock);
+    /// - the gossip fork section (party-*shrink*: it donates identity at
+    ///   the exact frontier it snapshots, so it must exclude any in-flight
+    ///   commit whose versions were minted from the pre-fork party but not
+    ///   yet published — see its body comment);
+    /// - the bookmark reclaim and `PartyGuard` recovery (party-*growth*:
+    ///   lock-free by design; versions minted from a narrower party remain
+    ///   exclusively this replica's when the party grows back, so growth
+    ///   cannot invalidate an in-flight commit);
+    /// - the bootstrap install (fresh construction: no concurrent handle
+    ///   exists, no lock needed).
+    ///
+    /// Lock order: bookmark, then this, then the `watch`'s internal lock.
+    /// No path acquires them in any other order (in particular, nothing
+    /// holds this while taking the bookmark mutex), so no cycle exists.
+    pub(crate) commit: Arc<Mutex<()>>,
 }
 
 /// The replica's shared mutable state, behind the `watch` channel every
@@ -164,14 +193,14 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
 ///
 /// Mutations happen inside `send_if_modified` critical sections so observers
 /// wake exactly once per committed change.
-pub(crate) struct Inner<T> {
+pub(crate) struct Inner<T: Send + Sync + 'static, S: Store<T> = Local> {
     pub(crate) party: Option<Party>,
-    pub(crate) tree: Tree<T>,
+    pub(crate) tree: Tree<T, S>,
 }
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
+impl<T: Send + Sync + 'static, B: BookmarkError, S: Store<T>> std::fmt::Debug for Peer<T, B, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.inner.borrow();
         f.debug_struct("Peer")
@@ -183,7 +212,7 @@ impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
     }
 }
 
-impl<T> Peer<T, NoBookmark> {
+impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Create the distinguished seed rumor set: the single root from which
     /// every other participant must [`bootstrap`](Peer::bootstrap).
     ///
@@ -196,6 +225,32 @@ impl<T> Peer<T, NoBookmark> {
     /// identifier from a caller-supplied RNG instead of [`OsRng`].
     #[doc(hidden)]
     pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
+        Self::seed_rng_in(rng, Local)
+    }
+}
+
+impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
+    /// Like [`seed`](Peer::seed), but with the tree resident in `store`
+    /// rather than the in-memory backend: the distinguished seed of a
+    /// universe whose replica lives in caller-provided storage.
+    ///
+    /// Call this exactly once per universe of cooperating peers, exactly
+    /// as [`seed`](Peer::seed): the storage backend changes where this
+    /// replica's tree lives, never the network's identity rules.
+    ///
+    /// The store must be exclusively this peer's: seeding into a store
+    /// that already holds a replica silently replaces the stored tree and
+    /// identity at the first commit — resume one with
+    /// [`open`](Peer::open) instead ([`Kv`](crate::Kv)'s docs state the
+    /// one-live-backend-per-store requirement).
+    pub fn seed_in(store: S) -> Self {
+        Self::seed_rng_in(&mut OsRng, store)
+    }
+
+    /// [`seed_in`](Self::seed_in) with the [`Network`] drawn from a
+    /// caller-supplied RNG.
+    #[doc(hidden)]
+    pub fn seed_rng_in<R: RngCore + ?Sized>(rng: &mut R, store: S) -> Self {
         Self {
             network: Network::from_rng(rng),
             protocol: Protocol::default(),
@@ -203,14 +258,81 @@ impl<T> Peer<T, NoBookmark> {
             run_budget: RunBudget::default(),
             inner: watch::Sender::new(Inner {
                 party: Some(Party::seed()),
-                tree: Tree::new(),
+                tree: Tree::new_in(store),
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            commit: Arc::new(Mutex::new(())),
         }
     }
 }
 
-impl<T> Peer<T> {
+impl<T, K> Peer<T, NoBookmark, crate::store::KvBackend<K, T>>
+where
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    K: crate::store::Kv,
+{
+    /// Resume the replica stored in `kv`: recover the store, then
+    /// reconstruct the peer — network, identity, and tree — from its
+    /// canonical record alone.
+    ///
+    /// The counterpart of [`seed_in`](Peer::seed_in) and
+    /// [`Bootstrap::backend`](crate::Bootstrap::backend) for a store that
+    /// already holds a replica: those create, this resumes. Recovery
+    /// releases every registration the previous process held (a crash and
+    /// a clean shutdown are deliberately indistinguishable) and lets
+    /// deferred reclamation drain, so an `open` after any interruption
+    /// starts from a consistent store.
+    ///
+    /// For the same reason, the previous holder must actually be gone:
+    /// opening a store that another live peer is still using — another
+    /// process *or this one* — sweeps that peer's live registrations out
+    /// from under it ([`Kv`](crate::Kv)'s docs state the
+    /// one-live-backend-per-store requirement; the failure surfaces as a
+    /// custody panic in the displaced peer, a detector, not corruption).
+    ///
+    /// The peer resumes with default settings; select
+    /// [`protocol`](Peer::protocol),
+    /// [`sync_memory_budget`](Peer::sync_memory_budget), and
+    /// [`target_message_size`](Peer::target_message_size) afterwards as
+    /// at any construction. No bookmark is attached: the store's own
+    /// identity record made the bookmark's job part of every commit.
+    ///
+    /// # Errors
+    ///
+    /// [`OpenError::Empty`](crate::store::OpenError::Empty) when no peer
+    /// ever committed to this store (seed or bootstrap into it instead);
+    /// [`OpenError::Retired`](crate::store::OpenError::Retired) when the
+    /// stored replica donated its identity away (the store is an archive,
+    /// not a resumable peer);
+    /// [`OpenError::Corrupt`](crate::store::OpenError::Corrupt) when the
+    /// store served bytes no peer ever wrote (the stored replica lied;
+    /// retrying cannot help, and the variant names the corrupt row);
+    /// [`OpenError::Storage`](crate::store::OpenError::Storage) when the
+    /// store itself failed (retry against healthy storage).
+    pub async fn open(kv: K) -> Result<Self, crate::store::OpenError<K::Error>> {
+        let backend = crate::store::KvBackend::new(kv);
+        let (network, clock, root) = backend.open_replica().await?;
+        // The stored clock is the one live copy of this identity: the
+        // process that recorded it is gone, and recovery just made its
+        // residue unreachable, so resuming the party here re-establishes
+        // exactly one live holder.
+        let (party, _) = clock.into_parts();
+        Ok(Self {
+            network,
+            protocol: Protocol::default(),
+            window: WindowConfig::default(),
+            run_budget: RunBudget::default(),
+            inner: watch::Sender::new(Inner {
+                party: Some(party),
+                tree: Tree::resume(backend, root),
+            }),
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            commit: Arc::new(Mutex::new(())),
+        })
+    }
+}
+
+impl<T: Send + Sync + 'static> Peer<T> {
     /// Begin joining an existing universe: the [`Bootstrap`] configuration
     /// for one session against an established provider.
     ///
@@ -262,7 +384,18 @@ impl<T> Peer<T> {
     }
 }
 
-impl<T, B: Bookmark> Peer<T, B> {
+impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
+    /// Attach `bookmark` to a storage-backed peer; see
+    /// [`bookmark`](Peer::bookmark) for the contract.
+    pub async fn bookmark_in<B: Bookmark>(
+        self,
+        bookmark: B,
+    ) -> Result<Peer<T, B, S>, Unbookmarked<T, B, S>> {
+        self.bookmark_inner(bookmark).await
+    }
+}
+
+impl<T: Send + Sync + 'static, B: Bookmark, S: Store<T>> Peer<T, B, S> {
     /// Retire this rumor set into a remote peer, handing it our identity so
     /// that it can be recycled by the network.
     ///
@@ -272,9 +405,9 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// absorbs our identity, and the outcome reports what survived. What
     /// `Ok`, `Err`, and cancellation promise is stated in [what a session
     /// promises](crate::link::Link#what-a-session-promises).
-    pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
+    pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B, S>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -284,7 +417,7 @@ impl<T, B: Bookmark> Peer<T, B> {
     }
 }
 
-impl<T, B: BookmarkError> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: BookmarkError, S: Store<T>> Peer<T, B, S> {
     /// The globally unique identifier for this network of gossiping [`Peer`]s.
     pub fn network(&self) -> Network {
         self.network
@@ -536,64 +669,42 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// concurrently. Once a single [`Rumors`] handle remains,
     /// [`try_into_peer`](Rumors::try_into_peer) converts it back into a
     /// [`Peer`].
-    pub fn into_rumors(self) -> Rumors<T, B> {
+    pub fn into_rumors(self) -> Rumors<T, B, S> {
         Rumors::new(self)
     }
 
-    pub(crate) fn send(&self, message: T) -> Batch<'_, T>
+    pub(crate) async fn send(&self, message: T) -> Result<(), StorageError<S::Error>>
     where
-        T: BorshSerialize + Send + Sync,
+        T: BorshSerialize,
     {
-        let mut batch = self.batch();
-        batch.send(message);
-        batch
+        self.batch().send(message).commit().await
     }
 
-    pub(crate) fn redact(&self, key: Key) -> Batch<'_, T>
-    where
-        T: Send + Sync,
-    {
-        let mut batch = self.batch();
-        batch.redact(key);
-        batch
+    pub(crate) async fn redact(&self, key: Key) -> Result<(), StorageError<S::Error>> {
+        self.batch().redact(key).commit().await
     }
 
-    pub(crate) fn batch(&self) -> Batch<'_, T>
-    where
-        T: Send + Sync,
-    {
-        Batch::new(&self.inner)
+    pub(crate) fn batch(&self) -> Batch<'_, T, S> {
+        Batch::new(&self.inner, &self.commit, self.network)
     }
 
-    pub(crate) fn snapshot(&self) -> Snapshot<T> {
+    pub(crate) fn snapshot(&self) -> Snapshot<T, S> {
         Snapshot::new(self.network, self.inner.borrow().tree.clone())
     }
 
-    pub(crate) fn unordered_messages(&self) -> UnorderedMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn unordered_messages(&self) -> UnorderedMessages<T, S> {
         self.messages_since(Version::new())
     }
 
-    pub(crate) fn messages_since(&self, since: Version) -> UnorderedMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn messages_since(&self, since: Version) -> UnorderedMessages<T, S> {
         UnorderedMessages::subscribe(&self.inner, since)
     }
 
-    pub(crate) fn causal_messages(&self) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn causal_messages(&self) -> CausalMessages<T, S> {
         self.causal_messages_since(Version::new())
     }
 
-    pub(crate) fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn causal_messages_since(&self, since: Version) -> CausalMessages<T, S> {
         CausalMessages::subscribe(&self.inner, since)
     }
 

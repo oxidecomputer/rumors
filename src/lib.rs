@@ -55,8 +55,11 @@
 //!
 //! # When *shouldn't* you use it?
 //!
-//! - **If the set of live messages outgrows its smallest peer.** Every peer
-//!   replicates the whole set; sharding is not supported.
+//! - **If the set of live messages outgrows its smallest peer's storage.**
+//!   Every peer replicates the whole set — in memory by default, or in a
+//!   transactional store the peer brings ([Storage](#storage-in-memory-by-default-durable-by-choice));
+//!   sharding is not supported. A store lifts a peer's RAM ceiling, never
+//!   the full-replica model.
 //! - **If you need a consistently ordered, durable history.** A replicated log
 //!   gives you sequencing; `rumors` only gives you causal ordering, which may
 //!   be linearized differently between peers.
@@ -148,8 +151,8 @@
 //!     // The universe's first peer creates it; every later peer bootstraps in.
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!
-//!     // A bare `send` statement commits when its `Batch` drops, right here.
-//!     alice.send("the meeting is at noon".to_string());
+//!     // A `send` commits when awaited (the in-memory set cannot fail).
+//!     alice.send("the meeting is at noon".to_string()).await?;
 //!
 //!     // A session runs over a `Link`: a control byte stream plus a supply
 //!     // of independent data streams (see the `link` module); here, the
@@ -168,8 +171,10 @@
 //!     let bob = bob.into_rumors();
 //!
 //!     // Convergence: Bob holds the message Alice sent before they ever met.
+//!     use futures::TryStreamExt;
 //!     let snapshot = bob.snapshot();
-//!     let (_key, _version, message) = snapshot.iter().next().expect("one live message");
+//!     let (_key, _version, message) =
+//!         snapshot.iter().try_next().await?.expect("one live message");
 //!     println!("bob heard: {message}");
 //!     // Prints exactly:
 //!     //     bob heard: the meeting is at noon
@@ -223,6 +228,101 @@
 //! [what a session promises](Link#what-a-session-promises) on `Ok`, `Err`,
 //! and cancellation.
 //!
+//! # Storage: in memory by default, durable by choice
+//!
+//! A replica's tree lives in process memory unless you say otherwise: every
+//! handle carries a storage backend type parameter defaulting to the
+//! in-memory backend, and nothing about it needs configuring.
+//!
+//! To make a peer outlive its process — or outgrow its RAM — store the
+//! replica in a transactional key-value store instead. You bring the store:
+//! implement [`Kv`] (named byte tables with atomic, serializable
+//! transactions; the [`store`] module documents the contract) for your
+//! embedded engine of choice, and validate the implementation with the
+//! [`conformance::kv`] suite exactly as you would validate a caller-built
+//! [`Link`]. [`Memory`] ships as the reference implementation. Wrap the
+//! store in a [`KvBackend`] and hand it to the same lifecycle calls a
+//! memory-resident peer uses:
+//!
+//! - [`Peer::seed_in`] seeds a universe with the replica in the store;
+//! - [`Bootstrap::backend`] joins an existing universe into one;
+//! - [`Peer::open`] resumes the replica a store already holds — network,
+//!   content, and identity all reconstruct from the store's own records,
+//!   with no separate [`Bookmark`] required: identity is recorded
+//!   atomically with every commit and made durable before anything it
+//!   stamped reaches a peer, so a restarted peer can never re-mint a
+//!   version coordinate that survives anywhere — in its own store or at
+//!   any other replica — whatever the store's durability policy.
+//!
+//! ```
+//! use rumors::{KvBackend, Memory, Peer};
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let kv = Memory::default();
+//!
+//! // Seed a universe whose replica lives in the store...
+//! let alice: Peer<String, _, _> = Peer::seed_in(KvBackend::new(kv.clone()));
+//! let alice = alice.into_rumors();
+//! alice.send("carved in stone".to_string()).await?;
+//! drop(alice);
+//!
+//! // ...and resume it, as a later process would: same network, same
+//! // identity, same message.
+//! let alice = Peer::<String, _, _>::open(kv).await?.into_rumors();
+//! use futures::TryStreamExt;
+//! let snapshot = alice.snapshot();
+//! let (_key, _version, message) =
+//!     snapshot.iter().try_next().await?.expect("one live message");
+//! assert_eq!(message.as_str(), "carved in stone");
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! What persistence promises is split in two, deliberately:
+//!
+//! - **Crash consistency is the crate's floor.** The store's canonical
+//!   record only ever names a fully persisted tree, and recovery makes any
+//!   interruption equivalent to dropping every in-process handle at once:
+//!   a peer reopens to a consistent replica after any crash.
+//! - **Durability of acknowledged writes is the store's documented
+//!   policy — until they escape.** A store that acknowledges before its
+//!   writes are durable ([`Kv::sync`] is its flush) trades crash-window
+//!   durability for commit latency, and the crate preserves that trade
+//!   for local work: a send never waits on the flush. What no store
+//!   policy can weaken: **acknowledged and escaped implies durable.**
+//!   Every session waits out [`Kv::sync`] before transmitting, covering
+//!   each commit whose versions it could ship — at most one wait per
+//!   commit-then-send window, and none after local-only quiet — so a
+//!   commit a crash takes is one whose versions never crossed the wire:
+//!   absent after restart exactly as if it had never been acknowledged,
+//!   with no other replica holding coordinates the restarted peer could
+//!   re-mint. Content learned *from* other peers flows back at the next
+//!   gossip either way.
+//!
+//! A few deployment obligations ride along. A store holds exactly one
+//! replica, owned by one process at a time — the backend counts, caches,
+//! and recovers on that assumption. Long-held [`Snapshot`]s (and
+//! observers mid-walk) hold storage registrations, so space reclamation
+//! for redacted content waits on their release; reclamation itself runs
+//! incrementally inside ordinary commits, with
+//! [`KvBackend::vacuum`] as the explicit drain for maintenance windows
+//! (keep a clone of the [`KvBackend`] you seeded with to call it).
+//! Treat replication as the backup: you basically never restore a store
+//! from a backup copy, because a state revert rolls the whole replica —
+//! identity included — back to a past it already spent, resurrecting
+//! any identity donated since and re-minting version coordinates other
+//! replicas may hold. Gossip *is* the backup that preserves the causal
+//! guarantees: keep a second peer replicating, and recover a lost store
+//! by bootstrapping a fresh peer and letting ordinary synchronization
+//! restore the content. And the throughput figures under [When *should*
+//! you use it?](#when-should-you-use-it) price the in-memory backend: a
+//! stored replica's local commits and cold reads additionally ride the
+//! store's transaction latency, while wire costs are unchanged. One
+//! protocol restriction: `Protocol::V1` sessions require the in-memory
+//! backend (V1 assumes a resident tree;
+//! [`Error::ProtocolUnsupported`](error::Error::ProtocolUnsupported)
+//! states the worst case).
+//!
 //! # Runtime independence
 //!
 //! Sessions and observers are plain futures and streams, driven entirely by
@@ -248,8 +348,9 @@
 //!
 //! Every feature is off by default.
 //!
-//! - `conformance`: the public validation suite for caller-built [`link`]
-//!   instantiations (the [`conformance::link`] module). Enable it from a
+//! - `conformance`: the public validation suites for caller-built
+//!   extension points — [`link`] instantiations ([`conformance::link`])
+//!   and [`Kv`] stores ([`conformance::kv`]). Enable it from a
 //!   dev-dependency; it is safe, though pointless, in an application.
 //! - `protocol-v1`: the strictly alternating `Protocol::V1`, kept for wire
 //!   compatibility with V1 peers and comparative measurement. Enabling it
@@ -292,6 +393,7 @@ mod protocol;
 pub mod reconciliation;
 mod rumors;
 mod snapshot;
+pub mod store;
 #[cfg(any(test, feature = "test-internals"))]
 #[doc(hidden)]
 pub mod testing;
@@ -305,12 +407,12 @@ pub use crate::peer::PROTOCOL_MAGIC;
 pub use ::before;
 pub use ::borsh;
 pub use batch::Batch;
-pub use before::{Version, causally};
+pub use before::{Ticks, Version, causally};
 pub use bookmark::{
     BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, Bookmark, BookmarkError, BookmarkIo, FormatError,
     NoBookmark, Serialized,
 };
-pub use error::{Error, MirrorError};
+pub use error::{Error, MirrorError, StorageError};
 pub use link::{Acceptor, Connector, Link};
 pub use network::Network;
 pub(crate) use peer::Inner;
@@ -320,7 +422,14 @@ pub use peer::{
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
-pub use snapshot::Snapshot;
+pub use snapshot::{Messages, Snapshot};
+#[cfg(any(feature = "conformance", feature = "test-internals"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "conformance", feature = "test-internals")))
+)]
+pub use store::Memory;
+pub use store::{Corruption, Kv, KvBackend, KvError, OpenError};
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;
 pub use tree::mirror::streaming::stats::SessionStats;

@@ -97,8 +97,8 @@ fn empty_retire() {
 fn divergent_retire() {
     let seed = seeded();
     let retiree = bootstrap_fork(&seed);
-    retiree.send(1);
-    seed.send(2);
+    pollster::block_on(retiree.send(1)).expect("the in-memory backend is infallible");
+    pollster::block_on(seed.send(2)).expect("the in-memory backend is infallible");
     insta::assert_snapshot!(capture_retire(seed, retiree));
 }
 
@@ -113,8 +113,8 @@ fn v1_divergent_retire() {
             .protocol(Protocol::V1)
             .into_rumors();
         let retiree = bootstrap_fork_async_with_protocol(&absorber, Protocol::V1).await;
-        absorber.send(2);
-        retiree.send(1);
+        pollster::block_on(absorber.send(2)).expect("the in-memory backend is infallible");
+        pollster::block_on(retiree.send(1)).expect("the in-memory backend is infallible");
         (absorber, retiree)
     });
     let capture = capture_session_v1(
@@ -144,8 +144,8 @@ fn mutual_retire_declines() {
     let seed = seeded();
     let a = bootstrap_fork(&seed);
     let b = seed;
-    a.batch().send(1).send(2);
-    b.batch().send(3).send(4);
+    rumors::testing::commit(a.batch().send(1).send(2));
+    rumors::testing::commit(b.batch().send(3).send(4));
 
     let capture = capture_session(
         move |mut link| async move {
@@ -180,7 +180,7 @@ fn mutual_retire_declines() {
 fn retire_into_bootstrapper() {
     let seed = seeded();
     let retiree = bootstrap_fork(&seed);
-    retiree.batch().send(1).send(2);
+    rumors::testing::commit(retiree.batch().send(1).send(2));
 
     let capture = capture_session(
         |mut link| async move {

@@ -43,7 +43,7 @@ fn mirror_with_stats<T: Send + Sync + 'static>(
     a: Root<T>,
     b: Root<T>,
 ) -> (Root<T>, Root<T>, SessionStats, SessionStats) {
-    let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
+    let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a, b);
     let a_recorder = Recorder::default();
     let b_recorder = Recorder::default();
     let client = Handshaking::start(Local, a)
@@ -55,17 +55,12 @@ fn mirror_with_stats<T: Send + Sync + 'static>(
     let (ours, theirs) = run_to_quiescence(drive_streaming(client, server))
         .expect("streaming mirror became quiescent before completion")
         .expect("local mirror speaks no violations");
-    (
-        ours.into(),
-        theirs.into(),
-        a_recorder.snapshot(),
-        b_recorder.snapshot(),
-    )
+    (ours, theirs, a_recorder.snapshot(), b_recorder.snapshot())
 }
 
 /// The live-leaf count of a tree root, for conservation checks.
 fn live(root: &Root<()>) -> u64 {
-    let root: StreamingRoot<Local, ()> = root.clone().into();
+    let root: StreamingRoot<Local, ()> = root.clone();
     root.len()
 }
 
@@ -73,8 +68,7 @@ fn live(root: &Root<()>) -> u64 {
 /// session's role election (the smaller exchanged set initiates,
 /// canonical version bytes break ties).
 fn a_initiates(a: &Root<()>, b: &Root<()>) -> bool {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
-        (a.clone().into(), b.clone().into());
+    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.clone(), b.clone());
     initiates(a.len(), &a.ceiling, b.len(), &b.ceiling)
 }
 

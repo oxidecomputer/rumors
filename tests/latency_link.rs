@@ -50,7 +50,7 @@ const ROOMY_CAPACITY: usize = 8 * 1024 * 1024;
 /// side, so a session pays at least one request/response of wire stall.
 fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_window_floor().into_rumors();
-    left.batch().send(0);
+    rumors::testing::commit(left.batch().send(0));
 
     let right = pollster::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(ROOMY_CAPACITY);
@@ -67,16 +67,8 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
             .into_rumors()
     });
 
-    let mut batch = left.batch();
-    (1..=64u64).for_each(|n| {
-        batch.send(n);
-    });
-    drop(batch);
-    let mut batch = right.batch();
-    (65..=128u64).for_each(|n| {
-        batch.send(n);
-    });
-    drop(batch);
+    rumors::testing::commit((1..=64u64).fold(left.batch(), |batch, n| batch.send(n)));
+    rumors::testing::commit((65..=128u64).fold(right.batch(), |batch, n| batch.send(n)));
     (left, right)
 }
 

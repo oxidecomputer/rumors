@@ -2,7 +2,7 @@ use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{Version, message::Message};
+use crate::{Version, causally, message::Message};
 
 use super::hash::Hash;
 use super::height::{self, Height, S, Z};
@@ -72,6 +72,11 @@ impl<T, H: Height> Children<T, H> {
     /// Remove and return the child at `radix`, if any.
     pub fn remove(&mut self, radix: u8) -> Option<Node<T, H>> {
         self.inner.remove(radix).map(Node::from_untyped)
+    }
+
+    /// The child at `radix`, if any, as an owned handle (a cheap clone).
+    pub fn get(&self, radix: u8) -> Option<Node<T, H>> {
+        self.inner.get(radix).cloned().map(Node::from_untyped)
     }
 
     /// The children in ascending radix order, as owned handles (each a
@@ -170,6 +175,25 @@ impl<T, H: Height> Node<T, H> {
         self.inner.floor()
     }
 
+    /// This subtree's version bounds as one causal span: the memoized
+    /// `[floor, ceiling]` pair, borrowed (see [`untyped::Node::span`]).
+    pub fn span(&self) -> causally::Span<'_> {
+        self.inner.span()
+    }
+
+    /// How much of this subtree's memoized `[floor, ceiling]` bounds
+    /// `probe` dominates: the deletion-honoring classifiers' verdict,
+    /// answered from the memos without descending.
+    ///
+    /// A branch answers through its stored bounds span — ordered by
+    /// construction, so no validating comparison is paid at any
+    /// classification — and a leaf's coincident bounds collapse the
+    /// question to one containment check (see
+    /// [`untyped::Node::dominance_of`]).
+    pub fn dominance_of(&self, probe: &Version) -> causally::Dominance {
+        self.inner.dominance_of(probe)
+    }
+
     /// Get the number of leaves under this node.
     pub fn len(&self) -> usize {
         self.inner.len()
@@ -196,6 +220,13 @@ impl<T, H: Height> Node<T, H> {
     #[cfg(any(test, feature = "test-internals"))]
     pub fn max_bound_bytes(&self) -> usize {
         self.inner.max_bound_bytes()
+    }
+
+    /// Whether two handles share the same backing allocation: a sufficient
+    /// (not necessary) test for structural equality that touches no hash
+    /// (see [`untyped::Node::ptr_eq`]).
+    pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+        self.inner.ptr_eq(&other.inner)
     }
 
     /// Whether this node's content is a single leaf, regardless of any
@@ -342,6 +373,16 @@ impl<T> Node<T, Z> {
             .as_leaf()
             .expect("typed leaf failed to be a leaf")
     }
+
+    /// The version of this leaf node.
+    pub(crate) fn version(&self) -> &Version {
+        self.inner.version()
+    }
+
+    /// View an owned bare leaf from the untyped walk at its typed height.
+    pub(crate) fn from_walk(leaf: untyped::Leaf<T>) -> Self {
+        Self::from_untyped(leaf.into_node())
+    }
 }
 
 impl<T> Node<T, height::Root> {
@@ -357,6 +398,13 @@ impl<T> Node<T, height::Root> {
     /// `O(depth)` descent.
     pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message<T>)> {
         self.inner.get(path)
+    }
+
+    /// Look up the live leaf at `path` as an owned, bare height-zero
+    /// handle: the same descent as [`get`](Self::get), yielding the shape
+    /// [`leaves`](Node::leaves) mints.
+    pub fn get_leaf(&self, path: &[u8]) -> Option<Node<T, Z>> {
+        self.inner.get_leaf(path).map(Node::from_untyped)
     }
 
     /// Lazily iterate every live leaf in this root subtree as

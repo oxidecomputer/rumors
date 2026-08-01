@@ -96,10 +96,9 @@ impl<T> Message<T> {
     /// Returns a reference to the shared [`Arc`] holding this message's
     /// object, without cloning it.
     ///
-    /// Used by enumeration paths (e.g. [`Tree::iter`]) that hand out
-    /// borrowed `&Arc<T>` exactly as the public observers do.
-    ///
-    /// [`Tree::iter`]: crate::tree::Tree::iter
+    /// Used by enumeration paths (the tree's point lookups and borrowing
+    /// test-oracle walks) that hand out borrowed `&Arc<T>` exactly as the
+    /// public observers clone them out.
     pub fn as_arc(&self) -> &Arc<T> {
         &self.message
     }

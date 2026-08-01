@@ -51,8 +51,8 @@ const TRANSPORT_CAPACITY: usize = 37;
 
 /// Drive two local starts, each paired directly with its remote protocol start.
 async fn reconcile(a: TreeRoot<()>, b: TreeRoot<()>) -> (TreeRoot<()>, TreeRoot<()>) {
-    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let a = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
 
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     let remote_b = RemoteHandshaking::start(Local, a_link).window(WindowConfig::FLOOR);
@@ -61,7 +61,7 @@ async fn reconcile(a: TreeRoot<()>, b: TreeRoot<()>) -> (TreeRoot<()>, TreeRoot<
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
     let (_control, b) = b.expect("endpoint B should reconcile through its proxy");
-    (a.into(), b.into())
+    (a, b)
 }
 
 /// Drive the production topology: each materialized local is the client of
@@ -74,8 +74,8 @@ async fn reconcile_symmetric_accepts<T>(
 where
     T: borsh::BorshDeserialize + Send + Sync + 'static,
 {
-    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let a = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
     let remote_b = RemoteHandshaking::start(Local, a_link).window(WindowConfig::FLOOR);
     let remote_a = RemoteHandshaking::start(Local, b_link).window(WindowConfig::FLOOR);
@@ -83,7 +83,7 @@ where
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
     let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
-    (a.into(), b.into())
+    (a, b)
 }
 
 /// Arrivals held and released newest-first by the reordering acceptor: deep
@@ -105,8 +105,8 @@ async fn reconcile_symmetric_accepts_reordered<T>(
 where
     T: borsh::BorshDeserialize + Send + Sync + 'static,
 {
-    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let a = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
     let a_link = reorder_accepts(a_link, REORDER_BATCH, reordered.clone());
     let b_link = reorder_accepts(b_link, REORDER_BATCH, reordered);
@@ -116,7 +116,7 @@ where
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
     let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
-    (a.into(), b.into())
+    (a, b)
 }
 
 /// Drive the production proxy topology after the shared preamble on the same
@@ -125,8 +125,8 @@ async fn reconcile_after_preamble<T>(a: TreeRoot<T>, b: TreeRoot<T>) -> (TreeRoo
 where
     T: borsh::BorshDeserialize + Send + Sync + 'static,
 {
-    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let a = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let (mut a_link, mut b_link) = memory_with_capacity(64 * 1024);
     let network = crate::Network::from_bytes([1; 16]);
     let mut a_staged = handshake::Staged::new();
@@ -157,17 +157,17 @@ where
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
     let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
-    (a.into(), b.into())
+    (a, b)
 }
 
 /// Reconcile the same pair entirely in process as the behavioral oracle.
 async fn reconcile_locally(a: TreeRoot<()>, b: TreeRoot<()>) -> (TreeRoot<()>, TreeRoot<()>) {
-    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let a = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let (a, b) = Box::pin(mirror(a, b))
         .await
         .expect("two honest local participants should reconcile");
-    (a.into(), b.into())
+    (a, b)
 }
 
 /// Translate a local root into the composable failing backend's node type.
@@ -278,7 +278,7 @@ async fn divergent_leaves_converge() {
     let mut b = Tree::new();
     b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
     let mut expected = a.clone();
-    expected.join(b.clone());
+    expected.join_now(b.clone());
 
     let (a, b) = reconcile(a.root, b.root).await;
     assert_eq!(a, expected.root);

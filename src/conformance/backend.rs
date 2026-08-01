@@ -55,7 +55,7 @@ use async_stream::stream;
 use futures::{StreamExt, stream as futures_stream};
 
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
         mirror::streaming::{
@@ -204,12 +204,8 @@ where
     type Backend = Charged<N::Backend>;
     type Height = N::Height;
 
-    fn ceiling(&self) -> &Version {
-        self.inner().ceiling()
-    }
-
-    fn floor(&self) -> &Version {
-        self.inner().floor()
+    fn span(&self) -> causally::Span<'_> {
+        self.inner().span()
     }
 
     fn hash(&self) -> Hash {
@@ -233,6 +229,10 @@ where
 {
     fn message(&self) -> &Message<T> {
         self.inner().message()
+    }
+
+    fn version(&self) -> &Version {
+        self.inner().version()
     }
 
     async fn leaf(
@@ -262,7 +262,8 @@ where
     T: Send + Sync + 'static,
     N: Node<T>,
 {
-    node.ceiling().as_bytes().len() + node.floor().as_bytes().len()
+    let bounds = node.span();
+    bounds.join().as_bytes().len() + bounds.meet().as_bytes().len()
 }
 
 impl<B, T> Backend<T> for Charged<B>
@@ -322,9 +323,10 @@ where
                     node.len(),
                 ));
             }
+            let bounds = node.span();
             let version_bytes = version_bytes
-                .max(node.ceiling().as_bytes().len())
-                .max(node.floor().as_bytes().len());
+                .max(bounds.join().as_bytes().len())
+                .max(bounds.meet().as_bytes().len());
             if fan > 0 && node.version_bytes() != version_bytes {
                 ledger::violation(format!(
                     "mis-propagated version_bytes: parent answers {}, \
@@ -500,10 +502,11 @@ where
     // aggregate check is a floor: the run's largest leaf encoding and
     // the node's own two bounds are all in the aggregate. The parent
     // seam keeps the exact recurrence where children are in hand.
+    let bounds = node.span();
     let floor = run
         .version_bytes
-        .max(node.ceiling().as_bytes().len())
-        .max(node.floor().as_bytes().len());
+        .max(bounds.join().as_bytes().len())
+        .max(bounds.meet().as_bytes().len());
     if node.version_bytes() < floor {
         ledger::violation(format!(
             "deflated version_bytes: bulk-assembled node answers {} B, \
@@ -742,7 +745,10 @@ where
         leaves.push((Prefix::from(path), leaf));
     }
     leaves.sort_by_key(|(prefix, _)| *prefix);
-    let ceiling = Version::join_all(leaves.iter().map(|(_, leaf)| leaf.ceiling().clone()));
+    // The spans are bound to a local so their borrowed join endpoints
+    // outlive the fold's iterator.
+    let bounds: Vec<causally::Span<'_>> = leaves.iter().map(|(_, leaf)| leaf.span()).collect();
+    let ceiling = Version::join_all(bounds.iter().map(|bounds| bounds.join()));
 
     let mut assembled = pin!(
         charged
@@ -764,5 +770,8 @@ where
     }
 }
 
+// `pub(crate)`: the V1 protocol-gate tests borrow [`tests::Materializing`]
+// as the crate's one storage-owning backend, rather than minting a second
+// backend type (each new backend instantiation costs rustc dearly).
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

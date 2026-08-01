@@ -426,10 +426,14 @@ fn main() -> io::Result<()> {
     let seed: Rumors<Payload> = Peer::seed().into_rumors();
     {
         let mut rng = SmallRng::from_entropy();
-        let mut batch = seed.batch();
-        for _ in 0..args.seed_messages {
-            batch.send(random_message(&mut rng, args.message_size));
-        }
+        pollster::block_on(
+            (0..args.seed_messages)
+                .fold(seed.batch(), |batch, _| {
+                    batch.send(random_message(&mut rng, args.message_size))
+                })
+                .commit(),
+        )
+        .expect("the in-memory backend is infallible");
     }
     // Every party starts as a disjoint fork of the seed: same observations,
     // its own party region. The seed party itself only serves the initial
@@ -617,7 +621,7 @@ fn run_party(
 /// its key into the pool. Each message is yielded exactly once across the
 /// party's lifetime, so the pool never holds duplicates.
 fn drain_keys(observer: &mut UnorderedMessages<Payload>, keys: &mut Vec<Key>) {
-    while let Some(Some((key, _, _))) = observer.borrow_next().now_or_never() {
+    while let Some(Ok(Some((key, _, _)))) = observer.next().now_or_never() {
         keys.push(key);
     }
 }
@@ -824,15 +828,20 @@ fn steady_state_op(
         while !keys.is_empty() {
             let idx = rng.gen_range(0..keys.len());
             let key = keys.swap_remove(idx);
-            if snap.get(&key).is_some() {
-                rumors.redact(key);
+            if pollster::block_on(snap.get(&key))
+                .expect("the in-memory backend is infallible")
+                .is_some()
+            {
+                pollster::block_on(rumors.redact(key))
+                    .expect("the in-memory backend is infallible");
                 return;
             }
         }
     }
     // The add arm — or a pool with no live key left in it. The minted key
     // reaches the pool through the observer's next drain.
-    rumors.send(random_message(rng, message_size));
+    pollster::block_on(rumors.send(random_message(rng, message_size)))
+        .expect("the in-memory backend is infallible");
 }
 
 /// Draw an exponential inter-arrival time with the current mean, so successive

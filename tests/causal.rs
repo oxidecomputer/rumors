@@ -22,6 +22,7 @@ use rumors::{CausalMessages, Key, Peer, Rumors, Version};
 
 use crate::common::action::minted_key;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
+use rumors::testing::SnapshotCollect as _;
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
@@ -35,12 +36,13 @@ enum Step {
     Ended,
 }
 
-/// Poll `borrow_next` exactly once without an executor.
+/// Poll `next` exactly once without an executor.
 fn step(obs: &mut CausalMessages<u64>) -> Step {
-    match obs.borrow_next().now_or_never() {
+    match obs.next().now_or_never() {
         None => Step::Quiet,
-        Some(None) => Step::Ended,
-        Some(Some((k, v, m))) => Step::Item((k, v.clone(), **m)),
+        Some(Ok(None)) => Step::Ended,
+        Some(Ok(Some((k, v, m)))) => Step::Item((k, v, *m)),
+        Some(Err(e)) => match e.0 {},
     }
 }
 
@@ -78,7 +80,11 @@ fn assert_causal(items: &[(Key, Version, u64)]) {
 
 /// The live `Key → value` map, for comparing against deliveries.
 fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
-    rumors.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
+    rumors
+        .snapshot()
+        .collected()
+        .map(|(k, _, m)| (k, *m))
+        .collect()
 }
 
 /// A single party's sends form a causal chain, so a fresh observer must
@@ -88,7 +94,8 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
 fn single_party_backlog_replays_in_send_order() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     for v in 0..8u64 {
-        known.send(v); // one batch per send: strictly increasing versions
+        // One batch per send: strictly increasing versions.
+        pollster::block_on(known.send(v)).expect("the in-memory backend is infallible");
     }
 
     let mut obs = known.causal_messages();
@@ -111,10 +118,10 @@ fn converged_backlog_has_no_inversions() {
     let b = bootstrap_fork(&a);
 
     for v in 0..4u64 {
-        a.send(v);
+        pollster::block_on(a.send(v)).expect("the in-memory backend is infallible");
     }
     for v in 10..14u64 {
-        b.send(v);
+        pollster::block_on(b.send(v)).expect("the in-memory backend is infallible");
     }
     wire_gossip(&a, &b);
 
@@ -140,11 +147,11 @@ fn delivery_order_is_replica_independent() {
     let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
-    a.batch().send(1).send(2);
-    b.batch().send(3).send(4);
+    rumors::testing::commit(a.batch().send(1).send(2));
+    rumors::testing::commit(b.batch().send(3).send(4));
     wire_gossip(&a, &b);
-    a.send(5);
-    b.send(6);
+    pollster::block_on(a.send(5)).expect("the in-memory backend is infallible");
+    pollster::block_on(b.send(6)).expect("the in-memory backend is infallible");
     wire_gossip(&a, &b);
     assert_eq!(
         a.snapshot().hash(),
@@ -174,15 +181,15 @@ fn live_passes_preserve_causal_order_cumulatively() {
     let mut obs = a.causal_messages();
     let mut delivered = Vec::new();
 
-    a.send(1);
+    pollster::block_on(a.send(1)).expect("the in-memory backend is infallible");
     delivered.extend(drain(&mut obs).0);
 
-    b.batch().send(2).send(3);
+    rumors::testing::commit(b.batch().send(2).send(3));
     wire_gossip(&a, &b);
     delivered.extend(drain(&mut obs).0);
 
-    a.send(4);
-    b.send(5);
+    pollster::block_on(a.send(4)).expect("the in-memory backend is infallible");
+    pollster::block_on(b.send(5)).expect("the in-memory backend is infallible");
     wire_gossip(&a, &b);
     delivered.extend(drain(&mut obs).0);
 
@@ -203,9 +210,9 @@ fn live_passes_preserve_causal_order_cumulatively() {
 fn checkpoint_lags_until_the_backlog_drains() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let genesis = known.snapshot().latest().clone();
-    known.send(1);
-    known.send(2);
-    known.send(3);
+    pollster::block_on(known.send(1)).expect("the in-memory backend is infallible");
+    pollster::block_on(known.send(2)).expect("the in-memory backend is infallible");
+    pollster::block_on(known.send(3)).expect("the in-memory backend is infallible");
 
     let mut obs = known.causal_messages();
     let Step::Item(first) = step(&mut obs) else {
@@ -243,10 +250,10 @@ fn checkpoint_lags_until_the_backlog_drains() {
 fn staged_then_redacted_is_still_delivered() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let pre = known.snapshot().latest().clone();
-    known.send(1);
+    pollster::block_on(known.send(1)).expect("the in-memory backend is infallible");
     let key_1 = minted_key(&known.snapshot(), &pre);
     let pre = known.snapshot().latest().clone();
-    known.send(2);
+    pollster::block_on(known.send(2)).expect("the in-memory backend is infallible");
     let key_2 = minted_key(&known.snapshot(), &pre);
 
     // First step ingests the whole pass (both messages) and delivers the
@@ -259,7 +266,7 @@ fn staged_then_redacted_is_still_delivered() {
 
     // Redact the staged message, then drain: it is delivered anyway (it was
     // live at its ingest), and nothing fires after.
-    known.redact(staged_key);
+    pollster::block_on(known.redact(staged_key)).expect("the in-memory backend is infallible");
     let (items, _) = drain(&mut obs);
     assert_eq!(
         items.iter().map(|(k, _, _)| *k).collect::<Vec<_>>(),
@@ -269,8 +276,9 @@ fn staged_then_redacted_is_still_delivered() {
 
     // Redacted wholly before any ingest: never delivered.
     let pre = known.snapshot().latest().clone();
-    known.send(3);
-    known.redact(minted_key(&known.snapshot(), &pre));
+    pollster::block_on(known.send(3)).expect("the in-memory backend is infallible");
+    pollster::block_on(known.redact(minted_key(&known.snapshot(), &pre)))
+        .expect("the in-memory backend is infallible");
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "pre-ingest redactions never fire");
 }
@@ -281,7 +289,7 @@ fn staged_then_redacted_is_still_delivered() {
 #[test]
 fn observer_drains_the_final_state_causally_then_ends() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    known.batch().send(1).send(2).send(3);
+    rumors::testing::commit(known.batch().send(1).send(2).send(3));
     let expected = live_map(&known);
 
     let mut obs = known.causal_messages();
@@ -301,20 +309,18 @@ fn observer_drains_the_final_state_causally_then_ends() {
     assert_eq!(step(&mut obs), Step::Ended, "ended is terminal");
 }
 
-/// The owned-item face delivers the same causal order as `borrow_next` and
-/// terminates with `None` once the set closes.
+/// The owned-item face delivers the same causal order as the inherent
+/// `next` and terminates with `None` once the set closes.
 #[test]
 fn stream_face_is_causal_and_terminates() {
-    use futures::StreamExt;
-
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     for v in 0..6u64 {
-        known.send(v);
+        pollster::block_on(known.send(v)).expect("the in-memory backend is infallible");
     }
 
     let mut obs = known.causal_messages();
     let mut items = Vec::new();
-    while let Some(Some((k, v, m))) = obs.next().now_or_never() {
+    while let Some(Ok(Some((k, v, m)))) = obs.next().now_or_never() {
         items.push((k, v, *m));
     }
     assert_eq!(
@@ -324,9 +330,8 @@ fn stream_face_is_causal_and_terminates() {
     );
 
     drop(known);
-    assert_eq!(
-        obs.next().now_or_never(),
-        Some(None),
+    assert!(
+        matches!(obs.next().now_or_never(), Some(Ok(None))),
         "the Stream ends once the set closes"
     );
 }
@@ -383,15 +388,15 @@ proptest! {
             match op {
                 Op::SendA(v) => {
                     let pre = a.snapshot().latest().clone();
-                    a.send(*v);
+                    pollster::block_on(a.send(*v)).expect("the in-memory backend is infallible");
                     minted.push(minted_key(&a.snapshot(), &pre));
                 }
                 Op::SendB(v) => {
-                    b.send(*v);
+                    pollster::block_on(b.send(*v)).expect("the in-memory backend is infallible");
                 }
                 Op::Redact(idx) => {
                     if !minted.is_empty() {
-                        a.redact(minted[idx % minted.len()]);
+                        pollster::block_on(a.redact(minted[idx % minted.len()])).expect("the in-memory backend is infallible");
                     }
                 }
                 Op::Gossip => wire_gossip(&a, &b),
@@ -438,7 +443,8 @@ proptest! {
     ) {
         let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
         for v in &phase_one {
-            known.send(*v); // separate batches: a strict causal chain
+            // Separate batches: a strict causal chain.
+            pollster::block_on(known.send(*v)).expect("the in-memory backend is infallible");
         }
 
         let mut obs = known.causal_messages();
@@ -458,7 +464,7 @@ proptest! {
         drop(obs);
 
         for v in &phase_two {
-            known.send(*v);
+            pollster::block_on(known.send(*v)).expect("the in-memory backend is infallible");
         }
 
         let mut resumed = known.causal_messages_since(checkpoint);

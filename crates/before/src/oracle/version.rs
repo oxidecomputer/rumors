@@ -11,8 +11,8 @@ type Cost = (u32, u32); // (#expansions, depth), lexicographic
 
 /// Event component.
 ///
-/// Bases are arbitrary-precision `Base` (`num_bigint::BigUint`), matching the
-/// implementation's working form, so large-base differentials lower losslessly
+/// Bases are the arbitrary-precision `Base`, matching the
+/// implementation's leaf payloads, so large-base differentials lower losslessly
 /// — there is no `u64` truncation point. Literal/`u64` construction still works
 /// via `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the
 /// [`From<u64>`](Version) conversion.
@@ -190,16 +190,16 @@ impl Version {
     /// `self / id` — the part of the version contributed within `id`'s region,
     /// zero everywhere `id` does not own. The reference for the impl's quotient
     /// [`Version / &Party`](crate::Version).
-    fn project(&self, id: &Party) -> Version {
+    pub(crate) fn project(&self, id: &Party) -> Version {
         self.project_off(id, &Base::ZERO)
     }
 
     /// The minimum number of [`tick`](Self::tick)s that could have produced this
-    /// version: the sum of every base in the event tree, saturating at
-    /// [`u64::MAX`]. The reference for
+    /// version: the sum of every base in the event tree, exact at any
+    /// magnitude. The reference for
     /// [`Version::min_ticks`](crate::Version::min_ticks).
-    pub fn min_ticks(&self) -> u64 {
-        self.base_total().to_u64_saturating()
+    pub fn min_ticks(&self) -> crate::Ticks {
+        crate::Ticks(self.base_total())
     }
 
     /// The sum of every base in the event tree (node bases plus leaf values).
@@ -220,7 +220,7 @@ impl Version {
 
     /// The raw `(numerator, exponent)` area fold, in subtree-relative units
     /// (this subtree's interval has width 1).
-    fn rank_raw(&self) -> (Base, u32) {
+    fn rank_raw(&self) -> (Base, u64) {
         match self {
             Version::Leaf(n) => (n.clone(), 0),
             Version::Node(n, l, r) => {
@@ -351,8 +351,35 @@ impl Version {
         self.normalized()
     }
 
+    /// The meet (GLB) of every version in `iter`, or [`None`] for an empty
+    /// iterator — the reference for
+    /// [`Version::meet_all`](crate::Version::meet_all).
+    ///
+    /// The sequential fold of the binary meet; `None` because the
+    /// meet-semilattice has no identity (no version dominates all others).
+    pub fn meet_all(iter: impl IntoIterator<Item = Version>) -> Option<Version> {
+        iter.into_iter().reduce(|acc, v| acc & v)
+    }
+
     pub fn tick(&mut self, party: &Party) {
         *self = self.event(party);
+    }
+
+    /// `n` sequential [`tick`](Self::tick)s, literally iterated.
+    ///
+    /// The paper has no fused form, so the reference for
+    /// [`Version::ticks`](crate::Version::ticks) is the definitionally
+    /// honest loop — `O(n · tree)`, fit for small `n` only (the module
+    /// doc's operating envelope; each differential suite caps the counts
+    /// it hands this side, and wide-`n` coverage lives impl-side on
+    /// composition laws and closed forms).
+    pub fn ticks(&mut self, party: &Party, n: impl Into<crate::Ticks>) {
+        let mut left = n.into().0;
+        let one = Base::from(1u8);
+        while left != Base::ZERO {
+            self.tick(party);
+            left -= &one;
+        }
     }
 
     pub fn is_normal(&self) -> bool {
@@ -421,10 +448,12 @@ impl BitAndAssign<Version> for Version {
 }
 
 // `/`/`/=` project a `Version` onto a `Party`'s region (the quotient),
-// mirroring the impl's `Div<&Party> for Version`. Unlike the impl, the oracle
-// `Party` is `Clone`, so the borrow is incidental — but the surface is kept
-// identical (a borrowed party) so the operator reads the same in differential
-// tests.
+// materialized eagerly: the oracle is the *other side* of the impl's
+// projection differentials — the reference the impl's lazy view
+// (`OwnVersion`) and its `to_version()` materialization are both pinned
+// against — so it stays a plain projected `Version`, never a view. The
+// oracle `Party` is `Clone`, so the borrowed party is incidental; the
+// by-value and assign forms survive here for the oracle's own ergonomics.
 impl Div<&Party> for &Version {
     type Output = Version;
     fn div(self, party: &Party) -> Version {

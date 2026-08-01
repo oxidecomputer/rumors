@@ -1,0 +1,19 @@
+# imbl's OrdMap/OrdSet diff silently drops and mis-keys differences
+# between clone-derived maps (https://github.com/jneem/imbl/issues/161;
+# `imbl_diff_skips_updates_between_clone_derived_maps` pins it and flips
+# when upstream fixes it). imbl is a test-and-conformance-only dependency;
+# even there, the diff surface is off-limits. `tools/denylist` carries a
+# token-level fallback that also covers cfg combinations outside the
+# linted matrix.
+#
+# Residual, stated deliberately: `==`/`!=` between imbl maps inherits the
+# defect (imbl's `PartialEq` is diff-backed), but no mechanical ban can
+# reach it — clippy resolves the operator to the blanket trait method, not
+# imbl's impl, and a textual rule cannot see types (both were probed and
+# failed their witness tests). The guard there is the pin test, the
+# smallness of the imbl-using surface (`store::memory` and the pin), and
+# review.
+disallowed-methods = [
+    { path = "imbl::ord::map::GenericOrdMap::diff", reason = "imbl's diff drops differences between clone-derived maps (jneem/imbl#161); compare by iteration instead" },
+    { path = "imbl::ord::set::GenericOrdSet::diff", reason = "imbl's diff drops differences between clone-derived maps (jneem/imbl#161); compare by iteration instead" },
+]

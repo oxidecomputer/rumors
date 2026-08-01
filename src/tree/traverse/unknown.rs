@@ -10,9 +10,7 @@
 //! [`mirror`](super::mirror) delegate their version filtering here, which
 //! is what makes them observationally identical.
 
-use std::cmp::Ordering;
-
-use crate::Version;
+use crate::{Version, causally};
 
 use super::typed::*;
 use height::{Height, S, Z};
@@ -39,35 +37,31 @@ where
         // If the node doesn't exist, we can't return information about it
         let node = node?;
 
-        // There are two fast paths here:
-        //
-        // 1. floor concurrent with or > known
-        // 2. ceiling <= known
-        //
-        // We check them in this order because it's expected that the first
-        // comparison is *cheaper* (the meet of random versions is likely to be
-        // small because it's the greatest-common-ancestor) and because it's
-        // more likely to happen *higher* in the tree, *and* because it's the
-        // only one of the two comparisons which can early-terminate during the
-        // `partial_cmp` (because the `None` verdict can bail early in version
-        // comparison). This gives a measurable, if small win in benchmarks, by
-        // skipping the second comparison more of the time.
-
-        // If the node's floor is concurrent with or greater than the known
-        // version vector, it's definitely unknown (and so are all its children,
-        // since they are always in the causal future or present of their
-        // parent's floor), so return the node unchanged:
-        match node.floor().partial_cmp(known) {
-            None | Some(Ordering::Greater) => return Some(node),
-            _ => {}
-        }
-
-        // If the node's ceiling is causally prior to or at the known version
-        // vector, it's already known (and so are all its children, since they
-        // are always in the causal past or present of their parent's ceiling),
-        // so don't return anything at all:
-        if node.ceiling() <= known {
-            return None;
+        // One fused walk classifies the node: the counterparty's version
+        // is placed against the subtree's memoized `[floor, ceiling]`
+        // bounds — stored as a single span, ordered by construction, so
+        // no validating comparison is paid here — and each verdict of
+        // the dominance face is one prune decision. The fused walk
+        // decodes `known` once where placing the two bounds separately
+        // would decode it once per bound, and it keeps the cheap
+        // unknown-subtree exit: `floor <= known` refuted is the whole
+        // verdict, decided at the first refuting interval (the floor, a
+        // meet, is likely the smallest stream, and whole divergent
+        // subtrees are the common case high in the tree).
+        match node.dominance_of(known) {
+            // `known` does not dominate even the floor (the floor is
+            // beyond or beside it): the whole subtree is definitely
+            // unknown (children are always in the causal future or
+            // present of their parent's floor), so return the node
+            // unchanged.
+            causally::Dominance::Before => return Some(node),
+            // `known` dominates the ceiling: the whole subtree is
+            // already known (children are always in the causal past or
+            // present of their parent's ceiling), so don't return
+            // anything at all.
+            causally::Dominance::After => return None,
+            // Only the floor is dominated: the subtree is mixed.
+            causally::Dominance::Between => {}
         }
 
         // Recursively process each child, re-assembling only the unknown children
@@ -91,9 +85,9 @@ impl Unknown for Z {
         // If the node doesn't exist, we can't return information about it
         let node = node?;
 
-        // If the node is causally prior or at the known version vector, it's
-        // already known, so don't return anything
-        if node.ceiling() <= known {
+        // If the leaf's version is within the counterparty's known-at range,
+        // it's already known, so don't return anything
+        if causally::known_at(known).contains(node.ceiling()) {
             return None;
         }
 
@@ -101,3 +95,6 @@ impl Unknown for Z {
         Some(node)
     }
 }
+
+#[cfg(test)]
+mod tests;

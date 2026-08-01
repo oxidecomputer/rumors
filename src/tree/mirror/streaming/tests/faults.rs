@@ -57,8 +57,8 @@ proptest! {
         let (client_root, server_root) =
             full_depth_comb_pair(2, LeafOrder::Interleaved);
         let before = (client_root.clone(), server_root.clone());
-        let local = Handshaking::start(Local, StreamingRoot::from(client_root.clone())).window(WindowConfig::FLOOR);
-        let honest_server = Handshaking::start(Local, StreamingRoot::from(server_root.clone())).window(WindowConfig::FLOOR);
+        let local = Handshaking::start(Local, client_root.clone()).window(WindowConfig::FLOOR);
+        let honest_server = Handshaking::start(Local, server_root.clone()).window(WindowConfig::FLOOR);
         let faulting_server = Faulting::new(honest_server, server_steps, Some(violation));
         let result = run_to_quiescence(drive_streaming(local, faulting_server))
             .expect("the connected driver must surface the fault, not stall");
@@ -72,9 +72,9 @@ proptest! {
 
         // Reversing the handshake sides also reverses initiator order: the
         // driver's frame-relative error is flipped back to the original client.
-        let honest_client = Handshaking::start(Local, StreamingRoot::from(client_root.clone())).window(WindowConfig::FLOOR);
+        let honest_client = Handshaking::start(Local, client_root.clone()).window(WindowConfig::FLOOR);
         let faulting_client = Faulting::new(honest_client, client_steps, Some(violation));
-        let local = Handshaking::start(Local, StreamingRoot::from(server_root.clone())).window(WindowConfig::FLOOR);
+        let local = Handshaking::start(Local, server_root.clone()).window(WindowConfig::FLOOR);
         let result = run_to_quiescence(drive_streaming(faulting_client, local))
             .expect("the reversed connected driver must surface the fault, not stall");
         match result {

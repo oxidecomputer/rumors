@@ -1,0 +1,32 @@
+[package]
+name = "fuzzfit-harness"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+# The native mirror: the harness executes every generated program twice —
+# natively (for denominators and expected bytes) and in the wasm guest (for
+# fuel) — so the same `before` build the guest wraps is a direct dependency.
+before = { path = "../.." }
+# Executes the guest under fuel metering: fuel decrements per executed wasm
+# instruction, deterministic and host-independent. Tool-side only: this
+# workspace is detached from the parent, so wasmtime never enters the
+# production crates' dependency graph.
+wasmtime = { version = "47", default-features = false, features = [
+    "cranelift",
+    "runtime",
+] }
+# The enforcement leg's engine; a regular dependency (not dev) because the
+# calibration binary draws from the same strategies the tests do.
+proptest = "1"
+# Deterministic seed streams for the calibration sweep, the same
+# documented-portable generator the parent crate's corpus sweeps use.
+rand = "0.8"
+rand_chacha = "0.3"
+
+[build-dependencies]
+# Identifies the building toolchain (`build.rs` embeds it): fuel constants
+# are a function of the guest codegen, so the suite refuses to judge
+# against bands pinned under a different rustc.
+rustc_version = "0.4"

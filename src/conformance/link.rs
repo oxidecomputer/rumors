@@ -996,18 +996,16 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
         .into_rumors();
 
     // Divergence wide and deep enough to exercise many streams per side.
-    {
-        let mut batch = seed.batch();
-        for payload in 0..SESSION_PAYLOADS {
-            batch.send(payload);
-        }
-    }
-    {
-        let mut batch = newcomer.batch();
-        for payload in SESSION_PAYLOADS..2 * SESSION_PAYLOADS {
-            batch.send(payload);
-        }
-    }
+    (0..SESSION_PAYLOADS)
+        .fold(seed.batch(), |batch, payload| batch.send(payload))
+        .commit()
+        .await
+        .expect("the in-memory backend is infallible");
+    (SESSION_PAYLOADS..2 * SESSION_PAYLOADS)
+        .fold(newcomer.batch(), |batch, payload| batch.send(payload))
+        .commit()
+        .await
+        .expect("the in-memory backend is infallible");
 
     // Session two: reconcile the divergence; session three: converge as a
     // no-op. Serialized on the same links, so the epoch counting and

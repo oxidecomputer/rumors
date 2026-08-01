@@ -1,5 +1,14 @@
 //! Executor-agnostic test support shared across protocol and API suites.
 
+use std::ops::RangeBounds;
+use std::sync::Arc;
+use std::vec::IntoIter;
+
+use futures::TryStreamExt as _;
+
+use crate::tree::backend::Store;
+use crate::{Key, Snapshot, Version};
+
 mod memnet;
 mod transport;
 
@@ -16,6 +25,52 @@ pub use crate::tree::mirror::streaming::remote::LinkCapture;
 /// Render captured V2 link traffic grouped by labeled logical streams.
 pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
     crate::tree::mirror::streaming::remote::render_v2_capture(a, b)
+}
+
+/// Drain a [`Snapshot`](crate::Snapshot)'s message stream into a `Vec`,
+/// synchronously.
+///
+/// The in-memory backend's stream items are all immediately ready and its
+/// error is uninhabited, so suites can compare snapshot contents without
+/// carrying an executor. Order is the stream's own (unspecified).
+pub fn collect<T: Send + Sync + 'static, S: Store<T>>(
+    snapshot: &Snapshot<T, S>,
+) -> Vec<(Key, Version, Arc<T>)> {
+    pollster::block_on(snapshot.iter().try_collect()).expect("the backend answered every item")
+}
+
+/// Chainable form of [`collect`]: drain a snapshot's stream into an owned
+/// iterator, synchronously, at the end of a method chain.
+pub trait SnapshotCollect<T> {
+    /// Drain into `Vec` and hand back its iterator; see [`collect`].
+    fn collected(&self) -> IntoIter<(Key, Version, Arc<T>)>;
+}
+
+impl<T: Send + Sync + 'static, S: Store<T>> SnapshotCollect<T> for Snapshot<T, S> {
+    fn collected(&self) -> IntoIter<(Key, Version, Arc<T>)> {
+        collect(self).into_iter()
+    }
+}
+
+/// Drain the messages of a [`Snapshot`](crate::Snapshot) whose versions
+/// fall in the causal `range` into a `Vec`, synchronously.
+///
+/// The range-filtered sibling of [`collect`], with
+/// [`Snapshot::range`](crate::Snapshot::range)'s bound semantics.
+pub fn collect_range<T: Send + Sync + 'static, S: Store<T>, R: RangeBounds<Version>>(
+    snapshot: &Snapshot<T, S>,
+    range: R,
+) -> Vec<(Key, Version, Arc<T>)> {
+    pollster::block_on(snapshot.range(range).try_collect())
+        .expect("the backend answered every item")
+}
+
+/// Commit a [`Batch`](crate::Batch), synchronously.
+///
+/// The in-memory backend's commit future suspends only at the commit
+/// lock, so suites without a concurrent committer can commit inline.
+pub fn commit<T: Send + Sync>(batch: crate::Batch<'_, T>) {
+    pollster::block_on(batch.commit()).expect("the in-memory backend is infallible")
 }
 
 /// A snapshot of the crate-wide census of live tree-node handles.
@@ -185,7 +240,7 @@ pub fn window_tradeoff_table() -> String {
 /// Covers every bound the tree holds (leaf versions and every interior
 /// ceiling and floor); the result is the exact per-node aggregate the
 /// greeting exchanges.
-pub fn max_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
+pub fn max_version_bytes<T: Send + Sync + 'static>(snapshot: &crate::Snapshot<T>) -> usize {
     snapshot.tree().max_version_bytes()
 }
 
@@ -198,7 +253,7 @@ pub fn max_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
 /// input materialized; this walk measures a reconciled tree against the
 /// pre-session exchange, so tests can pin the model side of the account
 /// to reality.
-pub fn max_bound_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
+pub fn max_bound_bytes<T: Send + Sync + 'static>(snapshot: &crate::Snapshot<T>) -> usize {
     snapshot.tree().max_bound_bytes()
 }
 
@@ -224,10 +279,7 @@ pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -
 use std::{
     future::Future,
     pin::pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll, Wake, Waker},
 };
 

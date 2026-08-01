@@ -18,22 +18,23 @@ use rumors::{Peer, Rumors};
 
 use crate::common::gossip_snapshot::capture_gossip;
 use crate::common::wire::{block_on, bootstrap_fork_async};
+use rumors::testing::SnapshotCollect as _;
 
 /// A peer seeded from a fixed RNG so the capture is deterministic.
-fn seeded<T>() -> Rumors<T> {
+fn seeded<T: Send + Sync + 'static>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
 }
 
 /// A second message whose key shares its first byte with message `1`'s in
-/// this staging (keys `b8 11` and `b8 bc`, found by search), so the two
+/// this staging (keys `8a 44` and `8a fd`, found by search), so the two
 /// sides dispute one root child.
 ///
 /// The initiator holds both leaves, the
 /// responder — forked between the two sends — only the first.
-const DISPUTED_SIBLING_VALUE: u64 = 151;
+const DISPUTED_SIBLING_VALUE: u64 = 33;
 
 /// First of three consecutive responder ballast values whose keys' first
-/// bytes (`24`, `7a`, `b5`) avoid the disputed radix (`b8`) and make the
+/// bytes (`48`, `82`, `c9`) avoid the disputed radix (`8a`) and make the
 /// responder the larger set, so the disputed-subtree holder initiates.
 const BALLAST_FROM: u64 = 100;
 
@@ -64,11 +65,12 @@ fn frames_labeled(capture: &str, label: &str) -> usize {
 fn divergent_root_child_has_one_question_owner() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1);
+        pollster::block_on(a.send(1)).expect("the in-memory backend is infallible");
         let b = bootstrap_fork_async(&a).await;
-        a.send(DISPUTED_SIBLING_VALUE);
+        pollster::block_on(a.send(DISPUTED_SIBLING_VALUE))
+            .expect("the in-memory backend is infallible");
         let y = BALLAST_FROM;
-        b.batch().send(y).send(y + 1).send(y + 2);
+        rumors::testing::commit(b.batch().send(y).send(y + 1).send(y + 2));
         (a, b)
     });
 
@@ -76,7 +78,7 @@ fn divergent_root_child_has_one_question_owner() {
     // is the smaller set and initiates.
     let akeys: Vec<u8> = a
         .snapshot()
-        .iter()
+        .collected()
         .map(|(k, _, _)| k.as_bytes()[0])
         .collect();
     assert_eq!(akeys.len(), 2, "the initiator holds the sibling pair");
@@ -84,7 +86,7 @@ fn divergent_root_child_has_one_question_owner() {
     let radix = akeys[0];
     assert_eq!(
         b.snapshot()
-            .iter()
+            .collected()
             .filter(|(k, _, _)| k.as_bytes()[0] == radix)
             .count(),
         1,

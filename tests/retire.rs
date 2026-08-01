@@ -27,6 +27,7 @@ use rumors::{Peer, Retire, Rumors, causally};
 use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use rumors::testing::SnapshotCollect as _;
 
 /// Capacity for each in-memory link stream. A divergent retiree's session moves
 /// content through the gossip round, so keep the other wire tests' headroom.
@@ -70,7 +71,7 @@ fn retire_into_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> Retire<u64> {
 fn retire_into_counting_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> (Retire<u64>, usize) {
     let pre = peer.snapshot().latest().clone();
     let outcome = retire_into_gossip(retiree, peer);
-    let novel = peer.snapshot().range(causally::since(&pre)).count();
+    let novel = rumors::testing::collect_range(&peer.snapshot(), causally::since(&pre)).len();
     (outcome, novel)
 }
 
@@ -172,7 +173,7 @@ fn divergent_retiree_reconciles_then_retires() {
         matches!(outcome, Retire::Retired),
         "the in-session gossip round brings the peer to dominance, got {outcome:?}"
     );
-    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, _, m)| **m).collect();
+    let mut live: Vec<u64> = b.snapshot().collected().map(|(_, _, m)| *m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -189,24 +190,24 @@ fn retiree_redaction_propagates_through_retire() {
     // Both peers hold 1 and 2 (inserted before the fork, so the keys are
     // shared); the retiree then redacts 1 while the peer inserts 3.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    seed.batch().send(1).send(2);
+    rumors::testing::commit(seed.batch().send(1).send(2));
     let key_of_1 = seed
         .snapshot()
-        .iter()
-        .find_map(|(k, _, m)| (**m == 1).then_some(k))
+        .collected()
+        .find_map(|(k, _, m)| (*m == 1).then_some(k))
         .expect("key recorded for 1");
 
     let a = bootstrap_fork(&seed);
     let b = async_known(seed, &[3]);
 
-    a.redact(key_of_1);
+    pollster::block_on(a.redact(key_of_1)).expect("the in-memory backend is infallible");
 
     let outcome = retire_into_gossip(a, &b);
     assert!(
         matches!(outcome, Retire::Retired),
         "the reconciled peer absorbs the retiree, got {outcome:?}"
     );
-    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, _, m)| **m).collect();
+    let mut live: Vec<u64> = b.snapshot().collected().map(|(_, _, m)| *m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -284,10 +285,10 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
 
     // The inherited party is live: an origination from the successor
     // survives gossip with the rest of the universe.
-    successor.send(99);
+    pollster::block_on(successor.send(99)).expect("the in-memory backend is infallible");
     wire_gossip(&successor, &seed);
     assert!(
-        seed.snapshot().iter().any(|(_, _, m)| **m == 99),
+        seed.snapshot().collected().any(|(_, _, m)| *m == 99),
         "the successor's origination survives gossip"
     );
 }

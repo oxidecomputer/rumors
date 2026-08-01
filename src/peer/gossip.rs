@@ -17,10 +17,12 @@ use tokio::{
     sync::{Mutex, watch},
 };
 
+use crate::StorageError;
 use crate::link::{
     Acceptor, Connector, Link, SessionState,
     erased::{DynAcceptor, DynConnector},
 };
+use crate::tree::backend::Store;
 #[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::mirror::{
     alternating::{self, local as alternating_local, remote as alternating_remote},
@@ -91,7 +93,7 @@ type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a
 /// identity that the call was specifically trying to preserve.
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
-pub enum Retire<T, B: BookmarkError = NoBookmark> {
+pub enum Retire<T: Send + Sync + 'static, B: BookmarkError = NoBookmark, S: Store<T> = Local> {
     /// **Retired.** This replica has left the universe.
     ///
     /// The peer reconciled with us, absorbed our identity, and — under
@@ -106,7 +108,7 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// The session ended cleanly, so the link remains usable.
     Declined {
         /// The intact retiree.
-        peer: Peer<T, B>,
+        peer: Peer<T, B, S>,
     },
     /// **Recovered, unchanged.** The session failed *before* our identity
     /// ever crossed the wire; the replica is handed back intact, to try
@@ -117,9 +119,9 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// fast.
     Recovered {
         /// The intact retiree.
-        peer: Peer<T, B>,
+        peer: Peer<T, B, S>,
         /// What failed the session.
-        error: Error<B>,
+        error: Error<B, S::Error>,
     },
     /// **Uncertain.** The session failed while our identity itself was in
     /// flight: the peer may or may not hold it, so our peer is consumed
@@ -132,7 +134,7 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// ([`Error::Epilogue`] explains why that gap cannot be closed).
     Uncertain {
         /// What failed the session.
-        error: Error<B>,
+        error: Error<B, S::Error>,
     },
 }
 
@@ -150,9 +152,9 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
 /// [`peer`](Self::peer) back to drop it deliberately or to retry.
 #[must_use = "a failed `Peer::bookmark` hands the `Peer` back; dropping it strands the identity"]
 #[derive(Debug)]
-pub struct Unbookmarked<T, B: BookmarkError> {
+pub struct Unbookmarked<T: Send + Sync + 'static, B: BookmarkError, S: Store<T> = Local> {
     /// The peer, its identity intact and no bookmark attached.
-    pub peer: Peer<T, NoBookmark>,
+    pub peer: Peer<T, NoBookmark, S>,
     /// What the bookmark's [`load`](crate::Bookmark::load) or
     /// [`store`](crate::Bookmark::store) reported, or the framing failure the
     /// crate hit reading the stored bytes.
@@ -200,17 +202,18 @@ pub enum Led {
     Remote,
 }
 
-impl<T> Peer<T, NoBookmark> {
+impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
     /// Run bootstrap over any link.
     ///
     /// A thin generic funnel: the only monomorphized-per-link code is the
     /// erasure to [`DynLinkParts`] here.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn bootstrap_inner<'a, CR, CW, C, A>(
-        config: Bootstrap<T>,
+        config: Bootstrap<T, S>,
         link: &'a mut Link<CR, CW, C, A>,
-    ) -> BoxFuture<'a, Result<Option<Self>, Error>>
+    ) -> BoxFuture<'a, Result<Option<Self>, Error<NoBookmark, S::Error>>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -232,15 +235,27 @@ impl<T> Peer<T, NoBookmark> {
     /// The link-erased bootstrap body behind [`bootstrap_inner`].
     ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
+    #[allow(clippy::type_complexity)]
     fn bootstrap_erased<'a>(
-        config: Bootstrap<T>,
+        config: Bootstrap<T, S>,
         link: DynLinkParts<'a>,
-    ) -> BoxFuture<'a, Result<Option<Self>, Error>>
+    ) -> BoxFuture<'a, Result<Option<Self>, Error<NoBookmark, S::Error>>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
+            // Decline an unsupported protocol/backend pairing before any
+            // wire traffic: V1's alternation assumes a resident tree, and
+            // over a storage backend the worst case materializes the
+            // whole store into memory to send a single message (see
+            // `gossip_inner`'s twin gate).
+            #[cfg(any(test, feature = "protocol-v1"))]
+            if config.protocol == Protocol::V1 && !v1::supported::<T, S>() {
+                return Err(Error::ProtocolUnsupported {
+                    protocol: Protocol::V1,
+                });
+            }
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
             let mut staged = handshake::Staged::new();
@@ -259,6 +274,9 @@ impl<T> Peer<T, NoBookmark> {
             // to remain or retire; they will hand us a party regardless, and we can
             // absorb it.
             let _ = remote.intent;
+            // The install below needs the backend after the reconcile arm
+            // has consumed `config`.
+            let store = config.store.clone();
 
             // Reconcile from an empty tree using the selected wire protocol. Both
             // branches return the same lifecycle boundary: a materialized root and
@@ -268,10 +286,14 @@ impl<T> Peer<T, NoBookmark> {
             #[allow(clippy::type_complexity)]
             let reconcile: BoxFuture<
                 '_,
-                Result<Option<(tree::Root<T>, DynRead<'a>, DynWrite<'a>)>, Error>,
+                Result<
+                    Option<(tree::Root<T, S>, DynRead<'a>, DynWrite<'a>)>,
+                    Error<NoBookmark, S::Error>,
+                >,
             > = match config.protocol {
                 Protocol::V2 => Box::pin(async move {
-                    let local_root: streaming::Root<Local, T> = tree::Root::default().into();
+                    let store = config.store.clone();
+                    let local_root: streaming::Root<S, T> = tree::Root::default();
                     // The window choice is passed for uniformity with gossip,
                     // but no choice can widen this session: disputes require
                     // joint occupancy and this side's replica is empty, so
@@ -279,12 +301,12 @@ impl<T> Peer<T, NoBookmark> {
                     // The message-size target is the operative knob: the
                     // greeting advertises it, and the provider's supply runs
                     // are built at the exchanged minimum.
-                    let local = materialized::Handshaking::start(Local, local_root)
+                    let local = materialized::Handshaking::start(store.clone(), local_root)
                         .window(config.window)
                         .target_message_size(config.run_budget.bytes() as u64);
                     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
                     let proxy =
-                        streaming_remote::Handshaking::start(Local, carrier).window(config.window);
+                        streaming_remote::Handshaking::start(store, carrier).window(config.window);
                     let handshaken = streaming::handshake(local, proxy)
                         .await
                         .map_err(streaming_error)?;
@@ -306,18 +328,29 @@ impl<T> Peer<T, NoBookmark> {
                         epilogue(&mut read, &mut write).await?;
                         return Ok(None);
                     }
-                    Ok(Some((root.into(), read, write)))
+                    Ok(Some((root, read, write)))
                 }),
                 #[cfg(any(test, feature = "protocol-v1"))]
                 Protocol::V1 => Box::pin(async move {
-                    let local = alternating_local::Exchange::start(tree::Root::default());
+                    // V1 runs only on the in-memory backend. The entry gate
+                    // above already declined any other pairing before the
+                    // preamble; this re-check keeps the arm total rather
+                    // than panicking, and the identity downcasts below keep
+                    // the alternating towers instantiating at `Local`'s
+                    // node types alone.
+                    if !v1::supported::<T, S>() {
+                        return Err(Error::ProtocolUnsupported {
+                            protocol: Protocol::V1,
+                        });
+                    }
+                    let local = alternating_local::Exchange::start(tree::Root::<T>::default());
                     let proxy = alternating_remote::Exchange::start(
                         FrameRead::new(read),
                         FrameWrite::new(write),
                     );
                     let handshaken = alternating::handshake(local, proxy)
                         .await
-                        .map_err(alternating_error)?;
+                        .map_err(|e| v1::error(alternating_error(e)))?;
                     // The frozen V1 wire has no epilogue: a mutual bootstrap
                     // bails right here, exactly as V1 always has — once the
                     // fellow claimant proves as newborn as we are.
@@ -326,7 +359,9 @@ impl<T> Peer<T, NoBookmark> {
                         return Ok(None);
                     }
                     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                    let (root, (read, write)) = descent.await.map_err(alternating_error)?;
+                    let (root, (read, write)) =
+                        descent.await.map_err(|e| v1::error(alternating_error(e)))?;
+                    let root = v1::root_back::<T, S>(root);
                     Ok(Some((root, read.into_inner(), write.into_inner())))
                 }),
             };
@@ -334,12 +369,34 @@ impl<T> Peer<T, NoBookmark> {
                 return Ok(None);
             };
             let party = party::receive(&mut read).await?;
-            // Our absorption of the received identity completes with the
-            // in-memory `Peer` construction below, which cannot fail: certify
-            // completion now, and require the provider's certificate so `Ok`
-            // means it committed its donation. (V2 only; the V1 wire is
-            // frozen.) On `Err` the received fork is dropped — its region
-            // leaks, benignly, like any fork lost in flight.
+            // The install here is plain construction, not a commit: the
+            // `watch` channel is created around the reconciled tree, so no
+            // concurrent handle exists yet and no commit lock is needed.
+            // The backend's root-flip transaction still runs (it is what
+            // makes the received set and identity durable together); with
+            // the in-memory backend it is a no-op.
+            let tree = Tree {
+                backend: store,
+                root,
+            };
+            tree.persist(
+                S::PERSISTS.then(|| {
+                    before::Clock::from_parts(party.dangerously_alias(), tree.latest().clone())
+                }),
+                remote.network,
+            )
+            .await
+            .map_err(|e| Error::Storage(StorageError(e)))?;
+            // Our absorption is now durable to whatever standard the
+            // backend keeps, and the `Peer` construction below cannot
+            // fail: certify completion, and require the provider's
+            // certificate so `Ok` means it committed its donation. (V2
+            // only; the V1 wire is frozen.) The order matters for a
+            // persisting backend: certifying before the persist could
+            // hand the provider a certificate for an absorption that
+            // never landed. On `Err` anywhere here the received fork is
+            // dropped — its region leaks, benignly, like any fork lost
+            // in flight.
             if config.protocol == Protocol::V2 {
                 epilogue(&mut read, &mut write).await?;
             }
@@ -350,9 +407,10 @@ impl<T> Peer<T, NoBookmark> {
                 run_budget: config.run_budget,
                 inner: watch::Sender::new(Inner {
                     party: Some(party),
-                    tree: Tree { root },
+                    tree,
                 }),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                commit: Arc::new(Mutex::new(())),
             };
             Ok(Some(peer))
         })
@@ -362,13 +420,14 @@ impl<T> Peer<T, NoBookmark> {
     pub(crate) async fn bookmark_inner<B: Persist>(
         self,
         bookmark: B,
-    ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
+    ) -> Result<Peer<T, B, S>, Unbookmarked<T, B, S>> {
         let Peer {
             network,
             protocol,
             window,
             run_budget,
             inner,
+            commit,
             ..
         } = self;
         let peer = Peer {
@@ -378,6 +437,7 @@ impl<T> Peer<T, NoBookmark> {
             run_budget,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+            commit,
         };
 
         // A pristine seed has no identity worth recording yet; persisting it
@@ -406,6 +466,7 @@ impl<T> Peer<T, NoBookmark> {
                     run_budget: peer.run_budget,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                    commit: peer.commit,
                 },
                 error,
             }),
@@ -417,7 +478,7 @@ impl<T> Peer<T, NoBookmark> {
 // public `Peer<T, B>` self type. Every method here is crate-private; public
 // entry points bind the public `Bookmark` trait.
 #[allow(private_bounds)]
-impl<T, B: Persist> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
     /// Runs the transactional body behind [`retire`](Peer::retire).
     ///
     /// The session begins with a round of gossip: the two peers reconcile
@@ -431,51 +492,64 @@ impl<T, B: Persist> Peer<T, B> {
     /// retiring set ([`UnorderedMessages`](crate::UnorderedMessages),
     /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled* final
     /// state — everything the session learned included — before they end.
+    ///
+    /// The body is `Box::pin`ned and awaited: this future carries the
+    /// whole session driver plus the retiree and its [`Retire`] outcome,
+    /// and the relocation keeps that state off the public future's layout
+    /// (`tests/future_size.rs` holds the budget). Unlike
+    /// [`bootstrap_inner`](Peer::bootstrap_inner) it is not erased to a
+    /// `dyn Future`: the towers inside are already erased, and a `dyn`
+    /// here would demand `Send` bounds the generic bookmark cannot
+    /// promise — plain boxing relocates while leaving the auto-traits
+    /// structural.
     pub(crate) async fn retire_inner<CR, CW, C, A>(
         self,
         link: &mut Link<CR, CW, C, A>,
-    ) -> Retire<T, B>
+    ) -> Retire<T, B, S>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new();
-        let parts = match erase(link) {
-            Ok(parts) => parts,
-            // The fail-fast happened before any wire traffic: nothing of
-            // ours was ever in flight, so the retiree is recovered intact.
-            Err(error) => {
-                return Retire::Recovered {
-                    peer: self,
-                    error: error.widen(),
-                };
+        Box::pin(async move {
+            let mut staged = handshake::Staged::new();
+            let parts = match erase(link) {
+                Ok(parts) => parts,
+                // The fail-fast happened before any wire traffic: nothing of
+                // ours was ever in flight, so the retiree is recovered intact.
+                Err(error) => {
+                    return Retire::Recovered {
+                        peer: self,
+                        error: error.widen(),
+                    };
+                }
+            };
+            let (intent, result) = self.gossip_inner(Intent::Retire, &mut staged, parts).await;
+            // Un-poison on clean completion, before the outcome is shaped:
+            // every `Ok` — retired, or declined by a mutually retiring peer —
+            // leaves the control stream resting at the session boundary.
+            if result.is_ok() {
+                link.session.finish();
             }
-        };
-        let (intent, result) = self.gossip_inner(Intent::Retire, &mut staged, parts).await;
-        // Un-poison on clean completion, before the outcome is shaped: every
-        // `Ok` — retired, or declined by a mutually retiring peer — leaves
-        // the control stream resting at the session boundary.
-        if result.is_ok() {
-            link.session.finish();
-        }
-        match (intent, result) {
-            (Intent::Retire, Ok(_)) => Retire::Retired,
-            (Intent::Retire, Err(error)) => Retire::Uncertain { error },
-            (Intent::Remain, Ok(_)) => Retire::Declined { peer: self },
-            (Intent::Remain, Err(error)) => Retire::Recovered { peer: self, error },
-        }
+            match (intent, result) {
+                (Intent::Retire, Ok(_)) => Retire::Retired,
+                (Intent::Retire, Err(error)) => Retire::Uncertain { error },
+                (Intent::Remain, Ok(_)) => Retire::Declined { peer: self },
+                (Intent::Remain, Err(error)) => Retire::Recovered { peer: self, error },
+            }
+        })
+        .await
     }
 
     /// Gossip with a remote peer to synchronize rumor sets.
     pub(crate) async fn gossip<CR, CW, C, A>(
         &self,
         link: &mut Link<CR, CW, C, A>,
-    ) -> Result<Gossiped, Error<B>>
+    ) -> Result<Gossiped, Error<B, S::Error>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -511,7 +585,8 @@ impl<T, B: Persist> Peer<T, B> {
     /// leaves the party exactly as it was. Reclaiming, with its party growth
     /// and the gating that protects it, is left to the first gossip. Holds the
     /// bookmark mutex across a brief `watch` borrow (read-only here) and the
-    /// write; lock order is bookmark-then-`watch`, as everywhere.
+    /// write; lock order is bookmark-then-`watch`, as everywhere (the full
+    /// order, with the commit lock between them, is stated at [`Peer::commit`]).
     async fn bookmark_record(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
         bookmark.ensure_loaded().await?;
@@ -536,8 +611,9 @@ impl<T, B: Persist> Peer<T, B> {
     /// Holds the bookmark mutex across that brief `watch` critical section —
     /// where the party grows atomically with the record — and the persisting
     /// write, so the two stores never diverge. The lock order is always
-    /// bookmark-then-`watch`; no path takes them the other way, so it cannot
-    /// deadlock.
+    /// bookmark-then-`watch` (with the commit lock between them where a path
+    /// takes it; see [`Peer::commit`]); no path takes any pair the other
+    /// way, so it cannot deadlock.
     ///
     /// Suppressed when the live `(party, version)` still matches what was last
     /// persisted: between updates nothing else touches the record, so re-running
@@ -608,16 +684,58 @@ impl<T, B: Persist> Peer<T, B> {
     /// Takes the link pre-erased ([`DynLinkParts`]): every generic caller funnels
     /// through here, so the protocol towers this drives instantiate once per
     /// payload type, not once per link instantiation.
+    /// Record the current (post-shrink) identity beside the stored tree
+    /// and wait out the store's durability policy: the storage half of a
+    /// donation, run before the party crosses the wire.
+    ///
+    /// Boxed so its locals — the identity clock above all — stay out of
+    /// [`gossip_inner`](Self::gossip_inner)'s layout, which every public
+    /// session future
+    /// carries (`tests/future_size.rs` pins the budget).
+    fn record_shrunk_identity(&self) -> BoxFuture<'static, Result<(), S::Error>> {
+        // The watch borrow stays outside the future: its guard is not
+        // `Send`, and everything the future needs is owned.
+        let (tree, clock) = {
+            let inner = self.inner.borrow();
+            let clock = inner.party.as_ref().map(|party| {
+                before::Clock::from_parts(party.dangerously_alias(), inner.tree.latest().clone())
+            });
+            (inner.tree.clone(), clock)
+        };
+        Box::pin(async move {
+            tree.record(clock).await?;
+            tree.barrier().await
+        })
+    }
+
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
         staged: &mut handshake::Staged,
         link: DynLinkParts<'a>,
-    ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
+    ) -> (Intent, Result<(Version, SessionStats), Error<B, S::Error>>)
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
     {
         let (read, write, connector, acceptor, epoch) = link;
+        // Decline an unsupported protocol/backend pairing before any wire
+        // traffic: the selection and the backend are both known here, so a
+        // storage-backed peer with V1 selected fails fast with nothing
+        // written and nothing read — the counterparty sees a dead session,
+        // never a mid-protocol failure. The pairing is refused outright
+        // rather than allowed to run because V1's full-level alternation
+        // assumes a resident tree: over a storage backend it would fault
+        // nodes into memory with no window bounding them, in the worst
+        // case materializing the whole store to send a single message.
+        #[cfg(any(test, feature = "protocol-v1"))]
+        if self.protocol == Protocol::V1 && !v1::supported::<T, S>() {
+            return (
+                Intent::Remain,
+                Err(Error::ProtocolUnsupported {
+                    protocol: Protocol::V1,
+                }),
+            );
+        }
         // The session's stats recorder: under V2, both protocol
         // participants below share it (the walk counts disputes, gains,
         // sheds, and the window grant; the proxy's codec seam counts
@@ -672,10 +790,18 @@ impl<T, B: Persist> Peer<T, B> {
         //   its `gossip_inner` call, so a retiring set is bookmarked before
         //   donating itself.)
         //
-        // The lock order is bookmark-then-`watch`, as everywhere. A failed
-        // record write aborts the session before any wire traffic: dropping
-        // `guarded` re-joins the speculative fork, and the next update
-        // re-records what the reclaim already grew in memory.
+        // The lock order is bookmark → commit → `watch`, as everywhere. The
+        // commit lock is taken here because a fork is a party *shrink*: a
+        // committer that stamped its actions from the pre-fork party but
+        // has not yet published would otherwise publish versions minted
+        // from identity this section is donating — the donated fork's new
+        // owner could mint the same coordinates, violating linearity. The
+        // lock spans only the critical section below, never any wire
+        // traffic, so a local commit is excluded for one party motion, not
+        // a session. A failed record write aborts the session before any
+        // wire traffic: dropping `guarded` re-joins the speculative fork,
+        // and the next update re-records what the reclaim already grew in
+        // memory.
         let mut guarded = PartyGuard {
             party: None,
             recover: self.inner.clone(),
@@ -686,6 +812,7 @@ impl<T, B: Persist> Peer<T, B> {
             if let Err(e) = bookmark.ensure_loaded().await {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
             }
+            let commit = self.commit.lock().await;
             let mut persist = false;
             self.inner.send_if_modified(|inner| {
                 if let Some(party) = inner.party.as_mut() {
@@ -718,11 +845,31 @@ impl<T, B: Persist> Peer<T, B> {
                 // We modified the watched party only if we removed something.
                 guarded.party.is_some()
             });
+            // The fork (if any) is taken and the snapshot frozen: no
+            // in-flight commit can now straddle them. The bookmark write
+            // below needs only the bookmark mutex.
+            drop(commit);
             if persist && let Err(e) = bookmark.write().await {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
             }
         }
         let prior_tree = prior_tree.expect("set in closure");
+        // For a persisting backend, wait out the store's durability policy
+        // before transmitting: every own version the snapshot can ship is
+        // covered by a committed root flip (the flip records the identity
+        // clock beside the root, in one transaction), and the barrier makes
+        // those flips crash-proof. Without it, a flip that evaporated with
+        // its record would let a restart re-mint coordinates some
+        // counterparty already holds. The barrier is watermarked — the
+        // backend flushes only when a flip or identity record postdates
+        // the last completed flush — so a session following local-only
+        // quiet waits on nothing: lazy stores keep their commit-latency
+        // win while nothing unflushed ever crosses the wire.
+        if S::PERSISTS
+            && let Err(e) = Box::pin(prior_tree.barrier()).await
+        {
+            return (Intent::Remain, Err(Error::Storage(StorageError(e))));
+        }
         // The event floor this side's handshake declares: `prior_tree` is
         // exactly the root the local protocol participant starts from, so
         // its frontier is the version the greeting carries.
@@ -740,15 +887,16 @@ impl<T, B: Persist> Peer<T, B> {
         #[allow(clippy::type_complexity)]
         let reconcile: BoxFuture<
             '_,
-            Result<(tree::Root<T>, DynRead<'a>, DynWrite<'a>), Error>,
+            Result<(tree::Root<T, S>, DynRead<'a>, DynWrite<'a>), Error<NoBookmark, S::Error>>,
         > = match self.protocol {
             Protocol::V2 => Box::pin(async move {
-                let local = materialized::Handshaking::start(Local, prior_tree.root.into())
+                let store = prior_tree.backend.clone();
+                let local = materialized::Handshaking::start(store.clone(), prior_tree.root)
                     .window(window)
                     .target_message_size(run_budget.bytes() as u64)
                     .stats(session_stats.clone());
                 let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                let proxy = streaming_remote::Handshaking::start(Local, carrier)
+                let proxy = streaming_remote::Handshaking::start(store, carrier)
                     .window(window)
                     .stats(session_stats);
                 let handshaken = streaming::handshake(local, proxy)
@@ -765,18 +913,29 @@ impl<T, B: Persist> Peer<T, B> {
                 }
                 let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
                 let (root, (read, write)) = descent.await.map_err(streaming_error)?;
-                Ok((root.into(), read, write))
+                Ok((root, read, write))
             }),
             #[cfg(any(test, feature = "protocol-v1"))]
             Protocol::V1 => Box::pin(async move {
-                let local = alternating_local::Exchange::start(prior_tree.root);
+                // V1 runs only on the in-memory backend. The entry gate
+                // above already declined any other pairing before the
+                // preamble; the downcast keeps the alternating towers
+                // instantiating at `Local`'s node types alone, and its
+                // `None` arm keeps this re-check total rather than
+                // panicking.
+                let Some(prior_root) = v1::root::<T, S>(prior_tree.root) else {
+                    return Err(Error::ProtocolUnsupported {
+                        protocol: Protocol::V1,
+                    });
+                };
+                let local = alternating_local::Exchange::start(prior_root);
                 let proxy = alternating_remote::Exchange::start(
                     FrameRead::new(read),
                     FrameWrite::new(write),
                 );
                 let handshaken = alternating::handshake(local, proxy)
                     .await
-                    .map_err(alternating_error)?;
+                    .map_err(|e| v1::error(alternating_error(e)))?;
                 if peer_bootstrapping {
                     bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
                 } else if remote.network != network {
@@ -787,7 +946,9 @@ impl<T, B: Persist> Peer<T, B> {
                     });
                 }
                 let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                let (root, (read, write)) = descent.await.map_err(alternating_error)?;
+                let (root, (read, write)) =
+                    descent.await.map_err(|e| v1::error(alternating_error(e)))?;
+                let root = v1::root_back::<T, S>(root);
                 Ok((root, read.into_inner(), write.into_inner()))
             }),
         };
@@ -798,7 +959,16 @@ impl<T, B: Persist> Peer<T, B> {
 
         // The reconciliation has made both sides causally converged; what
         // remains is the party hand-off, if either side is donating one.
-        let mut absorbed = None;
+        // An absorbed party rides an install-or-recover guard from the
+        // moment it arrives: a gossip future cancelled between the receive
+        // and the install below would otherwise drop the retiree's
+        // identity, held by no one. Installing it is pure party *growth*,
+        // which the classification at [`Peer::commit`] licenses lock-free,
+        // so the guard's drop can recover it directly into `Inner`.
+        let mut absorbed = AbsorbGuard {
+            party: None,
+            recover: self.inner.clone(),
+        };
         let mut outcome = Intent::Remain;
         if peer_retiring {
             // The peer is retiring: the reconciliation just made us a causal
@@ -808,7 +978,7 @@ impl<T, B: Persist> Peer<T, B> {
             // The preamble rejects a peer that claims to both bootstrap and
             // retire, and we bailed early if we were retiring too, so no
             // party of ours is in flight here: `guarded.party` is `None`.
-            absorbed = match party::receive(read).await {
+            absorbed.party = match party::receive(read).await {
                 Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
@@ -823,6 +993,23 @@ impl<T, B: Persist> Peer<T, B> {
             let donated = guarded.party.as_ref().expect("is_some");
             if let Err(e) = self.bookmark_donate(donated).await {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
+            }
+
+            // The storage analog of the bookmark slice above: record the
+            // post-shrink identity — the live party already excludes the
+            // donation, taken in the fork section — and wait out the
+            // store's durability policy, all before the party crosses the
+            // wire. Once the counterparty may hold the donation, no crash
+            // of this process is allowed to resurrect it. A retiring
+            // donation records `None`: the whole party is about to ship,
+            // so at rest this replica holds nothing. An abort on failure
+            // re-joins the donation in memory via the guard; the record
+            // then lags subset-ward until the next write — the sanctioned
+            // direction ([`Store::record`] states both obligations).
+            if S::PERSISTS
+                && let Err(e) = self.record_shrunk_identity().await
+            {
+                return (Intent::Remain, Err(Error::Storage(StorageError(e))));
             }
 
             // Now take it out of the guard, defusing drop-recovery: from here
@@ -857,14 +1044,75 @@ impl<T, B: Persist> Peer<T, B> {
         // donated party is a protocol violation: we leave our own party
         // untouched, commit nothing, and abort the session.
         //
+        // The install is the session's root-replacing commit: it acquires the
+        // commit lock (order: bookmark → commit → watch; the bookmark mutex
+        // is not held here — the fork section released it before
+        // reconciling), and the lock spans only this merge, never the wire
+        // session above, so a local commit is excluded for the duration of
+        // an in-memory join, not a network round trip.
+        //
+        // The merge runs off the `watch`, against a clone of the published
+        // root: readers and observers are never blocked by the join. The
+        // lock is what makes the publish below a plain *swap* — every root
+        // replacement and party shrink holds it, so the published root
+        // cannot move between the clone and the swap — and the swap must
+        // follow the *persist* with no intervening await, in the same poll
+        // (a future is only dropped between polls, so "persisted →
+        // published" stays indivisible under cancellation; a drop parked
+        // inside the persist leaves the store ahead of the published tree,
+        // which is benign — sessions snapshot the watch, so a store-ahead
+        // root never reaches the wire, and the pre-transmit barrier covers
+        // every flip that ships). Swapping rather than re-joining also
+        // means no walk on this path ever compares a tree against its own
+        // clone-derived build: the merge already happened off the watch,
+        // against the wire-materialized counterpart.
+        //
         // The reconciled tree's frontier is the converged version: what both
         // replicas hold the instant this commits, *before* the join below
         // mixes in any commits that ran concurrently with the session.
-        let merged = Tree { root };
+        let commit = self.commit.lock().await;
+        let (base, alias) = {
+            let inner = self.inner.borrow();
+            // A persisting backend records the committing party beside the
+            // flipped root (`Store::commit`); recording is the one
+            // sanctioned use of an alias. An absorbed retiree joins the
+            // party only in the publish closure below, so its identity
+            // enters the store's record at the *next* root flip; the
+            // bookmark update after the install is what makes the
+            // absorption durable today.
+            let alias = S::PERSISTS
+                .then(|| inner.party.as_ref().map(Party::dangerously_alias))
+                .flatten();
+            (inner.tree.clone(), alias)
+        };
+        let merged = Tree {
+            backend: base.backend.clone(),
+            root,
+        };
         let converged = merged.latest().clone();
+        let mut built = base.clone();
+        // Change detection is `join`'s own flag: no root hash is read on
+        // this path (`Tree::join` states the flag's contract).
+        let changed = match built.join(merged).await {
+            Ok(changed) => changed,
+            Err(e) => return (Intent::Remain, Err(Error::Storage(StorageError(e)))),
+        };
+        // Persist before publishing: the backend's root-flip transaction
+        // records the merged root and the identity clock atomically. The
+        // in-memory backend's `commit` is a no-op.
+        // Boxed like every storage call on this path: the persist frame
+        // and the identity clock stay out of the session future's layout.
+        if let Err(e) = Box::pin(built.persist(
+            alias.map(|a| before::Clock::from_parts(a, built.latest().clone())),
+            self.network,
+        ))
+        .await
+        {
+            return (Intent::Remain, Err(Error::Storage(StorageError(e))));
+        }
         let mut party_overlap = false;
         self.inner.send_if_modified(|inner| {
-            if let Some(party) = absorbed.take() {
+            if let Some(party) = absorbed.party.take() {
                 match inner.party.as_mut() {
                     Some(existing) => {
                         if existing.join(party).is_err() {
@@ -879,19 +1127,18 @@ impl<T, B: Persist> Peer<T, B> {
                 }
             }
 
-            // Join the tree we got via gossip: a synchronous, in-memory
-            // merge, run directly inside the critical section, as in `send`
-            // and `redact`.
-            //
-            // We've modified the watch if the peer retired or the tree
-            // changed, straight from `join`'s changed flag: no root hash is
-            // read inside this critical section (`Tree::join` states the
-            // flag's contract). The join runs unconditionally — it must
-            // commit the merge even when the retirement alone decides the
-            // notification.
-            let tree_changed = inner.tree.join(merged);
-            peer_retiring || tree_changed
+            debug_assert!(
+                inner.tree == base,
+                "the commit lock held the published root stable through the merge"
+            );
+            inner.tree = built;
+
+            // We've modified the watch if the peer retired or the tree changed
+            peer_retiring || changed
         });
+        // The root is published: release before the bookmark update below,
+        // preserving the bookmark → commit order for every acquirer.
+        drop(commit);
         if party_overlap {
             return (Intent::Remain, Err(Error::PartyOverlap));
         }
@@ -930,23 +1177,23 @@ impl<T, B: Persist> Peer<T, B> {
     }
 }
 
-impl<T, B: Bookmark> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark, S: Store<T>> Peer<T, B, S> {
     /// Run the change-driven gossip driver behind
     /// [`Rumors::gossip_when`](crate::Rumors::gossip_when); the public
     /// contract lives there.
     #[must_use = "the driver does nothing until the returned stream is polled"]
-    pub(crate) fn gossip_when<'a, CR, CW, C, A, S>(
+    pub(crate) fn gossip_when<'a, CR, CW, C, A, W>(
         &'a self,
-        when: S,
+        when: W,
         link: &'a mut Link<CR, CW, C, A>,
-    ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
+    ) -> impl Stream<Item = Result<Gossiped, Error<B, S::Error>>> + Unpin + 'a
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
         A: Acceptor,
-        S: Stream<Item = ()> + 'a,
+        W: Stream<Item = ()> + 'a,
     {
         // The link erases here ([`DynRead`]'s contract); `when` stays
         // generic because erasing it would cost callers the stream's
@@ -1092,7 +1339,9 @@ impl<T, B: Bookmark> Peer<T, B> {
 /// Fails fast with [`Error::LinkPoisoned`] on a link whose previous session
 /// was interrupted; on success the link is poisoned until its funnel
 /// observes the session's clean completion and clears the latch.
-fn erase<'a, CR, CW, C, A>(link: &'a mut Link<CR, CW, C, A>) -> Result<DynLinkParts<'a>, Error>
+fn erase<'a, CR, CW, C, A, E>(
+    link: &'a mut Link<CR, CW, C, A>,
+) -> Result<DynLinkParts<'a>, Error<NoBookmark, E>>
 where
     CR: AsyncRead + Unpin + Send,
     CW: AsyncWrite + Unpin + Send,
@@ -1119,7 +1368,7 @@ where
 /// session facing a claimant runs this after the greeting and before
 /// reconciliation, whichever protocol carries it: a failing session moves
 /// nothing and poisons its link like any other pre-descent failure.
-fn bootstrap_claimant_is_newborn(claimed: &Version) -> Result<(), Error> {
+fn bootstrap_claimant_is_newborn<E>(claimed: &Version) -> Result<(), Error<NoBookmark, E>> {
     if claimed.is_empty() {
         Ok(())
     } else {
@@ -1138,10 +1387,10 @@ fn bootstrap_claimant_is_newborn(claimed: &Version) -> Result<(), Error> {
 /// resolves, so the exchange cannot deadlock. Failure is [`Error::Epilogue`]:
 /// post-commit by construction, with a non-marker byte surfaced as an
 /// invalid-data protocol violation rather than an honest wire cut.
-async fn epilogue(
+async fn epilogue<E>(
     read: &mut (dyn AsyncRead + Unpin + Send + '_),
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
-) -> Result<(), Error> {
+) -> Result<(), Error<NoBookmark, E>> {
     let send = async {
         write.write_all(&[EPILOGUE_MARKER]).await?;
         write.flush().await
@@ -1179,8 +1428,8 @@ enum Trigger {
 /// The state a [`gossip_when`](Peer::gossip_when) driver carries between
 /// sessions: the erased link parts, the link's session state, the policy
 /// stream, the preamble staging buffer, and the suppression token.
-struct Drive<'a, T, B: BookmarkError, S> {
-    peer: &'a Peer<T, B>,
+struct Drive<'a, T: Send + Sync + 'static, B: BookmarkError, S: Store<T>, W> {
+    peer: &'a Peer<T, B, S>,
     read: DynRead<'a>,
     write: DynWrite<'a>,
     connector: DynConnector,
@@ -1189,7 +1438,7 @@ struct Drive<'a, T, B: BookmarkError, S> {
     /// session so stream labels stay in lockstep with the remote's
     /// counting, and the poison latch the driver sets, clears, and obeys.
     state: &'a mut SessionState,
-    when: Pin<Box<S>>,
+    when: Pin<Box<W>>,
     staged: handshake::Staged,
     /// The frontier this connection last converged on: a tick initiates
     /// only once the local frontier differs. `None` until the first
@@ -1213,7 +1462,7 @@ struct Drive<'a, T, B: BookmarkError, S> {
 /// session's re-arm) reaches this drop with the staging buffer empty and
 /// leaves the latch alone, which is what keeps a cleanly ended connection
 /// reusable.
-impl<T, B: BookmarkError, S> Drop for Drive<'_, T, B, S> {
+impl<T: Send + Sync + 'static, B: BookmarkError, S: Store<T>, W> Drop for Drive<'_, T, B, S, W> {
     fn drop(&mut self) {
         if !self.staged.is_empty() {
             self.state.poison();
@@ -1225,16 +1474,19 @@ impl<T, B: BookmarkError, S> Drop for Drive<'_, T, B, S> {
 // if we return an error or panic, we place it in a drop-guard that joins it
 // back into the remaining party in the `inner` if we don't donate it
 // successfully along any return path.
-struct PartyGuard<T> {
+struct PartyGuard<T: Send + Sync + 'static, S: Store<T>> {
     pub(crate) party: Option<Party>,
-    pub(crate) recover: watch::Sender<Inner<T>>,
+    pub(crate) recover: watch::Sender<Inner<T, S>>,
 }
 
-impl<T> Drop for PartyGuard<T> {
+impl<T: Send + Sync + 'static, S: Store<T>> Drop for PartyGuard<T, S> {
     fn drop(&mut self) {
         if let Some(party) = self.party.take() {
-            self.recover
-                .send_modify(|inner| match inner.party.as_mut() {
+            // Party motion only: the tree is untouched, so no observer
+            // wakeup is due — `false` here, as in the bookmark reclaim,
+            // keeps "wake exactly once per committed change" exact.
+            self.recover.send_if_modified(|inner| {
+                match inner.party.as_mut() {
                     // Re-joining a fork we split off this very party: disjoint by
                     // construction, so the join cannot fail in a well-formed
                     // universe. The join must run unconditionally (it is the
@@ -1247,7 +1499,9 @@ impl<T> Drop for PartyGuard<T> {
                     // We took the whole party (a retire that failed before the
                     // hand-off): put it back.
                     None => inner.party = Some(party),
-                });
+                }
+                false
+            });
         }
     }
 }
@@ -1259,12 +1513,9 @@ impl<T> Drop for PartyGuard<T> {
 /// remote participant additionally retains adapter, codec, session, and
 /// transport context, so neither side can be collapsed without losing useful
 /// information.
-fn streaming_error(
-    error: tree::mirror::Error<
-        materialized::Error<std::convert::Infallible>,
-        streaming_remote::Error<std::convert::Infallible>,
-    >,
-) -> Error {
+fn streaming_error<E>(
+    error: tree::mirror::Error<materialized::Error<E>, streaming_remote::Error<E>>,
+) -> Error<crate::bookmark::NoBookmark, E> {
     Error::Mirror(error)
 }
 
@@ -1283,6 +1534,113 @@ fn alternating_error(
             materialized::Error::Violation(violation),
         )),
         tree::mirror::Error::Server(error) => error,
+    }
+}
+
+/// The stable-Rust specialization gate pinning the frozen alternating
+/// protocol to the in-memory backend.
+///
+/// The V1 towers are built on resident node types, so they must
+/// monomorphize at [`Local`]'s nodes alone; a session driver generic over
+/// the backend gates its V1 arm through these identity downcasts instead.
+/// [`supported`](v1::supported) answers before any wire traffic;
+/// [`root`](v1::root)/[`root_back`](v1::root_back) and
+/// [`error`](v1::error) move values across the `S = Local` boundary the
+/// gate has just proven (the casts allocate one box each, once per V1
+/// session, on the legacy path only).
+#[cfg(any(test, feature = "protocol-v1"))]
+mod v1 {
+    use std::any::Any;
+
+    use super::{Error, Local, NoBookmark, Store, tree};
+
+    /// Whether `S` is the in-memory backend, the only backend the frozen
+    /// alternating protocol runs on.
+    pub(super) fn supported<T, S>() -> bool
+    where
+        T: Send + Sync + 'static,
+        S: Store<T>,
+    {
+        std::any::TypeId::of::<S>() == std::any::TypeId::of::<Local>()
+    }
+
+    /// The root, moved to its `Local` typing; `None` exactly when
+    /// [`supported`] is false.
+    pub(super) fn root<T, S>(root: tree::Root<T, S>) -> Option<tree::Root<T>>
+    where
+        T: Send + Sync + 'static,
+        S: Store<T>,
+    {
+        (Box::new(root) as Box<dyn Any>).downcast().ok().map(|b| *b)
+    }
+
+    /// The reconciled root, moved back to the caller's `S` typing.
+    ///
+    /// # Panics
+    ///
+    /// If `S` is not [`Local`]; unreachable behind a [`root`]
+    /// that returned `Some`.
+    pub(super) fn root_back<T, S>(root: tree::Root<T>) -> tree::Root<T, S>
+    where
+        T: Send + Sync + 'static,
+        S: Store<T>,
+    {
+        *(Box::new(root) as Box<dyn Any>)
+            .downcast()
+            .expect("V1 sessions run only on the in-memory backend")
+    }
+
+    /// A V1 session error, moved to the caller's backend-error typing.
+    ///
+    /// # Panics
+    ///
+    /// If `E` is not the in-memory backend's [`Infallible`](std::convert::Infallible);
+    /// unreachable behind a [`root`] that returned `Some`.
+    pub(super) fn error<E: 'static>(error: Error) -> Error<NoBookmark, E> {
+        *(Box::new(error) as Box<dyn Any>)
+            .downcast()
+            .expect("V1 sessions run only on the in-memory backend")
+    }
+}
+
+/// The install-or-recover guard an absorbed retiree's party rides between
+/// its receive and the session's install.
+///
+/// A gossip future cancelled in that window would otherwise drop the
+/// donated identity, held by no one. Installing an absorbed party is pure
+/// party *growth* (the classification at [`Peer::commit`] licenses it
+/// lock-free), so this drop can recover it straight into `Inner`; the
+/// install path itself takes the party out before publishing.
+struct AbsorbGuard<T: Send + Sync + 'static, S: Store<T>> {
+    pub(crate) party: Option<Party>,
+    pub(crate) recover: watch::Sender<Inner<T, S>>,
+}
+
+impl<T: Send + Sync + 'static, S: Store<T>> Drop for AbsorbGuard<T, S> {
+    fn drop(&mut self) {
+        if let Some(party) = self.party.take() {
+            // Party motion only: the tree is untouched, so no observer
+            // wakeup is due — `false` here, as in the bookmark reclaim,
+            // keeps "wake exactly once per committed change" exact.
+            self.recover.send_if_modified(|inner| {
+                match inner.party.as_mut() {
+                    // A donated party overlapping ours is a protocol
+                    // violation the install path surfaces as
+                    // [`Error::PartyOverlap`]; on this recovery path there
+                    // is no one to tell, so the overlapping donation is
+                    // dropped (its region leaks, benignly, like any fork
+                    // lost in flight).
+                    Some(existing) => {
+                        let _ = existing.join(party);
+                    }
+                    // Unreachable in practice: an absorber holds a live,
+                    // non-retiring `Peer`, so its party is present.
+                    // Adopting keeps the arm total without a panic path.
+                    None => inner.party = Some(party),
+                }
+                false
+            });
+        }
     }
 }
 

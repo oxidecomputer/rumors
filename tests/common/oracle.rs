@@ -72,9 +72,9 @@ pub fn readout<T>(snapshot: &Snapshot<T>) -> BTreeMap<Key, T>
 where
     T: Clone + Send + Sync + 'static,
 {
-    snapshot
-        .iter()
-        .map(|(k, _v, m)| (k, (**m).clone()))
+    rumors::testing::collect(snapshot)
+        .into_iter()
+        .map(|(k, _v, m)| (k, (*m).clone()))
         .collect()
 }
 

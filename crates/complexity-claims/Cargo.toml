@@ -1,0 +1,12 @@
+[package]
+name = "complexity-claims"
+version = "0.1.0"
+edition = "2021"
+description = "Structured complexity-bound rosters rendered to normative rustdoc lines, plus the source scanners that bind them — the workspace's shared claims machinery."
+license = "MPL-2.0"
+# Workspace-internal test machinery: consumed only as a dev-dependency by
+# the crates whose claims rosters it renders and scans, never shipped in a
+# production dependency graph.
+publish = false
+
+[dependencies]

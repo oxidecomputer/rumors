@@ -1,28 +1,26 @@
 //! Elias-gamma encoding and decoding of the integers in a
 //! [`Version`](crate::Version).
 //!
-//! The normal form of a [`Version`](crate::Version) guarantees that at least
-//! half of the integers in its event tree are zero, and normalization pushes
-//! magnitude toward the root, so most stored integers are small even after
-//! many events. Elias-gamma encodes a zero in one bit and other integers in
-//! bits proportional to the log of their magnitude, so the encoding is close
-//! to minimal for this distribution.
+//! A stored [`Version`](crate::Version) codes its integers as the skyline
+//! payload stream (`version::skyline` documents the coding): the first
+//! leaf's absolute height, then one zigzag delta per later leaf. A delta's
+//! width is the height step between neighboring plateaus, which
+//! normalization keeps small in organic histories, so most stored integers
+//! are small even after many events. Elias-gamma encodes a zero in one bit
+//! and other integers in bits proportional to the log of their magnitude,
+//! so the encoding is close to minimal for this distribution.
 //!
-//! The trade-off is decode cost on every operation that examines a version.
-//! That cost buys a heap-size reduction of one to two orders of magnitude,
-//! and [`Batch`](crate::version::Batch) amortizes the decoding across a run
-//! of operations. Both directions keep that cost word-scale: the stream is
+//! Both directions keep the coding's cost word-scale: the stream is
 //! byte-backed, so a whole code is decoded from one 64-bit window
 //! ([`decode_int_window`]) and emitted with one store, with per-bit loops as
 //! the fallback — and, on decode, the sole arbiter of every reject.
 
-use bitvec::domain::Domain;
 use bitvec::field::BitField;
-use num_bigint::BigUint;
+use dashu_int::UBig;
 
 use crate::error::Decode;
 
-use super::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
+use super::{Base, BitCursor, BitsMut, BitsSlice, SliceCursor};
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
 /// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
@@ -30,13 +28,14 @@ use super::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
 /// Cost is `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and
 /// prefix-free, for an arbitrary-width non-negative `n` (there is no value
 /// cap).
-pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
-    match n + 1u32 {
-        // Inline case: the mantissa fits a machine word, so append the whole
+pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
+    let m = n + 1u32;
+    match m.to_u64() {
+        // Word case: the mantissa fits a machine word, so append the whole
         // code word-wise — the `2k+1` bits (zeros and all) in one `resize`,
         // then the `k+1` mantissa bits in one `store_be` — instead of one
         // `push` per bit. Byte-identical to the per-bit emit below.
-        Base::Small(m) => {
+        Some(m) => {
             // m >= 1, so `leading_zeros < 64` and `k = floor(log2(m))` never
             // underflows.
             let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
@@ -44,8 +43,8 @@ pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
             out.resize(start + 2 * k + 1, false);
             out[start + k..].store_be::<u64>(m);
         }
-        // Spilled case (`n >= u64::MAX`): per-bit emit of the wide mantissa.
-        m @ Base::Big(_) => {
+        // Wide case (`n >= u64::MAX`): per-bit emit of the wide mantissa.
+        None => {
             // m >= 1, so `m.bits() >= 1` and computing `k = floor(log2(m)) =
             // bit_length(m) - 1` never underflows. `k` is a bit count and fits
             // a `u64` even when `m` itself does not.
@@ -98,10 +97,9 @@ const WINDOW_BITS: usize = u64::BITS as usize;
 /// - `pos` lies past the end of the stream (the bit loop reports `Truncated`);
 /// - the `2k+1`-bit code overruns the window's proven bits, either because the
 ///   stream ends first (the bit loop reports `Truncated`) or because the code
-///   is wider than the window (the bit loop decodes it: codes up through 127
-///   bits still land in [`Base::Small`] — their `k + 1`-bit mantissa is the
-///   value itself and fits `u64` at every `k ≤ 63` — and only wider codes
-///   spill to [`Base::Big`]).
+///   is wider than the window (the bit loop decodes it: its machine-word path
+///   reads every `k ≤ 63` mantissa — the `k + 1`-bit mantissa is the value
+///   itself and fits `u64` — and only wider codes take the wide fallback).
 ///
 /// The conditions are conservative, never guesses: `Some` is returned only
 /// when every bit of the code lies within the window *and* within the stream,
@@ -133,15 +131,7 @@ pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, us
 /// in a whole stored stream (offsets travel as `pos`), so this fallback is
 /// latent, kept for correctness rather than reached in practice.
 fn load_window(bits: &BitsSlice, pos: usize) -> Option<u64> {
-    let (body, tail): (&[u8], Option<u8>) = match bits.domain() {
-        Domain::Region {
-            head: None,
-            body,
-            tail,
-        } => (body, tail.map(|elem| elem.load_value())),
-        Domain::Enclave(elem) if elem.head().into_inner() == 0 => (&[], Some(elem.load_value())),
-        Domain::Region { head: Some(_), .. } | Domain::Enclave(_) => return None,
-    };
+    let (body, tail) = super::byte_view(bits)?;
     let byte = pos / 8;
     let shift = pos % 8;
     // Gather the (up to) 9 bytes covering bits `pos..pos + 64`: 8 whole bytes
@@ -196,44 +186,24 @@ where
         return Ok(Base::from(m - 1));
     }
 
-    // Wide fallback: the leading 1 has already been consumed; accumulate the
-    // remaining `k` bits of `m` into a `BigUint`.
-    let mut m = BigUint::from(1u32);
-    for _ in 0..k {
-        m <<= 1;
+    // Wide fallback: the leading 1 has already been consumed, and it is the
+    // mantissa's top bit, at position `k`; the next `k` stream bits are the
+    // mantissa's remaining bits, most-significant first. Setting the top bit
+    // first sizes the value's storage once, and each later set writes one
+    // limb in place, so the total limb work is linear in the code's bit
+    // width and the only allocation is the value itself. A truncated stream
+    // still fails at the same `read_bit` position it would reading into an
+    // accumulator, so the accept/reject boundary is unchanged.
+    let mut m = UBig::ZERO;
+    m.set_bit(k);
+    for i in (0..k).rev() {
         if cursor.read_bit()? {
-            m |= BigUint::from(1u32);
+            m.set_bit(i);
         }
     }
+    // One width-proportional record per wide value: sizing `m`'s storage and
+    // decrementing it below each cost one pass over its limbs.
+    #[cfg(feature = "limb-meter")]
+    super::base::limb_meter::record_wide(&m);
     Ok(Base::from(m - 1u32))
-}
-
-/// Skip an Elias-gamma-coded integer at `pos`, returning the position just past
-/// it without materializing the integer. Used by topology-only event scans.
-///
-/// The prefix length alone determines the distance, so the
-/// [`decode_int_window`] fast path settles it with one `leading_zeros`; the
-/// bit-counting loop below remains the arbiter of everything the window
-/// cannot prove, rejects included.
-pub(crate) fn skip_int(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
-    if let Some((_, end)) = decode_int_window(bits, pos) {
-        return Ok(end);
-    }
-    let mut k = 0usize;
-    loop {
-        let idx = pos + k;
-        if idx >= bits.len() {
-            return Err(Decode::Truncated);
-        }
-        if bits[idx] {
-            break;
-        }
-        k += 1;
-    }
-    let end = pos + (2 * k) + 1;
-    if end > bits.len() {
-        Err(Decode::Truncated)
-    } else {
-        Ok(end)
-    }
 }

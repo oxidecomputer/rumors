@@ -30,7 +30,8 @@ fn stream_header_roundtrips() {
 fn link_header_roundtrips() {
     let token = Token::new();
     let advertised: SocketAddr = "127.0.0.1:7000".parse().expect("literal address");
-    let bytes = link_header(&token, &advertised.encode());
+    let encoded = advertised.encode().expect("an unscoped address encodes");
+    let bytes = link_header(&token, &encoded);
     match parse(&bytes).expect("a well-formed header parses") {
         Header::Link {
             token: parsed,
@@ -105,7 +106,8 @@ fn undecodable_advertised_name_is_rejected() {
 fn truncation_is_rejected() {
     let token = Token::new();
     let advertised: SocketAddr = "[::1]:9".parse().expect("literal address");
-    let full = link_header(&token, &advertised.encode());
+    let encoded = advertised.encode().expect("an unscoped address encodes");
+    let full = link_header(&token, &encoded);
     for len in 0..full.len() {
         let error = parse(&full[..len]).expect_err("a truncated header must not parse");
         assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
@@ -127,13 +129,67 @@ proptest! {
         } else {
             SocketAddr::new(IpAddr::from(ip), port)
         };
-        let encoded = addr.encode();
+        let encoded = addr.encode().expect("an unscoped address encodes");
         prop_assert_eq!(encoded.len(), SOCKET_ADDR_LEN);
         let decoded = SocketAddr::decode(&encoded).expect("an encoded address decodes");
         prop_assert_eq!(decoded.port(), addr.port());
-        prop_assert_eq!(&decoded.encode(), &encoded);
+        let reencoded = decoded.encode().expect("a decoded address encodes");
+        prop_assert_eq!(&reencoded, &encoded);
         if v4 {
             prop_assert_eq!(decoded, addr);
         }
+    }
+}
+
+/// A scoped IPv6 advertised name is refused at `encode`.
+///
+/// The 18-byte wire name cannot carry the scope, and the unscoped
+/// address does not dial the same peer (a link-local peer is reachable
+/// only through the scoped interface), so the loss must be a refusal
+/// (`Unencodable`, surfaced at endpoint construction), never a silent
+/// alteration on the wire.
+#[test]
+fn scoped_v6_advertised_name_is_refused() {
+    use std::net::{Ipv6Addr, SocketAddrV6};
+
+    let scoped = SocketAddr::V6(SocketAddrV6::new(
+        Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+        9000,
+        0, // flowinfo
+        3, // scope_id: interface index 3
+    ));
+    let error = scoped
+        .encode()
+        .expect_err("a scoped address must not encode");
+    assert!(
+        error.to_string().contains("scoped IPv6"),
+        "the refusal names the scope as what the wire form cannot carry: {error}",
+    );
+}
+
+/// `flowinfo` labels a flow, not a peer: it is not part of the wire
+/// name, so a flowinfo-bearing (unscoped) IPv6 address encodes, and the
+/// round trip lands on the same peer with flowinfo zero.
+#[test]
+fn flowinfo_is_not_part_of_the_name() {
+    use std::net::{Ipv6Addr, SocketAddrV6};
+
+    let flowed = SocketAddr::V6(SocketAddrV6::new(
+        Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
+        9000,
+        7, // flowinfo
+        0, // scope_id
+    ));
+    let encoded = flowed.encode().expect("an unscoped address encodes");
+    assert_eq!(encoded.len(), SOCKET_ADDR_LEN);
+    let decoded = <SocketAddr as Addr>::decode(&encoded).expect("18 bytes decode");
+    match decoded {
+        SocketAddr::V6(v6) => {
+            assert_eq!(*v6.ip(), Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
+            assert_eq!(v6.port(), 9000);
+            assert_eq!(v6.scope_id(), 0);
+            assert_eq!(v6.flowinfo(), 0, "flowinfo is not carried; same peer");
+        }
+        SocketAddr::V4(_) => panic!("2001:db8::1 is not v4-mapped"),
     }
 }
