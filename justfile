@@ -66,7 +66,7 @@ check:
 # monomorphization bomb — see src/tree/traverse/act.rs) or a runaway test
 # fails the build with the offender named instead of wedging the machine.
 # `check`/`clippy` skip codegen, so they can't detonate one and run bare.
-# Override the limits per-invocation: `PROC_LIMIT_GB=16 just test`.
+# Override the limits per-invocation: `PROC_LIMIT_GB=64 just test`.
 
 # Default features only: the V1 wire tests (and the V1 towers in every test
 # binary) build only in `test-all`, which the gate runs.
