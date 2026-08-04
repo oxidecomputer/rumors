@@ -28,6 +28,36 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
+/// The peak-heap readers over this binary's global allocator.
+fn heap_meter() -> HeapMeter {
+    HeapMeter {
+        reset_peak: || HEAP.reset_peak_usage(),
+        peak: || HEAP.peak_usage(),
+        current: || HEAP.current_usage(),
+    }
+}
+
+/// A shard spawner that measures every slice in this process instead of
+/// spawning children.
+///
+/// The runner's spawner launches one copy of the `amp_board` binary per
+/// slice; the seam it feeds — emit, parse, reorder, re-judge — is the
+/// same either way, so the smoke suite drives it without processes.
+fn in_process_spawn(
+    shards: usize,
+    heap: &HeapMeter,
+) -> impl Fn(f64) -> std::io::Result<Vec<Vec<u8>>> + '_ {
+    move |scale: f64| {
+        (0..shards)
+            .map(|index| {
+                let mut capture = Vec::new();
+                board::emit_shard(scale, index, shards, heap, &mut capture)?;
+                Ok(capture)
+            })
+            .collect()
+    }
+}
+
 /// The board's per-family cell expectations, derived from the registry:
 /// each board family's declared bundle reach, keyed by its name of
 /// record.
@@ -58,13 +88,11 @@ fn expected_cells_per_family() -> BTreeMap<&'static str, usize> {
 /// a dashboard, not a gate.
 #[test]
 fn board_runs_to_completion() {
-    let heap = HeapMeter {
-        reset_peak: || HEAP.reset_peak_usage(),
-        peak: || HEAP.peak_usage(),
-        current: || HEAP.current_usage(),
-    };
+    let heap = heap_meter();
+    let spawn = in_process_spawn(1, &heap);
     let mut rendered = Vec::new();
-    let summary = board::run(SMOKE_SCALE, &heap, &mut rendered).expect("writing to a Vec succeeds");
+    let summary =
+        board::run(SMOKE_SCALE, 1, &spawn, &mut rendered).expect("writing to a Vec succeeds");
     let text = String::from_utf8(rendered).expect("the board renders UTF-8");
     // Count rendered cells per family: every result row starts with its
     // verdict, then the operation, then the family.
@@ -99,47 +127,39 @@ fn board_runs_to_completion() {
     );
 }
 
-/// The sharded pipeline is the serial pipeline: merging shard emissions
-/// renders the matrix byte-identical to the serial render at the same
-/// scale.
+/// The shard protocol round-trips: a board dealt across three shards
+/// emits, parses, reorders, and re-judges into the same matrix as one
+/// undivided shard.
 ///
-/// This pins the shard protocol round-trip — emit, parse, reorder,
-/// re-judge — and the merge's board-order reconstruction, in-process at
-/// smoke scale with a shard count that splits the operation × family
-/// grid unevenly. The cross-process leg of the same identity (child
-/// processes, the scales of record, the one-time-initialization hazard)
-/// is the gate's `amp-board-shard-pin` recipe, with the serial render
-/// as the reference.
+/// This is the merge's coverage — the wire form's field order, the
+/// ownership and count guards, and the board-order reconstruction — and
+/// byte-identity is how it asserts, since every judged quantity is a
+/// deterministic counter over state each shard owns privately. Three
+/// shards deal the operation × family grid unevenly, so the
+/// reconstruction cannot pass by coincidence of an even split.
 #[test]
-fn sharded_render_matches_serial() {
-    let heap = HeapMeter {
-        reset_peak: || HEAP.reset_peak_usage(),
-        peak: || HEAP.peak_usage(),
-        current: || HEAP.current_usage(),
-    };
-    let mut serial = Vec::new();
-    board::run(SMOKE_SCALE, &heap, &mut serial).expect("writing to a Vec succeeds");
+fn shard_protocol_round_trips() {
+    let heap = heap_meter();
+    let mut whole = Vec::new();
+    board::run(SMOKE_SCALE, 1, &in_process_spawn(1, &heap), &mut whole)
+        .expect("writing to a Vec succeeds");
 
     // Three shards over the cell grid: uneven slices unless the grid
     // size happens to be a multiple.
     const SHARDS: usize = 3;
-    let spawn = |scale: f64| -> std::io::Result<Vec<Vec<u8>>> {
-        (0..SHARDS)
-            .map(|index| {
-                let mut capture = Vec::new();
-                board::emit_shard(scale, index, SHARDS, &heap, &mut capture)?;
-                Ok(capture)
-            })
-            .collect()
-    };
-    let mut sharded = Vec::new();
-    board::run_sharded(SMOKE_SCALE, SHARDS, &spawn, &mut sharded)
-        .expect("writing to a Vec succeeds");
+    let mut split = Vec::new();
+    board::run(
+        SMOKE_SCALE,
+        SHARDS,
+        &in_process_spawn(SHARDS, &heap),
+        &mut split,
+    )
+    .expect("writing to a Vec succeeds");
 
     assert_eq!(
-        String::from_utf8(serial).expect("the board renders UTF-8"),
-        String::from_utf8(sharded).expect("the board renders UTF-8"),
-        "the sharded render must be byte-identical to the serial render"
+        String::from_utf8(whole).expect("the board renders UTF-8"),
+        String::from_utf8(split).expect("the board renders UTF-8"),
+        "renders taken at different shard counts must be byte-identical"
     );
 }
 
@@ -154,13 +174,10 @@ fn sharded_render_matches_serial() {
 /// (`just worst-cases-pin`).
 #[test]
 fn worst_map_covers_every_operation_row() {
-    let heap = HeapMeter {
-        reset_peak: || HEAP.reset_peak_usage(),
-        peak: || HEAP.peak_usage(),
-        current: || HEAP.current_usage(),
-    };
+    let heap = heap_meter();
+    let spawn = in_process_spawn(1, &heap);
     let mut rendered = Vec::new();
-    board::worst_map("smoke", SMOKE_SCALE, &heap, &mut rendered)
+    board::worst_map("smoke", SMOKE_SCALE, 1, &spawn, &mut rendered)
         .expect("writing to a Vec succeeds");
     let text = String::from_utf8(rendered).expect("the map renders UTF-8");
     let mut per_op: BTreeMap<&str, usize> = BTreeMap::new();

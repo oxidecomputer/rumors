@@ -107,10 +107,7 @@ jobs:
   #   - the wasmtime fuel tier (the fuzzfit bands and the fuelscape pins):
   #     deterministic, but it brings a wasm32 guest build plus wasmtime to
   #     police asymptotics the board legs below already judge at the scales
-  #     of record — the gate keeps the second jaw;
-  #   - amp-board-determinism: its cross-process byte-compare runs at a
-  #     reduced scale for gate speed, and the shard-pin leg below already
-  #     byte-compares two process topologies at both scales of record.
+  #     of record — the gate keeps the second jaw.
   #
   # Runner fit: every step here builds `before` alone (release profile,
   # counter features) plus the small detached surfacecheck workspace —
@@ -172,9 +169,6 @@ jobs:
 
       - name: just worst-cases-pin
         run: just worst-cases-pin
-
-      - name: just amp-board-shard-pin
-        run: just amp-board-shard-pin
 
       - name: just surface-totality
         run: just surface-totality

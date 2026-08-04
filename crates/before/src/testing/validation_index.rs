@@ -59,7 +59,7 @@
 //! all.
 //!
 //! **The amplification board** (`crate::meter::board`; rendered by
-//! `just amp-board`, byte-determinism gated by `amp-board-determinism`).
+//! `just amp-board`).
 //! The whole-surface dashboard: every operation × every committed
 //! adversarial family, two probe sizes per cell, judged on deterministic
 //! counters only (heap, stack segments, limb ops, scan bits, digit

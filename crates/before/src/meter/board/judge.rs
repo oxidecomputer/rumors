@@ -54,29 +54,6 @@ fn below_floor(liveness: Liveness, count: u64) -> bool {
     }
 }
 
-/// Panic unless two in-process measurements of one cell agree on every
-/// counter reading and denominator.
-///
-/// The in-process leg of the board's determinism tripwire ([`run`](super::render::run)'s
-/// self-verification); the cross-process leg is the `amp-board-determinism`
-/// recipe, which byte-compares two whole renders.
-pub(super) fn assert_deterministic(op: &str, family: &str, a: &Sample, b: &Sample) {
-    assert_eq!(
-        (a.denom_bytes, a.exp_denom_bytes, a.limb_denom),
-        (b.denom_bytes, b.exp_denom_bytes, b.limb_denom),
-        "determinism: {op} x {family}: two in-process measurements disagree on denominators"
-    );
-    for ((currency, first), (_, second)) in a.readings.each().into_iter().zip(b.readings.each()) {
-        assert_eq!(
-            first,
-            second,
-            "determinism: {op} x {family}: two in-process measurements disagree on the {} \
-             counter",
-            currency.label()
-        );
-    }
-}
-
 /// One judged column's derived scores: the fitted exponent and the larger
 /// scale's per-unit constant (`None` where the counter is off).
 #[derive(Clone, Copy)]

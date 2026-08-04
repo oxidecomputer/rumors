@@ -47,13 +47,13 @@
 //! (the liveness vocabulary), `defect` (the rejection rows' placed
 //! defects), `cell` (one prepared cell and its denomination rule),
 //! `measure` (the metering engine), `judge` (scoring and verdicts),
-//! `render` (the driver and the printed matrix), `worst` (the worst-case
-//! map: the argmax fold over the same judged cells, and its committed
-//! ranking pin), `shard` (process-sharded parallelism: the operation ×
-//! family grid split across child processes, each owning its own
-//! allocator, merged back byte-identically), `export` (the bench
-//! mirror), and `coverage` (the tiling table and the red-triage
-//! buffer).
+//! `render` (the per-cell measurement discipline and the printed
+//! matrix), `worst` (the worst-case map: the argmax fold over the same
+//! judged cells, and its committed ranking pin), `shard` (the sweep
+//! itself: the operation × family grid split across child processes,
+//! each owning its own allocator, merged back in board row order),
+//! `export` (the bench mirror), and `coverage` (the tiling table and the
+//! red-triage buffer).
 //!
 //! # The criterion
 //!
@@ -137,14 +137,7 @@
 //! Every quantity the board judges or renders is a deterministic counter,
 //! so two board runs at the same scale are byte-identical under any
 //! machine load: the board reads no clock, conditions nothing on timing,
-//! and comparing runs needs no exclusion rules. The claim is enforced,
-//! not assumed, on three legs: the runner itself measures every cell twice
-//! in process and panics on any counter or denominator disagreement
-//! ([`run`]'s self-verification, in every process that sweeps cells), the
-//! `amp-board-determinism` recipe byte-compares two whole renders across
-//! processes, and the `amp-board-shard-pin` recipe holds the
-//! process-sharded render byte-identical to the serial reference at both
-//! scales of record. Time still has its own
+//! and comparing runs needs no exclusion rules. Time still has its own
 //! judged leg — wall time is the one implementation-agnostic witness for
 //! *time*, exactly as heap is for space: a kernel doing quadratic work in
 //! plain machine-word arithmetic (no allocation, no recursion, no metered
@@ -231,11 +224,11 @@
 //!
 //! # Reading the numbers
 //!
-//! The board sweeps single-threaded — one cell at a time, the peak-heap
-//! counter reset between cells, many cells sharing one process's allocator
-//! (the whole board's in a serial run, a family slice's per child in a
-//! sharded one) — so a cell's heap number can include allocator noise from
-//! the harness itself: the board's numbers are *indicative*. The enforced
+//! Each child sweeps single-threaded — one cell at a time, the peak-heap
+//! counter reset between cells, its whole grid slice sharing one
+//! process's allocator — so a cell's heap number can include allocator
+//! noise from the harness itself: the board's numbers are *indicative*.
+//! The enforced
 //! record is the meter test binary (`tests/meter.rs`), whose scenarios run
 //! one per process under nextest and pin exact envelopes. Zero-measurement
 //! cells score exponent 0; a meter that moves from 0 to a nonzero count is
@@ -308,9 +301,6 @@ pub use currency::{ByCurrency, Currency, Floors, Liveness};
 pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
 pub use family::study_family_versions;
 pub use measure::HeapMeter;
-pub use render::{run, Summary};
-pub use shard::{
-    check_worst_map_sharded, emit_shard, max_useful_shards, run_sharded, worst_map_sharded,
-    ShardSpawner,
-};
-pub use worst::{check_worst_map, worst_map, NEAR_TIE_RATIO, WORST_MAP_SCALES};
+pub use render::Summary;
+pub use shard::{check_worst_map, emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
+pub use worst::{NEAR_TIE_RATIO, WORST_MAP_SCALES};

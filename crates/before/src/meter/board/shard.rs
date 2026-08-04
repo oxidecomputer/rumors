@@ -2,16 +2,14 @@
 //! processes, so the board parallelizes without changing what any cell
 //! measures.
 //!
-//! The board's sweep is single-threaded by design: the peak-heap column
-//! reads the process-global counting allocator, so cells measured on
-//! concurrent threads would blend live sets and destroy the reading's
-//! meaning. Parallelism therefore comes from *processes*: the runner
-//! spawns copies of itself, each child owns its own global allocator and
-//! measures one slice of the operation × family grid under exactly the
-//! serial discipline — one cell at a time, reset-peak per cell, the
-//! in-process determinism self-verification included ([`measure_cell`],
-//! the same function the serial sweep drives) — and the parent merges
-//! the measured samples back into board row order and judges and
+//! The board's sweep is single-threaded within a process by design: the
+//! peak-heap column reads the process-global counting allocator, so cells
+//! measured on concurrent threads would blend live sets and destroy the
+//! reading's meaning. Parallelism therefore comes from *processes*: the
+//! runner spawns copies of itself, each child owns its own global
+//! allocator and measures one slice of the operation × family grid one
+//! cell at a time, reset-peak per cell ([`measure_cell`]), and the parent
+//! merges the measured samples back into board row order and judges and
 //! renders them itself.
 //!
 //! # The seam
@@ -19,10 +17,16 @@
 //! A child emits raw [`Sample`]s, never verdicts: judgment
 //! ([`evaluate`]) and rendering stay in the parent, over the one merged
 //! result list, so the matrix, the worst-case fold, and the ranking pin
-//! all run the same code over sharded and serial sweeps. The identity of
-//! the two paths is pinned twice: in-process at smoke scale (the smoke
-//! suite's round-trip test) and cross-process at both scales of record
-//! (`just amp-board-shard-pin`, with the serial path as the reference).
+//! all consume one sweep through the same code.
+//!
+//! A cell's reading is a function of the cell alone: every judged
+//! quantity is a deterministic counter read from state a child owns
+//! privately (its own global allocator, its own process globals), so
+//! neither the shard count nor which cells share a process with it can
+//! move a reading. The smoke suite exercises the round trip — emit,
+//! parse, reorder, re-judge — across two shard counts, so a break in the
+//! protocol or in the merge's board-order reconstruction is caught
+//! before any board of record is rendered.
 //!
 //! # The wire form
 //!
@@ -56,9 +60,9 @@
 //! operation's column on few shards — and is accepted: operation
 //! columns do not own operand size. The price of the per-cell deal is
 //! that every child rebuilds each family it touches — cheap beside the
-//! cells themselves, which measure every body four times per level pair
-//! — and a child builds one family at a time, in roster order, so its
-//! live set stays one operand-bundle pair wide.
+//! cells themselves, which run every body once at each of the pair's two
+//! levels — and a child builds one family at a time, in roster order, so
+//! its live set stays one operand-bundle pair wide.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
@@ -121,9 +125,9 @@ pub fn max_useful_shards() -> usize {
 }
 
 /// Child mode: measure shard `index` of `count`'s slice of the
-/// operation × family grid at `scale` under the serial measurement
-/// discipline and emit the measured samples to `out` in the shard wire
-/// form.
+/// operation × family grid at `scale` under the single-threaded
+/// measurement discipline and emit the measured samples to `out` in the
+/// shard wire form.
 ///
 /// Cells are grouped family-outer so each owned family's operand
 /// bundles are built once and dropped before the next family's; the
@@ -131,10 +135,7 @@ pub fn max_useful_shards() -> usize {
 ///
 /// # Panics
 ///
-/// Panics unless `index < count` and `scale` is strictly positive, and
-/// on any counter disagreement between a cell's two in-process
-/// measurements (the determinism self-verification, exactly as in the
-/// serial sweep).
+/// Panics unless `index < count` and `scale` is strictly positive.
 pub fn emit_shard(
     scale: f64,
     index: usize,
@@ -371,13 +372,13 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
 ///
 /// Validates every stamp, parses the samples, reorders by the parent's
 /// own operation table and family roster, and judges each cell
-/// ([`evaluate`]) exactly as the serial sweep would.
+/// ([`evaluate`]).
 ///
 /// # Panics
 ///
 /// Panics on any protocol violation — the module doc's refusal list —
-/// and unless `scale` is strictly positive (the same guard as the serial
-/// sweep, before any child capture is trusted).
+/// and unless `scale` is strictly positive, checked before any child
+/// capture is trusted.
 fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
     assert!(
         scale > 0.0 && scale.is_finite(),
@@ -477,17 +478,19 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
         .collect()
 }
 
-/// Run the whole board across `shards` child processes and render the
-/// matrix to `out`: [`run`](super::render::run)'s process-sharded form,
-/// byte-identical to it by pin (`just amp-board-shard-pin`).
+/// Sweep the whole board across `shards` child processes at `scale` and
+/// render the matrix to `out`.
 ///
-/// `spawn` is invoked once, at `scale`.
+/// `scale` multiplies every family's base size (1.0 is the seconds-scale
+/// default; the smoke suite passes a small fraction). Cells run at the
+/// scaled size and its double. Red rows print first. `spawn` is invoked
+/// once, at `scale`.
 ///
 /// # Panics
 ///
 /// Panics unless `scale` is strictly positive, and on any protocol
 /// violation in a child capture (the module doc's refusal list).
-pub fn run_sharded(
+pub fn run(
     scale: f64,
     shards: usize,
     spawn: ShardSpawner<'_>,
@@ -496,16 +499,15 @@ pub fn run_sharded(
     render_results(&merge(scale, shards, &spawn(scale)?), out)
 }
 
-/// Render the worst-case map at `scale` from a sweep run across `shards`
-/// child processes: [`worst_map`](super::worst::worst_map)'s
-/// process-sharded form.
+/// Sweep the whole board across `shards` child processes at `scale` and
+/// render the worst-case map table to `out`.
 ///
 /// `spawn` is invoked once, at `scale`.
 ///
 /// # Panics
 ///
-/// As [`run_sharded`].
-pub fn worst_map_sharded(
+/// As [`run`].
+pub fn worst_map(
     label: &str,
     scale: f64,
     shards: usize,
@@ -516,17 +518,19 @@ pub fn worst_map_sharded(
 }
 
 /// Entry-compare the live worst-case fold against the committed ranking
-/// pin from sweeps run across `shards` child processes:
-/// [`check_worst_map`](super::worst::check_worst_map)'s process-sharded
-/// form.
+/// pin, from sweeps run across `shards` child processes at each scale of
+/// record.
 ///
 /// `spawn` is invoked once per scale of record.
 ///
 /// # Panics
 ///
-/// As [`check_worst_map`](super::worst::check_worst_map), plus any
+/// Panics if a mapped counter is not compiled into this run (the pin is
+/// stated over all four currencies, so the check requires the
+/// `limb-meter` and `scan-meter` features), if the pin table itself is
+/// malformed (duplicate or unknown scale/operation keys), or on any
 /// protocol violation in a child capture.
-pub fn check_worst_map_sharded(
+pub fn check_worst_map(
     shards: usize,
     spawn: ShardSpawner<'_>,
     out: &mut dyn Write,

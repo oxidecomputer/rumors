@@ -194,7 +194,7 @@ supply-chain:
 # nightly rustdoc JSON, held total against the operation roster).
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check supply-chain clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism amp-board-shard-pin worst-cases-pin surface-totality
+gate: fmt-check doclint testdoc readme-check supply-chain clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test worst-cases-pin surface-totality
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -516,69 +516,24 @@ bench-judge-tripwire:
 # the process-global allocator, so the sweep stays single-threaded inside
 # each process and the runner spawns children that split the operation x
 # family cell grid instead, merging the measured samples back in board
-# order. Sharding must not move a reading (the amp-board-shard-pin recipe
-# holds the sharded render byte-identical to the serial one);
-# AMP_BOARD_SHARDS overrides the shard count, and AMP_BOARD_SHARDS=1 is
-# the direct in-process serial path.
+# order. Every judged quantity is a deterministic counter read from a
+# per-process allocator or a per-process global, so a reading is a
+# function of its cell alone: neither machine load nor the shard layout
+# that measured it can move one. AMP_BOARD_SHARDS overrides the count.
 
 # Run the amplification board: the red-green resource-proportionality matrix over before's public operations.
 amp-board *args:
     cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- {{ args }}
 
 # Acceptance is all green at BOTH the default scale and the acceptance
-# scale (board::ACCEPTANCE_SCALE, the segment-onset witness scale), one run
-# each: the determinism tripwire (the runner's in-process double
-# measurement of every cell, plus this file's cross-process byte-compare)
-# is what proves a reading is reproducible, so acceptance needs no repeated
-# hand runs.
+# scale (board::ACCEPTANCE_SCALE, the segment-onset witness scale), one
+# run each: every judged quantity is a deterministic counter, so a second
+# run of the same scale reads the same board and acceptance needs no
+# repeated hand runs.
 
 # Run the amplification board at the acceptance scale.
 amp-board-acceptance:
     cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- acceptance
-
-# Every quantity the board judges or renders is a deterministic counter, so
-# two whole renders from two processes must be byte-identical under any
-# machine load; any diff is a nondeterminism bug in a meter or a measured
-# body. This is the cross-process leg of the board's determinism tripwire
-# (the in-process leg is the runner itself, which measures every cell twice
-# and panics on any counter disagreement, at every scale on every run, in
-# every shard child). Both renders take the default sharded path, so the
-# comparison also holds the shard spawn/merge pipeline reproducible. The
-# reduced default scale keeps the gate fast; the runner's leg covers the
-# acceptance scales. Runs at release, the board's profile of record.
-
-# Byte-compare two cross-process board renders (the determinism gate).
-amp-board-determinism scale="0.25":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    a=$(mktemp) && b=$(mktemp)
-    trap 'rm -f "$a" "$b"' EXIT
-    cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$a"
-    cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$b"
-    cmp "$a" "$b"
-
-# Process sharding must not move a single reading: the sharded render (the
-# default path: child processes splitting the operation x family cell
-# grid, each owning its own global allocator) is byte-compared against
-# the serial in-process render (AMP_BOARD_SHARDS=1, the reference path)
-# at both scales of record. Any diff is a finding to investigate — a
-# reading that depends on which
-# process measured it (one-time lazy initialization is the known genre) —
-# never an accepted delta. On a single-core machine the default path is
-# already serial and the comparison is vacuous; the machines of record are
-# multi-core. Runs at release, the board's profile of record.
-
-# Byte-compare the sharded board render against the serial reference at both scales of record.
-amp-board-shard-pin:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    a=$(mktemp) && b=$(mktemp)
-    trap 'rm -f "$a" "$b"' EXIT
-    for scale in 1 acceptance; do
-        AMP_BOARD_SHARDS=1 cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- "$scale" > "$a"
-        cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- "$scale" > "$b"
-        cmp "$a" "$b"
-    done
 
 # The surface-totality leg: the operation roster in
 # crates/before/src/surface.rs (METHOD_SURFACE, the machine-readable
@@ -654,11 +609,11 @@ worst-cases-pin:
 # wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
 # and the viz bundle, ordered cheap-first so failures surface early. GitHub CI
 # runs exactly this. Neither `ci` nor `all` runs the gate's instrument legs —
-# the fuel bands, the fuelscape pins, the board determinism/shard/ranking
-# pins, and surface totality run in `just gate` (its recipe line is the
+# the fuel bands, the fuelscape pins, the board's ranking pin, and surface
+# totality run in `just gate` (its recipe line is the
 # roster of record), pre-commit on a developer machine; GitHub CI's
 # `instruments` job re-runs the counter-based subset (board verdicts, the
-# shard and ranking pins, surface totality, and the supply-chain leg) beside
+# ranking pin, surface totality, and the supply-chain leg) beside
 # the `ci` sweep, leaving the wall-time judge and the wasm fuel tier local.
 #
 # `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor

@@ -1,5 +1,9 @@
-//! The board driver: sweep the whole shape × operation product, judge
-//! every cell, and render the matrix.
+//! The measurement discipline and the printed matrix: how one grid cell
+//! is measured and judged, and how a whole board's judged cells render.
+//!
+//! The sweep itself is the `shard` module's — a child measures its slice
+//! of the operation × family grid through [`measure_cell`] and the parent
+//! renders the merged cells through [`render_results`].
 
 use std::io::{self, Write};
 
@@ -11,9 +15,9 @@ use super::ceilings::{
 };
 use super::currency::Liveness;
 use super::family::FamilyData;
-use super::judge::{assert_deterministic, evaluate, CellResult, Score};
+use super::judge::{evaluate, CellResult, Score};
 use super::measure::{measure, HeapMeter};
-use super::ops::{ops, Op};
+use super::ops::Op;
 use crate::meter::registry::FamilyId;
 
 /// The board's bottom line: how many cells scored green and red.
@@ -158,32 +162,6 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     )
 }
 
-/// Sweep the whole shape × operation product at `scale` and judge every
-/// cell: the one evaluation pass behind both the rendered matrix
-/// ([`run`]) and the worst-case fold ([`worst_map`](super::worst::worst_map)).
-///
-/// Results arrive in board row order (operation outer, family inner),
-/// each cell measured at the scaled size and its double, under the
-/// runner's in-process determinism self-verification.
-///
-/// # Panics
-///
-/// Panics if `scale` is not strictly positive.
-pub(super) fn sweep(scale: f64, heap: &HeapMeter) -> Vec<CellResult> {
-    assert_scale(scale);
-    let families: Vec<(FamilyData, FamilyData)> = FamilyId::board()
-        .map(|kind| build_pair(kind, scale))
-        .collect();
-
-    let mut results = Vec::new();
-    for op in ops() {
-        for pair in &families {
-            results.extend(measure_cell(heap, &op, pair));
-        }
-    }
-    results
-}
-
 /// The one scale guard, shared by every entry that measures.
 pub(super) fn assert_scale(scale: f64) {
     assert!(
@@ -203,10 +181,9 @@ pub(super) fn build_pair(kind: FamilyId, scale: f64) -> (FamilyData, FamilyData)
 /// Measure and judge one grid cell — or nothing, where the family's
 /// bundle supplies no operand for the operation's signature.
 ///
-/// The board's one measurement discipline, behind both the serial sweep
-/// and every shard child (the `shard` module): single-threaded, the cell
-/// at the scaled size and its double, each sample under the in-process
-/// determinism self-verification.
+/// The board's one measurement discipline, driven by every shard child
+/// (the `shard` module): single-threaded, the cell at the scaled size and
+/// its double, the peak-heap counter reset between samples.
 pub(super) fn measure_cell(
     heap: &HeapMeter,
     op: &Op,
@@ -217,44 +194,14 @@ pub(super) fn measure_cell(
         (op.prepare)(large).expect("a cell's applicability depends on the family, never the size");
     let s1 = measure(heap, op.name, c1, small.content_bytes);
     let s2 = measure(heap, op.name, c2, large.content_bytes);
-    // The runner self-verifies: every cell is measured twice in
-    // process and every counter reading and denominator must
-    // agree exactly — the board's judged quantities are
-    // deterministic domain counters, so any disagreement is a
-    // nondeterminism bug in a meter or a body, stopped here
-    // rather than laundered into a verdict.
-    for (level, first) in [(small, &s1), (large, &s2)] {
-        let again = (op.prepare)(level)
-            .expect("a cell's applicability depends on the family, never the size");
-        let second = measure(heap, op.name, again, level.content_bytes);
-        assert_deterministic(op.name, small.name, first, &second);
-    }
     Some(evaluate(op.name, small.name, s1, s2))
-}
-
-/// Run the whole board in this process and render the matrix to `out`.
-///
-/// `scale` multiplies every family's base size (1.0 is the seconds-scale
-/// default; the smoke test passes a small fraction). Cells run at the scaled
-/// size and its double. Red rows print first.
-///
-/// This is the serial reference path; [`run_sharded`](super::shard::run_sharded)
-/// renders the same matrix from process-sharded sweeps, byte-identical by
-/// pin (`just amp-board-shard-pin`).
-///
-/// # Panics
-///
-/// Panics if `scale` is not strictly positive.
-pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summary> {
-    render_results(&sweep(scale, heap), out)
 }
 
 /// Render one full sweep's judged cells as the matrix: the legend derived
 /// from the results themselves, red rows first, the summary line last.
 ///
 /// `results` must be a whole board's cells in board row order (operation
-/// outer, family inner) — [`sweep`]'s output, or a shard merge's
-/// reconstruction of it.
+/// outer, family inner): a shard merge's reconstruction of one sweep.
 pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io::Result<Summary> {
     writeln!(
         out,

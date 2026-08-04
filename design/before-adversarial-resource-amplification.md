@@ -1035,8 +1035,7 @@ the commits the entries name.
     every instrument's family axis derived from the roster (§2).
   - *The board's structural rounds*: the board module split into
     single-responsibility submodules; process sharding on the cell
-    grid (family-outer deal, byte-identical by the shard pin,
-    `just amp-board-shard-pin`); the worst-case map (argmax family
+    grid (family-outer deal); the worst-case map (argmax family
     per operation per currency, `just worst-cases`, its ranking
     pin gate-enforced); the settle families promoted to board
     columns (dense-suffix, plateau-puncture, lone-freeze) — whose
@@ -1198,7 +1197,7 @@ the board smoke suite holds the rendered matrix to each family
 spec's declared bundle reach, so the cell population is enforced
 per family by name, never restated in prose. The board runs
 sharded across child processes on the cell grid (family-outer
-deal), byte-identical by pin (`just amp-board-shard-pin`); the
+deal); the
 worst-case map (`just worst-cases`) folds an argmax family per
 operation per currency with a gate-enforced ranking pin
 (`just worst-cases-pin`).
@@ -1206,11 +1205,12 @@ operation per currency with a gate-enforced ranking pin
 **The board reads no clock**: its entire rendered output is
 byte-identical at a given scale under any machine load, no
 stripping, no carve-outs [measured — under a sustained
-parallel-build load generator], and the claim is enforced on two
-legs — the runner measures every cell twice in process and panics
-on any counter disagreement, and the gate's
-`just amp-board-determinism` byte-compares two cross-process
-renders. Wall time is judged nowhere in the gate; the time leg
+parallel-build load generator]. Every judged quantity is a
+deterministic counter read from state a shard child owns
+privately — its own global allocator, its own process globals —
+so a reading is a function of its cell alone, and neither machine
+load nor the shard layout that measured it can move one. Wall
+time is judged nowhere in the gate; the time leg
 lives in the bench judge below, at `just bench-judge` / `just all`
 cadence. Instruction-count asymptotics are the fuzz-fit harness's
 territory (`crates/before/fuzzfit`, `just fuzzfit`, in the gate:

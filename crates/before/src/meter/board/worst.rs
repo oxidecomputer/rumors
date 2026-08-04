@@ -3,11 +3,12 @@
 //! ranking pin.
 //!
 //! "Which committed shape is worst for operation X" is a mechanically
-//! re-derivable fact, never a curated list: the map is a pure fold over
-//! [`sweep`]'s cell results — the board's own
+//! re-derivable fact, never a curated list: the map is a pure fold over a
+//! sweep's cell results — the board's own
 //! readings, normalized by each cell's own denominator of record — and the
 //! rankings are drift-detected by [`WORST_RANKINGS`], a tamper-evident pin
-//! whose diff a reviewer sees ([`check_worst_map`]).
+//! whose diff a reviewer sees
+//! ([`check_worst_map`](super::shard::check_worst_map)).
 //!
 //! # Honest scope
 //!
@@ -57,8 +58,6 @@ use std::io::{self, Write};
 use super::ceilings::{ACCEPTANCE_SCALE, HEAP_FLAT_ALLOWANCE_BYTES};
 use super::currency::Currency;
 use super::judge::CellResult;
-use super::measure::HeapMeter;
-use super::render::sweep;
 
 /// The two scales of record the worst-case map is rendered and pinned at:
 /// the board's seconds-scale default and the acceptance scale
@@ -296,31 +295,15 @@ pub(super) fn row(out: &mut dyn Write, op: &str, c: &CurrencyWorst) -> io::Resul
     writeln!(out, "{lead}  worst {worst:<42}{tail}", worst = fmt_worst(c))
 }
 
-/// Run one board sweep at `scale` in this process and render the
-/// worst-case map table to `out`, one row per operation × mapped
-/// currency, in board row order.
-///
-/// `label` names the scale in the header (the scales of record are
-/// [`WORST_MAP_SCALES`]; a smoke run may pass its own). The fold is a
-/// pure consumer of the board's own judged cells: no reading, family, or
-/// ceiling is recomputed here.
-///
-/// This is the serial reference path;
-/// [`worst_map_sharded`](super::shard::worst_map_sharded) renders the
-/// same table from process-sharded sweeps.
-///
-/// # Panics
-///
-/// Panics if `scale` is not strictly positive.
-pub fn worst_map(label: &str, scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<()> {
-    render_map(label, scale, &sweep(scale, heap), out)
-}
-
 /// Fold one whole sweep's judged cells and render the worst-case map
-/// table to `out`.
+/// table to `out`, one row per operation × mapped currency, in board row
+/// order.
 ///
-/// `results` must be a whole board's cells in board row order —
-/// [`sweep`]'s output, or a shard merge's reconstruction of it.
+/// `results` must be a whole board's cells in board row order: a shard
+/// merge's reconstruction of one sweep. `label` names the scale in the
+/// header (the scales of record are [`WORST_MAP_SCALES`]; a smoke run may
+/// pass its own). The fold is a pure consumer of the board's own judged
+/// cells: no reading, family, or ceiling is recomputed here.
 pub(super) fn render_map(
     label: &str,
     scale: f64,
@@ -383,7 +366,8 @@ pub(super) fn render_map(
 /// order, `-` where no committed shape drives the currency; one entry
 /// per operation per scale of record, in board row order.
 ///
-/// The tamper-evident ranking pin: [`check_worst_map`] entry-compares the
+/// The tamper-evident ranking pin:
+/// [`check_worst_map`](super::shard::check_worst_map) entry-compares the
 /// live fold against this table, so "which committed shape is worst for
 /// operation X" is a drift-detected fact. A ranking flip is news: either
 /// a family legitimately overtook (re-pin deliberately, with the movement
@@ -592,10 +576,13 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "party_without_none", ["id-pair", "-", "id-pair", "-"]),
 ];
 
-/// Run the board at both scales of record and entry-compare the live
-/// worst-case fold against the committed ranking pin (the
-/// `WORST_RANKINGS` table beside the fold), writing one drift line per
-/// disagreement to `out`.
+/// Entry-compare the live worst-case fold against the committed ranking
+/// pin (the `WORST_RANKINGS` table beside the fold), writing one drift
+/// line per disagreement to `out`.
+///
+/// `sweeps` yields one whole board's judged cells per scale of record —
+/// a shard merge under
+/// [`check_worst_map`](super::shard::check_worst_map).
 ///
 /// Returns `Ok(true)` when the pin matches exactly. Detects both
 /// directions of rot: a live row missing from the pin and a pinned row
@@ -607,20 +594,6 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
 /// stated over all four currencies, so the check requires the
 /// `limb-meter` and `scan-meter` features), or if the pin table itself is
 /// malformed (duplicate or unknown scale/operation keys).
-pub fn check_worst_map(heap: &HeapMeter, out: &mut dyn Write) -> io::Result<bool> {
-    check_with(&mut |scale| Ok(sweep(scale, heap)), out)
-}
-
-/// The pin comparison over a caller-supplied sweep.
-///
-/// `sweeps` yields one whole board's judged cells per scale of record:
-/// the in-process serial sweep under [`check_worst_map`], a
-/// process-sharded merge under
-/// [`check_worst_map_sharded`](super::shard::check_worst_map_sharded).
-///
-/// # Panics
-///
-/// As [`check_worst_map`].
 pub(super) fn check_with(
     sweeps: &mut dyn FnMut(f64) -> io::Result<Vec<CellResult>>,
     out: &mut dyn Write,

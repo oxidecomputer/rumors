@@ -128,7 +128,8 @@ pub const BOARD_DECLARED_BENCH_RIDERS: &[(&str, &str)] = &[
 /// Every board cell of the chosen [`BenchMode`] at `scale`, in board row
 /// order.
 ///
-/// `scale` multiplies the family base sizes exactly as [`run`](crate::meter::board::run)'s does; the
+/// `scale` multiplies the family base sizes exactly as
+/// [`run`](crate::meter::board::run)'s does; the
 /// cells are op × family pairings applicable at that scale, at one
 /// measurement level (a bench varies repetition, not size).
 ///

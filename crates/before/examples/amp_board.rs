@@ -34,17 +34,17 @@
 //!
 //! # Process sharding
 //!
-//! The sweep is single-threaded by design — the peak-heap column reads
-//! the process-global allocator, so concurrent threads would blend live
-//! sets — and parallelizes by process instead: every mode spawns one
-//! copy of this binary per slice of the operation × family cell grid
-//! (`--shard i/N`, an internal protocol; `board::shard` documents it),
-//! each child measuring its slice under exactly the serial discipline,
-//! and the parent merges, judges, and renders. `AMP_BOARD_SHARDS`
-//! overrides the shard count (default: available parallelism);
-//! `AMP_BOARD_SHARDS=1` takes the direct in-process serial path — the
-//! reference the sharded render is byte-compared against in the gate
-//! (`just amp-board-shard-pin`).
+//! The sweep is single-threaded within a process by design — the
+//! peak-heap column reads the process-global allocator, so concurrent
+//! threads would blend live sets — and parallelizes by process instead:
+//! every mode spawns one copy of this binary per slice of the operation
+//! × family cell grid (`--shard i/N`, an internal protocol;
+//! `board::shard` documents it), each child measuring its slice
+//! single-threaded, and the parent merges, judges, and renders. Every
+//! judged quantity is a deterministic counter over state a child owns
+//! privately, so the shard count is a throughput knob and never an input
+//! to a reading: `AMP_BOARD_SHARDS` overrides it (default: available
+//! parallelism).
 
 use std::io;
 use std::process::{Command, Stdio};
@@ -59,7 +59,7 @@ static HEAP: PeakAlloc = PeakAlloc;
 const DEFAULT_SCALE: f64 = 1.0;
 
 /// The shard-count override. Unset, the runner uses available
-/// parallelism; `1` forces the serial in-process reference path.
+/// parallelism.
 const SHARDS_ENV: &str = "AMP_BOARD_SHARDS";
 
 /// The peak-heap readers over this binary's global allocator.
@@ -158,27 +158,18 @@ fn main() {
         return;
     }
 
-    let heap = heap_meter();
     let shards = shard_count();
     let mut out = std::io::stdout().lock();
     match args.first().map(String::as_str) {
         Some("worst-cases") => {
             for (label, scale) in board::WORST_MAP_SCALES {
-                if shards == 1 {
-                    board::worst_map(label, scale, &heap, &mut out)
-                } else {
-                    board::worst_map_sharded(label, scale, shards, &spawner(shards), &mut out)
-                }
-                .expect("stdout stays writable");
+                board::worst_map(label, scale, shards, &spawner(shards), &mut out)
+                    .expect("stdout stays writable");
             }
         }
         Some("worst-cases-check") => {
-            let clean = if shards == 1 {
-                board::check_worst_map(&heap, &mut out)
-            } else {
-                board::check_worst_map_sharded(shards, &spawner(shards), &mut out)
-            }
-            .expect("stdout stays writable");
+            let clean = board::check_worst_map(shards, &spawner(shards), &mut out)
+                .expect("stdout stays writable");
             if !clean {
                 std::process::exit(1);
             }
@@ -191,12 +182,8 @@ fn main() {
                     panic!("amp-board: scale must be a positive number, got {arg:?}")
                 }),
             };
-            let summary = if shards == 1 {
-                board::run(scale, &heap, &mut out)
-            } else {
-                board::run_sharded(scale, shards, &spawner(shards), &mut out)
-            }
-            .expect("stdout stays writable");
+            let summary = board::run(scale, shards, &spawner(shards), &mut out)
+                .expect("stdout stays writable");
             // The verdicts are consumed, not just rendered: at the
             // scales of record (default and acceptance, the two the
             // all-green acceptance criterion is stated over), a red
