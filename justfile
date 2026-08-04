@@ -21,8 +21,23 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # Merged doctests and the fuzz workspace's libFuzzer build need nightly.
+#
+# Dated, not floating, because one of its outputs is pinned against: the
+# surface-totality leg parses rustdoc JSON, whose schema carries a
+# `format_version` set by the emitting nightly, and the checker's
+# `rustdoc-types` dependency is pinned exact to the release speaking it.
+# A floating `nightly` couples a committed pin to whatever each machine
+# last downloaded, so the leg passes or fails on the coincidence of two
+# rustup states rather than on the tree — and it reads as a portability
+# failure on the second machine when it is really a reproducibility one.
+# This nightly emits format 59, which is what surfacecheck pins.
+#
+# Bumping it is deliberate and paired: change the date here, run
+# `just surface-totality`, and move the `rustdoc-types` pin to the
+# release whose FORMAT_VERSION matches (that recipe's comment carries the
+# procedure).
 
-nightly_toolchain := "nightly"
+nightly_toolchain := "nightly-2026-06-30"
 
 # The triple the fuzz recipes build for. cargo-fuzz defaults `--target` to the
 # triple it was itself built for, not the host's, so a statically linked
@@ -38,11 +53,27 @@ host_triple := `rustc -vV | sed -n 's/^host: //p'`
 
 fuzz_smoke_secs := "20"
 
+# The fuzz-fit guest's wasm: one artifact produced by one recipe and read
+# by two others (the fuzz-fit harness and the fuelscape pipeline), in
+# separate detached workspaces.
+#
+# Named here, and passed explicitly at the producer and at every consumer,
+# because the location is otherwise a coincidence: the fuzzfit workspace's
+# `.cargo/config.toml` points its target dir at the repo root's
+# `target/fuzzfit`, and an ambient `CARGO_TARGET_DIR` silently overrides
+# that — so the guest is written somewhere else while the consumers keep
+# reading the configured path. Anyone who exports `CARGO_TARGET_DIR`, and
+# any harness that sets one to keep artifacts outside a synced tree, gets
+# a "guest wasm not found" that names a path nothing wrote.
+
+fuzzfit_target := justfile_directory() + "/target/fuzzfit"
+fuzzfit_guest_wasm := fuzzfit_target + "/wasm32-unknown-unknown/release/fuzzfit_guest.wasm"
+
 # Criterion's output root: the bench-judge recipes save baselines and
 # denominator sidecars here, honoring CARGO_TARGET_DIR so a fresh or
 # redirected target directory keeps the baselines and the sidecars together.
 
-criterion_dir := env_var_or_default("CARGO_TARGET_DIR", justfile_directory() + "/target") + "/criterion"
+criterion_dir := env("CARGO_TARGET_DIR", justfile_directory() + "/target") + "/criterion"
 
 # The bench judge's committed expected-verdict roster (membership by cell
 # name; tools/benchjudge documents the classes and the enforcement).
@@ -393,7 +424,7 @@ fuzz secs=fuzz_smoke_secs:
 # Build the fuzz-fit wasm guest and its harness (both halves).
 [working-directory("crates/before/fuzzfit")]
 fuzzfit-build:
-    cargo build -p fuzzfit-guest --release --target wasm32-unknown-unknown
+    cargo build -p fuzzfit-guest --release --target wasm32-unknown-unknown --target-dir {{ fuzzfit_target }}
     {{ justfile_directory() }}/tools/memwatch cargo build -p fuzzfit-harness --tests --release
 
 # Run the fuzz-fit suites: generator sanity, meter liveness, the judgment
@@ -414,7 +445,7 @@ fuzzfit-build:
 fuzzfit: fuzzfit-build
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
-    {{ justfile_directory() }}/tools/memwatch cargo nextest run --cargo-profile release
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} {{ justfile_directory() }}/tools/memwatch cargo nextest run --cargo-profile release
 
 # Re-fit the pinned bands from the committed deterministic corpus (4096
 # programs; byte-reproducible, so any diff is a real change). Rewrites
@@ -424,7 +455,7 @@ fuzzfit: fuzzfit-build
 # Re-fit and rewrite the fuzz-fit harness's pinned fuel bands.
 [working-directory("crates/before/fuzzfit")]
 fuzzfit-calibrate: fuzzfit-build
-    cargo run --release -p fuzzfit-harness --bin calibrate
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo run --release -p fuzzfit-harness --bin calibrate
 
 # The population atlas lives in its own detached workspace
 # (crates/before-fuelscape, the fuzz-fit idiom: workspace-wide builds never
@@ -443,7 +474,7 @@ fuzzfit-calibrate: fuzzfit-build
 fuelscape-test: fuzzfit-build
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
-    FUZZFIT_GUEST_WASM={{ justfile_directory() }}/target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm {{ justfile_directory() }}/tools/memwatch cargo nextest run
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} {{ justfile_directory() }}/tools/memwatch cargo nextest run
 
 # Renders one log-log heatmap per public operation into target/fuelscape
 # (SVG per op plus a gallery index.html): p(fuel | size) from uniform

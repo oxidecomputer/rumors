@@ -1,0 +1,32 @@
+# The toolchain of record for the whole tree, detached workspaces
+# included: rustup resolves this file by walking up from the working
+# directory, so the fuzz, fuzzfit, fuelscape, and surfacecheck
+# workspaces all take it too.
+#
+# Pinned rather than tracking stable because the tree pins numbers
+# derived from the compiler. The fuzz-fit fuel bands are a function of
+# the guest's codegen and name the compiler that produced them
+# (`harness::bands::PINNED_RUSTC`), with a provenance test refusing to
+# judge fuel measured under any other. Under a floating stable those
+# bands hold only where the machine happens to have downloaded the
+# calibrating compiler: the leg then passes or fails on rustup state
+# rather than on the tree, and reads as a portability failure on a second
+# machine when it is really a reproducibility one.
+#
+# Bumping it is deliberate and paired: change the channel here, then
+# `just fuzzfit-calibrate` to re-pin the bands under it, and commit both
+# with the movement annotated.
+#
+# The gate's nightly legs (merged doctests, the rustdoc JSON the surface
+# check parses, the libFuzzer build) name their toolchain explicitly and
+# are pinned separately at `nightly_toolchain` in the justfile: a
+# toolchain file carries one channel, and the tree needs both pinned.
+#
+# `components` and `targets` are what the gate shells out to, so a fresh
+# checkout provisions itself: rust-src lets rustc quote std source for
+# before's trybuild snapshots, and the wasm32 target builds the fuzz-fit
+# guest.
+[toolchain]
+channel = "1.97.1"
+components = ["clippy", "rustfmt", "rust-src"]
+targets = ["wasm32-unknown-unknown"]

@@ -39,17 +39,23 @@ it fully clean before every commit.
 
 ## Contributing a change
 
-One-time setup: everything `just gate` shells out to is a stable Rust
-toolchain (1.92 or later: the workspace source needs 1.92, and the locked
-dependencies move the working floor with `Cargo.lock`, so when in doubt use
-current stable) with clippy, rustfmt, and
-rust-src, a nightly toolchain (merged doctests), `just`, `cargo-nextest`,
-`cargo-rdme`, and python3 with bash (the `tools/` linters). `just ci`
-additionally wants the `wasm32-unknown-unknown` target, `wasm-pack`,
-`cargo-fuzz`, and node/npm. rust-src is what lets rustc quote std source,
-which `before`'s trybuild snapshots do: without the sources installed, three
-compile-fail cases mismatch on the quoted lines alone while the guarantees
-they pin are perfectly intact.
+One-time setup: most of it provisions itself. `rust-toolchain.toml` names
+the stable toolchain of record along with the components and targets the
+gate shells out to — clippy, rustfmt, rust-src, and
+`wasm32-unknown-unknown` — and rustup installs them on the first cargo
+invocation, in the detached workspaces too. It is pinned rather than
+tracking current stable because the tree pins numbers derived from the
+compiler; the file's own comment carries that argument and the procedure
+for bumping it. rust-src is what lets rustc quote std source, which
+`before`'s trybuild snapshots do: without the sources installed, three
+compile-fail cases mismatch on the quoted lines alone while the
+guarantees they pin are perfectly intact.
+
+What you install yourself: the nightly toolchain the gate's nightly legs
+name (`nightly_toolchain` in the justfile, pinned for the same reason),
+`just`, `cargo-nextest`, `cargo-rdme`, and python3 with bash (the
+`tools/` linters). `just ci` additionally wants `wasm-pack`,
+`cargo-fuzz`, and node/npm.
 
 1. Iterate with the inner loop: `just check`, `just test <filter>`,
    `just clippy`, `just fmt`.
