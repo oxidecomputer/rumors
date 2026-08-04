@@ -6,8 +6,10 @@
 #   commit gate  just gate                           fully clean before every commit
 #   no-rot sweep just ci / just all                  everything, so nothing rots
 #
-# The gate runs every check a commit must pass; its recipe line spells out the
-# order. `ci` builds the artifacts the gate doesn't reach (the feature matrix,
+# The gate runs every check a commit must pass: build-free lints first,
+# then every building leg concurrently (see the comment above `gate` for
+# the stream grouping and why parallelism cannot move a verdict).
+# `ci` builds the artifacts the gate doesn't reach (the feature matrix,
 # wasm, bench builds, the fuzz-target build, the viz bundle), exactly as
 # GitHub CI builds them; `all` adds what CI cannot run (the fuzz smoke and the
 # formal tier). Neither sweep repeats the gate's instrument legs — the fuel
@@ -181,19 +183,103 @@ supply-chain:
     cargo audit --file crates/before/surfacecheck/Cargo.lock
     cargo deny --workspace check bans
 
-# The dependency list is the ordering: build-free lints first for fast
-# failure, then the builds, then the full-feature tests and doctests, then
-# the fuel-band asymptotics check (fuzzfit-build then fuzzfit: the wasm
-# guest's per-operation fuel readings judged against the pinned bands, so
-# a kernel change that moves fuel fails the commit that carries it — the
-# deliberate path is a `just fuzzfit-calibrate` re-pin riding the same
-# commit), then fuelscape's sampler pins and pipeline smoke (which reuse
-# the guest fuzzfit just built), then the board's worst-case ranking pin,
-# and last the surface-totality leg (before's public surface, parsed from
-# nightly rustdoc JSON, held total against the operation roster).
+# The gate runs in two tiers. First `gate-lints`, sequential and
+# build-free, because a formatting slip must not cost four minutes to
+# learn about. Then `gate-streams`, which is every leg that builds
+# something, run concurrently.
+#
+# What makes the concurrency safe is that nothing in the parallel tier
+# judges a nondeterministic quantity: the board's counters, the wasmtime
+# fuel bands, the fuelscape sampler pins, and the protocol suites'
+# virtual-time assertions all read the same under any machine load, so a
+# neighbor stream cannot flake a verdict. The one leg that does judge wall
+# time, the bench judge, is deliberately absent — it lives at
+# `just bench-judge` / `just all` cadence, where it can have the machine
+# to itself.
+#
+# The stream grouping is not arbitrary. Two cargo invocations sharing a
+# target directory serialize on its build lock, so every leg reaching the
+# root `target/` sits in one stream and runs in order there, cheap-first,
+# preserving the fail-fast ordering within it. Every other leg already
+# writes a directory nothing else touches — the nightly doctest target,
+# the private-items doc target, the rustdoc-JSON target, and the detached
+# fuzzfit/fuelscape/surfacecheck workspaces — and that is exactly what
+# lets them overlap. `fuzzfit` and `fuelscape-test` share one stream
+# because both build the same wasm guest.
+#
+# Concurrency multiplies peak memory, not just cores: every build-heavy
+# leg runs under tools/memwatch, whose per-process ceiling and global swap
+# backstop are scoped so concurrent instances never kill each other's
+# compiles. A stream that trips it fails loudly and names the crate.
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check supply-chain clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test worst-cases-pin surface-totality
+gate: gate-lints gate-streams
+
+# The build-free tier, sequential: a lint failure should cost seconds.
+gate-lints: fmt-check doclint testdoc readme-check
+
+# Each stream's output is captured rather than interleaved, and a failing
+# stream's log is replayed in full at the end, so a parallel failure reads
+# like a sequential one. Completion lines arrive live, in finish order.
+
+# Run every building gate leg, grouped into streams that cannot collide.
+gate-streams:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    cd "{{ justfile_directory() }}"
+    logs=target/gate-logs
+    rm -rf "$logs"
+    mkdir -p "$logs"
+    # The parent's stdout, so a background stream can report completion to
+    # the terminal while its own output goes to its log.
+    exec 3>&1
+
+    run_stream() {
+        name=$1
+        shift
+        began=$SECONDS
+        rc=0
+        for leg in "$@"; do
+            echo "===== just $leg ====="
+            if ! just "$leg"; then rc=1; break; fi
+        done
+        if [ "$rc" -eq 0 ]; then
+            echo "gate: ok      $name ($((SECONDS - began))s)" >&3
+        else
+            echo "gate: FAILED  $name ($((SECONDS - began))s)" >&3
+            : > "$logs/$name.failed"
+        fi
+    }
+
+    start_stream() {
+        name=$1
+        shift
+        run_stream "$name" "$@" > "$logs/$name.log" 2>&1 &
+        echo "gate: start   $name ($*)"
+    }
+
+    began=$SECONDS
+    start_stream workspace clippy clippy-default docs test-all
+    start_stream doctest doctest
+    start_stream board worst-cases-pin
+    start_stream wasm fuzzfit fuelscape-test
+    start_stream surface surface-totality
+    start_stream internal-docs docs-internal
+    start_stream audit supply-chain
+    wait
+
+    failed=$(cd "$logs" && ls *.failed 2>/dev/null | sed 's/\.failed$//')
+    if [ -n "$failed" ]; then
+        for name in $failed; do
+            echo
+            echo "───── $name ─────"
+            cat "$logs/$name.log"
+        done
+        echo
+        echo "gate: FAILED after $((SECONDS - began))s: $(echo $failed | tr '\n' ' ')"
+        exit 1
+    fi
+    echo "gate: clean in $((SECONDS - began))s; stream logs in $logs"
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
