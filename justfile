@@ -236,12 +236,13 @@ gate-streams:
 
     run_stream() {
         name=$1
-        shift
+        niceness=$2
+        shift 2
         began=$SECONDS
         rc=0
         for leg in "$@"; do
             echo "===== just $leg ====="
-            if ! just "$leg"; then rc=1; break; fi
+            if ! nice -n "$niceness" just "$leg"; then rc=1; break; fi
         done
         if [ "$rc" -eq 0 ]; then
             echo "gate: ok      $name ($((SECONDS - began))s)" >&3
@@ -253,19 +254,25 @@ gate-streams:
 
     start_stream() {
         name=$1
-        shift
-        run_stream "$name" "$@" > "$logs/$name.log" 2>&1 &
+        niceness=$2
+        shift 2
+        run_stream "$name" "$niceness" "$@" > "$logs/$name.log" 2>&1 &
         echo "gate: start   $name ($*)"
     }
 
+    # The workspace stream carries the test suite and is the critical
+    # path; every other stream together is less work than it is, and all
+    # of them finish first even when yielding. So they run niced: the
+    # tests keep first call on the cores, and the shorter streams fill
+    # what the tests leave idle instead of competing for it.
     began=$SECONDS
-    start_stream workspace clippy clippy-default docs test-all
-    start_stream doctest doctest
-    start_stream board worst-cases-pin
-    start_stream wasm fuzzfit fuelscape-test
-    start_stream surface surface-totality
-    start_stream internal-docs docs-internal
-    start_stream audit supply-chain
+    start_stream workspace     0 clippy clippy-default docs test-all
+    start_stream doctest      10 doctest
+    start_stream board        10 worst-cases-pin
+    start_stream wasm         10 fuzzfit fuelscape-test
+    start_stream surface      10 surface-totality
+    start_stream internal-docs 10 docs-internal
+    start_stream audit        10 supply-chain
     wait
 
     failed=$(cd "$logs" && ls *.failed 2>/dev/null | sed 's/\.failed$//')
