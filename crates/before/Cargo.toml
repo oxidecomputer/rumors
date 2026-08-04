@@ -68,8 +68,11 @@ rand_chacha = "0.3"
 # Binary (non-self-describing) and self-describing serde formats, exercised by the
 # binary-serde round-trip tests: `postcard` emits a typed bytes value via `serialize_bytes`;
 # `ciborium` is a self-describing CBOR codec. Together they guard the binary serde path
-# that `serde_json` alone never reaches.
-postcard = { version = "1", features = ["use-std"] }
+# that `serde_json` alone never reaches. `use-std` is the whole of what the
+# round-trips need; postcard's default `heapless-cas` feature carries a
+# no_std fixed-capacity buffer stack this crate never serializes into, so it
+# stays off and its transitive dependencies stay out of the lockfile.
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 ciborium = "0.2"
 # Compile-fail tests pinning the linearity guarantees (`Party`/`Clock` `!Clone`,
 # by-value `BitOr`).
@@ -93,7 +96,7 @@ insta = "1"
 # and, in the `space_consumption` example, the independent simulation runs.
 rayon = "1"
 # Progress bars for the long-running `space_consumption` example.
-indicatif = "0.17"
+indicatif = "0.18"
 # Self-dependency that turns on the `oracle` and `meter` features for benches
 # (and tests): a recognized Cargo idiom so `cargo bench`/`cargo nextest` build
 # the lib with the oracle and the metering instruments exposed without needing

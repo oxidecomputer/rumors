@@ -67,7 +67,7 @@
 //! | [`Version`]         | a causal timestamp (history of known events)    | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), join (`\|`), meet (`&`), [`rank`](Version::rank)                        |
 //! | [`Clock`]           | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork)([`s`](Clock::forks)), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), join (`\|`, `\|=`) a [`Version`] |
 //! | [`Rank`]/[`Ranked`] | a total order extending the causal order       | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub), [`encode`](Rank::encode)/[`decode`](Rank::decode)                            |
-//! | [`Span`]            | an ordered pair of versions and the chain segment between them | [`place`](Span::place), [`dominance_of`](Span::dominance_of), union (`\|`), intersect (`&`), pointwise join/meet (`+`, `*`), projection (`/`)     |
+//! | [`Span`]            | an ordered pair of versions and the chain segment between them | [`place`](Span::place), [`dominance`](Span::dominance), union (`\|`), intersect (`&`), pointwise join/meet (`+`, `*`), projection (`/`)     |
 //!
 //! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)): moved, never
 //! duplicated, because duplicating identity is exactly what breaks a causal

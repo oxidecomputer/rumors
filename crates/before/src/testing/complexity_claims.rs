@@ -4,7 +4,7 @@
 //! The public rustdoc states each operation's cost in a uniform
 //! `# Complexity` section. Prose cannot be checked; a rendered line can —
 //! so the roster here pins, per operation, a structured [`Bound`] whose
-//! rendering must appear **verbatim as the terminal line** of the
+//! rendering must appear **verbatim as the opening line** of the
 //! section at each recorded site, plus the board rows whose verdicts
 //! witness the claimed class, and the tests hold the legs together:
 //!
@@ -13,9 +13,9 @@
 //!   ([`surface_coverage::SURFACE_SOURCES`]) locates each operation's
 //!   `# Complexity` section — on the `pub fn`, the type doc, the module
 //!   doc, or a documented trait impl, as the roster's [`Site`] records —
-//!   and byte-compares its last line against the roster's rendered
-//!   `**Complexity**:` line. Editing a section's class without this
-//!   roster is a named failure; the prose above the terminal line is
+//!   and byte-compares its first line against the roster's rendered
+//!   claim line. Editing a section's class without this
+//!   roster is a named failure; the prose after the opening line is
 //!   explanation, uniformly non-normative.
 //! - **Roster ↔ board**: every cited board row must exist in the board's
 //!   own operation axis ([`board::bench_cells`]).
@@ -174,7 +174,7 @@ pub(crate) struct ClassContract {
     /// rostered row.
     pub(crate) judge_red: bool,
     /// The class-defining token: every claim citing the class must
-    /// render a `**Complexity**:` line containing it.
+    /// render a claim line containing it.
     pub(crate) token: Option<&'static str>,
     /// Whether the defining token is exclusive to the class: a claim
     /// rendering it without citing the class is unclassed prose.
@@ -359,7 +359,7 @@ const fn constant(op: &'static str) -> Claim {
 /// price their endpoint-wise legs together at the one type doc every
 /// cell links back to.
 const SPAN_TYPE_BOUND: Bound = Bound::Custom {
-    line: "operators `O(a + b)` in the operands' packed sizes; constructors and accessors \
+    line: "Operators `O(a + b)` in the operands' packed sizes; constructors and accessors \
            `O(1)`, plus `new`'s one validating comparison.",
     reason: "one type-doc section prices the whole operator matrix together",
 };
@@ -370,7 +370,7 @@ const SPAN_TYPE_BOUND: Bound = Bound::Custom {
 /// The deriving constructors (`Version::span`/`Version::span_all`) are
 /// priced at their own fn docs, not here.
 const CAUSALLY_BOUND: Bound = Bound::Custom {
-    line: "borrowing constructors `O(1)` (the deriving `span`/`span_all` priced on `Version`); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
+    line: "Borrowing constructors `O(1)` (the deriving `span`/`span_all` priced on `Version`); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
     reason: "one module-doc section prices every constructor and predicate together",
 };
 
@@ -412,7 +412,7 @@ const PARTY_SPLIT_BOUND: Bound = Bound::Custom {
 /// The party `Forks` iterator's type-doc bound: the drain plus the
 /// early-drop rejoin.
 const PARTY_FORKS_TYPE_BOUND: Bound = Bound::Custom {
-    line: "a full drain `O(S)`, `S` the shares' total packed size; an early drop rejoins in \
+    line: "A full drain `O(S)`, `S` the shares' total packed size; an early drop rejoins in \
            `O(log n)` joins.",
     reason: "an n-ary hand-out is denominated in its produced shares, not one packed operand",
 };
@@ -441,14 +441,14 @@ const PROJECTION_BOUND: Bound = Bound::Custom {
 /// meet operators, the comparison matrix, `Eq`/`Hash`) price one
 /// section.
 const VERSION_TYPE_BOUND: Bound = Bound::Custom {
-    line: "every comparison, join, and meet `O(a + b)`; hashing `O(n)`.",
+    line: "Every comparison, join, and meet `O(a + b)`; hashing `O(n)`.",
     reason: "one type-doc section prices the whole operator matrix",
 };
 
 /// The `OwnVersion` type doc's shared line: both fused-comparison
 /// family rows price one section.
 const OWN_VERSION_TYPE_BOUND: Bound = Bound::Custom {
-    line: "construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs view \
+    line: "Construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs view \
            `O(|v₁| + |p₁| + |v₂| + |p₂|)`.",
     reason: "one type-doc section prices both fused co-walks and the O(1) construction",
 };
@@ -467,7 +467,7 @@ const CAUSALLY_COMPOSITION: &str =
 /// The claims roster of record: one row per public operation, named as
 /// the coverage surface names it.
 ///
-/// The tests hold it total, its sites' terminal lines byte-equal to
+/// The tests hold it total, its sites' opening lines byte-equal to
 /// the rendered bounds, and its cited cells alive on the board.
 pub(crate) const CLAIMS: &[Claim] = &[
     // ───────────────────────────── Party ─────────────────────────────
@@ -1108,7 +1108,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         Cells::Board(&[("span_place", Class::Linear)]),
     ),
     causally(
-        "Span::dominance_of",
+        "Span::dominance",
         Cells::Board(&[("span_dominance", Class::Linear)]),
     ),
     constant("Span::meet"),
@@ -1221,7 +1221,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Custom {
-                line: "two masked co-walks, `O(|lo| + |hi| + |p| + |probe|)`.",
+                line: "Two masked co-walks, `O(|lo| + |hi| + |p| + |probe|)`.",
                 reason: "the composed verdict is denominated in both endpoints, the mask, \
                          and the probe at once; no pair template names four streams",
             },
@@ -1232,11 +1232,11 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ),
     },
     Claim {
-        op: "OwnSpan::dominance_of",
+        op: "OwnSpan::dominance",
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Custom {
-                line: "at most two masked co-walks, one when the start refutes.",
+                line: "At most two masked co-walks, one when the start refutes.",
                 reason: "the early exit halves the walk count on refutation; no template \
                          speaks about verdict-dependent walk counts",
             },
@@ -1251,7 +1251,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[Check {
             site: Site::Fn,
             bound: Bound::Custom {
-                line: "as [`OwnVersion::to_version`], per endpoint — the results' packed \
+                line: "As [`OwnVersion::to_version`], per endpoint — the results' packed \
                        sizes are not bounded by a constant factor of the operands.",
                 reason: "materialization is priced by its product-growth output, per \
                          endpoint; no template names an output-denominated pair",
@@ -1319,7 +1319,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[Check {
             site: Site::ImplDoc("src/span.rs", "From<OwnSpan<'_>> for Span<'static>"),
             bound: Bound::Custom {
-                line: "as [`OwnSpan::to_span`].",
+                line: "As [`OwnSpan::to_span`].",
                 reason: "delegation; the named method's line is the contract",
             },
         }],
@@ -1459,7 +1459,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[Check {
             site: Site::TypeDoc("src/clock.rs", "Clock"),
             bound: Bound::Custom {
-                line: "the heterogeneous joins `O(a + b)`; `==` and hashing `O(n)`.",
+                line: "The heterogeneous joins `O(a + b)`; `==` and hashing `O(n)`.",
                 reason: "one type-doc section prices the operator matrix and the \
                          byte-compare surface together",
             },
@@ -1631,7 +1631,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[Check {
             site: Site::TypeDoc("src/version/rank.rs", "Rank"),
             bound: Bound::Custom {
-                line: "comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display` \
+                line: "Comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display` \
                        superlinear in the numerator width (decimal conversion).",
                 reason: "Rank's arithmetic operands are in-memory values with no packed \
                          operand form (the canonical wire form is priced on its own \
@@ -1649,7 +1649,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[Check {
             site: Site::TypeDoc("src/version/ticks.rs", "Ticks"),
             bound: Bound::Custom {
-                line: "construction `O(1)`; comparison and hashing `O(‖n‖)`; addition \
+                line: "Construction `O(1)`; comparison and hashing `O(‖n‖)`; addition \
                        `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; text superlinear in the count's \
                        width (decimal conversion).",
                 reason: "Ticks has no packed encoding; one type-doc section prices its \

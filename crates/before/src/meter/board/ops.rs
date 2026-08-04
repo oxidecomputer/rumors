@@ -1154,7 +1154,7 @@ pub(super) fn ops() -> Vec<Op> {
                     n,
                     walk_floors(n, na(NA_TOUCH_PLACEMENT)),
                     move || {
-                        let verdict = span.dominance_of(&probe);
+                        let verdict = span.dominance(&probe);
                         (verdict, span, probe)
                     },
                 ))

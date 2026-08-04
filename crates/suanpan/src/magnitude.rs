@@ -42,7 +42,7 @@ pub trait Magnitude {
 ///
 /// # Complexity
 ///
-/// **Complexity**: `to_word` and `as_wide` `O(1)`.
+/// `to_word` and `as_wide` `O(1)`.
 impl Magnitude for UBig {
     fn to_word(&self) -> Option<u64> {
         u64::try_from(self).ok()

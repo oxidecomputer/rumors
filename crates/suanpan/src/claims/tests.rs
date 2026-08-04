@@ -1,7 +1,7 @@
 //! The complexity-claims binding tests.
 //!
 //! They hold the roster total over the public surface, every site's
-//! `# Complexity` section ending with its bound's rendered line, the
+//! `# Complexity` section opening with its bound's rendered line, the
 //! crate page's operations table byte-equal to the roster's cost cells,
 //! every cited witness alive as a `#[test]` in its file, and every
 //! (operation, witness) edge *reaching*: the witness's body (or a helper
@@ -194,14 +194,14 @@ fn claims_are_total_over_the_public_surface() {
 }
 
 /// Every claim's `# Complexity` section exists at its recorded site and
-/// ends with the roster bound's rendered `**Complexity**:` line, byte
-/// for byte — and every Custom bound states a substantial reason.
+/// opens with the roster bound's rendered claim line, byte for byte —
+/// and every Custom bound states a substantial reason.
 ///
 /// A cost edit in the rustdoc that skips this roster (or vice versa) is
 /// a named failure, and every site's normative claim is the roster's
 /// own rendering, never hand-drifted prose.
 #[test]
-fn complexity_sections_end_with_their_rendered_lines() {
+fn complexity_sections_open_with_their_rendered_lines() {
     let index = doc_index(&crate_root(), SOURCES);
     let mut errors = Vec::new();
     for claim in CLAIMS {
@@ -218,10 +218,10 @@ fn complexity_sections_end_with_their_rendered_lines() {
                 Err(err) => errors.push(err),
                 Ok(section) => {
                     let want = check.bound.render();
-                    let got = section.lines().rev().find(|l| !l.trim().is_empty());
-                    if got != Some(want.as_str()) {
+                    let got = section.lines().find(|l| !l.trim().is_empty());
+                    if got != Some(want) {
                         errors.push(format!(
-                            "{}: the `# Complexity` section at {:?} does not end with the \
+                            "{}: the `# Complexity` section at {:?} does not open with the \
                              rendered bound\n    want: {want}\n    got:  {}",
                             claim.op,
                             check.site,

@@ -8223,7 +8223,7 @@ mod placement {
             assert_eq!(span.place(&v), causally::Placement::Between);
         });
         let dominance = scanned(|| {
-            assert_eq!(span.dominance_of(&v), causally::Dominance::Between);
+            assert_eq!(span.dominance(&v), causally::Dominance::Between);
         });
         let v_redecoded = Version::decode(&v.encode()[..]).expect("a stored stream re-decodes");
         let cmp_vs = scanned(|| assert!(v.partial_cmp(&s).is_some()));
@@ -8255,7 +8255,7 @@ mod placement {
             assert_eq!(whole.place(&e), causally::Placement::After);
         });
         let dominance_whole = scanned(|| {
-            assert_eq!(whole.dominance_of(&e), causally::Dominance::After);
+            assert_eq!(whole.dominance(&e), causally::Dominance::After);
         });
         eprintln!("MEASURED span_whole_sweep: place={place_whole} dominance={dominance_whole}");
         assert_eq!(
@@ -8344,7 +8344,7 @@ mod placement {
         let top = &e | &div;
         let span = causally::Span::new(&div, &top).unwrap();
         let fused = scanned(|| {
-            assert_eq!(span.dominance_of(&v), causally::Dominance::Before);
+            assert_eq!(span.dominance(&v), causally::Dominance::Before);
         });
         let place = scanned(|| {
             assert_eq!(
@@ -8382,7 +8382,7 @@ mod placement {
         // Genre 2: the start strictly dominates the probe.
         let span = causally::Span::new(&v, &e).unwrap();
         let fused = scanned(|| {
-            assert_eq!(span.dominance_of(&s), causally::Dominance::Before);
+            assert_eq!(span.dominance(&s), causally::Dominance::Before);
         });
         let known_at = causally::known_at(&s);
         let first_check = scanned(|| {

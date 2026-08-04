@@ -184,9 +184,9 @@ impl<T, H: Height> Node<T, H> {
     /// construction, so no validating comparison is paid at any
     /// classification — and a leaf's coincident bounds collapse the
     /// question to one containment check (see
-    /// [`untyped::Node::dominance_of`]).
-    pub fn dominance_of(&self, probe: &Version) -> causally::Dominance {
-        self.inner.dominance_of(probe)
+    /// [`untyped::Node::dominance`]).
+    pub fn dominance(&self, probe: &Version) -> causally::Dominance {
+        self.inner.dominance(probe)
     }
 
     /// Get the number of leaves under this node.

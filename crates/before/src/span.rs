@@ -9,7 +9,7 @@
 //! verdict about it is a raw order fact against the endpoints, with no
 //! inclusivity to fold. [`Span::place`] answers the placement question
 //! at the finest resolution the partial order admits — the nine
-//! [`Placement`] regions — and [`Span::dominance_of`] coarsens it to
+//! [`Placement`] regions — and [`Span::dominance`] coarsens it to
 //! the three-way [`Dominance`] verdict a filter over version-bounded
 //! regions consumes. Every nonempty collection of versions has a
 //! tightest containing span — its lattice hull — derived by
@@ -102,7 +102,7 @@ mod tests;
 /// verdict about it is a raw order fact against the endpoints, with no
 /// inclusivity to fold. [`place`](Self::place) answers the placement
 /// question at full resolution — the nine [`Placement`] regions — and
-/// [`dominance_of`](Self::dominance_of) coarsens it to the three-way
+/// [`dominance`](Self::dominance) coarsens it to the three-way
 /// [`Dominance`] verdict.
 ///
 /// Construction's doors: [`new`](Self::new) validates the
@@ -128,13 +128,12 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// Constructors and accessors are `O(1)` ([`new`](Self::new) pays its
-/// one validating comparison; endpoints are borrows or `O(1)`
-/// buffer-sharing clones). Each binary operator (`|`, `&`, `+`, `*`)
-/// runs its legs once over the operands' packed endpoints, and a
-/// point-like operand pair fuses to a single walk.
-///
-/// **Complexity**: operators `O(a + b)` in the operands' packed sizes; constructors and accessors `O(1)`, plus `new`'s one validating comparison.
+/// Operators `O(a + b)` in the operands' packed sizes; constructors and accessors `O(1)`, plus `new`'s one validating comparison.
+/// Endpoints are borrows or buffer-sharing clones, and
+/// [`new`](Self::new) pays its one validating comparison. Each binary
+/// operator (`|`, `&`, `+`, `*`) runs its legs once over the operands'
+/// packed endpoints, and a point-like operand pair fuses to a single
+/// walk.
 ///
 /// ```
 /// use before::{Clock, causally::{Dominance, Endpoint, Span, Placement}};
@@ -154,9 +153,9 @@ mod tests;
 /// assert!(Span::new(&a1, &b1).is_err());
 /// // The dominance coarsening: a3 dominates the whole span, a2
 /// // only its start, and b1 not even that.
-/// assert_eq!(span.dominance_of(&a3), Dominance::After);
-/// assert_eq!(span.dominance_of(&a2), Dominance::Between);
-/// assert_eq!(span.dominance_of(&b1), Dominance::Before);
+/// assert_eq!(span.dominance(&a3), Dominance::After);
+/// assert_eq!(span.dominance(&a2), Dominance::Between);
+/// assert_eq!(span.dominance(&b1), Dominance::Before);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span<'a> {
@@ -201,7 +200,7 @@ impl<'a> Span<'a> {
     ///
     /// The caller **must** guarantee `lo <= hi`. On a pair that
     /// violates it, every verdict of [`place`](Self::place) and
-    /// [`dominance_of`](Self::dominance_of) is unspecified and
+    /// [`dominance`](Self::dominance) is unspecified and
     /// meaningless.
     ///
     /// # Panics
@@ -251,10 +250,9 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(1)`.
     /// At most one refcount-bump clone of the version's stored
     /// buffer; no walk, no comparison.
-    ///
-    /// **Complexity**: `O(1)`.
     pub fn at(version: impl Into<Cow<'a, Version>>) -> Span<'a> {
         let lo = version.into();
         // A borrowed endpoint is lent twice; an owned one moves in
@@ -313,12 +311,12 @@ impl<'a> Span<'a> {
     /// let stored: Span<'static> = a1.span(&a2); // owned endpoints
     /// let view: Span<'_> = stored.reborrow();
     /// assert_eq!(view, stored); // the same endpoints, byte for byte
-    /// assert_eq!(view.dominance_of(&a2), stored.dominance_of(&a2));
+    /// assert_eq!(view.dominance(&a2), stored.dominance(&a2));
     /// ```
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     pub fn reborrow(&self) -> Span<'_> {
         Span {
             lo: Cow::Borrowed(self.meet()),
@@ -349,7 +347,7 @@ impl<'a> Span<'a> {
     /// exit exists at full resolution, because distinguishing
     /// `Concurrent(Start)` from `Concurrent(Both)` needs the other
     /// endpoint's relation to complete. When only the dominance
-    /// question is asked, [`dominance_of`](Self::dominance_of) bails
+    /// question is asked, [`dominance`](Self::dominance) bails
     /// earlier.
     pub fn place(&self, probe: &Version) -> Placement {
         // The coincident span collapses placement to pairwise
@@ -395,7 +393,7 @@ impl<'a> Span<'a> {
     /// while `lo` decides [`Between`](Dominance::Between) against
     /// [`Before`](Dominance::Before). On sweeps with no refutation the
     /// cost is [`place`](Self::place)'s exactly.
-    pub fn dominance_of(&self, probe: &Version) -> Dominance {
+    pub fn dominance(&self, probe: &Version) -> Dominance {
         // The coincident span collapses the dominance question to one
         // containment — `degenerate_span_place_is_partial_cmp` composed
         // with `span_dominance_coarsens_place` (both in
@@ -435,7 +433,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     pub fn meet(&self) -> &Version {
         &self.lo
     }
@@ -451,7 +449,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     pub fn join(&self) -> &Version {
         &self.hi
     }
@@ -464,7 +462,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     pub fn into_parts(self) -> (Version, Version) {
         (self.lo.into_owned(), self.hi.into_owned())
     }
@@ -498,7 +496,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     pub fn into_owned(self) -> Span<'static> {
         Span {
             lo: Cow::Owned(self.lo.into_owned()),
@@ -518,9 +516,8 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(n)`.
     /// One copy of each endpoint's stored bytes.
-    ///
-    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// use before::{causally::Span, Clock};
@@ -549,10 +546,9 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(n)`.
     /// One write of each endpoint's stored bytes, plus whatever the
     /// writer itself costs.
-    ///
-    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// use before::{causally::Span, Clock};
@@ -602,11 +598,10 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(n)` time and space in the bytes read, accepted or rejected:
-    /// one strict parse of the first component, then one fused
-    /// parse-and-compare pass over the second against the first.
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// `n` is the bytes read, accepted or rejected: one strict parse of the
+    /// first component, then one fused parse-and-compare pass over the
+    /// second against the first.
     ///
     /// ```
     /// use before::{causally::Span, error::Decode, Clock};
@@ -681,7 +676,7 @@ impl<'a> Span<'a> {
 ///
 /// # Complexity
 ///
-/// **Complexity**: `O(1)`.
+/// `O(1)`.
 impl<'a> From<&'a Version> for Cow<'a, Version> {
     fn from(version: &'a Version) -> Cow<'a, Version> {
         Cow::Borrowed(version)
@@ -693,7 +688,7 @@ impl<'a> From<&'a Version> for Cow<'a, Version> {
 ///
 /// # Complexity
 ///
-/// **Complexity**: `O(1)`.
+/// `O(1)`.
 impl From<Version> for Cow<'_, Version> {
     fn from(version: Version) -> Self {
         Cow::Owned(version)
@@ -705,10 +700,9 @@ impl From<Version> for Cow<'_, Version> {
 ///
 /// # Complexity
 ///
+/// `O(1)`.
 /// One refcount-bump clone of the version's stored buffer; no walk,
 /// no comparison.
-///
-/// **Complexity**: `O(1)`.
 ///
 /// ```
 /// use before::{Clock, Span};
@@ -727,9 +721,8 @@ impl From<Version> for Span<'static> {
 ///
 /// # Complexity
 ///
+/// `O(1)`.
 /// Stores two copies of the one borrow; no clone at all.
-///
-/// **Complexity**: `O(1)`.
 ///
 /// ```
 /// use before::{Clock, Span};
@@ -927,6 +920,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(D log k)` time, `O(D)` space.
     /// One balanced fold, the accumulator carrying both endpoints
     /// through a single pass — the iterator is never buffered, and
     /// adjacent clone-identical inputs collapse before the fold reads
@@ -937,8 +931,6 @@ impl<'a> Span<'a> {
     /// combine folds per endpoint, because its two legs read
     /// *different* operand pairs, so no shared decode exists to fuse.
     /// `D` is the inputs' total packed size and `k` their number.
-    ///
-    /// **Complexity**: `O(D log k)` time, `O(D)` space.
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -988,12 +980,11 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(D log k)` time, `O(D)` space.
     /// One balanced fold as [`union_all`](Self::union_all) (with the
     /// legs swapped: joins of meets, meets of joins), plus one final
     /// validating comparison. `D` is the inputs' total packed size
     /// and `k` their number.
-    ///
-    /// **Complexity**: `O(D log k)` time, `O(D)` space.
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1040,12 +1031,11 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(D log k)` time, `O(D)` space.
     /// One balanced fold as [`union_all`](Self::union_all), with a
     /// point-combine that pays one walk for both legs (the legs read
     /// the same operand pair, and the shared result is stored twice).
     /// `D` is the inputs' total packed size and `k` their number.
-    ///
-    /// **Complexity**: `O(D log k)` time, `O(D)` space.
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1086,10 +1076,9 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(D log k)` time, `O(D)` space.
     /// One balanced fold as [`sum_all`](Self::sum_all), dual legs.
     /// `D` is the inputs' total packed size and `k` their number.
-    ///
-    /// **Complexity**: `O(D log k)` time, `O(D)` space.
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1481,7 +1470,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(a + b)` in the operands' packed sizes.
+    /// `O(a + b)` in the operands' packed sizes.
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1519,7 +1508,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(a + b)` in the operands' packed sizes.
+    /// `O(a + b)` in the operands' packed sizes.
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1559,7 +1548,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(a + b)` in the operands' packed sizes.
+    /// `O(a + b)` in the operands' packed sizes.
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1593,7 +1582,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(a + b)` in the operands' packed sizes.
+    /// `O(a + b)` in the operands' packed sizes.
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1619,7 +1608,7 @@ span_binop_matrix! {
 ///
 /// `&span / &party` constructs it in `O(1)`, borrowing both operands.
 /// The view answers the placement family directly —
-/// [`place`](Self::place) and [`dominance_of`](Self::dominance_of),
+/// [`place`](Self::place) and [`dominance`](Self::dominance),
 /// against the *projected* endpoints — without materializing a
 /// projection, and hands its endpoints out as
 /// [`OwnVersion`] views ([`meet`](Self::meet)/[`join`](Self::join))
@@ -1646,12 +1635,11 @@ span_binop_matrix! {
 ///
 /// # Complexity
 ///
-/// Construction and [`Clone`]/[`Copy`] are `O(1)`. Placement verdicts
-/// cost two masked co-walks (`O(|v| + |p| + |probe|)` each, the
-/// [`OwnVersion`] comparison kernel); [`dominance_of`](Self::dominance_of)
-/// stops after one when the first relation already decides.
-///
-/// **Complexity**: construction `O(1)`; placement `O(|lo| + |hi| + |p| + |probe|)`; materialization as [`OwnVersion::to_version`], per endpoint.
+/// Construction `O(1)`; placement `O(|lo| + |hi| + |p| + |probe|)`; materialization as [`OwnVersion::to_version`], per endpoint.
+/// [`Clone`] and [`Copy`] cost as construction does. Placement verdicts
+/// are two masked co-walks (the [`OwnVersion`] comparison kernel);
+/// [`dominance`](Self::dominance) stops after one when the first
+/// relation already decides.
 ///
 /// ```
 /// use before::{causally::Dominance, Clock};
@@ -1664,9 +1652,9 @@ span_binop_matrix! {
 ///
 /// // Alice's view of the span drops bob's contribution: a1 already
 /// // dominates everything alice owns of it — no projection is built.
-/// assert_eq!((&span / alice.party()).dominance_of(&a1), Dominance::After);
+/// assert_eq!((&span / alice.party()).dominance(&a1), Dominance::After);
 /// // Against the unprojected span, a1 dominates only the start.
-/// assert_eq!(span.dominance_of(&a1), Dominance::Between);
+/// assert_eq!(span.dominance(&a1), Dominance::Between);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct OwnSpan<'a> {
@@ -1682,9 +1670,8 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(1)`.
     /// The view borrows; its operations carry the costs.
-    ///
-    /// **Complexity**: `O(1)`.
     pub fn meet(&self) -> OwnVersion<'a> {
         self.span.meet() / self.party
     }
@@ -1694,9 +1681,8 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
+    /// `O(1)`.
     /// The view borrows; its operations carry the costs.
-    ///
-    /// **Complexity**: `O(1)`.
     pub fn join(&self) -> OwnVersion<'a> {
         self.span.join() / self.party
     }
@@ -1717,7 +1703,7 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: two masked co-walks, `O(|lo| + |hi| + |p| + |probe|)`.
+    /// Two masked co-walks, `O(|lo| + |hi| + |p| + |probe|)`.
     pub fn place(&self, probe: &Version) -> Placement {
         let (lo, hi) = (self.meet(), self.join());
         match probe.partial_cmp(&lo) {
@@ -1741,7 +1727,7 @@ impl<'a> OwnSpan<'a> {
 
     /// How much of the projected span `probe` dominates:
     /// [`place`](Self::place) coarsened to the three-way
-    /// [`Dominance`] verdict, [`Span::dominance_of`]'s buckets
+    /// [`Dominance`] verdict, [`Span::dominance`]'s buckets
     /// exactly.
     ///
     /// The coarse question buys the early exit the fine one cannot
@@ -1751,8 +1737,8 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: at most two masked co-walks, one when the start refutes.
-    pub fn dominance_of(&self, probe: &Version) -> Dominance {
+    /// At most two masked co-walks, one when the start refutes.
+    pub fn dominance(&self, probe: &Version) -> Dominance {
         if !matches!(
             probe.partial_cmp(&self.meet()),
             Some(Ordering::Greater | Ordering::Equal)
@@ -1779,7 +1765,7 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: as [`OwnVersion::to_version`], per endpoint — the results' packed sizes are not bounded by a constant factor of the operands.
+    /// As [`OwnVersion::to_version`], per endpoint — the results' packed sizes are not bounded by a constant factor of the operands.
     ///
     /// ```
     /// use before::Clock;
@@ -1800,10 +1786,9 @@ impl<'a> OwnSpan<'a> {
 ///
 /// # Complexity
 ///
+/// `O(1)`.
 /// The view borrows its operands; every cost lives on the view's
 /// operations ([`OwnSpan`]'s doc carries them).
-///
-/// **Complexity**: `O(1)`.
 ///
 /// ```
 /// use before::{causally::Placement, Clock};
@@ -1826,7 +1811,7 @@ impl<'a> Div<&'a Party> for &'a Span<'a> {
 ///
 /// # Complexity
 ///
-/// **Complexity**: as [`OwnSpan::to_span`].
+/// As [`OwnSpan::to_span`].
 ///
 /// ```
 /// use before::{Clock, Span};

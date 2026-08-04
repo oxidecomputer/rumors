@@ -57,25 +57,24 @@ mod tests;
 ///
 /// # Complexity
 ///
+/// Every comparison, join, and meet `O(a + b)`; hashing `O(n)`.
 /// A version's *packed size* `|v|` is the length of
 /// [`encode`](Version::encode)'s bytes (borrowable without copying as
 /// [`as_bytes`](Version::as_bytes); exact to the bit as
 /// [`encoded_bits`](Version::encoded_bits)); every `# Complexity` section
-/// on this type's operations is denominated in packed sizes. Every
-/// comparison cell — `==`, `<`, `<=`,
+/// on this type's operations is denominated in packed sizes. The
+/// comparison cells — `==`, `<`, `<=`,
 /// [`partial_cmp`](PartialOrd::partial_cmp),
-/// [`concurrent`](Version::concurrent) — and every join (`|`, `|=`) and
-/// meet (`&`, `&=`) cell, over owned or borrowed operands,
-/// is `O(|a| + |b|)` time and space, and a join or meet result
-/// is `O(|a| + |b|)` bytes itself. Hashing is `O(|v|)`. The costs that
-/// differ live on their operations: the projection `/` (an `O(1)` view
+/// [`concurrent`](Version::concurrent) — and the join (`|`, `|=`) and
+/// meet (`&`, `&=`) cells, over owned or borrowed operands, each read
+/// both operands' packed streams once, and a join or meet result
+/// is `O(|a| + |b|)` bytes itself. Hashing reads the version once. The
+/// costs that differ live on their operations: the projection `/` (an `O(1)` view
 /// whose explicit materialization,
 /// [`OwnVersion::to_version`](crate::OwnVersion::to_version), can outgrow
 /// its operands), the n-ary folds
 /// ([`join_all`](Version::join_all)), and the text conversions
 /// (`Display` and `FromStr`, documented on their impls).
-///
-/// **Complexity**: every comparison, join, and meet `O(a + b)`; hashing `O(n)`.
 ///
 /// ```
 /// use before::Clock;
@@ -114,7 +113,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// assert_eq!(before::Version::new().to_string(), "0");
@@ -141,7 +140,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -168,13 +167,12 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p|)` time and space, the packed sizes of the version and
-    /// the party. The bound holds per call, wide values included:
-    /// recording one event can re-code a value as wide as the operands
-    /// spell, but that width arrives in the packed operand carrying it and
-    /// is paid at most a constant number of times.
-    ///
-    /// **Complexity**: `O(a + b)`.
+    /// `O(a + b)`.
+    /// `a` and `b` are the packed sizes of the version and the party. The
+    /// bound holds per call, wide values included: recording one event can
+    /// re-code a value as wide as the operands spell, but that width
+    /// arrives in the packed operand carrying it and is paid at most a
+    /// constant number of times.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -197,14 +195,12 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p| + log n)` time and space [measured: the ticks rows of
-    /// the resource-envelope suite pin the constants, and the flatness
-    /// pin holds the whole `n`-dependence to the boundary codes' gamma
-    /// width — at most two fused walks and one splice at any count, so
-    /// skipping by `n` costs what one tick costs plus the width of `n`,
-    /// never `n` walks].
-    ///
-    /// **Complexity**: `O(a + b + log m)`, `m` the tick count.
+    /// `O(a + b + log m)`, `m` the tick count.
+    /// Measured: the ticks rows of the resource-envelope suite pin the
+    /// constants, and the flatness pin holds the whole `m`-dependence to
+    /// the boundary codes' gamma width — at most two fused walks and one
+    /// splice at any count, so skipping by `m` costs what one tick costs
+    /// plus the width of `m`, never `m` walks.
     ///
     /// ```
     /// use before::{Party, Ticks, Version};
@@ -232,9 +228,8 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// One causal comparison: `O(|a| + |b|)` time and space.
-    ///
-    /// **Complexity**: `O(a + b)`.
+    /// `O(a + b)`.
+    /// One causal comparison.
     ///
     /// ```
     /// use before::Clock;
@@ -268,7 +263,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
     ///
     /// ```
     /// use before::{Ticks, Version};
@@ -293,8 +288,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v|)` space; the returned rank's numeric size (see
-    /// [`Rank`]) is itself `O(|v|)`. Time, in three parts:
+    /// `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
+    /// The returned rank's numeric size (see [`Rank`]) is itself `O(|v|)`.
+    /// Time, in three parts:
     ///
     /// - `O(M(|v|) · log |v|)` in the worst case, `M` the
     ///   integer-multiplication bound of the arithmetic backend: the
@@ -331,8 +327,6 @@ impl Version {
     /// and none may do better than one multiplication on the
     /// embedded-product inputs.
     ///
-    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
-    ///
     /// ```
     /// use before::Clock;
     /// let mut a = Clock::seed();
@@ -362,7 +356,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// use before::{Ranked, Version};
@@ -391,26 +385,21 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` space: one fused sweep over the two packed
-    /// streams integrates the height difference directly, each step
-    /// paid for by the codes it consumes. Time is exactly
-    /// [`rank`](Self::rank)'s, in its three parts (the sweeps share
-    /// one integral): `O(M(|a| + |b|) · log (|a| + |b|))` in the worst
-    /// case, `M` the integer-multiplication bound of the arithmetic
-    /// backend — the settle products (wide parked drift times a dense
-    /// interval mass, with or without any re-arming) ride the
-    /// backend's multiplication through the mass-balanced product
-    /// tree, and the tree-depth log is absorbed below the backend's
-    /// quasilinear threshold and on `O(1)`-re-arming pairs of any
-    /// size, where the bound is `O(M(|a| + |b|))`; `Ω(M(|a| + |b|))`
-    /// on adversarial inputs (the answer-embedded product floors
-    /// every fold); and `O((|a| + |b|) log (|a| + |b|))` for every
-    /// committed board family and any pair whose parked drifts stay a
-    /// bounded number of digits wide. The gap above `Ω(M(|a| + |b|))`
-    /// is not contractual: a future release may close the tree-depth
-    /// factor.
-    ///
-    /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    /// `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    /// One fused sweep over the two packed streams integrates the height
+    /// difference directly, each step paid for by the codes it consumes;
+    /// time is exactly [`rank`](Self::rank)'s, the sweeps sharing one
+    /// integral. `M` is the integer-multiplication bound of the
+    /// arithmetic backend: the settle products (wide parked drift times
+    /// a dense interval mass, with or without any re-arming) ride the
+    /// backend's multiplication through the mass-balanced product tree,
+    /// and the tree-depth log is absorbed — leaving `O(M(a + b))` —
+    /// below the backend's quasilinear threshold and on
+    /// `O(1)`-re-arming pairs of any size. Adversarial inputs pay
+    /// `Ω(M(a + b))`: the answer-embedded product floors every fold.
+    /// Every committed board family runs at the width-bounded leg. The
+    /// gap above `Ω(M(a + b))` is not contractual: a future release may
+    /// close the tree-depth factor.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
@@ -450,19 +439,14 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` space. Time is exactly
-    /// [`distance`](Self::distance)'s, in its three parts (one shared
-    /// co-sweep integrates both measures' functionals):
-    /// `O(M(|a| + |b|) · log (|a| + |b|))` in the worst case (`M` the
-    /// integer-multiplication bound of the arithmetic backend, the
-    /// tree-depth log absorbed below the backend's quasilinear
-    /// threshold and on `O(1)`-re-arming pairs), `Ω(M(|a| + |b|))` on
-    /// adversarial inputs, and `O((|a| + |b|) log (|a| + |b|))` when
-    /// parked drifts stay a bounded number of digits wide; the same
-    /// gap above the multiplication bound is likewise not
-    /// contractual.
-    ///
-    /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    /// `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    /// Time is exactly [`distance`](Self::distance)'s, in its three
+    /// parts: one shared co-sweep integrates both measures' functionals,
+    /// with `M` the arithmetic backend's integer-multiplication bound,
+    /// the tree-depth log absorbed below the backend's quasilinear
+    /// threshold and on `O(1)`-re-arming pairs, and `Ω(M(a + b))` on
+    /// adversarial inputs; the same gap above the multiplication bound
+    /// is likewise not contractual.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
@@ -504,12 +488,10 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time and `O(D)` space, where `D` is the inputs' total
-    /// packed size and `k` their number: the fold is a balanced reduction,
-    /// so every input passes through `O(log k)` joins of similarly sized
-    /// operands.
-    ///
-    /// **Complexity**: `O(D log k)` time, `O(D)` space.
+    /// `O(D log k)` time, `O(D)` space.
+    /// `D` is the inputs' total packed size and `k` their number: the fold
+    /// is a balanced reduction, so every input passes through `O(log k)`
+    /// joins of similarly sized operands.
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -544,16 +526,15 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time and `O(D)` space, where `D` is the inputs' total
-    /// packed size and `k` their number: the same balanced reduction as
-    /// [`join_all`](Self::join_all), so every input passes through
-    /// `O(log k)` meets of similarly sized operands. The balance is what
-    /// bounds the worst case — a meet shrinks the running result's
-    /// *value*, never necessarily its packed size, so a population that
-    /// keeps it full-size (one deep version among operands that dominate
-    /// it) re-walks that result once per level, never once per operand.
-    ///
-    /// **Complexity**: `O(D log k)` time, `O(D)` space.
+    /// `O(D log k)` time, `O(D)` space.
+    /// `D` is the inputs' total packed size and `k` their number: the same
+    /// balanced reduction as [`join_all`](Self::join_all), so every input
+    /// passes through `O(log k)` meets of similarly sized operands. The
+    /// balance is what bounds the worst case — a meet shrinks the running
+    /// result's *value*, never necessarily its packed size, so a population
+    /// that keeps it full-size (one deep version among operands that
+    /// dominate it) re-walks that result once per level, never once per
+    /// operand.
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -599,6 +580,7 @@ impl Version {
     ///
     /// # Complexity
     ///
+    /// `O(a + b)`.
     /// One *fused* pair walk feeds both endpoints: the meet and join
     /// emissions consume the identical crossing sequence, so each
     /// operand is decoded once and every crossing folds into the
@@ -610,8 +592,6 @@ impl Version {
     /// suite (`tests/meter.rs`) pins both faces: the span
     /// scan-identity holds the decode saving exact, and the
     /// touch-traffic undercut pins the shared folds.
-    ///
-    /// **Complexity**: `O(a + b)`.
     ///
     /// ```
     /// use before::{Clock, causally::{Placement, Span}};
@@ -668,13 +648,12 @@ impl Version {
     ///
     /// # Complexity
     ///
+    /// `O(D log k)` time, `O(D)` space.
     /// One balanced fold over `{self} ∪ others`, the accumulator
     /// carrying both hull endpoints through a single pass — the
     /// iterator is never buffered, and a leaf combine derives its
     /// pair hull directly — with `D` the inputs' total packed size
     /// and `k` their number.
-    ///
-    /// **Complexity**: `O(D log k)` time, `O(D)` space.
     ///
     /// ```
     /// use before::{Clock, Version, causally::{Placement, Span}};
@@ -1001,11 +980,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v|)` time and space: one copy of the stored bytes
-    /// ([`as_bytes`](Self::as_bytes) borrows the same bytes without
-    /// copying).
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// One copy of the stored bytes ([`as_bytes`](Self::as_bytes) borrows
+    /// the same bytes without copying).
     ///
     /// ```
     /// use before::Version;
@@ -1020,10 +997,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v|)` time: one write of the stored bytes, plus whatever the
-    /// writer itself costs.
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// One write of the stored bytes, plus whatever the writer itself
+    /// costs.
     ///
     /// ```
     /// use before::Version;
@@ -1039,11 +1015,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(n)` time and space in the bytes read, accepted or rejected:
-    /// strict validation is one pass over the stream, and the result
-    /// reuses the read buffer.
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// `n` is the bytes read, accepted or rejected: strict validation is
+    /// one pass over the stream, and the result reuses the read buffer.
     ///
     /// ```
     /// use before::Version;
@@ -1074,7 +1048,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// use before::Version;
@@ -1099,7 +1073,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// use before::Version;
@@ -1281,10 +1255,8 @@ impl Default for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
-/// it is.
-///
-/// **Complexity**: `O(D log k)` time, `O(D)` space.
+/// `O(D log k)` time, `O(D)` space.
+/// As [`Version::join_all`], the fold it is.
 impl Sum<Version> for Version {
     fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
         Version::join_all(iter)
@@ -1295,10 +1267,9 @@ impl Sum<Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
-/// it is: the borrowed elements are read in place, not cloned.
-///
-/// **Complexity**: `O(D log k)` time, `O(D)` space.
+/// `O(D log k)` time, `O(D)` space.
+/// As [`Version::join_all`], the fold it is: the borrowed elements are read
+/// in place, not cloned.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
         Version::join_all(iter)
@@ -1309,10 +1280,8 @@ impl<'a> Sum<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
-/// it is.
-///
-/// **Complexity**: `O(D log k)` time, `O(D)` space.
+/// `O(D log k)` time, `O(D)` space.
+/// As [`Version::join_all`], the fold it is.
 impl FromIterator<Version> for Version {
     fn from_iter<I: IntoIterator<Item = Version>>(iter: I) -> Version {
         Version::join_all(iter)
@@ -1323,10 +1292,9 @@ impl FromIterator<Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
-/// it is: the borrowed elements are read in place, not cloned.
-///
-/// **Complexity**: `O(D log k)` time, `O(D)` space.
+/// `O(D log k)` time, `O(D)` space.
+/// As [`Version::join_all`], the fold it is: the borrowed elements are read
+/// in place, not cloned.
 impl<'a> FromIterator<&'a Version> for Version {
     fn from_iter<I: IntoIterator<Item = &'a Version>>(iter: I) -> Version {
         Version::join_all(iter)
@@ -1337,17 +1305,14 @@ impl<'a> FromIterator<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(|v| + t)` space, the packed version plus the `t` rendered text
-/// bytes. Time is **superlinear** in the worst case, on two counts: each
-/// value wider than a machine word pays binary-to-decimal conversion,
-/// superlinear (though subquadratic) in its width; and a deep tree of
-/// wide interior values additionally pays a summary-merge cost that grows
-/// faster than the operand. The merge cost is the renderer's, not the
-/// format's — parsing the same text back pays only the conversion — and
-/// is not contractual: a future release may render in time linear but
-/// for conversion.
-///
-/// **Complexity**: `O(n + t)` space; time superlinear in the spelled value widths (decimal conversion plus the render merge).
+/// `O(n + t)` space; time superlinear in the spelled value widths (decimal conversion plus the render merge).
+/// Time is **superlinear** in the worst case, on two counts: each value
+/// wider than a machine word pays binary-to-decimal conversion, superlinear
+/// (though subquadratic) in its width; and a deep tree of wide interior
+/// values additionally pays a summary-merge cost that grows faster than the
+/// operand. The merge cost is the renderer's, not the format's — parsing
+/// the same text back pays only the conversion — and is not contractual: a
+/// future release may render in time linear but for conversion.
 ///
 /// ```
 /// use before::Version;
@@ -1376,12 +1341,10 @@ impl core::fmt::Debug for Version {
 ///
 /// # Complexity
 ///
-/// `O(t + |v|)` time and space, the input text plus the packed version
-/// produced — accepted or rejected — except that each spelled value wider
-/// than a machine word pays decimal-to-binary conversion, superlinear
+/// `O(t + n)` space; time superlinear in the spelled value widths (decimal-to-binary conversion).
+/// The bound holds accepted or rejected, except that each spelled value
+/// wider than a machine word pays decimal-to-binary conversion, superlinear
 /// (though subquadratic) in that value's width.
-///
-/// **Complexity**: `O(t + n)` space; time superlinear in the spelled value widths (decimal-to-binary conversion).
 ///
 /// ```
 /// use before::Version;
@@ -1399,7 +1362,7 @@ impl core::str::FromStr for Version {
 ///
 /// # Complexity
 ///
-/// **Complexity**: `O(1)`.
+/// `O(1)`.
 ///
 /// ```
 /// use before::Version;
@@ -1418,9 +1381,8 @@ impl TryFrom<u64> for Version {
 ///
 /// # Complexity
 ///
-/// `O(|v|)` time and space in the version built.
-///
-/// **Complexity**: `O(n)`.
+/// `O(n)`.
+/// `n` is the packed version built.
 ///
 /// ```
 /// use before::Version;
@@ -1553,10 +1515,9 @@ binop_matrix! {
 ///
 /// # Complexity
 ///
-/// `O(1)` time and space: the view borrows its operands. Every cost lives
-/// on the view's operations ([`OwnVersion`]'s doc carries them).
-///
-/// **Complexity**: `O(1)`.
+/// `O(1)`.
+/// The view borrows its operands. Every cost lives on the view's operations
+/// ([`OwnVersion`]'s doc carries them).
 ///
 /// ```
 /// use before::Clock;

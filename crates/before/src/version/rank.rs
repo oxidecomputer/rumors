@@ -185,24 +185,22 @@ use crate::error::Decode;
 ///
 /// # Complexity
 ///
+/// Comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display` superlinear in the numerator width (decimal conversion).
 /// A rank's costs are denominated in its *numeric size* `‖r‖` — the
 /// numerator's bit width plus the exponent — which every
 /// producing fold ([`Version::rank`](crate::Version::rank),
 /// [`distance`](crate::Version::distance), [`lag`](crate::Version::lag))
 /// keeps linear in the packed bits it read, and which
 /// [`encode`](Rank::encode) makes tangible: the canonical byte form is
-/// at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits. Comparison (`==`, [`Ord`]) is
-/// `O(1)` when the two magnitudes differ in scale and `O(‖a‖ + ‖b‖)` time
-/// with no allocation on scale ties; hashing and cloning are `O(‖r‖)`.
-/// Addition (`+`, `+=`) is `O(‖a‖ + ‖b‖)` time and space, and an n-ary
-/// [`Sum`] is `O(N)` in the summands' total numeric size `N`: the fold
+/// at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits. Comparison (`==`, [`Ord`])
+/// answers in `O(1)` when the two magnitudes differ in scale and
+/// allocates nothing on scale ties; hashing and cloning are `O(‖r‖)`.
+/// An n-ary [`Sum`]'s `N` is the summands' total numeric size: the fold
 /// carries one running accumulator, and each summand pays its own width
 /// rather than the accumulator's. Rendering (`Display`) is `O(d)` space
 /// in the `d` decimal digits printed, but its time additionally pays
 /// binary-to-decimal conversion of the numerator, superlinear (though
 /// subquadratic) in its width past a machine word.
-///
-/// **Complexity**: comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display` superlinear in the numerator width (decimal conversion).
 ///
 /// ```
 /// use before::Version;
@@ -251,11 +249,10 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖a‖ + ‖b‖)` time and space in the operands' numeric size (see
-    /// [the type's note](Rank#complexity)); a [`None`] or zero result costs
-    /// only the comparison, which allocates nothing.
-    ///
-    /// **Complexity**: `O(‖a‖ + ‖b‖)`, the operands' numeric sizes.
+    /// `O(‖a‖ + ‖b‖)`, the operands' numeric sizes.
+    /// The denomination is the operands' numeric size (see [the type's
+    /// note](Rank#complexity)); a [`None`] or zero result costs only the
+    /// comparison, which allocates nothing.
     ///
     /// ```
     /// use before::Version;
@@ -347,11 +344,9 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖r‖)` time and space in the rank's numeric size (see
-    /// [the type's note](Rank#complexity)); the output is at most
-    /// `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
-    ///
-    /// **Complexity**: `O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
+    /// `O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
+    /// The denomination is the rank's numeric size (see [the type's
+    /// note](Rank#complexity)).
     ///
     /// ```
     /// use before::{Rank, Version};
@@ -380,11 +375,9 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖r‖)` time and space in the rank's numeric size (see
-    /// [the type's note](Rank#complexity)); the output is at most
-    /// `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
-    ///
-    /// **Complexity**: `O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
+    /// `O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
+    /// The denomination is the rank's numeric size (see [the type's
+    /// note](Rank#complexity)).
     ///
     /// ```
     /// use before::Version;
@@ -425,10 +418,9 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(n)` time and space in the bytes read, accepted or rejected:
-    /// one pass over the stream, and a result linear in it.
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// `n` is the bytes read, accepted or rejected: one pass over the
+    /// stream, and a result linear in it.
     ///
     /// ```
     /// use before::{error::Decode, Rank, Version};

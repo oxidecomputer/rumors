@@ -30,14 +30,20 @@ fuzz_target!(|data: &[u8]| {
 fn run(data: &[u8]) {
     if let Ok(p) = Party::decode(data) {
         let bytes = p.encode();
-        assert_eq!(bytes, data, "accepted party bytes were not canonical as fed");
+        assert_eq!(
+            bytes, data,
+            "accepted party bytes were not canonical as fed"
+        );
         let again = Party::decode(&bytes[..]).expect("re-decode of an accepted party is canonical");
         assert_eq!(again, p, "accepted party did not round-trip");
         assert_eq!(again.encode(), bytes, "party re-encode is not stable");
     }
     if let Ok(v) = Version::decode(data) {
         let bytes = v.encode();
-        assert_eq!(bytes, data, "accepted version bytes were not canonical as fed");
+        assert_eq!(
+            bytes, data,
+            "accepted version bytes were not canonical as fed"
+        );
         let again =
             Version::decode(&bytes[..]).expect("re-decode of an accepted version is canonical");
         assert_eq!(again, v, "accepted version did not round-trip");
@@ -45,7 +51,10 @@ fn run(data: &[u8]) {
     }
     if let Ok(c) = Clock::decode(data) {
         let bytes = c.encode();
-        assert_eq!(bytes, data, "accepted clock bytes were not canonical as fed");
+        assert_eq!(
+            bytes, data,
+            "accepted clock bytes were not canonical as fed"
+        );
         let again = Clock::decode(&bytes[..]).expect("re-decode of an accepted clock is canonical");
         assert_eq!(again, c, "accepted clock did not round-trip");
         assert_eq!(again.encode(), bytes, "clock re-encode is not stable");
@@ -59,7 +68,10 @@ fn run(data: &[u8]) {
     }
     if let Ok(k) = Ranked::decode(data) {
         let bytes = k.encode();
-        assert_eq!(bytes, data, "accepted ranked-key bytes were not canonical as fed");
+        assert_eq!(
+            bytes, data,
+            "accepted ranked-key bytes were not canonical as fed"
+        );
         let again =
             Ranked::decode(&bytes[..]).expect("re-decode of an accepted ranked key is canonical");
         assert_eq!(again, k, "accepted ranked key did not round-trip");

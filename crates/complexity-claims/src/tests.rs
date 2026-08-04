@@ -2,7 +2,8 @@
 //!
 //! The section scanner is not vacuously green, the extractor's naming
 //! (impl blocks, `pub mod` blocks, module level) is pinned on fixtures,
-//! its refusal paths fire, and the render lead is fixed.
+//! its refusal paths fire, and rendering passes committed text through
+//! verbatim.
 //!
 //! The full template-by-template byte pin lives with each consuming
 //! roster's binding tests (the reviewed diff a template edit must pass
@@ -141,18 +142,19 @@ fn doc_scanner_indexes_every_site_kind() {
     }
 }
 
-/// The render lead is fixed and a custom line passes through verbatim,
-/// so a roster's byte-compare pins exactly the committed text.
+/// A template renders its bare claim body and a custom line passes
+/// through verbatim, so a roster's byte-compare pins exactly the
+/// committed text.
 #[test]
-fn render_lead_and_custom_passthrough_are_fixed() {
-    assert_eq!(Bound::Constant.render(), "**Complexity**: `O(1)`.");
+fn render_templates_and_custom_passthrough_are_fixed() {
+    assert_eq!(Bound::Constant.render(), "`O(1)`.");
     assert_eq!(
         Bound::Custom {
-            line: "priced elsewhere.",
+            line: "Priced elsewhere.",
             reason: "fixture",
         }
         .render(),
-        "**Complexity**: priced elsewhere."
+        "Priced elsewhere."
     );
 }
 

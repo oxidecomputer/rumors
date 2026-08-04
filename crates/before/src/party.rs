@@ -52,15 +52,14 @@ mod tests;
 ///
 /// # Complexity
 ///
+/// `==` and hashing `O(n)`; every other cost is on its operation.
 /// A party's *packed size* `|p|` is the length of
 /// [`encode`](Party::encode)'s bytes (borrowable without copying as
 /// [`as_bytes`](Party::as_bytes); exact to the bit as
 /// [`encoded_bits`](Party::encoded_bits)); every `# Complexity` section on
 /// this type's operations is denominated in packed sizes. `==` and
-/// hashing are `O(|p|)` time with no allocation; each remaining cost is
-/// on its operation.
-///
-/// **Complexity**: `==` and hashing `O(n)`; every other cost is on its operation.
+/// hashing read the stored bytes once, with no allocation; each
+/// remaining cost is on its operation.
 ///
 /// ```
 /// use before::Party;
@@ -103,7 +102,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// assert_eq!(before::Party::seed().to_string(), "1");
@@ -132,7 +131,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// use before::Party;
@@ -157,10 +156,8 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p|)` time and space, as [`Version::tick`] (see its
-    /// per-call note on wide values).
-    ///
-    /// **Complexity**: `O(a + b)`.
+    /// `O(a + b)`.
+    /// As [`Version::tick`] (see its per-call note on wide values).
     ///
     /// ```
     /// use before::{Party, Version};
@@ -179,9 +176,8 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p| + log n)` time and space, as [`Version::ticks`].
-    ///
-    /// **Complexity**: `O(a + b + log m)`, `m` the tick count.
+    /// `O(a + b + log m)`, `m` the tick count.
+    /// As [`Version::ticks`].
     ///
     /// ```
     /// use before::{Party, Version};
@@ -204,9 +200,8 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|p|)` time and space: both halves are built fresh.
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// Both halves are built fresh.
     ///
     /// ```
     /// use before::Party;
@@ -246,11 +241,10 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(S)` time and space for a full drain, where `S` is the total
-    /// packed size of the shares produced; shares are built on demand (see
-    /// [`Forks`] for the per-step and early-drop costs).
-    ///
-    /// **Complexity**: `O(S)`, `S` the shares' total packed size.
+    /// `O(S)`, `S` the shares' total packed size.
+    /// For a full drain, `S` is the total packed size of the shares
+    /// produced; shares are built on demand (see [`Forks`] for the per-step
+    /// and early-drop costs).
     ///
     /// ```
     /// use before::Party;
@@ -277,10 +271,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` time and space, accepted or rejected, and the united
-    /// party is `O(|a| + |b|)` bytes itself.
-    ///
-    /// **Complexity**: `O(a + b)`.
+    /// `O(a + b)`.
+    /// The bound holds accepted or rejected, and the united party is `O(|a|
+    /// + |b|)` bytes itself.
     ///
     /// ```
     /// use before::Party;
@@ -327,17 +320,15 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(D log k + B log |p|)` time and `O(D)` space, where `D` is the
-    /// total packed size of `self` and the inputs, `k` the number of
-    /// inputs, and `B` the inputs' both-present node count (`B ≤ D`):
-    /// each input is overlap-tested against `self` in `O(input)` node
+    /// `O(D log k + B log n)` time, `O(D)` space.
+    /// `D` is the total packed size of `self` and the inputs, `k` the
+    /// number of inputs, and `B` the inputs' both-present node count (`B ≤
+    /// D`): each input is overlap-tested against `self` in `O(input)` node
     /// visits through a table of `self` built once per call, plus one
     /// `O(log |p|)` table search per node both sides own, then passes
-    /// through `O(log k)` joins of similarly sized operands in a
-    /// balanced reduction. On populations whose regions interleave
-    /// deeply the search term dominates the tests.
-    ///
-    /// **Complexity**: `O(D log k + B log n)` time, `O(D)` space.
+    /// through `O(log k)` joins of similarly sized operands in a balanced
+    /// reduction. On populations whose regions interleave deeply the search
+    /// term dominates the tests.
     ///
     /// ```
     /// use before::Party;
@@ -399,10 +390,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` time; no allocation. A negative answer may return at
-    /// the first shared region.
-    ///
-    /// **Complexity**: `O(a + b)`.
+    /// `O(a + b)`.
+    /// Nothing is allocated, and a negative answer may return at the first
+    /// shared region.
     ///
     /// ```
     /// use before::Party;
@@ -444,10 +434,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` time; no allocation. A negative answer may return at
-    /// the first uncovered region.
-    ///
-    /// **Complexity**: `O(a + b)`.
+    /// `O(a + b)`.
+    /// Nothing is allocated, and a negative answer may return at the first
+    /// uncovered region.
     ///
     /// ```
     /// use before::Party;
@@ -481,10 +470,8 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` time and space, and the remainder is `O(|a| + |b|)`
-    /// bytes itself.
-    ///
-    /// **Complexity**: `O(a + b)`.
+    /// `O(a + b)`.
+    /// The remainder is `O(|a| + |b|)` bytes itself.
     ///
     /// ```
     /// use before::Party;
@@ -528,12 +515,11 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time and space: the alias shares the stored buffer (the
-    /// at-rest form is refcounted), which is safe *for storage* because
-    /// no operation mutates a stored stream in place — the linearity
-    /// hazard above is about causal identity, not bytes.
-    ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
+    /// The alias shares the stored buffer (the at-rest form is refcounted),
+    /// which is safe *for storage* because no operation mutates a stored
+    /// stream in place — the linearity hazard above is about causal
+    /// identity, not bytes.
     ///
     /// ```
     /// use before::Party;
@@ -553,11 +539,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|p|)` time and space: one copy of the stored bytes
-    /// ([`as_bytes`](Self::as_bytes) borrows the same bytes without
-    /// copying).
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// One copy of the stored bytes ([`as_bytes`](Self::as_bytes) borrows
+    /// the same bytes without copying).
     ///
     /// ```
     /// use before::Party;
@@ -572,10 +556,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|p|)` time: one write of the stored bytes, plus whatever the
-    /// writer itself costs.
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// One write of the stored bytes, plus whatever the writer itself
+    /// costs.
     ///
     /// ```
     /// use before::Party;
@@ -592,7 +575,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// // The seed is a single terminal: a 2-bit presence tag (`00`).
@@ -614,11 +597,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(n)` time and space in the bytes read, accepted or rejected:
-    /// strict validation is one pass over the stream, and the result
-    /// reuses the read buffer.
-    ///
-    /// **Complexity**: `O(n)`.
+    /// `O(n)`.
+    /// `n` is the bytes read, accepted or rejected: strict validation is
+    /// one pass over the stream, and the result reuses the read buffer.
     ///
     /// ```
     /// use before::Party;
@@ -697,7 +678,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     ///
     /// ```
     /// use before::Party;
@@ -745,11 +726,8 @@ impl Party {
 ///
 /// # Complexity
 ///
-/// `O(|p| + t)` time and space, the packed party plus the `t` rendered
-/// text bytes: an id spells no numbers, so rendering has no conversion
-/// cost.
-///
-/// **Complexity**: `O(n + t)`.
+/// `O(n + t)`.
+/// An id spells no numbers, so rendering has no conversion cost.
 ///
 /// ```
 /// use before::Party;
@@ -780,10 +758,8 @@ impl core::fmt::Debug for Party {
 ///
 /// # Complexity
 ///
-/// `O(t + |p|)` time and space, the input text plus the packed party
-/// produced — accepted or rejected.
-///
-/// **Complexity**: `O(t + n)`.
+/// `O(t + n)`.
+/// The bound holds accepted or rejected.
 ///
 /// ```
 /// use before::Party;
@@ -863,7 +839,7 @@ impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
 ///
 /// # Complexity
 ///
-/// **Complexity**: `O(1)`.
+/// `O(1)`.
 ///
 /// ```
 /// use before::Party;
@@ -884,7 +860,7 @@ impl TryFrom<u8> for Party {
 ///
 /// # Complexity
 ///
-/// **Complexity**: `O(1)`.
+/// `O(1)`.
 ///
 /// ```
 /// use before::Party;
@@ -906,9 +882,8 @@ impl TryFrom<bool> for Party {
 ///
 /// # Complexity
 ///
-/// `O(|p|)` time and space in the party built.
-///
-/// **Complexity**: `O(n)`.
+/// `O(n)`.
+/// `n` is the packed party built.
 ///
 /// ```
 /// use before::Party;

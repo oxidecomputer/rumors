@@ -166,7 +166,7 @@ pub trait Node<T: Send + Sync + 'static> {
     ///
     /// The trait's whole version-bounds obligation lives here. The
     /// deletion-honoring filter classifies subtrees by asking the span
-    /// [`dominance_of`](causally::Span::dominance_of) directly, without
+    /// [`dominance`](causally::Span::dominance) directly, without
     /// descending: [`After`](causally::Dominance::After) iff the
     /// ceiling is within the probe's causal past (everything under the
     /// node is already known there),

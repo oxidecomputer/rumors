@@ -626,7 +626,7 @@ fn ranked_encoding_orders_like_ord(a: &Version, b: &Version) -> bool {
 /// as a pure function of the two causal comparisons, its per-kind
 /// coarsening to `placement_of`/`contains`, the nine-way
 /// [`Span::place`] verdict as a pure transcription of the two
-/// endpoint comparisons, and its coarsenings to `dominance_of` and —
+/// endpoint comparisons, and its coarsenings to `dominance` and —
 /// on two-bounded ranges — to `bounded`.
 pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("merge_associative", merge_associative),
@@ -906,7 +906,7 @@ fn span_place_matches_relations(a: &Version, b: &Version, c: &Version) -> bool {
     true
 }
 
-/// `dominance_of` is `place` coarsened to the dominance question, on
+/// `dominance` is `place` coarsened to the dominance question, on
 /// every span.
 ///
 /// `Dominance::After` collects the verdicts with `hi <= p`
@@ -932,7 +932,7 @@ fn span_dominance_coarsens_place(a: &Version, b: &Version, c: &Version) -> bool 
                     Dominance::Before
                 }
             };
-            if span.dominance_of(probe) != coarse {
+            if span.dominance(probe) != coarse {
                 return false;
             }
         }
@@ -2234,7 +2234,7 @@ fn own_span_matches_the_projected_span(a: &Version, b: &Version, party: &Party) 
         }
         for probe in [a, b, &lo, &hi] {
             if view.place(probe) != eager.place(probe)
-                || view.dominance_of(probe) != eager.dominance_of(probe)
+                || view.dominance(probe) != eager.dominance(probe)
             {
                 return false;
             }

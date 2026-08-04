@@ -26,7 +26,7 @@ pub(crate) fn record(n: u64) {
 ///
 /// # Complexity
 ///
-/// **Complexity**: `O(1)`.
+/// `O(1)`.
 pub fn touches() -> u64 {
     TOUCHES.load(Ordering::Relaxed)
 }
@@ -35,7 +35,7 @@ pub fn touches() -> u64 {
 ///
 /// # Complexity
 ///
-/// **Complexity**: `O(1)`.
+/// `O(1)`.
 pub fn reset() {
     TOUCHES.store(0, Ordering::Relaxed);
 }

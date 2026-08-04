@@ -1,6 +1,6 @@
 //! The coincident-span clone-identity rungs, held live by scan parity.
 //!
-//! `Span::place` and `Span::dominance_of` on a clone-coincident span must
+//! `Span::place` and `Span::dominance` on a clone-coincident span must
 //! read exactly the scan bits of the collapsed form they document
 //! (one pairwise comparison / one containment), while the same verdicts
 //! over coincident endpoints in *distinct* buffers take the fused
@@ -84,7 +84,7 @@ fn coincident_place_collapses_to_the_pair_sweep() {
     );
 }
 
-/// `Span::dominance_of` on a clone-coincident span reads exactly the
+/// `Span::dominance` on a clone-coincident span reads exactly the
 /// collapsed containment's scan; coincident endpoints in distinct
 /// buffers take the fused walk and read strictly more.
 #[test]
@@ -102,16 +102,16 @@ fn coincident_dominance_collapses_to_one_containment() {
     );
 
     let fast = scanned(|| {
-        assert_eq!(coincident.dominance_of(&w), Dominance::Before);
+        assert_eq!(coincident.dominance(&w), Dominance::Before);
     });
     assert_eq!(
         fast, collapsed,
-        "dominance_of over a clone-coincident span must collapse to one \
+        "dominance over a clone-coincident span must collapse to one \
          containment ({fast} vs {collapsed} scanned bits)"
     );
 
     let walked = scanned(|| {
-        assert_eq!(distinct.dominance_of(&w), Dominance::Before);
+        assert_eq!(distinct.dominance(&w), Dominance::Before);
     });
     // The fused walk's dominance early-exit can read *fewer* bits than
     // the collapsed containment on a refuting probe, so the walking leg
@@ -124,5 +124,5 @@ fn coincident_dominance_collapses_to_one_containment() {
          fire across buffers"
     );
     // The verdicts agree across the rung boundary.
-    assert_eq!(coincident.dominance_of(&w), distinct.dominance_of(&w));
+    assert_eq!(coincident.dominance(&w), distinct.dominance(&w));
 }

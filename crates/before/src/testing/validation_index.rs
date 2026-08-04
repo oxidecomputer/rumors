@@ -124,8 +124,8 @@
 //! # The documentation instruments
 //!
 //! **The complexity-claims roster** ([`super::complexity_claims`]). One
-//! structured claim per public operation: a rendered `**Complexity**:`
-//! terminal line byte-compared against each rustdoc `# Complexity`
+//! structured claim per public operation: a rendered claim line
+//! byte-compared against the opening of each rustdoc `# Complexity`
 //! section, board rows cited per claim with the class each verdict
 //! witnesses, and class contracts binding rendered tokens, judge reds,
 //! exponent-red stances, and named liveness witnesses together. What it

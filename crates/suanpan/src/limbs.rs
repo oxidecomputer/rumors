@@ -39,7 +39,7 @@ fn pack_limb(chunk: &[Word]) -> u64 {
 ///
 /// # Complexity
 ///
-/// **Complexity**: construction and each step `O(1)`.
+/// Construction and each step `O(1)`.
 pub struct Limbs<'a> {
     chunks: core::slice::Chunks<'a, Word>,
 }
@@ -49,7 +49,7 @@ impl<'a> Limbs<'a> {
     ///
     /// # Complexity
     ///
-    /// **Complexity**: `O(1)`.
+    /// `O(1)`.
     pub fn new(value: &'a UBig) -> Limbs<'a> {
         Limbs {
             chunks: value.as_words().chunks(WORDS_PER_LIMB),

@@ -40,16 +40,14 @@ use crate::error::Parse;
 ///
 /// # Complexity
 ///
-/// A count's *numeric size* `‖n‖` is its bit width. Construction from a
-/// machine integer is `O(1)`; comparison, hashing, and cloning are
-/// `O(‖n‖)`; addition (`+`, `+=`) is `O(‖a‖ + ‖b‖)` time and space, and
-/// an n-ary [`Sum`] is `O(N)` in the summands' total numeric size `N`.
+/// Construction `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; text superlinear in the count's width (decimal conversion).
+/// A count's *numeric size* `‖n‖` is its bit width; cloning costs as
+/// comparison and hashing do, and an n-ary [`Sum`]'s `N` is the
+/// summands' total numeric size.
 /// Parsing ([`FromStr`]) and rendering ([`Display`](fmt::Display)) are
 /// `O(d)` space in the `d` decimal digits, but their time additionally
 /// pays decimal↔binary conversion, superlinear (though subquadratic) in
 /// the count's width past a machine word.
-///
-/// **Complexity**: construction `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; text superlinear in the count's width (decimal conversion).
 ///
 /// ```
 /// use before::{Clock, Ticks};

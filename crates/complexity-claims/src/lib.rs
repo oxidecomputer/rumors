@@ -5,7 +5,7 @@
 //! Rustdoc cost prose cannot be checked; a rendered line can. Each
 //! consuming crate keeps a *claims roster* — one committed row per public
 //! operation, carrying a [`Bound`] and the [`Site`] of its `# Complexity`
-//! section — and a binding test that byte-compares the section's terminal
+//! section — and a binding test that byte-compares the section's opening
 //! line against [`Bound::render`]'s output. Editing a documented class
 //! without the roster (or vice versa) is then a named failure, and the
 //! normative sentence at every site is the roster's own rendering, never
@@ -194,14 +194,14 @@ pub enum Site {
     ImplDoc(&'static str, &'static str),
 }
 
-/// One operation's structured bound: the data behind the rendered
-/// `**Complexity**:` terminal line.
+/// One operation's structured bound: the data behind the rendered claim
+/// line that opens the `# Complexity` section.
 ///
 /// The template vocabulary is uniform across a consuming roster, whose
 /// module doc defines its variables; a bare `O(...)` covers time and
 /// space, and forms that split the two say so. Rendered lines carry
 /// upper bounds only: a proven lower bound is stated in the site's
-/// section prose, above the line, never in the rendered headline.
+/// section prose, after the line, never in the rendered headline.
 /// [`Bound::Custom`] is the escape hatch for a row whose honest bound
 /// fits no template — every use states its reason beside the line, as
 /// committed data.
@@ -237,8 +237,8 @@ pub enum Bound {
     /// [`Bound::MulBound`] over an operand pair.
     MulBoundPair,
     /// The escape hatch: the honest bound fits no template. `line` is
-    /// rendered verbatim after the `**Complexity**:` lead; `reason`
-    /// states, as committed data, why no template fits.
+    /// rendered verbatim; `reason` states, as committed data, why no
+    /// template fits.
     Custom {
         line: &'static str,
         reason: &'static str,
@@ -246,10 +246,11 @@ pub enum Bound {
 }
 
 impl Bound {
-    /// The rendered terminal line: the one normative sentence a binding
-    /// test byte-compares against the section's last line.
-    pub fn render(self) -> String {
-        let body = match self {
+    /// The rendered claim line: the one normative sentence a binding
+    /// test byte-compares against the section's first line. Prose may
+    /// continue the same paragraph on the following source lines.
+    pub fn render(self) -> &'static str {
+        match self {
             Bound::Constant => "`O(1)`.",
             Bound::Linear => "`O(n)`.",
             Bound::LinearPair => "`O(a + b)`.",
@@ -266,12 +267,11 @@ impl Bound {
                  `O((a + b) log (a + b))` with width-bounded parked drifts."
             }
             Bound::Custom { line, .. } => line,
-        };
-        format!("**Complexity**: {body}")
+        }
     }
 }
 
-/// One prose check: a site whose `# Complexity` section must end with
+/// One prose check: a site whose `# Complexity` section must open with
 /// the bound's rendered line, verbatim.
 pub struct Check {
     pub site: Site,

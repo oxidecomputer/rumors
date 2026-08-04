@@ -57,7 +57,7 @@
 //! pair itself and the chain segment between its versions.
 //! [`Span::place`] answers the placement question at the finest
 //! resolution the partial order admits — the nine [`Placement`]
-//! regions — and [`Span::dominance_of`] coarsens it to the three-way
+//! regions — and [`Span::dominance`] coarsens it to the three-way
 //! [`Dominance`] verdict a filter over version-bounded regions
 //! consumes. Spans, their operator algebra, their party-quotient view
 //! ([`OwnSpan`]), and their wire form live in the crate's span module
@@ -73,7 +73,7 @@
 //! (`bounded_matches_bound_relations`);
 //! [`placement_of`](Range::placement_of) and
 //! [`contains`](Range::contains) coarsen `bounded` by bound kind
-//! (`bounded_coarsens_to_placement`); [`dominance_of`](Span::dominance_of)
+//! (`bounded_coarsens_to_placement`); [`dominance`](Span::dominance)
 //! coarsens `place` to the dominance question
 //! (`span_dominance_coarsens_place`); and `place` against the
 //! degenerate span `[v, v]` is pairwise comparison itself
@@ -81,22 +81,19 @@
 //!
 //! # Complexity
 //!
-//! Every borrowing constructor in this module is `O(1)` time and space:
-//! a [`Range`] or [`Span`] stores two borrows. Pairing a start with
-//! an end — or validating a span through [`Span::new`] — costs
-//! at most one causal comparison, `O(|s| + |e|)` in the bounds' packed
-//! sizes ([`Span::new_unchecked`] skips even that). The deriving
+//! Borrowing constructors `O(1)` (the deriving `span`/`span_all` priced on `Version`); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.
+//! A [`Range`] or [`Span`] stores two borrows. Pairing a start with
+//! an end — or validating a span through [`Span::new`] — pays its one
+//! comparison in the bounds' packed sizes, `|s| + |e|`
+//! ([`Span::new_unchecked`] skips even that). The deriving
 //! constructors live on [`Version`] ([`span`](Version::span) and
 //! [`span_all`](Version::span_all), priced at the methods). The
 //! placement family — [`bounded`](Range::bounded),
 //! [`contains`](Range::contains),
 //! [`placement_of`](Range::placement_of), [`Span::place`], and
-//! [`Span::dominance_of`] — runs one fused comparison
-//! pass over the version and the present bound versions, `O(|v| + |s| +
-//! |e|)` in the operands' packed sizes (see [`Version`]), each stream
+//! [`Span::dominance`] — runs its fused pass over the version and the
+//! present bound versions' packed sizes (see [`Version`]), each stream
 //! decoded once.
-//!
-//! **Complexity**: borrowing constructors `O(1)` (the deriving `span`/`span_all` priced on `Version`); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.
 //!
 //! ```
 //! use before::{Clock, causally};

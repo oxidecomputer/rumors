@@ -872,7 +872,7 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "span_dominance",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
-        covers: &["Span::dominance_of"],
+        covers: &["Span::dominance"],
         size_measure: M_SPAN_PROBE,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1092,7 +1092,7 @@ pub const ROSTER: &[OpSpec] = &[
             Operand::Party,
             Operand::Version,
         ]),
-        covers: &["OwnSpan::dominance_of"],
+        covers: &["OwnSpan::dominance"],
         size_measure: M_OWN_SPAN_PROBE,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);

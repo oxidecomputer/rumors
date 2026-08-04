@@ -1,7 +1,7 @@
 //! The complexity-claims binding tests.
 //!
 //! They hold the roster total over the public surface, every site's
-//! `# Complexity` section ending with its bound's rendered line, the
+//! `# Complexity` section opening with its bound's rendered line, the
 //! cited board rows alive, the superlinear claims equal to the bench
 //! judge's red set, and the non-linear classes' liveness pins
 //! red-on-cure (the render merge's growth, the fold's log factor, and
@@ -73,8 +73,7 @@ fn claims_are_total_over_the_public_surface() {
 }
 
 /// Every claim's `# Complexity` section exists at its recorded site and
-/// ends with the roster bound's rendered `**Complexity**:` line, byte
-/// for byte.
+/// opens with the roster bound's rendered claim line, byte for byte.
 ///
 /// A class edit in the rustdoc that skips this roster (or vice versa)
 /// is a named failure, and every site's normative claim is the
@@ -83,7 +82,7 @@ fn claims_are_total_over_the_public_surface() {
 /// Custom bounds must also state a non-empty reason: the escape hatch
 /// is a documented decision, never a bare opt-out.
 #[test]
-fn complexity_sections_end_with_their_rendered_lines() {
+fn complexity_sections_open_with_their_rendered_lines() {
     let index = doc_index();
     let mut errors = Vec::new();
     for claim in CLAIMS {
@@ -100,10 +99,10 @@ fn complexity_sections_end_with_their_rendered_lines() {
                 Err(err) => errors.push(err),
                 Ok(section) => {
                     let want = check.bound.render();
-                    let got = section.lines().rev().find(|l| !l.trim().is_empty());
-                    if got != Some(want.as_str()) {
+                    let got = section.lines().find(|l| !l.trim().is_empty());
+                    if got != Some(want) {
                         errors.push(format!(
-                            "{}: the `# Complexity` section at {:?} does not end with the \
+                            "{}: the `# Complexity` section at {:?} does not open with the \
                              rendered bound\n    want: {want}\n    got:  {}",
                             claim.op,
                             check.site,
@@ -168,7 +167,7 @@ fn cited_board_rows_exist() {
 ///   a rostered row — curing a display red (or rostering a new one)
 ///   must reach the documentation through this name.
 /// - **tokens**: a claim citing a class renders the class's defining
-///   token in a terminal line, and an exclusive token appears only on
+///   token in a rendered claim line, and an exclusive token appears only on
 ///   claims citing its class, so the prose and the class cannot drift
 ///   apart.
 /// - **witnesses**: every class's named committed witnesses exist in
@@ -831,36 +830,33 @@ fn claim_rows_are_printable() {
 /// before it fans out into every doc site.
 #[test]
 fn bound_templates_render_their_documented_lines() {
-    assert_eq!(Bound::Constant.render(), "**Complexity**: `O(1)`.");
-    assert_eq!(Bound::Linear.render(), "**Complexity**: `O(n)`.");
-    assert_eq!(Bound::LinearPair.render(), "**Complexity**: `O(a + b)`.");
-    assert_eq!(Bound::TextRender.render(), "**Complexity**: `O(n + t)`.");
-    assert_eq!(Bound::TextParse.render(), "**Complexity**: `O(t + n)`.");
-    assert_eq!(
-        Bound::Fold.render(),
-        "**Complexity**: `O(D log k)` time, `O(D)` space."
-    );
+    assert_eq!(Bound::Constant.render(), "`O(1)`.");
+    assert_eq!(Bound::Linear.render(), "`O(n)`.");
+    assert_eq!(Bound::LinearPair.render(), "`O(a + b)`.");
+    assert_eq!(Bound::TextRender.render(), "`O(n + t)`.");
+    assert_eq!(Bound::TextParse.render(), "`O(t + n)`.");
+    assert_eq!(Bound::Fold.render(), "`O(D log k)` time, `O(D)` space.");
     assert_eq!(
         Bound::FoldSearch.render(),
-        "**Complexity**: `O(D log k + B log n)` time, `O(D)` space."
+        "`O(D log k + B log n)` time, `O(D)` space."
     );
     assert_eq!(
         Bound::MulBound.render(),
-        "**Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, \
+        "`O(n)` space; time `O(M(n) · log n)` worst case, \
          `O(n log n)` with width-bounded parked drifts."
     );
     assert_eq!(
         Bound::MulBoundPair.render(),
-        "**Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst \
+        "`O(a + b)` space; time `O(M(a + b) · log (a + b))` worst \
          case, `O((a + b) log (a + b))` with width-bounded parked drifts."
     );
     assert_eq!(
         Bound::Custom {
-            line: "priced elsewhere.",
+            line: "Priced elsewhere.",
             reason: "fixture",
         }
         .render(),
-        "**Complexity**: priced elsewhere."
+        "Priced elsewhere."
     );
 }
 
@@ -929,13 +925,13 @@ fn stance_contradiction(
 /// lines are the producer's own declaration, so a claim re-cited under
 /// a weaker class with its bound swapped would pass a roster-only scan
 /// while the rustdoc still carries an exclusive token. (The citing
-/// direction may stay on the rendered lines: the terminal-line test
+/// direction may stay on the rendered lines: the opening-line test
 /// holds every rendered line verbatim in its section, so a rendered
 /// class token is a section-carried one.) The downgrade guard below
 /// keeps the exclusive leg firing on exactly the swapped-bound
 /// artifact.
 fn token_problems(claim: &Claim, index: &DocIndex) -> Vec<String> {
-    let rendered: Vec<String> = claim
+    let rendered: Vec<&str> = claim
         .checks
         .iter()
         .map(|check| check.bound.render())
@@ -966,7 +962,7 @@ fn token_problems(claim: &Claim, index: &DocIndex) -> Vec<String> {
                 ));
             }
             for check in claim.checks {
-                // A missing section is the terminal-line test's
+                // A missing section is the opening-line test's
                 // finding, not this leg's; scan what exists.
                 let Ok(section) = index.section(claim.op, check.site) else {
                     continue;

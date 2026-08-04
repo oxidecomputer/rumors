@@ -48,7 +48,7 @@ where
         // verdict, decided at the first refuting interval (the floor, a
         // meet, is likely the smallest stream, and whole divergent
         // subtrees are the common case high in the tree).
-        match node.dominance_of(known) {
+        match node.dominance(known) {
             // `known` does not dominate even the floor (the floor is
             // beyond or beside it): the whole subtree is definitely
             // unknown (children are always in the causal future or

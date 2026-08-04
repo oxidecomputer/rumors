@@ -695,7 +695,7 @@ fn deep_tree_query_and_causal_stack_safety() {
     assert_eq!(decoded.meet(), &early);
     let validated = causally::Span::new(&early, &late).expect("early <= late");
     let _ = validated.place(&early);
-    let _ = validated.dominance_of(&late);
+    let _ = validated.dominance(&late);
     let hull = early.span_all([late.clone()]);
     assert_eq!(hull.join(), &late);
 

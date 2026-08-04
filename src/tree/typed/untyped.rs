@@ -547,13 +547,13 @@ impl<T> Node<T> {
     ///
     /// A leaf's bounds coincide at its version, where the span door
     /// itself collapses the dominance question to one containment
-    /// check ([`causally::Span::dominance_of`]'s coincident rung — a
+    /// check ([`causally::Span::dominance`]'s coincident rung — a
     /// leaf's span stores its one version twice, and clone identity
     /// certifies the coincidence in `O(1)`), so routing wholly through
     /// [`span`](Self::span) pays a leaf one decode of each stream,
     /// never two.
-    pub fn dominance_of(&self, probe: &Version) -> causally::Dominance {
-        self.span().dominance_of(probe)
+    pub fn dominance(&self, probe: &Version) -> causally::Dominance {
+        self.span().dominance(probe)
     }
 
     /// Force one branch's bounds memo: the tightest span containing every

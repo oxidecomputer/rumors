@@ -603,7 +603,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("constructor mechanics of the Rust API; law-pinned"),
     },
     span_row("Span::place"),
-    span_row("Span::dominance_of"),
+    span_row("Span::dominance"),
     SurfaceRow {
         op: "Span::meet",
         prod_tree: Leg::Law("span_is_the_pair_hull"),
@@ -697,7 +697,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the verdicts"),
     },
     SurfaceRow {
-        op: "OwnSpan::dominance_of",
+        op: "OwnSpan::dominance",
         prod_tree: Leg::Law("own_span_matches_the_projected_span"),
         prod_fs: Leg::Excluded(
             "the dominance coarsening over the bound masked comparisons; the law pins every verdict to the eagerly projected span's",

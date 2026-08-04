@@ -4,14 +4,14 @@
 //! The rustdoc states each operation's cost in a uniform `# Complexity`
 //! section. Prose cannot be checked; a rendered line can — so the roster
 //! here pins, per operation, a structured [`Bound`] whose rendering must
-//! appear **verbatim as the terminal line** of the section at each
+//! appear **verbatim as the opening line** of the section at each
 //! recorded [`Site`], plus the committed test evidence behind the claim,
 //! and the binding tests (`claims/tests.rs`) hold the legs together:
 //!
 //! - **Prose ↔ roster**: the shared doc scanner locates every section and
-//!   byte-compares its last line against the roster's rendered
-//!   `**Complexity**:` line; the prose above the terminal line is
-//!   explanation, uniformly non-normative.
+//!   byte-compares its first line against the roster's rendered claim
+//!   line; the prose after the opening line is explanation, uniformly
+//!   non-normative.
 //! - **Table ↔ roster**: the crate page's operations table is scanned
 //!   row by row; every row's cost cell must byte-equal the
 //!   [`Claim::table_cost`] of each operation the row names, and every
@@ -86,7 +86,7 @@ pub(crate) struct Claim {
     /// The operation, named exactly as the surface extractor names it
     /// (or a [`FAMILY_SURFACE`] row).
     pub(crate) op: &'static str,
-    /// The `# Complexity` sections whose terminal lines this claim pins.
+    /// The `# Complexity` sections whose opening lines this claim pins.
     pub(crate) checks: &'static [Check],
     /// The crate-page table row's cost cell, verbatim, when the
     /// operation has a table row.
@@ -120,33 +120,33 @@ const BANDS: &str = "../before/tests/meter.rs";
 
 /// The machine-word delta rows.
 const WORD: Bound = Bound::Custom {
-    line: "amortized `O(1)` digit touches.",
+    line: "Amortized `O(1)` digit touches.",
     reason: DIGIT_DENOMINATED,
 };
 
 /// The unshifted wide rows.
 const WIDE: Bound = Bound::Custom {
-    line: "amortized `O(operand limbs)` digit touches, whatever the held width.",
+    line: "Amortized `O(operand limbs)` digit touches, whatever the held width.",
     reason: DIGIT_DENOMINATED,
 };
 
 /// The shifted wide rows.
 const WIDE_SHL: Bound = Bound::Custom {
-    line: "amortized `O(operand limbs)` digit touches, independent of the shift; the digit \
+    line: "Amortized `O(operand limbs)` digit touches, independent of the shift; the digit \
            buffer grows to cover the shifted positions.",
     reason: DIGIT_DENOMINATED,
 };
 
 /// The width-dispatching magnitude rows.
 const MAGNITUDE: Bound = Bound::Custom {
-    line: "word-scale operands amortized `O(1)` digit touches, wide operands amortized \
+    line: "Word-scale operands amortized `O(1)` digit touches, wide operands amortized \
            `O(operand limbs)`.",
     reason: DIGIT_DENOMINATED,
 };
 
 /// The shifted magnitude rows.
 const MAGNITUDE_SHL: Bound = Bound::Custom {
-    line: "word-scale operands amortized `O(1)` digit touches, wide operands amortized \
+    line: "Word-scale operands amortized `O(1)` digit touches, wide operands amortized \
            `O(operand limbs)`, independent of the shift; the digit buffer grows to cover \
            the shifted positions.",
     reason: DIGIT_DENOMINATED,
@@ -154,28 +154,28 @@ const MAGNITUDE_SHL: Bound = Bound::Custom {
 
 /// The unshifted accumulator-operand rows.
 const ACCUM: Bound = Bound::Custom {
-    line: "amortized `O(the operand's held digits)` digit touches, whatever the receiver's \
+    line: "Amortized `O(the operand's held digits)` digit touches, whatever the receiver's \
            width.",
     reason: DIGIT_DENOMINATED,
 };
 
 /// The shifted accumulator-operand rows.
 const ACCUM_SHL: Bound = Bound::Custom {
-    line: "amortized `O(the operand's held digits)` digit touches, independent of the \
+    line: "Amortized `O(the operand's held digits)` digit touches, independent of the \
            shift; the digit buffer grows to cover the shifted positions.",
     reason: DIGIT_DENOMINATED,
 };
 
 /// The width-ordered merge.
 const MERGE: Bound = Bound::Custom {
-    line: "amortized `O(the narrower operand's held digits)` digit touches, plus an `O(1)` \
+    line: "Amortized `O(the narrower operand's held digits)` digit touches, plus an `O(1)` \
            buffer swap.",
     reason: DIGIT_DENOMINATED,
 };
 
 /// The sign-query rows (the collapsing fold).
 const SIGN: Bound = Bound::Custom {
-    line: "amortized `O(1)` digit touches.",
+    line: "Amortized `O(1)` digit touches.",
     reason: DIGIT_DENOMINATED,
 };
 
@@ -208,7 +208,7 @@ const SCALED_READ: Bound = Bound::Custom {
 
 /// The `Limbs` type doc's line.
 const LIMBS_TYPE: Bound = Bound::Custom {
-    line: "construction and each step `O(1)`.",
+    line: "Construction and each step `O(1)`.",
     reason: "an iterator's per-step cost fits no whole-operation template",
 };
 
@@ -243,7 +243,7 @@ const fn constant(op: &'static str, reason: &'static str) -> Claim {
 /// The claims roster of record: one row per public operation, named as
 /// the surface extractor (or [`FAMILY_SURFACE`]) names it.
 ///
-/// The binding tests hold it total, its sites' terminal lines and table
+/// The binding tests hold it total, its sites' opening lines and table
 /// cells byte-equal to the roster, and its cited witnesses alive.
 pub(crate) const CLAIMS: &[Claim] = &[
     // ─────────────────────────── construction ───────────────────────────

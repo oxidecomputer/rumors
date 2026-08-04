@@ -31,7 +31,7 @@ peak_alloc = "0.3"
 # byte-carrying serde format of record (the same one the crate's committed serde
 # tests pin the payload bytes through). `serde` supplies only the trait bounds.
 borsh = "1"
-postcard = { version = "1", features = ["use-std"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 serde = "1"
 
 [dependencies.before]

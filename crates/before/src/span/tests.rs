@@ -74,22 +74,22 @@ fn span_dominance_coarsens_every_witness() {
 
     let span = Span::new(&a2, &a4).unwrap();
     // After: At(End), Placement::After, and the coincident At(Both).
-    assert_eq!(span.dominance_of(&a4), Dominance::After);
-    assert_eq!(span.dominance_of(&a5), Dominance::After);
+    assert_eq!(span.dominance(&a4), Dominance::After);
+    assert_eq!(span.dominance(&a5), Dominance::After);
     let coincident = Span::new(&a2, &a2).unwrap();
-    assert_eq!(coincident.dominance_of(&a2), Dominance::After);
+    assert_eq!(coincident.dominance(&a2), Dominance::After);
     // Between: At(Start), Placement::Between, Concurrent(End).
-    assert_eq!(span.dominance_of(&a2), Dominance::Between);
-    assert_eq!(span.dominance_of(&a3), Dominance::Between);
+    assert_eq!(span.dominance(&a2), Dominance::Between);
+    assert_eq!(span.dominance(&a3), Dominance::Between);
     let side_top = &a1 | &b1;
     let sideways = Span::new(&a1, &side_top).unwrap();
-    assert_eq!(sideways.dominance_of(&a2), Dominance::Between);
+    assert_eq!(sideways.dominance(&a2), Dominance::Between);
     // Before: Placement::Before, Concurrent(Start), Concurrent(Both).
-    assert_eq!(span.dominance_of(&a1), Dominance::Before);
+    assert_eq!(span.dominance(&a1), Dominance::Before);
     let top = &a2 | &b1;
     let straddling = Span::new(&a2, &top).unwrap();
-    assert_eq!(straddling.dominance_of(&b1), Dominance::Before);
-    assert_eq!(span.dominance_of(&b1), Dominance::Before);
+    assert_eq!(straddling.dominance(&b1), Dominance::Before);
+    assert_eq!(span.dominance(&b1), Dominance::Before);
 }
 
 /// The validating door admits exactly the ordered pairs: `lo <= hi`
@@ -822,7 +822,7 @@ proptest! {
     /// The coincident span's fast rungs agree with the fused walk across
     /// buffer identity.
     ///
-    /// `place` and `dominance_of` against `[v, v]` return identical
+    /// `place` and `dominance` against `[v, v]` return identical
     /// verdicts whether the endpoints share one buffer (the
     /// clone-identity rung: hull doors, wire decode) or sit in distinct
     /// byte-equal buffers (the fused three-stream walk), and both
@@ -839,7 +839,7 @@ proptest! {
         let distinct_v = from_oracle_version(&ov);
         let distinct = Span::new(&v, &distinct_v).expect("equal versions are ordered");
         prop_assert_eq!(shared.place(&probe), distinct.place(&probe));
-        prop_assert_eq!(shared.dominance_of(&probe), distinct.dominance_of(&probe));
+        prop_assert_eq!(shared.dominance(&probe), distinct.dominance(&probe));
         let expected = match probe.partial_cmp(&v) {
             Some(Ordering::Less) => Placement::Before,
             Some(Ordering::Equal) => Placement::At(Endpoint::Both),
@@ -1003,18 +1003,18 @@ fn own_span_place_reaches_every_concurrent_corner() {
 
     // The sibling: concurrent to the start, strictly below the end.
     assert_eq!(view.place(&vr), Placement::Concurrent(Endpoint::Start));
-    assert_eq!(view.dominance_of(&vr), Dominance::Before);
+    assert_eq!(view.dominance(&vr), Dominance::Before);
     // The foreign line: concurrent to both endpoints.
     assert_eq!(view.place(&vb), Placement::Concurrent(Endpoint::Both));
-    assert_eq!(view.dominance_of(&vb), Dominance::Before);
+    assert_eq!(view.dominance(&vb), Dominance::Before);
     // Above the start, beside the end.
     let probe = &vl | &vb;
     assert_eq!(view.place(&probe), Placement::Concurrent(Endpoint::End));
-    assert_eq!(view.dominance_of(&probe), Dominance::Between);
+    assert_eq!(view.dominance(&probe), Dominance::Between);
     // Every corner transcribes the eagerly projected span's verdict.
     for probe in [&vr, &vb, &probe] {
         assert_eq!(view.place(probe), eager.place(probe));
-        assert_eq!(view.dominance_of(probe), eager.dominance_of(probe));
+        assert_eq!(view.dominance(probe), eager.dominance(probe));
     }
 }
 
@@ -1037,9 +1037,9 @@ fn own_span_projects_both_endpoints() {
     let view = &span / alice.party();
     // Alice's projection drops bob's contribution: the projected join
     // collapses onto her own line, so a1 dominates the whole view…
-    assert_eq!(view.dominance_of(&a1), Dominance::After);
+    assert_eq!(view.dominance(&a1), Dominance::After);
     // …while the unprojected span keeps bob's tick above a1.
-    assert_eq!(span.dominance_of(&a1), Dominance::Between);
+    assert_eq!(span.dominance(&a1), Dominance::Between);
     // Materialization is the eagerly projected span (the owned
     // endpoints ride straight into the door: no borrow, no settle).
     let eager = Span::new(

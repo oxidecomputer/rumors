@@ -1075,7 +1075,7 @@ pub extern "C" fn ff_span_place(s: u32, probe: u32) -> i32 {
     }
 }
 
-/// `Span::dominance_of`: the three-way dominance coarsening of the
+/// `Span::dominance`: the three-way dominance coarsening of the
 /// version in `probe` against the span in `s`, encoded 0 `Before`,
 /// 1 `Between`, 2 `After`.
 ///
@@ -1083,7 +1083,7 @@ pub extern "C" fn ff_span_place(s: u32, probe: u32) -> i32 {
 /// fuel can undercut `ff_span_place`'s on refuting probes.
 #[no_mangle]
 pub extern "C" fn ff_span_dominance(s: u32, probe: u32) -> i32 {
-    let r = with_s(s, |span| with_v(probe, |p| span.dominance_of(p)));
+    let r = with_s(s, |span| with_v(probe, |p| span.dominance(p)));
     match r {
         Some(Some(dominance)) => match dominance {
             Dominance::Before => 0,
@@ -1302,7 +1302,7 @@ pub extern "C" fn ff_own_span_place(s: u32, p: u32, probe: u32) -> i32 {
     }
 }
 
-/// `OwnSpan::dominance_of`: the three-way dominance coarsening of the
+/// `OwnSpan::dominance`: the three-way dominance coarsening of the
 /// version in `probe` against the projection of the span in `s` by
 /// the party in `p`, encoded 0 `Before`, 1 `Between`, 2 `After`.
 ///
@@ -1312,7 +1312,7 @@ pub extern "C" fn ff_own_span_place(s: u32, p: u32, probe: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn ff_own_span_dominance(s: u32, p: u32, probe: u32) -> i32 {
     let r = with_s(s, |span| {
-        with_p(p, |party| with_v(probe, |v| (span / party).dominance_of(v)))
+        with_p(p, |party| with_v(probe, |v| (span / party).dominance(v)))
     });
     match r {
         Some(Some(Some(dominance))) => match dominance {

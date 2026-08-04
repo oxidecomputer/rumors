@@ -257,7 +257,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          nine-state transcription adds no walk of its own",
     ),
     (
-        "OwnSpan::dominance_of",
+        "OwnSpan::dominance",
         "at most two of the masked co-walks the OwnVersion comparison rows \
          cell, one when the start refutes",
     ),

@@ -65,7 +65,7 @@ fn knowledge<T: Send + Sync + 'static>(
     node: &impl Node<T>,
     known: &Version,
 ) -> causally::Dominance {
-    node.span().dominance_of(known)
+    node.span().dominance(known)
 }
 
 /// Prune one subtree to what a counterparty at `known` is missing, honoring
