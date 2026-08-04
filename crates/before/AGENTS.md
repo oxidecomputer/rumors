@@ -41,4 +41,5 @@ inner loop:
   the first two, or borrowing `BitOr` overloads for `Clock` (either would
   duplicate a party).
 - The public API is stable; don't add to or reshape it without explicit
-  direction.
+  direction. If you believe something should be added, or doing so would
+  make things more elegant, efficient, or usable, please suggest this.
