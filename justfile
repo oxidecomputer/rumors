@@ -188,9 +188,8 @@ supply-chain:
 # a kernel change that moves fuel fails the commit that carries it — the
 # deliberate path is a `just fuzzfit-calibrate` re-pin riding the same
 # commit), then fuelscape's sampler pins and pipeline smoke (which reuse
-# the guest fuzzfit just built), then the board's cross-process
-# determinism tripwire and the sharded-render byte-identity pin, and
-# last the surface-totality leg (before's public surface, parsed from
+# the guest fuzzfit just built), then the board's worst-case ranking pin,
+# and last the surface-totality leg (before's public surface, parsed from
 # nightly rustdoc JSON, held total against the operation roster).
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
