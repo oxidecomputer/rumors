@@ -1047,29 +1047,42 @@ impl FamilyData {
             }
             parties = next;
         }
-        // Deal the leaves round-robin: each group accumulates its party
-        // by joining every WEAVE_GROUPS-th leaf, and its version by one
-        // tick per dealt leaf — a single-leaf party forces the event onto
-        // that leaf, so the group's version is height one exactly over
-        // its scattered region, a deep tree sharing the whole upper
-        // skeleton with every other group's.
-        let mut group_parties: Vec<Option<Party>> = (0..WEAVE_GROUPS).map(|_| None).collect();
-        let mut group_versions: Vec<Version> = (0..WEAVE_GROUPS).map(|_| Version::new()).collect();
+        // Deal the leaves round-robin: group `r` takes every
+        // WEAVE_GROUPS-th leaf, carrying one tick per dealt leaf — a
+        // single-leaf party forces the event onto that leaf, so the
+        // group's version is height one exactly over its scattered
+        // region, a deep tree sharing the whole upper skeleton with every
+        // other group's.
+        let mut dealt: Vec<Vec<Party>> = (0..WEAVE_GROUPS).map(|_| Vec::new()).collect();
         for (i, leaf) in parties.into_iter().enumerate() {
-            let r = i % WEAVE_GROUPS;
-            group_versions[r].tick(&leaf);
-            match &mut group_parties[r] {
-                slot @ None => *slot = Some(leaf),
-                Some(group) => group
-                    .join(leaf)
-                    .expect("leaves of one fork expansion are pairwise disjoint"),
-            }
+            dealt[i % WEAVE_GROUPS].push(leaf);
         }
-        let versions = group_versions.iter().map(Version::encode).collect();
-        let parties = group_parties
-            .into_iter()
-            .map(|g| g.expect("every group received leaves").encode())
-            .collect();
+        // Both sides reduce through the balanced folds rather than a left
+        // fold into one accumulator. A group's operands are single leaves
+        // of one expansion, so a left fold re-walks the whole growing
+        // union and the whole growing event tree once per leaf: quadratic
+        // in the group's leaf count, which is the size axis this family
+        // scales. The balanced folds pass each operand through
+        // `O(log k)` merges of similarly sized operands instead. The
+        // built value is the same either way — a group's version is one
+        // event at each of its leaves, its party their disjoint union —
+        // and both are canonical, so the packed bytes are too.
+        let mut versions = Vec::with_capacity(WEAVE_GROUPS);
+        let mut parties = Vec::with_capacity(WEAVE_GROUPS);
+        for leaves in dealt {
+            let version = Version::join_all(leaves.iter().map(|leaf| {
+                let mut v = Version::new();
+                v.tick(leaf);
+                v
+            }));
+            let mut rest = leaves.into_iter();
+            let mut group = rest.next().expect("every group received leaves");
+            group
+                .join_all(rest)
+                .expect("leaves of one fork expansion are pairwise disjoint");
+            versions.push(version.encode());
+            parties.push(group.encode());
+        }
         let mut data = Self::bare(FamilyId::Weave);
         data.fold = Some((versions, parties));
         data
@@ -1140,12 +1153,18 @@ impl FamilyData {
         let mut b = parties
             .next()
             .expect("MIN_SIZE_PARAM keeps at least two clocks in the population");
-        for (i, p) in parties.enumerate() {
-            // Alternate the halves so both operand parties scatter across
-            // the whole id tree rather than owning one contiguous region.
-            let half = if i % 2 == 0 { &mut a } else { &mut b };
-            half.join(p).expect("forked parties are pairwise disjoint");
-        }
+        // Alternate the halves so both operand parties scatter across the
+        // whole id tree rather than owning one contiguous region, and
+        // reduce each half through the balanced fold: a left fold
+        // re-walks the growing union once per party, quadratic in the
+        // population size this family scales.
+        let (to_a, to_b): (Vec<_>, Vec<_>) = parties.enumerate().partition(|(i, _)| i % 2 == 0);
+        let disjoint = |half: &mut Party, dealt: Vec<(usize, Party)>| {
+            half.join_all(dealt.into_iter().map(|(_, p)| p))
+                .expect("forked parties are pairwise disjoint");
+        };
+        disjoint(&mut a, to_a);
+        disjoint(&mut b, to_b);
         let mut data = Self::bare(FamilyId::Benign);
         data.version = Some(version.encode());
         data.parties = Some((a.encode(), b.encode()));
