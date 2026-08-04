@@ -99,6 +99,18 @@ ratatui = "0.30"
 [profile.dev]
 debug = "line-tables-only"
 
+# The test suite spends most of its time inside these two crates' kernels
+# (the skyline walks and the bignum arithmetic), so optimizing them cuts
+# test execution while leaving every other crate's compile untouched.
+# `debug-assertions` stays on, as the dev profile grants: the envelope
+# suite's limb, scan, and touch pins count work the `debug_assert!`
+# comparisons perform, and those are what `--release` would remove.
+[profile.dev.package.before]
+opt-level = 2
+
+[profile.dev.package.suanpan]
+opt-level = 2
+
 # Profiling the benches needs symbolicated stacks; line tables are enough
 # for samply/Instruments without the compile-time cost of full debug info.
 [profile.bench]
