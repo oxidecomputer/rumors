@@ -111,6 +111,9 @@ opt-level = 2
 [profile.dev.package.suanpan]
 opt-level = 2
 
+[profile.dev.package.rumors]
+opt-level = 2
+
 # Profiling the benches needs symbolicated stacks; line tables are enough
 # for samply/Instruments without the compile-time cost of full debug info.
 [profile.bench]
