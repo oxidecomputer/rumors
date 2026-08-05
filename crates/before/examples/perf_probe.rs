@@ -90,7 +90,10 @@ fn hole_pair(plan: &Plan) -> (Party, Version) {
             c.tick();
         }
     }
-    let probe = universe.last().expect("nonempty universe").dangerously_alias();
+    let probe = universe
+        .last()
+        .expect("nonempty universe")
+        .dangerously_alias();
     let (party, _) = probe.into_parts();
     let full = universe
         .into_iter()

@@ -295,7 +295,8 @@ pub(super) fn skip_leaves(
 ) -> Option<RegionSkip> {
     let mut net = Accumulator::new();
     let mut min = Extremum::min(Accumulator::new());
-    let (last_depth, last_code_len) = fold_region(walk, cursor, first, &mut net, &mut min, pending)?;
+    let (last_depth, last_code_len) =
+        fold_region(walk, cursor, first, &mut net, &mut min, pending)?;
     let (n_sign, n_mag) = net.sign_magnitude();
     let (o_sign, o_mag) = min.into_offset().sign_magnitude();
     debug_assert_ne!(

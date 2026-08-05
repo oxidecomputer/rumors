@@ -15,7 +15,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
     causally::Span,
-    codec::{self, Base, BitCursor, BitsMut},
+    codec::{self, BitCursor, BitsMut},
     error::Decode,
     version::decode_rank_stream,
     Clock, Party, Rank, Ranked, Version,
@@ -88,7 +88,7 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
         self.position
     }
 
-    fn read_int(&mut self) -> Result<Base, Decode> {
+    fn read_int(&mut self) -> Result<codec::Int, Decode> {
         // Word fast path over the bytes already read, exactly as
         // `SliceCursor::read_int`: the window's proven bits end at the
         // buffer's end, so it can never consume — or even inspect — a byte
@@ -101,9 +101,9 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
             codec::decode_int_window(codec::bytes_as_bits(&self.bytes), self.position)
         {
             self.position = next;
-            return Ok(Base::from(n));
+            return Ok(codec::Int::Small(n));
         }
-        codec::decode_int_from(self)
+        codec::decode_int_from(self).map(codec::Int::from_base)
     }
 }
 

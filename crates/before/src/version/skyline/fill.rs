@@ -1848,7 +1848,14 @@ impl PreScan<'_, '_> {
             }
         } else {
             let mut net = Accumulator::new();
-            fold_region(&mut walk, &mut self.cursor, first, &mut net, &mut above, Some(d1));
+            fold_region(
+                &mut walk,
+                &mut self.cursor,
+                first,
+                &mut net,
+                &mut above,
+                Some(d1),
+            );
             let (n_sign, n_mag) = net.sign_magnitude();
             let net = (n_sign == Ordering::Less, Int::from_ubig(n_mag));
             self.stack.fold_height(net.0, &net.1);
