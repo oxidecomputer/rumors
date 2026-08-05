@@ -46,7 +46,7 @@
 //!   constant on exactly this cross. Both limb legs are judged at the
 //!   stated ceilings ([`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`],
 //!   [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`]); the class's
-//!   liveness is the claims suite's
+//!   liveness is the asymptotics suite's
 //!   `render_merge_superlinearity_is_alive` pin, which forces this
 //!   declaration's re-derivation the day a render-merge cure lands.
 
@@ -255,7 +255,7 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// fold operands.
 ///
 /// The fold rows run the balanced binary-counter reduction, whose
-/// documented class is `O(D log k)` (`FoldLog` in the claims roster):
+/// documented class is `O(D log k)`:
 /// every input passes through `O(log k)` joins, and each join level
 /// re-scans the operands it merges, so scan work per input byte grows by
 /// a constant per level — never flat, at any implementation of the
@@ -345,7 +345,7 @@ pub(super) fn capacity_chain_peak(input_bytes: usize, output_bytes: usize) -> f6
 }
 
 /// The fold rows' declared exponent ceiling over the fold currencies
-/// (limb, scan, touch): the `FoldLog` model's own predicted exponent plus
+/// (limb, scan, touch): the fold scan model's own predicted exponent plus
 /// the global noise slack.
 ///
 /// Work `c·D·log2(2k)` fitted across the cell's two probes
@@ -355,8 +355,8 @@ pub(super) fn capacity_chain_peak(input_bytes: usize, output_bytes: usize) -> f6
 /// that prediction plus the same slack [`MAX_SCALING_EXPONENT`] grants
 /// linear cells (0.15). A quadratic fold reads ~2 against any committed
 /// arity pair and stays red; the model's own liveness is held per
-/// public door — one `*_log_factor_is_alive` pin in the claims suite
-/// for each of `Version::join_all`, `Version::meet_all`,
+/// public door — one `*_log_factor_is_alive` pin in the asymptotics
+/// suite for each of `Version::join_all`, `Version::meet_all`,
 /// `Version::span_all`, `Party::join_all`, and `Clock::join_all`, each
 /// with its own measured floor — so a door whose wiring stops paying
 /// the reduction's log factor reads red at that door even while the
@@ -418,7 +418,7 @@ pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 177.0;
 /// stays at the global bounds).
 ///
 /// Derivation: the render's summary merge on a deep tree of wide
-/// interior values is the documented `SuperlinearTime` class (the
+/// interior values is the documented superlinear time class (the
 /// display impls' `# Complexity` sections; judge-rostered red on the
 /// wall leg), so on the mirror-wide cross the limb column honestly
 /// reads a superlinear exponent against `n_io` — intended and modeled,

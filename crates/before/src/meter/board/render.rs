@@ -96,8 +96,7 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         _ => "touch[      off      ]".to_string(),
     };
     // A red cell's mechanism tag: which judgment kinds put it on the red
-    // list (the class-binding seal in `testing::complexity_claims` keys
-    // on the exponent kind).
+    // list, mirroring the tags a red-buffer triage entry commits.
     let reasons = if r.red.is_empty() {
         String::new()
     } else {

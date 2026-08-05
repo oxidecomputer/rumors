@@ -704,8 +704,9 @@ surface-totality: surface-json
 # the family roster of the board's own normalized constants (each cell's
 # reading over its own denominator of record), with the runner-up and the
 # margin beside it. Honest scope: the maximum over the committed roster --
-# the claim that this is the true worst case is carried by the complexity
-# claims and their tripwires, not by this table. Runs at release, the
+# the claim that this is the true worst case is carried by the rustdoc
+# complexity sections and the asymptotics liveness pins, not by this
+# table. Runs at release, the
 # board's profile of record, at both scales of record (default and
 # acceptance), one table each.
 

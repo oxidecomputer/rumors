@@ -1,21 +1,20 @@
-//! The complexity-claims binding tests.
+//! The claims-roster binding tests.
 //!
-//! They hold the roster total over the public surface, every site's
-//! `# Complexity` section opening with its bound's rendered sentence, the
-//! crate page's operations table byte-equal to the roster's cost cells,
-//! every cited witness alive as a `#[test]` in its file, and every
+//! They hold the roster total over the public surface, the crate page's
+//! operations table byte-equal to the roster's cost cells, every cited
+//! witness alive as a `#[test]` in its file, and every
 //! (operation, witness) edge *reaching*: the witness's body (or a helper
 //! it calls in the same file) invokes the operation it evidences, or the
 //! edge carries a stated-mechanism exemption in [`REACH_EXEMPT`]. The
 //! roster and the table scanner live in the parent module; the shared
-//! scanners come from the `complexity-claims` crate.
+//! scanners come from the `surface-scan` crate.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use complexity_claims::{doc_index, extract_public_fns, test_fns, Bound};
+use surface_scan::{extract_public_fns, test_fns};
 
-use super::{cost_table, Claim, Evidence, CLAIMS, FAMILY_SURFACE, SOURCES};
+use super::{cost_table, Evidence, CLAIMS, FAMILY_SURFACE, SOURCES};
 
 /// The (operation, witness) edges whose evidence flows through a stated
 /// mechanism instead of a direct invocation, mirroring the
@@ -82,7 +81,7 @@ fn fn_bodies(source: &str) -> BTreeMap<String, String> {
         else {
             continue;
         };
-        let name = complexity_claims::fn_name(rest);
+        let name = surface_scan::fn_name(rest);
         let mut depth = 0i64;
         let mut opened = false;
         let mut end = None;
@@ -190,51 +189,6 @@ fn claims_are_total_over_the_public_surface() {
         "the claims roster and the public surface disagree:\n  \
          public operations with no complexity claim: {unclaimed:?}\n  \
          claims naming no public operation: {orphaned:?}"
-    );
-}
-
-/// Every claim's `# Complexity` section exists at its recorded site and
-/// opens with the roster bound's rendered claim sentence, byte for byte
-/// up to line wrapping — and every Custom bound states a substantial
-/// reason.
-///
-/// A cost edit in the rustdoc that skips this roster (or vice versa) is
-/// a named failure, and every site's normative claim is the roster's
-/// own rendering, never hand-drifted prose.
-#[test]
-fn complexity_sections_open_with_their_rendered_lines() {
-    let index = doc_index(&crate_root(), SOURCES);
-    let mut errors = Vec::new();
-    for claim in CLAIMS {
-        for check in claim.checks {
-            if let Bound::Custom { reason, .. } = check.bound {
-                if reason.trim().len() < 20 {
-                    errors.push(format!(
-                        "{}: a Custom bound must state a substantial reason",
-                        claim.op
-                    ));
-                }
-            }
-            match index.section(claim.op, check.site) {
-                Err(err) => errors.push(err),
-                Ok(section) => {
-                    let want = check.bound.render();
-                    let got = ::complexity_claims::opening_paragraph(section);
-                    if !got.starts_with(want) {
-                        errors.push(format!(
-                            "{}: the `# Complexity` section at {:?} does not open with the \
-                             rendered bound\n    want: {want}\n    got:  {got}",
-                            claim.op, check.site,
-                        ));
-                    }
-                }
-            }
-        }
-    }
-    assert!(
-        errors.is_empty(),
-        "rustdoc complexity sections drifted from the claims roster:\n  {}",
-        errors.join("\n  ")
     );
 }
 
@@ -435,12 +389,4 @@ fn cited_witnesses_reach_their_operations() {
         "claims cite witnesses that do not reach their operations:\n  {}",
         errors.join("\n  ")
     );
-}
-
-/// A `Claim` is inspectable in failure messages (`Site` derives
-/// `Debug`); keep the type checked so the roster stays printable.
-#[test]
-fn claim_rows_are_printable() {
-    let row: &Claim = &CLAIMS[1];
-    assert!(!format!("{:?}", row.checks[0].site).is_empty());
 }

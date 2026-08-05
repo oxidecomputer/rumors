@@ -123,18 +123,23 @@
 //!
 //! # The documentation instruments
 //!
-//! **The complexity-claims roster** ([`super::complexity_claims`]). One
-//! structured claim per public operation: a rendered claim line
-//! byte-compared against the opening of each rustdoc `# Complexity`
-//! section, board rows cited per claim with the class each verdict
-//! witnesses, and class contracts binding rendered tokens, judge reds,
-//! exponent-red stances, and named liveness witnesses together. What it
-//! alone catches: **prose drift** — a rustdoc cost claim that quietly
-//! diverges from the measured evidence, in either direction (a weakened
-//! claim keeping a strong token, a strong claim outliving its witness).
-//! It is the seam that makes every other resource instrument reach the
-//! documentation: curing a red or retiring a witness fails a named test
-//! here until the rustdoc moves in the same change.
+//! **The asymptotics liveness pins** ([`super::asymptotics`]). One pin
+//! per documented non-linear mechanism — the fold doors' log factor,
+//! the render merge's superlinear growth, the settle's answer-embedded
+//! product — each reading a deterministic counter or exact value
+//! identity on a committed family. What they alone catch: **a
+//! documented mechanism silently disappearing** — a cure or rewiring
+//! that removes the behavior the rustdoc's `# Complexity` section still
+//! claims flips the pin red, so the documentation moves in the same
+//! change. The `# Complexity` prose itself is review-maintained: each
+//! section states its own bound inline, denominated in its operation's
+//! actual arguments.
+//!
+//! **The board tiling** ([`crate::meter::board`]'s coverage tables).
+//! Every public-surface row priced by named board rows or excused with
+//! a mechanism, never both, never neither — so a new public operation
+//! cannot land unmeasured and unexcused, and the board carries no
+//! orphan row.
 //!
 //! # Reading the map
 //!
@@ -152,5 +157,6 @@
 //! - a liveness floor or band floor fails → a meter stopped watching,
 //!   or an honest input legitimately did less work than the floor's
 //!   premise — the latter is a floor-premise finding, not a meter bug.
-//! - the claims suite fails → the documentation and the evidence
-//!   disagree; move both in one change, whichever direction is honest.
+//! - an asymptotics liveness pin fails → a documented mechanism is gone
+//!   or moved; update the `# Complexity` sections and the pin in one
+//!   change, whichever direction is honest.

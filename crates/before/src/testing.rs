@@ -11,8 +11,8 @@
 //! ([`semantic_oracle`]), the algebraic-law harness ([`algebraic_laws`] —
 //! a thin binding; the named law predicates are [`crate::laws`]'s, shared
 //! with the fuzz targets), representation compactness ([`compactness`]),
-//! documentation snapshots ([`snapshots`]), the complexity-claims doc gate
-//! ([`complexity_claims`]), and the public-surface coverage suite
+//! documentation snapshots ([`snapshots`]), the documented-asymptotics
+//! liveness pins ([`asymptotics`]), and the public-surface coverage suite
 //! ([`surface_coverage`] — the committed prod↔tree↔fs differential-leg
 //! roster; "which suite covers operation X" starts there).
 //!
@@ -35,8 +35,8 @@ pub(crate) mod rng;
 
 // The suites.
 mod algebraic_laws;
+mod asymptotics;
 pub(crate) mod compactness;
-pub(crate) mod complexity_claims;
 pub(crate) mod exhaustive;
 pub(crate) mod semantic_oracle;
 mod snapshots;

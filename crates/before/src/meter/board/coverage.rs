@@ -1,6 +1,6 @@
-//! The coverage rosters: the not-applicable half of the board tiling and
-//! the red-triage buffer — committed data the complexity-claims suite
-//! enforces.
+//! The coverage rosters: both halves of the board tiling and the
+//! red-triage buffer — committed data the tiling tests beside them
+//! enforce.
 //!
 //! Rows price delegations at their shared mechanism, so several surface
 //! rows legitimately cite one row: `Clock::send` is `Clock::tick` by
@@ -45,17 +45,225 @@
 //! strict decoder through the wrappers (the decode rejection rows).
 //! `Debug` for all three types delegates to `Display`.
 
+/// The board's priced table: every `before::surface` row measured by
+/// the board, with the board rows that price it.
+///
+/// Rows price delegations at their shared mechanism (the module doc
+/// maps the delegations), so several surface rows legitimately cite
+/// one row.
+///
+/// The tiling test beside this table
+/// (`board_coverage_tiles_the_public_surface`) holds it and
+/// [`BOARD_NOT_APPLICABLE`] disjoint and jointly total over the public
+/// surface, every cited row live on the board's operation axis, and
+/// every board row cited: an operation is priced by named rows or
+/// excused, never both, never neither, and the board carries no orphan
+/// row.
+pub const BOARD_PRICED: &[(&str, &[&str])] = &[
+    ("Party::tick", &["version_tick", "version_tick_adv_party"]),
+    ("Party::ticks", &["version_ticks"]),
+    ("Party::fork", &["party_fork"]),
+    ("Party::join", &["party_join", "party_join_overlap"]),
+    (
+        "Party::join_all",
+        &["party_join_all", "party_join_all_overlap"],
+    ),
+    ("Party::is_disjoint", &["party_disjoint"]),
+    ("Party::covers", &["party_covers"]),
+    ("Party::without", &["party_without", "party_without_none"]),
+    ("Party::encode", &["party_encode"]),
+    ("Party::encode_to", &["party_encode"]),
+    (
+        "Party::decode",
+        &[
+            "party_decode",
+            "party_decode_truncated",
+            "party_decode_trailing",
+            "party_decode_noncanon",
+        ],
+    ),
+    ("Version::tick", &["version_tick", "version_tick_adv_party"]),
+    ("Version::ticks", &["version_ticks"]),
+    ("Version::concurrent", &["version_concurrent"]),
+    ("Version::min_ticks", &["version_min_ticks"]),
+    ("Version::rank", &["version_rank"]),
+    ("Version::distance", &["version_distance"]),
+    ("Version::lag", &["version_lag"]),
+    ("Version::join_all", &["version_join_all"]),
+    ("Version::meet_all", &["version_meet_all"]),
+    ("Version::join", &["version_join"]),
+    ("Version::meet", &["version_meet"]),
+    ("Version::span", &["version_span"]),
+    ("Version::span_all", &["version_span_all"]),
+    ("Version::encode", &["version_encode"]),
+    ("Version::encode_to", &["version_encode"]),
+    (
+        "Version::decode",
+        &[
+            "version_decode",
+            "version_decode_truncated",
+            "version_decode_trailing",
+            "version_decode_noncanon",
+        ],
+    ),
+    ("Clock::tick", &["clock_tick"]),
+    ("Clock::ticks", &["version_ticks"]),
+    ("Clock::fork", &["clock_fork"]),
+    ("Clock::join", &["clock_join", "clock_join_overlap"]),
+    ("Clock::join_all", &["version_join_all", "party_join_all"]),
+    ("Clock::sync", &["clock_sync", "clock_sync_overlap"]),
+    ("Clock::sync_all", &["version_join_all", "party_join_all"]),
+    ("Clock::send", &["clock_tick"]),
+    ("Clock::recv", &["clock_recv"]),
+    ("Clock::recv_all", &["version_join_all"]),
+    (
+        "OwnVersion::to_version",
+        &["own_version_to_version", "clock_own_version_to_version"],
+    ),
+    ("Clock::encode", &["clock_encode"]),
+    ("Clock::encode_to", &["clock_encode"]),
+    (
+        "Clock::decode",
+        &[
+            "clock_decode",
+            "clock_decode_truncated",
+            "clock_decode_trailing",
+        ],
+    ),
+    ("Rank::checked_sub", &["rank_pair_ops"]),
+    ("Rank::encode", &["rank_encode"]),
+    ("Rank::encode_to", &["rank_encode"]),
+    ("Rank::decode", &["rank_decode"]),
+    ("Ranked::to_rank", &["version_rank"]),
+    ("Ranked::encode", &["ranked_encode"]),
+    ("Ranked::encode_to", &["ranked_encode"]),
+    ("Ranked::encode_rank", &["ranked_encode_rank"]),
+    ("Ranked::encode_rank_to", &["ranked_encode_rank"]),
+    ("Ranked::decode", &["ranked_decode"]),
+    ("causally::Floor::contains", &["causally_contains"]),
+    ("causally::Ceiling::contains", &["causally_contains"]),
+    (
+        "causally::Query::contains",
+        &["causally_contains", "query_contains"],
+    ),
+    ("causally::Query::coverage", &["query_coverage"]),
+    ("Span::place", &["span_place"]),
+    ("Span::dominance", &["span_dominance"]),
+    ("Span::encode", &["span_encode"]),
+    ("Span::encode_to", &["span_encode"]),
+    (
+        "Span::decode",
+        &[
+            "span_decode",
+            "span_decode_truncated",
+            "span_decode_trailing",
+            "span_decode_crossed",
+        ],
+    ),
+    ("Span::union_all", &["version_span_all"]),
+    (
+        "Span::intersect_all",
+        &["version_join_all", "version_meet_all"],
+    ),
+    ("Span::sum_all", &["version_join_all"]),
+    ("Span::product_all", &["version_meet_all"]),
+    (
+        "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
+        &["version_join", "version_join_assign"],
+    ),
+    (
+        "Version & Version (BitAnd/BitAndAssign, owned and borrowed)",
+        &["version_meet", "version_meet_assign"],
+    ),
+    (
+        "Version ^ Version (BitXor, owned and borrowed — the pair hull)",
+        &["version_span"],
+    ),
+    (
+        "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
+        &["own_version_cmp"],
+    ),
+    (
+        "OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)",
+        &["own_version_pair_cmp"],
+    ),
+    (
+        "From<OwnVersion> for Version (explicit materialization)",
+        &["own_version_to_version"],
+    ),
+    (
+        "Version PartialOrd (the comparison matrix, owned and borrowed)",
+        &["version_cmp"],
+    ),
+    (
+        "Version Sum / FromIterator (owned and borrowed)",
+        &["version_join_all"],
+    ),
+    (
+        "Version Eq / Hash (canonical byte compare)",
+        &["version_eq", "version_hash"],
+    ),
+    ("Party Eq / Hash (canonical byte compare)", &["party_hash"]),
+    (
+        "Clock | Version and Version | Clock (heterogeneous joins, |=)",
+        &["clock_recv", "clock_hash"],
+    ),
+    (
+        "Party Display / FromStr / TryFrom literals",
+        &[
+            "party_display",
+            "party_from_str",
+            "party_parse_trailing",
+            "party_parse_noncanon",
+        ],
+    ),
+    (
+        "Version Display / FromStr / TryFrom literals",
+        &[
+            "version_display",
+            "version_from_str",
+            "version_parse_trailing",
+            "version_parse_noncanon",
+        ],
+    ),
+    (
+        "Clock Display / FromStr / TryFrom",
+        &["clock_display", "clock_from_str", "clock_parse_trailing"],
+    ),
+    (
+        "serde / borsh impls (feature-gated, strict-decode pinned)",
+        &[
+            "version_encode",
+            "version_decode",
+            "party_encode",
+            "party_decode",
+            "clock_encode",
+            "clock_decode",
+            "rank_encode",
+            "rank_decode",
+            "ranked_encode",
+            "ranked_decode",
+            "span_encode",
+            "span_decode",
+        ],
+    ),
+    (
+        "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display",
+        &["rank_pair_ops", "rank_sum"],
+    ),
+    (
+        "Ranked comparisons and the Ranked / Rank From conversions (the total order)",
+        &["ranked_cmp"],
+    ),
+];
+
 /// The board's not-applicable table: every `before::surface` row with
 /// no board row of its own, and the mechanism-based reason why.
 ///
-/// The machine-readable half of the board's coverage tiling,
-/// covering method and family rows alike.
-///
-/// The tiling test in the complexity-claims suite
-/// (`board_coverage_tiles_the_public_surface`) holds this table and the
-/// claims roster's board citations disjoint and jointly total over the
-/// public surface: an operation is priced by named rows or excused
-/// here, never both, never neither.
+/// The machine-readable excused half of the board's coverage tiling,
+/// covering method and family rows alike; [`BOARD_PRICED`] is the
+/// priced half, and the tiling test beside them holds the two disjoint
+/// and jointly total over the public surface.
 pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     (
         "Party::seed",
@@ -347,10 +555,7 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
 /// its ceiling — flat or declared); `constant` a proportionality finding
 /// at exponent ~1 (a per-byte constant, a segments count, or a
 /// declared-model band). The tags are the render's `mech[...]` column as
-/// committed data: the class-binding seal in
-/// `testing::complexity_claims` forbids any linear rustdoc claim from
-/// citing an operation with a standing exponent-mechanism entry, and
-/// requires every counter-superlinear claim to keep one.
+/// committed data, so a triage entry names the mechanism it buffers.
 pub struct ExpectedRed {
     /// The board row's operation name.
     pub op: &'static str,
@@ -366,9 +571,9 @@ pub struct ExpectedRed {
     ///
     /// An entry with no owner is normalization of deviance; the
     /// acceptance assertion
-    /// (`expected_red_buffer_is_an_empty_triage_buffer` in the
-    /// complexity-claims suite) refuses it, and refuses any entry at
-    /// all at acceptance.
+    /// (`expected_red_buffer_is_an_empty_triage_buffer`, beside this
+    /// module's tiling test) refuses it, and refuses any entry at all
+    /// at acceptance.
     pub task: &'static str,
 }
 
@@ -388,3 +593,6 @@ pub struct ExpectedRed {
 /// red set against this list: on the settled tree both are empty and
 /// the boards render all-green at both scales.
 pub const BOARD_EXPECTED_REDS: &[ExpectedRed] = &[];
+
+#[cfg(test)]
+mod tests;

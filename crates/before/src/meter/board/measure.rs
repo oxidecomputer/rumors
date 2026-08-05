@@ -47,7 +47,7 @@ pub(super) struct Sample {
     /// floors scale with the sample's operands.
     pub(super) floors: Floors,
     /// The fold rows' operand count at this sample's scale, for the
-    /// declared `FoldLog` model.
+    /// declared fold scan model.
     pub(super) fold_arity: Option<u64>,
     /// The party fold's declared search allowance at this sample's
     /// scale, in scan bits.

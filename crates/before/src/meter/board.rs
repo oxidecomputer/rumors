@@ -252,12 +252,12 @@
 //!
 //! Every public operation — every row of `before::surface`'s method and
 //! family rosters — either is priced by at least one board row (its
-//! claim in the complexity-claims roster cites the rows by name) or
-//! appears in [`BOARD_NOT_APPLICABLE`] with the mechanism-based reason
-//! it has no meaningful adversarial operand of its own. The two sides
-//! are disjoint and jointly total, enforced by the tiling test in the
-//! complexity-claims suite (`board_coverage_tiles_the_public_surface`),
-//! so a new public operation cannot land unpriced and unexcused.
+//! [`BOARD_PRICED`] entry cites the rows by name) or appears in
+//! [`BOARD_NOT_APPLICABLE`] with the mechanism-based reason it has no
+//! meaningful adversarial operand of its own. The two sides are
+//! disjoint and jointly total, enforced by the tiling test beside the
+//! tables (`board_coverage_tiles_the_public_surface`), so a new public
+//! operation cannot land unpriced and unexcused.
 //!
 //! The wall-time mirror rides the same axes: the bench suite's criterion
 //! IDs are exactly the board's op × family cell names ([`bench_cells`] is
@@ -296,7 +296,7 @@ pub use ceilings::{
     SCAN_FLOOR_BITS_PER_INPUT_BYTE, SCAN_TOUCH_FLOOR_BITS, TEXT_BYTES_PER_RADIX_UNIT,
     TEXT_PIPELINE_LIMB_OPS_PER_VALUE, TICKS_BOARD_COUNT,
 };
-pub use coverage::{ExpectedRed, BOARD_EXPECTED_REDS, BOARD_NOT_APPLICABLE};
+pub use coverage::{ExpectedRed, BOARD_EXPECTED_REDS, BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
 pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
 pub use family::study_family_versions;

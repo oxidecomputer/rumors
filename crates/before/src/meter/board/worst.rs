@@ -14,8 +14,8 @@
 //!
 //! The map names the **worst instrumented shape**: the maximum over the
 //! committed family roster. The claim that this is the true worst case is
-//! carried by the complexity claims and their tripwires, not by this
-//! table.
+//! carried by the rustdoc's `# Complexity` sections and the asymptotics
+//! liveness pins, not by this table.
 //!
 //! The ranking pin defends **relative structure**: which family names
 //! hold the argmax within each operation × currency cell. That is the
@@ -319,8 +319,8 @@ pub(super) fn render_map(
     writeln!(
         out,
         "  worst instrumented shape: the maximum over the committed family roster - the claim \
-         that this is the true worst case is carried by the complexity claims and their \
-         tripwires, not by this table."
+         that this is the true worst case is carried by the rustdoc complexity sections and \
+         the asymptotics liveness pins, not by this table."
     )?;
     writeln!(
         out,

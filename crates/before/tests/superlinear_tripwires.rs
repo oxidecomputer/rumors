@@ -22,9 +22,8 @@ use std::path::{Path, PathBuf};
 /// `(file relative to the crate root, test fn name)`.
 ///
 /// A new kernel earns a reviewed row here; a deleted or renamed one
-/// orphans its row and reads red below. The two schoolbook settle
-/// kernels are additionally named on the `MulBound` class contract —
-/// this roster binds the whole genre uniformly regardless.
+/// orphans its row and reads red below — this roster binds the whole
+/// genre uniformly.
 const TRIPWIRE_ROSTER: &[(&str, &str)] = &[
     (
         "src/version/skyline/query/tests.rs",

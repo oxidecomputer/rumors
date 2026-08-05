@@ -120,11 +120,10 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     ),
 ];
 
-// The extractor, the doc-section scanner, and their line discipline are
-// the workspace-shared claims machinery (the `complexity-claims` crate);
-// this module supplies before's source list and naming context and keeps
-// the callers' entry points.
-pub(crate) use ::complexity_claims::{fn_name, SourceSpec};
+// The extractor and its line discipline are the workspace-shared source
+// scanners (the `surface-scan` crate); this module supplies before's
+// source list and naming context and keeps the callers' entry points.
+pub(crate) use ::surface_scan::{fn_name, SourceSpec};
 
 /// The public-API source files of record. A new public module with
 /// inherent methods must be added here (and the roster test's coverage
@@ -210,11 +209,11 @@ fn crate_root() -> PathBuf {
 /// `module::fn` at file top level).
 ///
 /// The shared extractor's line discipline (see
-/// [`complexity_claims::extract_public_fns`]'s docs): a line scan resting
+/// [`surface_scan::extract_public_fns`]'s docs): a line scan resting
 /// on rustfmt-normalized shape, panicking on any `pub fn` it cannot name
 /// rather than silently under-reporting the surface it exists to pin.
 pub(crate) fn extract_public_fns() -> BTreeSet<String> {
-    ::complexity_claims::extract_public_fns(&crate_root(), SURFACE_SOURCES)
+    ::surface_scan::extract_public_fns(&crate_root(), SURFACE_SOURCES)
 }
 
 /// Every test name the roster and tripwires cite.

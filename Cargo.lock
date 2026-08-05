@@ -176,7 +176,6 @@ dependencies = [
  "borsh",
  "bytes",
  "ciborium",
- "complexity-claims",
  "criterion",
  "dashu-int",
  "dsi-bitstream",
@@ -194,6 +193,7 @@ dependencies = [
  "stacker",
  "static_assertions",
  "suanpan",
+ "surface-scan",
  "thiserror 2.0.18",
  "trybuild",
 ]
@@ -468,10 +468,6 @@ dependencies = [
  "ryu",
  "static_assertions",
 ]
-
-[[package]]
-name = "complexity-claims"
-version = "0.1.0"
 
 [[package]]
 name = "console"
@@ -2284,10 +2280,14 @@ dependencies = [
 name = "suanpan"
 version = "0.1.0"
 dependencies = [
- "complexity-claims",
  "dashu-int",
  "proptest",
+ "surface-scan",
 ]
+
+[[package]]
+name = "surface-scan"
+version = "0.1.0"
 
 [[package]]
 name = "syn"

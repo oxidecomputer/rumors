@@ -116,7 +116,7 @@ pub(super) struct Cell {
     /// The cell's liveness declarations, one per floored column.
     pub(super) floors: Floors,
     /// The fold rows' operand count at this scale: `Some` on the two
-    /// n-ary fold rows only, where it drives the declared `FoldLog`
+    /// n-ary fold rows only, where it drives the declared fold scan
     /// model (the `ceilings` module's declared-models section).
     pub(super) fold_arity: Option<u64>,
     /// The party fold's declared search allowance at this scale, in
@@ -219,8 +219,8 @@ impl Cell {
         }
     }
 
-    /// Declare this cell's readings judged under the fold rows' `FoldLog`
-    /// model at operand count `arity` (the `ceilings` module's
+    /// Declare this cell's readings judged under the fold rows' fold
+    /// scan model at operand count `arity` (the `ceilings` module's
     /// declared-models section).
     pub(super) fn with_fold_arity(mut self, arity: u64) -> Cell {
         self.fold_arity = Some(arity);
