@@ -95,6 +95,21 @@ const CLIFF_SCALE: usize = 1_024;
 /// magnitude.
 const TICK_CROSS_SCALE: usize = 4_000;
 
+/// Staircase depth of the ownership-hole tick scenario: enough distinct
+/// plateaus that the unowned regions' per-leaf freight would dominate
+/// the envelope if the block scan failed to engage.
+const HOLE_STAIR_DEPTH: usize = 2_000;
+
+/// Id depth of the ownership-hole tick scenario: a party owning one
+/// diverted fragment `2^-8` of the space, leaving the staircase's runs
+/// unowned.
+const HOLE_ID_DEPTH: usize = 8;
+
+/// Owned-fragment count of the alternating-ownership comb scenario,
+/// interleaving one owned leaf and one absent gap per level down the
+/// alternating spine.
+const COMB_FRAGMENTS: usize = 2_000;
+
 /// Tooth width (bits) of the wide-tooth comb scenarios: wider than any
 /// machine word, so every skyline delta is a genuinely wide operand while
 /// still oscillating across the `2^k` cliff.
@@ -446,6 +461,53 @@ fn tick_mirror_wide_envelope() {
         "tick_mirror_wide",
         input,
         &query_env::TICK_MIRROR_WIDE,
+        || v.tick(&p),
+    );
+    drop(v);
+}
+
+/// Ticking the descending staircase under a party owning one deep
+/// diverted fragment (the ownership-hole family) stays within an
+/// envelope the leaf-by-leaf walk exceeds: the fill walk's unowned
+/// regions are whole staircase runs, and the block scan must fold each
+/// into O(1) accumulator work instead of per-leaf freight. The touch
+/// ceiling is the skip's liveness signal — it sits below the per-leaf
+/// mechanism's reading, so the fast path must demonstrably engage; the
+/// scan column pins that every skipped bit is still read.
+#[test]
+fn tick_ownership_hole_envelope() {
+    let ev = Shape::Staircase.packed1(HOLE_STAIR_DEPTH);
+    let id = Shape::IdSpine.packed_flagged(HOLE_ID_DEPTH, true);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    query_metered(
+        "tick_ownership_hole",
+        input,
+        &query_env::TICK_OWNERSHIP_HOLE,
+        || v.tick(&p),
+    );
+    drop(v);
+}
+
+/// Ticking the alternating spine under the scattered id (the
+/// alternating-ownership comb: owned fragments and absent gaps
+/// interleaved at every level, so every unowned region is a single
+/// leaf) stays within its envelope. The comb is the region gate's
+/// worst case — the block scan can never engage — and the pin holds
+/// the gated walk to the per-leaf walk's own readings: a gate that
+/// costs anything when closed moves this envelope.
+#[test]
+fn tick_ownership_comb_envelope() {
+    let ev = Shape::AltSpine.packed1(DENSE_DEPTH);
+    let id = Shape::ScatteredId.packed1(COMB_FRAGMENTS);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    query_metered(
+        "tick_ownership_comb",
+        input,
+        &query_env::TICK_OWNERSHIP_COMB,
         || v.tick(&p),
     );
     drop(v);
@@ -5912,7 +5974,9 @@ mod query_env {
     // 390_181 heap / 500_012 limb / 2_250_015 scan on the spine and
     // 535_864 / 500_008 / 3_375_021 on the cross, without the fill
     // walk the tick also paid.
-    pub const TICK_EXPAND_SPINE: QueryEnvelope = query_envelope(435_435, 0, 5, 2_187_519, 0, 3, 0); // 348_364, 0, 500_012, 1_750_015, 3 (an empty version's tick folds one word-scale payload: near-zero accumulator work); re-pinned to the new readings (limb 4, scan 1_750_015, touches 0, heap 348_348): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work
+    pub const TICK_OWNERSHIP_HOLE: QueryEnvelope = query_envelope(3_647, 0, 0, 37_585, 7_563, 0, 4_537); // 2_917, 0, 0, 30_068, 6_050 (the ownership-gated block scan: unowned staircase runs fold as one net-and-minimum summary each); the leaf-by-leaf mechanism reads touches 12_023 on this family, above the ceiling — the skip must engage for the pin to hold, and the scan column holds every skipped bit still read
+    pub const TICK_OWNERSHIP_COMB: QueryEnvelope = query_envelope(59_575, 0, 0, 498_774, 156_275, 0, 93_765); // 47_660, 0, 0, 399_019, 125_020: readings identical to the ungated per-leaf walk's on this family (single-leaf regions everywhere, so the block gate never opens and may cost nothing when closed)
+    pub const TICK_EXPAND_SPINE: QueryEnvelope = query_envelope(435_435, 0, 5, 2_187_519, 0, 3, 0);// 348_364, 0, 500_012, 1_750_015, 3 (an empty version's tick folds one word-scale payload: near-zero accumulator work); re-pinned to the new readings (limb 4, scan 1_750_015, touches 0, heap 348_348): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work
     pub const TICK_EXPAND_CROSS: QueryEnvelope = query_envelope(611_210, 0, 5, 3_593_782, 156_260, 3, 93_756); // 488_989, 0, 750_010, 2_875_025, 250_013; re-pinned to the new readings (limb 250_006, scan 2_875_025, touches 125_008, heap 488_984): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 4, scan 2_875_025, touches 125_008, heap 488_968): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     // The version-pair rows: the public
     // two-operand queries on the pair families, all four rows pinned
