@@ -1333,71 +1333,79 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "causally::all",
-        "O(1) unbounded-range constructor: both bounds unbounded, no comparison, \
+        "O(1) unbounded-query constructor: no stored bounds, no comparison, \
          no walk",
     ),
     (
-        "causally::since",
-        "O(1) range view constructor over a borrowed version",
-    ),
-    (
-        "causally::not_before",
-        "O(1) range view constructor over a borrowed version",
-    ),
-    (
-        "causally::known_at",
-        "O(1) range view constructor over a borrowed version",
+        "causally::after",
+        "O(1) atom constructor over a borrowed version",
     ),
     (
         "causally::before",
-        "O(1) range view constructor over a borrowed version",
+        "O(1) atom constructor over a borrowed version",
+    ),
+    (
+        "causally::since",
+        "O(1) query constructor: one stored hole, no comparison, no walk",
+    ),
+    (
+        "causally::until",
+        "O(1) query constructor: one stored hole, no comparison, no walk",
+    ),
+    (
+        "causally::strictly_after",
+        "O(1) query constructor: floor plus hole share one stored buffer (a \
+         refcount-bump clone), no comparison, no walk",
+    ),
+    (
+        "causally::strictly_before",
+        "O(1) query constructor: ceiling plus hole share one stored buffer (a \
+         refcount-bump clone), no comparison, no walk",
     ),
     (
         "causally::delta",
-        "range constructor whose validity check is one causal comparison; the \
-         version_cmp panel prices the walk",
+        "query constructor through the cross-side merge, which performs no \
+         comparison; the membership panels price the walks it feeds",
     ),
     (
-        "causally::delta_before",
-        "range constructor whose validity check is one causal comparison; the \
-         version_cmp panel prices the walk",
+        "causally::toward",
+        "query constructor through the cross-side merge, which performs no \
+         comparison; the membership panels price the walks it feeds",
     ),
     (
-        "causally::Range::since",
-        "O(1) bound replacement plus one causal comparison (the version_cmp panel \
-         prices the comparison)",
+        "causally::Floor::contains",
+        "one pair sweep: the version_cmp panel's measured operation under an \
+         O(1) verdict fold",
     ),
     (
-        "causally::Range::not_before",
-        "O(1) bound replacement plus one causal comparison (the version_cmp panel \
-         prices the comparison)",
+        "causally::Floor::or_concurrent",
+        "O(1) re-spelling of the atom as a one-hole query: no comparison, no walk",
     ),
     (
-        "causally::Range::known_at",
-        "O(1) bound replacement plus one causal comparison (the version_cmp panel \
-         prices the comparison)",
+        "causally::Ceiling::contains",
+        "one pair sweep: the version_cmp panel's measured operation under an \
+         O(1) verdict fold",
     ),
     (
-        "causally::Range::before",
-        "O(1) bound replacement plus one causal comparison (the version_cmp panel \
-         prices the comparison)",
+        "causally::Ceiling::or_concurrent",
+        "O(1) re-spelling of the atom as a one-hole query: no comparison, no walk",
     ),
     (
-        "causally::Range::contains",
-        "placement_of's Equal arm: the identical fused walk under an O(1) verdict \
-         fold; the span_place and version_cmp panels price the walk",
+        "causally::Query::contains",
+        "the fused membership co-walk with demand hooks (branch-only, no stream \
+         or accumulator work of their own): the span_place panel prices the \
+         multi-bound walk, and the one-bound form degenerates to the \
+         version_cmp panel's pair sweep — both identities meter-pinned",
     ),
     (
-        "causally::Range::placement_of",
-        "bounded's fused walk coarsened by bound kind, an O(1) fold over the \
-         verdict; the span_place and version_cmp panels price the walk",
+        "causally::Query::coverage",
+        "the fused two-probe co-walk plus, on verdicts the walk alone cannot \
+         close, at most two clamp walks: the span_place panel prices the walk \
+         class and the version_join/version_meet panels the clamp legs",
     ),
     (
-        "causally::Range::bounded",
-        "the fused placement co-walk with range-verdict hooks (branch-only, no \
-         stream or accumulator work of their own): the span_place panel prices the \
-         two-bounded walk, and the one-bound form degenerates to the version_cmp \
-         panel's pair sweep — both identities meter-pinned",
+        "causally::Query::into_owned",
+        "one refcount bump per borrowed bound: no walk, no byte copy",
     ),
     (
         "Span::new",

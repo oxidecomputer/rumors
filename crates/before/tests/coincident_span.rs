@@ -9,7 +9,7 @@
 
 #![cfg(feature = "scan-meter")]
 
-use before::causally::{known_at, Dominance, Endpoint, Placement, Span};
+use before::causally::{before, Dominance, Endpoint, Placement, Span};
 use before::{meter, Clock, Version};
 
 /// Scan bits of one closure run, on a fresh counter.
@@ -94,7 +94,7 @@ fn coincident_dominance_collapses_to_one_containment() {
     let distinct = Span::new(&v, &redecoded).expect("equal endpoints are a valid span");
 
     let collapsed = scanned(|| {
-        assert!(!known_at(&w).contains(&v));
+        assert!(!before(&w).contains(&v));
     });
     assert!(
         collapsed > 0,

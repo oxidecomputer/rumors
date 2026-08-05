@@ -147,58 +147,62 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ),
     (
         "causally::all",
-        "stores two borrows; the comparison cost is on the membership predicates \
-         (the causally_contains row)",
+        "stores no constraints at all; the membership and coverage rows price \
+         the sweeps",
     ),
     (
-        "causally::since",
-        "stores two borrows; the comparison cost is on the membership predicates \
-         (the causally_contains row)",
-    ),
-    (
-        "causally::not_before",
-        "stores two borrows; the comparison cost is on the membership predicates \
-         (the causally_contains row)",
-    ),
-    (
-        "causally::known_at",
-        "stores two borrows; the comparison cost is on the membership predicates \
-         (the causally_contains row)",
+        "causally::after",
+        "stores its bound version and performs no walk; the membership and \
+         coverage rows price the sweeps",
     ),
     (
         "causally::before",
-        "stores two borrows; the comparison cost is on the membership predicates \
-         (the causally_contains row)",
+        "stores its bound version and performs no walk; the membership and \
+         coverage rows price the sweeps",
+    ),
+    (
+        "causally::since",
+        "stores its bound version as one hole and performs no walk; the \
+         membership and coverage rows price the sweeps",
+    ),
+    (
+        "causally::until",
+        "stores its bound version as one hole and performs no walk; the \
+         membership and coverage rows price the sweeps",
+    ),
+    (
+        "causally::strictly_after",
+        "stores its bound version as floor and hole (one buffer-sharing clone) \
+         and performs no walk; the membership and coverage rows price the sweeps",
+    ),
+    (
+        "causally::strictly_before",
+        "stores its bound version as ceiling and hole (one buffer-sharing clone) \
+         and performs no walk; the membership and coverage rows price the sweeps",
     ),
     (
         "causally::delta",
-        "stores two borrows plus at most one validating causal comparison, the \
-         identical comparison the causally_contains row prices",
+        "assembles its bounds through the cross-side merge, which performs no \
+         comparison; the query_coverage row prices the verdicts it feeds",
     ),
     (
-        "causally::delta_before",
-        "stores two borrows plus at most one validating causal comparison, the \
-         identical comparison the causally_contains row prices",
+        "causally::toward",
+        "assembles its bounds through the cross-side merge, which performs no \
+         comparison; the query_coverage row prices the verdicts it feeds",
     ),
     (
-        "causally::Range::since",
-        "stores two borrows plus at most one validating causal comparison, the \
-         identical comparison the causally_contains row prices",
+        "causally::Floor::or_concurrent",
+        "moves its bound version into one hole and performs no walk; the \
+         membership and coverage rows price the sweeps",
     ),
     (
-        "causally::Range::not_before",
-        "stores two borrows plus at most one validating causal comparison, the \
-         identical comparison the causally_contains row prices",
+        "causally::Ceiling::or_concurrent",
+        "moves its bound version into one hole and performs no walk; the \
+         membership and coverage rows price the sweeps",
     ),
     (
-        "causally::Range::known_at",
-        "stores two borrows plus at most one validating causal comparison, the \
-         identical comparison the causally_contains row prices",
-    ),
-    (
-        "causally::Range::before",
-        "stores two borrows plus at most one validating causal comparison, the \
-         identical comparison the causally_contains row prices",
+        "causally::Query::into_owned",
+        "one refcount bump per borrowed bound: no walk, no byte copy",
     ),
     (
         "Span::new",

@@ -51,14 +51,6 @@
 //! correct by construction, and each question's exits land where its
 //! own verdict lattice says the answer is fixed.
 //!
-//! - [`range`], the six-way [`Ranged`] verdict under range
-//!   semantics: **concurrent to the end bound** is the whole verdict
-//!   (on a validated range a probe concurrent to the end cannot be
-//!   below the start) — the walk returns at the deciding interval;
-//!   **concurrent to the start bound** pins the start relation only,
-//!   so the start cursor is dropped and the walk sweeps on over the
-//!   probe and end streams alone (with no end bound the verdict is
-//!   [`Ranged::Inside`] immediately).
 //! - [`span`], the nine-way [`Placement`] verdict: no single
 //!   concurrency is the whole verdict — `Concurrent(Start)` vs
 //!   `Concurrent(Both)` needs the other endpoint's relation — so a
@@ -82,9 +74,9 @@
 //! nine-state [`Placement`] and its [`Dominance`] coarsening are raw
 //! relation facts against two concrete versions — exactly this layer's
 //! vocabulary — so a stream-level duplicate would add a 1:1 mapping
-//! with no semantic content. The range walk keeps its own [`Ranged`]
-//! vocabulary because what its verdicts *mean* (what `Inside` keeps) is
-//! range semantics, stated by `causally`.
+//! with no semantic content. The query filter walks, which sweep one
+//! or two probes against any number of demand-carrying bound streams
+//! in the same idiom, live in [`filter`].
 //!
 //! # Cost
 //!
@@ -106,15 +98,14 @@
 //! # Testing
 //!
 //! The two-walk composition is the oracle, once per question: the
-//! `bounded_matches_bound_relations`, `span_place_matches_relations`,
-//! and `span_dominance_coarsens_place` laws in [`crate::laws`] pin
-//! each verdict to the raw `partial_cmp` verdicts on every law consumer
-//! (generated, organic, exhaustive, and fuzzed populations), the
-//! stream-level proptests beside this module drive all three entry
-//! points against composed pair sweeps, and `causally`'s witness-matrix tests
-//! pin every verdict, bound-kind combination, and the coincident corner
-//! against constructed inputs. The resource identities are the meter
-//! rows named above.
+//! `span_place_matches_relations` and `span_dominance_coarsens_place`
+//! laws in [`crate::laws`] pin each verdict to the raw `partial_cmp`
+//! verdicts on every law consumer (generated, organic, exhaustive, and
+//! fuzzed populations), the stream-level proptests beside this module
+//! drive the entry points against composed pair sweeps, and
+//! `causally`'s witness-matrix tests pin every verdict and the
+//! coincident corner against constructed inputs. The resource
+//! identities are the meter rows named above.
 
 // The module doc names crate-private machinery by intra-doc link so a
 // rename cannot rot the prose (the internal doc build resolves every
@@ -131,33 +122,6 @@ use crate::causally::{Dominance, Endpoint, Placement};
 use crate::codec::{Base, BitsSlice};
 
 use super::sweep::{fold, Directions, LeafCursor, PlateauCursor, Side, Step};
-
-/// Where a probe stream's version sits relative to a validated pair of
-/// bound streams under *range* semantics: the range walk's verdict, at
-/// full resolution.
-///
-/// Stream-level vocabulary for `causally`'s six range placement
-/// verdicts, in the same order; `causally` states the range semantics,
-/// this module only computes the relations. `AtStart` is the
-/// coincident-bounds canonicalization's home: the start relation is
-/// examined first, so a probe equal to coinciding bounds reports
-/// `AtStart`, never `AtEnd`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Ranged {
-    /// Strictly below the start bound: `v < s`.
-    BelowStart,
-    /// Equal to the start bound: `v == s` (also covers `v == s == e`).
-    AtStart,
-    /// Past or concurrent to any start bound, and strictly below any end
-    /// bound: the contained region.
-    Inside,
-    /// Equal to the end bound: `v == e` (and not equal to the start).
-    AtEnd,
-    /// Strictly above the end bound: `e < v`.
-    AboveEnd,
-    /// Concurrent to the end bound: neither contains the other.
-    ConcurrentToEnd,
-}
 
 /// A side's disposition when a verdict hook leaves the walk running:
 /// keep sweeping its stream, or drop its cursor — the side's relation
@@ -210,74 +174,6 @@ impl<'a> BoundSide<'a> {
     }
 }
 
-/// Place a probe stream against a validated pair of optional bound
-/// streams under range semantics, each stream decoded once.
-///
-/// `start` and `end`, when both present, must satisfy `start <= end`
-/// (`causally`'s composition gate); the verdict is unspecified otherwise.
-/// With neither bound the verdict is [`Ranged::Inside`] at zero cost.
-///
-/// # Panics
-///
-/// Operands must be canonical skyline streams —
-/// [`causal_cmp`](super::sweep::causal_cmp)'s contract exactly: the
-/// violations the walk structurally notices panic, the rest sweep
-/// silently with an unspecified verdict.
-pub(crate) fn range(
-    probe: &BitsSlice,
-    start: Option<&BitsSlice>,
-    end: Option<&BitsSlice>,
-) -> Ranged {
-    walk(
-        probe,
-        start,
-        end,
-        // Concurrent to the start pins the start relation only: drop
-        // its cursor and sweep on for the end relation — and with no
-        // end bound left in the question, past-or-concurrent to the
-        // start is already the contained region.
-        |dirs, end_live| {
-            if dirs.le || dirs.ge {
-                ControlFlow::Continue(Fate::Sweep)
-            } else if end_live {
-                ControlFlow::Continue(Fate::Drop)
-            } else {
-                ControlFlow::Break(Ranged::Inside)
-            }
-        },
-        // Concurrent to the end is the whole verdict: on a validated
-        // range a probe concurrent to the end cannot be below the
-        // start.
-        |dirs, _| {
-            if dirs.le || dirs.ge {
-                ControlFlow::Continue(Fate::Sweep)
-            } else {
-                ControlFlow::Break(Ranged::ConcurrentToEnd)
-            }
-        },
-        // The start relation speaks first (the coincident-bounds
-        // canonicalization); a dropped start cursor is the concurrent
-        // case, which falls through to the end relation like `Greater`
-        // does, and an absent end keeps everything past the start
-        // `Inside`. The `Some(None)` arm is the total non-canonical
-        // corner.
-        |start, end| {
-            match start.flatten() {
-                Some(Ordering::Less) => return Ranged::BelowStart,
-                Some(Ordering::Equal) => return Ranged::AtStart,
-                Some(Ordering::Greater) | None => {}
-            }
-            match end {
-                None => Ranged::Inside,
-                Some(Some(Ordering::Less)) => Ranged::Inside,
-                Some(Some(Ordering::Equal)) => Ranged::AtEnd,
-                Some(Some(Ordering::Greater)) => Ranged::AboveEnd,
-                Some(None) => Ranged::ConcurrentToEnd,
-            }
-        },
-    )
-}
-
 /// Place a probe stream against an ordered span's endpoint streams
 /// at full resolution, each stream decoded once.
 ///
@@ -286,7 +182,8 @@ pub(crate) fn range(
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`range`], on all three operands.
+/// The canonical-stream contract of [`causal_cmp`](super::sweep::causal_cmp),
+/// on all three operands.
 pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placement {
     /// Either endpoint's decided concurrency drops its own cursor
     /// while the other still sweeps.
@@ -335,7 +232,8 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`range`], on all three operands.
+/// The canonical-stream contract of [`causal_cmp`](super::sweep::causal_cmp),
+/// on all three operands.
 pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Dominance {
     walk(
         probe,
@@ -409,10 +307,10 @@ fn walk<V>(
     let mut end = end.map(|bits| BoundSide::open(bits, &probe_first));
 
     loop {
-        // One read per live bound per elementary interval, end first:
-        // the range walk's whole-verdict exit is an end-side fact, and
-        // the shared order keeps every question's accumulator traffic
-        // identical.
+        // One read per live bound per elementary interval, end first —
+        // a fixed order, so every question's accumulator traffic is
+        // identical (the committed meter rows pin the write
+        // sequences).
         if let Some(side) = &mut end {
             side.read();
             match on_end(side.directions, start.is_some()) {
@@ -517,6 +415,8 @@ fn advance<'a>(
         }
     }
 }
+
+pub(crate) mod filter;
 
 #[cfg(test)]
 mod tests;

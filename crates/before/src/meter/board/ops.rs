@@ -1161,15 +1161,14 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
-            name: "range_bounded",
+            name: "query_contains",
             group: OpGroup::Version,
             prepare: |f| {
-                // The two-bounded range door over the same operands. The
-                // range borrows its bounds, so the measured body builds
-                // it in place: `known_at`'s validating comparison (at
-                // most one pair sweep, the same walk class as the query)
-                // rides along, pricing exactly the composite a consumer
-                // reaches from owned endpoints.
+                // The two-bounded segment query over the same operands.
+                // The query borrows its bounds, so the measured body
+                // builds it in place: the cross-side conjunction
+                // performs no comparison, so the cell prices exactly
+                // the fused two-bound membership walk.
                 let (v, w, _) = f.version_pair()?;
                 let (lo, hi) = v.span(&w).into_parts();
                 let probe = decode_version(&v.encode());
@@ -1179,12 +1178,39 @@ pub(super) fn ops() -> Vec<Op> {
                     walk_floors(n, na(NA_TOUCH_PLACEMENT)),
                     move || {
                         let verdict = {
-                            let range = causally::not_before(&lo)
-                                .known_at(&hi)
-                                .expect("a hull's endpoints are ordered");
-                            range.bounded(&probe)
+                            let query = causally::after(&lo) & causally::before(&hi);
+                            query.contains(&probe)
                         };
                         (verdict, lo, hi, probe)
+                    },
+                ))
+            },
+        },
+        Op {
+            name: "query_coverage",
+            group: OpGroup::Version,
+            prepare: |f| {
+                // The anti-entropy delta classified against the pair's
+                // hull: the fused two-probe walk over hole and ceiling,
+                // plus the clamp legs on verdicts the walk alone cannot
+                // close — the tree walk's per-subtree verdict.
+                let (v, w, _) = f.version_pair()?;
+                let lo = &v & &w;
+                let hi = &v | &w;
+                let span = lo.span(&hi);
+                let n = v.encode().len()
+                    + w.encode().len()
+                    + span.meet().encode().len()
+                    + span.join().encode().len();
+                Some(Cell::new(
+                    n,
+                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
+                    move || {
+                        let verdict = {
+                            let query = causally::delta(&v, &w);
+                            query.coverage(span.reborrow())
+                        };
+                        (verdict, span, v, w)
                     },
                 ))
             },

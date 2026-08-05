@@ -20,7 +20,7 @@
 //! a *new* public operation fails the roster test until a named row is
 //! added, and a removed operation orphans its row until the row is removed;
 //! either way the reviewer sees a named diff. Operator and trait surfaces
-//! (`|`, `&`, `/`, comparison matrices, `Display`/`FromStr`, serde/borsh)
+//! (`|`, `&`, `^`, `/`, comparison matrices, `Display`/`FromStr`, serde/borsh)
 //! are not reachable by that scan; they are rostered by family in
 //! [`FAMILY_SURFACE`] for their leg dispositions, and the surface-totality
 //! gate (`crates/before/surfacecheck`, over nightly rustdoc JSON) holds
@@ -178,7 +178,20 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
     SourceSpec {
         path: "src/causally.rs",
         module_prefix: Some("causally"),
-        type_overrides: &[("Range", "causally::Range")],
+        type_overrides: &[],
+    },
+    SourceSpec {
+        path: "src/causally/forms.rs",
+        module_prefix: Some("causally"),
+        type_overrides: &[
+            ("Floor", "causally::Floor"),
+            ("Ceiling", "causally::Ceiling"),
+        ],
+    },
+    SourceSpec {
+        path: "src/causally/query.rs",
+        module_prefix: Some("causally"),
+        type_overrides: &[("Query", "causally::Query")],
     },
     SourceSpec {
         path: "src/span.rs",

@@ -258,7 +258,7 @@ fn error_display_strings() {
     .join("\n");
     assert_snapshot!(block, @r"
     Overlap               parties are not disjoint
-    Crossed               range bounds cross: the start is not within the end
+    Crossed               span endpoints cross: the start is not within the end
     Decode::Truncated     unexpected end of input
     Decode::TrailingBits  trailing or nonzero padding bits
     Decode::NotCanonical  input is not canonical

@@ -12,18 +12,19 @@
 #[error("parties are not disjoint")]
 pub struct Overlap;
 
-/// A causal range's bounds crossed during composition: the start bound is
-/// not within the end bound (see [`causally::Range`](crate::causally::Range)).
+/// A span's endpoints crossed during construction: the pair is
+/// reversed or incomparable, so no chain segment lies between them
+/// (see [`Span::new`](crate::Span::new)).
 ///
 /// ```
-/// use before::{Clock, causally};
+/// use before::{Clock, causally::Span};
 /// let mut clock = Clock::seed();
 /// let older = clock.tick().clone();
 /// let newer = clock.tick().clone();
-/// assert!(causally::delta(&newer, &older).is_err()); // the bounds cross
+/// assert!(Span::new(&newer, &older).is_err()); // the endpoints cross
 /// ```
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, thiserror::Error)]
-#[error("range bounds cross: the start is not within the end")]
+#[error("span endpoints cross: the start is not within the end")]
 pub struct Crossed;
 
 /// Why a byte string failed to decode into a [`Party`](crate::Party),

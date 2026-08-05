@@ -653,7 +653,7 @@ fn deep_tree_stack_safety() {
 /// wire round-trip at a 100k exponent, span hulls (pair and n-ary),
 /// `Span` validation, decode, placement, and dominance, the span
 /// algebra (all four operators, the n-ary door, the quotient view),
-/// `Range` bound classification, and projection through a deep id.
+/// query membership and coverage, and projection through a deep id.
 ///
 /// `deep_tree_stack_safety` above proves the clock ops at this depth;
 /// this is the same proof for the surfaces it does not drive — every
@@ -714,13 +714,11 @@ fn deep_tree_query_and_causal_stack_safety() {
     let _ = view.place(&early);
     assert_eq!(view.to_span(), span);
 
-    // Range bound classification: the fused two-bounded 3-stream walk.
-    let range = causally::since(&early)
-        .known_at(&late)
-        .expect("early <= late");
-    assert!(range.contains(&late));
-    let _ = range.placement_of(&early);
-    let _ = range.bounded(&early);
+    // Query classification: the fused multi-bound filter walks, and
+    // the coverage clamp's lattice legs, over the deep streams.
+    let query = causally::since(&early) & causally::before(&late);
+    assert!(query.contains(&late));
+    let _ = query.coverage(span.reborrow());
 
     // Projection through the deep id (the masked walk), materialized.
     let own = &late / clock.party();

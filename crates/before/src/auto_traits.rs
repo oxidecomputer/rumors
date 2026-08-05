@@ -12,11 +12,15 @@ assert_impl_all!(crate::Ticks: Send, Sync, Unpin);
 assert_impl_all!(crate::Span<'static>: Send, Sync, Unpin);
 assert_impl_all!(crate::OwnSpan<'static>: Send, Sync, Unpin);
 
-assert_impl_all!(crate::causally::Bounded: Send, Sync, Unpin);
+assert_impl_all!(crate::causally::Ceiling<'static>: Send, Sync, Unpin);
+assert_impl_all!(crate::causally::Coverage: Send, Sync, Unpin);
 assert_impl_all!(crate::causally::Dominance: Send, Sync, Unpin);
 assert_impl_all!(crate::causally::Endpoint: Send, Sync, Unpin);
+assert_impl_all!(crate::causally::Floor<'static>: Send, Sync, Unpin);
 assert_impl_all!(crate::causally::Placement: Send, Sync, Unpin);
-assert_impl_all!(crate::causally::Range<'static>: Send, Sync, Unpin);
+assert_impl_all!(crate::causally::Query<'static>: Send, Sync, Unpin);
+assert_impl_all!(crate::causally::Query<'static, crate::causally::Down>: Send, Sync, Unpin);
+assert_impl_all!(crate::causally::Query<'static, crate::causally::Up>: Send, Sync, Unpin);
 
 assert_impl_all!(crate::error::Crossed: Send, Sync, Unpin);
 assert_impl_all!(crate::error::Decode: Send, Sync, Unpin);

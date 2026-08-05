@@ -94,8 +94,8 @@ const fn codec_row(op: &'static str) -> SurfaceRow {
 /// legs; binding the combinator adds sampling of a totally-derived form.
 const fn causally_row(op: &'static str) -> SurfaceRow {
     const REASON: &str = "semantically a combinator over the bound causal order \
-         (partial_cmp), law-pinned to it (bounded_matches_bound_relations); \
-         unit-tested in causally/tests.rs";
+         (partial_cmp), law-pinned to it (atom_membership_matches_relations, \
+         conjunction_is_intersection); unit-tested in causally/tests.rs";
     SurfaceRow {
         op,
         prod_tree: Leg::Excluded(REASON),
@@ -581,19 +581,21 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     // ───────────────────────────── causally ─────────────────────────────
     causally_row("causally::all"),
-    causally_row("causally::since"),
-    causally_row("causally::not_before"),
-    causally_row("causally::known_at"),
+    causally_row("causally::after"),
     causally_row("causally::before"),
+    causally_row("causally::since"),
+    causally_row("causally::until"),
+    causally_row("causally::strictly_after"),
+    causally_row("causally::strictly_before"),
     causally_row("causally::delta"),
-    causally_row("causally::delta_before"),
-    causally_row("causally::Range::since"),
-    causally_row("causally::Range::not_before"),
-    causally_row("causally::Range::known_at"),
-    causally_row("causally::Range::before"),
-    causally_row("causally::Range::contains"),
-    causally_row("causally::Range::placement_of"),
-    causally_row("causally::Range::bounded"),
+    causally_row("causally::toward"),
+    causally_row("causally::Floor::contains"),
+    causally_row("causally::Floor::or_concurrent"),
+    causally_row("causally::Ceiling::contains"),
+    causally_row("causally::Ceiling::or_concurrent"),
+    causally_row("causally::Query::contains"),
+    causally_row("causally::Query::coverage"),
+    causally_row("causally::Query::into_owned"),
     span_row("Span::new"),
     span_row("Span::new_unchecked"),
     SurfaceRow {

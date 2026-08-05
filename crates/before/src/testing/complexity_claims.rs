@@ -364,13 +364,13 @@ const SPAN_TYPE_BOUND: Bound = Bound::Custom {
     reason: "one type-doc section prices the whole operator matrix together",
 };
 
-/// The `causally` module doc's shared line: eighteen rows price the
-/// same three facts, so they share one bound at one site.
+/// The `causally` module doc's shared line: the query rows price the
+/// same facts, so they share one bound at one site.
 ///
 /// The deriving constructors (`Version::span`/`Version::span_all`) are
 /// priced at their own fn docs, not here.
 const CAUSALLY_BOUND: Bound = Bound::Custom {
-    line: "Borrowing constructors `O(1)` (the deriving `span`/`span_all` priced on `Version`); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.",
+    line: "Atoms and named constructors are `O(1)`; conjunction pays one lattice walk per floor/ceiling merge and one causal comparison per hole pair; membership and coverage are one pass over the probe and every stored bound.",
     reason: "one module-doc section prices every constructor and predicate together",
 };
 
@@ -455,14 +455,8 @@ const OWN_VERSION_TYPE_BOUND: Bound = Bound::Custom {
 
 /// The reason the causally constructors cite no board row.
 const CAUSALLY_CONSTRUCTOR: &str =
-    "stores two borrows; the comparison cost is on the membership predicates \
-     (the causally_contains row prices them)";
-
-/// The reason the causally compositions (a start paired with an end) cite
-/// no board row.
-const CAUSALLY_COMPOSITION: &str =
-    "stores two borrows plus at most one validating causal comparison, the \
-     identical comparison the causally_contains row prices";
+    "stores its bound versions and performs no walk; the membership and \
+     coverage rows price the sweeps";
 
 /// The claims roster of record: one row per public operation, named as
 /// the coverage surface names it.
@@ -1051,49 +1045,59 @@ pub(crate) const CLAIMS: &[Claim] = &[
     },
     // ───────────────────────────── causally ─────────────────────────────
     causally("causally::all", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
+    causally("causally::after", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
+    causally("causally::before", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
     causally("causally::since", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
+    causally("causally::until", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
     causally(
-        "causally::not_before",
+        "causally::strictly_after",
         Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
     ),
-    causally("causally::known_at", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
-    causally("causally::before", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
-    causally("causally::delta", Cells::Uncelled(CAUSALLY_COMPOSITION)),
     causally(
-        "causally::delta_before",
-        Cells::Uncelled(CAUSALLY_COMPOSITION),
+        "causally::strictly_before",
+        Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
     ),
+    causally("causally::delta", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
+    causally("causally::toward", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
     causally(
-        "causally::Range::since",
-        Cells::Uncelled(CAUSALLY_COMPOSITION),
-    ),
-    causally(
-        "causally::Range::not_before",
-        Cells::Uncelled(CAUSALLY_COMPOSITION),
-    ),
-    causally(
-        "causally::Range::known_at",
-        Cells::Uncelled(CAUSALLY_COMPOSITION),
-    ),
-    causally(
-        "causally::Range::before",
-        Cells::Uncelled(CAUSALLY_COMPOSITION),
-    ),
-    causally(
-        "causally::Range::contains",
+        "causally::Floor::contains",
         Cells::Board(&[("causally_contains", Class::Linear)]),
     ),
     causally(
-        "causally::Range::placement_of",
-        Cells::Board(&[("range_bounded", Class::Linear)]),
+        "causally::Floor::or_concurrent",
+        Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
     ),
     causally(
-        "causally::Range::bounded",
-        Cells::Board(&[("range_bounded", Class::Linear)]),
+        "causally::Ceiling::contains",
+        Cells::Board(&[("causally_contains", Class::Linear)]),
+    ),
+    causally(
+        "causally::Ceiling::or_concurrent",
+        Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
+    ),
+    causally(
+        "causally::Query::contains",
+        Cells::Board(&[
+            ("causally_contains", Class::Linear),
+            ("query_contains", Class::Linear),
+        ]),
+    ),
+    causally(
+        "causally::Query::coverage",
+        Cells::Board(&[("query_coverage", Class::Linear)]),
+    ),
+    // A clone is a refcount bump, so the settle is constant whether
+    // the stored bounds are owned or borrowed.
+    causally(
+        "causally::Query::into_owned",
+        Cells::Uncelled("one refcount bump per borrowed bound; no walk"),
     ),
     causally(
         "Span::new",
-        Cells::Uncelled(CAUSALLY_COMPOSITION),
+        Cells::Uncelled(
+            "stores two borrows plus one validating causal comparison, the \
+             identical sweep the causally_contains row prices",
+        ),
     ),
     causally(
         "Span::new_unchecked",

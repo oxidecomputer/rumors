@@ -2,11 +2,10 @@
 //!
 //! A *span* is two concrete versions `lo <= hi` and the chain segment
 //! between them — a genuinely different object from a
-//! [`causally::Range`](crate::causally::Range): a range's bounds are
-//! down-set cut-points with inclusivity kinds, so its verdicts fold
-//! range semantics; a span is the ordered pair itself, and every
-//! verdict about it is a raw order fact against the endpoints, with no
-//! inclusivity to fold. [`Span::place`] answers the placement question
+//! [`causally::Query`](crate::causally::Query): a query's bounds are
+//! predicates with kinds, so its verdicts fold query semantics; a span
+//! is the ordered pair itself, and every verdict about it is a raw
+//! order fact against the endpoints, with no bound kind to fold. [`Span::place`] answers the placement question
 //! at the finest resolution the partial order admits — the nine
 //! [`Placement`] regions — and [`Span::dominance`] coarsens it to
 //! the three-way [`Dominance`] verdict a filter over version-bounded
@@ -94,12 +93,11 @@ mod tests;
 /// A causal span: an ordered pair of versions `lo <= hi` and the
 /// chain segment between them.
 ///
-/// A genuinely different object from [`Range`](crate::causally::Range):
-/// a range's bounds are
-/// down-set cut-points with inclusivity kinds, so its verdicts fold
-/// range semantics; a span is two *concrete versions*, and every
-/// verdict about it is a raw order fact against the endpoints, with no
-/// inclusivity to fold. [`place`](Self::place) answers the placement
+/// A genuinely different object from a
+/// [`Query`](crate::causally::Query): a query's bounds are predicates
+/// with kinds, so its verdicts fold query semantics; a span is two
+/// *concrete versions*, and every verdict about it is a raw order
+/// fact against the endpoints, with no bound kind to fold. [`place`](Self::place) answers the placement
 /// question at full resolution — the nine [`Placement`] regions — and
 /// [`dominance`](Self::dominance) coarsens it to the three-way
 /// [`Dominance`] verdict.
@@ -127,7 +125,8 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// Operators `O(a + b)` in the operands' packed sizes; constructors and accessors `O(1)`, plus `new`'s one validating comparison.
+/// Operators `O(a + b)` in the operands' packed sizes; constructors and
+/// accessors `O(1)`, plus `new`'s one validating comparison.
 /// Endpoints are borrows or buffer-sharing clones, and
 /// [`new`](Self::new) pays its one validating comparison. Each binary
 /// operator (`|`, `&`, `+`, `*`) runs its legs once over the operands'
@@ -327,10 +326,7 @@ impl<'a> Span<'a> {
     /// nine-way [`Placement`] verdict, the finest partition of the
     /// question the partial order admits.
     ///
-    /// The name deliberately echoes
-    /// [`placement_of`](crate::causally::Range::placement_of) — the same
-    /// question,
-    /// asked of a different object. The verdict is a pure transcription
+    /// The verdict is a pure transcription
     /// of the two causal comparisons against the endpoints; the
     /// `span_place_matches_relations` law in [`laws`](crate::laws)
     /// pins it on every law consumer, and
@@ -408,7 +404,7 @@ impl<'a> Span<'a> {
         // stream, not two.
         if self.lo.view().ptr_eq(self.hi.view()) {
             // `hi <= probe` is exactly membership in the probe's causal
-            // past (`causally::known_at(probe).contains(hi)`).
+            // past (`causally::before(probe).contains(hi)`).
             return if matches!(
                 self.join().partial_cmp(probe),
                 Some(Ordering::Less | Ordering::Equal)
@@ -765,22 +761,15 @@ pub enum Endpoint {
 /// Each variant's doc states the raw relations it reports and the
 /// relations its payload forces.
 ///
-/// **Vocabulary kinship, divergent semantics**: `Before`, `Between`,
-/// and `After` deliberately echo
-/// [`Bounded`](crate::causally::Bounded)'s words — the same
-/// question, asked of a different object. `Bounded`'s region verdicts
-/// fold range semantics (a version concurrent to the start bound is
-/// `Bounded::Between`, because start bounds keep concurrent versions);
-/// `Placement`'s variants are raw strict-order facts against two
-/// concrete versions (a version concurrent to `lo` is
-/// `Concurrent(Start)`, never `Between`). [`Dominance`] reuses the
-/// words a third way, coarser than both: each of its verdicts is a
-/// bucket of these nine regions (its variant docs carry the exact
-/// tables). On a two-bounded range,
-/// [`bounded`](crate::causally::Range::bounded) is exactly a coarsening
-/// of this verdict,
-/// pinned by the `bounded_coarsens_span_place` law in
-/// [`laws`](crate::laws).
+/// **Vocabulary kinship, divergent semantics**: `Placement`'s
+/// variants are raw strict-order facts against two concrete versions
+/// (a version concurrent to `lo` is `Concurrent(Start)`, never
+/// `Between`), where a [`Query`](crate::causally::Query) over the
+/// same pair folds bound semantics (its membership keeps exactly
+/// `At(_)` and `Between` — the `segment_query_matches_span_place` law
+/// in [`laws`](crate::laws) pins the tie). [`Dominance`] reuses the
+/// words at a coarser resolution: each of its verdicts is a bucket of
+/// these nine regions (its variant docs carry the exact tables).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Placement {
     /// Strictly below the whole span: `p < lo`, hence `p < hi`.
@@ -819,16 +808,14 @@ pub enum Placement {
 /// dominating not even the start has seen none of it.
 ///
 /// **Vocabulary kinship, divergent semantics**: `After`, `Between`,
-/// and `Before` echo [`Placement`]'s and
-/// [`Bounded`](crate::causally::Bounded)'s words at a
-/// third, coarser resolution, and the names understate what each
-/// bucket folds in: the variants are position-named by the probe's
-/// relation to the span's *endpoints as dominance thresholds*, and
-/// each deliberately buckets concurrent and at-endpoint placements
-/// with the regions (a probe concurrent to the start is
-/// `Dominance::Before`, where `Placement` says `Concurrent(Start)`
-/// and a range's `bounded` would keep it `Between`). Each variant's
-/// doc states its exact [`Placement`] bucket; the
+/// and `Before` echo [`Placement`]'s words at a coarser resolution,
+/// and the names understate what each bucket folds in: the variants
+/// are position-named by the probe's relation to the span's
+/// *endpoints as dominance thresholds*, and each deliberately buckets
+/// concurrent and at-endpoint placements with the regions (a probe
+/// concurrent to the start is `Dominance::Before`, where
+/// [`Placement`] says `Concurrent(Start)`). Each variant's doc states
+/// its exact [`Placement`] bucket; the
 /// `span_dominance_coarsens_place` law in [`laws`](crate::laws) pins
 /// the tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1634,7 +1621,8 @@ span_binop_matrix! {
 ///
 /// # Complexity
 ///
-/// Construction `O(1)`; placement `O(|lo| + |hi| + |p| + |probe|)`; materialization as [`OwnVersion::to_version`], per endpoint.
+/// Construction `O(1)`; placement `O(|lo| + |hi| + |p| + |probe|)`;
+/// materialization as [`OwnVersion::to_version`], per endpoint.
 /// [`Clone`] and [`Copy`] cost as construction does. Placement verdicts
 /// are two masked co-walks (the [`OwnVersion`] comparison kernel);
 /// [`dominance`](Self::dominance) stops after one when the first
@@ -1764,7 +1752,8 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// As [`OwnVersion::to_version`], per endpoint — the results' packed sizes are not bounded by a constant factor of the operands.
+    /// As [`OwnVersion::to_version`], per endpoint — the results' packed
+    /// sizes are not bounded by a constant factor of the operands.
     ///
     /// ```
     /// use before::Clock;

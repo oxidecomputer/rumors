@@ -64,9 +64,8 @@
 
 use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
-use std::ops::{Bound, RangeBounds};
 
-use crate::causally::{self, Bounded, Dominance, Endpoint, Placement, Span};
+use crate::causally::{self, Coverage, Dominance, Endpoint, Placement, Query, Span};
 use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 
 /// A named law: the name a failure reports, and the predicate that must
@@ -418,53 +417,84 @@ pub static VERSION_PAIR: &[Law<fn(&Version, &Version) -> bool>] = &[
     ("span_is_the_pair_hull", span_is_the_pair_hull),
     ("span_codec_roundtrip", span_codec_roundtrip),
     (
-        "range_composition_is_order_agnostic",
-        range_composition_is_order_agnostic,
+        "atom_membership_matches_relations",
+        atom_membership_matches_relations,
     ),
     (
-        "range_rebinding_keeps_the_latest",
-        range_rebinding_keeps_the_latest,
+        "query_shorthands_are_their_expressions",
+        query_shorthands_are_their_expressions,
     ),
 ];
 
-/// Range construction commutes across the free-fn/method seam, for
-/// all four start/end pairings.
+/// Every causal atom's membership is exactly its order relation, and
+/// every negated atom keeps exactly the complement.
 ///
-/// A free-fn start refined by an end method equals the matching
-/// free-fn end refined by the start method — same stored bounds — and
-/// the two orders reject the same crossed pairs.
-///
-/// This is where the start-refinement methods' bound *storage* (which
-/// kind lands in which field) is quantified: the placement laws build
-/// every range start-first through the free constructors, and their
-/// verdict checks read the range's own accessors, so an internally
-/// coherent mis-storage inside [`causally::Range::since`] or
-/// [`causally::Range::not_before`] is invisible to them under any
-/// construction order. Only the equation against the free constructor separates the
-/// method's storage from the constructor's.
-fn range_composition_is_order_agnostic(s: &Version, e: &Version) -> bool {
-    causally::since(s).known_at(e) == causally::known_at(e).since(s)
-        && causally::since(s).before(e) == causally::before(e).since(s)
-        && causally::not_before(s).known_at(e) == causally::known_at(e).not_before(s)
-        && causally::not_before(s).before(e) == causally::before(e).not_before(s)
+/// The eight atomic bounds are transcribed row by row from
+/// `partial_cmp`: the four elementary atoms are the four order
+/// relations against the bound version (concurrency failing all
+/// four), and `!` on each keeps precisely the probes the atom drops —
+/// which is where "or concurrent" enters the query language. Checked
+/// in both probe/bound orientations, so the self-dual corner
+/// (`a == b`) and both strict sides are reached on every call.
+fn atom_membership_matches_relations(a: &Version, b: &Version) -> bool {
+    for (p, q) in [(a, b), (b, a)] {
+        let rel = p.partial_cmp(q);
+        let le = matches!(rel, Some(Ordering::Less | Ordering::Equal));
+        let lt = rel == Some(Ordering::Less);
+        let ge = matches!(rel, Some(Ordering::Greater | Ordering::Equal));
+        let gt = rel == Some(Ordering::Greater);
+        let atoms = causally::after(q).contains(p) == ge
+            && causally::strictly_after(q).contains(p) == gt
+            && causally::before(q).contains(p) == le
+            && causally::strictly_before(q).contains(p) == lt;
+        let complements =
+            (!causally::before(q)).contains(p) == !le && (!causally::after(q)).contains(p) == !ge;
+        // `or_concurrent` widens an atom's relation by
+        // incomparability, which is exactly the complement of the
+        // opposite side's strict relation.
+        let concurrent = rel.is_none();
+        let widened = causally::after(q).or_concurrent().contains(p) == (ge || concurrent)
+            && causally::after(q).or_concurrent().contains(p) == !lt
+            && causally::before(q).or_concurrent().contains(p) == (le || concurrent)
+            && causally::before(q).or_concurrent().contains(p) == !gt;
+        if !(atoms && complements && widened) {
+            return false;
+        }
+    }
+    true
 }
 
-/// Re-setting a bound keeps the latest value: a rebinding chain equals
-/// the direct construction of its final state, for both start kinds,
-/// both end kinds, and the unbounded start.
+/// The named query shorthands and conversions equal the expressions
+/// they abbreviate, behaviorally.
 ///
-/// Total over every version pair — each chain's opposite bound is
-/// unbounded, so validation always admits it — and, like
-/// [`range_composition_is_order_agnostic`], the equation runs against
-/// the free constructors, so a rebinding that stores the wrong bound
-/// kind (or keeps the earlier value) diverges on every pair.
-fn range_rebinding_keeps_the_latest(a: &Version, b: &Version) -> bool {
-    causally::since(a).since(b) == Ok(causally::since(b))
-        && causally::since(a).not_before(b) == Ok(causally::not_before(b))
-        && causally::not_before(a).since(b) == Ok(causally::since(b))
-        && causally::known_at(a).before(b) == Ok(causally::before(b))
-        && causally::before(a).known_at(b) == Ok(causally::known_at(b))
-        && causally::all().since(b) == Ok(causally::since(b))
+/// `since` is `!before`, `until` is `!after`, `delta` is
+/// `since & before`, `toward` is `after & until`, `all` admits
+/// everything; a [`Span`] converts to its segment's query
+/// (`after(meet) & before(join)`, consuming and borrowing spellings
+/// agreeing) and a [`Version`] to the singleton query admitting
+/// exactly itself. Behavioral equations only: a query's observation
+/// surface is membership, deliberately not identity (`causally`'s
+/// module docs carry the no-`Eq` decision).
+fn query_shorthands_are_their_expressions(a: &Version, b: &Version) -> bool {
+    let span = a.span(b);
+    for p in [a, b] {
+        let since = causally::since(a).contains(p) == (!causally::before(a)).contains(p);
+        let until = causally::until(a).contains(p) == (!causally::after(a)).contains(p);
+        let delta = causally::delta(a, b).contains(p)
+            == (causally::since(a) & causally::before(b)).contains(p);
+        let toward = causally::toward(a, b).contains(p)
+            == (causally::after(a) & causally::until(b)).contains(p);
+        let all = causally::all().contains(p);
+        let segment = Query::from(&span).contains(p)
+            == (causally::after(span.meet()) & causally::before(span.join())).contains(p)
+            && Query::from(span.clone()).contains(p) == Query::from(&span).contains(p);
+        let singleton = Query::from(a).contains(p) == (p == a)
+            && Query::from(a.clone()).contains(p) == (p == a);
+        if !(since && until && delta && toward && all && segment && singleton) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
@@ -623,12 +653,12 @@ fn ranked_encoding_orders_like_ord(a: &Version, b: &Version) -> bool {
 ///
 /// Associativity, the least/greatest bound laws, both distributive laws,
 /// transitivity (constructed and incidental), the triangle inequality,
-/// and the [`causally`] placement laws: the six-way [`Bounded`] verdict
-/// as a pure function of the two causal comparisons, its per-kind
-/// coarsening to `placement_of`/`contains`, the nine-way
-/// [`Span::place`] verdict as a pure transcription of the two
-/// endpoint comparisons, and its coarsenings to `dominance` and —
-/// on two-bounded ranges — to `bounded`.
+/// and the [`causally`] query and placement laws: conjunction as
+/// pointwise intersection across every atomic operand pairing and every
+/// typed `&` form, coverage's sound arms and its point degeneracy to
+/// membership, the segment-query/span-placement tie, the nine-way
+/// [`Span::place`] verdict as a pure transcription of the two endpoint
+/// comparisons, and its coarsening to `dominance`.
 pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("merge_associative", merge_associative),
     ("meet_associative", meet_associative),
@@ -639,20 +669,25 @@ pub static VERSION_TRIPLE: &[Law<fn(&Version, &Version, &Version) -> bool>] = &[
     ("order_transitive_constructed", order_transitive_constructed),
     ("order_transitive_incidental", order_transitive_incidental),
     ("distance_triangle_inequality", distance_triangle_inequality),
+    ("conjunction_is_intersection", conjunction_is_intersection),
     (
-        "bounded_matches_bound_relations",
-        bounded_matches_bound_relations,
+        "conjunction_operand_forms_agree",
+        conjunction_operand_forms_agree,
     ),
+    ("coverage_bounds_membership", coverage_bounds_membership),
     (
-        "bounded_coarsens_to_placement",
-        bounded_coarsens_to_placement,
+        "coverage_matches_membership_on_points",
+        coverage_matches_membership_on_points,
     ),
     ("span_place_matches_relations", span_place_matches_relations),
     (
         "span_dominance_coarsens_place",
         span_dominance_coarsens_place,
     ),
-    ("bounded_coarsens_span_place", bounded_coarsens_span_place),
+    (
+        "segment_query_matches_span_place",
+        segment_query_matches_span_place,
+    ),
     (
         "span_union_is_the_containment_join",
         span_union_is_the_containment_join,
@@ -736,114 +771,193 @@ fn distance_triangle_inequality(a: &Version, b: &Version, c: &Version) -> bool {
     a.distance(c) <= a.distance(b) + b.distance(c)
 }
 
-/// The bound pairs the placement laws quantify over, from a version pair.
-///
-/// The pair as given, plus the constructed always-validating pair
-/// (`meet <= join`) and the coincident pair (`meet == meet`, reaching the
-/// `start == end` corner on every call).
-fn placement_bound_pairs(s: &Version, e: &Version) -> [(Version, Version); 3] {
-    let (meet, join) = (s & e, s | e);
-    [
-        (s.clone(), e.clone()),
-        (meet.clone(), join),
-        (meet.clone(), meet),
+/// The hole-free queries over a version pair: the unbounded query,
+/// each atom alone, and the interval — the [`causally::Neutral`]
+/// fragment's shapes.
+fn neutral_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a>> {
+    vec![
+        causally::all(),
+        causally::after(b).into(),
+        causally::before(c).into(),
+        causally::after(b) & causally::before(c),
     ]
 }
 
-/// Every range the gate admits over one bound pair: each start kind
-/// (none, excluded, included) alone and refined by each end kind
-/// (included, excluded), skipping the compositions validation rejects.
-fn each_admitted_range<'a>(s: &'a Version, e: &'a Version) -> Vec<causally::Range<'a>> {
-    let mut out = Vec::new();
-    for start in [causally::all(), causally::since(s), causally::not_before(s)] {
-        out.push(start);
-        out.extend(start.known_at(e));
-        out.extend(start.before(e));
-    }
-    out
+/// Down-polar queries over a version pair: every down-hole spelling —
+/// negation, widening, strict floor — alone and conjoined, so the
+/// merge kernel's absorption and pruning arms are all reached.
+fn down_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a, causally::Down>> {
+    vec![
+        causally::since(b),
+        causally::since(c),
+        causally::strictly_after(b),
+        causally::after(b).or_concurrent(),
+        causally::delta(b, c),
+        causally::since(b) & causally::since(c),
+        causally::after(b) & causally::since(c),
+    ]
 }
 
-/// [`Bounded`], transcribed from the two raw causal comparisons.
-///
-/// The start relation places `Before`/`AtStart` (start first — the
-/// coincident-bounds canonicalization), and everything past or concurrent
-/// to the start falls through to the end relation.
-fn bounded_from_relations(range: &causally::Range<'_>, v: &Version) -> Bounded {
-    if let Bound::Included(start) | Bound::Excluded(start) = range.start_bound() {
-        match v.partial_cmp(start) {
-            Some(Ordering::Less) => return Bounded::Before,
-            Some(Ordering::Equal) => return Bounded::AtStart,
-            Some(Ordering::Greater) | None => {}
-        }
-    }
-    match range.end_bound() {
-        Bound::Unbounded => Bounded::Between,
-        Bound::Included(end) | Bound::Excluded(end) => match v.partial_cmp(end) {
-            Some(Ordering::Less) => Bounded::Between,
-            Some(Ordering::Equal) => Bounded::AtEnd,
-            Some(Ordering::Greater) => Bounded::After,
-            None => Bounded::Concurrent,
-        },
-    }
+/// Up-polar queries over a version pair, dually to [`down_queries`].
+fn up_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a, causally::Up>> {
+    vec![
+        !causally::after(b),
+        !causally::after(c),
+        causally::strictly_before(b),
+        causally::before(b).or_concurrent(),
+        (!causally::after(b)) & (!causally::after(c)),
+        causally::before(b) & (!causally::after(c)),
+        causally::after(b) & (!causally::after(c)),
+    ]
 }
 
-/// `bounded` is exactly the two causal comparisons against the bound
-/// versions, composed start-first.
+/// Conjunction is pointwise intersection, commutatively, across every
+/// atomic operand pairing.
 ///
-/// Checked for every admitted bound-kind combination over the raw,
-/// constructed-ordered, and coincident bound pairs, probing each operand
-/// and the pairs' meet (which reaches the at-bound and `start == end`
-/// corners on every call).
-fn bounded_matches_bound_relations(a: &Version, b: &Version, c: &Version) -> bool {
-    let meet = b & c;
-    for (s, e) in &placement_bound_pairs(b, c) {
-        for range in each_admitted_range(s, e) {
-            for probe in [a, b, c, &meet] {
-                if range.bounded(probe) != bounded_from_relations(&range, probe) {
-                    return false;
+/// `(x & y).contains(p)` equals `x.contains(p) && y.contains(p)` for
+/// every pair drawn from the atomic queries at two versions, in both
+/// operand orders. This is the behavioral pin on the whole merge
+/// kernel: floor joins, ceiling meets, hole absorption, vacuity
+/// pruning, and the strictness normalization all sit between `&` and
+/// `contains`, so any of them changing what a query admits diverges
+/// here. Probes include the operands' meet and join, reaching the
+/// at-bound corners on every call.
+fn conjunction_is_intersection(a: &Version, b: &Version, c: &Version) -> bool {
+    let (meet, join) = (b & c, b | c);
+    let probes = [a, b, c, &meet, &join];
+    /// One polarity-homogeneous double loop of the pointwise check.
+    macro_rules! check {
+        ($xs:expr, $ys:expr) => {
+            for x in &$xs {
+                for y in &$ys {
+                    let xy = x.clone() & y.clone();
+                    let yx = y.clone() & x.clone();
+                    for p in probes {
+                        let want = x.contains(p) && y.contains(p);
+                        if xy.contains(p) != want || yx.contains(p) != want {
+                            return false;
+                        }
+                    }
                 }
             }
+        };
+    }
+    check!(neutral_queries(b, c), neutral_queries(c, b));
+    check!(down_queries(b, c), down_queries(c, b));
+    check!(up_queries(b, c), up_queries(c, b));
+    check!(neutral_queries(b, c), down_queries(c, b));
+    check!(neutral_queries(b, c), up_queries(c, b));
+    true
+}
+
+/// The typed `&` matrix lands in one predicate: wherever a
+/// conjunction lands in the type census (atom, bound, or query), it
+/// admits exactly the intersection of its operands.
+///
+/// One equation per distinct merge path: the two elementary same-side
+/// collapses (which stay atoms, exercising the strictness-survival
+/// rule on comparable bounds and its dissolution on concurrent ones),
+/// the two side merges, and the cross-side pairings that land in a
+/// [`Query`] — the paths every macro-generated impl delegates to.
+fn conjunction_operand_forms_agree(a: &Version, b: &Version, c: &Version) -> bool {
+    use causally::{after, before, since, strictly_after, strictly_before};
+    let (meet, join) = (b & c, b | c);
+    let probes = [a, b, c, &meet, &join];
+    for p in probes {
+        let atoms = (after(b) & after(c)).contains(p)
+            == (after(b).contains(p) && after(c).contains(p))
+            && (before(b) & before(c)).contains(p)
+                == (before(b).contains(p) && before(c).contains(p))
+            && (after(b) & before(c)).contains(p)
+                == (after(b).contains(p) && before(c).contains(p));
+        let down = (since(b) & since(c)).contains(p)
+            == (since(b).contains(p) && since(c).contains(p))
+            && (after(b) & since(c)).contains(p) == (after(b).contains(p) && since(c).contains(p))
+            && (strictly_after(b) & strictly_after(c)).contains(p)
+                == (strictly_after(b).contains(p) && strictly_after(c).contains(p));
+        let up = ((!after(b)) & (!after(c))).contains(p)
+            == ((!after(b)).contains(p) && (!after(c)).contains(p))
+            && (before(b) & (!after(c))).contains(p)
+                == (before(b).contains(p) && (!after(c)).contains(p))
+            && (strictly_before(b) & strictly_before(c)).contains(p)
+                == (strictly_before(b).contains(p) && strictly_before(c).contains(p));
+        if !(atoms && down && up) {
+            return false;
         }
     }
     true
 }
 
-/// `placement_of` is `bounded` coarsened by each bound's inclusivity,
-/// and `contains` is the coarsening's `Equal` arm.
+/// Coverage's verdicts are sound over the segment: `Full` admits the
+/// constructed in-segment probes, `Empty` rejects them.
 ///
-/// `Before` is subtracted, `Between` contained, `After`/`Concurrent`
-/// beyond the end, and the at-bound verdicts split on their bound's kind
-/// (`AtStart`: subtracted by an excluded start, kept by an included one;
-/// `AtEnd`: kept by an included end, beyond an excluded one; neither is
-/// reachable from an unbounded side).
-fn bounded_coarsens_to_placement(a: &Version, b: &Version, c: &Version) -> bool {
-    let meet = b & c;
-    for (s, e) in &placement_bound_pairs(b, c) {
-        for range in each_admitted_range(s, e) {
-            for probe in [a, b, c, &meet] {
-                let coarse = match range.bounded(probe) {
-                    Bounded::Before => Ordering::Less,
-                    Bounded::AtStart => match range.start_bound() {
-                        Bound::Excluded(_) => Ordering::Less,
-                        Bound::Included(_) => Ordering::Equal,
-                        Bound::Unbounded => return false,
-                    },
-                    Bounded::Between => Ordering::Equal,
-                    Bounded::AtEnd => match range.end_bound() {
-                        Bound::Included(_) => Ordering::Equal,
-                        Bound::Excluded(_) => Ordering::Greater,
-                        Bound::Unbounded => return false,
-                    },
-                    Bounded::After | Bounded::Concurrent => Ordering::Greater,
-                };
-                if coarse != range.placement_of(probe)
-                    || range.contains(probe) != (coarse == Ordering::Equal)
-                {
-                    return false;
+/// Quantified over conjunctions of an atomic query at one version with
+/// a representative bound at another, against the constructed ordered,
+/// coincident, and incidental spans; probes are the endpoints and
+/// `(lo | x) & hi` — a version within the segment by construction —
+/// so both sound arms are exercised against genuinely interior
+/// points. `Partial` promises nothing pointwise: the [`Coverage`]
+/// docs carry the precision contract, including why `Empty` cannot be
+/// complete.
+fn coverage_bounds_membership(a: &Version, b: &Version, c: &Version) -> bool {
+    for (lo, hi) in &span_candidates(b, c) {
+        let Ok(span) = Span::new(lo, hi) else {
+            // Every candidate is ordered by construction or admission.
+            return false;
+        };
+        let mid = &(lo | a) & hi;
+        let probes = [lo, hi, &mid];
+        /// One family's soundness check over the span.
+        macro_rules! check {
+            ($qs:expr) => {
+                for q in &$qs {
+                    match q.coverage(span.reborrow()) {
+                        Coverage::Full => {
+                            if probes.iter().any(|p| !q.contains(p)) {
+                                return false;
+                            }
+                        }
+                        Coverage::Empty => {
+                            if probes.iter().any(|p| q.contains(p)) {
+                                return false;
+                            }
+                        }
+                        Coverage::Partial => {}
+                    }
+                }
+            };
+        }
+        check!(neutral_queries(a, b));
+        check!(down_queries(a, b));
+        check!(up_queries(a, b));
+    }
+    true
+}
+
+/// Coverage of a coincident span is membership: `Full` for a member,
+/// `Empty` otherwise — `Partial` is unreachable when the segment is
+/// one version — through both the span door and the version door.
+fn coverage_matches_membership_on_points(a: &Version, b: &Version, c: &Version) -> bool {
+    /// One family's point-degeneracy check.
+    macro_rules! check {
+        ($qs:expr, $probes:expr) => {
+            for q in &$qs {
+                for p in $probes {
+                    let want = if q.contains(p) {
+                        Coverage::Full
+                    } else {
+                        Coverage::Empty
+                    };
+                    if q.coverage(p) != want || q.coverage(Span::at(p)) != want {
+                        return false;
+                    }
                 }
             }
-        }
+        };
     }
+    check!(neutral_queries(b, c), [a, b, c]);
+    check!(down_queries(b, c), [a, b, c]);
+    check!(up_queries(b, c), [a, b, c]);
     true
 }
 
@@ -941,43 +1055,27 @@ fn span_dominance_coarsens_place(a: &Version, b: &Version, c: &Version) -> bool 
     true
 }
 
-/// On a two-bounded range, `bounded` is `Span::place` over the same
-/// version pair, coarsened — and bound *kinds* never enter, since both
-/// verdicts are pure functions of the raw relations.
+/// A span's segment, as a query, is exactly span placement's
+/// contained region: `Query::from(&span).contains(p)` iff
+/// [`Span::place`] puts `p` at an endpoint or between them.
 ///
-/// The collapse forgets exactly what range semantics cannot see: a
-/// concurrency's start side (`Concurrent(Start)` folds into `Between`,
-/// because start bounds keep concurrent versions, and
-/// `Concurrent(End | Both)` into `Concurrent`, the end-bound verdict)
-/// and the coincident at-verdict's end half (`At(Both)` canonicalizes
-/// to `AtStart`, the start-speaks-first rule).
-fn bounded_coarsens_span_place(a: &Version, b: &Version, c: &Version) -> bool {
+/// The tie between the two constructions: a span is the concrete
+/// pair, and its segment-as-predicate is the `after(lo) & before(hi)`
+/// cell of the query language — every other placement verdict
+/// (outside either endpoint, or concurrent to one) is exactly
+/// non-membership.
+fn segment_query_matches_span_place(a: &Version, b: &Version, c: &Version) -> bool {
     let meet = b & c;
-    for (s, e) in &placement_bound_pairs(b, c) {
-        for range in each_admitted_range(s, e) {
-            // Only two-bounded ranges carry a span to coarsen from.
-            let (Bound::Included(lo) | Bound::Excluded(lo)) = range.start_bound() else {
-                continue;
-            };
-            let (Bound::Included(hi) | Bound::Excluded(hi)) = range.end_bound() else {
-                continue;
-            };
-            let Ok(span) = Span::new(lo, hi) else {
-                // The range gate already validated the pair.
+    for (lo, hi) in &span_candidates(b, c) {
+        let Ok(span) = Span::new(lo, hi) else {
+            // Every candidate is ordered by construction or admission.
+            return false;
+        };
+        let q = Query::from(&span);
+        for probe in [a, b, c, &meet] {
+            let inside = matches!(span.place(probe), Placement::At(_) | Placement::Between);
+            if q.contains(probe) != inside {
                 return false;
-            };
-            for probe in [a, b, c, &meet] {
-                let coarse = match span.place(probe) {
-                    Placement::Before => Bounded::Before,
-                    Placement::At(Endpoint::Start | Endpoint::Both) => Bounded::AtStart,
-                    Placement::At(Endpoint::End) => Bounded::AtEnd,
-                    Placement::Between | Placement::Concurrent(Endpoint::Start) => Bounded::Between,
-                    Placement::After => Bounded::After,
-                    Placement::Concurrent(Endpoint::End | Endpoint::Both) => Bounded::Concurrent,
-                };
-                if range.bounded(probe) != coarse {
-                    return false;
-                }
             }
         }
     }

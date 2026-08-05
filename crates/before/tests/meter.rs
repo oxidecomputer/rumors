@@ -7984,13 +7984,14 @@ mod width_circulation_cost {
     }
 }
 
-// ─── range placement scenarios ──────────────────────────────────────────────
+// ─── query and span placement scenarios ─────────────────────────────────────
 //
-// The `causally` placement walk's resource identities, stated relationally
-// against the pair comparison sweep so there is no constant to re-pin: the
-// fused walk must cost exactly the two-walk composition minus one probe
-// scan on full sweeps, degenerate to the pair sweep byte-for-byte when one
-// bound is absent, and keep every early exit the composition had.
+// The `causally` filter and placement walks' resource identities, stated
+// relationally against the pair comparison sweep so there is no constant to
+// re-pin: each fused walk must cost exactly its composition minus the saved
+// probe scans on full sweeps, degenerate to the pair sweep byte-for-byte on
+// one exhaustion-confirmed bound, and add verdict-driven exits the
+// composition never had.
 #[cfg(feature = "scan-meter")]
 mod placement {
     use std::cmp::Ordering;
@@ -8043,160 +8044,198 @@ mod placement {
         (s, v, e, div)
     }
 
-    /// GREEN PIN: on a full sweep (every relation comparable, so nothing
-    /// exits early), the fused placement scans exactly the two-walk
-    /// composition minus one probe scan — each stream decoded once.
+    /// GREEN PIN: on a full sweep (no demand settles before
+    /// exhaustion), the fused membership walk scans exactly the
+    /// two-walk composition minus one probe scan — each stream decoded
+    /// once.
     ///
-    /// Stated relationally against the pair sweep on the same operands
-    /// (`cmp(v, v')` prices one probe scan as half its reading, `v'` a
-    /// buffer-distinct re-decode of `v`: a shared buffer would answer
-    /// by clone identity without a walk), so the identity
-    /// self-normalizes and no measured constant can rot.
+    /// The probe sits below the hole and the ceiling, so the hole's
+    /// subtraction and the ceiling's containment both confirm only at
+    /// exhaustion. Stated relationally against the pair sweep on the
+    /// same operands (`cmp(p, p')` prices one probe scan as half its
+    /// reading, `p'` a buffer-distinct re-decode of `p`: a shared
+    /// buffer would answer by clone identity without a walk), so the
+    /// identity self-normalizes and no measured constant can rot.
     #[test]
-    fn placement_fused_walk_scans_each_stream_once() {
+    fn query_fused_walk_scans_each_stream_once() {
         let (s, v, e, _) = fixture();
-        let range = causally::since(&s).known_at(&e).unwrap();
+        let query = causally::since(&v) & causally::before(&e);
 
         let fused = scanned(|| {
-            assert_eq!(range.bounded(&v), causally::Bounded::Between);
+            assert!(!query.contains(&s));
         });
-        let v_redecoded = Version::decode(&v.encode()[..]).expect("a stored stream re-decodes");
-        let cmp_vs = scanned(|| assert!(v.partial_cmp(&s).is_some()));
-        let cmp_ve = scanned(|| assert!(v.partial_cmp(&e).is_some()));
-        let cmp_vv = scanned(|| assert!(v.partial_cmp(&v_redecoded).is_some()));
+        let s_redecoded = Version::decode(&s.encode()[..]).expect("a stored stream re-decodes");
+        let cmp_sv = scanned(|| assert!(s.partial_cmp(&v).is_some()));
+        let cmp_se = scanned(|| assert!(s.partial_cmp(&e).is_some()));
+        let cmp_ss = scanned(|| assert!(s.partial_cmp(&s_redecoded).is_some()));
         eprintln!(
-            "MEASURED placement_one_pass: fused={fused} composed={} probe_scan={} \
-             encoded_bits: v={} s={} e={}",
-            cmp_vs + cmp_ve,
-            cmp_vv / 2,
-            v.encoded_bits(),
+            "MEASURED query_one_pass: fused={fused} composed={} probe_scan={} \
+             encoded_bits: s={} v={} e={}",
+            cmp_sv + cmp_se,
+            cmp_ss / 2,
             s.encoded_bits(),
+            v.encoded_bits(),
             e.encoded_bits(),
         );
         assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
         assert_eq!(
-            fused + cmp_vv / 2,
-            cmp_vs + cmp_ve,
+            fused + cmp_ss / 2,
+            cmp_sv + cmp_se,
             "the fused walk must cost the composition minus exactly one probe scan"
         );
     }
 
-    /// GREEN PIN: with one bound absent, the placement walk *is* the pair
-    /// sweep — scan readings byte-identical to `partial_cmp` on the same
-    /// operands, for both bound sides and both a full sweep and a
-    /// concurrent early exit.
+    /// GREEN PIN: over a single stored bound, the membership walk is
+    /// the pair sweep.
+    ///
+    /// A bound whose verdict confirms only at exhaustion reads scan
+    /// bits byte-identical to `partial_cmp` on the same operands,
+    /// ceiling demand and hole alike, while a bound whose verdict
+    /// refutes mid-walk answers at the first refuted direction, at or
+    /// strictly under the raw sweep (which must refute both
+    /// directions, or confirm one to exhaustion).
     ///
     /// This is the identity the classifier conversions in `rumors` rest
-    /// on: a single-bound `placement_of`/`contains` costs exactly what
-    /// the raw comparison it replaces cost.
+    /// on: a single-bound `contains` costs at most what the raw
+    /// comparison it replaces cost.
     #[test]
-    fn placement_single_bound_matches_the_pair_sweep() {
+    fn query_single_bound_matches_the_pair_sweep() {
         let (_, v, e, div) = fixture();
-        for (probe, bound, genre) in [
-            (&v, &e, "comparable"),
-            (&v, &div, "concurrent"),
-            (&e, &v, "dominating"),
-        ] {
-            let raw = scanned(|| {
-                let _ = probe.partial_cmp(bound);
-            });
-            let end_only = scanned(|| {
-                let _ = causally::known_at(bound).bounded(probe);
-            });
-            let start_only = scanned(|| {
-                let _ = causally::since(bound).bounded(probe);
-            });
-            eprintln!(
-                "MEASURED placement_single_bound/{genre}: raw={raw} \
-                 end_only={end_only} start_only={start_only}"
-            );
-            assert!(raw > 0, "a live scan meter reads nonzero on a real walk");
-            assert_eq!(
-                end_only, raw,
-                "{genre}: an end-only placement must scan exactly as the pair sweep"
-            );
-            assert_eq!(
-                start_only, raw,
-                "{genre}: a start-only placement must scan exactly as the pair sweep"
-            );
-        }
+        // Exhaustion-confirmed verdicts: the ceiling admits the probe,
+        // the hole holds it — byte-identical to the sweep.
+        let raw = scanned(|| {
+            let _ = v.partial_cmp(&e);
+        });
+        let ceiling = scanned(|| {
+            assert!(causally::Query::from(causally::before(&e)).contains(&v));
+        });
+        let hole = scanned(|| {
+            assert!(!causally::since(&e).contains(&v));
+        });
+        eprintln!(
+            "MEASURED query_single_bound/exhaustion: raw={raw} ceiling={ceiling} hole={hole}"
+        );
+        assert!(raw > 0, "a live scan meter reads nonzero on a real walk");
+        assert_eq!(
+            ceiling, raw,
+            "an exhaustion-confirmed ceiling must scan exactly as the pair sweep"
+        );
+        assert_eq!(
+            hole, raw,
+            "an exhaustion-confirmed hole must scan exactly as the pair sweep"
+        );
+
+        // Refuted verdicts: the bail acts at the first refuted
+        // direction, strictly under a raw sweep still confirming its
+        // other direction.
+        let raw = scanned(|| {
+            let _ = e.partial_cmp(&v);
+        });
+        let ceiling_refuted = scanned(|| {
+            assert!(!causally::Query::from(causally::before(&v)).contains(&e));
+        });
+        let hole_satisfied = scanned(|| {
+            assert!(causally::since(&v).contains(&e));
+        });
+        eprintln!(
+            "MEASURED query_single_bound/refuted: raw={raw} \
+             ceiling_refuted={ceiling_refuted} hole_satisfied={hole_satisfied}"
+        );
+        assert!(
+            ceiling_refuted < raw,
+            "a refuted ceiling must bail before the raw sweep's domination confirm"
+        );
+        assert!(
+            hole_satisfied < raw,
+            "a satisfied hole must drop before the raw sweep's domination confirm"
+        );
+
+        // A concurrent bound refutes the watched direction no later
+        // than the raw sweep refutes both.
+        let raw = scanned(|| {
+            let _ = v.partial_cmp(&div);
+        });
+        let concurrent = scanned(|| {
+            assert!(!causally::Query::from(causally::before(&div)).contains(&v));
+        });
+        eprintln!("MEASURED query_single_bound/concurrent: raw={raw} ceiling={concurrent}");
+        assert!(
+            concurrent <= raw,
+            "a concurrent ceiling must answer no later than the raw sweep"
+        );
     }
 
     /// GREEN PIN: the composition's early exits survive the fusion, and
     /// the fused walk stays strictly under the composition on both
     /// concurrent genres.
     ///
-    /// Concurrent to the end: the verdict returns at the deciding
-    /// interval. Concurrent to the start: the start cursor is dropped at
-    /// the deciding interval (its stream is never scanned further) while
-    /// the end relation sweeps on — the two-walk composition's bail,
-    /// minus its second probe scan.
+    /// Concurrent to the ceiling: the refuted containment answers at
+    /// the deciding interval. Concurrent to the hole: the hole is
+    /// satisfied and its stream dropped at the deciding interval while
+    /// the ceiling sweeps on — the two-walk composition's bail, minus
+    /// its second probe scan.
     #[test]
-    fn placement_early_exits_survive_the_fusion() {
+    fn query_early_exits_survive_the_fusion() {
         let (s, v, e, div) = fixture();
 
-        // Concurrent to the end bound.
-        let range = causally::since(&s).known_at(&div).unwrap();
+        // Concurrent to the ceiling.
+        let query = causally::since(&s) & causally::before(&div);
         let fused = scanned(|| {
-            assert_eq!(range.bounded(&v), causally::Bounded::Concurrent);
+            assert!(!query.contains(&v));
         });
         let composed = scanned(|| {
             let _ = v.partial_cmp(&s);
             let _ = v.partial_cmp(&div);
         });
-        eprintln!("MEASURED placement_concurrent_end: fused={fused} composed={composed}");
+        eprintln!("MEASURED query_concurrent_ceiling: fused={fused} composed={composed}");
         assert!(
             fused < composed,
-            "concurrent-to-end: the fused walk ({fused}) must undercut the \
+            "concurrent-to-ceiling: the fused walk ({fused}) must undercut the \
              composition ({composed})"
         );
 
-        // Concurrent to the start bound, within the end.
+        // Concurrent to the hole, within the ceiling.
         let top = &e | &div;
-        let range = causally::since(&div).known_at(&top).unwrap();
+        let query = causally::since(&div) & causally::before(&top);
         let fused = scanned(|| {
-            assert_eq!(range.bounded(&v), causally::Bounded::Between);
+            assert!(query.contains(&v));
         });
         let composed = scanned(|| {
             let _ = v.partial_cmp(&div);
             let _ = v.partial_cmp(&top);
         });
-        eprintln!("MEASURED placement_concurrent_start: fused={fused} composed={composed}");
+        eprintln!("MEASURED query_concurrent_hole: fused={fused} composed={composed}");
         assert!(
             fused < composed,
-            "concurrent-to-start: the dropped start cursor must keep the fused \
+            "concurrent-to-hole: the dropped hole stream must keep the fused \
              walk ({fused}) under the composition ({composed})"
         );
     }
 
     /// GREEN PIN: the single-bound identity holds on the limb meter too —
-    /// the degenerate walk commits exactly the pair sweep's accumulator
-    /// write sequence.
+    /// on an exhaustion-confirmed demand, the degenerate walk commits
+    /// exactly the pair sweep's accumulator write sequence.
     #[cfg(feature = "limb-meter")]
     #[test]
-    fn placement_single_bound_matches_the_pair_sweep_limbs() {
-        let (_, v, e, div) = fixture();
+    fn query_single_bound_matches_the_pair_sweep_limbs() {
+        let (_, v, e, _) = fixture();
         let limbs = |f: &dyn Fn()| {
             meter::reset_limb_ops();
             f();
             meter::limb_ops()
         };
-        for (probe, bound, genre) in [(&v, &e, "comparable"), (&v, &div, "concurrent")] {
-            let raw = limbs(&|| {
-                let _ = probe.partial_cmp(bound);
-            });
-            let end_only = limbs(&|| {
-                let _ = causally::known_at(bound).bounded(probe);
-            });
-            eprintln!(
-                "MEASURED placement_single_bound_limbs/{genre}: raw={raw} end_only={end_only}"
-            );
-            assert!(raw > 0, "a live limb meter reads nonzero on a real sweep");
-            assert_eq!(
-                end_only, raw,
-                "{genre}: an end-only placement must fold exactly as the pair sweep"
-            );
-        }
+        let raw = limbs(&|| {
+            let _ = v.partial_cmp(&e);
+        });
+        let ceiling = limbs(&|| {
+            assert!(causally::Query::from(causally::before(&e)).contains(&v));
+        });
+        eprintln!("MEASURED query_single_bound_limbs: raw={raw} ceiling={ceiling}");
+        assert!(raw > 0, "a live limb meter reads nonzero on a real sweep");
+        assert_eq!(
+            ceiling, raw,
+            "an exhaustion-confirmed ceiling must fold exactly as the pair sweep"
+        );
     }
 
     /// GREEN PIN: one fused span pass, each stream decoded once.
@@ -8352,18 +8391,17 @@ mod placement {
                 causally::Placement::Concurrent(causally::Endpoint::Start)
             );
         });
-        // The two-check shape the dominance face replaces: place the
-        // start version against the probe's known-at range (the
-        // floor-first check, which exits at the concurrency), then
-        // check the end version's containment (the second probe decode
-        // the fusion ends).
-        let known_at = causally::known_at(&v);
+        // The two-check shape the dominance face replaces: compare the
+        // start version against the probe (the floor-first check,
+        // which exits at the concurrency), then check the end
+        // version's containment in the probe's past (the second probe
+        // decode the fusion ends).
         let first_check = scanned(|| {
-            assert_eq!(known_at.placement_of(&div), Ordering::Greater);
+            assert!(div.partial_cmp(&v).is_none());
         });
         let two_check = first_check
             + scanned(|| {
-                assert!(!known_at.contains(&top));
+                assert!(!causally::before(&v).contains(&top));
             });
         eprintln!(
             "MEASURED dominance_bail_concurrent: fused={fused} place={place} \
@@ -8384,13 +8422,12 @@ mod placement {
         let fused = scanned(|| {
             assert_eq!(span.dominance(&s), causally::Dominance::Before);
         });
-        let known_at = causally::known_at(&s);
         let first_check = scanned(|| {
-            assert_eq!(known_at.placement_of(&v), Ordering::Greater);
+            assert_eq!(v.partial_cmp(&s), Some(Ordering::Greater));
         });
         let two_check = first_check
             + scanned(|| {
-                assert!(!known_at.contains(&e));
+                assert!(!causally::before(&s).contains(&e));
             });
         eprintln!(
             "MEASURED dominance_bail_dominating: fused={fused} \

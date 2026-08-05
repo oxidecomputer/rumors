@@ -245,15 +245,16 @@
 //! containment of history, and two versions with no containing order are
 //! [`concurrent`](Version::concurrent). Two tools extend it:
 //!
-//! - **Filtering**: the [`causally`] module gives names to causal ranges, e.g.
+//! - **Filtering**: the [`causally`] module composes causal queries, e.g.
 //!   [`since(a)`](causally::since) is everything `a` does not already
-//!   contain, [`before(b)`](causally::before) everything strictly contained
-//!   in `b`, [`delta(a, b)`](causally::delta) everything known at `b`
-//!   but not at `a`, etc. Each is a [`causally::Range`], a
-//!   [`RangeBounds<Version>`](std::ops::RangeBounds) whose membership
-//!   predicate is causal containment. For fine-grained, two-ended queries,
-//!   [`Span`] allows interrogating the pair of an upper and lower bounding
-//!   [`Version`] simultaneously and efficiently.
+//!   contain, [`before(b)`](causally::before) everything `b` contains, and
+//!   [`delta(a, b)`](causally::delta) everything `b` contains but `a` does
+//!   not — and any compatible bounds conjoin with `&` into a
+//!   [`causally::Query`], whose membership predicate is causal
+//!   containment and which classifies whole version regions at once
+//!   ([`coverage`](causally::Query::coverage)). For questions about a
+//!   concrete pair of bounding [`Version`]s, [`Span`] interrogates the
+//!   pair simultaneously and efficiently.
 //! - **Sorting**: where a *total* order over versions is needed, [`Rank`]
 //!   measures a version by a quantity that strictly grows with every tick,
 //!   so `v < w` implies `v.rank() < w.rank()`: causes always sort before
