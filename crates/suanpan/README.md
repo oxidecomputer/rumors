@@ -50,6 +50,20 @@ it out.
 
 ## The representation
 
+Value storage is two-tier. Every accumulator begins in the *quick
+register*: the exact value in one `i128`, held while it and every
+operand stay word-scale (magnitudes to `2^96`, shifts to 30 bits) —
+there, an add is one machine addition and a sign read one
+comparison. The first wide operand, wide shift, or outgrown sum
+spills the register into the digit representation below, once per
+`reset` epoch and at O(1) cost. The spill is
+one-way, so the register is not the two-zone design rejected later
+in this section: there is no boundary a delta stream can oscillate
+across — crossing it retires it — and every amortized bound below
+holds with the register in front, since register operations are
+exact and O(1). The digit representation is the accumulator's
+load-bearing tier:
+
 An accumulator stores little-endian signed digits `dᵢ: i64` denoting
 `value = Σ dᵢ · 2^(32·i)`, each digit kept in the *lazy zone*
 `|dᵢ| < 2^33` — twice the digit base, and symmetric about zero. The
