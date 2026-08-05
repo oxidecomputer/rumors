@@ -1,8 +1,10 @@
-//! One-off profiling harness for the perf-probe investigation: rebuilds the
-//! bench suite's corpus shapes through the public API, then spins each hot
-//! operation in its own `#[inline(never)]` loop so a sampling profiler
-//! attributes cycles per operation. Run with `--features oracle` to also
-//! print the oracle's timings for the same plans (ratio anchor only).
+//! One-off profiling harness for the perf-probe investigation.
+//!
+//! Rebuilds the bench suite's corpus shapes through the public API,
+//! then spins each hot operation in its own `#[inline(never)]` loop so
+//! a sampling profiler attributes cycles per operation. Run with
+//! `--features oracle` to also print the oracle's timings for the same
+//! plans (ratio anchor only).
 //!
 //! Usage: cargo run -p before --profile bench --example perf_probe --features oracle [n]
 
@@ -75,10 +77,11 @@ fn impl_clocks(plan: &Plan, groups: u8) -> Vec<Clock> {
 }
 
 /// The ownership-hole pair: the full universe's joined version against
-/// one late-forked member's party — a peer owning a vanishing custody
-/// fraction registering an event on a fully-received version. The
-/// aliased party never re-enters protocol use, so linearity holds for
-/// everything the loop observes.
+/// one late-forked member's party.
+///
+/// A peer owning a vanishing custody fraction registering an event on
+/// a fully-received version. The aliased party never re-enters
+/// protocol use, so linearity holds for everything the loop observes.
 fn hole_pair(plan: &Plan) -> (Party, Version) {
     let mut universe = vec![Clock::seed()];
     for &i in &plan.schedule {

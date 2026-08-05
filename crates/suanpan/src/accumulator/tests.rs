@@ -1626,9 +1626,10 @@ proptest! {
 }
 
 /// The quick register engages on machine-word streams, retires at the
-/// first wide operand, and re-arms on reset: the liveness pin that the
-/// fast path is actually taken and the spill actually spills, so
-/// neither mode's coverage is vacuous.
+/// first wide operand, and re-arms on reset.
+///
+/// The liveness pin that the fast path is actually taken and the
+/// spill actually spills, so neither mode's coverage is vacuous.
 #[test]
 fn quick_register_engages_and_retires() {
     let mut acc = Accumulator::new();
@@ -1670,12 +1671,13 @@ fn full_register(negative: bool) -> (Accumulator, IBig) {
     (acc, oracle)
 }
 
-/// The register's headroom is exact at every extreme: the widest
-/// operand of every register entry point, folded into a register parked
-/// at its ceiling, spills and matches the oracle — so no input can
-/// drive the fast path into `i128` overflow (debug builds would panic
-/// on the arithmetic; release builds would silently wrap into a wrong
-/// value the oracle comparison catches).
+/// The register's headroom is exact at every extreme: no input can
+/// drive the fast path into `i128` overflow.
+///
+/// The widest operand of every register entry point, folded into a
+/// register parked at its ceiling, spills and matches the oracle
+/// (debug builds would panic on the arithmetic; release builds would
+/// silently wrap into a wrong value the oracle comparison catches).
 #[test]
 fn quick_register_extremes_spill_exactly() {
     // The headroom derivation itself, pinned executable: a full

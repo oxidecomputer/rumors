@@ -468,12 +468,14 @@ fn tick_mirror_wide_envelope() {
 
 /// Ticking the descending staircase under a party owning one deep
 /// diverted fragment (the ownership-hole family) stays within an
-/// envelope the leaf-by-leaf walk exceeds: the fill walk's unowned
-/// regions are whole staircase runs, and the block scan must fold each
-/// into O(1) accumulator work instead of per-leaf freight. The touch
-/// ceiling is the skip's liveness signal — it sits below the per-leaf
-/// mechanism's reading, so the fast path must demonstrably engage; the
-/// scan column pins that every skipped bit is still read.
+/// envelope the leaf-by-leaf walk exceeds.
+///
+/// The fill walk's unowned regions are whole staircase runs, and the
+/// block scan must fold each into O(1) accumulator work instead of
+/// per-leaf freight. The touch ceiling is the skip's liveness signal
+/// — it sits below the per-leaf mechanism's reading, so the fast path
+/// must demonstrably engage; the scan column pins that every skipped
+/// bit is still read.
 #[test]
 fn tick_ownership_hole_envelope() {
     let ev = Shape::Staircase.packed1(HOLE_STAIR_DEPTH);
@@ -493,10 +495,12 @@ fn tick_ownership_hole_envelope() {
 /// Ticking the alternating spine under the scattered id (the
 /// alternating-ownership comb: owned fragments and absent gaps
 /// interleaved at every level, so every unowned region is a single
-/// leaf) stays within its envelope. The comb is the region gate's
-/// worst case — the block scan can never engage — and the pin holds
-/// the gated walk to the per-leaf walk's own readings: a gate that
-/// costs anything when closed moves this envelope.
+/// leaf) stays within its envelope.
+///
+/// The comb is the region gate's worst case — the block scan can
+/// never engage — and the pin holds the gated walk to the per-leaf
+/// walk's own readings: a gate that costs anything when closed moves
+/// this envelope.
 #[test]
 fn tick_ownership_comb_envelope() {
     let ev = Shape::AltSpine.packed1(DENSE_DEPTH);

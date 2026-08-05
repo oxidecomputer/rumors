@@ -87,10 +87,12 @@ const QUICK_SHIFT_MAX: u64 = 30;
 /// either; only dropping the accumulator does).
 #[derive(Debug, Clone)]
 pub struct Accumulator {
-    /// The quick register: `Some(v)` means the held value is exactly `v`
-    /// and the digit engine below is idle (digits all zero, ledger
-    /// empty). Every accumulator starts here and stays while the value
-    /// and the operands fit ([`QUICK_MAX`]); the first wide operand or
+    /// The quick register: `Some(v)` means the held value is exactly
+    /// `v` and the digit engine below is idle (digits all zero, ledger
+    /// empty).
+    ///
+    /// Every accumulator starts here and stays while the value and the
+    /// operands fit ([`QUICK_MAX`]); the first wide operand or
     /// outgrown sum spills the register into the digits, once per
     /// [`reset`](Accumulator::reset) epoch — an exact small-integer
     /// mode with a one-way, O(1) exit, not a normalized region a delta

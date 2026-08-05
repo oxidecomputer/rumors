@@ -158,9 +158,10 @@ impl Out {
     }
 
     /// Splice the remainder of a canonical multi-leaf subtree verbatim
-    /// ([`SkylineBuilder::continue_verbatim`]; the caller has just fed
-    /// the subtree's first leaf through [`leaf`](Self::leaf) and
-    /// checked [`held_at`](Self::held_at)).
+    /// ([`SkylineBuilder::continue_verbatim`]).
+    ///
+    /// The caller has just fed the subtree's first leaf through
+    /// [`leaf`](Self::leaf) and checked [`held_at`](Self::held_at).
     ///
     /// # Panics
     ///

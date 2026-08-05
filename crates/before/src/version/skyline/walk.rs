@@ -217,14 +217,16 @@ pub(super) struct RegionSkip {
 
 /// Drive `walk` over the remaining leaves of the subtree at the
 /// cursor, folding every payload into `net` and `extremum` — the block
-/// scans' shared read loop: one unary topology read and one payload
-/// decode per leaf, no other work. Returns the last consumed leaf's
-/// depth below the walked root and its code length, or `None` when no
-/// leaf remained. `first` says whether the next payload is the
-/// stream's absolute first (coded as a height, not a delta); `pending`
-/// hands in a leaf the caller has already descended to (its payload
-/// still unread at the cursor), which lets a caller route on the first
-/// descent's depth without re-reading any bit.
+/// scans' shared read loop.
+///
+/// One unary topology read and one payload decode per leaf, no other
+/// work. Returns the last consumed leaf's depth below the walked root
+/// and its code length, or `None` when no leaf remained. `first` says
+/// whether the next payload is the stream's absolute first (coded as
+/// a height, not a delta); `pending` hands in a leaf the caller has
+/// already descended to (its payload still unread at the cursor),
+/// which lets a caller route on the first descent's depth without
+/// re-reading any bit.
 ///
 /// Every folded bit is still read and recorded: the scan meter's
 /// reading is identical to the leaf-by-leaf pass this batches.
@@ -280,9 +282,11 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip
 
 /// Skip-scan the remaining leaves of a subtree whose walk is already
 /// open, or `None` when none remain (`pending` as in
-/// [`fold_region`]). The minimum is over the folded leaves alone: the
-/// first of them arms the fold, so its height — not the caller's last
-/// consumed one — is the range's entry extremum.
+/// [`fold_region`]).
+///
+/// The minimum is over the folded leaves alone: the first of them
+/// arms the fold, so its height — not the caller's last consumed one
+/// — is the range's entry extremum.
 ///
 /// # Panics
 ///

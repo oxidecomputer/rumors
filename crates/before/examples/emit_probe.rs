@@ -1,8 +1,10 @@
-//! Primitive-cost probe for the emission machinery: measures the raw
-//! output-side primitives the join/tick sweeps spend their cycles in
-//! (per-bit `bitvec` pushes, per-leaf heap-allocated code buffers,
-//! bit-addressed splices) against word-buffered equivalents, on the same
-//! workload shape (~5k leaves, 3-9 bit codes, 75k output bits).
+//! Primitive-cost probe for the emission machinery.
+//!
+//! Measures the raw output-side primitives the join/tick sweeps spend
+//! their cycles in (per-bit `bitvec` pushes, per-leaf heap-allocated
+//! code buffers, bit-addressed splices) against word-buffered
+//! equivalents, on the same workload shape (~5k leaves, 3-9 bit codes,
+//! 75k output bits).
 //!
 //! Usage: cargo run -p before --profile bench --example emit_probe
 

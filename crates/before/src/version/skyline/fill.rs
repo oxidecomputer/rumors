@@ -764,10 +764,12 @@ impl FillWalk<'_> {
     }
 
     /// Fold one consumed block's net movement into every height-carried
-    /// register, exactly as [`consume_payload`](Self::consume_payload)
-    /// would have leaf by leaf: the block scans' one re-entry fold.
-    /// Nothing reads the registers between a block's leaves, so the
-    /// batched fold is observationally the per-leaf sequence.
+    /// register: the block scans' one re-entry fold.
+    ///
+    /// Exactly what [`consume_payload`](Self::consume_payload) would
+    /// have folded leaf by leaf: nothing reads the registers between a
+    /// block's leaves, so the batched fold is observationally the
+    /// per-leaf sequence.
     fn fold_block(&mut self, net: &Signed) {
         fold_signed_int(&mut self.h, net.0, &net.1);
         self.stack.fold_height(net.0, &net.1);
@@ -1805,10 +1807,12 @@ impl PreScan<'_, '_> {
     }
 
     /// Walk an untouched range (`fill(0, e) = e`) at the cursor as one
-    /// block: the skip-scanned summary folds the net movement into the
-    /// height side and lands the range's minimum as one virtual
-    /// emission — the same two quantities the leaf-by-leaf virtual
-    /// emissions would have left in the web.
+    /// block.
+    ///
+    /// The skip-scanned summary folds the net movement into the height
+    /// side and lands the range's minimum as one virtual emission —
+    /// the same two quantities the leaf-by-leaf virtual emissions
+    /// would have left in the web.
     fn copy_range(&mut self, first: bool) {
         let mut walk = LeafWalk::new();
         let d1 = walk

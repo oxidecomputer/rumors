@@ -303,8 +303,10 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
 
 /// The output's delta code at the boundary just crossed: the followed
 /// side's own step on the same-side path, the switch algebra otherwise
-/// (the module doc). The same-side path borrows the step and codes it
-/// in place; only a switch materializes a magnitude.
+/// (the module doc).
+///
+/// The same-side path borrows the step and codes it in place; only a
+/// switch materializes a magnitude.
 fn delta_code(
     diff: &Accumulator,
     side: Side,

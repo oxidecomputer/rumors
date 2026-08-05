@@ -190,9 +190,11 @@ impl SkylineBuilder {
     }
 
     /// Whether the most recent [`leaf`](Self::leaf) survives as the
-    /// held leaf at exactly `depth` — no absorb or cascade merged it
-    /// upward — so a [`continue_verbatim`](Self::continue_verbatim)
-    /// splice would extend exactly that leaf.
+    /// held leaf at exactly `depth`, no absorb or cascade having
+    /// merged it upward.
+    ///
+    /// A [`continue_verbatim`](Self::continue_verbatim) splice would
+    /// extend exactly that leaf.
     pub(super) fn held_at(&self, depth: usize) -> bool {
         self.held.is_some() && self.path.len() == depth
     }
