@@ -265,6 +265,32 @@ fn main() {
         let (i, t) = loop_version_tick(budget, &hole_party, &hole_version);
         println!("version_holetick {t:>10.1} ns/op ({i} iters)");
     }
+    if run("holeproj") {
+        let mut rh = StdRng::seed_from_u64(SEED.wrapping_add(1));
+        let ph = plan(&mut rh, n, 1);
+        let (hole_party, hole_version) = hole_pair(&ph);
+        let (i, t) = time_loop(budget, || {
+            black_box((&hole_version / &hole_party).to_version());
+        });
+        println!("version_holeproj {t:>10.1} ns/op ({i} iters)");
+    }
+    if run("holecmp") {
+        let mut rh = StdRng::seed_from_u64(SEED.wrapping_add(1));
+        let ph = plan(&mut rh, n, 1);
+        let (hole_party, hole_version) = hole_pair(&ph);
+        // A second, byte-identical pair in distinct buffers: the
+        // deterministic construction re-run (Party is deliberately not
+        // Clone).
+        let (party2, version2) = hole_pair(&ph);
+        let own_a = &hole_version / &hole_party;
+        let own_b = &version2 / &party2;
+        // Equality of equal projections held in distinct buffers: the
+        // full masked co-walk to exhaustion, no early exit.
+        let (i, t) = time_loop(budget, || {
+            black_box(own_a == own_b);
+        });
+        println!("version_holecmp {t:>11.1} ns/op ({i} iters)");
+    }
     if run("vjoin") {
         let (i, t) = loop_version_join(budget, ja.version(), jb.version());
         println!("version_join   {t:>12.1} ns/op ({i} iters)");

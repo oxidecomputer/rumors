@@ -1684,9 +1684,16 @@ impl<'a> OwnSpan<'a> {
     /// the `own_span_matches_the_projected_span` law in
     /// [`laws`](crate::laws) pins it to the eagerly-projected span's
     /// [`place`](Span::place) on every consumer. A fused
-    /// probe-mask-endpoints kernel would save one probe decode per
-    /// verdict; no consumer's profile has asked for it, so the
-    /// composed form stands.
+    /// probe-mask-endpoints kernel would read the probe and the mask
+    /// once instead of twice — but its sign is workload-dependent,
+    /// not fixed: the composed form never opens the second endpoint
+    /// when the first comparison refutes, while a fused walk's
+    /// advance law drags that cursor through the shared prefix, so
+    /// fusion loses on exactly the refutation-heavy verdict mixes
+    /// that dominate tree-pruning consumers. No consumer's profile
+    /// has asked for it, so the composed form stands; a fusion must
+    /// preserve the composed form's laziness (open the second
+    /// endpoint's cursor on first need) to be an unconditional win.
     ///
     /// # Complexity
     ///

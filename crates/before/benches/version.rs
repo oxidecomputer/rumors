@@ -215,12 +215,53 @@ fn bench_codec(c: &mut Criterion) {
     g.finish();
 }
 
+/// The ownership-hole regime: a party owning a vanishing custody
+/// fraction of a fully-received version (`common::hole_pair`) — the
+/// small-custody-peer shape the ownership-gated walks serve. Three
+/// consumers on the same pair: `tick`, the projection
+/// (`OwnVersion::to_version`), and masked equality of equal
+/// projections in distinct buffers (a full co-walk, no early exit).
+/// No oracle row: the regime's anchor is the same pair on the plain
+/// walks above.
+fn bench_hole(c: &mut Criterion) {
+    let mut g = c.benchmark_group("version/hole");
+    let mut r = rng(1);
+    for &n in SIZES {
+        let plan = common::plan(&mut r, n, 1);
+        let (party, version) = common::hole_pair(&plan);
+        let bytes = version.encode();
+        g.bench_with_input(BenchmarkId::new("tick", n), &bytes, |b, bytes| {
+            b.iter_batched(
+                || Version::decode(&bytes[..]).unwrap(),
+                |mut v| {
+                    v.tick(&party);
+                    black_box(v)
+                },
+                BatchSize::SmallInput,
+            );
+        });
+        g.bench_with_input(BenchmarkId::new("project", n), &version, |b, v| {
+            b.iter(|| black_box((v / &party).to_version()));
+        });
+        let (party2, version2) = common::hole_pair(&plan);
+        g.bench_with_input(
+            BenchmarkId::new("masked_eq", n),
+            &(&version, &version2),
+            |b, (v, v2)| {
+                b.iter(|| black_box((*v / &party) == (*v2 / &party2)));
+            },
+        );
+    }
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_tick,
     bench_k_ticks,
     bench_merge,
     bench_partial_cmp,
-    bench_codec
+    bench_codec,
+    bench_hole
 );
 criterion_main!(benches);

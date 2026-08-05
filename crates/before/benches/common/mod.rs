@@ -175,6 +175,41 @@ pub fn impl_clocks(plan: &Plan, groups: u8) -> Vec<Clock> {
         .collect()
 }
 
+/// The ownership-hole pair for `plan`: the whole universe joined into
+/// one version, against one late-forked member's party — a peer owning
+/// a vanishing custody fraction operating on a fully-received version.
+///
+/// The aliased party never re-enters protocol use, so linearity holds
+/// for everything a benchmark observes.
+pub fn hole_pair(plan: &Plan) -> (Party, Version) {
+    let mut universe = vec![Clock::seed()];
+    for &i in &plan.schedule {
+        let child = universe[i].fork();
+        universe.push(child);
+    }
+    for (m, c) in universe.iter_mut().enumerate() {
+        for _ in 0..plan.ticks[m] {
+            c.tick();
+        }
+    }
+    let probe = universe
+        .last()
+        .expect("nonempty universe")
+        .dangerously_alias();
+    let (party, _) = probe.into_parts();
+    let full = universe
+        .into_iter()
+        .reduce(|mut acc, c| {
+            acc.join(c)
+                .map_err(|_| ())
+                .expect("universe members are pairwise disjoint");
+            acc
+        })
+        .expect("nonempty universe");
+    let (_, version) = full.into_parts();
+    (party, version)
+}
+
 /// The oracle counterpart of [`impl_clocks`].
 pub fn oracle_clocks(plan: &Plan, groups: u8) -> Vec<oracle::Clock> {
     let mut universe = vec![oracle::Clock::seed()];
