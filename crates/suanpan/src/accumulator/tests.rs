@@ -14,7 +14,18 @@ use dashu_int::ops::BitTest;
 use dashu_int::{IBig, Sign, UBig};
 use proptest::prelude::*;
 
-use super::Accumulator;
+use super::{Accumulator, QUICK_MAX, QUICK_SHIFT_MAX};
+
+/// A fresh accumulator in the requested mode: the quick register, or
+/// the digit engine armed by a forced spill — so every schedule drives
+/// both starting modes and neither path's coverage goes vacuous.
+fn fresh(engine: bool) -> Accumulator {
+    let mut acc = Accumulator::new();
+    if engine {
+        acc.spill();
+    }
+    acc
+}
 
 /// One accumulator operation, oracle-applicable.
 #[derive(Debug, Clone)]
@@ -150,8 +161,9 @@ proptest! {
     #[test]
     fn mixed_streams_match_the_bigint_oracle(
         ops in proptest::collection::vec(arb_op(), 1..300),
+        engine_first: bool,
     ) {
-        let mut acc = Accumulator::new();
+        let mut acc = fresh(engine_first);
         let mut oracle = IBig::from(0);
         for (step, op) in ops.iter().enumerate() {
             apply(&mut acc, &mut oracle, op);
@@ -439,20 +451,22 @@ fn negative_magnitudes_convert_through_both_arms() {
 /// including values past `i64::MAX`, in both directions.
 #[test]
 fn u64_entry_points_cover_the_full_range() {
-    let mut acc = Accumulator::new();
-    let mut oracle = IBig::from(0);
-    acc.add_u64(u64::MAX);
-    oracle += u64::MAX;
-    assert_eq!(acc.sign(), Ordering::Greater);
-    assert_value(&acc, &oracle);
-    acc.sub_u64(u64::MAX);
-    oracle -= u64::MAX;
-    assert_eq!(acc.sign(), Ordering::Equal);
-    assert_value(&acc, &oracle);
-    acc.sub_u64(u64::MAX);
-    oracle -= u64::MAX;
-    assert_eq!(acc.sign(), Ordering::Less);
-    assert_value(&acc, &oracle);
+    for engine in [false, true] {
+        let mut acc = fresh(engine);
+        let mut oracle = IBig::from(0);
+        acc.add_u64(u64::MAX);
+        oracle += u64::MAX;
+        assert_eq!(acc.sign(), Ordering::Greater);
+        assert_value(&acc, &oracle);
+        acc.sub_u64(u64::MAX);
+        oracle -= u64::MAX;
+        assert_eq!(acc.sign(), Ordering::Equal);
+        assert_value(&acc, &oracle);
+        acc.sub_u64(u64::MAX);
+        oracle -= u64::MAX;
+        assert_eq!(acc.sign(), Ordering::Less);
+        assert_value(&acc, &oracle);
+    }
 }
 
 /// A redundantly spelled zero reads `is_literally_zero() == false` until
@@ -1180,6 +1194,9 @@ fn no_collapse_fold_re_scans_the_prefix() {
 /// extreme-cancellation witnesses below: an adversary (or an unlucky
 /// workload) can park any digit one unit inside the zone boundary.
 fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
+    // The construction is a digit-engine spelling: arm the engine so
+    // the register cannot fuse the two deposits into one exact value.
+    acc.spill();
     acc.sub_magnitude_shl(&UBig::from(1u64 << 32), 32 * index);
     acc.sub_magnitude_shl(&UBig::from((1u64 << 32) - 1), 32 * index);
 }
@@ -1358,13 +1375,15 @@ proptest! {
         y_ops in proptest::collection::vec(arb_op(), 1..60),
         subtract: bool,
         flip: bool,
+        x_engine: bool,
+        y_engine: bool,
     ) {
-        let mut x = Accumulator::new();
+        let mut x = fresh(x_engine);
         let mut x_oracle = IBig::from(0);
         for op in &x_ops {
             apply(&mut x, &mut x_oracle, op);
         }
-        let mut y = Accumulator::new();
+        let mut y = fresh(y_engine);
         let mut y_oracle = IBig::from(0);
         for op in &y_ops {
             apply(&mut y, &mut y_oracle, op);
@@ -1396,8 +1415,9 @@ proptest! {
     #[test]
     fn is_literally_zero_is_sound_and_sign_canonicalizes(
         ops in proptest::collection::vec(arb_op(), 1..120),
+        engine_first: bool,
     ) {
-        let mut acc = Accumulator::new();
+        let mut acc = fresh(engine_first);
         let mut oracle = IBig::from(0);
         for op in &ops {
             apply(&mut acc, &mut oracle, op);
@@ -1428,8 +1448,9 @@ proptest! {
             (0u8..4, proptest::collection::vec(any::<u64>(), 1..=2), 0u64..4_096),
             1..150,
         ),
+        engine_first: bool,
     ) {
-        let mut acc = Accumulator::new();
+        let mut acc = fresh(engine_first);
         let mut oracle = IBig::from(0);
         for (step, (arm, limbs, shift)) in ops.iter().enumerate() {
             let value = from_limbs(limbs);
@@ -1467,8 +1488,9 @@ proptest! {
     fn in_place_shift_matches_the_oracle(
         ops in proptest::collection::vec(arb_op(), 1..60),
         shift in 0u64..200,
+        engine_first: bool,
     ) {
-        let mut acc = Accumulator::new();
+        let mut acc = fresh(engine_first);
         let mut oracle = IBig::from(0);
         for op in &ops {
             apply(&mut acc, &mut oracle, op);
@@ -1485,13 +1507,15 @@ proptest! {
     fn width_ordered_merges_match_the_oracle(
         x_ops in proptest::collection::vec(arb_op(), 1..60),
         y_ops in proptest::collection::vec(arb_op(), 1..60),
+        x_engine: bool,
+        y_engine: bool,
     ) {
-        let mut x = Accumulator::new();
+        let mut x = fresh(x_engine);
         let mut x_oracle = IBig::from(0);
         for op in &x_ops {
             apply(&mut x, &mut x_oracle, op);
         }
-        let mut y = Accumulator::new();
+        let mut y = fresh(y_engine);
         let mut y_oracle = IBig::from(0);
         for op in &y_ops {
             apply(&mut y, &mut y_oracle, op);
@@ -1514,8 +1538,9 @@ proptest! {
         floor in 0usize..8,
         probe_limbs in proptest::collection::vec(any::<u64>(), 1..=4),
         probe_negative: bool,
+        engine_first: bool,
     ) {
-        let mut acc = Accumulator::new();
+        let mut acc = fresh(engine_first);
         let mut oracle = IBig::from(0);
         for op in &ops {
             apply(&mut acc, &mut oracle, op);
@@ -1551,8 +1576,9 @@ proptest! {
         ops in proptest::collection::vec(arb_op(), 1..60),
         probe: u64,
         probe_negative: bool,
+        engine_first: bool,
     ) {
-        let mut acc = Accumulator::new();
+        let mut acc = fresh(engine_first);
         let mut oracle = IBig::from(0);
         for op in &ops {
             apply(&mut acc, &mut oracle, op);
@@ -1572,6 +1598,132 @@ proptest! {
                 "a decided verdict survives any word-scale fold"
             );
         }
+    }
+}
+
+/// The quick register engages on machine-word streams, retires at the
+/// first wide operand, and re-arms on reset: the liveness pin that the
+/// fast path is actually taken and the spill actually spills, so
+/// neither mode's coverage is vacuous.
+#[test]
+fn quick_register_engages_and_retires() {
+    let mut acc = Accumulator::new();
+    acc.add_u64(u64::MAX);
+    acc.sub_small(i64::MIN);
+    assert!(
+        acc.quick.is_some(),
+        "word-scale streams stay in the register"
+    );
+    acc.add_wide(&(UBig::from(1u8) << 200usize));
+    assert!(acc.quick.is_none(), "a wide operand arms the digit engine");
+    acc.add_u64(1);
+    assert!(
+        acc.quick.is_none(),
+        "the exit is one-way within an epoch: word traffic stays in the engine"
+    );
+    acc.reset();
+    assert!(acc.quick.is_some(), "a reset re-arms the register");
+}
+
+/// A register parked at its ceiling: `±2^96`, built through register
+/// entry points alone (the shifts stay at the ceiling, not past it).
+fn full_register(negative: bool) -> (Accumulator, IBig) {
+    let mut acc = Accumulator::new();
+    acc.add_u64(1 << 36);
+    acc.shl(30);
+    acc.shl(30);
+    if negative {
+        acc.negate();
+    }
+    assert!(
+        acc.quick.is_some(),
+        "the ceiling itself is a register value"
+    );
+    let mut oracle = IBig::from(UBig::ONE << 96usize);
+    if negative {
+        oracle = -oracle;
+    }
+    (acc, oracle)
+}
+
+/// The register's headroom is exact at every extreme: the widest
+/// operand of every register entry point, folded into a register parked
+/// at its ceiling, spills and matches the oracle — so no input can
+/// drive the fast path into `i128` overflow (debug builds would panic
+/// on the arithmetic; release builds would silently wrap into a wrong
+/// value the oracle comparison catches).
+#[test]
+fn quick_register_extremes_spill_exactly() {
+    // The headroom derivation itself, pinned executable: a full
+    // register plus the widest shifted fold the register accepts stays
+    // strictly inside i128.
+    let ceiling = i128::try_from(QUICK_MAX).expect("the ceiling fits i128");
+    let widest_fold = ceiling
+        .checked_shl(QUICK_SHIFT_MAX as u32)
+        .expect("the widest shifted fold fits i128");
+    ceiling
+        .checked_add(widest_fold)
+        .expect("the worst register sum fits i128");
+
+    // Word-scale extremes against the parked ceiling, both signs.
+    for negative in [false, true] {
+        let (mut acc, mut oracle) = full_register(negative);
+        acc.add_u64(u64::MAX);
+        oracle += u64::MAX;
+        assert_value(&acc, &oracle);
+
+        let (mut acc, mut oracle) = full_register(negative);
+        acc.sub_u64(u64::MAX);
+        oracle -= u64::MAX;
+        assert_value(&acc, &oracle);
+
+        let (mut acc, mut oracle) = full_register(negative);
+        acc.add_small(i64::MIN);
+        oracle += i64::MIN;
+        assert_value(&acc, &oracle);
+
+        let (mut acc, mut oracle) = full_register(negative);
+        acc.sub_small(i64::MIN);
+        oracle -= i64::MIN;
+        assert_value(&acc, &oracle);
+
+        // The widest shifted word the register path accepts.
+        let (mut acc, mut oracle) = full_register(negative);
+        acc.add_magnitude_shl(&UBig::from(u64::MAX), QUICK_SHIFT_MAX);
+        oracle += IBig::from(u64::MAX) << QUICK_SHIFT_MAX as usize;
+        assert_value(&acc, &oracle);
+
+        // The widest register-to-register folds: a full register into a
+        // full register at the widest register shift, both directions.
+        for (fold_negative, subtract) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let (mut acc, mut oracle) = full_register(negative);
+            let (operand, operand_oracle) = full_register(fold_negative);
+            let scaled = operand_oracle << QUICK_SHIFT_MAX as usize;
+            if subtract {
+                acc.sub_accum_shl(&operand, QUICK_SHIFT_MAX);
+                oracle -= scaled;
+            } else {
+                acc.add_accum_shl(&operand, QUICK_SHIFT_MAX);
+                oracle += scaled;
+            }
+            assert_value(&acc, &oracle);
+        }
+
+        // The widest in-place shift of a full register.
+        let (mut acc, mut oracle) = full_register(negative);
+        acc.shl(QUICK_SHIFT_MAX);
+        oracle <<= QUICK_SHIFT_MAX as usize;
+        assert!(acc.quick.is_none(), "the shifted ceiling spills");
+        assert_value(&acc, &oracle);
+
+        // Negation at the ceiling round-trips inside the register.
+        let (mut acc, mut oracle) = full_register(negative);
+        acc.negate();
+        oracle = -oracle;
+        assert!(acc.quick.is_some(), "the zone is symmetric about zero");
+        assert_value(&acc, &oracle);
     }
 }
 
@@ -1600,6 +1752,13 @@ proptest! {
 /// run (in `lo` order, each run starts at or past the previous run's
 /// end).
 fn assert_ledger_invariants(acc: &Accumulator, schedule: &[u8]) {
+    if acc.quick.is_some() {
+        assert!(
+            acc.digits.iter().all(|&d| d == 0) && acc.zero_runs.is_empty(),
+            "a live register leaves the digit engine idle after {schedule:?}"
+        );
+        return;
+    }
     assert!(
         acc.top < acc.digits.len(),
         "top {} outside the digit buffer (len {}) after {schedule:?}",
@@ -1796,7 +1955,7 @@ fn ledger_invariants_hold_exhaustively() {
         p224: IBig::from(UBig::ONE << 224usize),
         max64: IBig::from(u64::MAX),
     };
-    let acc = Accumulator::new();
+    let acc = fresh(true);
     let oracle = IBig::from(0);
     let mut schedule = Vec::with_capacity(LEDGER_DEPTH);
     ledger_dfs(&ctx, &acc, &oracle, &mut schedule, LEDGER_DEPTH);
@@ -1815,8 +1974,9 @@ proptest! {
             (0u8..5, proptest::collection::vec(any::<u64>(), 1..=2), 0u64..4_096),
             1..150,
         ),
+        engine_first: bool,
     ) {
-        let mut acc = Accumulator::new();
+        let mut acc = fresh(engine_first);
         let mut oracle = IBig::from(0);
         let mut schedule: Vec<u8> = Vec::new();
         for (step, (arm, limbs, shift)) in ops.iter().enumerate() {

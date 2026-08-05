@@ -49,6 +49,21 @@ const RECENTER_BIAS: i128 = 1 << (DIGIT_BITS - 1);
 /// magnitude 3 or more cannot be overturned from below.
 const SIGN_DECIDED: i128 = 3;
 
+/// The quick register's ceiling: a value of magnitude at most this stays
+/// in the register, exact.
+///
+/// Three digits' worth. Wide enough that a running total or difference
+/// over machine-word deltas essentially never leaves the register;
+/// narrow enough that folding any machine-word delta — or another
+/// register, or a register shifted by up to [`QUICK_SHIFT_MAX`] — into
+/// it stays far from `i128` overflow, and a spill deposits a handful of
+/// digits.
+const QUICK_MAX: u128 = 1 << 96;
+
+/// The widest in-register left shift: `QUICK_MAX << QUICK_SHIFT_MAX`
+/// still sits comfortably inside `i128`.
+const QUICK_SHIFT_MAX: u64 = 30;
+
 /// A running signed integer over redundant balanced base-2^32 digits.
 ///
 /// Deltas are added or subtracted at machine-word or arbitrary width; the
@@ -72,6 +87,17 @@ const SIGN_DECIDED: i128 = 3;
 /// either; only dropping the accumulator does).
 #[derive(Debug, Clone)]
 pub struct Accumulator {
+    /// The quick register: `Some(v)` means the held value is exactly `v`
+    /// and the digit engine below is idle (digits all zero, ledger
+    /// empty). Every accumulator starts here and stays while the value
+    /// and the operands fit ([`QUICK_MAX`]); the first wide operand or
+    /// outgrown sum spills the register into the digits, once per
+    /// [`reset`](Accumulator::reset) epoch — an exact small-integer
+    /// mode with a one-way, O(1) exit, not a normalized region a delta
+    /// stream could oscillate across (the crate docs' two-zone
+    /// counterexample needs a boundary crossed repeatedly; this one is
+    /// crossed at most once).
+    quick: Option<i128>,
     /// Little-endian signed digits: `value = Σ digits[i] · 2^(32·i)`, every
     /// digit in the lazy zone `|d| < 2^33`.
     digits: Vec<i64>,
@@ -133,7 +159,8 @@ impl Accumulator {
     /// `O(1)`.
     pub fn new() -> Accumulator {
         Accumulator {
-            digits: vec![0],
+            quick: Some(0),
+            digits: Vec::new(),
             top: 0,
             bottom: usize::MAX,
             zero_runs: BTreeMap::new(),
@@ -151,7 +178,10 @@ impl Accumulator {
     /// Amortized `O(1)` digit touches.
     pub fn add_small(&mut self, delta: i64) {
         if delta != 0 {
-            self.add_at(0, i128::from(delta));
+            let delta = i128::from(delta);
+            if !self.quick_add(delta) {
+                self.add_at(0, delta);
+            }
         }
     }
 
@@ -165,7 +195,10 @@ impl Accumulator {
     /// Amortized `O(1)` digit touches.
     pub fn sub_small(&mut self, delta: i64) {
         if delta != 0 {
-            self.add_at(0, -i128::from(delta));
+            let delta = -i128::from(delta);
+            if !self.quick_add(delta) {
+                self.add_at(0, delta);
+            }
         }
     }
 
@@ -179,7 +212,10 @@ impl Accumulator {
     /// Amortized `O(1)` digit touches.
     pub fn add_u64(&mut self, delta: u64) {
         if delta != 0 {
-            self.add_at(0, i128::from(delta));
+            let delta = i128::from(delta);
+            if !self.quick_add(delta) {
+                self.add_at(0, delta);
+            }
         }
     }
 
@@ -193,7 +229,10 @@ impl Accumulator {
     /// Amortized `O(1)` digit touches.
     pub fn sub_u64(&mut self, delta: u64) {
         if delta != 0 {
-            self.add_at(0, -i128::from(delta));
+            let delta = -i128::from(delta);
+            if !self.quick_add(delta) {
+                self.add_at(0, delta);
+            }
         }
     }
 
@@ -205,6 +244,7 @@ impl Accumulator {
     ///
     /// Amortized `O(operand limbs)` digit touches, whatever the held width.
     pub fn add_wide(&mut self, delta: &UBig) {
+        self.spill();
         self.apply_limbs(Limbs::new(delta), false, 0);
     }
 
@@ -215,6 +255,7 @@ impl Accumulator {
     ///
     /// Amortized `O(operand limbs)` digit touches, whatever the held width.
     pub fn sub_wide(&mut self, delta: &UBig) {
+        self.spill();
         self.apply_limbs(Limbs::new(delta), true, 0);
     }
 
@@ -274,6 +315,7 @@ impl Accumulator {
     /// shift fits, and an enormous one fails at allocation instead, like
     /// any collection asked to grow to `shift / 32` entries.
     pub fn add_wide_shl(&mut self, delta: &UBig, shift: u64) {
+        self.spill();
         self.apply_limbs(Limbs::new(delta), false, shift);
     }
 
@@ -294,6 +336,7 @@ impl Accumulator {
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
     pub fn sub_wide_shl(&mut self, delta: &UBig, shift: u64) {
+        self.spill();
         self.apply_limbs(Limbs::new(delta), true, shift);
     }
 
@@ -343,7 +386,7 @@ impl Accumulator {
         match delta.to_word() {
             Some(0) => {}
             Some(n) => self.add_shifted_word(n, true, shift),
-            None => self.apply_limbs(Limbs::new(delta.as_wide()), true, shift),
+            None => self.sub_wide_shl(delta.as_wide(), shift),
         }
     }
 
@@ -360,7 +403,7 @@ impl Accumulator {
     /// Amortized `O(the operand's held digits)` digit touches, whatever the
     /// receiver's width.
     pub fn add_accum(&mut self, other: &Accumulator) {
-        self.add_accum_shl(other, 0);
+        self.fold_accum(other, 0, false);
     }
 
     /// Subtract another accumulator's held value from this one: amortized
@@ -374,12 +417,7 @@ impl Accumulator {
     /// Amortized `O(the operand's held digits)` digit touches, whatever the
     /// receiver's width.
     pub fn sub_accum(&mut self, other: &Accumulator) {
-        for (i, &digit) in other.digits[..=other.top].iter().enumerate() {
-            touch(1);
-            if digit != 0 {
-                self.add_at(i, -i128::from(digit));
-            }
-        }
+        self.fold_accum(other, 0, true);
     }
 
     /// Add another accumulator's held value times `2^shift` into this one:
@@ -402,15 +440,7 @@ impl Accumulator {
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
     pub fn add_accum_shl(&mut self, other: &Accumulator, shift: u64) {
-        let (digit_shift, bit_shift) =
-            (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
-        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
-        for (i, &digit) in other.digits[..=other.top].iter().enumerate() {
-            touch(1);
-            if digit != 0 {
-                self.add_at(i + digit_shift, i128::from(digit) << bit_shift);
-            }
-        }
+        self.fold_accum(other, shift, false);
     }
 
     /// Subtract another accumulator's held value times `2^shift` from
@@ -433,13 +463,51 @@ impl Accumulator {
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
     pub fn sub_accum_shl(&mut self, other: &Accumulator, shift: u64) {
+        self.fold_accum(other, shift, true);
+    }
+
+    /// Fold `± other · 2^shift` into this accumulator: the one body
+    /// behind the four `*_accum` entry points.
+    ///
+    /// A register-held operand folds as one exact value — into the
+    /// receiver's register when the shifted sum fits, through the digit
+    /// engine otherwise — and a digit-held operand folds digit by
+    /// digit, each landing negated when `negative` (the zone is
+    /// symmetric about zero, so a negated digit is still in it —
+    /// subtraction needs no borrow machinery of its own).
+    fn fold_accum(&mut self, other: &Accumulator, shift: u64, negative: bool) {
+        if let Some(ov) = other.quick {
+            touch(1);
+            if ov == 0 {
+                return;
+            }
+            let ov = if negative { -ov } else { ov };
+            if shift == 0 {
+                if !self.quick_add(ov) {
+                    self.add_at(0, ov);
+                }
+            } else if shift > QUICK_SHIFT_MAX || !self.quick_add(ov << shift) {
+                self.spill();
+                self.deposit_value(ov, shift);
+            }
+            return;
+        }
+        self.spill();
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
         let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
         for (i, &digit) in other.digits[..=other.top].iter().enumerate() {
             touch(1);
             if digit != 0 {
-                self.add_at(i + digit_shift, -(i128::from(digit) << bit_shift));
+                let contribution = i128::from(digit) << bit_shift;
+                self.add_at(
+                    i + digit_shift,
+                    if negative {
+                        -contribution
+                    } else {
+                        contribution
+                    },
+                );
             }
         }
     }
@@ -464,7 +532,23 @@ impl Accumulator {
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
     pub fn shl(&mut self, shift: u64) {
-        if shift == 0 || (self.top == 0 && self.digits[0] == 0) {
+        if shift == 0 || self.is_literally_zero() {
+            return;
+        }
+        if let Some(v) = self.quick {
+            touch(1);
+            if shift <= QUICK_SHIFT_MAX {
+                let shifted = v << shift;
+                if shifted.unsigned_abs() <= QUICK_MAX {
+                    self.quick = Some(shifted);
+                } else {
+                    self.enter_digit_engine();
+                    self.deposit_value(shifted, 0);
+                }
+            } else {
+                self.enter_digit_engine();
+                self.deposit_value(v, shift);
+            }
             return;
         }
         let held = core::mem::take(self);
@@ -480,6 +564,11 @@ impl Accumulator {
     ///
     /// `O(held digits)` digit touches.
     pub fn negate(&mut self) {
+        if let Some(v) = &mut self.quick {
+            touch(1);
+            *v = -*v;
+            return;
+        }
         for digit in &mut self.digits[..=self.top] {
             touch(1);
             *digit = -*digit;
@@ -496,13 +585,18 @@ impl Accumulator {
     ///
     /// `O(held digits)` digit touches.
     pub fn reset(&mut self) {
-        for digit in &mut self.digits[..=self.top] {
-            touch(1);
-            *digit = 0;
+        if self.quick.is_none() {
+            for digit in &mut self.digits[..=self.top] {
+                touch(1);
+                *digit = 0;
+            }
+            self.top = 0;
+            self.bottom = usize::MAX;
+            self.zero_runs.clear();
         }
-        self.top = 0;
-        self.bottom = usize::MAX;
-        self.zero_runs.clear();
+        // Back to the register: the zeroed digit buffer stays for the
+        // next spill, so pooled reuse keeps its capacity.
+        self.quick = Some(0);
     }
 
     /// The sign of the held value — `value.cmp(&0)`, so `Less` means
@@ -519,6 +613,10 @@ impl Accumulator {
     ///
     /// Amortized `O(1)` digit touches.
     pub fn sign(&mut self) -> Ordering {
+        if let Some(v) = self.quick {
+            touch(1);
+            return v.cmp(&0);
+        }
         let (_, partial) = self.fold_and_collapse();
         partial.cmp(&0)
     }
@@ -588,6 +686,20 @@ impl Accumulator {
     ///
     /// Amortized `O(1)` digit touches.
     pub fn sign_dominates_at(&mut self, floor: usize) -> (Ordering, bool) {
+        if let Some(v) = self.quick {
+            touch(1);
+            // The register holds the exact value, so the certificate is
+            // the direct comparison: `3 · 2^(32·(floor + 1))` dominates
+            // the `2.01 · 2^(32·(floor + 1))` redundant-spelling bound
+            // with the same margin the digit fold's decision uses.
+            let decided = floor
+                .checked_add(1)
+                .and_then(|f| f.checked_mul(32))
+                .and_then(|b| u32::try_from(b).ok())
+                .and_then(|b| 3u128.checked_shl(b))
+                .is_some_and(|bound| v.unsigned_abs() >= bound);
+            return (v.cmp(&0), decided);
+        }
         let (index, partial) = self.fold_and_collapse();
         // Saturating: a floor within 2 of `usize::MAX` names an
         // adjustment bound no held value can dominate, so the decision
@@ -613,6 +725,7 @@ impl Accumulator {
     /// while carrying value. The rewrite is value-preserving: the
     /// digits change, the integer they denote never does.
     fn fold_and_collapse(&mut self) -> (usize, i128) {
+        debug_assert!(self.quick.is_none(), "the sign fold reads the digit engine");
         let start_top = self.top;
         let mut index = start_top;
         let mut partial: i128 = 0;
@@ -684,7 +797,10 @@ impl Accumulator {
     ///
     /// `O(1)`.
     pub fn is_literally_zero(&self) -> bool {
-        self.top == 0 && self.digits[0] == 0
+        match self.quick {
+            Some(v) => v == 0,
+            None => self.top == 0 && self.digits[0] == 0,
+        }
     }
 
     /// The number of digits up to and including the highest nonzero one;
@@ -705,7 +821,11 @@ impl Accumulator {
     ///
     /// `O(1)`.
     pub fn digit_count(&self) -> usize {
-        self.top + 1
+        match self.quick {
+            Some(0) => 1,
+            Some(v) => (128 - v.unsigned_abs().leading_zeros() as usize).div_ceil(32),
+            None => self.top + 1,
+        }
     }
 
     /// The held value as a sign and a normalized magnitude: O(held
@@ -720,6 +840,10 @@ impl Accumulator {
     ///
     /// `O(held digits)` digit touches and a same-order magnitude allocation.
     pub fn sign_magnitude(&self) -> (Ordering, UBig) {
+        if let Some(v) = self.quick {
+            touch(self.digit_count() as u64);
+            return (v.cmp(&0), UBig::from(v.unsigned_abs()));
+        }
         let (sign, magnitude) = self.read_magnitude(0);
         (sign, magnitude)
     }
@@ -755,6 +879,10 @@ impl Accumulator {
     /// position written since the last reset up to the top, never-written
     /// gaps included — and a same-order magnitude allocation.
     pub fn sign_magnitude_shl(&self) -> (Ordering, UBig, u64) {
+        if let Some(v) = self.quick {
+            touch(self.digit_count() as u64);
+            return (v.cmp(&0), UBig::from(v.unsigned_abs()), 0);
+        }
         let start = self.bottom.min(self.top);
         let (sign, magnitude) = self.read_magnitude(start);
         (sign, magnitude, 32 * start as u64)
@@ -874,12 +1002,112 @@ impl Accumulator {
         if word == 0 {
             return;
         }
+        if shift <= QUICK_SHIFT_MAX {
+            // At most 94 bits shifted: inside the register's headroom.
+            let value = i128::from(word) << shift;
+            let value = if negative { -value } else { value };
+            if self.quick_add(value) {
+                return;
+            }
+        } else {
+            self.spill();
+        }
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
         let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
         // At most 96 bits after the sub-digit shift: well inside `i128`.
         let value = i128::from(word) << bit_shift;
         self.add_at(digit_shift, if negative { -value } else { value });
+    }
+
+    /// Fold `delta` into the quick register: `true` when the register
+    /// held the value (spilling to the digit engine when the sum
+    /// outgrows it), `false` when the accumulator is already in digit
+    /// mode and the caller must deposit the delta itself.
+    ///
+    /// `|delta|` must stay within the register's headroom
+    /// (`QUICK_MAX << QUICK_SHIFT_MAX` and change): every caller passes
+    /// a machine word, another register's value, or one of those
+    /// shifted by at most [`QUICK_SHIFT_MAX`], so the sum sits far from
+    /// `i128` overflow.
+    fn quick_add(&mut self, delta: i128) -> bool {
+        let Some(v) = self.quick else {
+            return false;
+        };
+        touch(1);
+        let sum = v + delta;
+        if sum.unsigned_abs() <= QUICK_MAX {
+            self.quick = Some(sum);
+        } else {
+            self.enter_digit_engine();
+            self.deposit_value(sum, 0);
+        }
+        true
+    }
+
+    /// Leave the quick register (if held), seeding the digit engine
+    /// with the register's value: the one-way exit, O(1) plus the
+    /// deposit of at most four digits.
+    fn spill(&mut self) {
+        if let Some(v) = self.quick {
+            self.enter_digit_engine();
+            self.deposit_value(v, 0);
+        }
+    }
+
+    /// Arm the idle digit engine and retire the register.
+    ///
+    /// The buffer may be a retained pool allocation from an earlier
+    /// epoch; [`reset`](Accumulator::reset) left it all zero, which is
+    /// exactly the engine's starting state.
+    fn enter_digit_engine(&mut self) {
+        debug_assert!(self.quick.is_some(), "the digit engine arms once per epoch");
+        self.quick = None;
+        if self.digits.is_empty() {
+            // Capacity exactly one, as a fresh digit buffer: growth from
+            // here follows the resize path's own amortization, and a
+            // never-spilled accumulator allocated nothing at all.
+            self.digits.reserve_exact(1);
+            self.digits.push(0);
+        }
+        debug_assert!(
+            self.digits.iter().all(|&d| d == 0),
+            "a retired register leaves the digit engine idle"
+        );
+        self.top = 0;
+        self.bottom = usize::MAX;
+        self.zero_runs.clear();
+    }
+
+    /// Deposit `value · 2^shift` into the digit engine, digit by digit.
+    ///
+    /// The register's exit move: like `apply_limbs` but for an exact
+    /// `i128`, splitting the value into 32-bit contributions so no
+    /// shifted intermediate can overflow.
+    fn deposit_value(&mut self, value: i128, shift: u64) {
+        debug_assert!(self.quick.is_none(), "deposits land in the digit engine");
+        let (digit_shift, bit_shift) =
+            (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
+        let mut position = usize::try_from(digit_shift).expect("digit positions fit a usize");
+        let negative = value < 0;
+        let mut magnitude = value.unsigned_abs();
+        while magnitude != 0 {
+            touch(1);
+            let digit = (magnitude & u128::from(DIGIT_MASK)) as i128;
+            if digit != 0 {
+                let contribution = digit << bit_shift;
+                self.add_at(
+                    position,
+                    if negative {
+                        -contribution
+                    } else {
+                        contribution
+                    },
+                );
+            }
+            magnitude >>= DIGIT_BITS;
+            position += 1;
+        }
     }
 
     /// Add `value` (any sign, any `i128` magnitude) into the digit at
@@ -892,6 +1120,10 @@ impl Accumulator {
     /// carry run landing inside a certified run splits the certificate
     /// around the digits it wrote.
     fn add_at(&mut self, mut pos: usize, mut value: i128) {
+        debug_assert!(
+            self.quick.is_none(),
+            "digit writes land in the digit engine"
+        );
         self.bottom = self.bottom.min(pos);
         if pos > self.top + 1 {
             // Every digit strictly between the old top and the landing
