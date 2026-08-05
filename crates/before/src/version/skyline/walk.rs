@@ -221,7 +221,10 @@ pub(super) struct RegionSkip {
 /// decode per leaf, no other work. Returns the last consumed leaf's
 /// depth below the walked root and its code length, or `None` when no
 /// leaf remained. `first` says whether the next payload is the
-/// stream's absolute first (coded as a height, not a delta).
+/// stream's absolute first (coded as a height, not a delta); `pending`
+/// hands in a leaf the caller has already descended to (its payload
+/// still unread at the cursor), which lets a caller route on the first
+/// descent's depth without re-reading any bit.
 ///
 /// Every folded bit is still read and recorded: the scan meter's
 /// reading is identical to the leaf-by-leaf pass this batches.
@@ -235,10 +238,19 @@ pub(super) fn fold_region(
     first: bool,
     net: &mut Accumulator,
     extremum: &mut Extremum,
+    pending: Option<usize>,
 ) -> Option<(usize, usize)> {
     let mut first = first;
     let mut last = None;
-    while let Some(depth) = walk.descend(cursor) {
+    let mut pending = pending;
+    loop {
+        let depth = match pending.take() {
+            Some(depth) => depth,
+            None => match walk.descend(cursor) {
+                Some(depth) => depth,
+                None => break,
+            },
+        };
         let start = cursor.position();
         let code = cursor.read_int().expect("canonical skyline bits");
         let (neg, mag) = if first {
@@ -255,7 +267,7 @@ pub(super) fn fold_region(
 }
 
 /// Skip-scan the whole subtree at the cursor into a [`RegionSkip`]:
-/// [`fold_region`] over a fresh walk, with the net movement and the
+/// [`skip_leaves`] over a fresh walk, with the net movement and the
 /// streaming minimum materialized.
 ///
 /// # Panics
@@ -263,12 +275,12 @@ pub(super) fn fold_region(
 /// Panics if the stream is not a canonical skyline encoding.
 pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip {
     let mut walk = LeafWalk::new();
-    skip_leaves(&mut walk, cursor, first).expect("a subtree has at least one leaf")
+    skip_leaves(&mut walk, cursor, first, None).expect("a subtree has at least one leaf")
 }
 
 /// Skip-scan the remaining leaves of a subtree whose walk is already
-/// open (its previous leaves consumed by the caller), or `None` when
-/// none remain. The minimum is over the remaining leaves alone: the
+/// open, or `None` when none remain (`pending` as in
+/// [`fold_region`]). The minimum is over the folded leaves alone: the
 /// first of them arms the fold, so its height — not the caller's last
 /// consumed one — is the range's entry extremum.
 ///
@@ -279,10 +291,11 @@ pub(super) fn skip_leaves(
     walk: &mut LeafWalk,
     cursor: &mut DsiCursor<'_>,
     first: bool,
+    pending: Option<usize>,
 ) -> Option<RegionSkip> {
     let mut net = Accumulator::new();
     let mut min = Extremum::min(Accumulator::new());
-    let (last_depth, last_code_len) = fold_region(walk, cursor, first, &mut net, &mut min)?;
+    let (last_depth, last_code_len) = fold_region(walk, cursor, first, &mut net, &mut min, pending)?;
     let (n_sign, n_mag) = net.sign_magnitude();
     let (o_sign, o_mag) = min.into_offset().sign_magnitude();
     debug_assert_ne!(

@@ -1114,21 +1114,19 @@ impl FillWalk<'_> {
     /// through the divergence gap); the watermark web absorbs each
     /// emission in amortized O(1).
     fn copy_subtree(&mut self, depth: usize) {
-        // A single-leaf region (the common shape under a finely
-        // interleaved id) takes the per-leaf path outright: the block
-        // summary's fixed cost exceeds one leaf's. An unmetered peek
-        // of the flag the walk is about to read.
-        if self.ev[self.pos()] {
-            let mut walk = LeafWalk::new();
-            while let Some(d) = walk.descend(&mut self.cursor) {
-                let (neg, mag) = self.consume_payload();
-                self.emit_step(depth + d, neg, mag);
-            }
-            return;
-        }
-        if self.out.is_verbatim() {
+        // The first descent's depth routes the region for free — its
+        // bits are consumed either way. `d1 < 2` (a lone leaf, or a
+        // leaf-first pair whose left half is one leaf) stays per-leaf:
+        // under a finely interleaved id those tiny shapes dominate,
+        // and the block summary's fixed cost exceeds their freight.
+        let mut walk = LeafWalk::new();
+        let d1 = walk
+            .descend(&mut self.cursor)
+            .expect("a subtree has at least one leaf");
+        if d1 >= 2 && self.out.is_verbatim() {
             debug_assert!(!self.w_anchored, "a verbatim walk is height-anchored");
-            let skip = skip_region(&mut self.cursor, self.first_read);
+            let skip = skip_leaves(&mut walk, &mut self.cursor, self.first_read, Some(d1))
+                .expect("the descended leaf is pending");
             self.first_read = false;
             self.fold_block(&skip.net);
             self.stack.emit_offset(&skip.min_from_exit);
@@ -1141,24 +1139,22 @@ impl FillWalk<'_> {
             let _ = matched;
             return;
         }
-        // Post-divergence the first leaf re-codes against the live
-        // output delta, through the full emission machinery; the rest
-        // of a multi-leaf region is byte-identical to the input —
-        // every consecutive-leaf delta lies strictly inside the
-        // canonical subtree — and splices wholesale, provided the
-        // first leaf survived in the builder unmerged (the
-        // `continue_verbatim` precondition; a zero-delta first leaf
-        // can absorb into the held output instead, and that rare
-        // boundary collapse falls back to the per-leaf feed).
-        let mut walk = LeafWalk::new();
-        let d1 = walk
-            .descend(&mut self.cursor)
-            .expect("a subtree has at least one leaf");
+        // Per-leaf for the first leaf (and, post-divergence, its
+        // re-code against the live output delta through the full
+        // emission machinery).
         let (neg, mag) = self.consume_payload();
         self.emit_step(depth + d1, neg, mag);
-        if self.out.held_at(depth + d1) {
+        if d1 >= 2 && self.out.held_at(depth + d1) {
+            // Post-divergence the rest of the region is byte-identical
+            // to the input — every consecutive-leaf delta lies
+            // strictly inside the canonical subtree — and splices
+            // wholesale, provided the first leaf survived in the
+            // builder unmerged (the `continue_verbatim` precondition;
+            // a zero-delta first leaf can absorb into the held output
+            // instead, and that rare boundary collapse falls back to
+            // the per-leaf feed below).
             let rest_start = self.pos();
-            if let Some(skip) = skip_leaves(&mut walk, &mut self.cursor, false) {
+            if let Some(skip) = skip_leaves(&mut walk, &mut self.cursor, false, None) {
                 self.fold_block(&skip.net);
                 self.stack.emit_offset(&skip.min_from_exit);
                 // The region's last leaf is the last emission.
@@ -1195,23 +1191,29 @@ impl FillWalk<'_> {
         // first flag.
         self.range_is_leaf = self.ev[self.pos()];
         let mut above = Extremum::max(self.stack.lease());
-        if self.range_is_leaf {
-            // One leaf: the per-leaf fold is cheaper than a block
+        let mut walk = LeafWalk::new();
+        let d1 = walk
+            .descend(&mut self.cursor)
+            .expect("a subtree has at least one leaf");
+        if d1 < 2 {
+            // A tiny range (the first descent's depth routes for
+            // free): the per-leaf fold is cheaper than a block
             // summary's fixed cost.
-            let mut walk = LeafWalk::new();
+            let (neg, mag) = self.consume_payload();
+            above.fold(neg, &mag);
             while walk.descend(&mut self.cursor).is_some() {
                 let (neg, mag) = self.consume_payload();
                 above.fold(neg, &mag);
             }
         } else {
             let mut net = Accumulator::new();
-            let mut walk = LeafWalk::new();
             fold_region(
                 &mut walk,
                 &mut self.cursor,
                 self.first_read,
                 &mut net,
                 &mut above,
+                Some(d1),
             );
             self.first_read = false;
             let (n_sign, n_mag) = net.sign_magnitude();
@@ -1801,19 +1803,24 @@ impl PreScan<'_, '_> {
     /// emission — the same two quantities the leaf-by-leaf virtual
     /// emissions would have left in the web.
     fn copy_range(&mut self, first: bool) {
-        // Single-leaf regions per-leaf: the block summary's fixed cost
-        // exceeds one leaf's (an unmetered peek).
-        if self.ev[self.cursor.position()] {
-            let mut first = first;
-            let mut walk = LeafWalk::new();
+        let mut walk = LeafWalk::new();
+        let d1 = walk
+            .descend(&mut self.cursor)
+            .expect("a subtree has at least one leaf");
+        if d1 < 2 {
+            // A tiny range (the first descent's depth routes for
+            // free): per-leaf virtual emissions are cheaper than a
+            // block summary's fixed cost.
+            let _ = self.payload(first);
+            self.emit_here();
             while walk.descend(&mut self.cursor).is_some() {
-                let _ = self.payload(first);
-                first = false;
+                let _ = self.payload(false);
                 self.emit_here();
             }
             return;
         }
-        let skip = skip_region(&mut self.cursor, first);
+        let skip = skip_leaves(&mut walk, &mut self.cursor, first, Some(d1))
+            .expect("the descended leaf is pending");
         self.stack.fold_height(skip.net.0, &skip.net.1);
         if let Some(net) = &mut self.entry_net {
             fold_signed_int(net, skip.net.0, &skip.net.1);
@@ -1826,19 +1833,22 @@ impl PreScan<'_, '_> {
     /// — the range's leaves vanish into the raise the caller decides.
     fn max_range(&mut self, first: bool) -> Signed {
         let mut above = Extremum::max(self.stack.lease());
-        if self.ev[self.cursor.position()] {
-            // One leaf: per-leaf is cheaper than a block summary.
-            let mut first = first;
-            let mut walk = LeafWalk::new();
+        let mut walk = LeafWalk::new();
+        let d1 = walk
+            .descend(&mut self.cursor)
+            .expect("a subtree has at least one leaf");
+        if d1 < 2 {
+            // A tiny range (the first descent's depth routes for
+            // free): per-leaf is cheaper than a block summary.
+            let step = self.payload(first);
+            above.fold(step.0, &step.1);
             while walk.descend(&mut self.cursor).is_some() {
-                let step = self.payload(first);
-                first = false;
+                let step = self.payload(false);
                 above.fold(step.0, &step.1);
             }
         } else {
             let mut net = Accumulator::new();
-            let mut walk = LeafWalk::new();
-            fold_region(&mut walk, &mut self.cursor, first, &mut net, &mut above);
+            fold_region(&mut walk, &mut self.cursor, first, &mut net, &mut above, Some(d1));
             let (n_sign, n_mag) = net.sign_magnitude();
             let net = (n_sign == Ordering::Less, Int::from_ubig(n_mag));
             self.stack.fold_height(net.0, &net.1);
