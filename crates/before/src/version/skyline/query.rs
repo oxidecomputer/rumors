@@ -1553,6 +1553,34 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
     let opening = if owned { first } else { Int::ZERO };
     out.leaf(sc.depth().max(ic.depth()), gamma_code_int(&opening));
     while !(sc.done() && ic.done()) {
+        // Ownership-gated block: while the region is unowned and the
+        // skyline cursor's next flip level sits strictly below the
+        // region's depth, the sibling subtree that flip opens lies
+        // wholly inside the region — its projection is constantly
+        // zero — so it is consumed as one block (the crossing folded,
+        // then [`LeafCursor::skip_deeper`] to the subtree's own end)
+        // and emitted as one zero-delta leaf at the subtree's root
+        // depth. The finer all-zero tiling the per-boundary walk
+        // would emit collapses to exactly this leaf in the builder,
+        // so the output bytes are unchanged.
+        if !owned {
+            // A final leaf peeks zero, which no region depth is below,
+            // so exhaustion stops the loop unconditionally.
+            loop {
+                let f = sc.peek_flip();
+                if f <= ic.depth() {
+                    break;
+                }
+                let (flip, step) = sc.step();
+                debug_assert_eq!(flip, f, "the peeked flip is the step's own");
+                fold(&mut height, Side::A, step.negative, &step.magnitude);
+                sc.skip_deeper(f, &mut height);
+                out.leaf(f, super::gamma_code_signed_int(false, &Int::ZERO));
+            }
+            if sc.done() && ic.done() {
+                break;
+            }
+        }
         // The overlay-advance law drives the skyline × id cursor mix; an
         // id crossing carries nothing, so the fold sees exactly the
         // skyline's deltas, each folded into the running height as it is

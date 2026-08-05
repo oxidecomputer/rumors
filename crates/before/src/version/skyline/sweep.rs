@@ -606,6 +606,42 @@ impl<'a> LeafCursor<'a> {
         (this, first)
     }
 
+    /// The flip level the next step would close to, read without
+    /// moving: the path's trailing right-branch run popped and the
+    /// deepest left branch flipped. Zero on a final leaf (the all-right
+    /// path), where no step remains — every real flip level is at
+    /// least one.
+    pub(super) fn peek_flip(&self) -> usize {
+        self.path.len() - self.path.trailing_ones()
+    }
+
+    /// Consume plateaus while the next boundary's flip level stays
+    /// strictly deeper than `bound`, folding every crossed delta into
+    /// `net` (positively oriented: the caller applies its own side).
+    ///
+    /// The ownership-gated walks' block consume: a boundary whose flip
+    /// level exceeds every other cursor's depth is crossed by this
+    /// cursor alone, so a caller that has established the crossed
+    /// intervals carry no verdict or output of their own needs only
+    /// the net height movement to re-enter. Stops with the cursor at
+    /// the first plateau whose end reaches level `bound` or shallower
+    /// — a final leaf stops the loop unconditionally (its peek is
+    /// zero), so exhaustion needs no separate guard.
+    ///
+    /// Every skipped bit is still read and recorded: the scan meter's
+    /// reading is identical to the plateau-by-plateau walk this
+    /// batches.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stream is not a canonical skyline encoding.
+    pub(super) fn skip_deeper(&mut self, bound: usize, net: &mut Accumulator) {
+        while self.peek_flip() > bound {
+            let (_, step) = self.step();
+            super::fold_signed_int(net, step.negative, &step.magnitude);
+        }
+    }
+
     /// Descend from the cursor to the next leaf in preorder, extending
     /// the path with a left branch per internal node passed.
     ///

@@ -252,6 +252,55 @@ impl<'a> Walk<'a> {
             && self.bm.as_ref().is_none_or(PlateauCursor::done)
     }
 
+    /// Consume every boundary run the verdict cannot see, as blocks.
+    ///
+    /// While a masked side's current region is unowned and its event
+    /// cursor's next flip level sits strictly below every other
+    /// cursor's depth, the boundaries it would cross are its own alone
+    /// (deeper than every plateau end, so no tie — the flip bound
+    /// implies the cursor is strictly deepest) and they subdivide
+    /// intervals whose sign every ownership case ignores: the side's
+    /// projection is constantly zero there, and no other integrator
+    /// source moves. The run is consumed in one block
+    /// ([`LeafCursor::skip_deeper`]), its net movement folded once
+    /// into the integrators that watch the side — value-identical to
+    /// the per-boundary folds, with the duplicate interval signs never
+    /// re-folded (folding an unchanged sign is the identity on the
+    /// surviving directions).
+    ///
+    /// A block can consume a side to exhaustion, so the caller
+    /// re-checks [`done`](Self::done) before applying the advance law.
+    fn block_skip(&mut self) {
+        loop {
+            let depths = self.depths();
+            if self.am.as_ref().is_some_and(|m| !m.owned())
+                && self.a.peek_flip() > depths[1].max(depths[2]).max(depths[3])
+            {
+                let mut net = Accumulator::new();
+                self.a
+                    .skip_deeper(depths[1].max(depths[2]).max(depths[3]), &mut net);
+                self.diff.add_accum(&net);
+                if let Some(ha) = &mut self.ha {
+                    ha.add_accum(&net);
+                }
+                continue;
+            }
+            if self.bm.as_ref().is_some_and(|m| !m.owned())
+                && self.b.peek_flip() > depths[0].max(depths[1]).max(depths[3])
+            {
+                let mut net = Accumulator::new();
+                self.b
+                    .skip_deeper(depths[0].max(depths[1]).max(depths[3]), &mut net);
+                self.diff.sub_accum(&net);
+                if let Some(hb) = &mut self.hb {
+                    hb.add_accum(&net);
+                }
+                continue;
+            }
+            return;
+        }
+    }
+
     /// Advance the overlay one boundary: the deepest cursor steps, and
     /// every other cursor whose depth reaches the flip level steps in the
     /// same round (its boundary tied).
@@ -268,6 +317,12 @@ impl<'a> Walk<'a> {
     /// at depth zero (a single-leaf stream, or no mask at all) never
     /// steps: a flip level is at least one.
     fn advance(&mut self) {
+        self.block_skip();
+        if self.done() {
+            // A block consumed the last unowned run; the final
+            // interval's sign folds in the caller's next round.
+            return;
+        }
         let depths = self.depths();
         let deepest = (0..4)
             .max_by_key(|&i| depths[i])

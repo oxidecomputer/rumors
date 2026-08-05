@@ -98,6 +98,27 @@ impl BitStack {
         (high << low_len) | low
     }
 
+    /// The exact run of set bits at the top of the stack.
+    ///
+    /// One word read per 64 bits of the run: the cost is the run the
+    /// caller is about to pop (or has decided not to), never the whole
+    /// stack.
+    pub(crate) fn trailing_ones(&self) -> usize {
+        let top_run = self.top.trailing_ones().min(self.top_len);
+        if top_run < self.top_len {
+            return top_run as usize;
+        }
+        let mut run = top_run as usize;
+        for &word in self.words.iter().rev() {
+            let w = word.trailing_ones();
+            run += w as usize;
+            if w < 64 {
+                break;
+            }
+        }
+        run
+    }
+
     /// The run of set bits at the top of the stack, capped at 62.
     ///
     /// Reads only the top register and at most one spilled word (a cap
