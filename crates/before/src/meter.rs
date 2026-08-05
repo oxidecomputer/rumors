@@ -2939,6 +2939,28 @@ pub fn reset_limb_ops() {
     crate::codec::limb_meter::reset()
 }
 
+/// The accumulator digit touches since the last [`reset_touch_ops`].
+///
+/// The deterministic stand-in for accumulator *fold* work, which the
+/// limb counter no longer sees on narrow values: a word-scale fold
+/// rides the accumulator's quick register (one touch, no `Base`
+/// arithmetic, no digit traffic), so an algorithm that folds per leaf
+/// where another folds per block separates here even when both read
+/// zero limb operations. Delegates to `suanpan`'s own counter
+/// (`suanpan::touch_meter`), which the `limb-meter` feature compiles
+/// in. Process-global, same isolation requirement as
+/// [`stack_segments`].
+#[cfg(feature = "limb-meter")]
+pub fn touch_ops() -> u64 {
+    suanpan::touch_meter::touches()
+}
+
+/// Reset the digit-touch counter behind [`touch_ops`] to zero.
+#[cfg(feature = "limb-meter")]
+pub fn reset_touch_ops() {
+    suanpan::touch_meter::reset()
+}
+
 /// The pair-hull ladder's rung counters since the last
 /// [`reset_span_traffic`]: how many span constructions each fast path
 /// answered, and how many reached the emitting walk.
