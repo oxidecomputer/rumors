@@ -132,36 +132,43 @@ walks, cheaper primitives) — sign-fixed changes in the owner's sense:
 the design question is code-reading, not benchmarking, and the
 byte-identity oracle plus the differential suites pin behavior exactly.
 
-## Recommended attack, in dependency order
+## Campaign results (2026-08-04, same machine and corpus)
 
-1. **Word-buffered `PackedBuilder`** (u64 staging word over a word/byte
-   vector; append-k-bits, truncate, patch, extract reworked as shift
-   arithmetic; same zero-copy freeze into `Bytes`). The move set
-   (truncate/extract/patch) is bespoke to the collapse discipline, so
-   in-house rather than dsi's writer — the scan-meter's `record_bits`
-   seam moves onto the new primitives unchanged.
-2. **Codes as values**: payload codes as `Small(u64, u8)` /
-   `Wide(BitsMut)` through `gamma_code`, the builder's held leaf, and
-   the emitters. Kills the per-leaf allocation; absorb/cascade checks
-   become integer compares. (The `lens` PopStack discipline and its
-   depth-bounded transient guarantee are untouched — extract from the
-   word buffer is cheap.)
-3. **Narrow-track delta vocabulary**: `Step` magnitude, zigzag/unzigzag,
-   `signed_sum` on machine words with overflow spill to `Base`.
-4. **Suanpan narrow mode** (or a wrapper enum at the `before` seam): the
-   running difference and the watermark web on i128 until spill.
-   **Instrument interaction, must be planned with the meters**: the
-   limb-meter's liveness floors count digit touches that a fast path
-   legitimately stops performing — the envelope suite's floors and the
-   fill module's width-circulation accounting need re-derivation as
-   part of this change, not after it (instruments-before-cures applies
-   to retiring the readings too).
-5. **Per-op transient reuse/inlining** — measure after 1–4; mostly a
-   small-n fixed-cost item.
-6. Re-run the full bench suite and re-pin the movement annotations.
+Six rounds landed, each byte-identity-pinned by the differential suites
+and green through the metered legs:
 
-Everything above generalizes: all emitting ops (meet, hull/span,
-projection materialization, `ticks`, party join's id builder) ride the
-same `PackedBuilder`/code/accumulator currency, so the same changes lift
-the whole surface, and the read-side ops (rank, min_ticks, distance,
-lag) gain from D2/D4's narrow track.
+1. word-staged `PackedBuilder` (both builders);
+2. payload codes as values (`codec::Code`) with fused zigzag+gamma;
+3. suanpan quick register (exact `i128` tier in front of the digit
+   engine, one-way spill per epoch; dual-mode test coverage and an
+   overflow-headroom suite);
+4. word-backed `BitStack` under every path/phase/frame stack and
+   `PopStack`;
+5. batched stack moves + `#[inline]` on the register entry points;
+6. decoded payloads as word-valued `Int`s end to end (the read-side
+   twin of `Code`), with suanpan's word-scale shifted entry points.
+
+Measured (bench corpus, n=8192; criterion oracle medians as the bar):
+
+| op | baseline | final | oracle | ratio |
+|---|---|---|---|---|
+| version join | 898 us | 296 us | 381 us | 2.32x -> **0.78x** |
+| clock join | 1_098 us | 465 us | ~parity | well below |
+| version tick | 1_783 us | 752 us | 294 us | 5.95x -> 2.6x |
+| clock decode | 161 us | 96 us | — | −40% |
+
+Join beats the oracle at every corpus size (0.62–0.78x); tick's
+remaining gap is structural — the fused fill walk pays full per-leaf
+freight over id-space the party doesn't own, where the oracle pays one
+pointer. The plan for that is `design/before-ownership-gated-walks.md`:
+a gated leaf cursor yielding owned leaves and skip-scanned unowned
+region summaries, shared by fill/`ticks`, the masked `OwnVersion`/
+`OwnSpan` walks, and `project`.
+
+Instrument movements are recorded in the envelope tables' annotations:
+narrow-value work has left the limb denomination (touch and scan floors
+are those rows' liveness signal now), the register costs one spill per
+lease epoch on wide-cycling families, and the span crossing-fold pin
+retired its limb-undercut leg (its margin was exactly the duplicated
+zigzag arithmetic round 6 deleted; scan identity carries decode
+sharing, the touch leg the fold sharing).
