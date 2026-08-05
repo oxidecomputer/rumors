@@ -167,9 +167,15 @@ minimum + verbatim output), routed for free on the first descent's
 depth, in both the verbatim and the diverged walk and the pre-scan.
 Measured:
 
-- `holetick` (a 26-bit party over a 40,337-bit joined version — the
-  small-custody-peer shape the design targets): 320µs → **195µs**
-  (−39%).
+- the hole regime (a 26-bit party over a 40,337-bit joined version —
+  the small-custody-peer shape the design targets), measured by the
+  criterion `version/hole` group (the wall-time record; the probe's
+  own loop is the profiler harness and reads noisy):
+  tick −16% to −23% across quiet runs (204µs → 158–172µs),
+  projection −65% (215µs → 67–78µs), asymmetric masked equality
+  −36% (127µs → 81µs), symmetric equal-projection equality +2–4%
+  (the batch guard's residual; its bound tracks the twin stream's
+  depth, so no batch ever fires there).
 - organic `tick` (the bench pair): neutral. Its party interleaves
   finely with the event tree — unowned regions are overwhelmingly
   single leaves — so the block scan almost never opens, and the gate

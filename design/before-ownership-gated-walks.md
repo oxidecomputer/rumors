@@ -1,9 +1,11 @@
 # Ownership-gated walks: skipping the id-space a party doesn't own
 
-STATUS: PARTIALLY LANDED (2026-08-04, perf-probe campaign). Consumer 1
-(`fill`/`tick`/`ticks`, both branches, plus the pre-scan) is landed and
-pinned; consumers 2–3 (`masked`, `project`) await an owner decision in
-light of the measured findings below. Owner review pending.
+STATUS: LANDED (2026-08-04/05, perf-probe campaign). All three
+consumers carry the gate: `fill`/`tick`/`ticks` (both branches, plus
+the pre-scan), the masked co-walk (every `OwnVersion` comparison
+arity, with `OwnSpan` inheriting by composition), and
+`query::project`. The wall-time record is the criterion
+`version/hole` bench group. Owner review pending.
 
 ## Findings from execution (2026-08-04)
 
@@ -17,7 +19,12 @@ light of the measured findings below. Owner review pending.
   scattered rather than blocky.
 - **On the hole shape the design targets, the win is large.** The
   probe's `holetick` op (a 26-bit party over a 40,337-bit joined
-  version, the small-custody-peer shape): 320µs → 195µs (−39%).
+  version, the small-custody-peer shape), by criterion medians (the
+  `version/hole` bench group, quiet machine): tick −16% to −23%
+  (204µs → 158–172µs), projection −65% (215µs → 67–78µs),
+  asymmetric masked equality −36% (127µs → 81µs). An earlier probe
+  reading of −39% for tick was noise-inflated; the criterion group
+  is the record.
 - **Region routing must be free.** Peeking topology flags to size
   regions cost ~2% on the organic corpus; routing on the first
   descent's depth (bits consumed either way; `d1 ≥ 2` opens the block)
@@ -37,6 +44,22 @@ light of the measured findings below. Owner review pending.
   with no single dominant term. Reaching parity on interleaved shapes
   is interpreter-level work (packed frame bits, run-splice batching of
   pass-through emissions), out of this document's scope.
+- **The masked batch must cost a plain step when it cannot run.** The
+  first masked-walk skip (a pre-advance pass with its own net
+  accumulator) read +12% on the symmetric equal-projections hole
+  case: with both event streams at comparable depths the bound (the
+  twin stream's depth) never opens a batch, and the guard plus the
+  one-boundary batches were pure tax. Folding batched steps directly
+  into the integrators (identical work to the plain step) inside the
+  advance dispatch cut the residual to +2–4% on that shape, against
+  −36% on the asymmetric shape the batch serves (a deep projected
+  side against a flat operand). The symmetric residual is accepted
+  and this entry is its record.
+- **`OwnSpan` needs no kernel of its own**: `place`/`dominance`/
+  `to_span` compose `OwnVersion` comparisons and `to_version`, so the
+  span surface inherits both landed skips; the composed-over-fused
+  rationale (with the endpoint-laziness constraint any future fusion
+  must honor) lives in `OwnSpan::place`'s rustdoc.
 - The committed instruments are the `tick_ownership_hole` envelope
   (touch ceiling below the leaf-by-leaf mechanism's measured reading,
   so the skip must engage; scan pinned identical) and the
@@ -128,7 +151,8 @@ unchanged).
    interleaved organic parties whose unowned regions are single leaves
    (the findings above).
 
-2. **`masked` (`OwnVersion`/`OwnSpan` lazy fused comparisons).** The
+2. **`masked` (`OwnVersion`/`OwnSpan` lazy fused comparisons)
+   [LANDED].** The
    gate is per-operand: over a region where `p` is unowned, `&v / &p`'s
    projected skyline is constantly 0 *whatever `v`'s topology does*, so
    `v`'s cursor may skip whole subtrees under the region (delta-sum for
@@ -137,7 +161,8 @@ unchanged).
    constant-0 region change no pointwise verdict. `OwnSpan` rides the
    same walk.
 
-3. **`query::project` (`OwnVersion::to_version` materialization).** An
+3. **`query::project` (`OwnVersion::to_version` materialization)
+   [LANDED].** An
    unowned region emits exactly one zero plateau (today it emits one
    zero-delta per elementary interval and lets the builder collapse
    them); the input side skips as in the masked walk. Output shrinks to
@@ -183,13 +208,15 @@ Per skipped leaf: one unary read share + one decode-plus-two-folds
 (≈ validator cost, measured ~9 ns/leaf at bench shapes) versus the
 per-leaf fill constant (~54 ns/leaf at n=8192 after the word-valued
 payload round). Measured on the landed consumer: hole-shaped custody
-−39% wall (320µs → 195µs), finely interleaved organic parties neutral
+−16% to −23% wall on tick and −65% on the projection (criterion
+medians), finely interleaved organic parties neutral
 (single-leaf regions; the gate never opens and costs nothing closed);
 fully-owned inputs unchanged by construction. The masked/project
-consumers would gain proportionally to their masks' holes; their walks
-are already cheaper per leaf, so the absolute win is smaller still on
-interleaved masks — which is the open question their go/no-go decision
-turns on.
+consumers gain proportionally to their masks' holes and the depth
+asymmetry of their operands: the projection −65%, the asymmetric
+masked comparison −36%, the symmetric equal-depth comparison +2–4%
+(the batch guard's accepted residual; its bound tracks the twin
+stream and never opens).
 
 ## Risks
 
