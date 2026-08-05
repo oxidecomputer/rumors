@@ -166,7 +166,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, PopStack};
+use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
@@ -1143,14 +1143,14 @@ enum Frame {
 /// few heap bits of transient per level, never a machine-word frame.
 struct Frames {
     /// Per frame: a consume-site (true) or an ordinary node (false).
-    site: BitsMut,
+    site: BitStack,
     /// Ordinary frames: awaiting the left (false) or the right (true)
     /// child's cost. Site frames: false, unread.
-    phase: BitsMut,
+    phase: BitStack,
     /// Ordinary frames: whether the right child is present. Site
     /// frames: whether the site launched the covering fresh pre-scan
     /// ([`FillWalk::pop_site`]'s argument).
-    aux: BitsMut,
+    aux: BitStack,
     /// Key deltas (one per frame, against `reg`) and deferred left
     /// costs (two components per left-to-right flip), LIFO with the
     /// frames they serve.
@@ -1163,9 +1163,9 @@ struct Frames {
 impl Frames {
     fn new() -> Self {
         Frames {
-            site: BitsMut::new(),
-            phase: BitsMut::new(),
-            aux: BitsMut::new(),
+            site: BitStack::new(),
+            phase: BitStack::new(),
+            aux: BitStack::new(),
             vals: PopStack::new(),
             reg: 0,
         }
@@ -1178,10 +1178,14 @@ impl Frames {
 
     /// The top frame's kind, if any frame is open.
     fn top(&self) -> Option<Frame> {
-        let i = self.site.len().checked_sub(1)?;
-        Some(if self.site[i] {
+        let site = self.site.last()?;
+        Some(if site {
             Frame::Site
-        } else if self.phase[i] {
+        } else if self
+            .phase
+            .last()
+            .expect("site and phase stack one bit per frame")
+        {
             Frame::AwaitRight
         } else {
             Frame::AwaitLeft
@@ -1191,7 +1195,7 @@ impl Frames {
     /// The top frame's aux bit (right presence, or a site's outermost
     /// flag).
     fn aux_top(&self) -> bool {
-        *self.aux.last().expect("an open frame carries its aux bit")
+        self.aux.last().expect("an open frame carries its aux bit")
     }
 
     /// Suspend an ordinary node: key delta on the value stack, control
@@ -1216,12 +1220,11 @@ impl Frames {
     /// Flip the top (ordinary, left-awaiting) frame to awaiting its
     /// right child, deferring the left cost on the value stack.
     fn flip_to_await_right(&mut self, l_cost: Cost) {
-        let top = self.phase.len() - 1;
         debug_assert!(
-            !self.phase[top] && !self.site[top],
+            self.phase.last() == Some(false) && self.site.last() == Some(false),
             "a left-awaiting node flips"
         );
-        self.phase.set(top, true);
+        self.phase.set_last(true);
         self.vals.push(encode_cost_component(l_cost.0));
         self.vals.push(encode_cost_component(l_cost.1));
     }
@@ -1758,13 +1761,13 @@ enum PreFrame {
 /// word deltas in place of route keys and costs.
 struct PreFrames {
     /// Per frame: a left-full site (true) or an ordinary node (false).
-    site: BitsMut,
+    site: BitStack,
     /// Ordinary frames: awaiting the left (false) or right (true)
     /// child's range. Site frames: false, unread.
-    phase: BitsMut,
+    phase: BitStack,
     /// Ordinary frames: whether the right child is present. Site
     /// frames: false, unread.
-    aux: BitsMut,
+    aux: BitStack,
     /// Per site frame: the ledger slot delta, then the collapse-range
     /// start delta — both against monotone registers, LIFO with the
     /// frames they serve.
@@ -1780,9 +1783,9 @@ struct PreFrames {
 impl PreFrames {
     fn new() -> Self {
         PreFrames {
-            site: BitsMut::new(),
-            phase: BitsMut::new(),
-            aux: BitsMut::new(),
+            site: BitStack::new(),
+            phase: BitStack::new(),
+            aux: BitStack::new(),
             vals: PopStack::new(),
             reg_slot: 0,
             reg_pos: 0,
@@ -1791,10 +1794,14 @@ impl PreFrames {
 
     /// The top frame's kind, if any frame is open.
     fn top(&self) -> Option<PreFrame> {
-        let i = self.site.len().checked_sub(1)?;
-        Some(if self.site[i] {
+        let site = self.site.last()?;
+        Some(if site {
             PreFrame::Site
-        } else if self.phase[i] {
+        } else if self
+            .phase
+            .last()
+            .expect("site and phase stack one bit per frame")
+        {
             PreFrame::AwaitRight
         } else {
             PreFrame::AwaitLeft
@@ -1803,7 +1810,7 @@ impl PreFrames {
 
     /// The top frame's aux bit (an ordinary node's right presence).
     fn aux_top(&self) -> bool {
-        *self.aux.last().expect("an open frame carries its aux bit")
+        self.aux.last().expect("an open frame carries its aux bit")
     }
 
     /// Suspend an ordinary node, armed for its left child.
@@ -1827,12 +1834,11 @@ impl PreFrames {
     /// Flip the top (ordinary, left-awaiting) frame to awaiting its
     /// right child.
     fn flip_to_await_right(&mut self) {
-        let top = self.phase.len() - 1;
         debug_assert!(
-            !self.phase[top] && !self.site[top],
+            self.phase.last() == Some(false) && self.site.last() == Some(false),
             "a left-awaiting node flips"
         );
-        self.phase.set(top, true);
+        self.phase.set_last(true);
     }
 
     /// Close an ordinary node's frame.

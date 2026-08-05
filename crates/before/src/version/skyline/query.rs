@@ -369,7 +369,7 @@ use core::cmp::Ordering;
 
 use suanpan::{Accumulator, Limbs, UBig};
 
-use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, SliceCursor};
+use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsSlice, SliceCursor};
 use crate::Rank;
 
 use super::build::SkylineBuilder;
@@ -1622,10 +1622,10 @@ fn absolute_height(height: &mut Accumulator) -> Base {
 pub(super) struct IdLeafCursor<'a> {
     cursor: SliceCursor<'a>,
     /// Root-to-leaf branch directions, root first.
-    path: BitsMut,
+    path: BitStack,
     /// Parallel to `path`: whether each level's right child is present
     /// in the stream (a clear flag is a synthetic unowned leaf).
-    right_present: BitsMut,
+    right_present: BitStack,
     /// Left-branch levels still open; zero exactly at the final leaf.
     lefts: usize,
     /// Whether the current leaf's region is owned.
@@ -1645,8 +1645,8 @@ impl<'a> IdLeafCursor<'a> {
     pub(super) fn open(bits: &'a BitsSlice) -> Self {
         let mut this = IdLeafCursor {
             cursor: SliceCursor::new(bits, 0),
-            path: BitsMut::new(),
-            right_present: BitsMut::new(),
+            path: BitStack::new(),
+            right_present: BitStack::new(),
             lefts: 0,
             owned: false,
         };
@@ -1731,7 +1731,7 @@ impl PlateauCursor for IdLeafCursor<'_> {
         self.lefts -= 1;
         self.path.push(true);
         let flip = self.path.len();
-        if *self
+        if self
             .right_present
             .last()
             .expect("a flipped level recorded its right-child flag")

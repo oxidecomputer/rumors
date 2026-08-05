@@ -61,7 +61,7 @@ pub(crate) use gamma::{code_int, decode_int, decode_int_from, encode_int};
 #[cfg(feature = "borsh")]
 pub(crate) use gamma::decode_int_window;
 pub(crate) use literal::{id_is_empty, id_leaf, id_node};
-pub(crate) use stack::PopStack;
+pub(crate) use stack::{BitStack, PopStack};
 pub(crate) use text::{parse_clock_str, parse_id_str};
 pub(crate) use tree::{parse_id, validate_id};
 // The mid-stream parser entry is consumed only by the borsh wire format

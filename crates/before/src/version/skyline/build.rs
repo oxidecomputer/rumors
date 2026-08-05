@@ -53,7 +53,7 @@
 //! (`tests/meter.rs`, the `skyline_join_*` rows) pins the whole
 //! emission's transient against these bounds.
 
-use crate::codec::{BitsMut, BitsSlice, Code, PackedBuilder, PopStack};
+use crate::codec::{BitStack, BitsMut, BitsSlice, Code, PackedBuilder, PopStack};
 
 /// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
 ///
@@ -84,7 +84,7 @@ pub(super) struct SkylineBuilder {
     held: Option<Code>,
     /// Root-to-held-leaf branch directions: `false` inside a left child,
     /// `true` inside a right.
-    path: BitsMut,
+    path: BitStack,
     /// Parallel to `path`: at a right-branch level, whether the completed
     /// left sibling is a single leaf (the collapse precondition).
     ///
@@ -92,7 +92,7 @@ pub(super) struct SkylineBuilder {
     /// record at right-branch levels
     /// [`continue_verbatim`](Self::continue_verbatim) splices in, where
     /// canonicity already rules the merge out.
-    left_leaf: BitsMut,
+    left_leaf: BitStack,
     /// Code lengths of the left-sibling leaves, one entry per
     /// right-branch level whose `left_leaf` bit is set, deepest last.
     lens: PopStack,
@@ -104,8 +104,8 @@ impl SkylineBuilder {
         SkylineBuilder {
             out: PackedBuilder::with_capacity(capacity),
             held: None,
-            path: BitsMut::new(),
-            left_leaf: BitsMut::new(),
+            path: BitStack::new(),
+            left_leaf: BitStack::new(),
             lens: PopStack::new(),
         }
     }
@@ -138,7 +138,7 @@ impl SkylineBuilder {
         // *right* child under an arbitrary completed left sibling — this
         // test reads `path` alone and never consults `left_leaf`.
         if depth == self.path.len()
-            && self.path.last().map(|bit| !*bit).unwrap_or(false)
+            && self.path.last().map(|bit| !bit).unwrap_or(false)
             && code.len() == ZERO_DELTA_CODE_BITS
         {
             self.out.truncate(self.out.len() - 1);
@@ -274,7 +274,7 @@ impl SkylineBuilder {
         self.out.push_bit(true);
         self.out.push_code(&held);
         debug_assert!(
-            self.path.iter().all(|bit| *bit),
+            self.path.all_set(),
             "the final leaf closes every open ancestor from the right"
         );
         self.out.finish()
@@ -296,8 +296,8 @@ impl SkylineBuilder {
             // The held delta must be zero, the held leaf a right child,
             // and that level's left sibling a single leaf.
             if held.len() != ZERO_DELTA_CODE_BITS
-                || !self.path.last().map(|bit| *bit).unwrap_or(false)
-                || !self.left_leaf.last().map(|bit| *bit).unwrap_or(false)
+                || !self.path.last().unwrap_or(false)
+                || !self.left_leaf.last().unwrap_or(false)
             {
                 return;
             }

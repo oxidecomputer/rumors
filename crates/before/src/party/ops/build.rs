@@ -1,4 +1,4 @@
-use crate::codec::{BitsMut, BitsSlice, PackedBuilder, PopStack};
+use crate::codec::{BitStack, BitsMut, BitsSlice, PackedBuilder, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -178,10 +178,10 @@ pub(super) struct IdSkylineBuilder {
     out: IdBuilder,
     /// Root-to-current branch directions: `false` inside a left child,
     /// `true` inside a right.
-    path: BitsMut,
+    path: BitStack,
     /// Two bits per right-branch level: what the completed left sibling
     /// built (see [`push_kind`](Self::push_kind)).
-    left_kinds: BitsMut,
+    left_kinds: BitStack,
     /// The open ancestors' reserved tag positions, innermost last.
     tags: PosStack,
     /// The whole tiling's result, set when the last plateau closes the
@@ -194,8 +194,8 @@ impl IdSkylineBuilder {
     pub(super) fn with_capacity(capacity: usize) -> Self {
         IdSkylineBuilder {
             out: IdBuilder::with_capacity(capacity),
-            path: BitsMut::new(),
-            left_kinds: BitsMut::new(),
+            path: BitStack::new(),
+            left_kinds: BitStack::new(),
             tags: PosStack::new(),
             root: None,
         }

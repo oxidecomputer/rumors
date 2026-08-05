@@ -143,7 +143,7 @@ use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
+use crate::codec::{Base, BitCursor, BitStack, BitsSlice, DsiCursor};
 
 /// The causal order of the versions two skyline streams denote; `None`
 /// is concurrent.
@@ -582,7 +582,7 @@ fn sweep<V>(
 pub(super) struct LeafCursor<'a> {
     cursor: DsiCursor<'a>,
     /// Root-to-leaf branch directions, root first.
-    path: BitsMut,
+    path: BitStack,
     /// The stream's live bit length; the cursor reaching it is
     /// exhaustion (the current leaf is the stream's last).
     len: usize,
@@ -599,7 +599,7 @@ impl<'a> LeafCursor<'a> {
     pub(super) fn open(bits: &'a BitsSlice) -> (Self, Base) {
         let mut this = LeafCursor {
             cursor: DsiCursor::new(bits),
-            path: BitsMut::new(),
+            path: BitStack::new(),
             len: bits.len(),
         };
         let first = this.descend();

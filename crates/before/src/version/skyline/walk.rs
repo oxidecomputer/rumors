@@ -16,7 +16,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitCursor, BitsMut, DsiCursor};
+use crate::codec::{Base, BitCursor, BitStack, DsiCursor};
 
 use super::{fold_signed, unzigzag};
 
@@ -33,7 +33,7 @@ pub(super) struct LeafWalk {
     /// first: `false` inside an ancestor's left child (its right
     /// subtree is still pending in the stream), `true` inside its
     /// right.
-    path: BitsMut,
+    path: BitStack,
     /// Whether a leaf has been yielded: the first descent has no
     /// finished leaf to backtrack from.
     started: bool,
@@ -43,7 +43,7 @@ impl LeafWalk {
     /// A walk positioned to enter the subtree at the caller's cursor.
     pub(super) fn new() -> Self {
         LeafWalk {
-            path: BitsMut::new(),
+            path: BitStack::new(),
             started: false,
         }
     }

@@ -46,7 +46,7 @@
 //! is first trips on topology (the replaced range was not a single
 //! leaf) before any code comparison is reached.
 
-use crate::codec::{BitCursor, BitsMut, BitsSlice, Code, PopStack};
+use crate::codec::{BitCursor, BitStack, BitsMut, BitsSlice, Code, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::build::SkylineBuilder;
@@ -80,6 +80,10 @@ pub(super) fn decode_cost_component(v: u64) -> u32 {
 /// The fill walk's output, as the changed flag's realization
 /// (module doc): a verbatim reference over the matched input prefix, or
 /// a materialized builder after the first divergence.
+// One `Out` lives per fill walk — never a collection element — so the
+// variant-size gap prices nothing; boxing the builder would put a heap
+// indirection on every emitted leaf instead.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Out {
     /// Every emitted plateau so far equals the input plateau it
     /// replaces, so the output so far is byte-identical to the input
@@ -313,8 +317,8 @@ impl RouteProbe {
     fn expand_subtree(&mut self, id: &mut IdReader) -> Cost {
         // Phase per frame: false = the left child's distance is
         // outstanding, true = the right child's.
-        let mut phase = BitsMut::new();
-        let mut right_present = BitsMut::new();
+        let mut phase = BitStack::new();
+        let mut right_present = BitStack::new();
         let mut vals = PopStack::new();
         let mut reg = 0usize;
         // `None`: enter the subtree at the cursor; `Some(d)`: rise with
@@ -346,17 +350,16 @@ impl RouteProbe {
             };
             // Rise `d` through completed frames.
             loop {
-                match phase.last().map(|bit| *bit) {
+                match phase.last() {
                     None => {
                         return if d == u32::MAX { COST_MAX } else { (d, d) };
                     }
                     Some(false) => {
                         // The left distance arrived: defer it, descend
                         // right (or rise its absence straight back).
-                        let top = phase.len() - 1;
-                        phase.set(top, true);
+                        phase.set_last(true);
                         vals.push(encode_cost_component(d));
-                        if *right_present.last().expect("one presence bit per frame") {
+                        if right_present.last().expect("one presence bit per frame") {
                             break;
                         }
                         d = u32::MAX;
