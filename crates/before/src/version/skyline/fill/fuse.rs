@@ -139,6 +139,47 @@ impl Out {
         }
     }
 
+    /// Whether the built output holds its most recent leaf at exactly
+    /// `depth` — no absorb or cascade merged it upward.
+    ///
+    /// The region splice's gate: [`continue_verbatim`](Self::continue_verbatim)
+    /// extends exactly the leaf the caller just fed, so a first leaf
+    /// that collapsed into the held output instead disqualifies the
+    /// splice.
+    ///
+    /// # Panics
+    ///
+    /// Panics on a verbatim walk: the splice runs post-divergence.
+    pub(super) fn held_at(&self, depth: usize) -> bool {
+        match self {
+            Out::Built(builder) => builder.held_at(depth),
+            Out::Verbatim { .. } => unreachable!("the region splice runs post-divergence"),
+        }
+    }
+
+    /// Splice the remainder of a canonical multi-leaf subtree verbatim
+    /// ([`SkylineBuilder::continue_verbatim`]; the caller has just fed
+    /// the subtree's first leaf through [`leaf`](Self::leaf) and
+    /// checked [`held_at`](Self::held_at)).
+    ///
+    /// # Panics
+    ///
+    /// Panics on a verbatim walk: the splice runs post-divergence.
+    pub(super) fn continue_verbatim(
+        &mut self,
+        rest: &BitsSlice,
+        root_depth: usize,
+        last_rel_depth: usize,
+        last_code_len: usize,
+    ) {
+        match self {
+            Out::Built(builder) => {
+                builder.continue_verbatim(rest, root_depth, last_rel_depth, last_code_len)
+            }
+            Out::Verbatim { .. } => unreachable!("the region splice runs post-divergence"),
+        }
+    }
+
     /// Materialize the matched prefix at the first divergence.
     ///
     /// Decodes

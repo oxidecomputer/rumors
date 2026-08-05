@@ -172,7 +172,7 @@ use crate::idbits::{IdNode, IdReader};
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
 use self::watermark::{MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
-use super::walk::{skip_region, Extremum, LeafWalk};
+use super::walk::{fold_region, skip_leaves, skip_region, Extremum, LeafWalk};
 use super::{fold_signed_int, gamma_code_int, gamma_code_signed_int, unzigzag};
 
 mod fuse;
@@ -756,6 +756,22 @@ impl FillWalk<'_> {
         (neg, mag)
     }
 
+    /// Fold one consumed block's net movement into every height-carried
+    /// register, exactly as [`consume_payload`](Self::consume_payload)
+    /// would have leaf by leaf: the block scans' one re-entry fold.
+    /// Nothing reads the registers between a block's leaves, so the
+    /// batched fold is observationally the per-leaf sequence.
+    fn fold_block(&mut self, net: &Signed) {
+        fold_signed_int(&mut self.h, net.0, &net.1);
+        self.stack.fold_height(net.0, &net.1);
+        if !self.w_anchored {
+            fold_signed_int(&mut self.gap, net.0, &net.1);
+        }
+        if let Corr::H(acc) = &mut self.corr {
+            fold_signed_int(acc, net.0, &net.1);
+        }
+    }
+
     /// Consume the queue-front memoized site: resolve its minimum by
     /// one fold of its ledger link into the live relation, decide the
     /// raise, and emit.
@@ -1098,15 +1114,23 @@ impl FillWalk<'_> {
     /// through the divergence gap); the watermark web absorbs each
     /// emission in amortized O(1).
     fn copy_subtree(&mut self, depth: usize) {
+        // A single-leaf region (the common shape under a finely
+        // interleaved id) takes the per-leaf path outright: the block
+        // summary's fixed cost exceeds one leaf's. An unmetered peek
+        // of the flag the walk is about to read.
+        if self.ev[self.pos()] {
+            let mut walk = LeafWalk::new();
+            while let Some(d) = walk.descend(&mut self.cursor) {
+                let (neg, mag) = self.consume_payload();
+                self.emit_step(depth + d, neg, mag);
+            }
+            return;
+        }
         if self.out.is_verbatim() {
             debug_assert!(!self.w_anchored, "a verbatim walk is height-anchored");
             let skip = skip_region(&mut self.cursor, self.first_read);
             self.first_read = false;
-            fold_signed_int(&mut self.h, skip.net.0, &skip.net.1);
-            self.stack.fold_height(skip.net.0, &skip.net.1);
-            if let Corr::H(acc) = &mut self.corr {
-                fold_signed_int(acc, skip.net.0, &skip.net.1);
-            }
+            self.fold_block(&skip.net);
             self.stack.emit_offset(&skip.min_from_exit);
             self.started = true;
             // The region's last leaf is the last emission: the gap
@@ -1117,7 +1141,37 @@ impl FillWalk<'_> {
             let _ = matched;
             return;
         }
+        // Post-divergence the first leaf re-codes against the live
+        // output delta, through the full emission machinery; the rest
+        // of a multi-leaf region is byte-identical to the input —
+        // every consecutive-leaf delta lies strictly inside the
+        // canonical subtree — and splices wholesale, provided the
+        // first leaf survived in the builder unmerged (the
+        // `continue_verbatim` precondition; a zero-delta first leaf
+        // can absorb into the held output instead, and that rare
+        // boundary collapse falls back to the per-leaf feed).
         let mut walk = LeafWalk::new();
+        let d1 = walk
+            .descend(&mut self.cursor)
+            .expect("a subtree has at least one leaf");
+        let (neg, mag) = self.consume_payload();
+        self.emit_step(depth + d1, neg, mag);
+        if self.out.held_at(depth + d1) {
+            let rest_start = self.pos();
+            if let Some(skip) = skip_leaves(&mut walk, &mut self.cursor, false) {
+                self.fold_block(&skip.net);
+                self.stack.emit_offset(&skip.min_from_exit);
+                // The region's last leaf is the last emission.
+                self.gap.reset();
+                self.out.continue_verbatim(
+                    &self.ev[rest_start..self.pos()],
+                    depth,
+                    skip.last_depth,
+                    skip.last_code_len,
+                );
+            }
+            return;
+        }
         while let Some(d) = walk.descend(&mut self.cursor) {
             let (neg, mag) = self.consume_payload();
             self.emit_step(depth + d, neg, mag);
@@ -1141,10 +1195,28 @@ impl FillWalk<'_> {
         // first flag.
         self.range_is_leaf = self.ev[self.pos()];
         let mut above = Extremum::max(self.stack.lease());
-        let mut walk = LeafWalk::new();
-        while walk.descend(&mut self.cursor).is_some() {
-            let (neg, mag) = self.consume_payload();
-            above.fold(neg, &mag);
+        if self.range_is_leaf {
+            // One leaf: the per-leaf fold is cheaper than a block
+            // summary's fixed cost.
+            let mut walk = LeafWalk::new();
+            while walk.descend(&mut self.cursor).is_some() {
+                let (neg, mag) = self.consume_payload();
+                above.fold(neg, &mag);
+            }
+        } else {
+            let mut net = Accumulator::new();
+            let mut walk = LeafWalk::new();
+            fold_region(
+                &mut walk,
+                &mut self.cursor,
+                self.first_read,
+                &mut net,
+                &mut above,
+            );
+            self.first_read = false;
+            let (n_sign, n_mag) = net.sign_magnitude();
+            let net = (n_sign == Ordering::Less, Int::from_ubig(n_mag));
+            self.fold_block(&net);
         }
         let result = self.stack.materialize(above.into_offset());
         debug_assert!(!result.0, "the fold floors at zero");
@@ -1723,29 +1795,56 @@ impl PreScan<'_, '_> {
         }
     }
 
-    /// Walk an untouched range (`fill(0, e) = e`) at the cursor: every
-    /// leaf a virtual emission at its own height.
+    /// Walk an untouched range (`fill(0, e) = e`) at the cursor as one
+    /// block: the skip-scanned summary folds the net movement into the
+    /// height side and lands the range's minimum as one virtual
+    /// emission — the same two quantities the leaf-by-leaf virtual
+    /// emissions would have left in the web.
     fn copy_range(&mut self, first: bool) {
-        let mut first = first;
-        let mut walk = LeafWalk::new();
-        while walk.descend(&mut self.cursor).is_some() {
-            let _ = self.payload(first);
-            first = false;
-            self.emit_here();
+        // Single-leaf regions per-leaf: the block summary's fixed cost
+        // exceeds one leaf's (an unmetered peek).
+        if self.ev[self.cursor.position()] {
+            let mut first = first;
+            let mut walk = LeafWalk::new();
+            while walk.descend(&mut self.cursor).is_some() {
+                let _ = self.payload(first);
+                first = false;
+                self.emit_here();
+            }
+            return;
         }
+        let skip = skip_region(&mut self.cursor, first);
+        self.stack.fold_height(skip.net.0, &skip.net.1);
+        if let Some(net) = &mut self.entry_net {
+            fold_signed_int(net, skip.net.0, &skip.net.1);
+        }
+        self.emit_offset(&skip.min_from_exit);
     }
 
     /// Scan a collapsing range at the cursor for its maximum:
     /// `max − h′` at exit as a nonnegative offset. No virtual emissions
     /// — the range's leaves vanish into the raise the caller decides.
     fn max_range(&mut self, first: bool) -> Signed {
-        let mut first = first;
         let mut above = Extremum::max(self.stack.lease());
-        let mut walk = LeafWalk::new();
-        while walk.descend(&mut self.cursor).is_some() {
-            let step = self.payload(first);
-            first = false;
-            above.fold(step.0, &step.1);
+        if self.ev[self.cursor.position()] {
+            // One leaf: per-leaf is cheaper than a block summary.
+            let mut first = first;
+            let mut walk = LeafWalk::new();
+            while walk.descend(&mut self.cursor).is_some() {
+                let step = self.payload(first);
+                first = false;
+                above.fold(step.0, &step.1);
+            }
+        } else {
+            let mut net = Accumulator::new();
+            let mut walk = LeafWalk::new();
+            fold_region(&mut walk, &mut self.cursor, first, &mut net, &mut above);
+            let (n_sign, n_mag) = net.sign_magnitude();
+            let net = (n_sign == Ordering::Less, Int::from_ubig(n_mag));
+            self.stack.fold_height(net.0, &net.1);
+            if let Some(entry) = &mut self.entry_net {
+                fold_signed_int(entry, net.0, &net.1);
+            }
         }
         let result = self.stack.materialize(above.into_offset());
         debug_assert!(!result.0, "the fold floors at zero");

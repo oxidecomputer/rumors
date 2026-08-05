@@ -191,42 +191,55 @@ impl Extremum {
     }
 }
 
-/// The block summary of one skipped subtree: the re-entry state a
+/// The block summary of one skipped leaf range: the re-entry state a
 /// consumer folds to continue exactly as if it had visited the leaves
 /// one by one.
 ///
-/// A subtree the consumer's party has no stake in contributes only two
+/// A range the consumer's party has no stake in contributes only two
 /// quantities to any ownership-gated pass: where the height ends up,
 /// and how low it got on the way. Both arrive as signed magnitudes in
 /// the walks' exchange currency, ready to fold into height-carried
-/// accumulators and to record as one watermark emission.
+/// accumulators and to record as one watermark emission. The last
+/// leaf's coordinates ride along for the emitters that splice the
+/// range's bits verbatim.
 pub(super) struct RegionSkip {
-    /// The region's net signed height movement: `h(exit) − h(entry)`.
+    /// The range's net signed height movement: `h(exit) − h(entry)`.
     pub(super) net: (bool, Int),
-    /// The region's minimum leaf height relative to the exit height:
+    /// The range's minimum leaf height relative to the exit height:
     /// `min − h(exit)`, nonpositive (the exit height is the last
     /// leaf's, itself in the minimum's range).
     pub(super) min_from_exit: (bool, Int),
+    /// The last leaf's depth below the walked subtree's root.
+    pub(super) last_depth: usize,
+    /// The last leaf's payload code length in bits.
+    pub(super) last_code_len: usize,
 }
 
-/// Skip-scan the whole subtree at the cursor: one unary topology read
-/// and one payload decode per leaf, folded into exactly two registers —
-/// no watermark traffic, no frames, no per-leaf emissions or
-/// branching. `first` says whether the subtree's first payload is the
+/// Drive `walk` over the remaining leaves of the subtree at the
+/// cursor, folding every payload into `net` and `extremum` — the block
+/// scans' shared read loop: one unary topology read and one payload
+/// decode per leaf, no other work. Returns the last consumed leaf's
+/// depth below the walked root and its code length, or `None` when no
+/// leaf remained. `first` says whether the next payload is the
 /// stream's absolute first (coded as a height, not a delta).
 ///
-/// Every skipped bit is still read and recorded: the scan meter's
-/// reading is identical to the leaf-by-leaf pass this replaces.
+/// Every folded bit is still read and recorded: the scan meter's
+/// reading is identical to the leaf-by-leaf pass this batches.
 ///
 /// # Panics
 ///
 /// Panics if the stream is not a canonical skyline encoding.
-pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip {
+pub(super) fn fold_region(
+    walk: &mut LeafWalk,
+    cursor: &mut DsiCursor<'_>,
+    first: bool,
+    net: &mut Accumulator,
+    extremum: &mut Extremum,
+) -> Option<(usize, usize)> {
     let mut first = first;
-    let mut net = Accumulator::new();
-    let mut min = Extremum::min(Accumulator::new());
-    let mut walk = LeafWalk::new();
-    while walk.descend(cursor).is_some() {
+    let mut last = None;
+    while let Some(depth) = walk.descend(cursor) {
+        let start = cursor.position();
         let code = cursor.read_int().expect("canonical skyline bits");
         let (neg, mag) = if first {
             first = false;
@@ -234,9 +247,42 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip
         } else {
             unzigzag(code)
         };
-        fold_signed_int(&mut net, neg, &mag);
-        min.fold(neg, &mag);
+        fold_signed_int(net, neg, &mag);
+        extremum.fold(neg, &mag);
+        last = Some((depth, cursor.position() - start));
     }
+    last
+}
+
+/// Skip-scan the whole subtree at the cursor into a [`RegionSkip`]:
+/// [`fold_region`] over a fresh walk, with the net movement and the
+/// streaming minimum materialized.
+///
+/// # Panics
+///
+/// Panics if the stream is not a canonical skyline encoding.
+pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip {
+    let mut walk = LeafWalk::new();
+    skip_leaves(&mut walk, cursor, first).expect("a subtree has at least one leaf")
+}
+
+/// Skip-scan the remaining leaves of a subtree whose walk is already
+/// open (its previous leaves consumed by the caller), or `None` when
+/// none remain. The minimum is over the remaining leaves alone: the
+/// first of them arms the fold, so its height — not the caller's last
+/// consumed one — is the range's entry extremum.
+///
+/// # Panics
+///
+/// Panics if the stream is not a canonical skyline encoding.
+pub(super) fn skip_leaves(
+    walk: &mut LeafWalk,
+    cursor: &mut DsiCursor<'_>,
+    first: bool,
+) -> Option<RegionSkip> {
+    let mut net = Accumulator::new();
+    let mut min = Extremum::min(Accumulator::new());
+    let (last_depth, last_code_len) = fold_region(walk, cursor, first, &mut net, &mut min)?;
     let (n_sign, n_mag) = net.sign_magnitude();
     let (o_sign, o_mag) = min.into_offset().sign_magnitude();
     debug_assert_ne!(
@@ -244,8 +290,10 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip
         Ordering::Greater,
         "the minimum is at or below the exit height"
     );
-    RegionSkip {
+    Some(RegionSkip {
         net: (n_sign == Ordering::Less, Int::from_ubig(n_mag)),
         min_from_exit: (o_sign == Ordering::Less, Int::from_ubig(o_mag)),
-    }
+        last_depth,
+        last_code_len,
+    })
 }

@@ -189,12 +189,20 @@ impl SkylineBuilder {
         self.held = Some(code);
     }
 
+    /// Whether the most recent [`leaf`](Self::leaf) survives as the
+    /// held leaf at exactly `depth` — no absorb or cascade merged it
+    /// upward — so a [`continue_verbatim`](Self::continue_verbatim)
+    /// splice would extend exactly that leaf.
+    pub(super) fn held_at(&self, depth: usize) -> bool {
+        self.held.is_some() && self.path.len() == depth
+    }
+
     /// Splice the remainder of a canonical multi-leaf subtree verbatim,
     /// holding its last leaf's code per the held-leaf discipline.
     ///
-    /// Reached from the tick splice ([`grow`](super::grow)) alone; the
-    /// join/meet emission feeds every plateau through
-    /// [`leaf`](Self::leaf) instead.
+    /// Reached from the tick splice ([`grow`](super::grow)) and the
+    /// fill walk's post-divergence region copy; the join/meet emission
+    /// feeds every plateau through [`leaf`](Self::leaf) instead.
     ///
     /// The caller has just fed the subtree's *first* leaf through
     /// [`leaf`](Self::leaf) (verbatim or with a repaired code) at depth
