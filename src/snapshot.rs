@@ -1,4 +1,4 @@
-use crate::{Key, Network, Version, tree::Tree};
+use crate::{Key, Network, Version, causally, tree::Tree};
 use std::sync::Arc;
 
 /// The iterator of [`Snapshot::iter`], re-exported from the tree internals:
@@ -94,39 +94,19 @@ impl<T> Snapshot<T> {
         self.tree.iter()
     }
 
-    /// Iterates the messages whose [`Version`]s fall within the causal `range`.
+    /// Iterates the messages whose [`Version`]s the causal `query` admits.
     ///
-    /// A message is yielded if and only if its version is contained in the
-    /// range's end bound and *not* contained in its start bound. Per bound
-    /// kind, for a message at version `v`:
-    ///
-    /// - start [`Unbounded`](std::ops::Bound::Unbounded): nothing excluded;
-    ///   [`Excluded(s)`](std::ops::Bound::Excluded): `v <= s` excluded;
-    ///   [`Included(s)`](std::ops::Bound::Included): `v < s` excluded, so a
-    ///   message at exactly `s` is yielded.
-    /// - end [`Unbounded`](std::ops::Bound::Unbounded): everything kept;
-    ///   [`Included(e)`](std::ops::Bound::Included): `v <= e` kept;
-    ///   [`Excluded(e)`](std::ops::Bound::Excluded): `v < e` kept.
-    ///
-    /// Because [`Version`]s are partially ordered, a start bound of either kind
-    /// keeps versions *concurrent* to it, while an end bound of either kind
-    /// drops them.
-    ///
-    /// The [`causally`](crate::causally) constructors are an idiomatic way to
-    /// specify causal ranges: `range(causally::since(&s))`,
-    /// `range(causally::delta(&s, &e)?)`,
-    /// `range(causally::not_before(&s).known_at(&e)?)`, and so on (pairing a
-    /// start with an end validates that the start lies within the end
-    /// bound). Plain range
-    /// syntax like `&v1..=&v2`, `&v1..` also works, as does any other
-    /// [`RangeBounds<Version>`](std::ops::RangeBounds) value, such as a
-    /// tuple of [`Bound`](std::ops::Bound)s.
+    /// The query is anything [`Into`] a [`causally::Query`]: an expression
+    /// built from the [`causally`] vocabulary (`range(causally::since(&s))`,
+    /// `range(causally::delta(&s, &e))`, `range(causally::after(&s) &
+    /// causally::before(&e))`, ...), a [`Span`](crate::causally::Span), or a
+    /// [`Version`] (the singleton query admitting exactly that version).
     ///
     /// Iterating a small causal delta against a large snapshot costs work
     /// proportional to the delta, not the snapshot.
     ///
     /// Unlike [`iter`](Self::iter), this does not produce an
-    /// [`ExactSizeIterator`]: how many messages fall in the range is unknown
+    /// [`ExactSizeIterator`]: how many messages the query admits is unknown
     /// until they are visited.
     ///
     /// As with [`iter`](Self::iter), order is unspecified and does *not*
@@ -149,19 +129,18 @@ impl<T> Snapshot<T> {
     /// // Everything not already contained in `then`: the two later sends.
     /// assert_eq!(snapshot.range(causally::since(&then)).count(), 2);
     /// // Everything `then` already contained: just the first.
-    /// assert_eq!(snapshot.range(causally::known_at(&then)).count(), 1);
-    /// // The two compose into the same partition of the live set.
+    /// assert_eq!(snapshot.range(causally::before(&then)).count(), 1);
+    /// // The two partition the live set.
     /// assert_eq!(snapshot.range(causally::all()).count(), 3);
     /// ```
-    pub fn range<R>(
-        &self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    pub fn range<'q, P: causally::Polarity>(
+        &'q self,
+        query: impl Into<causally::Query<'q, P>>,
+    ) -> impl DoubleEndedIterator<Item = (Key, &'q Version, &'q Arc<T>)> + Send + Sync
     where
         T: Send + Sync,
-        R: std::ops::RangeBounds<Version> + Send + Sync,
     {
-        self.tree.range(range)
+        self.tree.range(query)
     }
 
     /// Forces this set's tree to compute its lazy structural memos (observable

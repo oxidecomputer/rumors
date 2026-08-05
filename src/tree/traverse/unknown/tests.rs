@@ -4,8 +4,6 @@
 
 #![cfg(feature = "meter")]
 
-use std::cmp::Ordering;
-
 use before::meter;
 
 use crate::{
@@ -26,8 +24,8 @@ use super::Unknown;
 /// The two-check classification the fused dominance face replaced, kept
 /// as this comparison's cost oracle.
 ///
-/// Each check places one node bound against the counterparty's
-/// known-at range, so the probe stream is decoded once per check.
+/// Each check compares one node bound against the counterparty's
+/// known version, so the probe stream is decoded once per check.
 /// Verdict-identical to [`Unknown`] by the
 /// `span_place_matches_relations` and
 /// `span_dominance_coarsens_place` laws in `before::laws`; this
@@ -48,15 +46,15 @@ where
         T: Send + Sync,
     {
         let node = node?;
-        let known_at = causally::known_at(known);
-        // Check one: a floor beyond the known range (concurrent with or
-        // above `known`) is a wholly unknown subtree.
-        if known_at.placement_of(node.floor()) == Ordering::Greater {
+        // Check one: a floor the known version does not contain
+        // (concurrent with or above `known`) is a wholly unknown subtree.
+        if causally::since(known).contains(node.floor()) {
             return Some(node);
         }
-        // Check two: a ceiling within the known range is a wholly known
-        // subtree — the second decode of `known` the fusion ends.
-        if known_at.contains(node.ceiling()) {
+        // Check two: a ceiling within the known version's past is a
+        // wholly known subtree — the second decode of `known` the fusion
+        // ends.
+        if causally::before(known).contains(node.ceiling()) {
             return None;
         }
         Node::branch({
@@ -77,7 +75,7 @@ impl TwoPass for Z {
         T: Send + Sync,
     {
         let node = node?;
-        if causally::known_at(known).contains(node.ceiling()) {
+        if causally::before(known).contains(node.ceiling()) {
             return None;
         }
         Some(node)

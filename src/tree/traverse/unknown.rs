@@ -87,7 +87,7 @@ impl Unknown for Z {
 
         // If the leaf's version is within the counterparty's known-at range,
         // it's already known, so don't return anything
-        if causally::known_at(known).contains(node.ceiling()) {
+        if causally::before(known).contains(node.ceiling()) {
             return None;
         }
 

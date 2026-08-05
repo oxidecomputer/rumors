@@ -63,7 +63,7 @@ mod key;
 mod traverse;
 pub(crate) mod typed;
 
-use crate::{Version, message::Message, tree::typed::Node};
+use crate::{Version, causally, message::Message, tree::typed::Node};
 
 pub use key::Key;
 pub use typed::hash::MERKLE_HASH_LEN;
@@ -311,42 +311,39 @@ impl<T> Tree<T> {
         )
     }
 
-    /// Freezes a fully-owned walk over the live leaves whose versions fall
-    /// within the causal `range`.
+    /// Freezes a fully-owned walk over the live leaves whose versions the
+    /// causal `query` admits.
     ///
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
     /// across awaits and in long-lived state, pinning only its unvisited
-    /// frontier.
-    pub fn range_owned<R>(&self, range: R) -> RangeOwned<T, R>
-    where
-        R: std::ops::RangeBounds<Version>,
-    {
-        typed::node::Root::range_owned(self.root.root.as_ref(), range)
+    /// frontier. The query's bounds are settled owned
+    /// ([`Query::into_owned`](causally::Query::into_owned)), so the walk
+    /// carries no lifetime.
+    pub fn range_owned<'q, P: causally::Polarity>(
+        &self,
+        query: impl Into<causally::Query<'q, P>>,
+    ) -> RangeOwned<T, P> {
+        typed::node::Root::range_owned(self.root.root.as_ref(), query.into().into_owned())
     }
 
-    /// Lazily iterates the live leaves whose versions fall within the causal
-    /// `range`.
+    /// Lazily iterates the live leaves whose versions the causal `query`
+    /// admits.
     ///
-    /// A leaf is yielded iff its version is contained in the
-    /// range's end bound and *not* contained in its start bound — a
-    /// difference of causal down-sets (see
-    /// [`untyped::Range`](typed::untyped::Range) for the
-    /// per-bound semantics). Subtrees wholly outside the range are pruned by
-    /// their memoized version bounds without being entered, so iterating a
-    /// small delta against a large tree costs work proportional to the delta
-    /// (plus the pruning frontier), not the tree.
+    /// Subtrees wholly outside the query are pruned by their memoized
+    /// version bounds without being entered, so iterating a small delta
+    /// against a large tree costs work proportional to the delta (plus the
+    /// pruning frontier), not the tree.
     ///
     /// Unlike [`iter`](Self::iter), not an [`ExactSizeIterator`]: how many
     /// leaves pass is unknown until they are visited.
-    pub fn range<R>(
-        &self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    pub fn range<'q, P: causally::Polarity>(
+        &'q self,
+        query: impl Into<causally::Query<'q, P>>,
+    ) -> impl DoubleEndedIterator<Item = (Key, &'q Version, &'q Arc<T>)> + Send + Sync
     where
         T: Send + Sync,
-        R: std::ops::RangeBounds<Version> + Send + Sync,
     {
-        typed::node::Root::range(self.root.root.as_ref(), range)
+        typed::node::Root::range(self.root.root.as_ref(), query.into())
             // The shared walk yields the full `&Message<T>`; the public
             // contract hands out only the `&Arc<T>` value, a cheap projection
             // of it.

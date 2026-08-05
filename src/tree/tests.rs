@@ -846,29 +846,24 @@ fn owned<T>((key, version, value): (Key, &Version, &Arc<T>)) -> (Key, Version, A
 proptest! {
     /// The walk machinery's correctness core, differentially.
     ///
-    /// For arbitrary
-    /// divergent trees and an arbitrary causal bound pair (every `Bound`
-    /// kind, over versions sampled from both trees' leaves and ceilings plus
-    /// genesis — so dominated, dominating, equal, concurrent, and crossed
-    /// bounds all occur), `Tree::range` yields exactly the leaves that the
-    /// documented per-bound membership predicate admits from the unfiltered
-    /// walk — the prune/promote shortcuts are pure optimization — in
-    /// ascending key order; and the frozen spine walk (`Tree::freeze`)
-    /// yields the identical sequence. Two independent implementations of
-    /// the same partial-order semantics checking each other. (The predicate
-    /// is stated inline over the raw `Bound` pair: `Tree::range`'s
-    /// `RangeBounds` surface accepts crossed pairs, which `before::causally`
-    /// validates away at composition.)
+    /// For arbitrary divergent trees and a causal query built over bound
+    /// versions sampled from both trees' leaves and ceilings plus genesis
+    /// — so dominated, dominating, equal, concurrent, and crossed bound
+    /// pairs all occur, and every form in the query vocabulary is driven
+    /// at each polarity — `Tree::range` yields exactly the leaves whose
+    /// versions the query `contains`, from the unfiltered walk: the
+    /// coverage prune/promote shortcuts are pure optimization. The yield
+    /// is in ascending key order, and the frozen spine walk
+    /// (`Tree::range_owned`) yields the identical sequence. Two
+    /// independent implementations of the same query semantics checking
+    /// each other.
     #[test]
     fn range_and_freeze_match_the_naive_filter(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
         start_sel in any::<prop::sample::Index>(),
         end_sel in any::<prop::sample::Index>(),
-        start_kind in 0u8..3,
-        end_kind in 0u8..3,
+        form in 0usize..12,
     ) {
-        use std::ops::Bound;
-
         let tree = Tree { root: a };
         let other = Tree { root: b };
 
@@ -883,61 +878,57 @@ proptest! {
         candidates.extend(tree.iter().map(|(_, v, _)| v.clone()));
         candidates.extend(other.iter().map(|(_, v, _)| v.clone()));
 
-        let pick = |sel: &prop::sample::Index, kind: u8| match kind {
-            0 => Bound::Unbounded,
-            1 => Bound::Included(candidates[sel.index(candidates.len())].clone()),
-            _ => Bound::Excluded(candidates[sel.index(candidates.len())].clone()),
-        };
-        let start = pick(&start_sel, start_kind);
-        let end = pick(&end_sel, end_kind);
+        let s = &candidates[start_sel.index(candidates.len())];
+        let e = &candidates[end_sel.index(candidates.len())];
 
-        // Ground truth: the documented per-bound predicate — contained in
-        // the end bound and not contained in the start bound — applied to
-        // the unfiltered walk. Stated directly over the raw `Bound` pair
-        // rather than a composed `causally` range: composition validates
-        // its bounds, and this generator deliberately also drives crossed
-        // pairs through `Tree::range`'s raw `RangeBounds` surface.
-        let admits = |version: &Version| {
-            use std::cmp::Ordering;
-            let past_start = match &start {
-                Bound::Unbounded => true,
-                // Not in the start's causal past (greater than or
-                // concurrent to it): not subtracted.
-                Bound::Excluded(s) => {
-                    matches!(version.partial_cmp(s), None | Some(Ordering::Greater))
-                }
-                // As above, but the bound itself also survives.
-                Bound::Included(s) => matches!(
-                    version.partial_cmp(s),
-                    None | Some(Ordering::Equal | Ordering::Greater)
-                ),
-            };
-            let within_end = match &end {
-                Bound::Unbounded => true,
-                Bound::Included(e) => version <= e,
-                Bound::Excluded(e) => version < e,
-            };
-            past_start && within_end
-        };
-        let naive: Vec<_> = tree
-            .iter()
-            .filter(|(_, version, _)| admits(version))
-            .map(owned)
-            .collect();
+        /// One walk-vs-filter check: `Tree::range` and `Tree::range_owned`
+        /// against the query's own membership over the unfiltered walk.
+        fn check<P: causally::Polarity>(
+            tree: &Tree<()>,
+            query: &causally::Query<'_, P>,
+        ) -> Result<(), TestCaseError> {
+            let naive: Vec<_> = tree
+                .iter()
+                .filter(|(_, version, _)| query.contains(version))
+                .map(owned)
+                .collect();
 
-        let ranged: Vec<_> = tree.range((start.clone(), end.clone())).map(owned).collect();
-        prop_assert_eq!(&ranged, &naive, "range must equal the naive filter");
-        prop_assert!(
-            ranged.windows(2).all(|pair| pair[0].0 < pair[1].0),
-            "range yields ascending keys",
-        );
+            let ranged: Vec<_> = tree.range(query).map(owned).collect();
+            prop_assert_eq!(&ranged, &naive, "range must equal the naive filter");
+            prop_assert!(
+                ranged.windows(2).all(|pair| pair[0].0 < pair[1].0),
+                "range yields ascending keys",
+            );
 
-        let mut frozen = tree.range_owned((start, end));
-        let mut thawed = Vec::new();
-        while let Some((key, leaf)) = frozen.next() {
-            thawed.push((key, leaf.version().clone(), leaf.value().clone()));
+            let mut frozen = tree.range_owned(query);
+            let mut thawed = Vec::new();
+            while let Some((key, leaf)) = frozen.next() {
+                thawed.push((key, leaf.version().clone(), leaf.value().clone()));
+            }
+            prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
+            Ok(())
         }
-        prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
+
+        // The query vocabulary at every polarity, over the sampled bound
+        // pair. Reversed and concurrent pairs are meaningful queries (some
+        // empty, some the anti-entropy delta), so every form is total.
+        match form {
+            // Neutral: the pure inclusive interval forms.
+            0 => check(&tree, &causally::all())?,
+            1 => check(&tree, &causally::after(s).into())?,
+            2 => check(&tree, &causally::before(e).into())?,
+            3 => check(&tree, &(causally::after(s) & causally::before(e)))?,
+            4 => check(&tree, &causally::Query::from(s))?,
+            // Down-polar: subtracted down-sets.
+            5 => check(&tree, &causally::since(s))?,
+            6 => check(&tree, &causally::delta(s, e))?,
+            7 => check(&tree, &causally::strictly_after(s))?,
+            // Up-polar: subtracted up-sets.
+            8 => check(&tree, &causally::until(e))?,
+            9 => check(&tree, &causally::toward(s, e))?,
+            10 => check(&tree, &causally::strictly_before(e))?,
+            _ => check(&tree, &(causally::before(e).or_concurrent()))?,
+        }
     }
 
     /// The unfiltered walk is exact and reversible, and the point lookup
