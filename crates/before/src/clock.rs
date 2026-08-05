@@ -498,9 +498,10 @@ impl Clock {
     /// Merges any number of received [`Version`]s into this [`Clock`]'s
     /// version, then [`tick`](Clock::tick)s the [`Clock`] (once).
     ///
-    /// Equivalent to `self |= Version::join_all(versions); self.ticks(n)`,
-    /// where `n` is the number of versions received. The n-ary half of the
-    /// vector-clock communication pattern described on [`send`](Clock::send).
+    /// Equivalent to `clock |= Version::join_all(versions); clock.tick()`:
+    /// the batch is absorbed whole and recorded as one local event. The
+    /// n-ary half of the vector-clock communication pattern described on
+    /// [`send`](Clock::send).
     ///
     /// When possible, prefer this to iteratively [`recv`](Clock::recv)-ing
     /// [`Version`]s one-at-a-time, which is less efficient than this method.
@@ -539,12 +540,8 @@ impl Clock {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        let mut count = 0u64;
-        self.version |= Version::join_all(versions.into_iter().map(|v| {
-            count += 1;
-            v
-        }));
-        self.ticks(count)
+        self.version |= Version::join_all(versions);
+        self.tick()
     }
 
     /// Pairs a [`Party`] with a [`Version`] to form a [`Clock`].

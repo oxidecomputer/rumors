@@ -2952,8 +2952,10 @@ fn sync_all_is_join_all_then_forks(c: &Clock, items: &[Clock]) -> bool {
 
 /// `recv_all` equals its stated composition — join every message into
 /// the version through the bound binary join, then one [`Clock::tick`]
-/// — value for value at every arity, returned reference included, so
-/// the n-ary door adds no observable behavior of its own.
+/// — value for value at every arity.
+///
+/// Returned reference included: the n-ary door adds no observable
+/// behavior of its own.
 ///
 /// The items' versions serve as the message list; the party never
 /// moving and the empty list being a bare tick both ride the whole-clock
