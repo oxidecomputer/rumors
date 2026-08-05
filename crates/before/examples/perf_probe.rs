@@ -74,6 +74,35 @@ fn impl_clocks(plan: &Plan, groups: u8) -> Vec<Clock> {
         .collect()
 }
 
+/// The ownership-hole pair: the full universe's joined version against
+/// one late-forked member's party — a peer owning a vanishing custody
+/// fraction registering an event on a fully-received version. The
+/// aliased party never re-enters protocol use, so linearity holds for
+/// everything the loop observes.
+fn hole_pair(plan: &Plan) -> (Party, Version) {
+    let mut universe = vec![Clock::seed()];
+    for &i in &plan.schedule {
+        let child = universe[i].fork();
+        universe.push(child);
+    }
+    for (m, c) in universe.iter_mut().enumerate() {
+        for _ in 0..plan.ticks[m] {
+            c.tick();
+        }
+    }
+    let probe = universe.last().expect("nonempty universe").dangerously_alias();
+    let (party, _) = probe.into_parts();
+    let full = universe
+        .into_iter()
+        .reduce(|mut acc, c| {
+            acc.join(c).map_err(|_| ()).expect("disjoint");
+            acc
+        })
+        .expect("nonempty universe");
+    let (_, version) = full.into_parts();
+    (party, version)
+}
+
 #[cfg(feature = "oracle")]
 fn oracle_clocks(plan: &Plan, groups: u8) -> Vec<before::oracle::Clock> {
     use before::oracle;
@@ -217,6 +246,18 @@ fn main() {
     if run("tick") {
         let (i, t) = loop_version_tick(budget, &tick_party, &tick_version);
         println!("version_tick   {t:>12.1} ns/op ({i} iters)");
+    }
+    if run("holetick") {
+        let mut rh = StdRng::seed_from_u64(SEED.wrapping_add(1));
+        let ph = plan(&mut rh, n, 1);
+        let (hole_party, hole_version) = hole_pair(&ph);
+        println!(
+            "holetick operands: party bits={} version bits={}",
+            hole_party.encoded_bits(),
+            hole_version.encoded_bits(),
+        );
+        let (i, t) = loop_version_tick(budget, &hole_party, &hole_version);
+        println!("version_holetick {t:>10.1} ns/op ({i} iters)");
     }
     if run("vjoin") {
         let (i, t) = loop_version_join(budget, ja.version(), jb.version());
