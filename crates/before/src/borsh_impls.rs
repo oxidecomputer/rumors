@@ -3,16 +3,12 @@
 //! Each type's borsh representation is exactly its canonical byte encoding:
 //! [`Party::as_bytes`], [`Version::as_bytes`], [`Clock::encode`],
 //! [`Rank::encode`], [`Ranked::encode`], or [`Span::encode`]. The encodings are
-//! self-delimiting — the tree codes prefix-free, the rank stream closed by
-//! its fraction's terminating bit — so a decoder finds their ends from the
-//! encoding itself; no borsh length prefix is needed. This also lets values
-//! compose inside a larger borsh stream while preserving their in-memory
-//! wire form.
+//! self-delimiting, so a decoder finds their ends from the encoding itself; no
+//! borsh length prefix is needed. This also lets values compose inside a larger
+//! borsh stream while preserving their in-memory wire form.
 //!
 //! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
-//! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes
-//! to their source, so their linearity notes apply verbatim at this door
-//! ([Safety rules](crate#safety-rules)).
+//! [`Party::decode`]/[`Clock::decode`] do.
 
 use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};

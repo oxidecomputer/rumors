@@ -1,10 +1,13 @@
-//! The public operation surface, as data: one row per public operation,
-//! with each differential leg's disposition.
+//! The public surface of the library as a machine-readable enumeration.
+//!
+//! Public under the `meter` feature (with the other instrument-facing data) so
+//! external instrument crates can bind their coverage tables to the same
+//! roster.
 //!
 //! This module is the machine-readable roster the surface-coverage suite (the
 //! crate's test-only differential architecture) enforces totality over:
 //! its tests hold
-//! [`METHOD_SURFACE`](crate::surface::METHOD_SURFACE) equal, name for
+//! [`METHOD_SURFACE`] equal, name for
 //! name, to the inherent `pub fn`
 //! surface extracted from the public-API source files, and hold every
 //! cited test name resolvable to an executable binding. The rows live

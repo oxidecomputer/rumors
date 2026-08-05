@@ -1,11 +1,11 @@
 //! Named, composable constructors for causal [`Version`] ranges.
 //!
-//! On totally ordered values a range is an interval. On causal [`Version`]s,
+//! On totally ordered values, a range is an interval. On causal [`Version`]s,
 //! which are only *partially* ordered, the useful generalization is a
-//! **difference of down-sets**: keep the versions contained in the end bound,
-//! subtract the versions contained in the start bound. The constructors here
-//! name each bound's meaning so a filter reads as a sentence, and every start
-//! kind composes with every end kind:
+//! **difference of down-sets**: all versions contained in the end bound,
+//! excepting the versions also contained in the start bound. The constructors
+//! here name each bound's meaning so a filter reads as a sentence, and every
+//! start kind composes with every end kind:
 //!
 //! | | end unbounded | [`known_at(e)`](known_at): `v <= e` | [`before(e)`](before): `v < e` |
 //! |---|---|---|---|
@@ -14,18 +14,16 @@
 //! | **[`since(s)`](since): subtract `v <= s`** | `since(&s)` | `since(&s).known_at(&e)`, a.k.a. [`delta`] | `since(&s).before(&e)`, a.k.a. [`delta_before`] |
 //!
 //! The asymmetry inherent to the partial order: a start bound of either kind
-//! keeps versions *concurrent* to it (subtraction removes only the bound's
-//! causal past — "everything since `s`" must not drop other parties' concurrent
-//! versions), while an end bound of either kind drops them (keeping demands
-//! containment).
+//! keeps versions *concurrent* to it: "everything since `start`" must not drop
+//! other parties' concurrent versions; conversely, "everything before `end`"
+//! must instead drop everything concurrent to it.
 //!
 //! Pairing a start with an end validates the composition: the start version
-//! must lie *within* the end bound (`start <= end` under [`known_at`],
-//! `start < end` under [`before`]), and a pair that crosses is rejected with
-//! [`Crossed`]. The gate is what makes
-//! [`placement_of`](Range::placement_of)'s trichotomy total: a range that
-//! exists subtracts only versions its end bound keeps, so no version can
-//! fail both bounds at once.
+//! must lie *within* the end bound (`start <= end` under [`known_at`], `start <
+//! end` under [`before`]), and a pair that crosses is rejected with
+//! [`Crossed`]. The gate is what makes [`placement_of`](Range::placement_of)'s
+//! trichotomy total: a range that exists subtracts only versions its end bound
+//! keeps, so no version can fail both bounds at once.
 //!
 //! Every constructor returns a [`Range`], which implements
 //! [`RangeBounds<Version>`] so it can be handed to any version-ranged API, and
@@ -35,65 +33,32 @@
 //! # Placement
 //!
 //! Every membership question a range answers is a coarsening of one
-//! *placement*: where a version sits relative to the range.
-//! [`Range::bounded`] answers it at full resolution — the six [`Bounded`]
-//! verdicts, an ordered line `Before, AtStart, Between, AtEnd, After` with
-//! `Concurrent` off the axis beside the end — and
-//! [`placement_of`](Range::placement_of) folds those six down to its
-//! trichotomy by each bound's inclusivity, with
-//! [`contains`](Range::contains) as the trichotomy's `Equal` arm. The
-//! region verdicts read the range semantics above (in particular, a
-//! version *concurrent to the start but within the end* is `Between`:
-//! start bounds keep concurrent versions); the at-bound verdicts report
-//! raw equality to a bound's version, leaving whether the range keeps
-//! that version to the coarsening. [`Bounded`]'s variant docs carry the
-//! exact case analysis, including the coincident-bounds corner.
+//! *placement*: where a version sits relative to the range. [`Range::bounded`]
+//! answers it at full resolution: the six [`Bounded`] verdicts form an ordered
+//! line `Before` < `AtStart` < `Between` < `AtEnd` < `After`, with `Concurrent`
+//! off the axis beside the end, and [`placement_of`](Range::placement_of) folds
+//! those six down to by each bound's inclusivity, with
+//! [`contains`](Range::contains) as the `Equal` arm.
 //!
-//! # Span placement
+//! # [`Span`] placement
 //!
-//! Two concrete versions `lo <= hi` form a [`Span`] — a genuinely
-//! different object from a [`Range`]: where a range's bounds are
-//! down-set cut-points with inclusivity kinds, a span is the ordered
-//! pair itself and the chain segment between its versions.
-//! [`Span::place`] answers the placement question at the finest
-//! resolution the partial order admits — the nine [`Placement`]
-//! regions — and [`Span::dominance`] coarsens it to the three-way
-//! [`Dominance`] verdict a filter over version-bounded regions
+//! Two concrete versions `lo <= hi` form a [`Span`], which is a genuinely
+//! different object from a [`Range`]: while a range's bounds are down-set
+//! cut-points, a span is the ordered pair itself and the segment between its
+//! versions. [`Span::place`] answers the placement question at the finest
+//! resolution the partial order admits, and [`Span::dominance`] coarsens it to
+//! the three-way [`Dominance`] verdict a filter over version-bounded regions
 //! consumes. Spans, their operator algebra, their party-quotient view
-//! ([`OwnSpan`]), and their wire form live in the crate's span module
-//! and are re-exported here; this module owns the range semantics.
-//!
-//! The module's placement questions have exactly two semantic roots:
-//! pairwise comparison ([`partial_cmp`](PartialOrd::partial_cmp) on
-//! [`Version`]s) and span placement. Every other verdict is a
-//! lawful coarsening of one of the two, each pinned as a named law in
-//! [`laws`](crate::laws): [`bounded`](Range::bounded) on a two-bounded
-//! range coarsens `place` (`bounded_coarsens_span_place`), and on a
-//! single-bounded range transcribes the one pairwise comparison
-//! (`bounded_matches_bound_relations`);
-//! [`placement_of`](Range::placement_of) and
-//! [`contains`](Range::contains) coarsen `bounded` by bound kind
-//! (`bounded_coarsens_to_placement`); [`dominance`](Span::dominance)
-//! coarsens `place` to the dominance question
-//! (`span_dominance_coarsens_place`); and `place` against the
-//! degenerate span `[v, v]` is pairwise comparison itself
-//! (`degenerate_span_place_is_partial_cmp`).
+//! ([`OwnSpan`]), and their wire form live in the crate's span module and are
+//! re-exported here.
 //!
 //! # Complexity
 //!
-//! Borrowing constructors `O(1)` (the deriving `span`/`span_all` priced on `Version`); validation at most one causal comparison; placement one fused pass `O(v + s + e)`.
-//! A [`Range`] or [`Span`] stores two borrows. Pairing a start with
-//! an end — or validating a span through [`Span::new`] — pays its one
-//! comparison in the bounds' packed sizes, `|s| + |e|`
-//! ([`Span::new_unchecked`] skips even that). The deriving
-//! constructors live on [`Version`] ([`span`](Version::span) and
-//! [`span_all`](Version::span_all), priced at the methods). The
-//! placement family — [`bounded`](Range::bounded),
-//! [`contains`](Range::contains),
-//! [`placement_of`](Range::placement_of), [`Span::place`], and
-//! [`Span::dominance`] — runs its fused pass over the version and the
-//! present bound versions' packed sizes (see [`Version`]), each stream
-//! decoded once.
+//! A [`Range`] or [`Span`] stores two borrows. Pairing a start with an end, or
+//! validating a span through [`Span::new`], costs one comparison in the bounds'
+//! packed sizes, `|s| + |e|`. Determining the placement of a [`Version`] `v` in
+//! a range `s..e` is one fused pass `O(|v| + |s| + |e|)`; likewise for all
+//! other range forms, and for [`Span`]s.
 //!
 //! ```
 //! use before::{Clock, causally};
@@ -135,21 +100,13 @@ pub use crate::span::{Dominance, Endpoint, OwnSpan, Placement, Span};
 use crate::version::skyline::place;
 use crate::Version;
 
-/// A causal version range: a pair of [`Bound`]s.
+/// A causal version range comprising a pair of [`Bound`]s.
 ///
-/// Build one with the module's constructors and refine it with the
-/// same-named methods, in either order; setting a bound that is already set
-/// keeps the latest value. Refinement validates the pair — a start that is
-/// not within the end bound is rejected with [`Crossed`] — so every `Range`
-/// that exists is well-formed. The struct implements
-/// [`RangeBounds<Version>`] for use with version-ranged APIs.
-///
-/// [`Range::contains`] — the causal membership predicate — is also the
-/// verdict the [`RangeBounds`] impl gives: the trait's *provided*
-/// `contains` body requires the item to dominate the start bound, which
-/// on a partial order silently drops versions concurrent to it, so the
-/// impl overrides the method with the causal semantics. Direct callers
-/// and generic [`RangeBounds`] consumers therefore agree.
+/// Build one with the module's constructors and refine it with the same-named
+/// methods, in either order; setting a bound that is already set keeps the
+/// latest value. Refinement validates the pair, so every `Range` that exists is
+/// well-formed. The struct implements [`RangeBounds<Version>`] for use with
+/// version-ranged APIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Range<'a> {
     start: Bound<&'a Version>,
@@ -181,9 +138,8 @@ pub fn since(start: &Version) -> Range<'_> {
 /// Everything *not strictly before* `start`: like [`since`], but `start` itself
 /// is included.
 ///
-/// The name follows X.509's `notBefore`: on a partial order, "not before" is
-/// unambiguous where "at or after" would not be, since concurrent versions are
-/// neither.
+/// On a partial order, "not before" is unambiguous where "at or after" would
+/// not be, since concurrent versions are neither.
 pub fn not_before(start: &Version) -> Range<'_> {
     Range {
         start: Bound::Included(start),
@@ -237,10 +193,9 @@ impl<'a> Range<'a> {
     ///
     /// # Errors
     ///
-    /// [`Crossed`] if `start` is not within the end bound: unless
-    /// `start <= end` under [`known_at`](Self::known_at), unless
-    /// `start < end` under [`before`](Self::before). An unbounded end
-    /// accepts every start.
+    /// [`Crossed`] if `start` is not within the end bound: unless `start <=
+    /// end` under [`known_at`](Self::known_at), unless `start < end` under
+    /// [`before`](Self::before). An unbounded end accepts every start.
     pub fn since(self, start: &'a Version) -> Result<Self, Crossed> {
         Self {
             start: Bound::Excluded(start),
@@ -254,10 +209,9 @@ impl<'a> Range<'a> {
     ///
     /// # Errors
     ///
-    /// [`Crossed`] if `start` is not within the end bound: unless
-    /// `start <= end` under [`known_at`](Self::known_at), unless
-    /// `start < end` under [`before`](Self::before). An unbounded end
-    /// accepts every start.
+    /// [`Crossed`] if `start` is not within the end bound: unless `start <=
+    /// end` under [`known_at`](Self::known_at), unless `start < end` under
+    /// [`before`](Self::before). An unbounded end accepts every start.
     pub fn not_before(self, start: &'a Version) -> Result<Self, Crossed> {
         Self {
             start: Bound::Included(start),
@@ -270,8 +224,8 @@ impl<'a> Range<'a> {
     ///
     /// # Errors
     ///
-    /// [`Crossed`] unless the start version, if any, satisfies
-    /// `start <= end`. An unbounded start accepts every end.
+    /// [`Crossed`] unless the start version, if any, satisfies `start <= end`.
+    /// An unbounded start accepts every end.
     pub fn known_at(self, end: &'a Version) -> Result<Self, Crossed> {
         Self {
             end: Bound::Included(end),
@@ -284,8 +238,8 @@ impl<'a> Range<'a> {
     ///
     /// # Errors
     ///
-    /// [`Crossed`] unless the start version, if any, satisfies
-    /// `start < end`. An unbounded start accepts every end.
+    /// [`Crossed`] unless the start version, if any, satisfies `start < end`.
+    /// An unbounded start accepts every end.
     pub fn before(self, end: &'a Version) -> Result<Self, Crossed> {
         Self {
             end: Bound::Excluded(end),
@@ -298,11 +252,11 @@ impl<'a> Range<'a> {
     /// version, if any, must lie within the end bound, if any.
     ///
     /// The gate makes [`placement_of`](Self::placement_of) a coherent
-    /// trichotomy. A subtracted version sits at or below the start, and a
-    /// start within the end bound pulls everything at or below it within
-    /// too (the strictness required of `start` vs `end` matches the end
-    /// bound's own strictness), so everything the start subtracts the end
-    /// keeps: no version is both below the range and beyond it.
+    /// trichotomy. A subtracted version sits at or below the start, and a start
+    /// within the end bound pulls everything at or below it within too (the
+    /// strictness required of `start` vs `end` matches the end bound's own
+    /// strictness), so everything the start subtracts the end keeps: no version
+    /// is both below the range and beyond it.
     fn validated(self) -> Result<Self, Crossed> {
         let start = match self.start {
             Bound::Unbounded => return Ok(self),
@@ -333,10 +287,9 @@ impl<'a> Range<'a> {
     /// - end unbounded: everything kept; [`known_at(e)`](known_at): `v <= e`
     ///   kept; [`before(e)`](before): `v < e` kept.
     ///
-    /// The [`RangeBounds`] impl overrides the trait's provided `contains`
-    /// to answer identically — the provided body's start check would drop
-    /// versions concurrent to the start bound (see [`Range`]) — so generic
-    /// [`RangeBounds`] consumers reach the same verdict as this method.
+    /// The [`RangeBounds`] impl overrides the trait's provided `contains` to
+    /// answer identically, so generic [`RangeBounds`] consumers reach the same
+    /// verdict as this method.
     pub fn contains(&self, version: &Version) -> bool {
         self.placement_of(version) == Ordering::Equal
     }
@@ -351,29 +304,8 @@ impl<'a> Range<'a> {
     /// - [`Equal`](Ordering::Equal): the range [`contains`](Self::contains)
     ///   it.
     /// - [`Greater`](Ordering::Greater): the end bound does not contain it
-    ///   — its causal future *or* something concurrent to it; "beyond the
+    ///   (its causal future *or* something concurrent to it); "beyond the
     ///   range", not necessarily after every version in it.
-    ///
-    /// The totality lives in the signature: a bare [`Ordering`], no
-    /// [`Option`], where [`Version`]-to-[`Version`] comparison must return
-    /// [`Option<Ordering>`](PartialOrd::partial_cmp). (No operator
-    /// overloads back this: a cross-type `PartialEq` whose `==` meant
-    /// membership would violate the trait's transitivity contract.)
-    ///
-    /// The three cases are also mutually exclusive: composition validates
-    /// that the start bound lies within the end bound (rejecting the pair
-    /// with [`Crossed`] otherwise), so everything the start subtracts the
-    /// end keeps — no version can fail both bounds.
-    ///
-    /// The trichotomy is [`bounded`](Self::bounded)'s six-way placement
-    /// coarsened by each bound's inclusivity — `Before → Less`;
-    /// `AtStart → Less` under an excluded start, `Equal` under an
-    /// included one; `Between → Equal`; `AtEnd → Equal` under an
-    /// included end, `Greater` under an excluded one; `After` and
-    /// `Concurrent → Greater` — so one fused comparison pass answers it,
-    /// each operand stream decoded once. The
-    /// `bounded_coarsens_to_placement` law in [`laws`](crate::laws) pins
-    /// the table, [`contains`](Self::contains) riding as its `Equal` arm.
     pub fn placement_of(&self, version: &Version) -> Ordering {
         match self.bounded(version) {
             Bounded::Before => Ordering::Less,
@@ -398,25 +330,6 @@ impl<'a> Range<'a> {
 
     /// Places `version` against this range at full resolution: the
     /// six-way [`Bounded`] verdict.
-    ///
-    /// The verdict is a pure function of the two causal comparisons
-    /// against the bound versions — bound *kinds* never move it (they
-    /// decide only how [`placement_of`](Self::placement_of) coarsens an
-    /// at-bound verdict), and an unbounded side makes its verdicts
-    /// unreachable: no start bound rules out [`Before`](Bounded::Before)
-    /// and [`AtStart`](Bounded::AtStart); no end bound rules out
-    /// [`AtEnd`](Bounded::AtEnd), [`After`](Bounded::After), and
-    /// [`Concurrent`](Bounded::Concurrent).
-    ///
-    /// One comparison pass answers both relations: the version and the
-    /// bound versions are walked simultaneously, each decoded once —
-    /// against two for the version when the comparisons are composed —
-    /// with the composition's early exits preserved (a version
-    /// concurrent to a bound is decided at the first opposing interval).
-    /// The `bounded_matches_bound_relations` law in [`laws`](crate::laws)
-    /// pins the fused verdict to the two comparisons on every law
-    /// consumer, and `bounded_coarsens_to_placement` pins the
-    /// coarsening.
     ///
     /// ```
     /// use before::{Clock, causally::{self, Bounded}};
@@ -454,41 +367,35 @@ impl<'a> Range<'a> {
     }
 }
 
-/// Where a version sits relative to a [`Range`]: the full-resolution
-/// placement behind [`placement_of`](Range::placement_of)'s trichotomy.
+/// Where a version sits relative to a [`Range`].
 ///
-/// The variants read as an ordered line — `Before, AtStart, Between,
-/// AtEnd, After` — with [`Concurrent`](Self::Concurrent) off the axis
-/// beside the end. The region variants (`Before`, `Between`, `After`,
-/// `Concurrent`) follow the range semantics (a difference of causal
-/// down-sets; see the [module docs](self)); the at-bound variants
-/// (`AtStart`, `AtEnd`) report *raw equality* to a bound's version,
-/// deliberately independent of the bound's kind: whether the range keeps
-/// or subtracts a version sitting exactly at a bound is the bound's
-/// inclusivity question, answered in the coarsening to
-/// [`placement_of`](Range::placement_of), never baked into the variant.
-/// (An `AtStart` that meant subtracted-or-kept would collapse into
-/// `Before` or `Between` and add nothing.)
+/// The variants read as an ordered line: `Before` < `AtStart` < `Between` <
+/// `AtEnd` < `After`, with [`Concurrent`](Self::Concurrent) off the axis beside
+/// the end. The region variants (`Before`, `Between`, `After`, `Concurrent`)
+/// follow the range semantics (a difference of causal down-sets; see the
+/// [module docs](self)); the at-bound variants (`AtStart`, `AtEnd`) report *raw
+/// equality* to a bound's version, deliberately independent of the bound's
+/// kind: whether the range keeps or subtracts a version sitting exactly at a
+/// bound is the bound's inclusivity question, answered in the coarsening to
+/// [`placement_of`](Range::placement_of).
 ///
-/// The one misreading to rule out: `Concurrent` is an **end-bound**
-/// verdict. A version *concurrent to the start bound but within the end
-/// bound* is [`Between`](Self::Between) — start bounds subtract only
-/// their causal past, so versions concurrent to a start are kept, the
-/// module's deliberate keep-concurrent-versions behavior.
+/// Note that `Concurrent` is an **end-bound** verdict. A version *concurrent to
+/// the start bound but within the end bound* is [`Between`](Self::Between) —
+/// start bounds subtract only their causal past, so versions concurrent to a
+/// start are kept, the module's deliberate keep-concurrent-versions behavior.
 ///
-/// **Vocabulary kinship, divergent semantics**: span placement's
-/// [`Placement`] reuses `Before`, `Between`, and `After` — the same
-/// question against a different object. There the words are raw
-/// strict-order facts against two concrete versions (a version
-/// concurrent to the span's start is `Concurrent(Start)`, never
-/// `Between`); here the region variants fold the range semantics above.
-/// [`Dominance`] reuses the same three words a third way, coarser than
-/// either: each of its verdicts is a *bucket* of `Placement`s keyed to
-/// how much of the span the probe dominates, folding concurrencies and
-/// endpoint hits into the buckets (its variant docs carry the exact
-/// tables). On a two-bounded range this verdict is exactly a coarsening
-/// of the nine-state placement, pinned by the
-/// `bounded_coarsens_span_place` law in [`laws`](crate::laws).
+/// **Vocabulary kinship, divergent semantics**: span placement's [`Placement`]
+/// reuses `Before`, `Between`, and `After` — the same question against a
+/// different object. There the words are raw strict-order facts against two
+/// concrete versions (a version concurrent to the span's start is
+/// `Concurrent(Start)`, never `Between`); here the region variants fold the
+/// range semantics above. [`Dominance`] reuses the same three words a third
+/// way, coarser than either: each of its verdicts is a *bucket* of `Placement`s
+/// keyed to how much of the span the probe dominates, folding concurrencies and
+/// endpoint hits into the buckets (its variant docs carry the exact tables). On
+/// a two-bounded range this verdict is exactly a coarsening of the nine-state
+/// placement, pinned by the `bounded_coarsens_span_place` law in
+/// [`laws`](crate::laws).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bounded {
     /// Strictly inside the start bound's causal past: `v < start`.

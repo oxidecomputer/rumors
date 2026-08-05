@@ -2,24 +2,23 @@
 //! rung that answered it.
 //!
 //! Every pair-hull construction ([`Version::span`](crate::Version::span),
-//! `span_all`'s leaf combines, and the span union's point-combines,
-//! which derive their hull through the same kernel) descends a ladder
-//! of fast paths —
-//! byte-equal operands, an empty operand, a comparable pair handed back
-//! as clones — before the one emitting case, a concurrent pair. Which
-//! rung answers is a property of the *caller's traffic*, not of the
-//! kernel: a consumer whose pairs are mostly comparable pays comparison
-//! sweeps, one whose pairs are mostly concurrent pays emissions, and no
-//! per-operation envelope can see the mix. These counters record it, so
-//! a consumer workload (a tree's bounds memos, a reconciliation run)
-//! can be measured at the door it actually exercises.
+//! `span_all`'s leaf combines, and the span union's point-combines, which
+//! derive their hull through the same kernel) descends a ladder of fast paths —
+//! byte-equal operands, an empty operand, a comparable pair handed back as
+//! clones — before the one emitting case, a concurrent pair. Which rung answers
+//! is a property of the *caller's traffic*, not of the kernel: a consumer whose
+//! pairs are mostly comparable pays comparison sweeps, one whose pairs are
+//! mostly concurrent pays emissions, and no per-operation envelope can see the
+//! mix. These counters record it, so a consumer workload (a tree's bounds
+//! memos, a reconciliation run) can be measured at the door it actually
+//! exercises.
 //!
 //! The recording compiles to nothing without the `meter` feature — the
 //! [`codec::scan`](crate::codec) counter's idiom — and the readings are
-//! process-global with the same isolation requirement as every other
-//! meter: meaningful one scenario per process (nextest's model) or
-//! under a single-threaded caller. The read surface is
-//! `meter::span_traffic` / `meter::reset_span_traffic`.
+//! process-global with the same isolation requirement as every other meter:
+//! meaningful one scenario per process (nextest's model) or under a
+//! single-threaded caller. The read surface is `meter::span_traffic` /
+//! `meter::reset_span_traffic`.
 
 /// One pair-hull call's classification: the span ladder rung that
 /// answered it.

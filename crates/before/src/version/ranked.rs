@@ -10,92 +10,87 @@ use super::rank::{decode_stream, encode_parts};
 use super::{skyline, Rank, Version};
 use crate::error::Decode;
 
-/// A [`Version`] as a **total causal-ordering key**: ordered by causal
-/// [`Rank`] with a deterministic tiebreak, equal only to itself, and
-/// encoded as a composite byte key whose lexicographic order equals
-/// [`Ord`].
+/// A [`Version`] as a total causal-ordering key.
 ///
-/// Construction is `O(1)` and borrows (or takes) the version — no fold
-/// runs until something is asked. Two `Ranked` values compare in **one
-/// fused co-walk** over both packed streams (the signed instance of the
-/// distance/lag integrator), with no `Rank` value materialized:
-/// cheaper than two rank folds and a compare, and nothing is allocated
-/// beyond the walk's accumulators. The rank materializes only on
-/// request ([`to_rank`](Self::to_rank), or the [`From`] impl).
+/// This is a view on a [`Version`] which is ordered by its causal [`Rank`] with
+/// a deterministic tiebreak, equal only to itself, with a canonical encoding
+/// whose lexicographic order aligns with [`Ord`].
+///
+/// Construction is `O(1)` and borrows (or takes) the version — no fold runs
+/// until something is asked. Two `Ranked` values compare in **one fused
+/// co-walk** over both packed streams (the signed instance of the distance/lag
+/// integrator), with no `Rank` value materialized: cheaper than two rank folds
+/// and a compare, and nothing is allocated beyond the walk's accumulators. The
+/// rank materializes only on request ([`to_rank`](Self::to_rank), or the
+/// [`From`] impl).
 ///
 /// # The total order
 ///
-/// Rank first: causally ordered versions compare as causality does
-/// (rank is strictly monotone — see [`Rank`]). Equal ranks are never
-/// causally ordered — the two sides are the same version or concurrent
-/// — so the tiebreak that completes the total order is causally free:
-/// rank-equal distinct versions are ordered by a fixed, deterministic
-/// comparison of their canonical bytes. Which of two rank-equal
-/// versions sorts first is deliberately **unspecified beyond being
-/// stable**: the same verdict in every execution, on every replica,
-/// carrying no causal meaning. **Equality is version identity** —
-/// distinct concurrent versions of equal rank compare unequal (and
-/// non-`Equal` under [`Ord`]), so no two distinct versions ever
-/// conflate under this order. Equality never runs the walk: it is the
-/// versions' canonical byte comparison. [`Hash`] delegates to the
-/// version's byte hash, so `Eq` and `Hash` agree (a `Ranked` hashes
-/// exactly as the [`Version`] it views).
+/// Rank first: causally ordered versions compare as causality does (rank is
+/// strictly monotone — see [`Rank`]). Equal ranks are never causally ordered —
+/// the two sides are the same version or concurrent — so the tiebreak that
+/// completes the total order is causally free: rank-equal distinct versions are
+/// ordered by a fixed, deterministic comparison of their canonical bytes. Which
+/// of two rank-equal versions sorts first is deliberately **unspecified beyond
+/// being stable**: the same verdict in every execution, on every replica,
+/// carrying no causal meaning. **Equality is version identity** — distinct
+/// concurrent versions of equal rank compare unequal (and non-`Equal` under
+/// [`Ord`]), so no two distinct versions ever conflate under this order.
+/// Equality never runs the walk: it is the versions' canonical byte comparison.
+/// [`Hash`] delegates to the version's byte hash, so `Eq` and `Hash` agree (a
+/// `Ranked` hashes exactly as the [`Version`] it views).
 ///
 /// # The key encoding
 ///
-/// [`encode`](Self::encode) emits the rank's self-delimiting
-/// order-preserving stream ([`Rank::encode`]'s form) followed by the
-/// version's canonical bytes ([`Version::as_bytes`]) — the tiebreak
-/// built into the key. Byte-wise lexicographic order on these keys
-/// **equals [`Ord`] on the views, totally**: byte equality is exactly
-/// [`Eq`], and the order survives any appended suffix (both components
-/// are prefix-free, a committed pin). A sorted KV store keyed by this
-/// composite delivers causes before effects with no rank-aware
-/// comparator, needs no further tiebreak suffix, and can recover the
-/// stored version from the key alone ([`decode`](Self::decode)). Where
-/// rank-*class* semantics are wanted instead — all rank-equal keys
-/// collapsing to one — key by [`Rank::encode`] plus a tiebreak of your
-/// own choosing; [`encode_rank`](Self::encode_rank) emits exactly those
-/// bytes from the view, fused.
+/// [`encode`](Self::encode) emits the rank's self-delimiting order-preserving
+/// stream ([`Rank::encode`]'s form) followed by the version's canonical bytes
+/// ([`Version::as_bytes`]) — the tiebreak built into the key. Byte-wise
+/// lexicographic order on these keys **equals [`Ord`] on the views, totally**:
+/// byte equality is exactly [`Eq`], and the order survives any appended suffix
+/// (both components are prefix-free, a committed pin). A sorted KV store keyed
+/// by this composite delivers causes before effects with no rank-aware
+/// comparator, needs no further tiebreak suffix, and can recover the stored
+/// version from the key alone ([`decode`](Self::decode)). Where rank-*class*
+/// semantics are wanted instead — all rank-equal keys collapsing to one — key
+/// by [`Rank::encode`] plus a tiebreak of your own choosing;
+/// [`encode_rank`](Self::encode_rank) emits exactly those bytes from the view,
+/// fused.
 ///
 /// # Comparing against a bare [`Rank`]
 ///
 /// `Ranked` compares only with `Ranked`, and [`Rank`] only with `Rank`:
-/// equality means something different on each side — version identity
-/// here, rank equality there — and one rank class holds many versions,
-/// so no `==` between the two types could satisfy [`PartialEq`]'s
-/// transitivity contract (two rank-equal distinct views would each
-/// have to equal their shared rank while comparing unequal to each
-/// other). Ask the rank question explicitly instead: materialize with
-/// [`to_rank`](Self::to_rank) and compare ranks — `a.to_rank() == k`,
-/// `a.to_rank().cmp(&k)` — one rank fold, then [`Rank`]'s own
-/// comparison.
+/// equality means something different on each side — version identity here,
+/// rank equality there — and one rank class holds many versions, so no `==`
+/// between the two types could satisfy [`PartialEq`]'s transitivity contract
+/// (two rank-equal distinct views would each have to equal their shared rank
+/// while comparing unequal to each other). Ask the rank question explicitly
+/// instead: materialize with [`to_rank`](Self::to_rank) and compare ranks —
+/// `a.to_rank() == k`, `a.to_rank().cmp(&k)` — one rank fold, then [`Rank`]'s
+/// own comparison.
 ///
 /// # Cost shape
 ///
-/// Sorting *many* keys re-walks both versions per comparison: for a
-/// sorted container or a one-shot sort over `n` versions, materialize
-/// each key ([`encode`](Self::encode)) once — `n` folds — rather than
-/// paying a fused walk per probe; the view's comparisons win where a
-/// handful of verdicts is the whole job. Equality alone is one byte
-/// compare, no walk.
+/// Sorting *many* keys re-walks both versions per comparison: for a sorted
+/// container or a one-shot sort over `n` versions, materialize each key
+/// ([`encode`](Self::encode)) once — `n` folds — rather than paying a fused
+/// walk per probe; the view's comparisons win where a handful of verdicts is
+/// the whole job. Equality alone is one byte compare, no walk.
 ///
 /// # Complexity
 ///
-/// `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
-/// Construction and [`version`](Self::version) are `O(1)`.
-/// [`to_rank`](Self::to_rank) and the encodes are one rank fold
-/// ([`Version::rank`]'s three-part claim). A comparison is the fused
-/// pair co-sweep at the distance/lag bound, plus — only on rank ties —
-/// one byte comparison of the two versions. On answer-embedding pairs
-/// the shipped co-sweep provably pays the backend's multiplication
-/// cost — it settles the exact signed rank difference, whose value
-/// embeds an input-funded product — but that is a fact about this
-/// walk, not a floor on the comparison problem: [`Ord`] answers a
-/// three-valued verdict, not an exact rank, so the
-/// answer-embedded-product reduction that floors [`Version::rank`]
-/// cannot reach it, and whether some comparison can order such pairs
-/// below one multiplication is open.
+/// `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b)
+/// log (a + b))` with width-bounded parked drifts. Construction and
+/// [`version`](Self::version) are `O(1)`. [`to_rank`](Self::to_rank) and the
+/// encodes are one rank fold ([`Version::rank`]'s three-part claim). A
+/// comparison is the fused pair co-sweep at the distance/lag bound, plus — only
+/// on rank ties — one byte comparison of the two versions. On answer-embedding
+/// pairs the shipped co-sweep provably pays the backend's multiplication cost —
+/// it settles the exact signed rank difference, whose value embeds an
+/// input-funded product — but that is a fact about this walk, not a floor on
+/// the comparison problem: [`Ord`] answers a three-valued verdict, not an exact
+/// rank, so the answer-embedded-product reduction that floors [`Version::rank`]
+/// cannot reach it, and whether some comparison can order such pairs below one
+/// multiplication is open.
 ///
 /// ```
 /// use before::{Ranked, Version};

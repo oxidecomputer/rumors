@@ -1,6 +1,4 @@
-//! What can go wrong: [`Overlap`] (non-disjoint parties), [`Crossed`]
-//! (crossed causal-range bounds), [`Decode`] (non-canonical bytes), and
-//! [`Parse`] (malformed display text).
+//! What could possibly go wrong?
 
 /// Two parties were not disjoint during [`Clock::sync`](crate::Clock::sync).
 ///

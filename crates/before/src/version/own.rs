@@ -9,37 +9,35 @@ use super::skyline;
 #[cfg(test)]
 mod tests;
 
-/// The part of a [`Version`] contributed within a [`Party`]'s id region —
-/// "the version `p` owns of `v`" — as a borrowed, lazy view.
+/// The projection of a [`Version`] by a [`Party`]: `v / &p`.
 ///
-/// Both projection spellings construct it in `O(1)`, borrowing their
-/// operands: the operator `&v / &p` and
+/// Both projection spellings construct it in `O(1)`, borrowing their operands:
+/// the operator `&v / &p` and
 /// [`Clock::own_version`](crate::Clock::own_version). The view compares
-/// directly — against a [`Version`] or against another `OwnVersion`, with
-/// `==`, `<=`, and the rest of [`PartialOrd`] — in one pass over the
-/// operands' packed streams, and materializing the projected [`Version`]
-/// is a separate, explicit call: [`to_version`](Self::to_version) (or the
-/// [`From`] impl). Materialization is the one projection operation whose
-/// output can outgrow its operands (its result is not bounded by a
-/// constant factor of the inputs), which is why it does not happen
-/// implicitly: every lazy comparison costs the operands' packed sizes,
-/// never the projection's.
+/// directly — against a [`Version`] or against another `OwnVersion`, with `==`,
+/// `<=`, and the rest of [`PartialOrd`] — in one pass over the operands' packed
+/// streams, and materializing the projected [`Version`] is a separate, explicit
+/// call: [`to_version`](Self::to_version) (or the [`From`] impl).
+/// Materialization is the one projection operation whose output can outgrow its
+/// operands (its result is not bounded by a constant factor of the inputs),
+/// which is why it does not happen implicitly: every lazy comparison costs the
+/// operands' packed sizes, never the projection's.
 ///
-/// Equality is semantic — the projected histories agree — not
-/// representational: `view == w` holds only if `w` is zero outside the
-/// party's region. There is deliberately no `Hash`: the view holds
-/// borrowed operands, not canonical bytes, and hashing would cost a
-/// materialization it exists to avoid; materialize with
-/// [`to_version`](Self::to_version) where a hashable value is needed.
+/// Equality is semantic — the projected histories agree — not representational:
+/// `view == w` holds only if `w` is zero outside the party's region. There is
+/// deliberately no `Hash`: the view holds borrowed operands, not canonical
+/// bytes, and hashing would cost a materialization it exists to avoid;
+/// materialize with [`to_version`](Self::to_version) where a hashable value is
+/// needed.
 ///
 /// # Complexity
 ///
-/// Construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs view `O(|v₁| + |p₁| + |v₂| + |p₂|)`.
-/// Comparing a view against a [`Version`] `w` (either direction, `==`
-/// or [`PartialOrd`]) or two views against each other is one fused
-/// co-walk over the operand streams — the packed operand sizes, in
-/// time and space — allocation-free but for the walk's transient
-/// cursors. [`Clone`] and [`Copy`] cost as construction does.
+/// Construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs view
+/// `O(|v₁| + |p₁| + |v₂| + |p₂|)`. Comparing a view against a [`Version`] `w`
+/// (either direction, `==` or [`PartialOrd`]) or two views against each other
+/// is one fused co-walk over the operand streams — the packed operand sizes, in
+/// time and space — allocation-free but for the walk's transient cursors.
+/// [`Clone`] and [`Copy`] cost as construction does.
 ///
 /// ```
 /// use before::Clock;
@@ -69,18 +67,16 @@ impl OwnVersion<'_> {
     /// of this view.
     ///
     /// This is the one path to the projection as an object, and the one
-    /// projection cost not bounded by the operands: the result re-codes
-    /// the version's heights once per owned fragment, so its packed size
-    /// can grow as the operands' product
-    /// ([`encoded_bits`](Version::encoded_bits) on the result is the
-    /// honest measure). Prefer the view's own comparisons wherever the
-    /// projection is only being compared.
+    /// projection cost not bounded by the operands: the result re-codes the
+    /// version's heights once per owned fragment, so its packed size can grow
+    /// as the operands' product ([`encoded_bits`](Version::encoded_bits) on the
+    /// result is the honest measure). Prefer the view's own comparisons
+    /// wherever the projection is only being compared.
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p| + |r|)`, `|r|` the result's packed size.
-    /// The result's packed size `|r|` is not bounded by a constant factor
-    /// of the operands.
+    /// `O(|v| + |p| + |r|)`, `|r|` the result's packed size. The result's
+    /// packed size `|r|` is not bounded by a constant factor of the operands.
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -106,9 +102,9 @@ impl OwnVersion<'_> {
 ///
 /// # Complexity
 ///
-/// `O(|v| + |p| + |r|)`, `|r|` the result's packed size.
-/// As [`to_version`](OwnVersion::to_version) — `|r|` the result's packed
-/// size, not bounded by a constant factor of the operands.
+/// `O(|v| + |p| + |r|)`, `|r|` the result's packed size. As
+/// [`to_version`](OwnVersion::to_version) — `|r|` the result's packed size, not
+/// bounded by a constant factor of the operands.
 ///
 /// ```
 /// use before::{Clock, Version};
@@ -163,14 +159,14 @@ fn view_eq_view(a: &OwnVersion<'_>, b: &OwnVersion<'_>) -> bool {
     )
 }
 
-// The view's causal comparison matrix, mirroring `Version`'s: every cell
-// of `PartialEq`/`PartialOrd` between `OwnVersion` and `Version` (both
-// directions) and between two `OwnVersion`s, over owned and borrowed
-// operands. Every heterogeneous cell is the fused three-stream co-walk,
-// every homogeneous cell the four-stream one; no cell materializes a
-// projection. The macro takes the two comparison bodies per (lhs, rhs)
-// pair and fans out the reference combinations (`&L vs &R` comes from
-// std's blanket forwarding over `L: PartialEq<R>`).
+// The view's causal comparison matrix, mirroring `Version`'s: every cell of
+// `PartialEq`/`PartialOrd` between `OwnVersion` and `Version` (both directions)
+// and between two `OwnVersion`s, over owned and borrowed operands. Every
+// heterogeneous cell is the fused three-stream co-walk, every homogeneous cell
+// the four-stream one; no cell materializes a projection. The macro takes the
+// two comparison bodies per (lhs, rhs) pair and fans out the reference
+// combinations (`&L vs &R` comes from std's blanket forwarding over `L:
+// PartialEq<R>`).
 macro_rules! view_cmp_impls {
     ($($lhs:ty, $rhs:ty, $eq:expr, $cmp:expr, ($($lt:lifetime),*));* $(;)?) => {
         $(

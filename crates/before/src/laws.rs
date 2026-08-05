@@ -1,59 +1,61 @@
 //! The algebraic and representational laws of the public API, as named
-//! predicates: one collection, every consumer.
+//! predicates.
 //!
-//! Each law is a `(&str, fn(...) -> bool)` pair in a slice grouped by
-//! predicate signature, so a harness iterates a slice, feeds every law the
-//! same inputs, and reports the *name* of any law that fails. The crate's
-//! law proptests drive these slices over generated inputs (arbitrary
-//! normal-form trees and organic op-trace populations), and the law fuzz
-//! target drives them over decoded hostile-but-canonical values; a law added
-//! here reaches every consumer with no further wiring.
+//! Public under the `laws` feature so the fuzz workspace can drive the same
+//! collection the in-tree proptests assert.
+//!
+//! Each law is a `(&str, fn(...) -> bool)` pair in a slice grouped by predicate
+//! signature, so a harness iterates a slice, feeds every law the same inputs,
+//! and reports the *name* of any law that fails. The crate's law proptests
+//! drive these slices over generated inputs (arbitrary normal-form trees and
+//! organic op-trace populations), and the law fuzz target drives them over
+//! decoded hostile-but-canonical values; a law added here reaches every
+//! consumer with no further wiring.
 //!
 //! The algebraic laws transcribe the ITC algebra (Almeida, Baquero & Fonte
 //! 2008, §2–§4): versions form a distributive lattice under `|`/`&` whose
 //! partial order is causality, ids form a partial commutative monoid under
-//! disjoint join with `fork` as its splitting inverse, events inflate
-//! strictly and only within the owned region, and `rank` is a strictly
-//! monotone valuation. The representational laws pin the crate's own
-//! contracts: the codec is a section of canonical bytes, `Eq`/`Hash` ride
-//! byte equality, text round-trips, and [`Ranked`]'s total order linearly
-//! extends causality. Every law holds unconditionally on the inputs its
-//! group admits (below); conditional laws are stated as implications,
-//! vacuously true when the antecedent fails, and where they can, they
-//! *construct* a witness for the antecedent instead of waiting for one.
+//! disjoint join with `fork` as its splitting inverse, events inflate strictly
+//! and only within the owned region, and `rank` is a strictly monotone
+//! valuation. The representational laws pin the crate's own contracts: the
+//! codec is a section of canonical bytes, `Eq`/`Hash` ride byte equality, text
+//! round-trips, and [`Ranked`]'s total order linearly extends causality. Every
+//! law holds unconditionally on the inputs its group admits (below);
+//! conditional laws are stated as implications, vacuously true when the
+//! antecedent fails, and where they can, they *construct* a witness for the
+//! antecedent instead of waiting for one.
 //!
 //! # Group signatures and admissible inputs
 //!
-//! Groups are named by the borrowed inputs their predicates take:
-//! [`Version`]s are any canonical versions, [`Party`]s are any *live*
-//! (non-anonymous) parties — exactly what `decode` accepts and the crate
-//! can construct — [`Rank`]s are any ranks, and [`Clock`]s are any
-//! canonical party/version pairings. The list groups take a slice of the
-//! same inputs at *any* arity — the length is a quantified variable, and
-//! every driver sweeps it across the balanced fold's structural
-//! boundaries (the drivers' strategies document the derivation) — and
-//! the receiver-and-items groups additionally distinguish the element
-//! the operation's receiver supplies.
+//! Groups are named by the borrowed inputs their predicates take: [`Version`]s
+//! are any canonical versions, [`Party`]s are any *live* (non-anonymous)
+//! parties — exactly what `decode` accepts and the crate can construct —
+//! [`Rank`]s are any ranks, and [`Clock`]s are any canonical party/version
+//! pairings. The list groups take a slice of the same inputs at *any* arity —
+//! the length is a quantified variable, and every driver sweeps it across the
+//! balanced fold's structural boundaries (the drivers' strategies document the
+//! derivation) — and the receiver-and-items groups additionally distinguish the
+//! element the operation's receiver supplies.
 //!
 //! # Linearity
 //!
 //! `Party` and `Clock` are `!Clone`, and the operations under law (`fork`,
 //! `join`, `tick`, `without`, `sync`) consume or mutate their operands — a
-//! shared borrow alone cannot exercise them. Every predicate therefore
-//! takes shared borrows and materializes its own working copies with
+//! shared borrow alone cannot exercise them. Every predicate therefore takes
+//! shared borrows and materializes its own working copies with
 //! [`Party::dangerously_alias`] / [`Clock::dangerously_alias`]: the aliases
 //! live and die inside the predicate, which owns no clock universe, so the
-//! linearity hazard the method documents (two live holders of one region)
-//! never escapes a call. The laws quantify over a value's geometry, which
-//! aliasing preserves exactly.
+//! linearity hazard the method documents (two live holders of one region) never
+//! escapes a call. The laws quantify over a value's geometry, which aliasing
+//! preserves exactly.
 //!
 //! # Fallible operations
 //!
-//! Laws over fallible operations (`Party::join` and friends return
-//! `Result`) quantify over the *outcome*: both sides of an equation must
-//! agree in arm (`Ok`/`Err`) **and** payload. "Join is commutative" means
-//! both orders accept the same pairs and produce equal unions — and hand
-//! back equal values when they refuse.
+//! Laws over fallible operations (`Party::join` and friends return `Result`)
+//! quantify over the *outcome*: both sides of an equation must agree in arm
+//! (`Ok`/`Err`) **and** payload. "Join is commutative" means both orders accept
+//! the same pairs and produce equal unions — and hand back equal values when
+//! they refuse.
 
 // The group statics are slices of (name, fn pointer) tuples: the fn-pointer
 // signature IS the group's identity, so naming each one would only add
@@ -71,8 +73,7 @@ use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 /// hold on every admissible input.
 pub type Law<F> = (&'static str, F);
 
-/// The group roster: every law-group static, the name of its per-group
-/// driver, and its input signature, spelled once.
+/// Apply a function to each algebraic law asserted about this crate.
 ///
 /// Every consumer derives from this one list by callback: the macro
 /// hands the entries to a consumer-supplied macro, forwarding an

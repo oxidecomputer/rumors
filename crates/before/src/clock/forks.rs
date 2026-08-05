@@ -1,30 +1,24 @@
 //! Balanced n-way fork for [`Clock`]: [`Clock::forks`] and its [`Forks`]
 //! iterator, plus the consuming [`From<Clock>`](From) for `[Clock; N]` static
 //! split.
-//!
-//! A clock splits exactly as its [`Party`] does — see [`party::Forks`] for the
-//! lazy, minimal-depth partition — with every share carrying a clone of the
-//! clock's [`Version`], the same rule as [`Clock::fork`].
 
 use crate::{party, Clock, Party, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
 ///
-/// Yields exactly `n` disjoint clocks (at the one saturating input
-/// `n == u64::MAX`, one fewer — see [`Clock::forks`]), each pairing one
-/// balanced [`Party`] share with a clone of the parent's [`Version`]. The
-/// clock it borrows keeps the residual party share and its version, and is
-/// never left empty; party shares not taken before the iterator drops are
-/// rejoined into it (its version untouched).
+/// Yields exactly `n` disjoint clocks, each pairing one structurally balanced
+/// [`Party`] with a clone of the parent's [`Version`]. The clock it borrows
+/// keeps the residual share of all unconsumed parties, and is never left empty;
+/// party shares not taken before the iterator drops are rejoined into it.
 ///
 /// # Complexity
 ///
-/// `O(S + n)`: the party split plus one `O(1)` version clone per child.
-/// `S` is the party split's total packed share size (see
-/// [`iter::Party`](crate::iter::Party)), and a version clone shares the
-/// stored buffer. Each `next` pays one version clone plus its share of
-/// the split; an early drop rejoins as the party iterator does, cloning
-/// nothing.
+/// `O(S + n)`: the party split plus one `O(1)` version clone per child. `S` is
+/// the party split's total packed share size (see
+/// [`iter::Party`](crate::iter::Party)), and a version clone shares the stored
+/// buffer. Each `next` costs an `O(1)` version clone plus its share of the
+/// split; an early drop rejoins as the party iterator does, cloning nothing
+/// more.
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.

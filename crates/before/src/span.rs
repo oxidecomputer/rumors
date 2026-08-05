@@ -1,5 +1,4 @@
-//! Causal spans: ordered pairs of concrete [`Version`]s, the chain
-//! segments between them, and the algebra that combines them.
+//! Causal spans: ordered pairs of concrete upper-/lower-bounding [`Version`]s.
 //!
 //! A *span* is two concrete versions `lo <= hi` and the chain segment
 //! between them — a genuinely different object from a

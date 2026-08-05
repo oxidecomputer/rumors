@@ -1,64 +1,70 @@
 //! Adversarial input generators and deterministic resource meters.
 //!
+//! Public under the `meter` feature so the metering test binaries can drive
+//! them.
+//!
 //! This module is the measurement half of the crate's resource-proportionality
 //! work: transient cost — peak heap, stack segments, big-integer limb work,
-//! packed-stream scan work — as a function of packed input size, with no
-//! bound on value magnitude, tree depth, or encoded size.
-//! The generators below build the canonical packed encodings that maximize
-//! each cost against its input size; the meters read the deterministic
-//! counters the envelopes are pinned against. Public under the `meter`
-//! feature so the metering test binaries (and benches) can reach it; never
-//! part of a production build. (The proptest strategies over *arbitrary*
-//! inputs are a different instrument and live in the test-only
-//! `testing::generators` module; the shapes here are hand-derived
+//! packed-stream scan work — as a function of packed input size, with no bound
+//! on value magnitude, tree depth, or encoded size. The generators below build
+//! the canonical packed encodings that maximize each cost against its input
+//! size; the meters read the deterministic counters the envelopes are pinned
+//! against. Public under the `meter` feature so the metering test binaries (and
+//! benches) can reach it; never part of a production build. (The proptest
+//! strategies over *arbitrary* inputs are a different instrument and live in
+//! the test-only `testing::generators` module; the shapes here are hand-derived
 //! worst cases.)
 //!
-//! The generators themselves are private: every instrument mints its
-//! shapes through the family registry ([`registry`](crate::meter::registry)), whose roster is
-//! the single source of truth for adversarial families — the registry
-//! module doc states the invariant and the compiler ties that hold it.
-//! A shape lands in one of two enforcement homes, and most take only one:
-//! every shape gets its envelope rows in `tests/meter.rs` — the enforced
-//! per-operation record — and a shape additionally earns a column on the
-//! amplification board ([`board`](crate::meter::board)) only when it is a whole-surface
-//! adversary rather than a kernel-seam probe (the criterion, each
-//! family's coverage answer, and the luck-proof touch list sit on the
-//! registry's [`FamilyId`](crate::meter::registry::FamilyId)).
+//! The generators themselves are private: every instrument mints its shapes
+//! through the family registry ([`registry`]), whose
+//! roster is the single source of truth for adversarial families — the registry
+//! module doc states the invariant and the compiler ties that hold it. A shape
+//! lands in one of two enforcement homes, and most take only one: every shape
+//! gets its envelope rows in `tests/meter.rs` — the enforced per-operation
+//! record — and a shape additionally earns a column on the amplification board
+//! ([`board`]) only when it is a whole-surface adversary
+//! rather than a kernel-seam probe (the criterion, each family's coverage
+//! answer, and the luck-proof touch list sit on the registry's
+//! [`FamilyId`](crate::meter::registry::FamilyId)).
 //!
 //! Every generator output is strict normal form: it round-trips through
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
-//! and re-encodes byte-identically,
-//! and its exact bit length is a closed formula in the parameters (pinned by
-//! this module's tests). Normal form is also the one shaping constraint —
-//! equal sibling leaves collapse, so a plateau is never spelled as an
-//! equal leaf pair: the shapes spell one as unit-apart leaf values
-//! ([`Shape::RevealComb`](crate::meter::registry::Shape::RevealComb)) or as bare leaves under internal nodes
-//! ([`Shape::PureComb`](crate::meter::registry::Shape::PureComb)). Event shapes are built in the generators'
-//! construction language — per node, a flag bit (`1` internal, `0` leaf,
-//! this language's own convention) plus the Elias-gamma code of its base
-//! (`gamma(n)` codes `m = n + 1`) — which the skyline transcoder
-//! (the [`skyline`](crate::meter::skyline) module's `encode_bits`)
-//! turns into the stored wire
-//! coding. Id
-//! shapes are the crate codec directly: a 2-bit child-presence tag per
-//! node, absent children occupying no bits.
+//! and re-encodes byte-identically, and its exact bit length is a closed
+//! formula in the parameters (pinned by this module's tests). Normal form is
+//! also the one shaping constraint — equal sibling leaves collapse, so a
+//! plateau is never spelled as an equal leaf pair: the shapes spell one as
+//! unit-apart leaf values
+//! ([`Shape::RevealComb`](crate::meter::registry::Shape::RevealComb)) or as
+//! bare leaves under internal nodes
+//! ([`Shape::PureComb`](crate::meter::registry::Shape::PureComb)). Event shapes
+//! are built in the generators' construction language — per node, a flag bit
+//! (`1` internal, `0` leaf, this language's own convention) plus the
+//! Elias-gamma code of its base (`gamma(n)` codes `m = n + 1`) — which the
+//! skyline transcoder (the [`skyline`] module's
+//! `encode_bits`) turns into the stored wire coding. Id shapes are the crate
+//! codec directly: a 2-bit child-presence tag per node, absent children
+//! occupying no bits.
 //!
-//! Designing a new shape, two decided axes are worth finding before any
-//! bits: whether the input pays the adversarial width once or per site —
-//! the funding argument, argued at [`Shape::MemoFanout`](crate::meter::registry::Shape::MemoFanout) versus
-//! [`Shape::MemoOscillating`](crate::meter::registry::Shape::MemoOscillating) — and, for pair shapes, whether the pair is two
-//! packed streams ([`Shape::JumpPair`](crate::meter::registry::Shape::JumpPair)) or organically built [`Version`]s
-//! ([`Shape::ConcurrentPair`](crate::meter::registry::Shape::ConcurrentPair), which argues the choice).
+//! Designing a new shape, two decided axes are worth finding before any bits:
+//! whether the input pays the adversarial width once or per site — the funding
+//! argument, argued at
+//! [`Shape::MemoFanout`](crate::meter::registry::Shape::MemoFanout) versus
+//! [`Shape::MemoOscillating`](crate::meter::registry::Shape::MemoOscillating) —
+//! and, for pair shapes, whether the pair is two packed streams
+//! ([`Shape::JumpPair`](crate::meter::registry::Shape::JumpPair)) or
+//! organically built [`Version`](crate::Version)s
+//! ([`Shape::ConcurrentPair`](crate::meter::registry::Shape::ConcurrentPair),
+//! which argues the choice).
 //!
 //! One construction convention for new families: when a family is a
-//! *geometrically coupled pair* — two operands whose adversarial effect
-//! depends on shared structure (aligned boundaries, mirrored spikes,
-//! lockstep walks) — one generator builds and returns the pair
-//! ([`Shape::ToothTail`](crate::meter::registry::Shape::ToothTail) is the form of record), never two parallel
-//! generators whose coupling is maintained by keeping their bodies in
-//! sync by hand. Existing paired generators keep their committed shapes
-//! as-is: migrating them would churn pinned envelopes and provenance for
-//! no behavioral gain; the convention binds new families.
+//! *geometrically coupled pair* — two operands whose adversarial effect depends
+//! on shared structure (aligned boundaries, mirrored spikes, lockstep walks) —
+//! one generator builds and returns the pair
+//! ([`Shape::ToothTail`](crate::meter::registry::Shape::ToothTail) is the form
+//! of record), never two parallel generators whose coupling is maintained by
+//! keeping their bodies in sync by hand. Existing paired generators keep their
+//! committed shapes as-is: migrating them would churn pinned envelopes and
+//! provenance for no behavioral gain; the convention binds new families.
 
 pub mod board;
 pub mod registry;

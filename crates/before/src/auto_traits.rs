@@ -1,26 +1,4 @@
 //! Compile-time pins on the auto traits of every public API type.
-//!
-//! Every type on the public API surface is `Send`, `Sync`, and `Unpin`,
-//! and callers (executors, work-stealing pools, containers that demand
-//! `Send` values) are entitled to rely on it. Auto traits are inferred
-//! from fields, so a field addition can silently revoke them; these
-//! assertions turn that revocation into a compile error at the field, in
-//! every build of the crate. Dropping one of these guarantees is a
-//! deliberate API event: it must change this file, where the reviewer
-//! sees it by name.
-//!
-//! The roster below covers the API surface — the root types (the `span`
-//! module's among them, pinned at their root re-export names), the
-//! `causally`, `error`, and `iter` modules. The feature-gated instrument
-//! trees (`oracle`, `meter`, `surface`, `laws`) are bench/test-only
-//! surfaces outside the API stability promise and carry no pins here.
-//! The surface-totality gate's impl census (`crates/before/surfacecheck`)
-//! excludes compiler-synthesized auto-trait impls from its roster
-//! because this module is where those guarantees are pinned.
-//!
-//! Borrowing types are asserted at `'static`: auto traits of these types
-//! do not depend on the lifetime, so the `'static` instance stands in
-//! for all of them.
 
 use static_assertions::assert_impl_all;
 
