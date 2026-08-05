@@ -176,6 +176,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Amortized `O(1)` digit touches.
+    #[inline]
     pub fn add_small(&mut self, delta: i64) {
         if delta != 0 {
             let delta = i128::from(delta);
@@ -193,6 +194,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Amortized `O(1)` digit touches.
+    #[inline]
     pub fn sub_small(&mut self, delta: i64) {
         if delta != 0 {
             let delta = -i128::from(delta);
@@ -210,6 +212,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Amortized `O(1)` digit touches.
+    #[inline]
     pub fn add_u64(&mut self, delta: u64) {
         if delta != 0 {
             let delta = i128::from(delta);
@@ -227,6 +230,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Amortized `O(1)` digit touches.
+    #[inline]
     pub fn sub_u64(&mut self, delta: u64) {
         if delta != 0 {
             let delta = -i128::from(delta);
@@ -612,6 +616,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Amortized `O(1)` digit touches.
+    #[inline]
     pub fn sign(&mut self) -> Ordering {
         if let Some(v) = self.quick {
             touch(1);
@@ -629,6 +634,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Amortized `O(1)` digit touches.
+    #[inline]
     pub fn is_negative(&mut self) -> bool {
         self.sign() == Ordering::Less
     }
@@ -796,6 +802,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// `O(1)`.
+    #[inline]
     pub fn is_literally_zero(&self) -> bool {
         match self.quick {
             Some(v) => v == 0,
@@ -820,6 +827,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// `O(1)`.
+    #[inline]
     pub fn digit_count(&self) -> usize {
         match self.quick {
             Some(0) => 1,
@@ -1030,6 +1038,7 @@ impl Accumulator {
     /// a machine word, another register's value, or one of those
     /// shifted by at most [`QUICK_SHIFT_MAX`], so the sum sits far from
     /// `i128` overflow.
+    #[inline]
     fn quick_add(&mut self, delta: i128) -> bool {
         let Some(v) = self.quick else {
             return false;

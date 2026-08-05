@@ -52,6 +52,69 @@ impl BitStack {
         self.top_len += 1;
     }
 
+    /// Push `len <= 63` bits at once, oldest at the value's high end —
+    /// popping returns them newest-first, exactly as `len` single
+    /// pushes of the value's bits from high to low.
+    fn push_bits(&mut self, value: u64, len: u32) {
+        debug_assert!(len <= 63 && (len == 64 || value >> len == 0));
+        let total = self.top_len + len;
+        if total <= 64 {
+            self.top = if len == 64 {
+                value
+            } else {
+                (self.top << len) | value
+            };
+            self.top_len = total;
+            return;
+        }
+        let spill = 64 - self.top_len;
+        self.words
+            .push((self.top << spill) | (value >> (len - spill)));
+        self.top = value & ((1u64 << (len - spill)) - 1);
+        self.top_len = len - spill;
+    }
+
+    /// Pop `len <= 63` bits at once, returned exactly as
+    /// [`push_bits`](Self::push_bits) packed them: the inverse, equal
+    /// to `len` single pops assembled low bit first.
+    ///
+    /// # Panics
+    ///
+    /// Panics if fewer than `len` bits are held.
+    fn pop_bits(&mut self, len: u32) -> u64 {
+        debug_assert!(len <= 63);
+        if len <= self.top_len {
+            let value = self.top & ((1u64 << len) - 1);
+            self.top >>= len;
+            self.top_len -= len;
+            return value;
+        }
+        let low_len = self.top_len;
+        let low = self.top;
+        let rest = len - low_len;
+        self.top = self.words.pop().expect("bit stack underflow");
+        self.top_len = 64;
+        let high = self.pop_bits(rest);
+        (high << low_len) | low
+    }
+
+    /// The run of set bits at the top of the stack, capped at 62.
+    ///
+    /// Reads only the top register and at most one spilled word (a cap
+    /// under 63 never needs a second): the integer stack's width scan.
+    /// Bits above the register's live length are zero by construction,
+    /// so `trailing_ones` stops inside the live region or exactly at
+    /// its edge.
+    fn trailing_ones_capped(&self) -> u32 {
+        let mut run = self.top.trailing_ones().min(self.top_len);
+        if run == self.top_len {
+            if let Some(&word) = self.words.last() {
+                run += word.trailing_ones();
+            }
+        }
+        run.min(62)
+    }
+
     /// Pop the newest bit.
     pub(crate) fn pop(&mut self) -> Option<bool> {
         if self.top_len == 0 {
@@ -127,12 +190,22 @@ impl PopStack {
     /// Push a value (zero included: it stores one value bit).
     pub(crate) fn push(&mut self, v: u64) {
         let width = (u64::BITS - v.leading_zeros()).max(1);
-        for i in (0..width).rev() {
-            self.value.push(v >> i & 1 == 1);
+        // The value's bits, high first; pops then read it back low
+        // first, which is the packing `pop_bits` returns whole. The
+        // width marker is `width - 1` continuation `true`s over one
+        // `false` terminator: newest-first pops read the `true`s, so
+        // they sit above the terminator on the stack.
+        if width == 64 {
+            self.value.push(v >> 63 & 1 == 1);
+            self.value.push_bits(v & (u64::MAX >> 1), 63);
+        } else {
+            self.value.push_bits(v, width);
         }
-        self.unary.push(false);
-        for _ in 1..width {
-            self.unary.push(true);
+        if width == 64 {
+            self.unary.push(false);
+            self.unary.push_bits(u64::MAX >> 1, 63);
+        } else {
+            self.unary.push_bits((1u64 << (width - 1)) - 1, width);
         }
     }
 
@@ -142,20 +215,29 @@ impl PopStack {
     ///
     /// Panics if the stack is empty.
     pub(crate) fn pop(&mut self) -> u64 {
-        let mut width = 0u32;
-        loop {
-            let continuation = self.unary.pop().expect("bit stack underflow");
-            width += 1;
-            if !continuation {
-                break;
+        // The width scan: count continuation bits in the registers,
+        // falling back to single pops past the batched cap.
+        let quick = self.unary.trailing_ones_capped();
+        let width = if quick < 62 {
+            self.unary.pop_bits(quick + 1);
+            quick + 1
+        } else {
+            let mut width = 0u32;
+            loop {
+                let continuation = self.unary.pop().expect("bit stack underflow");
+                width += 1;
+                if !continuation {
+                    break;
+                }
             }
+            width
+        };
+        if width == 64 {
+            let low = self.value.pop_bits(63);
+            let top = u64::from(self.value.pop().expect("bit stack value bits underflow"));
+            (top << 63) | low
+        } else {
+            self.value.pop_bits(width)
         }
-        let mut v = 0u64;
-        for i in 0..width {
-            if self.value.pop().expect("bit stack value bits underflow") {
-                v |= 1 << i;
-            }
-        }
-        v
     }
 }
