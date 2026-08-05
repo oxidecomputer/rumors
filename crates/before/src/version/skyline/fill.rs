@@ -172,7 +172,7 @@ use crate::idbits::{IdNode, IdReader};
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
 use self::watermark::{MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
-use super::walk::{Extremum, LeafWalk};
+use super::walk::{skip_region, Extremum, LeafWalk};
 use super::{fold_signed_int, gamma_code_int, gamma_code_signed_int, unzigzag};
 
 mod fuse;
@@ -1085,11 +1085,38 @@ impl FillWalk<'_> {
 
     /// Copy the event subtree at the cursor unchanged.
     ///
-    /// Every leaf is re-emitted at its own depth, deltas passing
-    /// straight through (the first through the divergence gap, if
-    /// live); the watermark web absorbs each emission in amortized
-    /// O(1).
+    /// `fill(0, e) = e`: the id owns nothing under this subtree, so by
+    /// the operation's own semantics no plateau can move. While the
+    /// walk is verbatim that makes the whole region one block — a
+    /// pass-through leaf can never trip the changed flag, so the
+    /// region is skip-scanned ([`skip_region`]) and the walk re-enters
+    /// on its summary: the net movement folds once into every
+    /// height-carried register, the region's minimum lands as one
+    /// watermark emission, and the output side records one matched
+    /// prefix extension. Post-divergence, every leaf is re-emitted at
+    /// its own depth, deltas passing straight through (the first
+    /// through the divergence gap); the watermark web absorbs each
+    /// emission in amortized O(1).
     fn copy_subtree(&mut self, depth: usize) {
+        if self.out.is_verbatim() {
+            debug_assert!(!self.w_anchored, "a verbatim walk is height-anchored");
+            let skip = skip_region(&mut self.cursor, self.first_read);
+            self.first_read = false;
+            fold_signed_int(&mut self.h, skip.net.0, &skip.net.1);
+            self.stack.fold_height(skip.net.0, &skip.net.1);
+            if let Corr::H(acc) = &mut self.corr {
+                fold_signed_int(acc, skip.net.0, &skip.net.1);
+            }
+            self.stack.emit_offset(&skip.min_from_exit);
+            self.started = true;
+            // The region's last leaf is the last emission: the gap
+            // closes exactly, whatever it held at entry.
+            self.gap.reset();
+            let matched = self.out.note_match(self.pos());
+            debug_assert!(matched, "a verbatim walk records the region as matched");
+            let _ = matched;
+            return;
+        }
         let mut walk = LeafWalk::new();
         while let Some(d) = walk.descend(&mut self.cursor) {
             let (neg, mag) = self.consume_payload();
@@ -1273,30 +1300,9 @@ impl Frames {
 /// whether the subtree's first payload is the stream's absolute first.
 fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
     let mut cursor = codec::DsiCursor::new_at(ev, pos);
-    let mut first = first;
-    // The net movement `h − h_entry`, and the minimum's offset from
-    // the *current* height (`min − h`) on the streaming fold.
-    let mut net = Accumulator::new();
-    let mut off = Extremum::min(Accumulator::new());
-    let mut walk = LeafWalk::new();
-    while walk.descend(&mut cursor).is_some() {
-        let code = cursor.read_int().expect("canonical skyline bits");
-        let (neg, mag) = if first {
-            first = false;
-            (false, code)
-        } else {
-            unzigzag(code)
-        };
-        fold_signed_int(&mut net, neg, &mag);
-        off.fold(neg, &mag);
-    }
-    let off = off.into_offset();
-    let (n_sign, n_mag) = net.sign_magnitude();
-    let (o_sign, o_mag) = off.sign_magnitude();
-    let net = (n_sign == Ordering::Less, Int::from_ubig(n_mag));
-    let off = (o_sign == Ordering::Less, Int::from_ubig(o_mag));
-    // `min = h + off = h_entry + net + off`.
-    signed_sum_base(net, &off)
+    let skip = skip_region(&mut cursor, first);
+    // `min = h_entry + net + (min − h_exit)`.
+    signed_sum_base(skip.net, &skip.min_from_exit)
 }
 
 /// The memoized pre-scan: one non-consuming pass over a left-full
