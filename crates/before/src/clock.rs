@@ -658,7 +658,8 @@ impl Clock {
 ///
 /// # Complexity
 ///
-/// `O(n + t)` space; time superlinear on the version side (as `Version`'s `Display`).
+/// `O(n + t)` space; time superlinear on the version side (as `Version`'s
+/// `Display`).
 /// The version side costs as [`Version`]'s `Display` (value conversion plus
 /// the renderer's summary merge); the party side is linear.
 ///
@@ -693,7 +694,8 @@ impl core::fmt::Debug for Clock {
 ///
 /// # Complexity
 ///
-/// `O(t + n)` space; time superlinear in the spelled value widths (decimal-to-binary conversion).
+/// `O(t + n)` space; time superlinear in the spelled value widths
+/// (decimal-to-binary conversion).
 /// The bound holds accepted or rejected, except that each spelled value
 /// wider than a machine word pays decimal-to-binary conversion, superlinear
 /// (though subquadratic) in that value's width.

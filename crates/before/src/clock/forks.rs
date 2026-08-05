@@ -13,8 +13,8 @@ use crate::{party, Clock, Party, Version};
 ///
 /// # Complexity
 ///
-/// `O(S + n)`: the party split plus one `O(1)` version clone per child. `S` is
-/// the party split's total packed share size (see
+/// `O(S + n)`: the party split plus one `O(1)` version clone per child.
+/// `S` is the party split's total packed share size (see
 /// [`iter::Party`](crate::iter::Party)), and a version clone shares the stored
 /// buffer. Each `next` costs an `O(1)` version clone plus its share of the
 /// split; an early drop rejoins as the party iterator does, cloning nothing

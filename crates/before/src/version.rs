@@ -288,7 +288,8 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with width-bounded parked drifts.
+    /// `O(n)` space; time `O(M(n) · log n)` worst case, `O(n log n)` with
+    /// width-bounded parked drifts.
     /// The returned rank's numeric size (see [`Rank`]) is itself `O(|v|)`.
     /// Time, in three parts:
     ///
@@ -385,7 +386,8 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    /// `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case,
+    /// `O((a + b) log (a + b))` with width-bounded parked drifts.
     /// One fused sweep over the two packed streams integrates the height
     /// difference directly, each step paid for by the codes it consumes;
     /// time is exactly [`rank`](Self::rank)'s, the sweeps sharing one
@@ -439,7 +441,8 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    /// `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case,
+    /// `O((a + b) log (a + b))` with width-bounded parked drifts.
     /// Time is exactly [`distance`](Self::distance)'s, in its three
     /// parts: one shared co-sweep integrates both measures' functionals,
     /// with `M` the arithmetic backend's integer-multiplication bound,
@@ -558,6 +561,10 @@ impl Version {
     /// [`Span`](crate::causally::Span) containing both —
     /// `[self & other, self | other]`, the pair's lattice hull.
     ///
+    /// `^` is the operator spelling: `a ^ b` is `a.span(&b)`, over
+    /// owned and borrowed operands on either side, completing the
+    /// lattice triple with join (`|`) and meet (`&`).
+    ///
     /// The binary form of [`span_all`](Self::span_all), and *total*
     /// where the validating door
     /// ([`Span::new`](crate::causally::Span::new)) must reject a pair
@@ -610,6 +617,7 @@ impl Version {
     /// let hull = va.span(&vb);
     /// assert_eq!(hull.place(&va), Placement::Between);
     /// assert_eq!(hull.place(&vb), Placement::Between);
+    /// assert_eq!(&va ^ &vb, hull); // the operator spelling agrees
     /// ```
     pub fn span(&self, other: &Version) -> causally::Span<'static> {
         let (lo, hi) = Self::span_refs(self, other);
@@ -1305,7 +1313,8 @@ impl<'a> FromIterator<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(n + t)` space; time superlinear in the spelled value widths (decimal conversion plus the render merge).
+/// `O(n + t)` space; time superlinear in the spelled value widths (decimal
+/// conversion plus the render merge).
 /// Time is **superlinear** in the worst case, on two counts: each value
 /// wider than a machine word pays binary-to-decimal conversion, superlinear
 /// (though subquadratic) in its width; and a deep tree of wide interior
@@ -1341,7 +1350,8 @@ impl core::fmt::Debug for Version {
 ///
 /// # Complexity
 ///
-/// `O(t + n)` space; time superlinear in the spelled value widths (decimal-to-binary conversion).
+/// `O(t + n)` space; time superlinear in the spelled value widths
+/// (decimal-to-binary conversion).
 /// The bound holds accepted or rejected, except that each spelled value
 /// wider than a machine word pays decimal-to-binary conversion, superlinear
 /// (though subquadratic) in that value's width.

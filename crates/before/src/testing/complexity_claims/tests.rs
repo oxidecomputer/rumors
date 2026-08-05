@@ -73,7 +73,8 @@ fn claims_are_total_over_the_public_surface() {
 }
 
 /// Every claim's `# Complexity` section exists at its recorded site and
-/// opens with the roster bound's rendered claim line, byte for byte.
+/// opens with the roster bound's rendered claim sentence, byte for byte
+/// up to line wrapping.
 ///
 /// A class edit in the rustdoc that skips this roster (or vice versa)
 /// is a named failure, and every site's normative claim is the
@@ -99,14 +100,12 @@ fn complexity_sections_open_with_their_rendered_lines() {
                 Err(err) => errors.push(err),
                 Ok(section) => {
                     let want = check.bound.render();
-                    let got = section.lines().find(|l| !l.trim().is_empty());
-                    if got != Some(want) {
+                    let got = ::complexity_claims::opening_paragraph(section);
+                    if !got.starts_with(want) {
                         errors.push(format!(
                             "{}: the `# Complexity` section at {:?} does not open with the \
-                             rendered bound\n    want: {want}\n    got:  {}",
-                            claim.op,
-                            check.site,
-                            got.unwrap_or("<empty section>")
+                             rendered bound\n    want: {want}\n    got:  {got}",
+                            claim.op, check.site,
                         ));
                     }
                 }

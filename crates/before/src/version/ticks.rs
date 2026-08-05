@@ -40,7 +40,9 @@ use crate::error::Parse;
 ///
 /// # Complexity
 ///
-/// Construction `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; text superlinear in the count's width (decimal conversion).
+/// Construction `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
+/// ‖b‖)`, `Sum` `O(N)`; text superlinear in the count's width (decimal
+/// conversion).
 /// A count's *numeric size* `‖n‖` is its bit width; cloning costs as
 /// comparison and hashing do, and an n-ary [`Sum`]'s `N` is the
 /// summands' total numeric size.

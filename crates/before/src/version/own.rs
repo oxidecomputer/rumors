@@ -33,7 +33,8 @@ mod tests;
 /// # Complexity
 ///
 /// Construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs view
-/// `O(|v₁| + |p₁| + |v₂| + |p₂|)`. Comparing a view against a [`Version`] `w`
+/// `O(|v₁| + |p₁| + |v₂| + |p₂|)`.
+/// Comparing a view against a [`Version`] `w`
 /// (either direction, `==` or [`PartialOrd`]) or two views against each other
 /// is one fused co-walk over the operand streams — the packed operand sizes, in
 /// time and space — allocation-free but for the walk's transient cursors.
@@ -75,8 +76,9 @@ impl OwnVersion<'_> {
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p| + |r|)`, `|r|` the result's packed size. The result's
-    /// packed size `|r|` is not bounded by a constant factor of the operands.
+    /// `O(|v| + |p| + |r|)`, `|r|` the result's packed size.
+    /// The result's packed size `|r|` is not bounded by a constant
+    /// factor of the operands.
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -102,9 +104,9 @@ impl OwnVersion<'_> {
 ///
 /// # Complexity
 ///
-/// `O(|v| + |p| + |r|)`, `|r|` the result's packed size. As
-/// [`to_version`](OwnVersion::to_version) — `|r|` the result's packed size, not
-/// bounded by a constant factor of the operands.
+/// `O(|v| + |p| + |r|)`, `|r|` the result's packed size.
+/// As [`to_version`](OwnVersion::to_version) — `|r|` the result's
+/// packed size, not bounded by a constant factor of the operands.
 ///
 /// ```
 /// use before::{Clock, Version};

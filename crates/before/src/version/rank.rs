@@ -185,7 +185,8 @@ use crate::error::Decode;
 ///
 /// # Complexity
 ///
-/// Comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display` superlinear in the numerator width (decimal conversion).
+/// Comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display`
+/// superlinear in the numerator width (decimal conversion).
 /// A rank's costs are denominated in its *numeric size* `‖r‖` — the
 /// numerator's bit width plus the exponent — which every
 /// producing fold ([`Version::rank`](crate::Version::rank),

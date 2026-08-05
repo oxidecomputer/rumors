@@ -2,14 +2,16 @@
 //! rendered to one normative rustdoc line per claim site, plus the source
 //! scanners that let a test bind prose to the roster byte for byte.
 //!
-//! Rustdoc cost prose cannot be checked; a rendered line can. Each
+//! Rustdoc cost prose cannot be checked; a rendered sentence can. Each
 //! consuming crate keeps a *claims roster* — one committed row per public
 //! operation, carrying a [`Bound`] and the [`Site`] of its `# Complexity`
 //! section — and a binding test that byte-compares the section's opening
-//! line against [`Bound::render`]'s output. Editing a documented class
-//! without the roster (or vice versa) is then a named failure, and the
-//! normative sentence at every site is the roster's own rendering, never
-//! hand-drifted prose. The pieces here are the crate-agnostic layer:
+//! against [`Bound::render`]'s output ([`opening_paragraph`] joins wrapped
+//! lines first, so pinned sentences wrap like any other prose). Editing a
+//! documented class without the roster (or vice versa) is then a named
+//! failure, and the normative sentence at every site is the roster's own
+//! rendering, never hand-drifted prose. The pieces here are the
+//! crate-agnostic layer:
 //!
 //! - [`Bound`] and [`Bound::render`]: pure data-to-text, with nothing read
 //!   from any crate, so every roster shares one vocabulary of templates
@@ -18,8 +20,9 @@
 //! - [`SourceSpec`] and [`extract_public_fns`]: the public-surface
 //!   extractor, so a roster's totality test can hold "every public
 //!   operation has exactly one claim" in both directions.
-//! - [`doc_index`] and [`DocIndex::section`]: the doc-block scanner that
-//!   locates each site's `# Complexity` section for the byte-compare.
+//! - [`doc_index`], [`DocIndex::section`], and [`opening_paragraph`]: the
+//!   doc-block scanner that locates each site's `# Complexity` section,
+//!   and the wrap-joining reading of its opening for the byte-compare.
 //! - [`test_fns`]: the witness scanner, so a roster can require its cited
 //!   evidence tests to exist as `#[test]`-attributed items, by name.
 //!
@@ -272,10 +275,28 @@ impl Bound {
 }
 
 /// One prose check: a site whose `# Complexity` section must open with
-/// the bound's rendered line, verbatim.
+/// the bound's rendered sentence, verbatim up to line wrapping (the
+/// binding test compares through [`opening_paragraph`]).
 pub struct Check {
     pub site: Site,
     pub bound: Bound,
+}
+
+/// A section's opening paragraph with its wrapping undone: the first
+/// run of non-empty lines, trimmed and joined with single spaces.
+///
+/// Binding tests compare a rendered [`Bound`] against this reading, so
+/// a pinned sentence wraps in the rustdoc like any other prose — the
+/// byte-compare is `starts_with` on the joined text, insensitive to
+/// where the line breaks fall.
+pub fn opening_paragraph(section: &str) -> String {
+    section
+        .lines()
+        .map(str::trim)
+        .skip_while(|line| line.is_empty())
+        .take_while(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The `# Complexity` sections a set of surface files carry, scanned

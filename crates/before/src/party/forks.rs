@@ -91,7 +91,8 @@ impl ExactSizeIterator for Split {}
 ///
 /// # Complexity
 ///
-/// A full drain `O(S)`, `S` the shares' total packed size; an early drop rejoins in `O(log n)` joins.
+/// A full drain `O(S)`, `S` the shares' total packed size; an early drop
+/// rejoins in `O(log n)` joins.
 /// Each `next` builds only the forks on the path to its share. Dropping
 /// the iterator early rejoins the unclaimed remainder as at most one
 /// coarse region per remaining level of the split: joins on the pending
