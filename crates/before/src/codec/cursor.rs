@@ -2,7 +2,7 @@
 
 use crate::error::Decode;
 
-use super::{decode_int_from, gamma, Base, BitsSlice};
+use super::{decode_int_from, gamma, BitsSlice, Int};
 
 /// The bit stream ended before the requested bit.
 ///
@@ -70,12 +70,12 @@ pub(crate) trait BitCursor {
     /// `ReaderCursor` (in `borsh_impls`) windows over the bytes it has
     /// already pulled from its reader — never bytes beyond them — falling
     /// back to this loop whenever the window cannot prove a whole code.
-    fn read_int(&mut self) -> Result<Base, Decode>
+    fn read_int(&mut self) -> Result<Int, Decode>
     where
         Self: Sized,
         Decode: From<Self::Error>,
     {
-        decode_int_from(self)
+        decode_int_from(self).map(Int::from_base)
     }
 }
 
@@ -110,7 +110,7 @@ impl BitCursor for SliceCursor<'_> {
         self.position
     }
 
-    fn read_int(&mut self) -> Result<Base, Decode> {
+    fn read_int(&mut self) -> Result<Int, Decode> {
         // Word fast path over the slice; anything the window cannot prove —
         // every reject included — is decided by the default per-bit loop, so
         // the two paths accept and reject identically by construction.
@@ -121,8 +121,8 @@ impl BitCursor for SliceCursor<'_> {
             // path batches them.
             super::scan::record_bits(next - self.position);
             self.position = next;
-            return Ok(Base::from(n));
+            return Ok(Int::Small(n));
         }
-        decode_int_from(self)
+        decode_int_from(self).map(Int::from_base)
     }
 }

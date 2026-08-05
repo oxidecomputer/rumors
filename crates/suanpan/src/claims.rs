@@ -137,6 +137,13 @@ const WIDE_SHL: Bound = Bound::Custom {
     reason: DIGIT_DENOMINATED,
 };
 
+/// The shifted machine-word rows.
+const WORD_SHL: Bound = Bound::Custom {
+    line: "Amortized `O(1)` digit touches, independent of the shift; the digit buffer grows \
+           to cover the shifted positions.",
+    reason: DIGIT_DENOMINATED,
+};
+
 /// The width-dispatching magnitude rows.
 const MAGNITUDE: Bound = Bound::Custom {
     line: "Word-scale operands amortized `O(1)` digit touches, wide operands amortized \
@@ -334,6 +341,30 @@ pub(crate) const CLAIMS: &[Claim] = &[
             bound: WIDE_SHL,
         }],
         table_cost: Some("amortized O(operand limbs), independent of the shift"),
+        evidence: Evidence::Witnessed(&[(
+            OWN,
+            "alternating_shifted_writes_cost_the_operand_not_the_gap",
+        )]),
+    },
+    Claim {
+        op: "Accumulator::add_u64_shl",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: WORD_SHL,
+        }],
+        table_cost: Some("amortized O(1), independent of the shift"),
+        evidence: Evidence::Witnessed(&[(
+            OWN,
+            "alternating_shifted_writes_cost_the_operand_not_the_gap",
+        )]),
+    },
+    Claim {
+        op: "Accumulator::sub_u64_shl",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: WORD_SHL,
+        }],
+        table_cost: Some("amortized O(1), independent of the shift"),
         evidence: Evidence::Witnessed(&[(
             OWN,
             "alternating_shifted_writes_cost_the_operand_not_the_gap",

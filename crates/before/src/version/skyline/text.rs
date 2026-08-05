@@ -71,7 +71,7 @@ use crate::error::Parse;
 
 use super::build::SkylineBuilder;
 use super::emit::signed_sum;
-use super::{gamma_code, gamma_code_signed, unzigzag, validate_bits};
+use super::{gamma_code, gamma_code_signed, unzigzag_base, validate_bits};
 
 #[cfg(test)]
 mod tests;
@@ -263,9 +263,12 @@ pub fn render(bits: &BitsSlice) -> String {
         let index = topology.len();
         topology.push(false);
         // The cursor's own `read_int`: word-parallel payload decode.
-        let code = cursor.read_int().expect("canonical skyline bits");
+        let code = cursor
+            .read_int()
+            .expect("canonical skyline bits")
+            .into_base();
         let incoming = if first_height.is_some() {
-            unzigzag(code)
+            unzigzag_base(code)
         } else {
             first_height = Some(code);
             (false, Base::ZERO)

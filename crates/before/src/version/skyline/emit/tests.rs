@@ -109,11 +109,11 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
     // Signed differences out − a and out − b: the pointwise claim reads
     // off their signs without materializing any height.
     let mut oa = Accumulator::new();
-    oa.add_magnitude(&ho);
-    oa.sub_magnitude(&ha);
+    crate::version::skyline::fold_signed_int(&mut oa, false, &ho);
+    crate::version::skyline::fold_signed_int(&mut oa, true, &ha);
     let mut ob = Accumulator::new();
-    ob.add_magnitude(&ho);
-    ob.sub_magnitude(&hb);
+    crate::version::skyline::fold_signed_int(&mut ob, false, &ho);
+    crate::version::skyline::fold_signed_int(&mut ob, true, &hb);
     let mut intervals = 0u64;
     loop {
         intervals += 1;
@@ -190,11 +190,7 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
 /// Fold one raw step delta into a signed difference, subtracting when
 /// the stream sits on the difference's negative side.
 fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
-    if step.negative != subtract {
-        diff.sub_magnitude(&step.magnitude);
-    } else {
-        diff.add_magnitude(&step.magnitude);
-    }
+    crate::version::skyline::fold_signed_int(diff, step.negative != subtract, &step.magnitude);
 }
 
 /// The adversarial family pool the deterministic grids run over.

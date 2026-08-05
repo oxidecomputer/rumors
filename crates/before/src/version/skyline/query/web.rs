@@ -89,9 +89,9 @@ use core::cmp::Ordering;
 
 use suanpan::{Accumulator, UBig};
 
-use crate::codec::Base;
+use crate::codec::{Base, Int};
 
-use super::{fold_signed, mul_into};
+use super::{fold_signed_int, mul_into};
 
 /// The value the innermost minimum currently holds, as the sweep folds
 /// it: a frozen-relative offset, its epoch, and the closes counted at it
@@ -174,9 +174,9 @@ impl MinWeb {
     ///
     /// `h` moved while every minimum stayed: exactly the innermost
     /// range's `gap` shifts; the differences are height-free.
-    pub(super) fn fold_height(&mut self, negative: bool, magnitude: &Base) {
+    pub(super) fn fold_height(&mut self, negative: bool, magnitude: &Int) {
         if self.armed > 0 {
-            fold_signed(&mut self.gap, negative, magnitude);
+            fold_signed_int(&mut self.gap, negative, magnitude);
         }
     }
 

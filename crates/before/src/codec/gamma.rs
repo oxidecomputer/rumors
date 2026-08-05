@@ -84,6 +84,24 @@ pub(crate) fn code_int(n: &Base) -> Code {
     Code::Wide(out)
 }
 
+/// The Elias gamma code of a word-scale `n` as a [`Code`] value:
+/// [`code_int`]'s machine-word form, with no intermediate [`Base`].
+pub(crate) fn code_int_small(n: u64) -> Code {
+    if let Some(m) = n.checked_add(1) {
+        let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
+        let len = 2 * k + 1;
+        if len <= SMALL_CODE_BITS {
+            return Code::Small {
+                bits: m,
+                len: len as u8,
+            };
+        }
+    }
+    let mut out = BitsMut::new();
+    encode_int(&mut out, &Base::from(n));
+    Code::Wide(out)
+}
+
 /// Read an Elias-gamma-coded integer at `pos`, returning the value and the new
 /// position.
 ///
@@ -99,7 +117,7 @@ pub(crate) fn code_int(n: &Base) -> Code {
 /// [`SliceCursor::read_int`](BitCursor::read_int)).
 pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), Decode> {
     let mut cursor = SliceCursor::new(bits, pos);
-    let base = cursor.read_int()?;
+    let base = cursor.read_int()?.into_base();
     Ok((base, cursor.position()))
 }
 

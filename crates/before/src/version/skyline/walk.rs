@@ -16,9 +16,9 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitCursor, BitStack, DsiCursor};
+use crate::codec::{BitCursor, BitStack, DsiCursor, Int};
 
-use super::{fold_signed, unzigzag};
+use super::{fold_signed_int, unzigzag};
 
 /// The topology walk over one skyline subtree's leaves, in preorder.
 ///
@@ -148,7 +148,7 @@ impl Extremum {
 
     /// Fold one consumed leaf-to-leaf step; the arming first call
     /// folds nothing.
-    pub(super) fn fold(&mut self, neg: bool, mag: &Base) {
+    pub(super) fn fold(&mut self, neg: bool, mag: &Int) {
         if !self.armed {
             self.armed = true;
             return;
@@ -159,7 +159,7 @@ impl Extremum {
     /// Fold one undecoded zigzag payload code; the arming first call
     /// folds nothing and leaves its code undecoded (an armed leaf's
     /// absolute-vs-delta coding is irrelevant — it is never folded).
-    pub(super) fn fold_zigzag(&mut self, code: Base) {
+    pub(super) fn fold_zigzag(&mut self, code: Int) {
         if !self.armed {
             self.armed = true;
             return;
@@ -168,8 +168,8 @@ impl Extremum {
         self.fold_armed(neg, &mag);
     }
 
-    fn fold_armed(&mut self, neg: bool, mag: &Base) {
-        fold_signed(&mut self.acc, !neg, mag);
+    fn fold_armed(&mut self, neg: bool, mag: &Int) {
+        fold_signed_int(&mut self.acc, !neg, mag);
         let overtaken = match self.direction {
             Direction::Max => Ordering::Less,
             Direction::Min => Ordering::Greater,

@@ -42,7 +42,7 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
         let got = cursor
             .read_int()
             .expect("the word-parallel reader reads the same code");
-        assert_eq!(&got, &want, "value diverges at {value}");
+        assert_eq!(&got.clone().into_base(), &want, "value diverges at {value}");
         assert_eq!(
             cursor.position(),
             want_end,

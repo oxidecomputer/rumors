@@ -226,6 +226,7 @@ than they prepaid; unmarked rows are worst-case per call.
 | `add_small`, `sub_small`, `add_u64`, `sub_u64` | amortized O(1) |
 | `add_wide`, `sub_wide` | amortized O(operand limbs), whatever the held width |
 | `add_wide_shl`, `sub_wide_shl` | amortized O(operand limbs), independent of the shift |
+| `add_u64_shl`, `sub_u64_shl` | amortized O(1), independent of the shift |
 | `add_magnitude`, `sub_magnitude` | word-scale: amortized O(1); wide: amortized O(operand limbs) |
 | `add_magnitude_shl`, `sub_magnitude_shl` | as `add_magnitude`/`sub_magnitude`, at any shift |
 | `add_accum`, `sub_accum` | amortized O(operand's held digits) |

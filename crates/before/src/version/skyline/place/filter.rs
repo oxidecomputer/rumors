@@ -51,7 +51,7 @@ use core::cmp::Ordering;
 use suanpan::Accumulator;
 
 use crate::causally::Coverage;
-use crate::codec::{Base, BitsSlice};
+use crate::codec::{BitsSlice, Int};
 
 use super::super::sweep::{fold, Directions, LeafCursor, PlateauCursor, Side, Step};
 
@@ -96,10 +96,10 @@ struct Pair {
 
 impl Pair {
     /// Seed the pair from the two streams' absolute first heights.
-    fn open(probe_first: &Base, bound_first: &Base) -> Pair {
+    fn open(probe_first: &Int, bound_first: &Int) -> Pair {
         let mut diff = Accumulator::new();
-        diff.add_magnitude(probe_first);
-        diff.sub_magnitude(bound_first);
+        super::super::fold_signed_int(&mut diff, false, probe_first);
+        super::super::fold_signed_int(&mut diff, true, bound_first);
         Pair {
             diff,
             dirs: Directions::new(),

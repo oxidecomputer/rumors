@@ -142,12 +142,12 @@ fn rendered_text_is_honest_and_padding_trips() {
 /// The bigroot separation margin is thin — the floor sits over a bypass
 /// reading of pipeline-total-minus-radix — so a re-measure that moves
 /// the other sites up must re-derive both readings before trusting the
-/// floor separates. Bigroot re-measured at 16_391 (the gamma encoder's
-/// word-path arithmetic left the limb denomination): floor 13_932
-/// (×0.85) over the derived bypass 12_264 (16_391 − 4_127) keeps the
-/// separation.
+/// floor separates. Bigroot re-measured at 8_385 (the gamma encoder's
+/// word-path arithmetic and then the word-valued decoded form left the
+/// limb denomination): floor 7_127 (×0.85) over the derived bypass
+/// 4_258 (8_385 − 4_127) keeps the separation.
 #[cfg(feature = "limb-meter")]
-const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 639), ("bigroot", 13_932)];
+const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 639), ("bigroot", 7_127)];
 
 /// The production parser's recorded limb work sits under the text-row limb
 /// ceiling κ on the wide-magnitude families, with a live counter.
@@ -572,9 +572,12 @@ fn flat_denominator_packed_fit_manufactures_an_exponent() {
         w.tick(&Party::seed());
         let packed = v.encode().len() + w.encode().len();
         let content = value_content_bytes(&v) + value_content_bytes(&w);
-        crate::meter::reset_limb_ops();
+        // The sweep's per-tooth work is accumulator folds: word-scale
+        // deltas never touch the limb denomination, so the flat
+        // marginal quantity this tripwire needs is digit touches.
+        suanpan::touch_meter::reset();
         let ord = v.partial_cmp(&w);
-        let ops = crate::meter::limb_ops();
+        let ops = suanpan::touch_meter::touches();
         assert!(ord.is_some(), "a ticked counterpart stays comparable");
         (packed, content, ops)
     };
@@ -591,11 +594,11 @@ fn flat_denominator_packed_fit_manufactures_an_exponent() {
         (1.9..=2.1).contains(&content_growth),
         "the value content must track the doubled tooth count: grew x{content_growth:.2}"
     );
-    // The honest linear witness: per-tooth limb work is flat.
+    // The honest linear witness: per-tooth touch work is flat.
     let per_tooth = (ops1 as f64 / 128.0, ops2 as f64 / 256.0);
     assert!(
         per_tooth.1 <= per_tooth.0 * 1.25,
-        "per-tooth limb work must be flat across the doubling: {per_tooth:?}"
+        "per-tooth touch work must be flat across the doubling: {per_tooth:?}"
     );
     // The same readings, two fits, an exponent class apart.
     let packed_fit = exponent(ops1, ops2, packed1, packed2);

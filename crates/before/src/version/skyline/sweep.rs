@@ -143,7 +143,7 @@ use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitCursor, BitStack, BitsSlice, DsiCursor};
+use crate::codec::{BitCursor, BitStack, BitsSlice, DsiCursor, Int};
 
 /// The causal order of the versions two skyline streams denote; `None`
 /// is concurrent.
@@ -338,12 +338,12 @@ impl Side {
 /// Fold one decoded leaf delta into the running difference, oriented by
 /// the side its stream feeds: `a`'s height rising raises `D`, `b`'s
 /// lowers it.
-pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude: &Base) {
+pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude: &Int) {
     let lowers_diff = match side {
         Side::A => negative,
         Side::B => !negative,
     };
-    super::fold_signed(diff, lowers_diff, magnitude);
+    super::fold_signed_int(diff, lowers_diff, magnitude);
 }
 
 /// A cursor over one dyadic tiling of the unit interval, yielding its
@@ -457,7 +457,7 @@ pub(super) struct Step {
     /// Whether the delta lowers this stream's height.
     pub(super) negative: bool,
     /// The delta's absolute value.
-    pub(super) magnitude: Base,
+    pub(super) magnitude: Int,
 }
 
 /// Advance the skyline pair overlay one boundary, folding each consumed
@@ -503,9 +503,9 @@ pub(super) struct OpenedPair<'a> {
     /// The running difference, seeded `a_first − b_first`.
     pub(super) diff: Accumulator,
     /// The left operand's absolute first height.
-    pub(super) a_first: Base,
+    pub(super) a_first: Int,
     /// The right operand's absolute first height.
-    pub(super) b_first: Base,
+    pub(super) b_first: Int,
 }
 
 impl<'a> OpenedPair<'a> {
@@ -518,8 +518,8 @@ impl<'a> OpenedPair<'a> {
         let (a, a_first) = LeafCursor::open(a_bits);
         let (b, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();
-        diff.add_magnitude(&a_first);
-        diff.sub_magnitude(&b_first);
+        super::fold_signed_int(&mut diff, false, &a_first);
+        super::fold_signed_int(&mut diff, true, &b_first);
         OpenedPair {
             a,
             b,
@@ -596,7 +596,7 @@ impl<'a> LeafCursor<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
-    pub(super) fn open(bits: &'a BitsSlice) -> (Self, Base) {
+    pub(super) fn open(bits: &'a BitsSlice) -> (Self, Int) {
         let mut this = LeafCursor {
             cursor: DsiCursor::new(bits),
             path: BitStack::new(),
@@ -615,7 +615,7 @@ impl<'a> LeafCursor<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
-    fn descend(&mut self) -> Base {
+    fn descend(&mut self) -> Int {
         // One word-parallel unary read takes the whole descent: the run
         // of internal flags ends at the leaf's `1`. The scan meter
         // records the same run width the per-flag reads would.

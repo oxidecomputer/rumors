@@ -95,7 +95,7 @@ use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, Code};
 
 use super::build::SkylineBuilder;
 use super::walk::LeafWalk;
-use super::{gamma_code, gamma_code_signed, unzigzag, zigzag_signed};
+use super::{gamma_code, gamma_code_signed, unzigzag_base, zigzag_signed};
 
 /// Lexicographic inflation cost `(expansions, depth)`: prefer fewer
 /// leaf-to-node expansions, then a shallower spot.
@@ -367,7 +367,7 @@ fn recode(code: &BitsSlice, step: Step, k: &Base) -> Code {
         Step::UpDelta => true,
         Step::DownDelta => false,
     };
-    let (negative, magnitude) = unzigzag(value);
+    let (negative, magnitude) = unzigzag_base(value);
     let stepped = match (increment, negative) {
         // Stepping a nonnegative delta up, or a negative one further
         // down, grows the magnitude.

@@ -12,7 +12,7 @@
 use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Parse;
 
-use super::{unzigzag, zigzag};
+use super::{unzigzag_base, zigzag};
 
 /// The skyline stream of an event leaf with base `n`.
 pub(crate) fn leaf(n: u64) -> BitsMut {
@@ -99,9 +99,9 @@ fn scan(bits: &BitsSlice) -> (BitsMut, Vec<Base>) {
             .read_int()
             .expect("a canonical stream holds a complete payload per leaf");
         let value = match heights.last() {
-            None => code,
+            None => code.into_base(),
             Some(prev) => {
-                let (negative, magnitude) = unzigzag(code);
+                let (negative, magnitude) = unzigzag_base(code.into_base());
                 if negative {
                     prev.clone() - &magnitude
                 } else {

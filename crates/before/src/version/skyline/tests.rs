@@ -202,7 +202,7 @@ fn rejects_trailing_bits() {
 fn zigzag_is_a_bijection_without_negative_zero() {
     let mut seen: BTreeSet<(bool, u64)> = BTreeSet::new();
     for m in 0..=100u64 {
-        let (negative, magnitude) = unzigzag(Base::from(m));
+        let (negative, magnitude) = unzigzag(crate::codec::Int::Small(m));
         let mag = magnitude
             .to_u64()
             .expect("small codes decode to small magnitudes");

@@ -20,10 +20,10 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
+use crate::codec::{BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Decode;
 
-use super::unzigzag;
+use super::{fold_signed_int, unzigzag};
 
 /// Strictly validate one whole skyline stream.
 ///
@@ -88,18 +88,14 @@ where
         let code = cursor.read_int()?;
         let mut zero_delta = false;
         if seen_leaf {
-            zero_delta = code == Base::ZERO;
+            zero_delta = code.is_zero();
             let (negative, magnitude) = unzigzag(code);
-            if negative {
-                height.sub_magnitude(&magnitude);
-            } else {
-                height.add_magnitude(&magnitude);
-            }
+            fold_signed_int(&mut height, negative, &magnitude);
             if negative && height.sign() == Ordering::Less {
                 return Err(Decode::NotCanonical); // a leaf height fell below zero
             }
         } else {
-            height.add_magnitude(&code);
+            fold_signed_int(&mut height, false, &code);
             seen_leaf = true;
         }
 

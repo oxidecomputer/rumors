@@ -57,7 +57,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitCursor, BitsMut, BitsSlice};
+use crate::codec::{BitCursor, BitsMut, BitsSlice, Int};
 use crate::error::Decode;
 
 use super::sweep::{fold, LeafCursor, PlateauCursor, Side, Step};
@@ -103,7 +103,7 @@ where
 {
     /// Open the stream at its first leaf: the descent to it, and the
     /// leaf's absolute height code.
-    fn open(cursor: &'a mut C) -> Result<(Self, Base), Decode> {
+    fn open(cursor: &'a mut C) -> Result<(Self, Int), Decode> {
         let mut this = CheckedCursor {
             cursor,
             path: BitsMut::new(),
@@ -118,7 +118,7 @@ where
     /// Descend to the next leaf in preorder, opening `k` internal
     /// nodes: [`LeafCursor`]'s descent with the reads fallible and the
     /// validator's placeholder bits pushed alongside the path.
-    fn descend(&mut self) -> Result<Base, Decode> {
+    fn descend(&mut self) -> Result<Int, Decode> {
         let k = self.cursor.read_unary()?;
         for _ in 0..k {
             self.path.push(false);
@@ -188,7 +188,7 @@ where
         }
         let flip = self.path.len();
         let code = self.descend()?;
-        self.last_delta_zero = code == Base::ZERO;
+        self.last_delta_zero = code.is_zero();
         let (negative, magnitude) = unzigzag(code);
         Ok((
             flip,
@@ -298,8 +298,8 @@ where
     // as the `a` operand, seeded and folded in the sweep's own order so
     // the accumulator traffic is identical).
     let mut diff = Accumulator::new();
-    diff.add_magnitude(&lo_first);
-    diff.sub_magnitude(&hi_first);
+    super::fold_signed_int(&mut diff, false, &lo_first);
+    super::fold_signed_int(&mut diff, true, &hi_first);
     // Equality rides the same sign reads: the pair is equal exactly
     // when no elementary interval reads a strict `Less` (and none reads
     // `Greater`, which refutes outright) — canonical uniqueness then

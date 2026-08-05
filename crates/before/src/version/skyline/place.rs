@@ -119,7 +119,7 @@ use core::ops::ControlFlow;
 use suanpan::Accumulator;
 
 use crate::causally::{Dominance, Endpoint, Placement};
-use crate::codec::{Base, BitsSlice};
+use crate::codec::{BitsSlice, Int};
 
 use super::sweep::{fold, Directions, LeafCursor, PlateauCursor, Side, Step};
 
@@ -151,11 +151,11 @@ impl<'a> BoundSide<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
-    fn open(bits: &'a BitsSlice, probe_first: &Base) -> BoundSide<'a> {
+    fn open(bits: &'a BitsSlice, probe_first: &Int) -> BoundSide<'a> {
         let (cursor, first) = LeafCursor::open(bits);
         let mut diff = Accumulator::new();
-        diff.add_magnitude(probe_first);
-        diff.sub_magnitude(&first);
+        super::fold_signed_int(&mut diff, false, probe_first);
+        super::fold_signed_int(&mut diff, true, &first);
         BoundSide {
             cursor,
             diff,

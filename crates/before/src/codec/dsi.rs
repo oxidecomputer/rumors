@@ -38,7 +38,7 @@ use dsi_bitstream::traits::{BitRead, WordRead, BE};
 use crate::error::Decode;
 
 use super::cursor::Truncated;
-use super::{Base, BitCursor, BitsSlice};
+use super::{Base, BitCursor, BitsSlice, Int};
 
 /// A word-parallel sequential cursor over an existing packed bit slice.
 ///
@@ -213,13 +213,13 @@ impl BitCursor for DsiCursor<'_> {
     /// unary prefix always ends inside the stream; the explicit length
     /// checks bound the mantissa, and a stream ending mid-code reads
     /// `Truncated` exactly as the per-bit loop does.
-    fn read_int(&mut self) -> Result<Base, Decode> {
+    fn read_int(&mut self) -> Result<Int, Decode> {
         // Table tier: only when the peeked 9 bits are all live.
         if self.len - self.position >= gamma_tables::READ_BITS {
             if let Some((value, used)) = gamma_tables::read_table_be(&mut self.reader) {
                 super::scan::record_bits(used);
                 self.position += used;
-                return Ok(Base::from(value));
+                return Ok(Int::Small(value));
             }
         }
         let k = self.unary_raw().map_err(|_| Decode::Truncated)?;
@@ -242,7 +242,7 @@ impl BitCursor for DsiCursor<'_> {
             let m = (1u64 << k) | rest;
             super::scan::record_bits(code_len);
             self.position += code_len;
-            return Ok(Base::from(m - 1));
+            return Ok(Int::Small(m - 1));
         }
         // Wide arm: the mantissa's top bit is at position `k`; the next
         // `k` stream bits fill positions `k - 1 ..= 0`, most-significant
@@ -269,7 +269,7 @@ impl BitCursor for DsiCursor<'_> {
         super::limb_meter::record_wide(&m);
         super::scan::record_bits(code_len);
         self.position += code_len;
-        Ok(Base::from(m - 1u32))
+        Ok(Int::from_base(Base::from(m - 1u32)))
     }
 }
 

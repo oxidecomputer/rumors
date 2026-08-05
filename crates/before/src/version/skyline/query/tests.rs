@@ -918,13 +918,13 @@ mod adequacy {
 
     use suanpan::{touch_meter, Accumulator};
 
-    use crate::codec::{Base, BitsSlice};
+    use crate::codec::{Base, BitsSlice, Int};
     use crate::meter::registry::Shape;
     use crate::version::skyline::encode;
     use crate::version::skyline::sweep::{fold, LeafCursor, PlateauCursor, Side};
     use crate::Rank;
 
-    use super::super::{base_digits, max_depth, mul_into, FREEZE_ALLOWANCE_DIGITS};
+    use super::super::{fold_signed_int, int_digits, max_depth, mul_into, FREEZE_ALLOWANCE_DIGITS};
 
     /// The absolute-position rank fold: heights on a frozen/live split
     /// whose freeze correction is `drift × position` with the position
@@ -942,7 +942,7 @@ mod adequacy {
         let mut total = Accumulator::new();
         let mut live_height = Accumulator::new();
         let mut frozen = Accumulator::new();
-        frozen.add_magnitude(&first);
+        fold_signed_int(&mut frozen, false, &first);
         let mut position = Accumulator::new();
         let one = Base::from(1u8);
         loop {
@@ -956,7 +956,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut live_height, Side::A, step.negative, &step.magnitude);
-            if live_height.digit_count() > base_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
+            if live_height.digit_count() > int_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
                 let (drift_sign, drift) = live_height.sign_magnitude();
                 let (_, position_mag) = position.sign_magnitude();
                 let drift = Base::from(drift);
@@ -1073,8 +1073,8 @@ mod adequacy {
             }
         }
 
-        fn open(&mut self, opening: &Base) {
-            self.base.add_magnitude(opening);
+        fn open(&mut self, opening: &Int) {
+            fold_signed_int(&mut self.base, false, opening);
         }
 
         fn interval(&mut self, weight_shift: u64) {
@@ -1212,7 +1212,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-            integral.boundary(super::super::base_digits(&step.magnitude));
+            integral.boundary(super::super::int_digits(&step.magnitude));
         }
         integral.finish(max_depth as u64)
     }
@@ -1232,13 +1232,13 @@ mod adequacy {
         let (mut ca, a_first) = LeafCursor::open(a_bits);
         let (mut cb, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();
-        diff.add_magnitude(&a_first);
-        diff.sub_magnitude(&b_first);
+        fold_signed_int(&mut diff, false, &a_first);
+        fold_signed_int(&mut diff, true, &b_first);
         let mut orient = orientation(diff.sign());
         let mut integral = SpanIntegrator::new();
         if orient != 0 {
             let (_, opening) = diff.sign_magnitude();
-            integral.open(&Base::from(opening));
+            integral.open(&Int::from_ubig(opening));
         }
         loop {
             let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
@@ -1263,7 +1263,7 @@ mod adequacy {
             let funded = da
                 .iter()
                 .chain(db.iter())
-                .map(|step| super::super::base_digits(&step.magnitude))
+                .map(|step| super::super::int_digits(&step.magnitude))
                 .max()
                 .unwrap_or(1);
             integral.boundary(funded);
@@ -1416,8 +1416,8 @@ mod adequacy {
             }
         }
 
-        fn open(&mut self, opening: &Base) {
-            self.base.add_magnitude(opening);
+        fn open(&mut self, opening: &Int) {
+            fold_signed_int(&mut self.base, false, opening);
         }
 
         fn interval(&mut self, weight_shift: u64) {
@@ -1581,7 +1581,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-            integral.boundary(super::super::base_digits(&step.magnitude));
+            integral.boundary(super::super::int_digits(&step.magnitude));
         }
         integral.finish(max_depth as u64)
     }
@@ -1601,13 +1601,13 @@ mod adequacy {
         let (mut ca, a_first) = LeafCursor::open(a_bits);
         let (mut cb, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();
-        diff.add_magnitude(&a_first);
-        diff.sub_magnitude(&b_first);
+        fold_signed_int(&mut diff, false, &a_first);
+        fold_signed_int(&mut diff, true, &b_first);
         let mut orient = orientation(diff.sign());
         let mut integral = SuffixWalkIntegrator::new();
         if orient != 0 {
             let (_, opening) = diff.sign_magnitude();
-            integral.open(&Base::from(opening));
+            integral.open(&Int::from_ubig(opening));
         }
         loop {
             let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
@@ -1632,7 +1632,7 @@ mod adequacy {
             let funded = da
                 .iter()
                 .chain(db.iter())
-                .map(|step| super::super::base_digits(&step.magnitude))
+                .map(|step| super::super::int_digits(&step.magnitude))
                 .max()
                 .unwrap_or(1);
             integral.boundary(funded);
@@ -1890,7 +1890,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-            integral.boundary(super::super::base_digits(&step.magnitude));
+            integral.boundary(super::super::int_digits(&step.magnitude));
         }
         per_digit_finish(integral, max_depth as u64)
     }
@@ -2116,7 +2116,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-            integral.boundary(super::super::base_digits(&step.magnitude));
+            integral.boundary(super::super::int_digits(&step.magnitude));
         }
         schoolbook_finish(integral, max_depth as u64)
     }

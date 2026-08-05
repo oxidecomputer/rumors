@@ -593,6 +593,30 @@ fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
             UBig::from(1u8) << usize::try_from(shift).unwrap()
         );
     }
+    // The word-scale shifted entry points run the same schedule at the
+    // same flat cost: one deposit per write, no limb read (the operand
+    // is already a word), certificate skip included.
+    for shift in [32_000u64, 64_000] {
+        let mut acc = Accumulator::new();
+        acc.add_u64_shl(1, shift);
+        touch_meter::reset();
+        for _ in 0..1_000 {
+            acc.sub_u64_shl(1, shift);
+            acc.add_u64_shl(1, shift);
+        }
+        assert_eq!(
+            touch_meter::touches(),
+            3_000,
+            "1,000 alternating word pairs at shift {shift}: 3 touches per \
+             pair (2 deposits + 1 certificate skip), whatever the shift"
+        );
+        let (sign, magnitude) = acc.sign_magnitude();
+        assert_eq!(sign, Ordering::Greater);
+        assert_eq!(
+            magnitude,
+            UBig::from(1u8) << usize::try_from(shift).unwrap()
+        );
+    }
     // A value parked on digit 0 does not re-price the oscillation above
     // it: the run's certificate, not a global watermark, funds the skip.
     for shift in [32_000u64, 64_000] {

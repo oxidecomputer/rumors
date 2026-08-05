@@ -78,11 +78,11 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitsMut, BitsSlice, Code};
+use crate::codec::{Base, BitsMut, BitsSlice, Code, Int};
 
 use super::build::SkylineBuilder;
 use super::sweep::{advance_diff, Directions, OpenedPair, PlateauCursor, Side, Step};
-use super::{gamma_code, gamma_code_signed};
+use super::{gamma_code_int, gamma_code_signed_int};
 
 /// The join (pointwise max) of the versions two skyline streams denote,
 /// as a canonical skyline stream.
@@ -231,7 +231,7 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
         };
         emission
             .out
-            .leaf(ca.depth().max(cb.depth()), gamma_code(first));
+            .leaf(ca.depth().max(cb.depth()), gamma_code_int(first));
     }
 
     while !(ca.done() && cb.done()) {
@@ -285,7 +285,7 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
         Side::A => &a_first,
         Side::B => &b_first,
     };
-    out.leaf(ca.depth().max(cb.depth()), gamma_code(first));
+    out.leaf(ca.depth().max(cb.depth()), gamma_code_int(first));
 
     while !(ca.done() && cb.done()) {
         let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
@@ -318,17 +318,17 @@ fn delta_code(
     };
     if new_side == side {
         return match step {
-            Some(step) => gamma_code_signed(step.negative, &step.magnitude),
-            None => gamma_code_signed(false, &Base::ZERO),
+            Some(step) => gamma_code_signed_int(step.negative, &step.magnitude),
+            None => gamma_code_signed_int(false, &Int::ZERO),
         };
     }
     let (negative, magnitude) = switch_delta(diff, new_side, step);
-    gamma_code_signed(negative, &magnitude)
+    gamma_code_signed_int(negative, &magnitude)
 }
 
 /// The output delta across a side switch: `±D′` oriented toward the new
 /// side, plus the old side's step delta (the module doc's algebra).
-fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> (bool, Base) {
+fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> (bool, Int) {
     let (sign, magnitude) = diff.sign_magnitude();
     debug_assert_ne!(sign, Ordering::Equal, "a tie never switches the side");
     let negative = match new_side {
@@ -336,14 +336,50 @@ fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> 
         Side::B => sign == Ordering::Greater,
     };
     match old_step {
-        Some(step) => signed_sum(
+        Some(step) => signed_sum_int(
             negative,
-            Base::from(magnitude),
+            Int::from_ubig(magnitude),
             step.negative,
             &step.magnitude,
         ),
-        None => (negative, Base::from(magnitude)),
+        None => (negative, Int::from_ubig(magnitude)),
     }
+}
+
+/// The sign and magnitude of a sum of two signed [`Int`] magnitudes:
+/// [`signed_sum`]'s value form, word-scale pairs summed in machine
+/// arithmetic.
+///
+/// Never yields a negative zero, as [`signed_sum`].
+pub(super) fn signed_sum_int(x_neg: bool, x: Int, y_neg: bool, y: &Int) -> (bool, Int) {
+    if let (Int::Small(a), Int::Small(b)) = (&x, y) {
+        let a = if x_neg {
+            -i128::from(*a)
+        } else {
+            i128::from(*a)
+        };
+        let b = if y_neg {
+            -i128::from(*b)
+        } else {
+            i128::from(*b)
+        };
+        let sum = a + b;
+        let magnitude = match u64::try_from(sum.unsigned_abs()) {
+            Ok(word) => Int::Small(word),
+            Err(_) => Int::Wide(Base::from(sum.unsigned_abs())),
+        };
+        return (sum < 0, magnitude);
+    }
+    let y_widened;
+    let y = match y {
+        Int::Wide(base) => base,
+        Int::Small(n) => {
+            y_widened = Base::from(*n);
+            &y_widened
+        }
+    };
+    let (negative, magnitude) = signed_sum(x_neg, x.into_base(), y_neg, y);
+    (negative, Int::from_base(magnitude))
 }
 
 /// The sign and magnitude of a sum of two signed magnitudes.

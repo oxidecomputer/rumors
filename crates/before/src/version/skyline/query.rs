@@ -369,16 +369,16 @@ use core::cmp::Ordering;
 
 use suanpan::{Accumulator, Limbs, UBig};
 
-use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsSlice, SliceCursor};
+use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsSlice, Int, SliceCursor};
 use crate::Rank;
 
 use super::build::SkylineBuilder;
-use super::emit::signed_sum;
+use super::emit::signed_sum_int;
 use super::sweep::{
     advance, advance_diff, fold, Crossed, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
 use super::walk::LeafWalk;
-use super::{fold_signed, gamma_code, gamma_code_signed};
+use super::{fold_signed, fold_signed_int, gamma_code_int};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
 /// digits, over the just-folded delta's own width: a fold that leaves
@@ -425,7 +425,7 @@ pub fn rank(bits: &BitsSlice) -> Rank {
         }
         let (_, step) = cursor.step();
         fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-        integral.boundary(base_digits(&step.magnitude));
+        integral.boundary(int_digits(&step.magnitude));
     }
     let (sign, num) = integral.finish(max_depth as u64);
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
@@ -482,6 +482,18 @@ fn mul_into(total: &mut Accumulator, factor: &Base, digits: &Base, shift: u64, s
     }
     if carry == 1 {
         add_term(1, false, shift);
+    }
+}
+
+/// [`base_digits`] over the decoded-payload value form.
+fn int_digits(value: &Int) -> usize {
+    match value {
+        Int::Small(n) => {
+            let digits = usize::try_from((u64::BITS - n.leading_zeros()).div_ceil(32))
+                .expect("digit counts fit usize");
+            digits.max(1)
+        }
+        Int::Wide(base) => base_digits(base),
     }
 }
 
@@ -770,7 +782,7 @@ fn pair_fold(
             Ordering::Less => orient > 0,
             Ordering::Equal => false,
         };
-        integral.open(negative, &Base::from(opening));
+        integral.open(negative, &Int::from_ubig(opening));
     }
     loop {
         let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
@@ -801,7 +813,7 @@ fn pair_fold(
         let funded = da
             .iter()
             .chain(db.iter())
-            .map(|step| base_digits(&step.magnitude))
+            .map(|step| int_digits(&step.magnitude))
             .max()
             .unwrap_or(1);
         integral.boundary(funded);
@@ -1081,11 +1093,17 @@ impl Integrator {
     /// Anchor the opening plateau at position zero (signed: the signed
     /// pair measure's integrand carries `D`'s own sign, every other
     /// caller opens nonnegative).
-    fn open(&mut self, negative: bool, opening: &Base) {
+    fn open(&mut self, negative: bool, opening: &Int) {
         if negative {
-            self.base.sub_magnitude(opening);
+            match opening {
+                Int::Small(n) => self.base.sub_u64(*n),
+                Int::Wide(base) => self.base.sub_magnitude(base),
+            }
         } else {
-            self.base.add_magnitude(opening);
+            match opening {
+                Int::Small(n) => self.base.add_u64(*n),
+                Int::Wide(base) => self.base.add_magnitude(base),
+            }
         }
     }
 
@@ -1450,7 +1468,7 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
     // The narrow side of the total: `Σ leaf offsets − Σ minima offsets`,
     // every term relative to its own epoch's frozen component.
     let mut total = Accumulator::new();
-    let mut ledger = web::EpochLedger::new(first);
+    let mut ledger = web::EpochLedger::new(first.into_base());
     // The minima side: subtree spans nest LIFO along the sweep, so each
     // closing node's minimum is the innermost open range's — the
     // range-minimum web (the `web` module carries the discipline and
@@ -1475,7 +1493,7 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
         // The new leaf: a stale-wide live component is evicted first,
         // so the offset entering the total is paid by the codes that
         // built it (the freeze discipline's funding argument).
-        if live.digit_count() > base_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
+        if live.digit_count() > int_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
             ledger.freeze(&mut live);
         }
         let (l_sign, l_mag) = live.sign_magnitude();
@@ -1518,7 +1536,7 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
     let (mut sc, first) = LeafCursor::open(ev_bits);
     let mut ic = IdLeafCursor::open(id_bits);
     let mut height = Accumulator::new();
-    height.add_magnitude(&first);
+    fold_signed_int(&mut height, false, &first);
     let mut owned = ic.owned();
     // Allocation-strategy seam: the shipped arm pre-sizes to the operands'
     // summed lengths — an estimate, since the projection's output is not
@@ -1532,8 +1550,8 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
     #[cfg(before_alloc_ab = "projection_growth")]
     let capacity = 0;
     let mut out = SkylineBuilder::with_capacity(capacity);
-    let opening = if owned { first } else { Base::ZERO };
-    out.leaf(sc.depth().max(ic.depth()), gamma_code(&opening));
+    let opening = if owned { first } else { Int::ZERO };
+    out.leaf(sc.depth().max(ic.depth()), gamma_code_int(&opening));
     while !(sc.done() && ic.done()) {
         // The overlay-advance law drives the skyline × id cursor mix; an
         // id crossing carries nothing, so the fold sees exactly the
@@ -1550,28 +1568,28 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
             // boundary the id alone crossed is a zero delta.
             (true, true) => match &ev_step {
                 Some(step) => (step.negative, step.magnitude.clone()),
-                None => (false, Base::ZERO),
+                None => (false, Int::ZERO),
             },
-            (false, false) => (false, Base::ZERO),
+            (false, false) => (false, Int::ZERO),
             // Entering the owned region: the output jumps to the current
             // absolute height.
-            (false, true) => (false, absolute_height(&mut height)),
+            (false, true) => (false, Int::from_base(absolute_height(&mut height))),
             // Leaving it: the output drops from the height *before* this
             // boundary's fold — the new height minus the folded delta.
             (true, false) => {
-                let now = absolute_height(&mut height);
+                let now = Int::from_base(absolute_height(&mut height));
                 let (negative, magnitude) = match &ev_step {
-                    Some(step) => signed_sum(false, now, !step.negative, &step.magnitude),
+                    Some(step) => signed_sum_int(false, now, !step.negative, &step.magnitude),
                     None => (false, now),
                 };
                 debug_assert!(!negative, "heights are nonnegative");
-                (magnitude != Base::ZERO, magnitude)
+                (!magnitude.is_zero(), magnitude)
             }
         };
         owned = now_owned;
         out.leaf(
             sc.depth().max(ic.depth()),
-            gamma_code_signed(negative, &magnitude),
+            super::gamma_code_signed_int(negative, &magnitude),
         );
     }
     let bits = out.finish();

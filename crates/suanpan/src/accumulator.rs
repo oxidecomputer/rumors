@@ -1005,6 +1005,44 @@ impl Accumulator {
         other
     }
 
+    /// Add one machine word times `2^shift`: amortized O(1) digit
+    /// touches, independent of the shift.
+    ///
+    /// The word-scale form of [`add_magnitude_shl`](Accumulator::add_magnitude_shl),
+    /// for callers whose operand is already a machine word; the digit
+    /// buffer grows to cover the shifted positions.
+    ///
+    /// # Complexity
+    ///
+    /// Amortized `O(1)` digit touches, independent of the shift; the digit buffer grows to cover the shifted positions.
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
+    #[inline]
+    pub fn add_u64_shl(&mut self, word: u64, shift: u64) {
+        self.add_shifted_word(word, false, shift);
+    }
+
+    /// Subtract one machine word times `2^shift`: amortized O(1) digit
+    /// touches, independent of the shift.
+    ///
+    /// The subtractive twin of [`add_u64_shl`](Accumulator::add_u64_shl).
+    ///
+    /// # Complexity
+    ///
+    /// Amortized `O(1)` digit touches, independent of the shift; the digit buffer grows to cover the shifted positions.
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
+    #[inline]
+    pub fn sub_u64_shl(&mut self, word: u64, shift: u64) {
+        self.add_shifted_word(word, true, shift);
+    }
+
     /// Add or subtract one machine word times `2^shift`: amortized O(1).
     fn add_shifted_word(&mut self, word: u64, negative: bool, shift: u64) {
         if word == 0 {

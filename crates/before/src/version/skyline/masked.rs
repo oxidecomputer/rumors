@@ -173,12 +173,12 @@ impl<'a> Walk<'a> {
         // would be pure waste.
         let ha = b_mask.map(|_| {
             let mut ha = Accumulator::new();
-            ha.add_magnitude(&a_first);
+            super::fold_signed_int(&mut ha, false, &a_first);
             ha
         });
         let hb = a_mask.map(|_| {
             let mut hb = Accumulator::new();
-            hb.add_magnitude(&b_first);
+            super::fold_signed_int(&mut hb, false, &b_first);
             hb
         });
         Walk {

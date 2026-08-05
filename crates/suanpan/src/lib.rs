@@ -222,6 +222,7 @@
 //! | [`add_small`](Accumulator::add_small), [`sub_small`](Accumulator::sub_small), [`add_u64`](Accumulator::add_u64), [`sub_u64`](Accumulator::sub_u64) | amortized O(1) |
 //! | [`add_wide`](Accumulator::add_wide), [`sub_wide`](Accumulator::sub_wide) | amortized O(operand limbs), whatever the held width |
 //! | [`add_wide_shl`](Accumulator::add_wide_shl), [`sub_wide_shl`](Accumulator::sub_wide_shl) | amortized O(operand limbs), independent of the shift |
+//! | [`add_u64_shl`](Accumulator::add_u64_shl), [`sub_u64_shl`](Accumulator::sub_u64_shl) | amortized O(1), independent of the shift |
 //! | [`add_magnitude`](Accumulator::add_magnitude), [`sub_magnitude`](Accumulator::sub_magnitude) | word-scale: amortized O(1); wide: amortized O(operand limbs) |
 //! | [`add_magnitude_shl`](Accumulator::add_magnitude_shl), [`sub_magnitude_shl`](Accumulator::sub_magnitude_shl) | as [`add_magnitude`](Accumulator::add_magnitude)/[`sub_magnitude`](Accumulator::sub_magnitude), at any shift |
 //! | [`add_accum`](Accumulator::add_accum), [`sub_accum`](Accumulator::sub_accum) | amortized O(operand's held digits) |
