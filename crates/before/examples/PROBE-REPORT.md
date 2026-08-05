@@ -157,13 +157,30 @@ Measured (bench corpus, n=8192; criterion oracle medians as the bar):
 | version tick | 1_783 us | 752 us | 294 us | 5.95x -> 2.6x |
 | clock decode | 161 us | 96 us | — | −40% |
 
-Join beats the oracle at every corpus size (0.62–0.78x); tick's
-remaining gap is structural — the fused fill walk pays full per-leaf
-freight over id-space the party doesn't own, where the oracle pays one
-pointer. The plan for that is `design/before-ownership-gated-walks.md`:
-a gated leaf cursor yielding owned leaves and skip-scanned unowned
-region summaries, shared by fill/`ticks`, the masked `OwnVersion`/
-`OwnSpan` walks, and `project`.
+Join beats the oracle at every corpus size (0.62–0.78x).
+
+## Ownership-gated walks (2026-08-04, second round)
+
+`design/before-ownership-gated-walks.md` landed for the fill consumer:
+unowned regions are consumed as blocks (net movement + streaming
+minimum + verbatim output), routed for free on the first descent's
+depth, in both the verbatim and the diverged walk and the pre-scan.
+Measured:
+
+- `holetick` (a 26-bit party over a 40,337-bit joined version — the
+  small-custody-peer shape the design targets): 320µs → **195µs**
+  (−39%).
+- organic `tick` (the bench pair): neutral. Its party interleaves
+  finely with the event tree — unowned regions are overwhelmingly
+  single leaves — so the block scan almost never opens, and the gate
+  is free when closed (paired A/B at the parent, ±1%).
+
+Tick's remaining organic gap (~2.5x oracle at n=8192) is per-node walk
+interpretation — frame stacks, watermark open/close churn, per-leaf
+builder feeds under interleaved ids, signed folds — spread across the
+profile with no dominant term. Parity on interleaved shapes means
+interpreter-level work (packed frame bits, run-splice batching of
+pass-through emissions), a different campaign than region skipping.
 
 Instrument movements are recorded in the envelope tables' annotations:
 narrow-value work has left the limb denomination (touch and scan floors

@@ -1,6 +1,49 @@
 # Ownership-gated walks: skipping the id-space a party doesn't own
 
-STATUS: PROPOSED (2026-08-04, perf-probe campaign). Owner review pending.
+STATUS: PARTIALLY LANDED (2026-08-04, perf-probe campaign). Consumer 1
+(`fill`/`tick`/`ticks`, both branches, plus the pre-scan) is landed and
+pinned; consumers 2–3 (`masked`, `project`) await an owner decision in
+light of the measured findings below. Owner review pending.
+
+## Findings from execution (2026-08-04)
+
+- **The bench corpus's tick pair is not hole-shaped.** Its organic
+  party (18,920 id bits against 37,835 event bits) interleaves finely
+  with the event tree: unowned regions are overwhelmingly single
+  leaves, so the block scan almost never opens and organic tick moves
+  ±1% (neutral; paired A/B at the parent). The premise "at the bench
+  corpus's shapes most event leaves sit under id-space the ticking
+  party does not own" was wrong — ownership fraction is small, but
+  scattered rather than blocky.
+- **On the hole shape the design targets, the win is large.** The
+  probe's `holetick` op (a 26-bit party over a 40,337-bit joined
+  version, the small-custody-peer shape): 320µs → 195µs (−39%).
+- **Region routing must be free.** Peeking topology flags to size
+  regions cost ~2% on the organic corpus; routing on the first
+  descent's depth (bits consumed either way; `d1 ≥ 2` opens the block)
+  made the gate cost unmeasurable. Single-leaf and leaf-first-pair
+  regions stay per-leaf: the block summary's fixed cost (two register
+  materializations, one watermark emission) exceeds their freight.
+- **The minimum is eager, not lazy.** The summary folds the region's
+  minimum as it scans (one extra word-scale fold per leaf) instead of
+  the proposed lazy replay handle: the watermark web is a streaming
+  structure, and threading deferred minima through it is exactly the
+  re-entry-state risk this document names, bought back for one or two
+  nanoseconds per skipped leaf. Revisit only if a measured gap demands
+  it.
+- **The remaining organic tick gap (~2.5x oracle) is per-node walk
+  interpretation** — frame stacks, watermark open/close churn,
+  per-leaf builder feeds under interleaved ids, signed folds — spread
+  with no single dominant term. Reaching parity on interleaved shapes
+  is interpreter-level work (packed frame bits, run-splice batching of
+  pass-through emissions), out of this document's scope.
+- The committed instruments are the `tick_ownership_hole` envelope
+  (touch ceiling below the leaf-by-leaf mechanism's measured reading,
+  so the skip must engage; scan pinned identical) and the
+  `tick_ownership_comb` envelope (single-leaf regions everywhere; the
+  gated walk pinned to the ungated walk's own readings). The touch
+  meter is quick-register-blind for narrow values, so the hole family
+  rides the staircase, whose digit work the meter sees.
 
 ## The observation
 
@@ -79,10 +122,11 @@ unchanged).
    (fill is the identity there), the route DP records no sites, the
    watermark web takes one folded boundary whose min resolves through
    the lazy handle only if an enclosing shortcut decision asks, and the
-   emit side splices the region verbatim. This is where the remaining
-   tick gap lives: at the bench corpus's shapes (a third of the
-   universe discarded into holes) most event leaves sit under id-space
-   the ticking party does not own.
+   emit side splices the region verbatim. The payoff scales with how
+   *blocky* the party's absence is: large on hole-shaped custody (a
+   peer owning a vanishing fraction of a wide version), nil on finely
+   interleaved organic parties whose unowned regions are single leaves
+   (the findings above).
 
 2. **`masked` (`OwnVersion`/`OwnSpan` lazy fused comparisons).** The
    gate is per-operand: over a region where `p` is unowned, `&v / &p`'s
@@ -135,14 +179,17 @@ already path-directed.
 
 ## Cost model and expectation
 
-Per skipped leaf: one unary read share + one `skip_int`-plus-fold
-(≈ validator cost, measured ~9 ns/leaf at bench shapes) versus today's
-full fill constant (~54 ns/leaf at n=8192 after the word-valued payload
-round). With the bench corpus's ownership fraction, tick's projection
-lands at or below the oracle's median; fully-owned inputs are unchanged
-by construction. The masked/project consumers gain proportionally to
-their masks' holes; their walks are already cheaper per leaf, so the
-absolute win is smaller but the shape is the same.
+Per skipped leaf: one unary read share + one decode-plus-two-folds
+(≈ validator cost, measured ~9 ns/leaf at bench shapes) versus the
+per-leaf fill constant (~54 ns/leaf at n=8192 after the word-valued
+payload round). Measured on the landed consumer: hole-shaped custody
+−39% wall (320µs → 195µs), finely interleaved organic parties neutral
+(single-leaf regions; the gate never opens and costs nothing closed);
+fully-owned inputs unchanged by construction. The masked/project
+consumers would gain proportionally to their masks' holes; their walks
+are already cheaper per leaf, so the absolute win is smaller still on
+interleaved masks — which is the open question their go/no-go decision
+turns on.
 
 ## Risks
 

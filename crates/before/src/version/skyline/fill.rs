@@ -97,7 +97,14 @@
 //! from every refuted discipline]. The cost invariant conserves
 //! width: every touch is paid by a consumed input code, an emitted
 //! output code, or the death of the digits it reads. Each consumed
-//! delta folds into O(1) accumulators; each emission's watermark
+//! delta folds into O(1) accumulators — and a region the id owns
+//! nothing under is consumed as one block, its leaves folded into a
+//! net movement and a streaming minimum whose every fold is priced by
+//! the code the block scan just read, the whole region then entering
+//! the walk's registers and the watermark web as one delta and one
+//! emission (the `tick_ownership_hole` envelope pins the block scan
+//! engaging; the `tick_ownership_comb` envelope pins the gate free
+//! when regions are too small to open it); each emission's watermark
 //! update is one amortized sign read plus a propagation whose every
 //! fold is a dying operand or the one surviving fold the update's own
 //! priced width bounds; a close moves its popped boundary into the
