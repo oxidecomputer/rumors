@@ -53,7 +53,7 @@
 //! (`tests/meter.rs`, the `skyline_join_*` rows) pins the whole
 //! emission's transient against these bounds.
 
-use crate::codec::{BitsMut, BitsSlice, PackedBuilder, PopStack};
+use crate::codec::{BitsMut, BitsSlice, Code, PackedBuilder, PopStack};
 
 /// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
 ///
@@ -81,7 +81,7 @@ pub(super) struct SkylineBuilder {
     out: PackedBuilder,
     /// The held leaf's payload code (the module doc's *held leaf*);
     /// `None` only before the first leaf arrives.
-    held: Option<BitsMut>,
+    held: Option<Code>,
     /// Root-to-held-leaf branch directions: `false` inside a left child,
     /// `true` inside a right.
     path: BitsMut,
@@ -118,8 +118,8 @@ impl SkylineBuilder {
     /// later one. The leaf sequence must be the preorder tiling of one
     /// tree: each new depth must be reachable from the last by the forced
     /// flip-and-descend, which the builder debug-asserts.
-    pub(super) fn leaf(&mut self, depth: usize, code: BitsMut) {
-        debug_assert!(!code.is_empty(), "a leaf payload code is never empty");
+    pub(super) fn leaf(&mut self, depth: usize, code: Code) {
+        debug_assert!(code.len() > 0, "a leaf payload code is never empty");
         let Some(held) = self.held.take() else {
             // The first leaf: the leftmost path, one flag per ancestor.
             self.descend_to(depth);
@@ -152,7 +152,7 @@ impl SkylineBuilder {
         // Flush the held leaf and place the incoming one.
         let flushed_len = held.len();
         self.out.push_bit(true);
-        self.out.splice(&held);
+        self.out.push_code(&held);
         // Close the ancestors the flushed leaf completed: pop the
         // trailing right-branch levels, retiring their left-sibling
         // records, then flip the deepest left branch to its right child.
@@ -239,9 +239,9 @@ impl SkylineBuilder {
         // Flush the first leaf and copy everything up to the last leaf's
         // flag; the last code is withheld as the new held leaf.
         self.out.push_bit(true);
-        self.out.splice(&held);
+        self.out.push_code(&held);
         self.out.splice(&rest[..last_flag]);
-        self.held = Some(rest[last_flag + 1..].to_bitvec());
+        self.held = Some(Code::from_slice(&rest[last_flag + 1..]));
         // Re-anchor the per-level stacks from the first leaf's leftmost
         // descent to the last leaf's rightmost one. The popped levels were
         // pushed by `descend_to` (left branches, no left-sibling records),
@@ -272,7 +272,7 @@ impl SkylineBuilder {
             .take()
             .expect("a skyline stream has at least one leaf");
         self.out.push_bit(true);
-        self.out.splice(&held);
+        self.out.push_code(&held);
         debug_assert!(
             self.path.iter().all(|bit| *bit),
             "the final leaf closes every open ancestor from the right"
@@ -306,7 +306,7 @@ impl SkylineBuilder {
             // code — same height, same predecessor — and the pair leaves
             // the stream; each copied bit is one being truncated.
             let code_len = self.lens.pop() as usize;
-            let code = self.out.extract(self.out.len() - code_len);
+            let code = self.out.extract_code(self.out.len() - code_len);
             self.out.truncate(self.out.len() - code_len - 2);
             self.path.pop();
             self.left_leaf.pop();

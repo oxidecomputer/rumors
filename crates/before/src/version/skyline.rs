@@ -140,7 +140,7 @@
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base};
+use crate::codec::{self, Base, Code};
 #[cfg(any(test, feature = "meter"))]
 use crate::error::Decode;
 #[cfg(any(test, feature = "meter"))]
@@ -152,7 +152,9 @@ use crate::Version;
 // meter feature exposes) name it through this module.
 #[cfg(any(test, feature = "meter"))]
 pub use crate::codec::Bits;
-pub use crate::codec::{BitsMut, BitsSlice};
+#[cfg(any(test, feature = "meter"))]
+pub use crate::codec::BitsMut;
+pub use crate::codec::BitsSlice;
 
 // The admission walk: the span wire form's fused second-component
 // parse, consumed by `causally::Span::decode` and the borsh span leg.
@@ -299,9 +301,35 @@ fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
     }
 }
 
-/// A value's gamma code as a fresh payload-code buffer.
-fn gamma_code(value: &Base) -> BitsMut {
-    let mut code = BitsMut::new();
-    codec::encode_int(&mut code, value);
-    code
+/// A value's gamma code as a payload-code value.
+fn gamma_code(value: &Base) -> Code {
+    codec::code_int(value)
+}
+
+/// The gamma code of a signed delta's zigzag, as a payload-code value.
+///
+/// [`zigzag_signed`] fused with [`gamma_code`]: a word-scale magnitude
+/// zigzags and codes in machine arithmetic — no intermediate value is
+/// built — and a wider one takes the arbitrary-precision pair. A
+/// negative delta must have a nonzero magnitude, as in
+/// [`zigzag_signed`].
+fn gamma_code_signed(negative: bool, magnitude: &Base) -> Code {
+    debug_assert!(
+        !negative || *magnitude != Base::ZERO,
+        "a negative delta has a nonzero magnitude"
+    );
+    if let Some(mag) = magnitude.to_u64() {
+        if mag < (1 << 31) {
+            // negative: gamma of `zigzag + 1 = (2m − 1) + 1 = 2m`;
+            // positive: gamma of `2m + 1`. Either way the whole code is
+            // that mantissa under its own leading zeros.
+            let m = 2 * mag + u64::from(!negative);
+            let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
+            return Code::Small {
+                bits: m,
+                len: (2 * k + 1) as u8,
+            };
+        }
+    }
+    codec::code_int(&zigzag_signed(negative, magnitude.clone()))
 }

@@ -378,7 +378,7 @@ use super::sweep::{
     advance, advance_diff, fold, Crossed, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
 use super::walk::LeafWalk;
-use super::{fold_signed, gamma_code, zigzag_signed};
+use super::{fold_signed, gamma_code, gamma_code_signed};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
 /// digits, over the just-folded delta's own width: a fold that leaves
@@ -1571,7 +1571,7 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
         owned = now_owned;
         out.leaf(
             sc.depth().max(ic.depth()),
-            gamma_code(&zigzag_signed(negative, magnitude)),
+            gamma_code_signed(negative, &magnitude),
         );
     }
     let bits = out.finish();

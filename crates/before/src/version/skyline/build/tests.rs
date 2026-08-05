@@ -4,27 +4,23 @@
 //! canonical stream, so a bookkeeping error in absorb, re-anchor, or the
 //! cascade fails against bits a reader can re-derive in the margin.
 
-use crate::codec::{self, Base, BitsMut};
-use crate::version::skyline::zigzag_signed;
+use crate::codec::{self, Base, BitsMut, Code};
+use crate::version::skyline::gamma_code_signed;
 
 use super::SkylineBuilder;
 
 /// One leaf payload code: `gamma(value)` for absolutes.
-fn gamma(value: u64) -> BitsMut {
-    let mut code = BitsMut::new();
-    codec::encode_int(&mut code, &Base::from(value));
-    code
+fn gamma(value: u64) -> Code {
+    codec::code_int(&Base::from(value))
 }
 
 /// One leaf payload code: `gamma(zigzag(delta))` for later leaves.
-fn delta(negative: bool, magnitude: u64) -> BitsMut {
-    let mut code = BitsMut::new();
-    codec::encode_int(&mut code, &zigzag_signed(negative, Base::from(magnitude)));
-    code
+fn delta(negative: bool, magnitude: u64) -> Code {
+    gamma_code_signed(negative, &Base::from(magnitude))
 }
 
 /// Drive a builder over `(depth, code)` leaves and return the stream.
-fn built(leaves: Vec<(usize, BitsMut)>) -> BitsMut {
+fn built(leaves: Vec<(usize, Code)>) -> BitsMut {
     let mut builder = SkylineBuilder::with_capacity(64);
     for (depth, code) in leaves {
         builder.leaf(depth, code);
@@ -185,7 +181,7 @@ fn partial_equality_collapses_only_the_equal_pair() {
 fn continuation(
     root_depth: usize,
     first_depth: usize,
-    leaves: &[(usize, BitsMut)],
+    leaves: &[(usize, Code)],
 ) -> (BitsMut, usize, usize) {
     let mut range = BitsMut::new();
     // The within-subtree path to the previous leaf; the subtree's first
@@ -206,7 +202,14 @@ fn continuation(
         range.extend(std::iter::repeat_n(false, entered));
         path.extend(std::iter::repeat_n(false, entered));
         range.push(true);
-        range.extend_from_bitslice(code);
+        match code {
+            Code::Small { bits, len } => {
+                for i in (0..*len).rev() {
+                    range.push(bits >> i & 1 == 1);
+                }
+            }
+            Code::Wide(code) => range.extend_from_bitslice(code),
+        }
     }
     let (last_depth, last_code) = leaves.last().expect("a continuation has at least one leaf");
     (range, last_depth - root_depth, last_code.len())

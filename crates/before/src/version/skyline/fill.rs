@@ -173,7 +173,7 @@ use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, 
 use self::watermark::{MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
 use super::walk::{Extremum, LeafWalk};
-use super::{fold_signed, gamma_code, unzigzag, zigzag_signed};
+use super::{fold_signed, gamma_code, gamma_code_signed, unzigzag};
 
 mod fuse;
 mod watermark;
@@ -971,8 +971,7 @@ impl FillWalk<'_> {
         };
         // The new gap is h − value = 0 exactly.
         self.gap.reset();
-        self.out
-            .leaf(depth, gamma_code(&zigzag_signed(delta.0, delta.1)));
+        self.out.leaf(depth, gamma_code_signed(delta.0, &delta.1));
     }
 
     /// Emit a leaf whose value is `h + off`: a collapsed region's max,
@@ -1030,8 +1029,7 @@ impl FillWalk<'_> {
                 let (sign, magnitude) = self.gap.sign_magnitude();
                 (sign == Ordering::Less, Base::from(magnitude))
             };
-            self.out
-                .leaf(depth, gamma_code(&zigzag_signed(delta.0, delta.1)));
+            self.out.leaf(depth, gamma_code_signed(delta.0, &delta.1));
         }
         // The new gap is h − (h + off) = −off exactly.
         self.gap.reset();
@@ -1079,8 +1077,7 @@ impl FillWalk<'_> {
         self.stack.follower_set(OUT_FOLLOWER, zero);
         self.w_anchored = true;
         self.gap.reset();
-        self.out
-            .leaf(depth, gamma_code(&zigzag_signed(delta.0, delta.1)));
+        self.out.leaf(depth, gamma_code_signed(delta.0, &delta.1));
     }
 
     /// Copy the event subtree at the cursor unchanged.

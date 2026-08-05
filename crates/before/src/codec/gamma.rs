@@ -20,7 +20,8 @@ use dashu_int::UBig;
 
 use crate::error::Decode;
 
-use super::{Base, BitCursor, BitsMut, BitsSlice, SliceCursor};
+use super::code::SMALL_CODE_BITS;
+use super::{Base, BitCursor, BitsMut, BitsSlice, Code, SliceCursor};
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
 /// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
@@ -58,6 +59,29 @@ pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
             }
         }
     }
+}
+
+/// The Elias gamma code of `n` as a [`Code`] value.
+///
+/// [`encode_int`]'s value form: the same code bit for bit, carried as
+/// two machine words whenever it fits [`Code::Small`] — the whole gamma
+/// code of `m = n + 1` *is* `m` value-packed under its `k` leading
+/// zeros, so the fast path is two shifts — and as an owned buffer past
+/// that.
+pub(crate) fn code_int(n: &Base) -> Code {
+    if let Some(m) = n.to_u64().and_then(|n| n.checked_add(1)) {
+        let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
+        let len = 2 * k + 1;
+        if len <= SMALL_CODE_BITS {
+            return Code::Small {
+                bits: m,
+                len: len as u8,
+            };
+        }
+    }
+    let mut out = BitsMut::new();
+    encode_int(&mut out, n);
+    Code::Wide(out)
 }
 
 /// Read an Elias-gamma-coded integer at `pos`, returning the value and the new

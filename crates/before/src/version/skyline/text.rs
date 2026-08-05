@@ -71,7 +71,7 @@ use crate::error::Parse;
 
 use super::build::SkylineBuilder;
 use super::emit::signed_sum;
-use super::{gamma_code, unzigzag, validate_bits, zigzag_signed};
+use super::{gamma_code, gamma_code_signed, unzigzag, validate_bits};
 
 #[cfg(test)]
 mod tests;
@@ -550,10 +550,7 @@ pub fn parse(s: &str) -> Result<BitsMut, Parse> {
             delta.reset();
         }
         let code = if emitted_first {
-            gamma_code(&zigzag_signed(
-                sign == Ordering::Less,
-                Base::from(magnitude),
-            ))
+            gamma_code_signed(sign == Ordering::Less, &Base::from(magnitude))
         } else {
             emitted_first = true;
             debug_assert_ne!(sign, Ordering::Less, "a path sum of naturals is a natural");

@@ -91,11 +91,11 @@
 //! which would misread a direction silently rather than panic. Deep
 //! spines swap the native-frame oracle for closed-form expected values.
 
-use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice};
+use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, Code};
 
 use super::build::SkylineBuilder;
 use super::walk::LeafWalk;
-use super::{gamma_code, unzigzag, zigzag_signed};
+use super::{gamma_code, gamma_code_signed, unzigzag, zigzag_signed};
 
 /// Lexicographic inflation cost `(expansions, depth)`: prefer fewer
 /// leaf-to-node expansions, then a shallower spot.
@@ -317,7 +317,7 @@ fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, rep
     let info = scan_subtree(ev.bits, ev.pos());
     let orig = &ev.bits[info.first_code.clone()];
     let first_code = match repair {
-        Repair::None => orig.to_bitvec(),
+        Repair::None => Code::from_slice(orig),
         // The successor is never the stream's first leaf (the grown
         // leaf precedes it), so its code is always a zigzag delta.
         Repair::Minus(k) => recode(orig, Step::DownDelta, k),
@@ -359,7 +359,7 @@ enum Step {
 /// One decode, one signed step, one re-encode — `O(the code's own
 /// width + the width of k)`, the only payload arithmetic in the whole
 /// emit.
-fn recode(code: &BitsSlice, step: Step, k: &Base) -> BitsMut {
+fn recode(code: &BitsSlice, step: Step, k: &Base) -> Code {
     let (value, end) = codec::decode_int(code, 0).expect("canonical skyline bits");
     debug_assert_eq!(end, code.len(), "a payload range is exactly one code");
     let increment = match step {
@@ -532,14 +532,14 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
             let code = if emitted_in_chain {
                 gamma_code(&Base::ZERO)
             } else {
-                orig.to_bitvec()
+                Code::from_slice(orig)
             };
             out.leaf(d0 + j + 1, code);
             emitted_in_chain = true;
         }
     }
     let grown_code = if emitted_in_chain {
-        gamma_code(&zigzag_signed(false, k.clone()))
+        gamma_code_signed(false, k)
     } else {
         // With nothing fed before it, the grown leaf is the output's
         // first: its code is the absolute height, not a delta.
@@ -556,7 +556,7 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
     for j in (0..chain).rev() {
         if chain_dirs[j] {
             let code = if first_after_grown {
-                gamma_code(&zigzag_signed(true, k.clone()))
+                gamma_code_signed(true, k)
             } else {
                 gamma_code(&Base::ZERO)
             };

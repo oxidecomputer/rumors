@@ -46,7 +46,7 @@
 //! is first trips on topology (the replaced range was not a single
 //! leaf) before any code comparison is reached.
 
-use crate::codec::{BitCursor, BitsMut, BitsSlice, PopStack};
+use crate::codec::{BitCursor, BitsMut, BitsSlice, Code, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::build::SkylineBuilder;
@@ -126,7 +126,7 @@ impl Out {
     ///
     /// Unreachable in a verbatim walk: matched emissions return before
     /// their bodies, and diverging ones materialize first.
-    pub(super) fn leaf(&mut self, depth: usize, code: BitsMut) {
+    pub(super) fn leaf(&mut self, depth: usize, code: Code) {
         match self {
             Out::Built(builder) => builder.leaf(depth, code),
             Out::Verbatim { .. } => {
@@ -166,7 +166,7 @@ impl Out {
                 .expect("a matched prefix is a proper prefix of the tiling");
             let start = cursor.position();
             cursor.skip_int().expect("canonical skyline bits");
-            builder.leaf(depth, ev[start..cursor.position()].to_bitvec());
+            builder.leaf(depth, Code::from_slice(&ev[start..cursor.position()]));
         }
         debug_assert_eq!(
             cursor.position(),

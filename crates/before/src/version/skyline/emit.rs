@@ -78,11 +78,11 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitsMut, BitsSlice};
+use crate::codec::{Base, BitsMut, BitsSlice, Code};
 
 use super::build::SkylineBuilder;
 use super::sweep::{advance_diff, Directions, OpenedPair, PlateauCursor, Side, Step};
-use super::{gamma_code, zigzag_signed};
+use super::{gamma_code, gamma_code_signed};
 
 /// The join (pointwise max) of the versions two skyline streams denote,
 /// as a canonical skyline stream.
@@ -242,15 +242,9 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
         let depth = ca.depth().max(cb.depth());
         for emission in &mut outputs {
             let new_side = (emission.pick)(sign, emission.side);
-            let (negative, magnitude) = if new_side == emission.side {
-                step_delta(emission.side, &da, &db)
-            } else {
-                switch_delta(&diff, new_side, step_delta(emission.side, &da, &db))
-            };
+            let code = delta_code(&diff, emission.side, new_side, &da, &db);
             emission.side = new_side;
-            emission
-                .out
-                .leaf(depth, gamma_code(&zigzag_signed(negative, magnitude)));
+            emission.out.leaf(depth, code);
         }
     }
 
@@ -296,16 +290,9 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
     while !(ca.done() && cb.done()) {
         let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
         let new_side = pick(diff.sign(), side);
-        let (negative, magnitude) = if new_side == side {
-            step_delta(side, &da, &db)
-        } else {
-            switch_delta(&diff, new_side, step_delta(side, &da, &db))
-        };
+        let code = delta_code(&diff, side, new_side, &da, &db);
         side = new_side;
-        out.leaf(
-            ca.depth().max(cb.depth()),
-            gamma_code(&zigzag_signed(negative, magnitude)),
-        );
+        out.leaf(ca.depth().max(cb.depth()), code);
     }
 
     // Canonicalizing the storage (zeroing dead pad bits) is the job of
@@ -314,29 +301,49 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
     out.finish()
 }
 
-/// One side's signed step delta at the boundary just crossed: zero when
-/// that side's cursor did not step.
-fn step_delta(side: Side, da: &Option<Step>, db: &Option<Step>) -> (bool, Base) {
+/// The output's delta code at the boundary just crossed: the followed
+/// side's own step on the same-side path, the switch algebra otherwise
+/// (the module doc). The same-side path borrows the step and codes it
+/// in place; only a switch materializes a magnitude.
+fn delta_code(
+    diff: &Accumulator,
+    side: Side,
+    new_side: Side,
+    da: &Option<Step>,
+    db: &Option<Step>,
+) -> Code {
     let step = match side {
-        Side::A => da,
-        Side::B => db,
+        Side::A => da.as_ref(),
+        Side::B => db.as_ref(),
     };
-    match step {
-        Some(step) => (step.negative, step.magnitude.clone()),
-        None => (false, Base::ZERO),
+    if new_side == side {
+        return match step {
+            Some(step) => gamma_code_signed(step.negative, &step.magnitude),
+            None => gamma_code_signed(false, &Base::ZERO),
+        };
     }
+    let (negative, magnitude) = switch_delta(diff, new_side, step);
+    gamma_code_signed(negative, &magnitude)
 }
 
 /// The output delta across a side switch: `±D′` oriented toward the new
 /// side, plus the old side's step delta (the module doc's algebra).
-fn switch_delta(diff: &Accumulator, new_side: Side, old_delta: (bool, Base)) -> (bool, Base) {
+fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> (bool, Base) {
     let (sign, magnitude) = diff.sign_magnitude();
     debug_assert_ne!(sign, Ordering::Equal, "a tie never switches the side");
     let negative = match new_side {
         Side::A => sign == Ordering::Less,
         Side::B => sign == Ordering::Greater,
     };
-    signed_sum(negative, Base::from(magnitude), old_delta.0, &old_delta.1)
+    match old_step {
+        Some(step) => signed_sum(
+            negative,
+            Base::from(magnitude),
+            step.negative,
+            &step.magnitude,
+        ),
+        None => (negative, Base::from(magnitude)),
+    }
 }
 
 /// The sign and magnitude of a sum of two signed magnitudes.

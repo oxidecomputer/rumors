@@ -19,6 +19,7 @@
 pub(crate) mod base;
 mod bits;
 mod build;
+mod code;
 mod cursor;
 mod display;
 mod dsi;
@@ -49,10 +50,11 @@ pub(crate) use bits::zero_dead_bits;
 // meter surface can re-export them for the resource-envelope suite.
 pub use bits::{Bits, BitsMut, BitsSlice};
 pub(crate) use build::PackedBuilder;
+pub(crate) use code::Code;
 pub(crate) use cursor::{BitCursor, SliceCursor};
 pub(crate) use display::write_id;
 pub(crate) use dsi::DsiCursor;
-pub(crate) use gamma::{decode_int, decode_int_from, encode_int};
+pub(crate) use gamma::{code_int, decode_int, decode_int_from, encode_int};
 // The word fast path of the gamma decoder, exported for the wire-side
 // `ReaderCursor` (`borsh_impls`), the one consumer outside this module; the
 // cfg keeps the re-export from dangling when `borsh` is off.
