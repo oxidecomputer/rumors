@@ -251,6 +251,18 @@ fn bench_hole(c: &mut Criterion) {
                 b.iter(|| black_box((*v / &party) == (*v2 / &party2)));
             },
         );
+        // The asymmetric form: the projection against its own (small)
+        // materialization — one deep masked side against a shallow
+        // plain one, the shape whose interior boundaries the masked
+        // walk consumes alone.
+        let projected = (&version / &party).to_version();
+        g.bench_with_input(
+            BenchmarkId::new("masked_eq_flat", n),
+            &(&version, &projected),
+            |b, (v, w)| {
+                b.iter(|| black_box((*v / &party) == **w));
+            },
+        );
     }
     g.finish();
 }
