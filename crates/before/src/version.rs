@@ -4,7 +4,7 @@ use core::borrow::Borrow;
 use core::cmp::Ordering;
 use core::fmt::Display;
 use core::iter::Sum;
-use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div};
+use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Div};
 
 use crate::causally;
 use crate::codec;
@@ -470,6 +470,70 @@ impl Version {
             return Rank::ZERO;
         }
         skyline::query::lag(&self.0, &other.0)
+    }
+
+    /// The join (least upper bound) of this version and `other`: their
+    /// combined causal history, the spelled form of `self | other`.
+    ///
+    /// The join dominates both operands, and the operation is
+    /// commutative, associative, and idempotent with the empty
+    /// [`Version`] as identity — the same lattice the `|`/`|=`
+    /// operator matrix exposes over owned and borrowed operands, and
+    /// every spelling lands on the same kernel. Reach for the method
+    /// where an operator cannot go (a fully qualified call, a method
+    /// chain) or where the word reads better than the symbol.
+    ///
+    /// Both operands are read in place; the result is minted owned.
+    ///
+    /// # Complexity
+    ///
+    /// `O(a + b)`.
+    /// `a` and `b` are the operands' packed sizes.
+    ///
+    /// ```
+    /// use before::{Clock, Version};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let vb = b.tick().clone();
+    /// let merged = va.join(&vb);
+    /// assert_eq!(merged, &va | &vb); // the operator spelling agrees
+    /// assert!(merged >= va && merged >= vb);
+    /// ```
+    pub fn join(&self, other: &Version) -> Version {
+        Self::join_refs(self, other)
+    }
+
+    /// The meet (greatest lower bound) of this version and `other`: the
+    /// history the two share, the spelled form of `self & other`.
+    ///
+    /// The meet is dominated by both operands, and the operation is
+    /// commutative, associative, and idempotent — the same lattice the
+    /// `&`/`&=` operator matrix exposes over owned and borrowed
+    /// operands, and every spelling lands on the same kernel. Reach
+    /// for the method where an operator cannot go (a fully qualified
+    /// call, a method chain) or where the word reads better than the
+    /// symbol.
+    ///
+    /// Both operands are read in place; the result is minted owned.
+    ///
+    /// # Complexity
+    ///
+    /// `O(a + b)`.
+    /// `a` and `b` are the operands' packed sizes.
+    ///
+    /// ```
+    /// use before::{Clock, Version};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let vb = b.tick().clone();
+    /// let common = va.meet(&vb);
+    /// assert_eq!(common, &va & &vb); // the operator spelling agrees
+    /// assert!(common <= va && common <= vb);
+    /// ```
+    pub fn meet(&self, other: &Version) -> Version {
+        Self::meet_refs(self, other)
     }
 
     /// The join (least upper bound) of every version in `iter`, or the empty
@@ -1495,6 +1559,41 @@ binop_matrix! {
     // assign: right operand folded into the left operand in place
     Version,  Version,  assign;
     Version,  &Version, assign;
+}
+
+// ───────────────────────── the pair hull (`^`) ─────────────────────────
+//
+// `a ^ b` is `a.span(&b)`: the tightest `Span` containing both operands,
+// `[a & b, a | b]`. Unlike the join and meet matrices above, the result
+// leaves the operand type — a `Span`, not a `Version` — so the family has
+// no assigning form (nothing of the receiver's type to assign back) and
+// no owned-operand strategy: every cell reads both operands in place and
+// mints the endpoints owned, exactly as the named method does.
+
+/// Generates the span (`^`) matrix over owned and borrowed `Version`
+/// operands.
+///
+/// Every cell delegates to [`Version::span`]; `Borrow::borrow` coerces
+/// an owned or borrowed operand uniformly to `&Version`, so one arm
+/// covers all four cells.
+macro_rules! span_matrix {
+    ($($lhs:ty, $rhs:ty);* $(;)?) => {
+        $(
+            impl BitXor<$rhs> for $lhs {
+                type Output = causally::Span<'static>;
+                fn bitxor(self, r: $rhs) -> causally::Span<'static> {
+                    Version::span(self.borrow(), r.borrow())
+                }
+            }
+        )*
+    };
+}
+
+span_matrix! {
+    Version,  Version;
+    Version,  &Version;
+    &Version, Version;
+    &Version, &Version;
 }
 
 // ─────────────────────── projection onto a party (`/`) ───────────────────────

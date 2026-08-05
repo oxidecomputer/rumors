@@ -416,7 +416,10 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "version_join",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
-        covers: &["Version | Version (BitOr/BitOrAssign, owned and borrowed)"],
+        covers: &[
+            "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
+            "Version::join",
+        ],
         size_measure: M_BINARY,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -427,7 +430,10 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "version_meet",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
-        covers: &["Version & Version (BitAnd/BitAndAssign, owned and borrowed)"],
+        covers: &[
+            "Version & Version (BitAnd/BitAndAssign, owned and borrowed)",
+            "Version::meet",
+        ],
         size_measure: M_BINARY,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -480,7 +486,10 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "version_span",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
-        covers: &["Version::span"],
+        covers: &[
+            "Version::span",
+            "Version ^ Version (BitXor, owned and borrowed — the pair hull)",
+        ],
         size_measure: M_BINARY,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);

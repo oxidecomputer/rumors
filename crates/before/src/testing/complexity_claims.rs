@@ -717,6 +717,24 @@ pub(crate) const CLAIMS: &[Claim] = &[
         // (`tests/meter.rs`) on the meet-shade population.
         cells: Cells::Board(&[("version_meet_all", Class::FoldLog)]),
     },
+    // The named pairwise lattice methods delegate to the operators'
+    // kernels; each cites the operator's own board row.
+    Claim {
+        op: "Version::join",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::LinearPair,
+        }],
+        cells: Cells::Board(&[("version_join", Class::Linear)]),
+    },
+    Claim {
+        op: "Version::meet",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: Bound::LinearPair,
+        }],
+        cells: Cells::Board(&[("version_meet", Class::Linear)]),
+    },
     Claim {
         op: "Version::span",
         checks: &[Check {
@@ -1367,6 +1385,16 @@ pub(crate) const CLAIMS: &[Claim] = &[
             ("version_meet", Class::Linear),
             ("version_meet_assign", Class::Linear),
         ]),
+    },
+    Claim {
+        op: "Version ^ Version (BitXor, owned and borrowed — the pair hull)",
+        checks: &[Check {
+            site: Site::TypeDoc("src/version.rs", "Version"),
+            bound: VERSION_TYPE_BOUND,
+        }],
+        // Every cell delegates to `Version::span`, whose fused-hull row
+        // prices the walk.
+        cells: Cells::Board(&[("version_span", Class::Linear)]),
     },
     Claim {
         op: "&Version / &Party (Div — the lazy projection view)",

@@ -287,6 +287,18 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("distance_and_lag_realize_both_oracles"),
     },
     SurfaceRow {
+        op: "Version::join",
+        prod_tree: Leg::Trans("join_method_is_the_operator"),
+        prod_fs: Leg::Trans("join_method_is_the_operator"),
+        tree_fs: Leg::Trans("join_method_is_the_operator"),
+    },
+    SurfaceRow {
+        op: "Version::meet",
+        prod_tree: Leg::Trans("meet_method_is_the_operator"),
+        prod_fs: Leg::Trans("meet_method_is_the_operator"),
+        tree_fs: Leg::Trans("meet_method_is_the_operator"),
+    },
+    SurfaceRow {
         op: "Version::join_all",
         prod_tree: Leg::Trans("join_all_equals_the_sequential_fold"),
         prod_fs: Leg::Excluded(
@@ -786,6 +798,15 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Bound("meet_arbitrary"),
         prod_fs: Leg::Trans("meet_realizes_pointwise_min"),
         tree_fs: Leg::Bound("meet_realizes_pointwise_min"),
+    },
+    SurfaceRow {
+        op: "Version ^ Version (BitXor, owned and borrowed — the pair hull)",
+        prod_tree: Leg::Trans("span_operator_matrix_is_the_method"),
+        prod_fs: Leg::Excluded(
+            "the operator spelling of Version::span, whose row carries the hull's \
+             dispositions; the matrix test pins every cell's delegation",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the matrix test pins the delegation"),
     },
     SurfaceRow {
         op: "Span | Span (BitOr, owned and borrowed — the containment join)",
