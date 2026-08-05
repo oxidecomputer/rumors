@@ -216,12 +216,14 @@ fn bench_codec(c: &mut Criterion) {
 }
 
 /// The ownership-hole regime: a party owning a vanishing custody
-/// fraction of a fully-received version (`common::hole_pair`) — the
-/// small-custody-peer shape the ownership-gated walks serve. Three
-/// consumers on the same pair: `tick`, the projection
-/// (`OwnVersion::to_version`), and masked equality of equal
-/// projections in distinct buffers (a full co-walk, no early exit).
-/// No oracle row: the regime's anchor is the same pair on the plain
+/// fraction of a fully-received version (`common::hole_pair`), the
+/// small-custody-peer shape the ownership-gated walks serve.
+///
+/// Consumers on the same pair: `tick`, the projection
+/// (`OwnVersion::to_version`), masked equality of equal projections
+/// in distinct buffers (a full co-walk, no early exit), and the
+/// asymmetric masked equality against the flat materialization. No
+/// oracle row: the regime's anchor is the same pair on the plain
 /// walks above.
 fn bench_hole(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/hole");

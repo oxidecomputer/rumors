@@ -607,8 +607,10 @@ impl<'a> LeafCursor<'a> {
     }
 
     /// The flip level the next step would close to, read without
-    /// moving: the path's trailing right-branch run popped and the
-    /// deepest left branch flipped. Zero on a final leaf (the all-right
+    /// moving.
+    ///
+    /// The path's trailing right-branch run popped and the deepest
+    /// left branch flipped. Zero on a final leaf (the all-right
     /// path), where no step remains — every real flip level is at
     /// least one.
     pub(super) fn peek_flip(&self) -> usize {
