@@ -1066,10 +1066,12 @@ impl Accumulator {
         self.add_at(digit_shift, if negative { -value } else { value });
     }
 
-    /// Fold `delta` into the quick register: `true` when the register
-    /// held the value (spilling to the digit engine when the sum
-    /// outgrows it), `false` when the accumulator is already in digit
-    /// mode and the caller must deposit the delta itself.
+    /// Fold `delta` into the quick register, spilling to the digit
+    /// engine when the sum outgrows it.
+    ///
+    /// Returns `true` when the register held the value, `false` when
+    /// the accumulator is already in digit mode and the caller must
+    /// deposit the delta itself.
     ///
     /// `|delta|` must stay within the register's headroom
     /// (`QUICK_MAX << QUICK_SHIFT_MAX` and change): every caller passes
