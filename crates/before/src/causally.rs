@@ -1,101 +1,84 @@
 //! Composable causal queries over [`Version`]s.
 //!
-//! A range over totally ordered values is an interval. [`Version`]s
-//! are only partially ordered, so a causal *query* generalizes the
-//! interval: an optional *floor* and *ceiling*, minus a set of
-//! *holes*. Two elementary atoms bound one side each:
+//! A range over totally ordered values is an interval. [`Version`]s are only
+//! partially ordered, so a causal *query* generalizes the idea of an interval
+//! into an optional *floor* and *ceiling*, minus a set of *holes*.
 //!
-//! | atom | keeps `v` iff |
-//! |---|---|
-//! | [`after(p)`](after) | `p <= v` |
-//! | [`before(e)`](before) | `v <= e` |
+//! Queries may be constructed by composing atomic queries, and resolved against
+//! [`Version`]s and [`Span`]s to answer questions of
+//! [`contains`](Query::contains) and [`coverage`](Query::coverage).
 //!
-//! An atom demands an order relation, and order relations fail under
-//! incomparability, so both atoms drop versions concurrent to their
-//! bound. Concurrency enters through negation: the complement of
-//! "comparable, on this side" is "comparable on the other side, or
-//! concurrent". Each negated form subtracts a hole:
+//! # Constructing [`Query`]s
 //!
-//! | expression | keeps `v` iff | polarity |
-//! |---|---|---|
-//! | [`!before(s)`](before), a.k.a. [`since(s)`](since) | `v > s` or `v ∥ s` | [`Down`] |
-//! | [`after(s).or_concurrent()`](Floor::or_concurrent) | `v >= s` or `v ∥ s` | [`Down`] |
-//! | [`!after(s)`](after), a.k.a. [`until(s)`](until) | `v < s` or `v ∥ s` | [`Up`] |
-//! | [`before(s).or_concurrent()`](Ceiling::or_concurrent) | `v <= s` or `v ∥ s` | [`Up`] |
+//! Two elementary atoms bound one side each:
 //!
-//! The strict forms subtract their own bound, so they carry a hole
-//! too: [`strictly_after(p)`](strictly_after) is
-//! `after(p) & !before(p)`, and [`strictly_before`] dually. Together
-//! these are all the atomic causal bounds: each keeps some subset of
+//! | atom                  | keeps `v` iff |
+//! |-----------------------|---------------|
+//! | [`after(p)`](after)   | `p <= v`      |
+//! | [`before(e)`](before) | `v <= e`      |
+//!
+//! Both atoms drop versions [`concurrent`](Version::concurrent) to their bound
+//! (which we will write `∥` for brevity below).
+//!
+//! Concurrency enters through negation; the complement of "comparable, on this
+//! side" is "comparable on the other side, or concurrent":
+//!
+//! | expression                                            | keeps `v` iff       | polarity |
+//! |-------------------------------------------------------|---------------------|----------|
+//! | [`!before(s)`](before), a.k.a. [`since(s)`](since)    | `v > s` or `v ∥ s`  | [`Down`] |
+//! | [`after(s).or_concurrent()`](Floor::or_concurrent)    | `v >= s` or `v ∥ s` | [`Down`] |
+//! | [`!after(s)`](after), a.k.a. [`until(s)`](until)      | `v < s` or `v ∥ s`  | [`Up`]   |
+//! | [`before(s).or_concurrent()`](Ceiling::or_concurrent) | `v <= s` or `v ∥ s` | [`Up`]   |
+//!
+//! Expressing "strictly after" or "strictly before" requires excluding the
+//! version exactly equal to the bound: [`strictly_after(v)`](strictly_after) is
+//! equivalent to `after(v) & !before(v)`, and [`strictly_before`] is equivalent
+//! to `before(v) & !after(v)`.
+//!
+//! Together these are all the atomic causal bounds: each keeps some subset of
 //! the four relations `v` can have to the bound (`<`, `=`, `>`, `∥`).
 //!
 //! # Polarity
 //!
-//! A hole subtracts either a down-set ([`Down`], the [`since`]
-//! family) or an up-set ([`Up`], the [`until`] family). A query's type
-//! carries which kind it may hold; the hole-free default [`Neutral`]
-//! conjoins into either. Mixing the polarities —
-//! `since(&a) & !after(&b)` — does not compile, and the refusal is
-//! deliberate: within one polarity every verdict is exact and cheap,
-//! while across both, deciding whether a query empties a span is
-//! combinatorial.
+//! While it might seem desirable to permit any queries to be composed using
+//! `&`, permitting this carries a powerful hidden footgun: exactly deciding the
+//! [`coverage`](Query::coverage) of a [`Span`] against a freely constructed
+//! [`Query`] with arbitary negation is equivalent to the famously NP-complete
+//! SAT problem: exposing this interface would make it easy to express silently
+//! exponential queries.
 //!
-//! # Conjunction
+//! Instead, we restrict queries to only those whose verdicts can assuredly be
+//! resolved in linear time: those with a uniform *polarity*. We say a [`Query`]
+//! has a [`Neutral`] polarity if it is a pure causal range (optional lower
+//! bound + optional upper bound) with no other holes; it has a [`Down`]
+//! polarity if it excludes sets of versions each defined by their shared
+//! *upper* bound; it has an [`Up`] polarity if it excludes sets of versions
+//! each defined by their shared *lower* bound.
 //!
-//! `&` intersects atoms and queries of compatible polarity. It is
-//! total: no pairing that compiles fails at runtime. Floors join,
-//! ceilings meet, and redundant holes disappear, so
-//! `after(a) & after(b)` is `after(a | b)`. Concurrent bounds are
-//! meaningful, not an error: [`delta(&mine, &yours)`](delta) with
-//! `mine ∥ yours` asks what you know that I don't — the anti-entropy
-//! question.
+//! Queries with opposing polarities statically are prohibited from conjunction,
+//! which rules out compositions like `!after(v) & !before(w)`, which would
+//! define something like "all versions not in the [`Span`] with lower-bound `v`
+//! and upper-bound `w`". If you have need in your application of such queries,
+//! observe that the verdict returned by such a hypothetical [`Query`] is the
+//! same as the logical-`&&` of its expressible components; you can just ask
+//! both questions in sequence and branch on both verdicts.
 //!
-//! # Membership and coverage
+//! # Relationship to [`Span`]s
 //!
-//! [`contains`](Query::contains) answers membership for one version.
-//! [`coverage`](Query::coverage) answers it for every version a
-//! [`Span`] covers at once, and its [`Coverage`] verdict is exact for
-//! every constructible query.
-//!
-//! # Deliberately absent
-//!
-//! - **Mixed-polarity conjunction.** `since(&s) & !after(&t)` denotes
-//!   a fine predicate, but deciding whether it empties a span encodes
-//!   satisfiability. [`coverage`](Query::coverage) could stay exact
-//!   there, or cheap, not both; the language keeps both by refusing
-//!   the mix. Evaluate two queries when you need it.
-//! - **The half-open delta** `since(s) & strictly_before(e)`, for the
-//!   same reason: [`strictly_before`] carries an [`Up`] hole. Query
-//!   [`delta(s, e)`](delta) and skip the one version equal to `e`.
-//! - **Disjunction, and `!` on composites.** `!(a & b)` is
-//!   `!a | !b`, a union, and unions would surrender the one-pass
-//!   verdicts. Evaluate several queries instead.
-//! - **`Eq`, `Hash`, and a wire form.** A query is an ephemeral
-//!   filter, not a value: two queries built differently may denote
-//!   the same predicate. Observe queries behaviorally, through
-//!   [`contains`](Query::contains) and [`coverage`](Query::coverage).
-//! - **[`RangeBounds<Version>`](std::ops::RangeBounds).** `a..=b` has
-//!   two causal readings — keep or drop versions concurrent to `a` —
-//!   and picking one silently is a trap. Every query names its
-//!   concurrency treatment through its atoms.
-//!
-//! # [`Span`]s
-//!
-//! Two concrete versions `lo <= hi` form a [`Span`]: not a query but a value —
-//! the ordered pair itself, with operators, a party quotient, and a wire form.
-//! A span converts [`Into`] the query `after(lo) & before(hi)`, which admits
+//! Two concrete versions `lo <= hi` form a [`Span`]: not a query but a value
+//! proper, with further operations available on it and a stable wire form. A
+//! span converts [`Into`] the query `after(lo) & before(hi)`, which admits
 //! exactly the versions the span covers; a [`Version`] converts into the
 //! singleton query admitting only itself.
 //!
 //! # Complexity
 //!
-//! Atoms and named constructors are `O(1)`; conjunction pays one lattice
-//! walk per floor/ceiling merge and one causal comparison per hole pair;
-//! membership and coverage are one pass over the probe and every stored
-//! bound.
-//! Each pass and walk is linear in its operands' packed sizes and stops
-//! as soon as its verdict is decided; `coverage` may pay two further
-//! lattice walks to close a verdict the pass alone cannot.
+//! Atoms and named constructors are `O(1)`.
+//!
+//! Each pass and walk is `O(n)` in its operands' packed sizes and stops as soon
+//! as its verdict is decided.
+//!
+//! # Examples
 //!
 //! ```
 //! use before::{Clock, causally};
@@ -106,24 +89,21 @@
 //! let b1 = bob.tick().clone(); // concurrent to a1
 //! let a2 = alice.tick().clone(); // a1 < a2
 //!
-//! // The resume shape: everything `a1` does not already contain.
-//! // Versions concurrent to the bound pass — negation is where "or
-//! // concurrent" enters.
+//! // Everything `a1` does not already contain.
 //! assert!(causally::since(&a1).contains(&a2));
 //! assert!(causally::since(&a1).contains(&b1));
 //! assert!(!causally::since(&a1).contains(&a1));
 //!
-//! // Elementary atoms demand the relation: concurrent versions drop.
+//! // Elementary atoms demand a causal relationship; concurrent versions drop.
 //! assert!(causally::before(&a2).contains(&a1));
 //! assert!(!causally::before(&a2).contains(&b1));
 //!
-//! // Conjunction composes compatible bounds, in any order, totally.
+//! // Conjunction composes compatible bounds, in any order.
 //! let delta = causally::since(&a1) & causally::before(&a2);
 //! assert!(delta.contains(&a2));
 //! assert!(!delta.contains(&b1));
 //!
-//! // Concurrent bound versions are a meaningful query, not an error:
-//! // what `b1` knows that `a1` doesn't.
+//! // Concurrent bound versions are a meaningful query:
 //! let anti_entropy = causally::delta(&a1, &b1);
 //! assert!(anti_entropy.contains(&b1));
 //! assert!(!anti_entropy.contains(&a1));

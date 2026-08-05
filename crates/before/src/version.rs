@@ -48,8 +48,8 @@ mod tests;
 /// | [`a.concurrent(b)`](Version::concurrent)  | incomparable: neither dominates the other                      |
 /// | `a \| b`, `a \|= b`                       | the *join* (least upper bound): the combined history of both   |
 /// | `a & b`, `a &= b`                         | the *meet* (greatest lower bound): the history common to both  |
-/// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                        |
-/// | [`a.ticks(&p, n)`](Version::ticks)        | record `n` new events for [`Party`] `p`, in one pass          |
+/// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                         |
+/// | [`a.ticks(&p, n)`](Version::ticks)        | record `n` new events for [`Party`] `p`, in one pass           |
 ///
 /// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
 /// versions can be [`concurrent`](Version::concurrent), and then `a < b`,
@@ -167,12 +167,11 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
-    /// `a` and `b` are the packed sizes of the version and the party. The
-    /// bound holds per call, wide values included: recording one event can
-    /// re-code a value as wide as the operands spell, but that width
-    /// arrives in the packed operand carrying it and is paid at most a
-    /// constant number of times.
+    /// `O(a + b)`. `a` and `b` are the packed sizes of the version and the
+    /// party. The bound holds per call, wide values included: recording one
+    /// event can re-code a value as wide as the operands spell, but that width
+    /// arrives in the packed operand carrying it and is paid at most a constant
+    /// number of times.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -555,10 +554,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time, `O(D)` space.
-    /// `D` is the inputs' total packed size and `k` their number: the fold
-    /// is a balanced reduction, so every input passes through `O(log k)`
-    /// joins of similarly sized operands.
+    /// `O(D log k)` time, `O(D)` space. `D` is the inputs' total packed size
+    /// and `k` their number: the fold is a balanced reduction, so every input
+    /// passes through `O(log k)` joins of similarly sized operands.
     ///
     /// ```
     /// use before::{Clock, Version};

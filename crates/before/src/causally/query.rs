@@ -1,13 +1,11 @@
 //! The query representation and its two verdicts.
 //!
-//! A [`Query`] is the interval-minus-holes normal form the rest of
-//! the module constructs into: optional floor and ceiling, a hole
-//! antichain, and a phantom polarity. Its two observations —
-//! [`contains`](Query::contains) and [`coverage`](Query::coverage) —
-//! compile the stored bounds into per-bound [`Demand`]s and hand them
-//! to the fused overlay walks in the skyline `filter` kernel; the
-//! clamp refinement behind coverage's `Partial` arm, where the
-//! polarity exactness argument lands, is here too.
+//! A [`Query`] is the interval-minus-holes normal form the rest of the module
+//! constructs into: optional floor and ceiling, a hole antichain, and a phantom
+//! polarity. Its two observations ([`contains`](Query::contains) and
+//! [`coverage`](Query::coverage)) compile the stored bounds into per-bound
+//! [`Demand`]s and hand them to the fused overlay walks in the skyline `filter`
+//! kernel.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -18,21 +16,17 @@ use super::{le, Span, Version};
 use crate::codec::BitsSlice;
 use crate::version::skyline::place::filter::{self, Demand};
 
-/// A causal query: an inclusive interval minus the holes its
-/// [`Polarity`] admits.
+/// A causal filter on [`Version`]s and [`Span`]s within a restricted [`Query`]
+/// language.
 ///
-/// Build one with `&` from atoms, negations, and queries of
-/// compatible polarity, or with the named forms [`all`](super::all),
-/// [`since`](super::since), [`until`](super::until),
-/// [`delta`](super::delta), [`toward`](super::toward),
-/// [`strictly_after`](super::strictly_after), and
-/// [`strictly_before`](super::strictly_before). Ask it
-/// [`contains`](Self::contains) for one version, or
-/// [`coverage`](Self::coverage) for everything a [`Span`] covers.
+/// Queries are composed from the atomic queries in this module, which may be
+/// negated with `!` and combined with `&`.
 ///
-/// A query borrows the versions it was built from (owned versions may
-/// be moved in instead); [`into_owned`](Self::into_owned) settles the
-/// borrows for a query held long-term.
+/// Not all queries may be combined, because exactly deciding [`Span`]-overlap
+/// for entirely arbitrary queries reduces to the SAT problem, and is therefore
+/// NP-complete (non-polynomial). The [`Polarity`] restriction enforced by the
+/// types of [`Query`] ensures that only linear-time decidable queries are
+/// expressible.
 pub struct Query<'a, P: Polarity = Neutral> {
     pub(super) floor: Option<Cow<'a, Version>>,
     pub(super) ceiling: Option<Cow<'a, Version>>,
@@ -41,9 +35,6 @@ pub struct Query<'a, P: Polarity = Neutral> {
 }
 
 /// Clones by sharing every stored version's buffer, `O(1)` per bound.
-///
-/// Manual, not derived: the polarity parameter is a phantom marker,
-/// which a derive would needlessly require to be `Clone` itself.
 impl<'a, P: Polarity> Clone for Query<'a, P> {
     fn clone(&self) -> Self {
         Query {
@@ -55,11 +46,7 @@ impl<'a, P: Polarity> Clone for Query<'a, P> {
     }
 }
 
-/// How much of a [`Span`]'s segment a [`Query`] admits: the verdict a
-/// filtered tree walk consumes per subtree.
-///
-/// The verdict is **exact** for every constructible query; exactness
-/// is what the polarity boundary buys (see the [module docs](super)).
+/// How much of a [`Span`]'s segment a [`Query`] admits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Coverage {
     /// Every version the span covers is admitted by the query.
@@ -81,9 +68,8 @@ impl<'a, P: Polarity> Query<'a, P> {
         }
     }
 
-    /// The stored bounds as (stream, demand) pairs, in the walks'
-    /// deterministic read order: floor, holes in stored order,
-    /// ceiling.
+    /// The stored bounds as (stream, demand) pairs, in the walks' deterministic
+    /// read order: floor, holes in stored order, ceiling.
     fn demands(&self) -> impl Iterator<Item = (&BitsSlice, Demand)> {
         self.floor
             .as_deref()
@@ -101,20 +87,25 @@ impl<'a, P: Polarity> Query<'a, P> {
             )
     }
 
-    /// Whether the query admits `version`: at or above the floor, at
-    /// or below the ceiling, and in none of the holes.
+    /// Whether the query admits `version`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|v| + |q|)`: one fused traversal of the version and the internal
+    /// bounds of the [`Query`].
     pub fn contains(&self, version: &Version) -> bool {
         filter::admits(version.view(), self.demands())
     }
 
-    /// How much of `span`'s segment this query admits, as an exact
-    /// [`Coverage`] verdict.
+    /// How much of `span` this query admits.
     ///
     /// The probe is anything [`Into`] a [`Span`]: a span itself, or a
-    /// [`Version`] (borrowed or owned), which probes the coincident
-    /// span — there the verdict reduces to
-    /// [`contains`](Self::contains), [`Full`](Coverage::Full) for a
-    /// member and [`Empty`](Coverage::Empty) otherwise.
+    /// [`Version`] (borrowed or owned).
+    ///
+    /// # Complexity
+    ///
+    /// `O(|s| + |q|)`: at most two fused traversals of the version and the
+    /// internal bounds of the [`Query`].
     pub fn coverage<'s>(&self, span: impl Into<Span<'s>>) -> Coverage {
         let span = span.into();
         let (lo, hi) = (span.meet(), span.join());
@@ -132,19 +123,15 @@ impl<'a, P: Polarity> Query<'a, P> {
         }
     }
 
-    /// The clamp refinement behind [`coverage`](Self::coverage)'s
-    /// `Partial` arm: the exact emptiness decision the fused
-    /// endpoint fold cannot reach.
+    /// The clamp refinement behind [`coverage`](Self::coverage)'s `Partial`
+    /// arm: the exact emptiness decision the fused endpoint fold cannot reach.
     ///
-    /// The admitted portion of the segment is the *clamped* segment
-    /// `[lo ∨ floor, hi ∧ ceiling]` minus the holes. A crossed clamp
-    /// is empty outright. A down-set covering the clamped top covers
-    /// the whole clamped segment — so per-hole checks against the
-    /// clamped endpoint on the hole's own side decide every covering
-    /// (dually for up-sets and the clamped bottom), *because* every
-    /// hole shares one polarity: the joint-covering case that would
-    /// escape per-hole checks needs both polarities at once, which
-    /// the type refuses. This is where the exactness argument lands.
+    /// The admitted portion of the segment is the *clamped* segment `[lo ∨
+    /// floor, hi ∧ ceiling]` minus the holes. A crossed clamp is empty
+    /// outright. A down-set covering the clamped top covers the whole clamped
+    /// segment, *because* every hole shares one polarity: the joint-covering
+    /// case that would escape per-hole checks needs both polarities at once,
+    /// which the type refuses.
     fn refine_partial(&self, lo: &Version, hi: &Version) -> Coverage {
         let clamped_lo: Cow<'_, Version> = match self.floor.as_deref() {
             Some(floor) => Cow::Owned(lo | floor),
@@ -166,14 +153,13 @@ impl<'a, P: Polarity> Query<'a, P> {
         }
     }
 
-    /// Settles every stored version owned, erasing the borrow
-    /// lifetime, so the query outlives what it was built from — for a
-    /// filter held long-term.
+    /// Converts a borrowed [`Query`] into a `'static` one by cheap internal
+    /// clone.
     ///
     /// # Complexity
     ///
-    /// `O(1)` per stored bound: owned versions move, borrowed ones
-    /// clone by sharing their stored buffers.
+    /// `O(1)`: owned versions move, borrowed ones clone by sharing their stored
+    /// buffers.
     pub fn into_owned(self) -> Query<'static, P> {
         Query {
             floor: self.floor.map(|p| Cow::Owned(p.into_owned())),
@@ -192,9 +178,8 @@ impl<'a, P: Polarity> Query<'a, P> {
 }
 
 impl<'a> Query<'a, Neutral> {
-    /// Recasts the hole-free query at any polarity: a neutral query
-    /// holds no holes structurally, so the reinterpretation moves no
-    /// meaning.
+    /// Recasts the hole-free query at any polarity: a neutral query holds no
+    /// holes structurally, so the reinterpretation moves no meaning.
     pub(super) fn adopt<P: Polarity>(self) -> Query<'a, P> {
         debug_assert!(self.holes.is_empty(), "a neutral query holds no holes");
         Query {
@@ -206,12 +191,11 @@ impl<'a> Query<'a, Neutral> {
     }
 }
 
-// Debug renders the module's own expression vocabulary — the only
-// structural window into a query (there is deliberately no `Eq`; see
-// the module docs), so failures and logs read as an expression
-// denoting the same predicate. (Strict holes render as the negated
-// strict atoms they equal, `!strictly_before(v)` — spellings reached
-// through `or_concurrent` in the operator language.)
+// Debug renders the module's own expression vocabulary, the only structural
+// window into a query (there is deliberately no `Eq`; see the module docs), so
+// failures and logs read as an expression denoting the same predicate. (Strict
+// holes render as the negated strict atoms they equal, `!strictly_before(v)` —
+// spellings reached through `or_concurrent` in the operator language.)
 impl<P: Polarity> fmt::Debug for Query<'_, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut first = true;

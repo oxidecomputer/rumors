@@ -1,12 +1,9 @@
 //! The polarity markers and the sealed per-marker dispatch.
 //!
-//! Everything a query does with a hole — the walk demand it
-//! contributes, its membership and covering predicates, the vacuity
-//! and absorption tests behind the conjunction normal form, its
-//! `Debug` spelling — is one method on the sealed dispatch trait,
-//! stated once per marker. Concentrating the whole behavioral
-//! difference between [`Down`] and [`Up`] in this one table is what
-//! lets every other file treat the two polarities uniformly.
+//! Everything a query does with a hole is one method on the sealed dispatch
+//! trait, stated once per marker. Concentrating the whole behavioral difference
+//! between [`Down`] and [`Up`] in this one table is what lets every other file
+//! treat the two polarities uniformly.
 
 use std::borrow::Cow;
 
@@ -15,10 +12,9 @@ use crate::Version;
 /// One subtracted hole: the complement of an elementary bound at a
 /// stored version.
 ///
-/// What the hole subtracts is the owning query's polarity: a [`Down`]
-/// hole subtracts `v <= at` (`v < at` when `strict`), an [`Up`] hole
-/// subtracts `at <= v` (`at < v` when `strict`). A [`Neutral`] query
-/// holds none.
+/// What the hole subtracts is the owning query's polarity: a [`Down`] hole
+/// subtracts `v <= at` (`v < at` when `strict`), an [`Up`] hole subtracts `at
+/// <= v` (`at < v` when `strict`). A [`Neutral`] query holds none.
 #[derive(Clone)]
 pub(super) struct Hole<'a> {
     pub(super) at: Cow<'a, Version>,
@@ -26,11 +22,9 @@ pub(super) struct Hole<'a> {
 }
 
 mod sealed {
-    // The dispatch signatures mention crate-private types (`Hole`, the
-    // walk demands). The trait is nameable only inside this crate —
-    // its one public appearance is `Polarity`'s supertrait position,
-    // from which no external caller can reach these items — so the
-    // lint's reachability finding is theoretical.
+    // The dispatch signatures mention crate-private types (`Hole`, the walk
+    // demands). The trait is nameable only inside this crate, so the lint's
+    // reachability finding is theoretical.
     #![allow(private_interfaces)]
 
     use core::cmp::Ordering;
@@ -39,30 +33,25 @@ mod sealed {
     use super::{Hole, Version};
     use crate::version::skyline::place::filter::Demand;
 
-    /// The polarity dispatch: how one hole of this polarity behaves,
-    /// stated once per marker. Sealed — the three markers are the
-    /// whole space, and the exactness argument quantifies over
-    /// exactly them.
+    /// The polarity dispatch: how one hole of this polarity behaves, stated
+    /// once per marker.
     pub trait Sealed {
         /// The fused walks' demand for one hole.
         fn hole_demand(strict: bool) -> Demand;
-        /// Whether `hole` subtracts `probe` — the hole's own
-        /// membership predicate.
+        /// Whether `hole` subtracts `probe`.
         fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool;
-        /// Whether `hole` subtracts everything the clamped segment
-        /// covers: a down-set covering the clamped top covers all of
-        /// it, an up-set dually reaching the clamped bottom.
+        /// Whether `hole` subtracts everything the clamped segment covers: a
+        /// down-set covering the clamped top covers all of it, an up-set dually
+        /// reaching the clamped bottom.
         fn hole_covers(hole: &Hole<'_>, clamped_lo: &Version, clamped_hi: &Version) -> bool;
-        /// Whether `hole` still subtracts something from an interval
-        /// bounded by `floor`/`ceiling` — the vacuity test, always
-        /// comparative, against the bound on the hole's own side.
+        /// Whether `hole` still subtracts something from an interval bounded by
+        /// `floor`/`ceiling`.
         fn hole_survives(
             hole: &Hole<'_>,
             floor: Option<&Version>,
             ceiling: Option<&Version>,
         ) -> bool;
-        /// Whether hole `a` subtracts a superset of what hole `b`
-        /// subtracts — the absorption test.
+        /// Whether hole `a` subtracts a superset of what hole `b` subtracts.
         fn absorbs(a: &Hole<'_>, b: &Hole<'_>) -> bool;
         /// The negated atom name a hole renders as in `Debug`.
         fn hole_name(strict: bool) -> &'static str;
@@ -107,10 +96,9 @@ mod sealed {
         }
 
         fn absorbs(a: &Hole<'_>, b: &Hole<'_>) -> bool {
-            // `{v <= b} ⊆ {v <= a}` whenever `b < a` regardless of
-            // strictness (everything at most `b` is then strictly below
-            // `a`); at equal bounds the inclusive hole covers the strict
-            // one.
+            // `{v <= b} ⊆ {v <= a}` whenever `b < a` regardless of strictness
+            // (everything at most `b` is then strictly below `a`); at equal
+            // bounds the inclusive hole covers the strict one.
             match b.at.partial_cmp(&a.at) {
                 Some(Ordering::Less) => true,
                 Some(Ordering::Equal) => !a.strict || b.strict,
@@ -216,29 +204,38 @@ mod sealed {
     }
 }
 
-/// A query's hole polarity: which complement family it may subtract.
+/// A query's polarity: which complement family it may subtract.
 ///
-/// The three markers — [`Down`], [`Up`], and the hole-free
-/// [`Neutral`] — are the whole space (the trait is sealed). The
-/// [module docs](super) give the argument the boundary enforces.
+/// Queries are limited to one polarity because deciding the overlap of a
+/// [`Span`](crate::Span) on a query with arbitrary negations reduces to the SAT
+/// problem; restricting queries to one polarity ensures they can be decided in
+/// linear time.
 ///
-/// The supertraits let a generic `Query<P>` consumer stay `Send`,
-/// `Sync`, and `'static` without restating per-marker facts: every
-/// marker is an uninhabited unit enum, so all three hold trivially.
+/// The space of query polarity comprises three markers: [`Down`], [`Up`], and
+/// [`Neutral`]:
+///
+/// - A [`Neutral`] query has no "holes" subtracted from it; it is a pure causal
+///   range.
+/// - A [`Down`] query has one or more "holes" subtracted from it which are
+///   *down-sets* (sets of versions with a common upper-bound).
+/// - An [`Up`] query has one or more "holes" subtracted from it which are
+///   *up-sets* (sets of versions with a common lower-bound).
+///
+/// It is statically impermissible to combine queries of opposite polarity.
 pub trait Polarity: sealed::Sealed + Send + Sync + 'static {}
 
-/// Holes subtract *down-sets*: the [`since`](super::since) family,
-/// everything some version already covers.
+/// Holes in a [`Query<'_, Down>`](crate::causally::Query) subtract sets of [`Version`]s
+/// with a common *upper* bound.
 #[derive(Debug, Clone, Copy)]
 pub enum Down {}
 
-/// Holes subtract *up-sets*: the [`until`](super::until) family,
-/// everything covering some version.
+/// Holes in a [`Query<'_, Up>`](crate::causally::Query) subtract sets of [`Version`]s
+/// with a common *lower* bound.
 #[derive(Debug, Clone, Copy)]
 pub enum Up {}
 
-/// No holes at all: a pure inclusive interval, conjoinable into
-/// either polarity — the [`Query`](super::Query) default.
+/// Any [`Query<'_, Neutral>`](crate::causally::Query) has no subtracted sets of
+/// [`Version`]s.
 #[derive(Debug, Clone, Copy)]
 pub enum Neutral {}
 

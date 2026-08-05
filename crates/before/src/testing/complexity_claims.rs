@@ -428,6 +428,21 @@ const CLOCK_SPLIT_BOUND: Bound = Bound::Custom {
              packed operand",
 };
 
+/// The n-ary reconcile's bound: the alias fold's counter cost plus the
+/// balanced re-share's hand-out.
+const SYNC_ALL_BOUND: Bound = Bound::Custom {
+    line: "`O(D log k)` time, `O(D)` space, plus the re-share's `O(S + k)`.",
+    reason: "the fold's counter cost plus the split's hand-out; no template carries both axes",
+};
+
+/// The n-ary receive's bound: the messages' balanced fold plus one join
+/// into the clock and a tick.
+const RECV_ALL_BOUND: Bound = Bound::Custom {
+    line: "`O(n + D log k)` time, `O(n + D)` space.",
+    reason: "the messages' fold plus a packed-operand join and tick; no template adds an \
+             operand to the fold axes",
+};
+
 /// The explicit projection materialization's bound, shared by
 /// `OwnVersion::to_version` and the `From` impl: the output is not
 /// bounded by a constant factor of the operands.
@@ -866,6 +881,17 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ]),
     },
     Claim {
+        op: "Clock::sync_all",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: SYNC_ALL_BOUND,
+        }],
+        cells: Cells::Board(&[
+            ("version_join_all", Class::FoldLog),
+            ("party_join_all", Class::FoldLog),
+        ]),
+    },
+    Claim {
         op: "Clock::send",
         checks: &[Check {
             site: Site::Fn,
@@ -880,6 +906,14 @@ pub(crate) const CLAIMS: &[Claim] = &[
             bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[("clock_recv", Class::Linear)]),
+    },
+    Claim {
+        op: "Clock::recv_all",
+        checks: &[Check {
+            site: Site::Fn,
+            bound: RECV_ALL_BOUND,
+        }],
+        cells: Cells::Board(&[("version_join_all", Class::FoldLog)]),
     },
     constant("Clock::from_parts"),
     constant("Clock::into_parts"),

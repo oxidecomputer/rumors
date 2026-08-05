@@ -2806,7 +2806,12 @@ fn anonymous_join_merges_versions(c: &Clock, msg: &Version) -> bool {
 /// sequential pair joins on both components, and the returned
 /// reference is the freshly folded version), and a constructed fork
 /// family — every child line ticked apart — reunites to the original
-/// region carrying the join of every line's history.
+/// region carrying the join of every line's history. Beside them, the
+/// n-ary doors are pinned to their composed spellings:
+/// [`Clock::sync_all`] byte-identical to `join_all` then the balanced
+/// re-share — with every overlap refused and no participant moved —
+/// and [`Clock::recv_all`] to the sequential binary joins followed by
+/// one tick.
 pub static CLOCK_AND_LIST: &[Law<fn(&Clock, &[Clock]) -> bool>] = &[
     (
         "clock_join_all_accepts_iff_parties_pairwise_disjoint",
@@ -2816,6 +2821,11 @@ pub static CLOCK_AND_LIST: &[Law<fn(&Clock, &[Clock]) -> bool>] = &[
         "clock_join_all_reunites_forks_at_any_width",
         clock_join_all_reunites_forks_at_any_width,
     ),
+    (
+        "sync_all_is_join_all_then_forks",
+        sync_all_is_join_all_then_forks,
+    ),
+    ("recv_all_is_joins_then_tick", recv_all_is_joins_then_tick),
 ];
 
 /// `join_all` accepts exactly the families whose parties — the
@@ -2885,6 +2895,80 @@ fn clock_join_all_reunites_forks_at_any_width(c: &Clock, items: &[Clock]) -> boo
         }
         Err(_) => false,
     }
+}
+
+/// `sync_all` equals its stated composition — [`Clock::join_all`] then
+/// [`Clock::forks`] — outcome for outcome, at every arity.
+///
+/// The disjoint arm forks the receiver into one child per item and lets
+/// every line diverge (each child absorbs one item's version, then
+/// ticks): the fused reconcile must leave every participant — the
+/// receiver, each child in order, and the returned version —
+/// byte-identical to folding the children in with `join_all` and
+/// re-sharing with `forks`. The overlap arms must be refused with no
+/// participant moved: the receiver against its own alias, and a family
+/// carrying a duplicated child.
+fn sync_all_is_join_all_then_forks(c: &Clock, items: &[Clock]) -> bool {
+    // The disjoint arm: a diverged fork family of the receiver.
+    let mut parent = c.dangerously_alias();
+    let mut children: Vec<Clock> = parent.forks(items.len() as u64).collect();
+    for (child, item) in children.iter_mut().zip(items) {
+        *child |= item.version();
+        child.tick();
+    }
+    let mut fused = parent.dangerously_alias();
+    let mut fused_children: Vec<Clock> = children.iter().map(Clock::dangerously_alias).collect();
+    let Ok(returned) = fused.sync_all(fused_children.iter_mut()).cloned() else {
+        return false; // fork shares are disjoint: sync_all must accept
+    };
+    let mut composed = parent.dangerously_alias();
+    if composed
+        .join_all(children.iter().map(Clock::dangerously_alias))
+        .is_err()
+    {
+        return false; // fork shares are disjoint: join_all must accept
+    }
+    let composed_children: Vec<Clock> = composed.forks(children.len() as u64).collect();
+    if fused != composed || returned != *composed.version() || fused_children != composed_children {
+        return false;
+    }
+    // The overlap arms: refusal with nothing moved, both for a receiver
+    // overlapping an item and for two items overlapping each other.
+    let mut x = c.dangerously_alias();
+    let mut y = c.dangerously_alias();
+    let receiver_overlap = x.sync_all([&mut y]).is_err() && x == *c && y == *c;
+    let mut p = c.dangerously_alias();
+    let mut child = p.fork();
+    let mut dup = child.dangerously_alias();
+    let (p0, child0, dup0) = (
+        p.dangerously_alias(),
+        child.dangerously_alias(),
+        dup.dangerously_alias(),
+    );
+    let item_overlap =
+        p.sync_all([&mut child, &mut dup]).is_err() && p == p0 && child == child0 && dup == dup0;
+    receiver_overlap && item_overlap
+}
+
+/// `recv_all` equals its stated composition — join every message into
+/// the version through the bound binary join, then one [`Clock::tick`]
+/// — value for value at every arity, returned reference included, so
+/// the n-ary door adds no observable behavior of its own.
+///
+/// The items' versions serve as the message list; the party never
+/// moving and the empty list being a bare tick both ride the whole-clock
+/// comparison.
+fn recv_all_is_joins_then_tick(c: &Clock, items: &[Clock]) -> bool {
+    let mut fused = c.dangerously_alias();
+    let returned = fused
+        .recv_all(items.iter().map(|item| item.version()))
+        .clone();
+    let mut composed = c.dangerously_alias();
+    for item in items {
+        composed |= item.version();
+    }
+    composed.tick();
+    returned == *composed.version() && fused == composed
 }
 
 #[cfg(test)]

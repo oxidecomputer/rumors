@@ -18,10 +18,13 @@
 //!
 //! The callers: [`Version::join_all`](crate::Version::join_all) and
 //! [`Version::meet_all`](crate::Version::meet_all) through
-//! [`balanced_reduce`]; [`Party::join_all`](crate::Party::join_all) and
-//! [`Clock::join_all`](crate::Clock::join_all) through
-//! [`balanced_try_fold`], whose fallible combiner and rejection channel
-//! carry their aliased-input hand-back policy. The promotion ledger's
+//! [`balanced_reduce`]; [`Party::join_all`](crate::Party::join_all),
+//! [`Clock::join_all`](crate::Clock::join_all), and
+//! [`Clock::sync_all`](crate::Clock::sync_all) through
+//! [`balanced_try_fold`] — the first two's fallible combiner and
+//! rejection channel carry their aliased-input hand-back policy, while
+//! `sync_all` runs the counter over aliases and collapses any rejection
+//! into its all-or-nothing overlap error. The promotion ledger's
 //! product-tree settle (`Integrator::settle_armings`, the skyline query
 //! fold) runs the same counter discipline hand-rolled: its combiner
 //! charges an accumulator as a side effect and its closing drain folds

@@ -18,9 +18,9 @@ mod tests;
 
 /// A [`Party`] and its [`Version`].
 ///
-/// This type is `!Clone` to discourage non-linear usage: duplicating a
-/// [`Clock`] is memory-safe but invalid for interval tree clocks, which
-/// require all live clocks in a system to be disjoint.
+/// This type is `!Clone` to strongly discourage non-linear usage: duplicating a
+/// [`Clock`] is memory-safe but semantically invalid for interval tree clocks,
+/// which require all live clocks in a system to be disjoint.
 ///
 /// Causal comparison and merge happen through the [`Version`]; `Clock` is not
 /// itself ordered:
@@ -37,15 +37,16 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// The heterogeneous joins `O(a + b)`; `==` and hashing `O(n)`.
-/// A clock's *packed size* `|c|` is the length of
-/// [`encode`](Clock::encode)'s bytes — its [`Party`]'s and [`Version`]'s
-/// packed sizes plus at most one padding byte (exact to the bit as
-/// [`encoded_bits`](Clock::encoded_bits)); every `# Complexity` section on
-/// this type's operations is denominated in packed sizes. Joining a
-/// [`Version`] into a clock (`|`, `|=`, either operand order) costs the
-/// two operands' packed sizes; `==` and hashing read the packed clock
-/// once; each remaining cost is on its operation.
+/// A clock's *packed size* `|c|` is the length of [`encode`](Clock::encode)'s
+/// bytes (its [`Party`]'s and [`Version`]'s packed forms concatenated). Every
+/// _Complexity_ section on this type's operations is denominated in packed
+/// sizes.
+///
+/// Joining a [`Version`] into a clock (`|`, `|=`, either operand order) costs
+/// the two operands' packed sizes; `==` and hashing read the packed clock once;
+/// each remaining cost is on its operation.
+///
+/// # Example
 ///
 /// ```
 /// use before::Clock;
@@ -67,12 +68,14 @@ impl Clock {
     ///
     /// Call this function once per system of clocks. Every descendant of a
     /// single seed is disjoint from its peers, but descendants of two
-    /// independent seeds need not be; if they ever interact, causal history
-    /// is silently corrupted.
+    /// independent seeds need not be; if they ever interact, causal history is
+    /// silently corrupted.
     ///
     /// # Complexity
     ///
-    /// `O(1)`.
+    /// `O(1)`, and no allocation.
+    ///
+    /// # Example
     ///
     /// ```
     /// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
@@ -86,9 +89,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// As [`Version::tick`] on the clock's parts (see its per-call note on
-    /// wide values).
+    /// `O(|self|)`.
+    ///
+    /// # Example
     ///
     /// ```
     /// let mut clock = before::Clock::seed();
@@ -99,20 +102,19 @@ impl Clock {
         self.version()
     }
 
-    /// Advances this [`Clock`] by `n` events for its own [`Party`],
-    /// returning the new [`Version`]: byte-identical to `n` sequential
-    /// [`tick`](Self::tick)s, computed in a bounded number of passes
-    /// rather than `n`.
+    /// Advances this [`Clock`] by `n` events for its own [`Party`], returning
+    /// the new [`Version`]: byte-identical to `n` sequential
+    /// [`tick`](Self::tick)s, computed in a bounded number of passes rather
+    /// than `n`.
     ///
-    /// `n` is any count — an unsigned integer literal converts in place,
-    /// and a [`Ticks`] carries counts wider than any machine integer —
-    /// and `n = 0` is the identity (the returned reference is the
-    /// unchanged version).
+    /// The count `n` is any unsigned number, since all can be converted into
+    /// [`Ticks`].
     ///
     /// # Complexity
     ///
-    /// `O(n + log m)`, `m` the tick count.
-    /// As [`Version::ticks`] on the clock's parts.
+    /// `O(|self| + log n)`.
+    ///
+    /// # Example
     ///
     /// ```
     /// let mut clock = before::Clock::seed();
@@ -129,14 +131,16 @@ impl Clock {
     /// # Warning
     ///
     /// Repeatedly forking the same [`Clock`] produces an imbalanced internal
-    /// tree, with worse memory use and performance. Prefer to vary which clock
-    /// is forked, or use [`forks`](Clock::forks) to generate a fixed number of
-    /// balanced forks.
+    /// representation, with worse memory use and performance. Prefer to vary
+    /// which clock is forked, or use [`forks`](Clock::forks) to generate a
+    /// fixed number of balanced forks.
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// The party splits and the version is cloned into the child.
+    /// `O(|self|)`. The party splits in linear time and the version is
+    /// `O(1)`-cloned into the child.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -162,21 +166,20 @@ impl Clock {
     /// stays a valid clock even once the iterator is fully drained; children
     /// not taken before the iterator drops have their party shares rejoined
     /// into `self`, so no `Party` is lost. Prefer this to repeated
-    /// [`fork`](Clock::fork), which deepens one spine into a linear tree.
+    /// [`fork`](Clock::fork), which deepens one spine into a linear tree
+    /// structure.
     ///
     /// For the consuming counterpart that splits into exactly `N` clocks, see
     /// [`From<Clock>`](Clock) for `[Clock; N]`.
     ///
-    /// Total over every `n`, saturating exactly as [`Party::forks`] does
-    /// (whose split this drives): at `n == u64::MAX` the iterator yields
-    /// one child fewer than asked.
-    ///
     /// # Complexity
     ///
-    /// `O(S + n)`: the party split plus one `O(1)` version clone per child.
-    /// For a full drain, `S` is the total packed size of the party shares
-    /// and each of the `n` children clones the version by sharing its
-    /// stored buffer; children are built on demand (see [`Forks`]).
+    /// `O(S + n)`: the party split plus one `O(1)` version clone per child. For
+    /// a full drain, `S` is the total packed size of the party shares and each
+    /// of the `n` children clones the version by sharing its stored buffer;
+    /// children are built on demand (see [`Forks`]).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -193,7 +196,7 @@ impl Clock {
     }
 
     /// Absorbs a *disjoint* [`Clock`]'s [`Party`] and [`Version`], returning
-    /// the new [`Version`].
+    /// the new [`Version`] of `self`.
     ///
     /// # Errors
     ///
@@ -202,8 +205,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
-    /// The bound holds accepted or rejected.
+    /// `O(a + b)`, regardless of whether or not an error is returned.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -232,29 +236,25 @@ impl Clock {
     /// "reabsorb this whole set of retired peers" primitive.
     ///
     /// Best-effort: every clock whose [`Party`] is disjoint from the region
-    /// accumulated so far has its party reunited and its [`Version`] merged into
-    /// `self`.
+    /// accumulated so far has its party reunited and its [`Version`] merged
+    /// into `self`.
     ///
     /// # Errors
     ///
-    /// Returns the clocks whose parties *overlapped* and so could not be
-    /// folded in, dropping nothing: every input's party region and version
-    /// are either merged into `self` or handed back. Overlap is tested
-    /// against `self` and against the groups the inputs coalesce into on
-    /// the way in, so for malformed (aliased) input which clocks come back
-    /// — and whether some return already joined with each other — can
-    /// depend on iteration order. Unreachable for clocks descended from one
-    /// [`seed`](Clock::seed): their parties are pairwise disjoint.
+    /// Returns the clocks whose parties *overlapped* and so could not be folded
+    /// in, dropping nothing: every input's party region and version are either
+    /// merged into `self` or handed back. In case of partial error, which
+    /// [`Clock`]s are absorbed vs. handed back is unspecified.
+    ///
+    /// Unreachable for clocks descended from one [`seed`](Clock::seed): their
+    /// parties are pairwise disjoint.
     ///
     /// # Complexity
     ///
-    /// `O(D log k + B log n)` time, `O(D)` space.
-    /// `D` is the total packed size of `self` and the inputs, `k` the
-    /// number of inputs, and `B` the input parties' both-present node count
-    /// — the same balanced reduction as [`Party::join_all`], run over both
-    /// halves of each clock, with the same up-front overlap test per input
-    /// (`O(input)` node visits plus one `O(log |c|)` table search per node
-    /// both sides own).
+    /// `O((|c| + |i|) log n)` time, `O(|c| + |i|)` auxiliary space, where `|i|`
+    /// is the total packed size of the inputs, and `n` the number of inputs.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -263,29 +263,29 @@ impl Clock {
     /// parent.join_all(children).unwrap(); // reabsorb the three children
     /// assert_eq!(parent.party().to_string(), "1"); // the whole seed region again
     /// ```
-    // The combine closure's `Err` is the hand-back pair itself — both
-    // operands returned to the caller on an aliased input, the fold's
-    // drop-nothing policy — so its size is the two clocks it preserves.
-    // Boxing would spend an allocation on every refusal to dodge a
-    // by-value move, a trade against the policy the error exists for.
+    //
+    // The combine closure's `Err` is the hand-back pair itself — both operands
+    // returned to the caller on an aliased input, the fold's drop-nothing
+    // policy — so its size is the two clocks it preserves. Boxing would spend
+    // an allocation on every refusal to dodge a by-value move, a trade against
+    // the policy the error exists for.
     #[allow(clippy::result_large_err)]
     pub fn join_all<I: IntoIterator<Item = Clock>>(
         &mut self,
         iter: I,
     ) -> Result<&Version, Vec<Clock>> {
-        // The shared balanced binary counter (`crate::fold`), one join
-        // into `self` per surviving group at the end — the same
-        // discipline as [`Party::join_all`], because both of this
-        // fold's halves (the party union and the version join) pay
-        // per-input scans of the whole accumulated value under a left
-        // fold. Inputs overlapping `self` are handed back by the
-        // `accept` test against the *fixed* `self` up front, through a
-        // per-call index of `self`'s party (O(input) node visits plus
-        // the table searches per input, as in [`Party::join_all`]);
-        // parties disjoint from `self` stay disjoint from it however
-        // they coalesce, so the final joins cannot fail on well-formed
-        // input. A failed combine is aliased input; the counter's
-        // hand-back policy (`crate::fold`) drops nothing.
+        // The shared balanced binary counter (`crate::fold`), one join into
+        // `self` per surviving group at the end — the same discipline as
+        // [`Party::join_all`], because both of this fold's halves (the party
+        // union and the version join) pay per-input scans of the whole
+        // accumulated value under a left fold. Inputs overlapping `self` are
+        // handed back by the `accept` test against the *fixed* `self` up front,
+        // through a per-call index of `self`'s party (O(input) node visits plus
+        // the table searches per input, as in [`Party::join_all`]); parties
+        // disjoint from `self` stay disjoint from it however they coalesce, so
+        // the final joins cannot fail on well-formed input. A failed combine is
+        // aliased input; the counter's hand-back policy (`crate::fold`) drops
+        // nothing.
         let mut overlapping = Vec::new();
         let index = crate::party::ops::IdIndex::build(self.party.as_bits());
         let groups = crate::fold::balanced_try_fold(
@@ -309,8 +309,10 @@ impl Clock {
         }
     }
 
-    /// Reconciles two *disjoint* [`Clock`]s: joins their [`Version`]s and
-    /// re-[`fork`](Clock::fork)s the [`join`](Clock::join) of their [`Party`]s.
+    /// Reconciles two *disjoint* [`Clock`]s, keeping both alive.
+    ///
+    /// This operation joins their [`Version`]s and re-[`fork`](Clock::fork)s
+    /// the [`join`](Clock::join) of their [`Party`]s.
     ///
     /// # Errors
     ///
@@ -319,8 +321,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
-    /// The bound holds accepted or rejected.
+    /// `O(|c| + |d|)`, regardless of whether or not an error is returned.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -332,10 +335,9 @@ impl Clock {
     /// ```
     pub fn sync(&mut self, other: &mut Clock) -> Result<&Version, Overlap> {
         // One fused walk over the two parties emits both re-split halves
-        // directly — byte-identical to joining them and forking the union
-        // (the `sync_is_join_then_fork` law pins the equality) — and is
-        // also the overlap check: on overlap it emits nothing and neither
-        // clock moves.
+        // directly — byte-identical to joining them and forking the union (the
+        // `sync_is_join_then_fork` law pins the equality) — and is also the
+        // overlap check: on overlap it emits nothing and neither clock moves.
         let Some((keep, give)) = self.party.sum_split(&other.party) else {
             return Err(Overlap);
         };
@@ -348,18 +350,115 @@ impl Clock {
         Ok(self.version())
     }
 
-    /// Equivalent to [`tick`](Clock::tick), named for the case where another
-    /// party will [`recv`](Clock::recv) the resulting [`Version`].
+    /// Reconciles this [`Clock`] with every clock in `others`, keeping all
+    /// alive.
     ///
-    /// When using [`Clock`]s as *vector clocks* rather than *version
-    /// vectors*, mark communication by `send`ing a [`Version`] from the
-    /// sender to the recipient, who [`recv`](Clock::recv)s it into their own
-    /// [`Clock`].
+    /// The collective form of [`sync`](Clock::sync): every participant —
+    /// `self` and each of the `others` — ends holding the join of all their
+    /// [`Version`]s over one share of the union of all their [`Party`]s,
+    /// re-shared as [`forks`](Clock::forks) re-shares: `self` keeps the
+    /// residual share and each of the `others` receives one balanced,
+    /// minimal-depth share in iteration order, however imbalanced the
+    /// inputs were. An empty `others` is a no-op returning `self`'s current
+    /// version.
+    ///
+    /// # Errors
+    ///
+    /// If any two participants' [`Party`]s overlap, an error is returned
+    /// and every clock — `self` and all of `others` — is left unmodified.
+    ///
+    /// Unreachable for clocks descended from one [`seed`](Clock::seed):
+    /// their parties are pairwise disjoint.
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// As [`tick`](Clock::tick).
+    /// `O(D log k)` time, `O(D)` space, plus the re-share's `O(S + k)`.
+    /// `D` is the participants' total packed size and `k` their count;
+    /// the re-share is the balanced split, `S` its shares' total packed
+    /// size.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let mut c = b.fork();
+    /// a.tick();
+    /// b.tick();
+    /// a.sync_all([&mut b, &mut c]).unwrap(); // everyone learns everything
+    /// assert!(a.version() == b.version() && b.version() == c.version());
+    /// assert!(a.party().is_disjoint(b.party()));
+    /// ```
+    //
+    // The combine closure's `Err` is the operand pair the counter keeps (the
+    // fold's drop-nothing policy, as in `join_all`); boxing it would spend an
+    // allocation on every refusal to dodge a by-value move.
+    #[allow(clippy::result_large_err)]
+    pub fn sync_all<'a>(
+        &mut self,
+        others: impl IntoIterator<Item = &'a mut Clock>,
+    ) -> Result<&Version, Overlap> {
+        let others: Vec<&'a mut Clock> = others.into_iter().collect();
+
+        // The `join_all` counter discipline run over aliases, byte-identical
+        // to joining everything and re-forking the union (the
+        // `sync_all_is_join_all_then_forks` law pins the equality to that
+        // composed spelling). The fold consumes its operands, but on overlap
+        // every participant must be left untouched, so the originals stay in
+        // their slots while `O(1)` aliases carry the merge —
+        // `dangerously_alias`'s boundary case, ownership resolving to exactly
+        // one side per outcome: on success the commit below overwrites every
+        // original handle with a share of the union (the merged alias
+        // supersedes them all at once), and on overlap the merged aliases
+        // drop with nothing observable moved. No up-front accept test
+        // against `self`: any overlap anywhere is a whole-call error, and
+        // each one surfaces either as a lone rejected input or as a failed
+        // join (in the counter, or against `self` in the closing drain), so
+        // the per-input index `join_all` builds for its hand-back accounting
+        // would buy nothing here.
+        let mut rejected = Vec::new();
+        let groups = crate::fold::balanced_try_fold(
+            others.iter().map(|other| other.dangerously_alias()),
+            |_| true,
+            |mut top, incoming| match top.join(incoming) {
+                Ok(_) => Ok(top),
+                Err(back) => Err((top, back)),
+            },
+            &mut rejected,
+        );
+        if !rejected.is_empty() {
+            return Err(Overlap);
+        }
+        let mut whole = self.dangerously_alias();
+        for group in groups {
+            if whole.join(group).is_err() {
+                return Err(Overlap);
+            }
+        }
+
+        // Commit: every handle becomes a balanced share of the union,
+        // carrying the merged version.
+        let shares = others.len() as u64;
+        *self = whole;
+        for (slot, child) in others.into_iter().zip(self.forks(shares)) {
+            *slot = child;
+        }
+        Ok(self.version())
+    }
+
+    /// Equivalent to [`tick`](Clock::tick), named for the case where another
+    /// party will [`recv`](Clock::recv) the resulting [`Version`].
+    ///
+    /// When using [`Clock`]s as *vector clocks* rather than *version vectors*,
+    /// mark communication by `send`ing a [`Version`] from the sender to the
+    /// recipient, who [`recv`](Clock::recv)s it into their own [`Clock`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)`, exacctly as [`tick`](Clock::tick).
+    ///
+    /// # Example
     ///
     /// ```
     /// let mut clock = before::Clock::seed();
@@ -379,8 +478,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
-    /// One join, then one tick.
+    /// `O(a + b)`. One join, then one tick.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -393,6 +493,58 @@ impl Clock {
     pub fn recv(&mut self, version: &Version) -> &Version {
         self.version |= version;
         self.tick()
+    }
+
+    /// Merges any number of received [`Version`]s into this [`Clock`]'s
+    /// version, then [`tick`](Clock::tick)s the [`Clock`] (once).
+    ///
+    /// Equivalent to `self |= Version::join_all(versions); self.ticks(n)`,
+    /// where `n` is the number of versions received. The n-ary half of the
+    /// vector-clock communication pattern described on [`send`](Clock::send).
+    ///
+    /// When possible, prefer this to iteratively [`recv`](Clock::recv)-ing
+    /// [`Version`]s one-at-a-time, which is less efficient than this method.
+    /// That is to say:
+    ///
+    /// ```ignore
+    /// // Don't do this!
+    /// for v in versions {
+    ///     clock.recv(v);
+    /// }
+    ///
+    /// // Instead, do this:
+    /// clock.recv_all(versions);
+    /// ```
+    ///
+    /// # Complexity
+    ///
+    /// `O(n + D log k)` time, `O(n + D)` space. `n` is the clock's packed
+    /// size, `D` the messages' total packed size, and `k` their number:
+    /// the messages ride the balanced [`Version::join_all`] fold, then one
+    /// join and one tick land the result.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let mut c = b.fork();
+    /// let (m1, m2) = (b.send().clone(), c.send().clone());
+    /// a.recv_all([&m1, &m2]); // absorb both histories, then tick once
+    /// assert!(*a.version() > m1 && *a.version() > m2);
+    /// ```
+    pub fn recv_all<I>(&mut self, versions: I) -> &Version
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        let mut count = 0u64;
+        self.version |= Version::join_all(versions.into_iter().map(|v| {
+            count += 1;
+            v
+        }));
+        self.ticks(count)
     }
 
     /// Pairs a [`Party`] with a [`Version`] to form a [`Clock`].

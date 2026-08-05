@@ -397,6 +397,22 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
     SurfaceRow {
+        op: "Clock::sync_all",
+        prod_tree: Leg::Law("sync_all_is_join_all_then_forks"),
+        prod_fs: Leg::Excluded(
+            "no n-ary reconcile in the function space; the operation is law-pinned \
+             byte-identical to its composed spelling — the bound Clock::join_all \
+             followed by the balanced re-share \
+             (sync_all_is_join_all_then_forks) — and the organic-population \
+             invariants ride sync_all_reconciles_one_world",
+        ),
+        tree_fs: Leg::Excluded(
+            "no oracle n-ary sync; see the prod↔fs reason — the law pins the \
+             composition of surfaces bound on their own rows \
+             (sync_all_is_join_all_then_forks)",
+        ),
+    },
+    SurfaceRow {
         op: "Clock::send",
         prod_tree: Leg::Bound("master_differential"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
@@ -407,6 +423,12 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Bound("master_differential"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
+    },
+    SurfaceRow {
+        op: "Clock::recv_all",
+        prod_tree: Leg::Trans("recv_all_is_joins_then_tick"),
+        prod_fs: Leg::Trans("recv_all_is_joins_then_tick"),
+        tree_fs: Leg::Trans("recv_all_is_joins_then_tick"),
     },
     SurfaceRow {
         op: "Clock::from_parts",

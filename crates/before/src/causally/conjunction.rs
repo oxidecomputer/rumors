@@ -1,13 +1,12 @@
 //! The `&` algebra and the normal form it maintains.
 //!
-//! `&` is predicate intersection, total on every pairing the polarity
-//! algebra admits: atoms are neutral, neutral conjoins into anything,
-//! and each polarity conjoins with itself — the one absent pairing is
-//! `Down` with `Up`, the module's deliberate boundary. Every impl
-//! delegates to the same-polarity merge ([`Query::and`]), which
-//! maintains the normal form, so construction order cannot change
-//! what a query admits (pinned behaviorally by the conjunction laws
-//! in `crate::laws`).
+//! `&` is predicate intersection, total on every pairing the polarity algebra
+//! admits: atoms are neutral, neutral conjoins into anything, and each polarity
+//! conjoins with itself. The one absent pairing is `Down` with `Up`, because
+//! this can create computationally intractible queries. Every impl delegates to
+//! the same-polarity merge ([`Query::and`]), which maintains the normal form,
+//! so construction order cannot change what a query admits (pinned behaviorally
+//! by the conjunction laws in `crate::laws`).
 
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -21,9 +20,8 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// Conjunction with a query of the same polarity.
     ///
     /// Floors join, ceilings meet, and every hole from either side is
-    /// re-admitted against the merged bounds and the growing
-    /// antichain, so absorption and pruning cannot be evaded by
-    /// construction order.
+    /// re-admitted against the merged bounds and the growing antichain, so
+    /// absorption and pruning cannot be evaded by construction order.
     fn and(self, other: Query<'a, P>) -> Query<'a, P> {
         let floor = match (self.floor, other.floor) {
             (None, floor) | (floor, None) => floor,
@@ -45,15 +43,14 @@ impl<'a, P: Polarity> Query<'a, P> {
         merged
     }
 
-    /// Admit one hole, maintaining the normal form: drop it if the
-    /// bound on its own side already avoids everything it subtracts
-    /// or an existing hole subtracts a superset; evict existing holes
-    /// it covers.
+    /// Admit one hole, maintaining the normal form: drop it if the bound on its
+    /// own side already avoids everything it subtracts or an existing hole
+    /// subtracts a superset; evict existing holes it covers.
     ///
-    /// Pruning is *comparative* — against the interval bound and the
-    /// sibling holes — never a semantic emptiness judgment: a hole
-    /// nothing can fall into rides through inert, subtracting nothing
-    /// on every path, rather than minting a corner case here.
+    /// Pruning is *comparative* — against the interval bound and the sibling
+    /// holes — never a semantic emptiness judgment: a hole nothing can fall
+    /// into rides through inert, subtracting nothing on every path, rather than
+    /// minting a corner case here.
     fn push_hole(&mut self, hole: Hole<'a>) {
         if !P::hole_survives(&hole, self.floor.as_deref(), self.ceiling.as_deref()) {
             return;
@@ -66,9 +63,8 @@ impl<'a, P: Polarity> Query<'a, P> {
     }
 }
 
-/// Elementary conjunction of two floors, staying elementary: the
-/// bounds join (two demands to sit at-or-above collapse to one at
-/// their join).
+/// Elementary conjunction of two floors, staying elementary: the bounds
+/// [`join`](Version::join).
 impl<'a> BitAnd for Floor<'a> {
     type Output = Floor<'a>;
 
@@ -79,8 +75,8 @@ impl<'a> BitAnd for Floor<'a> {
     }
 }
 
-/// Elementary conjunction of two ceilings, staying elementary: the
-/// bounds meet — the order-dual of `&` on [`Floor`].
+/// Elementary conjunction of two ceilings, staying elementary: the bounds
+/// [`meet`](Version::meet).
 impl<'a> BitAnd for Ceiling<'a> {
     type Output = Ceiling<'a>;
 
