@@ -216,7 +216,10 @@ shorthand.
 
 ## The operations
 
-All costs in digit touches, derived above. *Amortized* bounds hold
+All costs in digit touches, derived above; `|x|` is the size of `x`
+in bytes — the operand `|delta|`/`|other|`, or the accumulator's own
+held digits `|self|` — so the limb-denominated derivations above
+read as `|x|` up to the constant word width. *Amortized* bounds hold
 over the whole operation sequence — one write can be caught repaying
 carries that earlier writes parked near the zone's edge, never more
 than they prepaid; unmarked rows are worst-case per call.
@@ -224,18 +227,18 @@ than they prepaid; unmarked rows are worst-case per call.
 | Operation | Cost |
 |---|---|
 | `add_small`, `sub_small`, `add_u64`, `sub_u64` | amortized O(1) |
-| `add_wide`, `sub_wide` | amortized O(operand limbs), whatever the held width |
-| `add_wide_shl`, `sub_wide_shl` | amortized O(operand limbs), independent of the shift |
+| `add_wide`, `sub_wide` | amortized O(\|delta\|), whatever the held width |
+| `add_wide_shl`, `sub_wide_shl` | amortized O(\|delta\|), independent of the shift |
 | `add_u64_shl`, `sub_u64_shl` | amortized O(1), independent of the shift |
-| `add_magnitude`, `sub_magnitude` | word-scale: amortized O(1); wide: amortized O(operand limbs) |
+| `add_magnitude`, `sub_magnitude` | word-scale: amortized O(1); wide: amortized O(\|delta\|) |
 | `add_magnitude_shl`, `sub_magnitude_shl` | as `add_magnitude`/`sub_magnitude`, at any shift |
-| `add_accum`, `sub_accum` | amortized O(operand's held digits) |
-| `add_accum_shl`, `sub_accum_shl` | amortized O(operand's held digits), independent of the shift |
-| `merge_into_wider` | amortized O(narrower operand's held digits) |
+| `add_accum`, `sub_accum` | amortized O(\|other\|) |
+| `add_accum_shl`, `sub_accum_shl` | amortized O(\|other\|), independent of the shift |
+| `merge_into_wider` | amortized O(min(\|self\|, \|other\|)) |
 | `sign`, `is_negative`, `sign_dominates_word`, `sign_dominates_at` | amortized O(1) |
 | `is_literally_zero` (one-sided: `true` means zero, `false` means unknown), `digit_count` | O(1) |
-| `shl`, `negate`, `reset`, `sign_magnitude` | O(held digits) |
-| `sign_magnitude_shl` | O(the written span since the last reset) |
+| `shl`, `negate`, `reset`, `sign_magnitude` | O(\|self\|) |
+| `sign_magnitude_shl` | O(w), w the written span since the last reset |
 
 Digit touches are shift-independent; memory is not. A shifted entry
 point grows the digit buffer to cover the shifted position, so memory

@@ -23,8 +23,8 @@
 //!   row is pinned.
 //!
 //! The cost vocabulary the table cells use — digit touches, amortized,
-//! operand limbs, held digits, the written span — is defined on the
-//! crate page (the metering section and the table preamble/footnote).
+//! the byte sizes `|x|`, the written span — is defined on the crate
+//! page (the metering section and the table preamble/footnote).
 
 use surface_scan::SourceSpec;
 
@@ -141,7 +141,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
     // ─────────────────────────── wide deltas ────────────────────────────
     Claim {
         op: "Accumulator::add_wide",
-        table_cost: Some("amortized O(operand limbs), whatever the held width"),
+        table_cost: Some(r"amortized O(\|delta\|), whatever the held width"),
         evidence: Evidence::Witnessed(&[
             (OWN, "wide_writes_cost_the_operand_at_any_held_width"),
             (BANDS, "accum_wide_tooth_touches_flat"),
@@ -150,7 +150,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
     },
     Claim {
         op: "Accumulator::sub_wide",
-        table_cost: Some("amortized O(operand limbs), whatever the held width"),
+        table_cost: Some(r"amortized O(\|delta\|), whatever the held width"),
         evidence: Evidence::Witnessed(&[
             (OWN, "wide_writes_cost_the_operand_at_any_held_width"),
             (BANDS, "accum_wide_tooth_touches_flat"),
@@ -159,7 +159,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
     },
     Claim {
         op: "Accumulator::add_wide_shl",
-        table_cost: Some("amortized O(operand limbs), independent of the shift"),
+        table_cost: Some(r"amortized O(\|delta\|), independent of the shift"),
         evidence: Evidence::Witnessed(&[(
             OWN,
             "alternating_shifted_writes_cost_the_operand_not_the_gap",
@@ -167,7 +167,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
     },
     Claim {
         op: "Accumulator::sub_wide_shl",
-        table_cost: Some("amortized O(operand limbs), independent of the shift"),
+        table_cost: Some(r"amortized O(\|delta\|), independent of the shift"),
         evidence: Evidence::Witnessed(&[(
             OWN,
             "alternating_shifted_writes_cost_the_operand_not_the_gap",
@@ -192,12 +192,12 @@ pub(crate) const CLAIMS: &[Claim] = &[
     // ─────────────────────── magnitude dispatches ───────────────────────
     Claim {
         op: "Accumulator::add_magnitude",
-        table_cost: Some("word-scale: amortized O(1); wide: amortized O(operand limbs)"),
+        table_cost: Some(r"word-scale: amortized O(1); wide: amortized O(\|delta\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "magnitude_dispatch_costs_its_width_path")]),
     },
     Claim {
         op: "Accumulator::sub_magnitude",
-        table_cost: Some("word-scale: amortized O(1); wide: amortized O(operand limbs)"),
+        table_cost: Some(r"word-scale: amortized O(1); wide: amortized O(\|delta\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "magnitude_dispatch_costs_its_width_path")]),
     },
     Claim {
@@ -231,27 +231,27 @@ pub(crate) const CLAIMS: &[Claim] = &[
     // ─────────────────────── accumulator operands ───────────────────────
     Claim {
         op: "Accumulator::add_accum",
-        table_cost: Some("amortized O(operand's held digits)"),
+        table_cost: Some(r"amortized O(\|other\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "accumulator_operand_rows_cost_the_operand")]),
     },
     Claim {
         op: "Accumulator::sub_accum",
-        table_cost: Some("amortized O(operand's held digits)"),
+        table_cost: Some(r"amortized O(\|other\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "accumulator_operand_rows_cost_the_operand")]),
     },
     Claim {
         op: "Accumulator::add_accum_shl",
-        table_cost: Some("amortized O(operand's held digits), independent of the shift"),
+        table_cost: Some(r"amortized O(\|other\|), independent of the shift"),
         evidence: Evidence::Witnessed(&[(OWN, "accumulator_operand_rows_cost_the_operand")]),
     },
     Claim {
         op: "Accumulator::sub_accum_shl",
-        table_cost: Some("amortized O(operand's held digits), independent of the shift"),
+        table_cost: Some(r"amortized O(\|other\|), independent of the shift"),
         evidence: Evidence::Witnessed(&[(OWN, "accumulator_operand_rows_cost_the_operand")]),
     },
     Claim {
         op: "Accumulator::merge_into_wider",
-        table_cost: Some("amortized O(narrower operand's held digits)"),
+        table_cost: Some(r"amortized O(min(\|self\|, \|other\|))"),
         evidence: Evidence::Witnessed(&[(OWN, "accumulator_operand_rows_cost_the_operand")]),
     },
     // ───────────────────────── sign queries ─────────────────────────────
@@ -303,27 +303,27 @@ pub(crate) const CLAIMS: &[Claim] = &[
     // ─────────────────────── held-width operations ──────────────────────
     Claim {
         op: "Accumulator::shl",
-        table_cost: Some("O(held digits)"),
+        table_cost: Some(r"O(\|self\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "held_width_rows_cost_the_held_digits")]),
     },
     Claim {
         op: "Accumulator::negate",
-        table_cost: Some("O(held digits)"),
+        table_cost: Some(r"O(\|self\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "held_width_rows_cost_the_held_digits")]),
     },
     Claim {
         op: "Accumulator::reset",
-        table_cost: Some("O(held digits)"),
+        table_cost: Some(r"O(\|self\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "held_width_rows_cost_the_held_digits")]),
     },
     Claim {
         op: "Accumulator::sign_magnitude",
-        table_cost: Some("O(held digits)"),
+        table_cost: Some(r"O(\|self\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "held_width_rows_cost_the_held_digits")]),
     },
     Claim {
         op: "Accumulator::sign_magnitude_shl",
-        table_cost: Some("O(the written span since the last reset)"),
+        table_cost: Some("O(w), w the written span since the last reset"),
         evidence: Evidence::Witnessed(&[
             (OWN, "scaled_read_costs_the_written_span"),
             (OWN, "scaled_read_costs_the_span_not_the_write_count"),
@@ -418,7 +418,13 @@ pub(crate) fn cost_table() -> Vec<(String, String)> {
         if !line.starts_with('|') {
             break;
         }
-        let cells: Vec<&str> = line.split('|').collect();
+        // Cells split on unescaped pipes only: `\|` inside a cell is
+        // markdown's literal bar (the size notation `|x|` uses it).
+        let masked = line.replace("\\|", "\u{0}");
+        let cells: Vec<String> = masked
+            .split('|')
+            .map(|c| c.replace('\u{0}', "\\|"))
+            .collect();
         assert_eq!(cells.len(), 4, "a table row is `| ops | cost |`: {line:?}");
         rows.push((cells[1].trim().to_owned(), cells[2].trim().to_owned()));
     }

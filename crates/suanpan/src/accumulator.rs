@@ -76,8 +76,8 @@ const QUICK_SHIFT_MAX: u64 = 30;
 ///
 /// # Complexity
 ///
-/// `Clone` and `Debug` `O(the digit buffer: the highest position ever
-/// written)`; `Default` `O(1)`.
+/// `Clone` and `Debug` `O(b)`, `b` the digit buffer (the highest
+/// position ever written); `Default` `O(1)`.
 /// The costs of the operations live on the operations (the crate docs'
 /// table is the overview); what is priced here is the derived surface.
 /// `Clone` and `Debug` walk the digit buffer, which covers the highest
@@ -248,7 +248,7 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(operand limbs)` digit touches, whatever the held width.
+    /// Amortized `O(|delta|)` digit touches, whatever the held width.
     pub fn add_wide(&mut self, delta: &UBig) {
         self.spill();
         self.apply_limbs(Limbs::new(delta), false, 0);
@@ -259,7 +259,7 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(operand limbs)` digit touches, whatever the held width.
+    /// Amortized `O(|delta|)` digit touches, whatever the held width.
     pub fn sub_wide(&mut self, delta: &UBig) {
         self.spill();
         self.apply_limbs(Limbs::new(delta), true, 0);
@@ -274,7 +274,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Word-scale operands amortized `O(1)` digit touches, wide operands
-    /// amortized `O(operand limbs)`.
+    /// amortized `O(|delta|)`.
     pub fn add_magnitude<M: Magnitude>(&mut self, delta: &M) {
         match delta.to_word() {
             Some(n) => self.add_u64(n),
@@ -289,7 +289,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Word-scale operands amortized `O(1)` digit touches, wide operands
-    /// amortized `O(operand limbs)`.
+    /// amortized `O(|delta|)`.
     pub fn sub_magnitude<M: Magnitude>(&mut self, delta: &M) {
         match delta.to_word() {
             Some(n) => self.sub_u64(n),
@@ -310,8 +310,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(operand limbs)` digit touches, independent of the
-    /// shift; the digit buffer grows to cover the shifted positions.
+    /// Amortized `O(|delta|)` digit touches, independent of the shift;
+    /// the digit buffer grows to cover the shifted positions.
     ///
     /// # Panics
     ///
@@ -334,8 +334,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(operand limbs)` digit touches, independent of the
-    /// shift; the digit buffer grows to cover the shifted positions.
+    /// Amortized `O(|delta|)` digit touches, independent of the shift;
+    /// the digit buffer grows to cover the shifted positions.
     ///
     /// # Panics
     ///
@@ -356,7 +356,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Word-scale operands amortized `O(1)` digit touches, wide operands
-    /// amortized `O(operand limbs)`, independent of the shift; the digit
+    /// amortized `O(|delta|)`, independent of the shift; the digit
     /// buffer grows to cover the shifted positions.
     ///
     /// # Panics
@@ -381,7 +381,7 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Word-scale operands amortized `O(1)` digit touches, wide operands
-    /// amortized `O(operand limbs)`, independent of the shift; the digit
+    /// amortized `O(|delta|)`, independent of the shift; the digit
     /// buffer grows to cover the shifted positions.
     ///
     /// # Panics
@@ -406,8 +406,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(the operand's held digits)` digit touches, whatever the
-    /// receiver's width.
+    /// Amortized `O(|other|)` digit touches, whatever the receiver's
+    /// width.
     pub fn add_accum(&mut self, other: &Accumulator) {
         self.fold_accum(other, 0, false);
     }
@@ -420,8 +420,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(the operand's held digits)` digit touches, whatever the
-    /// receiver's width.
+    /// Amortized `O(|other|)` digit touches, whatever the receiver's
+    /// width.
     pub fn sub_accum(&mut self, other: &Accumulator) {
         self.fold_accum(other, 0, true);
     }
@@ -438,8 +438,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(the operand's held digits)` digit touches, independent
-    /// of the shift; the digit buffer grows to cover the shifted positions.
+    /// Amortized `O(|other|)` digit touches, independent of the shift;
+    /// the digit buffer grows to cover the shifted positions.
     ///
     /// # Panics
     ///
@@ -461,8 +461,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(the operand's held digits)` digit touches, independent
-    /// of the shift; the digit buffer grows to cover the shifted positions.
+    /// Amortized `O(|other|)` digit touches, independent of the shift;
+    /// the digit buffer grows to cover the shifted positions.
     ///
     /// # Panics
     ///
@@ -530,7 +530,7 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// `O(held digits)` digit touches, independent of the shift; the digit
+    /// `O(|self|)` digit touches, independent of the shift; the digit
     /// buffer grows to cover the shifted positions.
     ///
     /// # Panics
@@ -568,7 +568,7 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// `O(held digits)` digit touches.
+    /// `O(|self|)` digit touches.
     pub fn negate(&mut self) {
         if let Some(v) = &mut self.quick {
             touch(1);
@@ -589,7 +589,7 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// `O(held digits)` digit touches.
+    /// `O(|self|)` digit touches.
     pub fn reset(&mut self) {
         if self.quick.is_none() {
             for digit in &mut self.digits[..=self.top] {
@@ -848,7 +848,7 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// `O(held digits)` digit touches and a same-order magnitude allocation.
+    /// `O(|self|)` digit touches and a same-order magnitude allocation.
     pub fn sign_magnitude(&self) -> (Ordering, UBig) {
         if let Some(v) = self.quick {
             touch(self.digit_count() as u64);
@@ -885,9 +885,10 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// `O(the written span)` digit touches — every digit from the lowest
-    /// position written since the last reset up to the top, never-written
-    /// gaps included — and a same-order magnitude allocation.
+    /// `O(w)` digit touches, `w` the written span — every digit from the
+    /// lowest position written since the last reset up to the top,
+    /// never-written gaps included — and a same-order magnitude
+    /// allocation.
     pub fn sign_magnitude_shl(&self) -> (Ordering, UBig, u64) {
         if let Some(v) = self.quick {
             touch(self.digit_count() as u64);
@@ -996,8 +997,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(the narrower operand's held digits)` digit touches,
-    /// plus an `O(1)` buffer swap.
+    /// Amortized `O(min(|self|, |other|))` digit touches, plus an
+    /// `O(1)` buffer swap.
     pub fn merge_into_wider(&mut self, other: Accumulator) -> Accumulator {
         let mut other = other;
         if other.digit_count() > self.digit_count() {
