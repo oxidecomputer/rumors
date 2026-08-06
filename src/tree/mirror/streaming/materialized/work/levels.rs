@@ -197,7 +197,7 @@ where
                 // Early supplies are absorbed here, ahead of the descent's
                 // resolver, so they pass the same containment check every
                 // other supply does.
-                if !contained(node.span().join(), &their_version) {
+                if !contained(node.span().hi(), &their_version) {
                     return violation(Violation::UncontainedSupply)?;
                 }
                 let children =

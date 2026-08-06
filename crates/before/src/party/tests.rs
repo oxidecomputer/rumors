@@ -31,10 +31,9 @@ fn world_parties(ops: &[crate::testing::optrace::Op]) -> Vec<Party> {
 proptest! {
     /// The balanced `join_all` is the sequential fold on parties.
     ///
-    /// Over one organic history's pairwise-disjoint parties, folding the
-    /// rest into any member returns `Ok` with exactly the party the
-    /// sequential `join`-per-input reference produces, in both input
-    /// orders.
+    /// Over one organic history's pairwise-disjoint parties, folding the rest
+    /// into any member returns `Ok` with exactly the party the sequential
+    /// `join`-per-input reference produces, in both input orders.
     #[test]
     fn join_all_matches_the_sequential_fold(ops in world_strategy(), i in 0usize..64, reverse in any::<bool>()) {
         let mut reference_pool = world_parties(&ops);
@@ -57,14 +56,14 @@ proptest! {
     }
 }
 
-/// Aliased inputs stay best-effort: a duplicated share collides on its
-/// way in and is handed back whole (nothing panics, nothing is dropped),
-/// while the honest copy of every share still reunites the seed region.
+/// Aliased inputs stay best-effort: a duplicated share collides on its way in
+/// and is handed back whole (nothing panics, nothing is dropped), while the
+/// honest copy of every share still reunites the seed region.
 ///
-/// The duplicate rides directly behind its original, so the collision
-/// happens original-against-duplicate; which parties come back for other
-/// interleavings is deliberately unspecified (the contract's
-/// order-dependence for aliased input).
+/// The duplicate rides directly behind its original, so the collision happens
+/// original-against-duplicate; which parties come back for other interleavings
+/// is deliberately unspecified (the contract's order-dependence for aliased
+/// input).
 #[test]
 fn join_all_hands_back_aliased_inputs() {
     let mut acc = Party::seed();
@@ -94,22 +93,21 @@ fn join_all_hands_back_aliased_inputs() {
 
 // ───────────────────── the fold's up-front index, differentially ─────────────────────
 //
-// `join_all`'s up-front overlap test runs against a per-call `IdIndex` of
-// the fixed accumulator; the index is a performance mechanism only, so
-// every observable outcome — the hand-back vector (contents *and* order)
-// and the final accumulator — must be exactly what the documented
-// discipline decides. The recursive oracle's `join_all` (`oracle::Party`)
-// is that discipline's reference spelling, and these differentials pin
-// production against it across arbitrary mixes and the named adversarial
-// ones. The up-front predicate's mechanism seam — `IdIndex` against the
-// cursor walk — is pinned separately by
+// `join_all`'s up-front overlap test runs against a per-call `IdIndex` of the
+// fixed accumulator; the index is a performance mechanism only, so every
+// observable outcome — the hand-back vector (contents *and* order) and the
+// final accumulator — must be exactly what the documented discipline decides.
+// The recursive oracle's `join_all` (`oracle::Party`) is that discipline's
+// reference spelling, and these differentials pin production against it across
+// arbitrary mixes and the named adversarial ones. The up-front predicate's
+// mechanism seam — `IdIndex` against the cursor walk — is pinned separately by
 // `indexed_disjointness_matches_the_cursor_walk[_deep]` below.
 
-/// With no overlap anywhere, the production fold and the recursive
-/// oracle agree.
+/// With no overlap anywhere, the production fold and the recursive oracle
+/// agree.
 ///
-/// A forked population reuniting: both return `Ok` and rebuild the
-/// same accumulator.
+/// A forked population reuniting: both return `Ok` and rebuild the same
+/// accumulator.
 #[test]
 fn join_all_agrees_with_oracle_when_none_overlap() {
     let mut acc = Party::seed();
@@ -117,23 +115,21 @@ fn join_all_agrees_with_oracle_when_none_overlap() {
     assert_join_all_matches_recursive_oracle(acc, shares);
 }
 
-/// A group retained on the stack by a failed weight-1 combine — the
-/// over-full counter slot — keeps coalescing with later inputs exactly
-/// as the recursive oracle says.
+/// A group retained on the stack by a failed weight-1 combine — the over-full
+/// counter slot — keeps coalescing with later inputs exactly as the recursive
+/// oracle says.
 ///
-/// The deterministic witness for the fold's hand-back-retention arm
-/// (`fold.rs`, the failed-combine path whose newer group has already
-/// coalesced). Feed order [a, b, alias(a), c, d, e] over
-/// pairwise-disjoint forks: a∪b coalesces to weight 1; alias(a) enters
-/// at weight 0; c merges with it; the weight-1 combine of a∪b with
-/// alias∪c fails on the alias and retains alias∪c on the stack; d∪e
-/// then coalesces and merges INTO the retained group (weight 2), so the
-/// hand-back is the four-input group alias∪c∪d∪e and the accumulator
-/// absorbs only a∪b. Misrouting the retained group to the rejection
-/// channel instead hands back alias∪c alone and absorbs d∪e —
-/// divergent on both observables. (The narrower [a, b, alias(a), c]
-/// shape reaches the arm but not the divergence: the closing drain
-/// rejects the retained group either way.)
+/// The deterministic witness for the fold's hand-back-retention arm (`fold.rs`,
+/// the failed-combine path whose newer group has already coalesced). Feed order
+/// [a, b, alias(a), c, d, e] over pairwise-disjoint forks: a∪b coalesces to
+/// weight 1; alias(a) enters at weight 0; c merges with it; the weight-1
+/// combine of a∪b with alias∪c fails on the alias and retains alias∪c on the
+/// stack; d∪e then coalesces and merges INTO the retained group (weight 2), so
+/// the hand-back is the four-input group alias∪c∪d∪e and the accumulator
+/// absorbs only a∪b. Misrouting the retained group to the rejection channel
+/// instead hands back alias∪c alone and absorbs d∪e — divergent on both
+/// observables. (The narrower [a, b, alias(a), c] shape reaches the arm but not
+/// the divergence: the closing drain rejects the retained group either way.)
 #[test]
 fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
     let mut acc = Party::seed();
@@ -147,12 +143,11 @@ fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
     assert_join_all_matches_recursive_oracle(acc, vec![a, b, alias, c, d, e]);
 }
 
-/// The hand-back outcome is invariant to where the overlapping input
-/// sits in the sequence — first, interior, or last.
+/// The hand-back outcome is invariant to where the overlapping input sits in
+/// the sequence — first, interior, or last.
 ///
-/// The production fold and the recursive oracle hand back exactly the
-/// aliased input at every position, with the honest shares still
-/// reuniting.
+/// The production fold and the recursive oracle hand back exactly the aliased
+/// input at every position, with the honest shares still reuniting.
 #[test]
 fn join_all_agrees_with_oracle_at_every_overlap_position() {
     for position in [0usize, 2, 4] {
@@ -165,13 +160,12 @@ fn join_all_agrees_with_oracle_at_every_overlap_position() {
     }
 }
 
-/// On the maximally-deferred witness, the production fold and the
-/// recursive oracle hand every input back in order and leave the
-/// accumulator untouched.
+/// On the maximally-deferred witness, the production fold and the recursive
+/// oracle hand every input back in order and leave the accumulator untouched.
 ///
-/// Every input aliases a deep spine accumulator whose single owned
-/// region is its preorder-last tip, so each overlap test resolves only
-/// at the stream's end.
+/// Every input aliases a deep spine accumulator whose single owned region is
+/// its preorder-last tip, so each overlap test resolves only at the stream's
+/// end.
 #[test]
 fn join_all_agrees_with_oracle_on_all_overlapping_deferred_witness() {
     let acc = shape_party(Shape::RightSpine, 64);
@@ -179,13 +173,12 @@ fn join_all_agrees_with_oracle_on_all_overlapping_deferred_witness() {
     assert_join_all_matches_recursive_oracle(acc, inputs);
 }
 
-/// Run the production fold and the recursive oracle's `join_all` over one
-/// input population and assert identical outcomes, compared over logical
-/// trees.
+/// Run the production fold and the recursive oracle's `join_all` over one input
+/// population and assert identical outcomes, compared over logical trees.
 ///
-/// Identical outcomes: the same `Ok`/`Err` verdict, the same hand-back
-/// vector (contents *and* order, element-wise over `to_oracle_party`),
-/// and accumulators lowering to the same oracle tree.
+/// Identical outcomes: the same `Ok`/`Err` verdict, the same hand-back vector
+/// (contents *and* order, element-wise over `to_oracle_party`), and
+/// accumulators lowering to the same oracle tree.
 fn assert_join_all_matches_recursive_oracle(mut acc: Party, inputs: Vec<Party>) {
     let mut oracle_acc = to_oracle_party(&acc);
     let oracle_inputs: Vec<oracle::Party> = inputs.iter().map(to_oracle_party).collect();
@@ -209,12 +202,11 @@ proptest! {
     /// The production `join_all` decides exactly as the recursive oracle's
     /// `join_all` over arbitrary normal-form mixes.
     ///
-    /// An arbitrary accumulator against inputs drawn with repetition
-    /// from an arbitrary pool — mixed sizes, duplicates, and every
-    /// overlap disposition (against the accumulator, against each
-    /// other, or none) arise from the draws — with identical hand-backs
-    /// (contents and order) and accumulators lowering to the same
-    /// oracle tree.
+    /// An arbitrary accumulator against inputs drawn with repetition from an
+    /// arbitrary pool — mixed sizes, duplicates, and every overlap disposition
+    /// (against the accumulator, against each other, or none) arise from the
+    /// draws — with identical hand-backs (contents and order) and accumulators
+    /// lowering to the same oracle tree.
     #[test]
     fn join_all_matches_the_recursive_oracle(
         oacc in arb_oracle_party_nonempty(),
@@ -237,10 +229,10 @@ proptest! {
     /// `is_seed` ⟺ the oracle party is the full region, over arbitrary
     /// normal-form parties.
     ///
-    /// In normal form the full region is exactly the oracle's
-    /// `Leaf(true)` (= `oracle::Party::seed()`), so the production O(1)
-    /// test is bound to the oracle's notion of fullness; the nonempty
-    /// generator produces the full leaf, so both arms are exercised.
+    /// In normal form the full region is exactly the oracle's `Leaf(true)` (=
+    /// `oracle::Party::seed()`), so the production O(1) test is bound to the
+    /// oracle's notion of fullness; the nonempty generator produces the full
+    /// leaf, so both arms are exercised.
     #[test]
     fn is_seed_matches_the_oracle(op in arb_oracle_party_nonempty()) {
         prop_assert_eq!(from_oracle_party(&op).is_seed(), op == oracle::Party::seed());
@@ -290,10 +282,10 @@ proptest! {
     }
 }
 
-// The covering/fork-lattice laws, the join-overlap hand-back, and the
-// aliasing geometry live in `crate::laws` and are driven by the
-// algebraic-laws suite over both arbitrary and op-trace parties; this file
-// keeps the oracle differentials.
+// The covering/fork-lattice laws, the join-overlap hand-back, and the aliasing
+// geometry live in `crate::laws` and are driven by the algebraic-laws suite
+// over both arbitrary and op-trace parties; this file keeps the oracle
+// differentials.
 
 // ───────────────────────── paper-notation TryFrom ─────────────────────────
 
@@ -336,13 +328,13 @@ proptest! {
 }
 
 proptest! {
-    /// The per-call [`IdIndex`] answers disjointness with the identical
-    /// verdict as the cursor walk, over arbitrary normal-form pairs —
-    /// typically unrelated, frequently overlapping — in both roles
-    /// (either operand indexed).
+    /// The per-call [`IdIndex`] answers disjointness with the identical verdict
+    /// as the cursor walk, over arbitrary normal-form pairs — typically
+    /// unrelated, frequently overlapping — in both roles (either operand
+    /// indexed).
     ///
-    /// This is the fold's semantic seam: `join_all`'s up-front test may
-    /// differ from `is_disjoint` in mechanism only.
+    /// This is the fold's semantic seam: `join_all`'s up-front test may differ
+    /// from `is_disjoint` in mechanism only.
     #[test]
     fn indexed_disjointness_matches_the_cursor_walk(
         oa in arb_oracle_party_nonempty(),
@@ -356,14 +348,13 @@ proptest! {
 }
 
 proptest! {
-    /// The per-call [`IdIndex`] matches the cursor walk on *deep*
-    /// operand pairs, where the arbitrary generator stays shallow.
+    /// The per-call [`IdIndex`] matches the cursor walk on *deep* operand
+    /// pairs, where the arbitrary generator stays shallow.
     ///
-    /// Spines, zigzags, and bushy shapes at scale, in both roles —
-    /// driving the index's table search and its skip-free descent
-    /// through real depth, on disjoint pairs (both single-tip spine
-    /// halves and the misaligned skip-stress pair) and overlapping
-    /// ones (a shape against itself).
+    /// Spines, zigzags, and bushy shapes at scale, in both roles — driving the
+    /// index's table search and its skip-free descent through real depth, on
+    /// disjoint pairs (both single-tip spine halves and the misaligned
+    /// skip-stress pair) and overlapping ones (a shape against itself).
     #[test]
     fn indexed_disjointness_matches_the_cursor_walk_deep(
         shape_a in arb_shape(),
@@ -408,8 +399,8 @@ proptest! {
     /// merged id exactly when the pair is disjoint (matching
     /// `oracle::Party::join`), and `None` on overlap.
     ///
-    /// The op pipeline only ever sums disjoint halves, so the overlap `None` arm
-    /// is otherwise untested at arbitrary shapes.
+    /// The op pipeline only ever sums disjoint halves, so the overlap `None`
+    /// arm is otherwise untested at arbitrary shapes.
     #[test]
     fn sum_arbitrary(
         oa in arb_oracle_party(),
@@ -430,15 +421,15 @@ proptest! {
 }
 
 proptest! {
-    /// The fused `sum_split` equals its composition — `sum`, then `split`
-    /// of the union — arm for arm on arbitrary id pairs.
+    /// The fused `sum_split` equals its composition — `sum`, then `split` of
+    /// the union — arm for arm on arbitrary id pairs.
     ///
-    /// Byte-identical halves where the pair is disjoint, `None` exactly
-    /// where `sum` refuses (overlap), the empty-operand identities
-    /// included. This is the total oracle for the fusion (canonical
-    /// uniqueness makes byte equality the whole contract); the arbitrary
-    /// pairs reach the overlap arm and the union-collapse seam (both
-    /// branch children full) that seed-derived populations never produce.
+    /// Byte-identical halves where the pair is disjoint, `None` exactly where
+    /// `sum` refuses (overlap), the empty-operand identities included. This is
+    /// the total oracle for the fusion (canonical uniqueness makes byte
+    /// equality the whole contract); the arbitrary pairs reach the overlap arm
+    /// and the union-collapse seam (both branch children full) that
+    /// seed-derived populations never produce.
     #[test]
     fn sum_split_is_sum_then_split(
         oa in arb_oracle_party(),
@@ -453,13 +444,13 @@ proptest! {
     }
 }
 
-/// The branch-collapse seam of `sum_split`, deterministically:
-/// `(1, 0) + (0, 1)` re-splits to `((1, 0), (0, 1))`.
+/// The branch-collapse seam of `sum_split`, deterministically: `(1, 0) + (0,
+/// 1)` re-splits to `((1, 0), (0, 1))`.
 ///
-/// Summing the two halves of the seed makes both union children full, so
-/// the built union collapses to the seed's terminal and `split` lands in
-/// its terminal arm — the fused walk, which never builds the union, must
-/// emit those exact bytes from its branch arm.
+/// Summing the two halves of the seed makes both union children full, so the
+/// built union collapses to the seed's terminal and `split` lands in its
+/// terminal arm — the fused walk, which never builds the union, must emit those
+/// exact bytes from its branch arm.
 #[test]
 fn sum_split_collapsed_union_matches_terminal_split() {
     let mut keep = Party::seed();
@@ -476,20 +467,18 @@ fn sum_split_collapsed_union_matches_terminal_split() {
     assert_eq!(Party::from_bits(fused.1), give, "the give half is (0, 1)");
 }
 
-/// Deep constructed id pairs hold `sum_split` to its composition beyond
-/// the arbitrary generator's reach.
+/// Deep constructed id pairs hold `sum_split` to its composition beyond the
+/// arbitrary generator's reach.
 ///
-/// `arb_oracle_party` recurses a handful of levels, so every genre here
-/// is otherwise unsampled: a kilolevel lockstep spine ending at the
-/// union-collapse seam (adjacent sibling cells at depth), whole-branch
-/// delegation whose merge cascade-collapses to the terminal level by
-/// level, a deep subtree spliced verbatim from one side alone, a
-/// targeted branch whose merged child collapses inside the delegated
-/// `sum`, overlap detected at depth (on the spine and inside the
-/// delegated merge), and the root-leaf/empty-operand arms. Each case
-/// asserts byte equality with `sum`-then-`split` (`None` arms
-/// included); the deep cases double as stack-safety proof for the
-/// fused walk's loop.
+/// `arb_oracle_party` recurses a handful of levels, so every genre here is
+/// otherwise unsampled: a kilolevel lockstep spine ending at the union-collapse
+/// seam (adjacent sibling cells at depth), whole-branch delegation whose merge
+/// cascade-collapses to the terminal level by level, a deep subtree spliced
+/// verbatim from one side alone, a targeted branch whose merged child collapses
+/// inside the delegated `sum`, overlap detected at depth (on the spine and
+/// inside the delegated merge), and the root-leaf/empty-operand arms. Each case
+/// asserts byte equality with `sum`-then-`split` (`None` arms included); the
+/// deep cases double as stack-safety proof for the fused walk's loop.
 mod sum_split_constructed {
     use super::*;
     use crate::codec::BitsMut;
@@ -502,8 +491,8 @@ mod sum_split_constructed {
         b
     }
 
-    /// An internal node over the present children (normal form is the
-    /// caller's obligation: at least one child, never two terminals).
+    /// An internal node over the present children (normal form is the caller's
+    /// obligation: at least one child, never two terminals).
     fn node(left: Option<&BitsMut>, right: Option<&BitsMut>) -> BitsMut {
         let mut b = BitsMut::new();
         b.push(left.is_some());
@@ -517,8 +506,8 @@ mod sum_split_constructed {
         b
     }
 
-    /// `levels` unary nodes toward `left_side` over `tail` (built
-    /// tags-first, so a deep spine costs one pass, not one per level).
+    /// `levels` unary nodes toward `left_side` over `tail` (built tags-first,
+    /// so a deep spine costs one pass, not one per level).
     fn spine(levels: usize, left_side: bool, tail: BitsMut) -> BitsMut {
         let mut b = BitsMut::with_capacity(2 * levels + tail.len());
         for _ in 0..levels {
@@ -534,12 +523,12 @@ mod sum_split_constructed {
         spine(k, true, full())
     }
 
-    /// The complement of [`leftmost`]`(k)`: the right half owned at
-    /// every level.
+    /// The complement of [`leftmost`]`(k)`: the right half owned at every
+    /// level.
     ///
-    /// Built by one preorder pass — `k − 1` both-present nodes whose
-    /// left child continues and whose right child is full, then the
-    /// deepest right-only cell.
+    /// Built by one preorder pass — `k − 1` both-present nodes whose left child
+    /// continues and whose right child is full, then the deepest right-only
+    /// cell.
     fn complement_leftmost(k: usize) -> BitsMut {
         let mut b = BitsMut::with_capacity(4 * k);
         for _ in 1..k {
@@ -555,8 +544,8 @@ mod sum_split_constructed {
         b
     }
 
-    /// The fused walk against its composition on one id pair, in both
-    /// operand orders (byte equality, `None` arms included).
+    /// The fused walk against its composition on one id pair, in both operand
+    /// orders (byte equality, `None` arms included).
     fn assert_matches_composition(a: &BitsMut, b: &BitsMut) {
         for (x, y) in [(a, b), (b, a)] {
             let fused = IdReader::root(x).sum_split(IdReader::root(y));
@@ -567,13 +556,13 @@ mod sum_split_constructed {
         }
     }
 
-    /// Levels enough that no recursive generator plausibly reaches them
-    /// and a per-level stack frame would overflow.
+    /// Levels enough that no recursive generator plausibly reaches them and a
+    /// per-level stack frame would overflow.
     const DEEP: usize = 10_000;
 
-    /// Adjacent sibling cells at depth `DEEP`: the lockstep spine runs
-    /// the whole way down and the union collapses at the deepest branch
-    /// (both children full), the terminal-split seam far from the root.
+    /// Adjacent sibling cells at depth `DEEP`: the lockstep spine runs the
+    /// whole way down and the union collapses at the deepest branch (both
+    /// children full), the terminal-split seam far from the root.
     #[test]
     fn deep_adjacent_cells_collapse_at_the_branch() {
         let a = leftmost(DEEP);
@@ -581,9 +570,9 @@ mod sum_split_constructed {
         assert_matches_composition(&a, &b);
     }
 
-    /// A cell and its exact complement under a shared spine: the walk
-    /// delegates the whole branch pair, and the delegated `sum`
-    /// cascade-collapses every level to the terminal.
+    /// A cell and its exact complement under a shared spine: the walk delegates
+    /// the whole branch pair, and the delegated `sum` cascade-collapses every
+    /// level to the terminal.
     #[test]
     fn deep_delegated_merge_cascade_collapses() {
         let a = spine(DEEP, false, leftmost(DEEP));
@@ -591,9 +580,9 @@ mod sum_split_constructed {
         assert_matches_composition(&a, &b);
     }
 
-    /// One side owns the left half whole; the other owns a deep cell of
-    /// the right half: both branch children splice verbatim, the deep
-    /// subtree unread.
+    /// One side owns the left half whole; the other owns a deep cell of the
+    /// right half: both branch children splice verbatim, the deep subtree
+    /// unread.
     #[test]
     fn deep_subtree_splices_verbatim() {
         let a = node(Some(&full()), None);
@@ -601,9 +590,9 @@ mod sum_split_constructed {
         assert_matches_composition(&a, &b);
     }
 
-    /// A both-present operand against a right-only one at a deep branch:
-    /// the kept child splices verbatim past the operand's paid skip, and
-    /// the merged child collapses inside the delegated `sum`.
+    /// A both-present operand against a right-only one at a deep branch: the
+    /// kept child splices verbatim past the operand's paid skip, and the merged
+    /// child collapses inside the delegated `sum`.
     #[test]
     fn deep_targeted_branch_with_collapsing_merged_child() {
         let quarter_left = node(Some(&full()), None);
@@ -613,9 +602,9 @@ mod sum_split_constructed {
         assert_matches_composition(&a, &b);
     }
 
-    /// Overlap at depth is `None` exactly where the composition refuses:
-    /// an identical deep pair (full meets nonempty on the spine's
-    /// terminal), and an overlap buried inside a delegated merge.
+    /// Overlap at depth is `None` exactly where the composition refuses: an
+    /// identical deep pair (full meets nonempty on the spine's terminal), and
+    /// an overlap buried inside a delegated merge.
     #[test]
     fn deep_overlap_is_refused() {
         let a = leftmost(DEEP);
@@ -627,16 +616,15 @@ mod sum_split_constructed {
     }
 
     /// The fused walk's scan never exceeds its composition's, and a
-    /// splice-resolved pair reads `O(1)` bits however deep the spliced
-    /// subtree.
+    /// splice-resolved pair reads `O(1)` bits however deep the spliced subtree.
     ///
-    /// The method doc's cost claim, held by meter on the three
-    /// constructed regimes at two scales each: whole-branch delegation
-    /// (the composition's bytes minus the built union's spine), the
-    /// pure splice (constant root reads, the honest sub-linear arm the
-    /// `clock_sync` board floors are derived around), and the lockstep
-    /// spine to a targeted branch. A fused walk that re-reads a skipped
-    /// child or scans a spliced subtree moves the ratio above one.
+    /// The method doc's cost claim, held by meter on the three constructed
+    /// regimes at two scales each: whole-branch delegation (the composition's
+    /// bytes minus the built union's spine), the pure splice (constant root
+    /// reads, the honest sub-linear arm the `clock_sync` board floors are
+    /// derived around), and the lockstep spine to a targeted branch. A fused
+    /// walk that re-reads a skipped child or scans a spliced subtree moves the
+    /// ratio above one.
     #[cfg(feature = "scan-meter")]
     #[test]
     fn sum_split_scan_never_exceeds_the_composition() {
@@ -685,9 +673,9 @@ mod sum_split_constructed {
         }
     }
 
-    /// The root-owning and empty operands ride the same equalities: the
-    /// full leaf overlaps every nonempty id, an empty side hands the
-    /// split of the other, and two empties split to empties.
+    /// The root-owning and empty operands ride the same equalities: the full
+    /// leaf overlaps every nonempty id, an empty side hands the split of the
+    /// other, and two empties split to empties.
     #[test]
     fn root_leaf_and_empty_operands_match_composition() {
         let empty = BitsMut::new();
@@ -776,10 +764,10 @@ proptest! {
     /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
     /// bit-level compare of the live id streams, in both operand orders.
     ///
-    /// The cross-check that the canonical-raw-slice invariant (dead bits
-    /// zeroed at every storage seam) really licenses the byte shortcut
-    /// over raw bytes plus live length. Equal values must also hash
-    /// equally (`Eq`/`Hash` consistency).
+    /// The cross-check that the canonical-raw-slice invariant (dead bits zeroed
+    /// at every storage seam) really licenses the byte shortcut over raw bytes
+    /// plus live length. Equal values must also hash equally (`Eq`/`Hash`
+    /// consistency).
     #[test]
     fn byte_equality_matches_bit_equality(
         oa in arb_oracle_party_nonempty(),
@@ -804,25 +792,23 @@ proptest! {
 
 // ───────────────────── fork orbits: iterated size trajectories ─────────────────────
 //
-// A per-call cost bound does not preclude compounding: an operation can
-// be cheap per call while its output grows so that iterated application
-// is quadratic in total work. These pins fix the size trajectory of
-// iterated fork — deterministic, exact at every step, so the whole
-// shape is asserted and tuning any one point cannot pass. A future
-// change that makes repeated forking mint more than its one tree level
-// per split trips a committed diff here.
+// A per-call cost bound does not preclude compounding: an operation can be
+// cheap per call while its output grows so that iterated application is
+// quadratic in total work. These pins fix the size trajectory of iterated fork
+// — deterministic, exact at every step, so the whole shape is asserted and
+// tuning any one point cannot pass. A future change that makes repeated forking
+// mint more than its one tree level per split trips a committed diff here.
 
 /// An iterated fork chain's id sizes are exactly affine.
 ///
-/// Following the forked-off child each round (the mover lineage
-/// descends one level per split), both halves read exactly `2 + 2·k`
-/// encoded bits after the k-th fork, for every k — one two-bit tree
-/// level per fork, nothing compounding [measured: exact at all 512
-/// steps].
+/// Following the forked-off child each round (the mover lineage descends one
+/// level per split), both halves read exactly `2 + 2·k` encoded bits after the
+/// k-th fork, for every k — one two-bit tree level per fork, nothing
+/// compounding [measured: exact at all 512 steps].
 ///
-/// Liveness floor: the trajectory's equality at `k = 512` is itself the
-/// floor — a chain that stopped splitting would read short of 1026
-/// bits. Budget: 512 forks of O(depth) each, milliseconds.
+/// Liveness floor: the trajectory's equality at `k = 512` is itself the floor —
+/// a chain that stopped splitting would read short of 1026 bits. Budget: 512
+/// forks of O(depth) each, milliseconds.
 #[test]
 fn fork_chain_orbit_sizes_are_exactly_affine() {
     let mut p = Party::seed();
@@ -837,17 +823,15 @@ fn fork_chain_orbit_sizes_are_exactly_affine() {
 
 /// An iterated fork fan grows exactly affine and unwinds exactly.
 ///
-/// Each round forks a fresh child off the root lineage (the keeper
-/// deepens one level per split), both halves reading exactly `2 + 2·k`
-/// encoded bits at the k-th fork; rejoining the children in reverse
-/// order then walks the root back down the same trajectory, ending
-/// byte-identical to the seed — sizes return, never ratchet [measured:
-/// exact at all 512 steps, both directions].
+/// Each round forks a fresh child off the root lineage (the keeper deepens one
+/// level per split), both halves reading exactly `2 + 2·k` encoded bits at the
+/// k-th fork; rejoining the children in reverse order then walks the root back
+/// down the same trajectory, ending byte-identical to the seed — sizes return,
+/// never ratchet [measured: exact at all 512 steps, both directions].
 ///
-/// Liveness floor: the root must visit 1026 bits at the fan's rim and
-/// end `is_seed` — an unwind that dropped or double-counted a share
-/// would miss one or the other. Budget: 512 forks + 512 joins,
-/// milliseconds.
+/// Liveness floor: the root must visit 1026 bits at the fan's rim and end
+/// `is_seed` — an unwind that dropped or double-counted a share would miss one
+/// or the other. Budget: 512 forks + 512 joins, milliseconds.
 #[test]
 fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
     let mut root = Party::seed();
@@ -874,9 +858,9 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
     assert!(root.is_seed(), "the fully unwound fan is the seed again");
 }
 
-/// The two parity halves of one balanced fork expansion at `2^d` leaves:
-/// every internal node of the shared skeleton is both-present in both
-/// halves — the population whose overlap test is search-dominated.
+/// The two parity halves of one balanced fork expansion at `2^d` leaves: every
+/// internal node of the shared skeleton is both-present in both halves — the
+/// population whose overlap test is search-dominated.
 #[cfg(feature = "scan-meter")]
 fn parity_halves(d: usize) -> (Party, Party) {
     let mut parties = vec![Party::seed()];
@@ -903,20 +887,18 @@ fn parity_halves(d: usize) -> (Party, Party) {
 
 /// The indexed disjointness test's table searches stay metered.
 ///
-/// On the parity halves — every skeleton node both-present, so the test
-/// runs one table search per node — the scan counter reads at least the
-/// committed floor, which sits far above what the walk's tag reads
-/// alone could reach.
+/// On the parity halves — every skeleton node both-present, so the test runs
+/// one table search per node — the scan counter reads at least the committed
+/// floor, which sits far above what the walk's tag reads alone could reach.
 ///
-/// The liveness leg of the fold index's search metering: the searches
-/// are the dominant cost on correlated populations,
-/// and a change that routes them around the scan recorder would leave
-/// that cost visible to no deterministic counter. Floor = the measured
-/// reading ×0.75 (the envelope suite's liveness-floor convention);
-/// re-derive it in any diff that legitimately does fewer probes.
-/// \[Measured 135_196 bits at d = 10, dev profile; the
-/// cursor co-walk reads 6_140 bits on the same pair, so a de-metered
-/// search would read more than an order under the floor.\]
+/// The liveness leg of the fold index's search metering: the searches are the
+/// dominant cost on correlated populations, and a change that routes them
+/// around the scan recorder would leave that cost visible to no deterministic
+/// counter. Floor = the measured reading ×0.75 (the envelope suite's
+/// liveness-floor convention); re-derive it in any diff that legitimately does
+/// fewer probes. \[Measured 135_196 bits at d = 10, dev profile; the cursor
+/// co-walk reads 6_140 bits on the same pair, so a de-metered search would read
+/// more than an order under the floor.\]
 #[cfg(feature = "scan-meter")]
 #[test]
 fn indexed_disjointness_search_bits_stay_metered() {

@@ -7,113 +7,21 @@ use dashu_int::ops::BitTest;
 use dashu_int::UBig;
 use suanpan::Limbs;
 
-/// Process-global counter of big-integer limb-scale work.
-///
-/// Arithmetic-width cost is invisible to every other meter: a magnitude
-/// blowup performs no extra allocations a peak-heap meter would see and
-/// scans no extra stream bits the scan meter would see — the work is
-/// wider, not more frequent. The proxy counted here is the operands' 64-bit limb counts
-/// per `Base` operation — arithmetic, comparison, equality, and hashing all
-/// record before they run, and the wide-gamma decode in `codec::gamma`
-/// records one value-width count per decoded value — so amortized-linear
-/// algorithms count linearly in
-/// packed input bits and magnitude-quadratic ones count quadratically.
-/// Relaxed ordering suffices:
-/// the metering binaries run one scenario per process and read the counter
-/// only after the metered call returns.
+// Test-only metering for big-arithmetic operations:
 #[cfg(feature = "limb-meter")]
-pub(crate) mod limb_meter {
-    use core::sync::atomic::{AtomicU64, Ordering};
-
-    static LIMB_OPS: AtomicU64 = AtomicU64::new(0);
-
-    /// Add `n` operand limbs to the counter.
-    pub(crate) fn record(n: u64) {
-        LIMB_OPS.fetch_add(n, Ordering::Relaxed);
-    }
-
-    /// Record the limb width of a raw `UBig` working value.
-    pub(crate) fn record_wide(n: &dashu_int::UBig) {
-        use dashu_int::ops::BitTest;
-        record((n.bit_len() as u64).div_ceil(64).max(1));
-    }
-
-    /// The limb operations recorded since the last [`reset`].
-    pub(crate) fn limb_ops() -> u64 {
-        LIMB_OPS.load(Ordering::Relaxed)
-    }
-
-    /// Reset the counter to zero.
-    pub(crate) fn reset() {
-        LIMB_OPS.store(0, Ordering::Relaxed);
-    }
-}
-
-/// Record a two-`Base` arithmetic operation's limb-scale work.
-///
-/// Compiles to nothing without the `limb-meter` feature, so every operation
-/// below can call it unconditionally.
-#[inline(always)]
-fn meter_limbs2(a: &Base, b: &Base) {
-    #[cfg(feature = "limb-meter")]
-    limb_meter::record(a.limbs() + b.limbs());
-    #[cfg(not(feature = "limb-meter"))]
-    let _ = (a, b);
-}
-
-/// Record a `Base`-with-machine-scalar operation's limb-scale work (the
-/// scalar counts as one limb).
-///
-/// Compiles to nothing without the `limb-meter` feature.
-#[inline(always)]
-fn meter_limbs1(a: &Base) {
-    #[cfg(feature = "limb-meter")]
-    limb_meter::record(a.limbs() + 1);
-    #[cfg(not(feature = "limb-meter"))]
-    let _ = a;
-}
-
-/// Record a single-operand `Base` operation's limb-scale work (hashing
-/// walks every limb of its one operand).
-///
-/// Compiles to nothing without the `limb-meter` feature.
-#[inline(always)]
-fn meter_limbs_solo(a: &Base) {
-    #[cfg(feature = "limb-meter")]
-    limb_meter::record(a.limbs());
-    #[cfg(not(feature = "limb-meter"))]
-    let _ = a;
-}
-
-/// Record a widening left shift's limb-scale work: the operand's limbs
-/// plus one per 64 shifted-in bits, plus one for the scalar.
-///
-/// The output spans `operand + rhs/64` limbs and the backend materializes
-/// every one of them, so recording the operand alone would let a
-/// shift-and-discard loop read near-zero while doing width-scale work.
-/// The narrowing right shift stays on the operand-width recorder: its
-/// output can only shrink, so the operand covers the cost. Compiles to
-/// nothing without the `limb-meter` feature.
-#[inline(always)]
-fn meter_limbs_shl(a: &Base, rhs: u64) {
-    #[cfg(feature = "limb-meter")]
-    limb_meter::record(a.limbs() + rhs / 64 + 1);
-    #[cfg(not(feature = "limb-meter"))]
-    let _ = (a, rhs);
-}
+pub(crate) mod limb_meter;
+pub(crate) mod limb_metered;
+use limb_metered::*;
 
 /// An event tree's stored integer magnitude.
 ///
 /// ITC event counts (path sums of `tick`s, the `max`/`join` of two such sums)
 /// grow without bound, so the value type preserves arbitrary precision: no
 /// `u64` overflow class, in any build profile. A thin metered wrapper around
-/// [`UBig`]: every operation records its operands' 64-bit limb widths into
-/// the limb meter, then delegates the arithmetic whole. Values up to two
-/// machine words stay inline in the wrapped representation, so the common
-/// small magnitudes never allocate.
-// `PartialEq` and `Hash` are manual (below) so the limb meter sees
-// width-scale equality and hashing work; both keep exactly the structural
-// semantics a derive would generate.
+/// [`UBig`]: every operation records its operands' 64-bit limb widths into the
+/// limb meter, then delegates the arithmetic whole. Values up to two machine
+/// words stay inline in the wrapped representation, so the common small
+/// magnitudes never allocate.
 #[derive(Clone, Debug, Eq)]
 pub struct Base(pub(crate) UBig);
 

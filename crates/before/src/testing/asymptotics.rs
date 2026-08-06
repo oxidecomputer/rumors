@@ -121,13 +121,15 @@ fn door_scan_bits<R>(name: &str, n: usize, input_bytes: usize, run: impl FnOnce(
     bits
 }
 
-/// Scan work of one `Version::join_all` over the stagger population.
+/// Scan work of one `Version::join_all` over the stagger population
+/// (the first element as the receiver, the rest as items).
 #[cfg(feature = "scan-meter")]
 fn join_all_scan_bits(n: usize) -> u64 {
-    let population = stagger_versions(n);
+    let mut population = stagger_versions(n);
     let bytes: usize = population.iter().map(|v| v.encode().len()).sum();
+    let receiver = population.remove(0);
     door_scan_bits("version_join_all_scan", n, bytes, || {
-        crate::Version::join_all(population)
+        receiver.join_all(population)
     })
 }
 
@@ -162,13 +164,14 @@ fn stagger_notch_versions(n: usize) -> Vec<crate::Version> {
 }
 
 /// Scan work of one `Version::meet_all` over the staggered notch
-/// population.
+/// population (the first element as the receiver, the rest as items).
 #[cfg(feature = "scan-meter")]
 fn meet_all_scan_bits(n: usize) -> u64 {
-    let population = stagger_notch_versions(n);
+    let mut population = stagger_notch_versions(n);
     let bytes: usize = population.iter().map(|v| v.encode().len()).sum();
+    let receiver = population.remove(0);
     door_scan_bits("version_meet_all_scan", n, bytes, || {
-        crate::Version::meet_all(population).expect("the notch population is nonempty")
+        receiver.meet_all(population)
     })
 }
 

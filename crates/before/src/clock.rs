@@ -231,8 +231,8 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time,
-    /// `O(|self| + |iter|)` auxiliary space.
+    /// `O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, where
+    /// `k` is the count of `iter`, `O(|self| + |iter|)` auxiliary space.
     ///
     /// # Example
     ///
@@ -466,15 +466,14 @@ impl Clock {
     /// Prefer this to iteratively [`recv`](Clock::recv)-ing [`Version`]s
     /// one-at-a-time, which is less efficient than this method.
     ///
-    /// Equivalent to `clock |= Version::join_all(versions); clock.tick()`: the
-    /// batch is absorbed whole and recorded as one local event. The n-ary half
-    /// of the vector-clock communication pattern described on
-    /// [`send`](Clock::send).
+    /// Equivalent to `|=`-ing every version in and then
+    /// [`tick`](Clock::tick)ing once. The n-ary half of the vector-clock
+    /// communication pattern described on [`send`](Clock::send).
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |iter| log k)` time, `O(|self| + |iter|)` space, where `k`
-    /// is the count of `iter`.
+    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` space, where
+    /// `k` is the count of `iter`.
     ///
     /// # Example
     ///
@@ -492,7 +491,7 @@ impl Clock {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        self.version |= Version::join_all(iter);
+        self.version = self.version.join_all(iter);
         self.tick()
     }
 
@@ -731,7 +730,7 @@ impl Clock {
     ///
     /// The caller must ensure that at most one of the two copies is ever
     /// treated as live; the other must be dropped without further use. The same
-    /// rule applies to any [`Party`] built from such a clock.
+    /// rule applies to any [`Party`] extracted from such a clock.
     ///
     /// This method exists for handing a clock across a boundary where ownership
     /// transfers to exactly one side based on an outcome not known at the time

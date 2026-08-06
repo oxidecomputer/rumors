@@ -228,8 +228,8 @@ fn differential_seeds_exercise_their_genre_seams() {
             "span_coincident" => {
                 let span = Span::decode(&bytes[..]).expect("the coincident composite decodes");
                 assert_eq!(
-                    span.meet(),
-                    span.join(),
+                    span.lo(),
+                    span.hi(),
                     "the coincident seed's endpoints are one version"
                 );
                 assert_eq!(&span.encode(), bytes, "span seed re-encode is not stable");

@@ -46,6 +46,29 @@ fn composed_dominance(probe: &Version, lo: &Version, hi: &Version) -> Dominance 
     }
 }
 
+/// The precedence coarsening of [`composed_span`]: the mode's
+/// stream-level oracle, [`composed_dominance`] mirrored.
+fn composed_precedence(probe: &Version, lo: &Version, hi: &Version) -> Precedence {
+    match composed_span(probe, lo, hi) {
+        Placement::At(Endpoint::Start | Endpoint::Both) | Placement::Before => Precedence::Before,
+        Placement::At(Endpoint::End)
+        | Placement::Between
+        | Placement::Concurrent(Endpoint::Start) => Precedence::Between,
+        Placement::After | Placement::Concurrent(Endpoint::End | Endpoint::Both) => {
+            Precedence::After
+        }
+    }
+}
+
+/// The membership coarsening of [`composed_span`]: the mode's
+/// stream-level oracle — exactly the at-endpoint and between regions.
+fn composed_contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
+    matches!(
+        composed_span(probe, lo, hi),
+        Placement::At(_) | Placement::Between
+    )
+}
+
 /// The composed pairwise spelling of one demand's verdict: the filter
 /// walks' stream-level oracle, per bound.
 fn demand_admits(probe: &Version, bound: &Version, demand: Demand) -> bool {
@@ -183,6 +206,73 @@ fn span_walk_places_organic_witnesses() {
     assert_eq!(placed(&b1, &a1, &a3), Placement::Concurrent(Endpoint::Both));
 }
 
+/// Every precedence-walk hook path on an organic witness set: the
+/// end refutation's early bail, the start refutation's drop (the
+/// verdict riding the end relation alone), and the exhaustion
+/// confirmations for both surviving directions.
+#[test]
+fn precedence_walk_verdicts_organic_witnesses() {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let a1 = alice.tick().clone();
+    let a2 = alice.tick().clone();
+    let a3 = alice.tick().clone();
+    let b1 = bob.tick().clone();
+    let joined = &a2 | &b1;
+
+    let preceded = |probe: &Version, lo: &Version, hi: &Version| {
+        precedence(probe.view(), lo.view(), hi.view())
+    };
+    // Exhaustion confirmations: the whole span preceded, at and below
+    // the start.
+    assert_eq!(preceded(&Version::new(), &a1, &a3), Precedence::Before);
+    assert_eq!(preceded(&a1, &a1, &a3), Precedence::Before);
+    // The start-drop path: `probe <= lo` refuted, the end relation
+    // still confirming at exhaustion — comparably (`At(End)`,
+    // `Between`) and concurrently (`Concurrent(Start)`).
+    assert_eq!(preceded(&a2, &a1, &a3), Precedence::Between);
+    assert_eq!(preceded(&a3, &a1, &a3), Precedence::Between);
+    assert_eq!(preceded(&b1, &a2, &joined), Precedence::Between);
+    // The early bail: `probe <= hi` refuted, comparably (above the
+    // whole span) and concurrently (beside the end, and beside both).
+    assert_eq!(preceded(&a3, &a1, &a2), Precedence::After);
+    let side_top = &a1 | &b1;
+    assert_eq!(preceded(&a2, &a1, &side_top), Precedence::After);
+    assert_eq!(preceded(&b1, &a1, &a3), Precedence::After);
+}
+
+/// Every membership-walk hook path on an organic witness set: the
+/// start-side and end-side bails (comparable and concurrent genres of
+/// each), and the exhaustion confirmations at and between the
+/// endpoints.
+#[test]
+fn contains_walk_verdicts_organic_witnesses() {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let a1 = alice.tick().clone();
+    let a2 = alice.tick().clone();
+    let a3 = alice.tick().clone();
+    let b1 = bob.tick().clone();
+
+    let within =
+        |probe: &Version, lo: &Version, hi: &Version| contains(probe.view(), lo.view(), hi.view());
+    // Exhaustion confirmations: both endpoints and the interior.
+    assert!(within(&a1, &a1, &a3));
+    assert!(within(&a2, &a1, &a3));
+    assert!(within(&a3, &a1, &a3));
+    // The start-side bail: `lo <= probe` refuted, comparably (below
+    // the span) and concurrently (beside the start, and beside both).
+    assert!(!within(&Version::new(), &a1, &a3));
+    let joined = &a2 | &b1;
+    assert!(!within(&b1, &a2, &joined));
+    assert!(!within(&b1, &a1, &a3));
+    // The end-side bail: `probe <= hi` refuted, comparably (above the
+    // span) and concurrently (beside the end).
+    assert!(!within(&a3, &a1, &a2));
+    let side_top = &a1 | &b1;
+    assert!(!within(&a2, &a1, &side_top));
+}
+
 /// Every membership-walk hook path on an organic witness set.
 ///
 /// The required-direction bail, the satisfied-hole drop, the
@@ -271,8 +361,8 @@ fn filter_coverage_organic_witnesses() {
 }
 
 proptest! {
-    /// The fused span and dominance walks equal their composed
-    /// two-sweep spellings.
+    /// The fused span, dominance, precedence, and membership walks
+    /// equal their composed two-sweep spellings.
     ///
     /// Checked on every ordered stream pair (constructed via meet/join,
     /// the coincident pair, and the generated pair when it happens to
@@ -311,6 +401,16 @@ proptest! {
                     dominance(probe.view(), lo.view(), hi.view()),
                     composed_dominance(probe, lo, hi),
                     "fused dominance walk vs composed coarsening",
+                );
+                prop_assert_eq!(
+                    precedence(probe.view(), lo.view(), hi.view()),
+                    composed_precedence(probe, lo, hi),
+                    "fused precedence walk vs composed coarsening",
+                );
+                prop_assert_eq!(
+                    contains(probe.view(), lo.view(), hi.view()),
+                    composed_contains(probe, lo, hi),
+                    "fused membership walk vs composed coarsening",
                 );
             }
         }

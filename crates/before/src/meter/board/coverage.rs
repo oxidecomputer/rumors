@@ -1,64 +1,57 @@
-//! The coverage rosters: both halves of the board tiling and the
-//! red-triage buffer — committed data the tiling tests beside them
-//! enforce.
+//! The coverage rosters: both halves of the board tiling and the red-triage
+//! buffer — committed data the tiling tests beside them enforce.
 //!
-//! Rows price delegations at their shared mechanism, so several surface
-//! rows legitimately cite one row: `Clock::send` is `Clock::tick` by
-//! definition; `clock | version` (either operand order, `|=` included)
-//! folds through the same join-assign the `recv` row measures;
-//! `Party::tick` is `Version::tick`'s mirror (the `tick_adv_party`
-//! row); the operator matrix (`|`, `&`, and their assign forms, over
-//! every borrow shape) routes through the same `join_view`/`meet_view`
-//! emitters and cmp walk the `join`/`meet`/`cmp` rows measure;
-//! `Version::concurrent` is one `partial_cmp` and keeps its own row as
-//! the documented entry point; the serde/borsh wrappers serialize as
-//! the canonical encoding and deserialize through the strict decoder
-//! (the `encode`/`decode` rows); `Party::ticks` and `Clock::ticks` run
-//! the same fused kernel as `version_ticks` through their own
-//! spellings. Derived surfaces with no roster row of their own ride
-//! the same cells: `Clone` copies stored bits or value content
-//! wholesale with no walk in the contract, `Debug` delegates to
-//! `Display`, and the byte-compare `Eq`s are the `eq`/`hash` rows'
+//! Rows price delegations at their shared mechanism, so several surface rows
+//! legitimately cite one row: `Clock::send` is `Clock::tick` by definition;
+//! `clock | version` (either operand order, `|=` included) folds through the
+//! same join-assign the `recv` row measures; `Party::tick` is `Version::tick`'s
+//! mirror (the `tick_adv_party` row); the operator matrix (`|`, `&`, and their
+//! assign forms, over every borrow shape) routes through the same
+//! `join_view`/`meet_view` emitters and cmp walk the `join`/`meet`/`cmp` rows
+//! measure; `Version::concurrent` is one `partial_cmp` and keeps its own row as
+//! the documented entry point; the serde/borsh wrappers serialize as the
+//! canonical encoding and deserialize through the strict decoder (the
+//! `encode`/`decode` rows); `Party::ticks` and `Clock::ticks` run the same
+//! fused kernel as `version_ticks` through their own spellings. Derived
+//! surfaces with no roster row of their own ride the same cells: `Clone` copies
+//! stored bits or value content wholesale with no walk in the contract, `Debug`
+//! delegates to `Display`, and the byte-compare `Eq`s are the `eq`/`hash` rows'
 //! wholesale compares.
 //!
-//! Two coverage notes that are dispositions of *error paths*, not
-//! operations (so they live here rather than in the table): the
-//! rejection rows price the fallible surface (the board module doc's
-//! rejection section; the `defect` module carries the placed defects),
-//! and **the rejection surface's bounded-or-delegated remainder** is:
-//! `Clock::join_all`'s overlap hand-back runs the identical up-front
-//! indexed test against self that `party_join_all_overlap` prices,
-//! inline; clock non-canonicality — packed or text — is the component
-//! validators on the same streams the version and party non-canonical
-//! rows drive; [`Parse::Anonymous`](crate::error::Parse) is the one-token
-//! `"0"`; [`Decode::Io`](crate::error::Decode) is the caller's reader —
-//! a failing reader is a truncation carrying an error, priced by the
-//! truncated rows — and `encode_to`'s error the caller's writer, at
-//! most the encode row's work before it propagates; the `TryFrom`
-//! literal rejections have word-scale or type-bounded operands;
-//! `Version::meet_all`'s `None` is the empty iterator;
-//! `Rank::checked_sub`'s `None` is measured on the `rank_pair_ops`
-//! row, which attempts both directions; other decode non-canonicality
-//! genres (a negative running height, nonzero padding) ride the same
-//! single validator pass at the same full-parse cost as the committed
-//! maximally-deferred tails; serde/borsh deserialize errors are the
-//! strict decoder through the wrappers (the decode rejection rows).
-//! `Debug` for all three types delegates to `Display`.
+//! Two coverage notes that are dispositions of *error paths*, not operations
+//! (so they live here rather than in the table): the rejection rows price the
+//! fallible surface (the board module doc's rejection section; the `defect`
+//! module carries the placed defects), and **the rejection surface's
+//! bounded-or-delegated remainder** is: `Clock::join_all`'s overlap hand-back
+//! runs the identical up-front indexed test against self that
+//! `party_join_all_overlap` prices, inline; clock non-canonicality — packed or
+//! text — is the component validators on the same streams the version and party
+//! non-canonical rows drive; [`Parse::Anonymous`](crate::error::Parse) is the
+//! one-token `"0"`; [`Decode::Io`](crate::error::Decode) is the caller's reader
+//! — a failing reader is a truncation carrying an error, priced by the
+//! truncated rows — and `encode_to`'s error the caller's writer, at most the
+//! encode row's work before it propagates; the `TryFrom` literal rejections
+//! have word-scale or type-bounded operands; `Rank::checked_sub`'s `None` is
+//! measured on the `rank_pair_ops` row, which attempts both directions; other
+//! decode non-canonicality genres (a negative running height, nonzero padding)
+//! ride
+//! the same single validator pass at the same full-parse cost as the committed
+//! maximally-deferred tails; serde/borsh deserialize errors are the strict
+//! decoder through the wrappers (the decode rejection rows). `Debug` for all
+//! three types delegates to `Display`.
 
-/// The board's priced table: every `before::surface` row measured by
-/// the board, with the board rows that price it.
+/// The board's priced table: every `before::surface` row measured by the board,
+/// with the board rows that price it.
 ///
-/// Rows price delegations at their shared mechanism (the module doc
-/// maps the delegations), so several surface rows legitimately cite
-/// one row.
+/// Rows price delegations at their shared mechanism (the module doc maps the
+/// delegations), so several surface rows legitimately cite one row.
 ///
 /// The tiling test beside this table
 /// (`board_coverage_tiles_the_public_surface`) holds it and
-/// [`BOARD_NOT_APPLICABLE`] disjoint and jointly total over the public
-/// surface, every cited row live on the board's operation axis, and
-/// every board row cited: an operation is priced by named rows or
-/// excused, never both, never neither, and the board carries no orphan
-/// row.
+/// [`BOARD_NOT_APPLICABLE`] disjoint and jointly total over the public surface,
+/// every cited row live on the board's operation axis, and every board row
+/// cited: an operation is priced by named rows or excused, never both, never
+/// neither, and the board carries no orphan row.
 pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::tick", &["version_tick", "version_tick_adv_party"]),
     ("Party::ticks", &["version_ticks"]),
@@ -257,13 +250,13 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
 ];
 
-/// The board's not-applicable table: every `before::surface` row with
-/// no board row of its own, and the mechanism-based reason why.
+/// The board's not-applicable table: every `before::surface` row with no board
+/// row of its own, and the mechanism-based reason why.
 ///
-/// The machine-readable excused half of the board's coverage tiling,
-/// covering method and family rows alike; [`BOARD_PRICED`] is the
-/// priced half, and the tiling test beside them holds the two disjoint
-/// and jointly total over the public surface.
+/// The machine-readable excused half of the board's coverage tiling, covering
+/// method and family rows alike; [`BOARD_PRICED`] is the priced half, and the
+/// tiling test beside them holds the two disjoint and jointly total over the
+/// public surface.
 pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     (
         "Party::seed",
@@ -433,11 +426,11 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          no walk, no comparison",
     ),
     (
-        "Span::meet",
+        "Span::lo",
         "a borrow of a stored endpoint: no walk, no allocation",
     ),
     (
-        "Span::join",
+        "Span::hi",
         "a borrow of a stored endpoint: no walk, no allocation",
     ),
     (
@@ -454,12 +447,12 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "at most one clone per borrowed endpoint (a refcount bump): no walk, no byte copy",
     ),
     (
-        "OwnSpan::meet",
+        "OwnSpan::lo",
         "O(1) view construction (two borrows); the comparison and \
          materialization costs are celled at the OwnVersion rows",
     ),
     (
-        "OwnSpan::join",
+        "OwnSpan::hi",
         "O(1) view construction (two borrows); the comparison and \
          materialization costs are celled at the OwnVersion rows",
     ),
@@ -547,15 +540,15 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ),
 ];
 
-/// One in-flight triage entry in the red buffer: a board cell reading
-/// red whose triage — a cure, or an owner-declared model at the cell —
-/// someone owns but has not landed yet.
+/// One in-flight triage entry in the red buffer: a board cell reading red whose
+/// triage — a cure, or an owner-declared model at the cell — someone owns but
+/// has not landed yet.
 ///
-/// `exponent` is a scaling-class finding (some counter's growth exceeds
-/// its ceiling — flat or declared); `constant` a proportionality finding
-/// at exponent ~1 (a per-byte constant, a segments count, or a
-/// declared-model band). The tags are the render's `mech[...]` column as
-/// committed data, so a triage entry names the mechanism it buffers.
+/// `exponent` is a scaling-class finding (some counter's growth exceeds its
+/// ceiling — flat or declared); `constant` a proportionality finding at
+/// exponent ~1 (a per-byte constant, a segments count, or a declared-model
+/// band). The tags are the render's `mech[...]` column as committed data, so a
+/// triage entry names the mechanism it buffers.
 pub struct ExpectedRed {
     /// The board row's operation name.
     pub op: &'static str,
@@ -577,21 +570,20 @@ pub struct ExpectedRed {
     pub task: &'static str,
 }
 
-/// The red-triage buffer: board cells currently red whose triage is in
-/// flight — **empty at acceptance, and empty on the settled tree**.
+/// The red-triage buffer: board cells currently red whose triage is in flight —
+/// **empty at acceptance, and empty on the settled tree**.
 ///
-/// Red means untriaged, nothing else. Every dashboard contradiction
-/// resolves to exactly one of: a cure, or an owner-declared model with
-/// a dated rationale committed at the declaration site (the `ceilings`
-/// module's declared-models section — the cell then reads green because the
-/// behavior is intended and modeled). This buffer exists only so a
-/// freshly-found red can be committed while its triage is worked; every
-/// entry carries the live task that owns it, and the acceptance
-/// assertion (`expected_red_buffer_is_an_empty_triage_buffer`) holds
-/// the buffer EMPTY, so a red that persists across commits is a process
-/// failure, not a status. The acceptance protocol diffs each rendered
-/// red set against this list: on the settled tree both are empty and
-/// the boards render all-green at both scales.
+/// Red means untriaged, nothing else. Every dashboard contradiction resolves to
+/// exactly one of: a cure, or an owner-declared model with a dated rationale
+/// committed at the declaration site (the `ceilings` module's declared-models
+/// section — the cell then reads green because the behavior is intended and
+/// modeled). This buffer exists only so a freshly-found red can be committed
+/// while its triage is worked; every entry carries the live task that owns it,
+/// and the acceptance assertion
+/// (`expected_red_buffer_is_an_empty_triage_buffer`) holds the buffer EMPTY, so
+/// a red that persists across commits is a process failure, not a status. The
+/// acceptance protocol diffs each rendered red set against this list: on the
+/// settled tree both are empty and the boards render all-green at both scales.
 pub const BOARD_EXPECTED_REDS: &[ExpectedRed] = &[];
 
 #[cfg(test)]

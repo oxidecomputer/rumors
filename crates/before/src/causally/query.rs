@@ -109,7 +109,7 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// bounds.
     pub fn coverage<'s>(&self, span: impl Into<Span<'s>>) -> Coverage {
         let span = span.into();
-        let (lo, hi) = (span.meet(), span.join());
+        let (lo, hi) = (span.lo(), span.hi());
         if lo.view().ptr_eq(hi.view()) {
             return if self.contains(lo) {
                 Coverage::Full

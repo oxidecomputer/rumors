@@ -5,9 +5,9 @@
 //! Each size test states the tree, the hand-derived Tier 2 bit count, and the
 //! hand-derived current bit count, so a regression in the walk (path sums,
 //! zigzag map, gamma lengths, topology accounting) fails against arithmetic a
-//! reader can re-derive in the margin. Gamma lengths used below:
-//! `gamma(0) = 1`, `gamma(1) = 3`, `gamma(2) = 3`, `gamma(4) = 5`,
-//! `gamma(2^b - 1) = 2b + 1`.
+//! reader can re-derive in the margin. Gamma lengths used below: `gamma(0) =
+//! 1`, `gamma(1) = 3`, `gamma(2) = 3`, `gamma(4) = 5`, `gamma(2^b - 1) = 2b +
+//! 1`.
 
 use proptest::prelude::*;
 
@@ -26,24 +26,24 @@ use super::{tier2_size, Tier2Size};
 
 /// Per-input-leaf slack for the join/meet 1-Lipschitz coding pin \[derived\].
 ///
-/// At each overlay boundary the output's jump is at most the largest input
-/// jump there (`max`/`min` are 1-Lipschitz in each argument), and the
-/// output's boundaries are a subset of the union of the inputs'. A coded
-/// output delta may telescope several union jumps when equal-valued spans
-/// collapse, so per input leaf the coding spends at most: the input's own
-/// delta code, +1 bit for the zigzag sign convention, +1 bit of gamma
-/// subadditivity per merged jump, and ≤ 2 bits of code-length rounding per
-/// coded delta — 4 bits covers every term.
+/// At each overlay boundary the output's jump is at most the largest input jump
+/// there (`max`/`min` are 1-Lipschitz in each argument), and the output's
+/// boundaries are a subset of the union of the inputs'. A coded output delta
+/// may telescope several union jumps when equal-valued spans collapse, so per
+/// input leaf the coding spends at most: the input's own delta code, +1 bit for
+/// the zigzag sign convention, +1 bit of gamma subadditivity per merged jump,
+/// and ≤ 2 bits of code-length rounding per coded delta — 4 bits covers every
+/// term.
 const JOIN_MEET_BOUNDARY_SLACK_BITS: u64 = 4;
 
 /// Assert the join/meet 1-Lipschitz coding pin on one operand pair,
 /// under every emitter of record.
 ///
-/// The statement the board's input denomination of the packed-output
-/// mutators rests on: the output's coded size is at most the inputs' plus
-/// O(1) bits per boundary — boundaries (leaves) contained in the union of
-/// the inputs', and total Tier 2 bits within
-/// [`JOIN_MEET_BOUNDARY_SLACK_BITS`] per input leaf of the inputs' sum.
+/// The statement the board's input denomination of the packed-output mutators
+/// rests on: the output's coded size is at most the inputs' plus O(1) bits per
+/// boundary — boundaries (leaves) contained in the union of the inputs', and
+/// total Tier 2 bits within [`JOIN_MEET_BOUNDARY_SLACK_BITS`] per input leaf of
+/// the inputs' sum.
 fn check_join_meet_lipschitz(a: &Version, b: &Version) {
     let sa = tier2_size(&packed_bits_of(&to_oracle_version(a)));
     let sb = tier2_size(&packed_bits_of(&to_oracle_version(b)));
@@ -73,8 +73,8 @@ fn check_join_meet_lipschitz(a: &Version, b: &Version) {
     }
 }
 
-/// The empty version is the single leaf 0: one topology bit plus `gamma(0)`,
-/// 2 bits in both encodings.
+/// The empty version is the single leaf 0: one topology bit plus `gamma(0)`, 2
+/// bits in both encodings.
 #[test]
 fn empty_version_is_two_bits() {
     let v = Version::new();
@@ -92,8 +92,8 @@ fn empty_version_is_two_bits() {
     assert_eq!(size.total_bits, v.encoded_bits() as u64);
 }
 
-/// A single ticked leaf (value 1) is one topology bit plus `gamma(1) = 3`,
-/// 4 bits in both codings (stored Tier 2 and the packed spelling alike).
+/// A single ticked leaf (value 1) is one topology bit plus `gamma(1) = 3`, 4
+/// bits in both codings (stored Tier 2 and the packed spelling alike).
 #[test]
 fn single_small_leaf_matches_current_size() {
     let mut v = Version::new();
@@ -104,9 +104,9 @@ fn single_small_leaf_matches_current_size() {
     assert_eq!(size.total_bits, v.encoded_bits() as u64);
 }
 
-/// A single huge leaf `2^b - 1` is one topology bit plus `gamma(2^b - 1) =
-/// 2b + 1`: Tier 2 equals the min-lifted packed spelling's `2b + 2` bits exactly, at a magnitude
-/// wide enough to spill machine-word arithmetic.
+/// A single huge leaf `2^b - 1` is one topology bit plus `gamma(2^b - 1) = 2b +
+/// 1`: Tier 2 equals the min-lifted packed spelling's `2b + 2` bits exactly, at
+/// a magnitude wide enough to spill machine-word arithmetic.
 #[test]
 fn single_big_leaf_matches_current_size() {
     for b in [7, 200] {
@@ -121,9 +121,9 @@ fn single_big_leaf_matches_current_size() {
 
 /// One fork `(1, 0, 2)` sizes to 11 Tier 2 bits, hand-derived.
 ///
-/// Leaves are 1 and 3 absolute: 3 topology bits + `gamma(1) = 3` +
-/// `zigzag(+2) = 4 -> gamma(4) = 5`, against the min-lifted packed
-/// spelling's 10 (`3 + gamma(1) + gamma(0) + gamma(2) = 3 + 3 + 1 + 3`).
+/// Leaves are 1 and 3 absolute: 3 topology bits + `gamma(1) = 3` + `zigzag(+2)
+/// = 4 -> gamma(4) = 5`, against the min-lifted packed spelling's 10 (`3 +
+/// gamma(1) + gamma(0) + gamma(2) = 3 + 3 + 1 + 3`).
 #[test]
 fn one_fork_matches_hand_computation() {
     let v = from_oracle_version(&oracle::Version::node(
@@ -147,8 +147,8 @@ fn one_fork_matches_hand_computation() {
 }
 
 /// The dense spine `S(2)` has preorder leaves 0, 1, 0: Tier 2 is 5 topology
-/// bits + `gamma(0) = 1` + `zigzag(+1) = 2 -> 3` + `zigzag(-1) = 1 -> 3`,
-/// 12 bits, exactly the min-lifted packed spelling’s `4d + 4 = 12`.
+/// bits + `gamma(0) = 1` + `zigzag(+1) = 2 -> 3` + `zigzag(-1) = 1 -> 3`, 12
+/// bits, exactly the min-lifted packed spelling’s `4d + 4 = 12`.
 #[test]
 fn dense_spine_matches_hand_computation() {
     let packed = crate::meter::dense(2);
@@ -167,19 +167,20 @@ fn dense_spine_matches_hand_computation() {
     assert_eq!(size.total_bits, packed.version().encoded_bits() as u64);
 }
 
-/// The boundary comb's Tier 2 size is exactly `10n + 4k + 2` bits against
-/// the min-lifted packed spelling's `n(2k + 10) + 2`: Tier 2 wire bits do not bound value content.
+/// The boundary comb's Tier 2 size is exactly `10n + 4k + 2` bits against the
+/// min-lifted packed spelling's `n(2k + 10) + 2`: Tier 2 wire bits do not bound
+/// value content.
 ///
-/// `cliff_comb(k, n)` codes each `±1` leaf delta in 3 bits where the packed spelling's
-/// form stores a fresh `gamma(2^k − 1)` per tooth, so the current/Tier 2
-/// size ratio grows without bound in `k` — the `≤ 2×` compactness envelope
-/// holds in the useless direction while the comb's `2n + 1` leaves carry
-/// `Θ(nk)` bits of absolute value content behind `Θ(n + k)` Tier 2 wire
-/// bits. The per-part pin: `4n + 1` topology bits, `gamma(2^k − 1) =
-/// 2k + 1` first-leaf bits, `3(2n − 1)` oscillation deltas plus the
-/// `2k + 3`-bit closing delta to the terminal leaf 0. The exact ratios at
-/// `n = k`: 9.837× (n = 64), 146.980× (n = 1024), 585.837× (n = 4096);
-/// the floors below sit just under them.
+/// `cliff_comb(k, n)` codes each `±1` leaf delta in 3 bits where the packed
+/// spelling's form stores a fresh `gamma(2^k − 1)` per tooth, so the
+/// current/Tier 2 size ratio grows without bound in `k` — the `≤ 2×`
+/// compactness envelope holds in the useless direction while the comb's `2n +
+/// 1` leaves carry `Θ(nk)` bits of absolute value content behind `Θ(n + k)`
+/// Tier 2 wire bits. The per-part pin: `4n + 1` topology bits, `gamma(2^k − 1)
+/// = 2k + 1` first-leaf bits, `3(2n − 1)` oscillation deltas plus the `2k +
+/// 3`-bit closing delta to the terminal leaf 0. The exact ratios at `n = k`:
+/// 9.837× (n = 64), 146.980× (n = 1024), 585.837× (n = 4096); the floors below
+/// sit just under them.
 #[test]
 fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
     for (k, n) in [(3, 2), (64, 64), (200, 50), (1024, 1024), (4096, 4096)] {
@@ -207,21 +208,20 @@ fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
     }
 }
 
-/// A plain running-value accumulator over the comb's Tier 2 delta stream
-/// costs limb work quadratic in the wire bits: per-wire-bit cost roughly
-/// doubles when the size doubles.
+/// A plain running-value accumulator over the comb's Tier 2 delta stream costs
+/// limb work quadratic in the wire bits: per-wire-bit cost roughly doubles when
+/// the size doubles.
 ///
-/// This is the executable witness that carry-run amortization does not
-/// transfer to the delta coding: each 3-bit `±1` delta lands exactly on
-/// the `2^k` carry boundary, so applying it to a plain big-integer
-/// accumulator propagates a full `k`-bit carry or borrow — `Θ(k)` limb work
-/// bought by `O(1)` wire bits, `Θ(W²)` total in wire bits `W`. Under
-/// today's coding the same tree pays `2k + 1` stored bits per crossing
-/// (the envelope suite pins those operations linear). Any Tier 2 sweep
-/// that must materialize running leaf values — strict decode's
-/// nonnegativity validation included, since values are naturals and a
-/// plain 2-bit/level topology check cannot see a delta drive one negative
-/// — inherits this cost unless it uses a carry-immune accumulator design.
+/// This is the executable witness that carry-run amortization does not transfer
+/// to the delta coding: each 3-bit `±1` delta lands exactly on the `2^k` carry
+/// boundary, so applying it to a plain big-integer accumulator propagates a
+/// full `k`-bit carry or borrow — `Θ(k)` limb work bought by `O(1)` wire bits,
+/// `Θ(W²)` total in wire bits `W`. Under today's coding the same tree pays `2k
+/// + 1` stored bits per crossing (the envelope suite pins those operations
+/// linear). Any Tier 2 sweep that must materialize running leaf values — strict
+/// decode's nonnegativity validation included, since values are naturals and a
+/// plain 2-bit/level topology check cannot see a delta drive one negative —
+/// inherits this cost unless it uses a carry-immune accumulator design.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn cliff_comb_plain_delta_sweep_is_quadratic_in_tier2_wire_bits() {
@@ -257,10 +257,9 @@ fn cliff_comb_plain_delta_sweep_is_quadratic_in_tier2_wire_bits() {
 }
 
 proptest! {
-    /// Join and meet of arbitrary normal-form event trees hold the
-    /// 1-Lipschitz coding pin: output boundaries within the union of the
-    /// inputs', output coded size within the inputs' plus the per-leaf
-    /// slack.
+    /// Join and meet of arbitrary normal-form event trees hold the 1-Lipschitz
+    /// coding pin: output boundaries within the union of the inputs', output
+    /// coded size within the inputs' plus the per-leaf slack.
     #[test]
     fn arbitrary_pairs_hold_the_lipschitz_pin(
         a in generators::arb_oracle_version(),
@@ -282,9 +281,9 @@ proptest! {
         }
     }
 
-    /// Join and meet of alternating combs — the ratio meter's
-    /// tightness family, whose every consecutive-leaf delta is a full
-    /// magnitude swing — hold the 1-Lipschitz coding pin.
+    /// Join and meet of alternating combs — the ratio meter's tightness family,
+    /// whose every consecutive-leaf delta is a full magnitude swing — hold the
+    /// 1-Lipschitz coding pin.
     #[test]
     fn comb_pairs_hold_the_lipschitz_pin(
         (m1, p1) in arb_comb_params(),
@@ -294,9 +293,9 @@ proptest! {
     }
 }
 
-/// Join and meet across the adversarial event shapes of record (dense
-/// spine, bigroot, hugeleaf, boundary comb) hold the 1-Lipschitz coding pin
-/// on every cross of the family grid.
+/// Join and meet across the adversarial event shapes of record (dense spine,
+/// bigroot, hugeleaf, boundary comb) hold the 1-Lipschitz coding pin on every
+/// cross of the family grid.
 #[test]
 fn adversarial_crosses_hold_the_lipschitz_pin() {
     let shapes = [

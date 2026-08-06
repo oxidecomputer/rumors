@@ -1,14 +1,13 @@
-//! A complete payload code as a value: machine words for the narrow
-//! codes that dominate every organic stream, a bit buffer for the rest.
+//! A complete payload code as a value: machine words for the narrow codes that
+//! dominate every organic stream, a bit buffer for the rest.
 //!
-//! The emitters trade whole codes — a leaf's payload moves from a gamma
-//! encoder or a verbatim input range into a builder, is held there
-//! against the collapse checks, and lands in the output stream. Carrying
-//! each code as an owned bit buffer prices that trade at a heap
-//! allocation per leaf; this type keeps every code up to 63 bits — a
-//! zigzag delta magnitude below `2^31`, far past the band organic
-//! histories occupy — in two machine words, and spills wider codes to
-//! the buffer form unchanged.
+//! The emitters trade whole codes — a leaf's payload moves from a gamma encoder
+//! or a verbatim input range into a builder, is held there against the collapse
+//! checks, and lands in the output stream. Carrying each code as an owned bit
+//! buffer prices that trade at a heap allocation per leaf; this type keeps
+//! every code up to 63 bits — a zigzag delta magnitude below `2^31`, far past
+//! the band organic histories occupy — in two machine words, and spills wider
+//! codes to the buffer form unchanged.
 
 use super::{BitsMut, BitsSlice};
 use bitvec::field::BitField;

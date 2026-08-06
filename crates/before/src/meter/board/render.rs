@@ -1,9 +1,9 @@
-//! The measurement discipline and the printed matrix: how one grid cell
-//! is measured and judged, and how a whole board's judged cells render.
+//! The measurement discipline and the printed matrix: how one grid cell is
+//! measured and judged, and how a whole board's judged cells render.
 //!
-//! The sweep itself is the `shard` module's — a child measures its slice
-//! of the operation × family grid through [`measure_cell`] and the parent
-//! renders the merged cells through [`render_results`].
+//! The sweep itself is the `shard` module's — a child measures its slice of the
+//! operation × family grid through [`measure_cell`] and the parent renders the
+//! merged cells through [`render_results`].
 
 use std::io::{self, Write};
 
@@ -38,13 +38,13 @@ fn floor_value(liveness: Liveness) -> String {
     }
 }
 
-/// A red cell's mechanism tag: the judgment kinds present on its red
-/// list, in a fixed order.
+/// A red cell's mechanism tag: the judgment kinds present on its red list, in a
+/// fixed order.
 ///
-/// An `exponent` red is a scaling-class finding; a `constant` red (flat
-/// or declared-model ceilings, the segments count) is a proportionality
-/// finding at exponent ~1; a `floor` red is a liveness vacuity (a meter
-/// not watching the work) or a stale declared model.
+/// An `exponent` red is a scaling-class finding; a `constant` red (flat or
+/// declared-model ceilings, the segments count) is a proportionality finding at
+/// exponent ~1; a `floor` red is a liveness vacuity (a meter not watching the
+/// work) or a stale declared model.
 fn mechanism(red: &[&'static str]) -> String {
     let mut kinds = Vec::new();
     if red.iter().any(|label| label.contains("exponent")) {
@@ -64,11 +64,11 @@ fn mechanism(red: &[&'static str]) -> String {
 /// Render one result row.
 ///
 /// The byte range is the cell's denominator (packed input, or `n_io` on the
-/// I/O-denominated cells); a text row's limb constant reads `/R` (its
-/// exponent, like every exponent, is against the denominator bytes),
-/// everything else `/B`. The `flr` column shows the larger scale's committed
-/// liveness floors per judged column (`-` where not applicable; derivations
-/// in the legend above the matrix).
+/// I/O-denominated cells); a text row's limb constant reads `/R` (its exponent,
+/// like every exponent, is against the denominator bytes), everything else
+/// `/B`. The `flr` column shows the larger scale's committed liveness floors
+/// per judged column (`-` where not applicable; derivations in the legend above
+/// the matrix).
 fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
     // An exponent the guards leave unjudged renders -.-- : printing the
@@ -95,15 +95,15 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         (Some(_), Some(c)) => format!("touch[e{} {c:>10.1}/B]", exp_text(&r.scores.touch)),
         _ => "touch[      off      ]".to_string(),
     };
-    // A red cell's mechanism tag: which judgment kinds put it on the red
-    // list, mirroring the tags a red-buffer triage entry commits.
+    // A red cell's mechanism tag: which judgment kinds put it on the red list,
+    // mirroring the tags a red-buffer triage entry commits.
     let reasons = if r.red.is_empty() {
         String::new()
     } else {
         format!("  mech[{}]  <- {}", mechanism(&r.red), r.red.join(", "))
     };
-    // A cell whose exponents are fitted against a different denominator
-    // than its constants discloses the pair on its own row.
+    // A cell whose exponents are fitted against a different denominator than
+    // its constants discloses the pair on its own row.
     let expd = if r.s2.exp_denom_bytes == r.s2.denom_bytes {
         String::new()
     } else {
@@ -113,8 +113,8 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
             e2 = r.s2.exp_denom_bytes,
         )
     };
-    // A declared per-cell model is disclosed on the row it judges; the
-    // legend above the matrix carries the derivations.
+    // A declared per-cell model is disclosed on the row it judges; the legend
+    // above the matrix carries the derivations.
     let decl = match (r.s1.heap_model, r.s2.heap_model, r.s2.fold_arity) {
         _ if r.s2.declared_heap.is_some() => {
             let d = r.s2.declared_heap.expect("just matched");
@@ -177,12 +177,12 @@ pub(super) fn build_pair(kind: FamilyId, scale: f64) -> (FamilyData, FamilyData)
     )
 }
 
-/// Measure and judge one grid cell — or nothing, where the family's
-/// bundle supplies no operand for the operation's signature.
+/// Measure and judge one grid cell — or nothing, where the family's bundle
+/// supplies no operand for the operation's signature.
 ///
-/// The board's one measurement discipline, driven by every shard child
-/// (the `shard` module): single-threaded, the cell at the scaled size and
-/// its double, the peak-heap counter reset between samples.
+/// The board's one measurement discipline, driven by every shard child (the
+/// `shard` module): single-threaded, the cell at the scaled size and its
+/// double, the peak-heap counter reset between samples.
 pub(super) fn measure_cell(
     heap: &HeapMeter,
     op: &Op,
@@ -196,11 +196,11 @@ pub(super) fn measure_cell(
     Some(evaluate(op.name, small.name, s1, s2))
 }
 
-/// Render one full sweep's judged cells as the matrix: the legend derived
-/// from the results themselves, red rows first, the summary line last.
+/// Render one full sweep's judged cells as the matrix: the legend derived from
+/// the results themselves, red rows first, the summary line last.
 ///
-/// `results` must be a whole board's cells in board row order (operation
-/// outer, family inner): a shard merge's reconstruction of one sweep.
+/// `results` must be a whole board's cells in board row order (operation outer,
+/// family inner): a shard merge's reconstruction of one sweep.
 pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io::Result<Summary> {
     writeln!(
         out,

@@ -3,11 +3,10 @@ use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
 ///
-/// A node reserves a 2-bit tag
-/// placeholder before its children are emitted; [`close_node`](Self::close_node)
-/// patches the tag from which children turned out present, collapsing
-/// `(1, 1) → 1` (both terminal) and `(0, 0) → 0` (both empty). The id
-/// instantiation of the crate's append-truncate discipline
+/// A node reserves a 2-bit tag placeholder before its children are emitted;
+/// [`close_node`](Self::close_node) patches the tag from which children turned
+/// out present, collapsing `(1, 1) → 1` (both terminal) and `(0, 0) → 0` (both
+/// empty). The id instantiation of the crate's append-truncate discipline
 /// ([`PackedBuilder`] carries the shared move set): the per-node payload is
 /// only the tag bits, and both collapses are pure truncations.
 pub(super) struct IdBuilder {
@@ -34,17 +33,17 @@ pub(super) enum Built {
 /// A just-reserved tag placeholder, awaiting its children and a
 /// [`close_node`](IdBuilder::close_node).
 ///
-/// `!Clone` and `#[must_use]`: the token
-/// must be closed exactly once, and the borrow checker stops it being reused or
-/// dropped silently — so an open with no matching close cannot compile.
+/// `!Clone` and `#[must_use]`: the token must be closed exactly once, and the
+/// borrow checker stops it being reused or dropped silently — so an open with
+/// no matching close cannot compile.
 #[must_use = "an opened node must be closed with close_node"]
 pub(super) struct Open(usize);
 
 /// The width of an id node's presence tag: one bit per child.
 const TAG_BITS: usize = 2;
 
-/// The output width of a node whose two children are both terminals: its
-/// own tag followed by the two terminal tags.
+/// The output width of a node whose two children are both terminals: its own
+/// tag followed by the two terminal tags.
 const TERMINAL_PAIR_BITS: usize = 3 * TAG_BITS;
 
 impl IdBuilder {
@@ -63,8 +62,8 @@ impl IdBuilder {
     /// Append a node's 2-bit presence tag verbatim, already final.
     ///
     /// For an emitter that knows the tag at first sight —
-    /// [`sum`](crate::idbits::IdReader::sum) writes each output tag final
-    /// at descent — so no placeholder or patch is needed.
+    /// [`sum`](crate::idbits::IdReader::sum) writes each output tag final at
+    /// descent — so no placeholder or patch is needed.
     pub(super) fn push_tag(&mut self, left: bool, right: bool) {
         self.out.push_bit(left);
         self.out.push_bit(right);
@@ -80,9 +79,9 @@ impl IdBuilder {
     /// Copy one already-normal source subtree into the output, advancing `src`
     /// past it and reporting what it was.
     ///
-    /// The source subtree is copied exactly
-    /// once (a verbatim bit-range splice). A synthetic empty reader contributes
-    /// nothing and reports [`Built::Empty`].
+    /// The source subtree is copied exactly once (a verbatim bit-range splice).
+    /// A synthetic empty reader contributes nothing and reports
+    /// [`Built::Empty`].
     pub(super) fn copy_reader(&mut self, src: &mut IdReader) -> Built {
         if matches!(src, IdReader::Empty) {
             return Built::Empty;
@@ -100,9 +99,9 @@ impl IdBuilder {
         }
     }
 
-    /// Append a complete already-normal subtree's bits verbatim (the
-    /// splice records the write), for a spliced child whose kind the
-    /// caller reports to [`close_node`](Self::close_node) itself.
+    /// Append a complete already-normal subtree's bits verbatim (the splice
+    /// records the write), for a spliced child whose kind the caller reports to
+    /// [`close_node`](Self::close_node) itself.
     pub(super) fn splice(&mut self, src: &BitsSlice) {
         self.out.splice(src);
     }
@@ -134,16 +133,16 @@ impl IdBuilder {
         }
     }
 
-    /// Normalize the node just completed with two terminal children:
-    /// retract its tag and both terminals — the trailing
-    /// [`TERMINAL_PAIR_BITS`] of the output — and emit the single terminal
-    /// the pair collapses to (`(1, 1) → 1`).
+    /// Normalize the node just completed with two terminal children: retract
+    /// its tag and both terminals — the trailing [`TERMINAL_PAIR_BITS`] of the
+    /// output — and emit the single terminal the pair collapses to (`(1, 1) →
+    /// 1`).
     ///
     /// The truncation twin of [`close_node`](Self::close_node)'s
-    /// terminal-collapse arm, for an emitter that writes final tags at
-    /// descent ([`sum`](crate::idbits::IdReader::sum)): such a node's tag
-    /// and children are the last three tags in the output, so no recorded
-    /// position is needed.
+    /// terminal-collapse arm, for an emitter that writes final tags at descent
+    /// ([`sum`](crate::idbits::IdReader::sum)): such a node's tag and children
+    /// are the last three tags in the output, so no recorded position is
+    /// needed.
     pub(super) fn collapse_terminal_pair(&mut self) -> Built {
         self.out.truncate(self.out.len() - TERMINAL_PAIR_BITS);
         self.terminal()
@@ -155,25 +154,25 @@ impl IdBuilder {
 }
 
 /// Leaf-driven builder for normalized id output: append one plateau per
-/// elementary interval of a dyadic tiling, in preorder, and take the
-/// canonical id of the region the owned plateaus tile.
+/// elementary interval of a dyadic tiling, in preorder, and take the canonical
+/// id of the region the owned plateaus tile.
 ///
-/// A whole already-normal subtree of the tiling may be appended in one
-/// splice instead of plateau by plateau ([`subtree`](Self::subtree)).
+/// A whole already-normal subtree of the tiling may be appended in one splice
+/// instead of plateau by plateau ([`subtree`](Self::subtree)).
 ///
-/// The id-side sibling of the event emission's collapsing builder (the
-/// skyline build module): the preorder leaf depths of a dyadic tiling
-/// determine the tree, so the builder derives every presence tag itself —
-/// reserving each node's tag as it is entered ([`IdBuilder::open`]) and
-/// normalizing as each node closes ([`IdBuilder::close_node`]: both
-/// collapses plus the presence patch). An unowned plateau contributes no
-/// bits, exactly as a stored `0` occupies none.
+/// The id-side sibling of the event emission's collapsing builder (the skyline
+/// build module): the preorder leaf depths of a dyadic tiling determine the
+/// tree, so the builder derives every presence tag itself — reserving each
+/// node's tag as it is entered ([`IdBuilder::open`]) and normalizing as each
+/// node closes ([`IdBuilder::close_node`]: both collapses plus the presence
+/// patch). An unowned plateau contributes no bits, exactly as a stored `0`
+/// occupies none.
 ///
 /// Transient state is bits per open ancestor and nothing per node: the
 /// branch-direction path, two kind bits per right-branch level, and the
-/// reserved tags' positions on a delta-coded bit stack ([`PosStack`]) —
-/// never a stack frame or a per-level machine word, so a deep output
-/// costs bits, not grown segments.
+/// reserved tags' positions on a delta-coded bit stack ([`PosStack`]) — never a
+/// stack frame or a per-level machine word, so a deep output costs bits, not
+/// grown segments.
 pub(super) struct IdSkylineBuilder {
     out: IdBuilder,
     /// Root-to-current branch directions: `false` inside a left child,
@@ -204,8 +203,8 @@ impl IdSkylineBuilder {
     /// Append the next plateau: a leaf at `depth` (its interval has width
     /// `2^-depth`), owned or unowned.
     ///
-    /// The plateau sequence must be the preorder tiling of one dyadic
-    /// tree: each new depth must be reachable from the last by the forced
+    /// The plateau sequence must be the preorder tiling of one dyadic tree:
+    /// each new depth must be reachable from the last by the forced
     /// flip-and-descend, which the builder debug-asserts.
     pub(super) fn leaf(&mut self, depth: usize, owned: bool) {
         debug_assert!(
@@ -231,19 +230,18 @@ impl IdSkylineBuilder {
         self.close_up(kind);
     }
 
-    /// Append a whole canonical internal subtree at `depth` as one
-    /// verbatim splice: the block form of [`leaf`](Self::leaf), for a
-    /// region whose plateaus are one operand's own tiling unchanged.
+    /// Append a whole canonical internal subtree at `depth` as one verbatim
+    /// splice: the block form of [`leaf`](Self::leaf), for a region whose
+    /// plateaus are one operand's own tiling unchanged.
     ///
-    /// `src` must be the complete packed encoding of one *internal*
-    /// subtree in normal form (a fully-owned region is a
-    /// [`leaf`](Self::leaf), and an unowned one contributes no bits).
-    /// The splice preserves the builder's normalization invariants at
-    /// its boundary: the interior needs no repair because a subtree of
-    /// a normal id is itself normal, and the subtree closes upward as
-    /// [`Built::Node`] — exactly what re-deriving it plateau by plateau
-    /// would close as (its root has a child that is neither both-empty
-    /// nor both-terminal), so the ancestors' presence patches and
+    /// `src` must be the complete packed encoding of one *internal* subtree in
+    /// normal form (a fully-owned region is a [`leaf`](Self::leaf), and an
+    /// unowned one contributes no bits). The splice preserves the builder's
+    /// normalization invariants at its boundary: the interior needs no repair
+    /// because a subtree of a normal id is itself normal, and the subtree
+    /// closes upward as [`Built::Node`] — exactly what re-deriving it plateau
+    /// by plateau would close as (its root has a child that is neither
+    /// both-empty nor both-terminal), so the ancestors' presence patches and
     /// collapses are unchanged.
     pub(super) fn subtree(&mut self, depth: usize, src: &BitsSlice) {
         debug_assert!(
@@ -268,8 +266,7 @@ impl IdSkylineBuilder {
         self.close_up(Built::Node);
     }
 
-    /// Take the finished canonical stream (empty for a wholly unowned
-    /// tiling).
+    /// Take the finished canonical stream (empty for a wholly unowned tiling).
     pub(super) fn finish(self) -> BitsMut {
         debug_assert!(
             self.root.is_some(),
@@ -278,9 +275,9 @@ impl IdSkylineBuilder {
         self.out.finish()
     }
 
-    /// Close finished subtrees upward from a completed child of kind
-    /// `kind`: flip a left child to its right sibling and stop, or pop a
-    /// right child's level, normalize its node, and continue upward.
+    /// Close finished subtrees upward from a completed child of kind `kind`:
+    /// flip a left child to its right sibling and stop, or pop a right child's
+    /// level, normalize its node, and continue upward.
     ///
     /// The root's completion records the whole tiling's result.
     fn close_up(&mut self, mut kind: Built) {
@@ -291,15 +288,15 @@ impl IdSkylineBuilder {
                     return;
                 }
                 Some(false) => {
-                    // The left child completed: its right sibling's
-                    // plateaus are next.
+                    // The left child completed: its right sibling's plateaus
+                    // are next.
                     self.path.push(true);
                     self.push_kind(kind);
                     return;
                 }
                 Some(true) => {
-                    // The right child completed: normalize and close the
-                    // node, and continue with what it built.
+                    // The right child completed: normalize and close the node,
+                    // and continue with what it built.
                     let left = self.pop_kind();
                     kind = self.out.close_node(Open(self.tags.pop()), left, kind);
                 }
@@ -327,15 +324,14 @@ impl IdSkylineBuilder {
     }
 }
 
-/// A pop-able stack of the open ancestors' reserved tag positions:
-/// delta-coded bits plus one absolute register.
+/// A pop-able stack of the open ancestors' reserved tag positions: delta-coded
+/// bits plus one absolute register.
 ///
-/// Each entry stores its delta from the entry under it on a [`PopStack`],
-/// with the top entry's absolute position in one register. Positions
-/// increase up the stack, and a descent chain reserves adjacent tags
-/// (delta 2), so an entry typically costs ~4 bits where a machine word
-/// would cost 64: depth costs bits here the same way it does in the path
-/// stacks.
+/// Each entry stores its delta from the entry under it on a [`PopStack`], with
+/// the top entry's absolute position in one register. Positions increase up the
+/// stack, and a descent chain reserves adjacent tags (delta 2), so an entry
+/// typically costs ~4 bits where a machine word would cost 64: depth costs bits
+/// here the same way it does in the path stacks.
 struct PosStack {
     /// The innermost entry's absolute position (0 when empty).
     top: usize,

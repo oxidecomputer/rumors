@@ -5,9 +5,10 @@ use core::cmp::Ordering;
 use core::fmt::{Debug, Display};
 use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Div};
+use core::str::FromStr;
 use std::io::{self, Read, Write};
 
-use crate::causally;
+use crate::causally::{self, Span};
 use crate::codec;
 use crate::error::{Decode, Parse};
 use crate::Party;
@@ -36,11 +37,12 @@ pub use ticks::Ticks;
 #[cfg(test)]
 mod tests;
 
-/// A causal version: an event tree timestamping a [`Party`]'s history.
+/// A causal version: a timestamp from a [`Party`]'s history.
 ///
-/// Comparison and **join** (`|`) are what give a version meaning;
-/// [`tick`](Version::tick) is the only operation that records *new*
-/// history (a join or meet only combines histories already recorded):
+/// Comparison and the lattice operations [`join`](Version::join) (`|`) and
+/// [`meet`](Version::meet) (`&`) are what give versions meaning in relation to
+/// one another; [`tick`](Version::tick) and [`ticks`](Version::ticks) record
+/// *new* history (a join or meet only combines histories already recorded).
 ///
 /// | Operation                                 | Meaning                                                        |
 /// |-------------------------------------------|----------------------------------------------------------------|
@@ -53,29 +55,8 @@ mod tests;
 /// | [`a.ticks(&p, n)`](Version::ticks)        | record `n` new events for [`Party`] `p`, in one pass           |
 ///
 /// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
-/// versions can be [`concurrent`](Version::concurrent), and then `a < b`,
-/// `a == b`, and `a > b` are all false.
-///
-/// # Complexity
-///
-/// A version's *size* `|v|` is its length in bytes: the in-memory
-/// representation is the serialized representation, so `|v|` is exactly
-/// the length of [`encode`](Version::encode)'s bytes
-/// ([`as_bytes`](Version::as_bytes) borrows them without copying;
-/// [`encoded_bits`](Version::encoded_bits) is exact to the bit). Every
-/// `# Complexity` section on this type's operations is denominated in
-/// these byte sizes. Every
-/// comparison (`==`, `<`, `<=`, [`partial_cmp`](PartialOrd::partial_cmp),
-/// [`concurrent`](Version::concurrent)), join (`|`, `|=`), and meet
-/// (`&`, `&=`) — over owned or borrowed operands — is `O(|a| + |b|)`:
-/// one read of both operands' bytes, with a join or meet result itself
-/// `O(|a| + |b|)` bytes. Hashing is `O(|v|)`, one read. The
-/// costs that differ live on their operations: the projection `/` (an `O(1)` view
-/// whose explicit materialization,
-/// [`OwnVersion::to_version`](crate::OwnVersion::to_version), can outgrow
-/// its operands), the n-ary folds
-/// ([`join_all`](Version::join_all)), and the text conversions
-/// (`Display` and `FromStr`, documented on their impls).
+/// versions can be [`concurrent`](Version::concurrent), and then `a < b`, `a ==
+/// b`, and `a > b` are all false.
 ///
 /// # Example
 ///
@@ -89,19 +70,20 @@ mod tests;
 /// let merged = va | vb;
 /// assert!(merged > va && merged > vb);  // the join dominates both inputs
 /// ```
-// At rest, a `Version` is its canonical skyline stream in a
-// length-carrying container ([`codec::Bits`]): the raw byte slice IS the
-// wire encoding (`from_bits` zeroes the dead pad bits at the freeze
-// seam), and the live bit length is a cached parse product the wire
-// legitimately omits — the stream is self-delimiting at the bit level.
-// Canonical uniqueness makes byte equality exactly causal equality;
-// `PartialEq` is the macro's byte-level stream compare (see
-// `causal_cmp_impls!` and `codec::canonical_eq`), and the manual `Hash`
-// below reads the same (raw bytes, live length) pair, so their
-// consistency holds by construction. The container's backing store is
-// refcounted (`bytes::Bytes`), which is what makes the derived `Clone`
-// `O(1)`: a clone shares the buffer, and `codec::canonical_eq`'s
-// clone-identity rung recognizes the sharing.
+//
+// At rest, a `Version` is its canonical skyline stream in a length-carrying
+// container ([`codec::Bits`]): the raw byte slice IS the wire encoding
+// (`from_bits` zeroes the dead pad bits at the freeze seam), and the live bit
+// length is a cached parse product the wire legitimately omits: the stream is
+// self-delimiting at the bit level.
+//
+// Canonical uniqueness makes byte equality exactly causal equality; `PartialEq`
+// is the macro's byte-level stream compare (see `causal_cmp_impls!` and
+// `codec::canonical_eq`), and the manual `Hash` below reads the same (raw
+// bytes, live length) pair, so their consistency holds by construction. The
+// container's backing store is refcounted (`bytes::Bytes`), which is what makes
+// the derived `Clone` `O(1)`: a clone shares the buffer, and
+// `codec::canonical_eq`'s clone-identity rung recognizes the sharing.
 #[derive(Clone, Eq)]
 pub struct Version(codec::Bits);
 
@@ -124,15 +106,14 @@ impl Version {
     /// assert_eq!(before::Version::new().to_string(), "0");
     /// ```
     pub fn new() -> Self {
-        // The canonical empty version is exactly the 2-bit stream `11`
-        // (the single-leaf topology flag, then gamma(0), the single bit
-        // `1` — see `is_empty`), so the stored form is one static byte:
-        // construction allocates nothing, and every empty version
-        // shares the one static buffer (clone identity holds even
-        // across separate `new()` calls). A `static`, not a `const`:
-        // a const's promoted allocation has no guaranteed unique
-        // address, and the cross-call sharing claim rests on one. The
-        // codec round-trip and text laws pin the constant against the
+        // The canonical empty version is exactly the 2-bit stream `11` (the
+        // single-leaf topology flag, then gamma(0), the single bit `1` — see
+        // `is_empty`), so the stored form is one static byte: construction
+        // allocates nothing, and every empty version shares the one static
+        // buffer (clone identity holds even across separate `new()` calls). A
+        // `static`, not a `const`: a const's promoted allocation has no
+        // guaranteed unique address, and the cross-call sharing claim rests on
+        // one. The codec round-trip and text laws pin the constant against the
         // built form.
         static EMPTY_STREAM: &[u8] = &[0b1100_0000];
         Version::from_frozen(codec::Bits::from_canonical(
@@ -157,27 +138,24 @@ impl Version {
     /// assert!(!v.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
-        // The canonical empty version is exactly the 2-bit stream `11`: a
-        // `1` leaf flag, then gamma(0), the single bit `1` (see
-        // `Version::new` and `codec::encode_int`). The stored skyline
-        // stream is a unique representation, so this O(1) bit test is the
-        // whole question — no allocation, no walk.
+        // The canonical empty version is exactly the 2-bit stream `11`: a `1`
+        // leaf flag, then gamma(0), the single bit `1` (see `Version::new` and
+        // `codec::encode_int`). The stored skyline stream is a unique
+        // representation, so this O(1) bit test is the whole question — no
+        // allocation, no walk.
         skyline::is_empty_stream(&self.0)
     }
 
     /// Advances this version by one event for `party`.
     ///
-    /// A tick is a pure function of this version and `party`, with no
-    /// memory of the party's other ticks: ticking two clones of one
-    /// version with the same party mints equal successors, and that is
-    /// valid — a version records causal knowledge, not event identity.
+    /// Dealing directly with a [`Party`] and a [`Version`] permits one version
+    /// to be [`tick`](Version::tick)ed by many parties, or one [`Party`] to
+    /// [`tick`](Party::tick) many [`Version`]s; this is in contrast to a
+    /// [`Clock`], which binds the two together.
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |party|)`. The bound holds per call, wide values included: recording one
-    /// event can re-code a value as wide as the operands spell, but that width
-    /// arrives in the operand carrying it and is paid at most a constant
-    /// number of times.
+    /// `O(|self| + |party|)`.
     ///
     /// # Example
     ///
@@ -191,20 +169,14 @@ impl Version {
         *self = Version::from_bits(skyline::fill::tick(&self.0, party));
     }
 
-    /// Advances this version by `n` events for `party`: byte-identical to
-    /// `n` sequential [`tick`](Self::tick)s, computed in a bounded number
-    /// of passes rather than `n`.
+    /// Advances this version by `n` events for `party`.
     ///
-    /// `n` is any count — an unsigned integer literal converts in place,
-    /// and a [`Ticks`] carries counts wider than any machine integer —
-    /// and `n = 0` is the identity (the empty run), so replay drivers and
-    /// folds can pass whatever count they hold.
+    /// This is identical to `n` sequential [`tick`](Self::tick)s, but computed
+    /// much more efficiently.
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |party| + log n)`: skipping by `n` costs what one
-    /// tick costs plus the width of `n`, never `n` walks (measured; the
-    /// resource-envelope suite pins the constants).
+    /// `O(|self| + |party| + log n)`.
     ///
     /// # Example
     ///
@@ -221,9 +193,8 @@ impl Version {
     /// ```
     pub fn ticks(&mut self, party: &Party, n: impl Into<Ticks>) {
         let n = n.into();
-        // The empty run is the identity — the `ticks_zero_is_identity`
-        // law in [`laws`](crate::laws) — settled without re-freezing
-        // the stream (a width test, not a value compare: no limb work).
+        // The empty run is the identity, settled without re-freezing the stream
+        // (a width test, not a value compare: no limb work).
         if n.0.bits() == 0 {
             return;
         }
@@ -235,7 +206,6 @@ impl Version {
     /// # Complexity
     ///
     /// `O(|self| + |version|)`.
-    /// One causal comparison.
     ///
     /// # Example
     ///
@@ -252,22 +222,19 @@ impl Version {
     }
 
     /// The minimum number of [`tick`](Self::tick)s that could have produced
-    /// this [`Version`]: the sum of every base in its event tree, as an
-    /// exact [`Ticks`] count at any magnitude.
+    /// this [`Version`], as an exact [`Ticks`] count at any magnitude.
     ///
     /// This is a floor over all causal histories: every sequence of
-    /// [`fork`](crate::Clock::fork), `tick`, and
-    /// [`join`](crate::Clock::join) that yields this version performs at
-    /// least this many ticks, and some history achieves it exactly (for a
-    /// leaf, a single [`Party`] ticking in a line). The floor exceeds the
-    /// tallest root-to-leaf path sum whenever the history forked:
-    /// `(0, (0,1,0), (0,0,1))` has no path taller than `1`, but its two
-    /// peaks over disjoint regions force two independent ticks.
+    /// [`fork`](crate::Clock::fork), `tick`, and [`join`](crate::Clock::join)
+    /// that could have yielded this version must have performed at least this
+    /// many ticks. The true history of this [`Version`] could have performed
+    /// arbitrarily many more operations than this minimum.
     ///
     /// There is no corresponding maximum. For any nonempty version the tick
     /// count is unbounded above: an increment over an interval can always be
-    /// refined into two concurrent increments over its halves (forked,
-    /// ticked, rejoined), producing the same version with one more tick.
+    /// refined into two concurrent increments over its halves (forked, ticked,
+    /// rejoined), producing the same version with one more tick having
+    /// comprised its true history.
     ///
     /// # Complexity
     ///
@@ -287,39 +254,19 @@ impl Version {
         Ticks(skyline::query::min_ticks(&self.0))
     }
 
-    /// This [`Version`]'s exact causal [`Rank`], strictly monotone: `v < w`
-    /// implies `v.rank() < w.rank()`, so equal ranks are never causally ordered
-    /// (same version, or concurrent).
+    /// This [`Version`]'s exact causal [`Rank`]: `v < w` implies `v.rank() <
+    /// w.rank()`, so equal ranks are never causally ordered (same version, or
+    /// concurrent).
     ///
-    /// Sorting by `(rank, some-total-tiebreak)`
-    /// therefore yields a linear extension of the causal order: causes always
-    /// sort before their effects. See [`Rank`] for the measure itself and why
-    /// strictness holds.
+    /// Sorting by `(rank, some-total-tiebreak)` therefore yields a linear
+    /// extension of the causal order: causes always sort before their effects.
     ///
     /// # Complexity
     ///
-    /// `O(|self|)` space; time `O(M(|self|) · log |self|)` worst case,
-    /// `O(|self| log |self|)` with width-bounded parked drifts.
-    /// The returned rank's numeric size (see [`Rank`]) is itself
-    /// `O(|self|)`. Time, in three parts:
-    ///
-    /// - `O(M(|self|) · log |self|)` in the worst case, `M` the
-    ///   integer-multiplication bound of the arithmetic backend; the
-    ///   log factor is absorbed — leaving `O(M(|self|))` — below the
-    ///   backend's quasilinear threshold (inputs up to ~64 KiB) and on
-    ///   inputs of any size with `O(1)` re-armings.
-    /// - `Ω(M(|self|))` on adversarial inputs: a version can *embed*
-    ///   the product of two arbitrary integers in its exact rank, so no
-    ///   exact answer costs less than one multiplication — the worst
-    ///   case cannot reach `O(|self|)` while integer multiplication is
-    ///   superlinear.
-    /// - `O(|self| log |self|)` for streams whose parked drifts stay a
-    ///   bounded number of digits wide — every committed board family.
-    ///
-    /// The gap between `O(M(|self|) · log |self|)` and `Ω(M(|self|))`
-    /// is not contractual: a future release may close the tree-depth
-    /// factor, and none may do better than one multiplication on the
-    /// embedded-product inputs.
+    /// `O(|self|)` space; in the worst case, time is `O(M(|self|) · log
+    /// |self|)` (but usually much better), where `M` is the complexity of
+    /// unbounded-integer multiplication (something like `O(n log n)` in this
+    /// implementation).
     ///
     /// # Example
     ///
@@ -339,16 +286,14 @@ impl Version {
         skyline::query::rank(&self.0)
     }
 
-    /// Views this version by its causal rank: the borrowing [`Ranked`]
-    /// view, which compares by [`rank`](Self::rank) without
-    /// materializing one and keys by the composite rank-then-version
-    /// encoding.
+    /// Views this version ordered totally by its causal rank, using its own
+    /// lexicographic ordering as a deterministic tie-break for equal ranks.
     ///
-    /// Equal to `Ranked::from(&self)` — this is the method spelling
-    /// for chained call sites. Construction is `O(1)` and runs no
-    /// fold; see [`Ranked`] for what the view's comparisons mean
-    /// (rank order completed by a deterministic tiebreak, equality as
-    /// version identity) and when to materialize a [`Rank`] instead.
+    /// Prefer this to [`rank`](Version::rank) when you do not need to
+    /// materialize the [`Rank`] itself, and merely need a causal ordering.
+    ///
+    /// See [`Ranked`] for more detail.
+    ///
     ///
     /// # Complexity
     ///
@@ -370,30 +315,27 @@ impl Version {
         Ranked::from(self)
     }
 
-    /// The causal distance between two versions: the [`Rank`] of their
-    /// symmetric difference, `rank(self | other) - rank(self & other)`.
+    /// The causal distance metric between two versions.
     ///
-    /// This is a metric on the version lattice. [`Rank`] is the area under the
-    /// event tree, so it is a *valuation*: `rank(a | b) + rank(a & b) ==
-    /// rank(a) + rank(b)`. A strictly monotone valuation on a distributive
-    /// lattice induces a metric, so `distance` is symmetric, zero only between
-    /// equal versions, and obeys the triangle inequality. It measures how much
-    /// history two replicas would have to exchange to converge: zero when they
-    /// agree, growing with every event neither shares.
+    /// This measures how much history two replicas would have to exchange to
+    /// converge: zero when they agree, growing with every event neither shares.
+    ///
+    /// It is equal to the [`Rank`] of their symmetric difference, `(self |
+    /// other).rank() - rank(self & other).rank()`, but more efficiently
+    /// computed.
+    ///
+    /// This is a metric on the version lattice. [`Rank`] is a *valuation*:
+    /// `rank(a | b) + rank(a & b) == rank(a) + rank(b)`. A strictly monotone
+    /// valuation on a distributive lattice induces a metric, so `distance` is
+    /// symmetric, zero only between equal versions, and obeys the triangle
+    /// inequality.
     ///
     /// # Complexity
     ///
-    /// With `n = |self| + |other|`: `O(n)` space; time `O(M(n) · log n)`
-    /// worst case, `O(n log n)` with width-bounded parked drifts.
-    /// Time is exactly [`rank`](Self::rank)'s, in its three parts: `M`
-    /// is the integer-multiplication bound of the arithmetic backend,
-    /// the log factor is absorbed — leaving `O(M(n))` — below the
-    /// backend's quasilinear threshold and on `O(1)`-re-arming pairs of
-    /// any size, and adversarial inputs pay `Ω(M(n))` (the
-    /// answer-embedded product). Every committed board family runs at
-    /// the width-bounded leg. The gap above `Ω(M(n))` is not
-    /// contractual: a future release may
-    /// close the tree-depth factor.
+    /// `O(|self| + |other|)` in space; in the worst case, time is `O(M(|self|)
+    /// · log |self|)` worst case (but usually much better), where `M` is the
+    /// complexity of unbounded-integer multiplication (something like `O(n log
+    /// n)` in this implementation).
     ///
     /// # Example
     ///
@@ -424,26 +366,22 @@ impl Version {
         skyline::query::distance(&self.0, &other.0)
     }
 
-    /// How far `self` lags behind `other`: the [`Rank`] of the history `other`
-    /// records that `self` does not, `rank(self | other) - rank(self)`.
+    /// How far `self` lags behind `other`.
     ///
-    /// The directed half of [`distance`](Self::distance): exactly the size of
-    /// the [`causally::delta`] a replica at `self` must
-    /// receive to reach `self | other`. Zero when `other <= self` (`self`
-    /// already knows everything `other` does), and the two directions sum to
-    /// the symmetric distance: `a.lag(b) + b.lag(a) == a.distance(b)`.
+    /// This computes the [`Rank`] of the history `other` records that `self`
+    /// does not, `(self | other).rank() - self.rank()`, but more efficiently.
+    ///
+    /// The directed half of [`distance`](Self::distance): is is zero when
+    /// `other <= self` (`self` already knows everything `other` does), and the
+    /// two directions sum to the symmetric distance: `a.lag(b) + b.lag(a) ==
+    /// a.distance(b)`.
     ///
     /// # Complexity
     ///
-    /// With `n = |self| + |other|`: `O(n)` space; time `O(M(n) · log n)`
-    /// worst case, `O(n log n)` with width-bounded parked drifts.
-    /// Time is exactly [`distance`](Self::distance)'s, in its three
-    /// parts: one shared co-sweep integrates both measures' functionals,
-    /// with `M` the arithmetic backend's integer-multiplication bound,
-    /// the tree-depth log absorbed below the backend's quasilinear
-    /// threshold and on `O(1)`-re-arming pairs, and `Ω(M(n))` on
-    /// adversarial inputs; the same gap above the multiplication bound
-    /// is likewise not contractual.
+    /// `O(|self| + |other|)` in space; in the worst case, time is `O(M(|self|)
+    /// · log |self|)` worst case (but usually much better), where `M` is the
+    /// complexity of unbounded-integer multiplication (something like `O(n log
+    /// n)` in this implementation).
     ///
     /// # Example
     ///
@@ -468,18 +406,10 @@ impl Version {
         skyline::query::lag(&self.0, &other.0)
     }
 
-    /// The join (least upper bound) of this version and `other`: their
-    /// combined causal history, the spelled form of `self | other`.
+    /// The join (least upper bound) of this [`Version`] and `other`: their
+    /// combined causal history.
     ///
-    /// The join dominates both operands, and the operation is
-    /// commutative, associative, and idempotent with the empty
-    /// [`Version`] as identity — the same lattice the `|`/`|=`
-    /// operator matrix exposes over owned and borrowed operands, and
-    /// every spelling lands on the same kernel. Reach for the method
-    /// where an operator cannot go (a fully qualified call, a method
-    /// chain) or where the word reads better than the symbol.
-    ///
-    /// Both operands are read in place; the result is minted owned.
+    /// Identical to the operator form `self | other`.
     ///
     /// # Complexity
     ///
@@ -501,18 +431,44 @@ impl Version {
         Self::join_refs(self, other)
     }
 
+    /// The [`join`](Version::join) of `self` and every version in `others`.
+    ///
+    /// Prefer this to iteratively [`join`](Version::join)ing [`Version`]s
+    /// one-at-a-time, as it is more efficient.
+    ///
+    /// To join an iterator with no distinguished first element,
+    /// [`sum`](Iterator::sum) or [`collect`](Iterator::collect) it.
+    ///
+    /// # Complexity
+    ///
+    /// `O((|self| + |others|) log k)` time, `O(|self| + |others|)` auxiliary
+    /// space, where `k` is the count of `others`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Version};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let vb = b.tick().clone();
+    /// let all = va.join_all([&vb]); // by reference: both stay usable
+    /// assert!(all >= va && all >= vb);
+    /// assert_eq!(va.join_all(Vec::<Version>::new()), va); // nothing to add
+    /// ```
+    pub fn join_all<I>(&self, others: I) -> Version
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        Self::balanced_fold(self.with_items(others), Self::join_refs, Self::join_view)
+            .expect("the fold is seeded with the receiver: never empty")
+    }
+
     /// The meet (greatest lower bound) of this version and `other`: the
-    /// history the two share, the spelled form of `self & other`.
+    /// history the two share.
     ///
-    /// The meet is dominated by both operands, and the operation is
-    /// commutative, associative, and idempotent — the same lattice the
-    /// `&`/`&=` operator matrix exposes over owned and borrowed
-    /// operands, and every spelling lands on the same kernel. Reach
-    /// for the method where an operator cannot go (a fully qualified
-    /// call, a method chain) or where the word reads better than the
-    /// symbol.
-    ///
-    /// Both operands are read in place; the result is minted owned.
+    /// Identical to the operator form `self & other`.
     ///
     /// # Complexity
     ///
@@ -534,27 +490,22 @@ impl Version {
         Self::meet_refs(self, other)
     }
 
-    /// The join (least upper bound) of every version in `iter`, or the empty
-    /// [`Version`] for an empty iterator.
+    /// The [`meet`](Version::meet) (greatest lower bound) of this version and
+    /// every version in `others`; for an empty iterator, a clone of `self`.
     ///
-    /// The join-semilattice is a commutative idempotent monoid under `|` with
-    /// identity [`Version::new`], so folding any collection is well defined and
-    /// order-independent. The merged version dominates every input: it is the
-    /// combined causal history of all of them.
+    /// Prefer this to iteratively [`meet`](Version::meet)ing [`Version`]s
+    /// one-at-a-time, as it is more efficient.
     ///
-    /// The meet has no such fold: the lattice has no top element (a version can
-    /// always [`tick`](Self::tick) higher), so the empty meet has no value; see
-    /// [`meet_all`](Self::meet_all), which returns [`Option`] for that reason.
-    ///
-    /// The items may be owned versions or references — anything that
-    /// [borrows](Borrow) as a [`Version`]. Borrowed operands are read in
-    /// place, allocating only results, so folding a collection you keep
-    /// never copies it into an accumulator.
+    /// Unlike the join, the meet has no iterator-only form (no `Sum`
+    /// counterpart): the empty meet would be the version dominating all
+    /// others, but no such [`Version`] exists, since every version can
+    /// [`tick`](Self::tick) higher without bound. The receiver is the
+    /// guaranteed first operand that keeps the fold total.
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time, `O(D)` space; `D` is the total size in
-    /// bytes of `iter`'s versions and `k` their count.
+    /// `O((|self| + |others|) log k)` time, `O(|self| + |others|)` auxiliary
+    /// space, where `k` is the count of `others`.
     ///
     /// # Example
     ///
@@ -564,98 +515,30 @@ impl Version {
     /// let mut b = a.fork();
     /// let va = a.tick().clone();
     /// let vb = b.tick().clone();
-    /// let all = Version::join_all([&va, &vb]); // by reference: both stay usable
-    /// assert!(all >= va && all >= vb);
-    /// assert_eq!(Version::join_all(Vec::<Version>::new()), Version::new());
-    /// ```
-    pub fn join_all<I>(iter: I) -> Version
-    where
-        I: IntoIterator,
-        I::Item: Borrow<Version>,
-    {
-        Self::balanced_fold(iter, Self::join_refs, Self::join_view).unwrap_or_default()
-    }
-
-    /// The meet (greatest lower bound) of every version in `iter`, or [`None`]
-    /// if it is empty: the history every input shares.
-    ///
-    /// Unlike [`join_all`](Self::join_all) this returns an [`Option`], because
-    /// the meet-semilattice has no identity. The empty meet would be the
-    /// version dominating all others, but no such [`Version`] exists (every
-    /// version can [`tick`](Self::tick) higher), so an empty iterator yields
-    /// [`None`].
-    ///
-    /// As with [`join_all`](Self::join_all), the items may be owned
-    /// versions or references — anything that [borrows](Borrow) as a
-    /// [`Version`] — and borrowed operands are read in place.
-    ///
-    /// # Complexity
-    ///
-    /// `O(D log k)` time, `O(D)` space; `D` is the total size in
-    /// bytes of `iter`'s versions and `k` their count.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use before::{Clock, Version};
-    /// let mut a = Clock::seed();
-    /// let mut b = a.fork();
-    /// let va = a.tick().clone();
-    /// let vb = b.tick().clone();
-    /// let common = Version::meet_all([&va, &vb]).unwrap(); // by reference
+    /// let common = va.meet_all([&vb]); // by reference: both stay usable
     /// assert!(common <= va && common <= vb);
-    /// assert!(Version::meet_all(Vec::<Version>::new()).is_none()); // no top to return
+    /// assert_eq!(va.meet_all(Vec::<Version>::new()), va); // nothing to share
     /// ```
-    pub fn meet_all<I>(iter: I) -> Option<Version>
+    pub fn meet_all<I>(&self, others: I) -> Version
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(iter, Self::meet_refs, Self::meet_view)
+        Self::balanced_fold(self.with_items(others), Self::meet_refs, Self::meet_view)
+            .expect("the fold is seeded with the receiver: never empty")
     }
 
-    /// The causal span from this version to `other`: the tightest
-    /// [`Span`](crate::causally::Span) containing both —
-    /// `[self & other, self | other]`, the pair's lattice hull.
+    /// The causal [`Span`] from this [`Version`] to `other`.
     ///
-    /// `^` is the operator spelling: `a ^ b` is `a.span(&b)`, over
-    /// owned and borrowed operands on either side, completing the
-    /// lattice triple with join (`|`) and meet (`&`).
+    /// This computes the tightest [`Span`](crate::causally::Span) which
+    /// encloses all [`Version`]s `v` such that `self & other <= v <= self |
+    /// other`.
     ///
-    /// The binary form of [`span_all`](Self::span_all), and *total*
-    /// where the validating door
-    /// ([`Span::new`](crate::causally::Span::new)) must reject a pair
-    /// no chain connects. On comparable versions the hull *is* the
-    /// pair, reordered (the meet and join of comparable versions are
-    /// the smaller and the larger), so `span` subsumes the flip repair
-    /// `new` declines to perform — and it is deliberately the only
-    /// repair offered: silently reordering a caller's *stated*
-    /// endpoints would hide the caller bug
-    /// [`Crossed`](crate::error::Crossed) surfaces, and no reordering
-    /// exists for a concurrent pair, whose hull's endpoints are fresh
-    /// versions bracketing both inputs.
-    ///
-    /// Both operands are read in place; the endpoints are minted
-    /// owned, so the span borrows neither. The `span_is_the_pair_hull`
-    /// law in [`laws`](crate::laws) pins the door: the endpoints are
-    /// definitionally the pair's meet and join, operand order is
-    /// irrelevant, a comparable pair's hull is its validated span
-    /// either way around, and the n-ary form agrees at its edges.
+    /// Identical to the operator form `self ^ other`.
     ///
     /// # Complexity
     ///
     /// `O(|self| + |other|)`.
-    /// One pair walk feeds both endpoints: the meet and join
-    /// emissions consume the identical crossing sequence, so each
-    /// operand is decoded once and every crossing folds into the
-    /// running difference once, where composing `&` and `|` decodes
-    /// and folds each twice. The saving is the composition's second
-    /// pair decode and second set of crossing folds — the emitted
-    /// outputs are the same either way, so total traffic shrinks by
-    /// the shared reads, not by half — and the resource-envelope
-    /// suite (`tests/meter.rs`) pins both faces: the span
-    /// scan-identity holds the decode saving exact, and the
-    /// touch-traffic undercut pins the shared folds.
     ///
     /// # Example
     ///
@@ -667,56 +550,34 @@ impl Version {
     /// let va2 = a.tick().clone();
     /// let vb = b.tick().clone(); // concurrent to alice's line
     ///
-    /// // Comparable versions: the hull is the pair, reordered —
-    /// // the flip repair, from either operand order.
+    /// // Comparable versions:
     /// assert_eq!(va2.span(&va), Span::new(&va, &va2).unwrap());
     /// assert_eq!(va.span(&va2), Span::new(&va, &va2).unwrap());
     /// // A concurrent pair has no reordering to repair, but it has a
-    /// // hull: both inputs sit strictly inside it.
-    /// let hull = va.span(&vb);
-    /// assert_eq!(hull.place(&va), Placement::Between);
-    /// assert_eq!(hull.place(&vb), Placement::Between);
-    /// assert_eq!(&va ^ &vb, hull); // the operator spelling agrees
+    /// // span; both inputs sit strictly inside it:
+    /// let span = va.span(&vb);
+    /// assert_eq!(span.place(&va), Placement::Between);
+    /// assert_eq!(span.place(&vb), Placement::Between);
+    /// assert_eq!(&va ^ &vb, span); // the operator spelling agrees
     /// ```
-    pub fn span(&self, other: &Version) -> causally::Span<'static> {
+    pub fn span(&self, other: &Version) -> Span<'static> {
         let (lo, hi) = Self::span_refs(self, other);
-        causally::Span::owned(lo, hi)
+        Span::owned(lo, hi)
     }
 
-    /// The causal span of this version and every version in `others`:
-    /// the tightest [`Span`](crate::causally::Span) containing them all
-    /// — `[⋀ ({self} ∪ others), ⋁ ({self} ∪ others)]`, the lattice
-    /// hull.
+    /// The causal [`Span`] enclosing `self` and all the [`Version`]s in `iter`.
     ///
-    /// The receiver is the guaranteed first element, and that is what
-    /// makes the construction *total*: the lattice has no top, so the
-    /// hull of *nothing* has no value
-    /// ([`meet_all`](Self::meet_all) returns [`Option`] for exactly
-    /// that reason) — seeded with `self`, the folds are never empty,
-    /// and an empty iterator yields the coincident `[self, self]`.
+    /// This computes the tightest [`Span`](crate::causally::Span) which
+    /// encloses all [`Version`]s `v` such that `self.meet_all(iter) <= v <=
+    /// self.join_all(iter)`.
     ///
-    /// The items may be owned versions or references — anything that
-    /// [borrows](Borrow) as a [`Version`], the
-    /// [`join_all`](Self::join_all) calling convention. Borrowed
-    /// operands are read in place; the endpoints are minted owned, so
-    /// the span borrows nothing from the collection.
-    ///
-    /// The `span_all_is_the_family_hull`,
-    /// `span_all_is_rotation_invariant`, and `span_is_the_pair_hull`
-    /// laws in [`laws`](crate::laws) pin the door at every arity: the
-    /// endpoints are definitionally [`meet_all`](Self::meet_all) and
-    /// [`join_all`](Self::join_all) over `{self} ∪ others`, which
-    /// element rides as the receiver is irrelevant and so is item
-    /// order, every input places within the hull (never
-    /// [`Before`](crate::causally::Placement::Before) or
-    /// [`After`](crate::causally::Placement::After)), the empty
-    /// iterator yields `[self, self]`, and at one item the n-ary form
-    /// is [`span`](Self::span).
+    /// Prefer this to iteratively [`span`](Version::meet)ing [`Version`]s
+    /// one-at-a-time, as it is more efficient.
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time, `O(D)` space; `D` is the total size in
-    /// bytes of `{self} ∪ others` and `k` its count.
+    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` auxiliary space,
+    /// where `k` is the count of `iter`.
     ///
     /// # Example
     ///
@@ -728,46 +589,41 @@ impl Version {
     /// let vb = b.tick().clone();
     /// let va2 = a.tick().clone();
     ///
-    /// // The hull of a collection: every input places within it.
-    /// let hull = va.span_all([&vb, &va2]);
+    /// // The span of a collection: every input places within it.
+    /// let span = va.span_all([&vb, &va2]);
     /// for v in [&va, &vb, &va2] {
-    ///     assert!(!matches!(hull.place(v), Placement::Before | Placement::After));
+    ///     assert!(!matches!(span.place(v), Placement::Before | Placement::After));
     /// }
     /// // The empty iterator is the coincident single-version span:
-    /// // the receiver keeps the hull total.
     /// assert_eq!(
     ///     va.span_all(Vec::<Version>::new()),
     ///     Span::new(&va, &va).unwrap(),
     /// );
     /// ```
-    pub fn span_all<I>(&self, others: I) -> causally::Span<'static>
+    pub fn span_all<I>(&self, others: I) -> Span<'static>
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        // One balanced fold, two-sided accumulator: the hull needs both
-        // lattice directions, and carrying `(lo, hi)` through the
-        // counter feeds them from a single pass — the caller's iterator
-        // is never buffered, and each input is read at its combines
-        // alone. A leaf combine (two raw inputs) derives the pair hull
-        // through the fused pair walk, each input decoded once for both
-        // endpoints; an interior combine folds per side, because its
-        // two legs read *different* operand pairs (`lo₁ ∧ lo₂` and
-        // `hi₁ ∨ hi₂`) — no shared pair walk exists there to fuse.
-        // Adjacent clone-identical inputs (the receiver included)
-        // collapse before the counter reads them ([`DedupRuns`]): both
-        // hull directions are idempotent, so a run of one shared buffer
-        // is one input.
-        let inputs = DedupRuns::new(
-            core::iter::once(SpanInput::Receiver(self))
-                .chain(others.into_iter().map(SpanInput::Item)),
-            SpanInput::version,
-        )
-        .map(Hull::Input);
+        // One balanced fold, two-sided accumulator: the hull needs both lattice
+        // directions, and carrying `(lo, hi)` through the counter feeds them
+        // from a single pass — the caller's iterator is never buffered, and
+        // each input is read at its combines alone.
+        //
+        // A leaf combine (two raw inputs) derives the pair hull through the
+        // fused pair walk, each input decoded once for both endpoints; an
+        // interior combine folds per side, because its two legs read
+        // *different* operand pairs (`lo₁ ∧ lo₂` and `hi₁ ∨ hi₂`) — no shared
+        // pair walk exists there to fuse.
+        //
+        // Adjacent clone-identical inputs (the receiver included) collapse
+        // before the counter reads them ([`DedupRuns`]): both hull directions
+        // are idempotent, so a run of one shared buffer is one input.
+        let inputs = DedupRuns::new(self.with_items(others), FoldInput::version).map(Hull::Input);
         let group = crate::fold::balanced_reduce(inputs, |a, b| {
             let (lo, hi) = match (a, b) {
-                // A leaf combine: two raw inputs derive their pair hull
-                // in one fused walk.
+                // A leaf combine: two raw inputs derive their pair hull in one
+                // fused walk.
                 (Hull::Input(a), Hull::Input(b)) => Self::span_refs(a.version(), b.version()),
                 (Hull::Merged { mut lo, mut hi }, Hull::Input(b)) => {
                     let b = b.version();
@@ -787,11 +643,10 @@ impl Version {
                     (a_lo, a_hi)
                 }
                 // Unreachable through the counter's weight discipline (a
-                // weight-0 lone input never sits below a merged group in
-                // the closing drain), but the match stays total rather
-                // than asserting: both sides' combiners are commutative,
-                // so folding the raw input into the owned hull is
-                // value-identical.
+                // weight-0 lone input never sits below a merged group in the
+                // closing drain), but the match stays total rather than
+                // asserting: both sides' combiners are commutative, so folding
+                // the raw input into the owned hull is value-identical.
                 (Hull::Input(a), Hull::Merged { mut lo, mut hi }) => {
                     let a = a.version();
                     lo.meet_view(a.view());
@@ -802,34 +657,34 @@ impl Version {
             Hull::Merged { lo, hi }
         });
         match group.expect("the fold is seeded with the receiver: never empty") {
-            // The receiver alone (an empty iterator): the coincident
-            // span, the one place an input itself becomes the hull.
+            // The receiver alone (an empty iterator): the coincident span, the
+            // one place an input itself becomes the hull.
             Hull::Input(input) => {
                 let v = input.version();
-                causally::Span::owned(v.clone(), v.clone())
+                Span::owned(v.clone(), v.clone())
             }
-            Hull::Merged { lo, hi } => causally::Span::owned(lo, hi),
+            Hull::Merged { lo, hi } => Span::owned(lo, hi),
         }
     }
 
     /// The balanced reduction under [`join_all`](Self::join_all) and
-    /// [`meet_all`](Self::meet_all): fold items that [borrow](Borrow) as
-    /// [`Version`] through [`crate::fold::balanced_reduce`] without
-    /// cloning them on entry.
+    /// [`meet_all`](Self::meet_all) (which seed it with their receiver) and
+    /// the `Sum`/`FromIterator` impls (which feed it the bare iterator): fold
+    /// items that [borrow](Borrow) as [`Version`] through
+    /// [`crate::fold::balanced_reduce`] without cloning them on entry.
     ///
-    /// Each combiner comes in the two forms ownership demands — `refs`
-    /// combines two borrowed inputs into a fresh owned result
-    /// ([`join_refs`](Self::join_refs)/[`meet_refs`](Self::meet_refs)),
-    /// and `view` folds a borrowed stream into an owned group in place
-    /// ([`join_view`](Self::join_view)/[`meet_view`](Self::meet_view)) —
-    /// and [`Group`] carries which form each operand needs. `None` is the
-    /// empty fold; a lone input is cloned, the one place an input itself
-    /// must become an owned result.
+    /// Each combiner comes in the two forms ownership demands — `refs` combines
+    /// two borrowed inputs into a fresh owned result
+    /// ([`join_refs`](Self::join_refs)/[`meet_refs`](Self::meet_refs)), and
+    /// `view` folds a borrowed stream into an owned group in place
+    /// ([`join_view`](Self::join_view)/[`meet_view`](Self::meet_view)) — and
+    /// [`Group`] carries which form each operand needs. `None` is the empty
+    /// fold, which a receiver-seeded caller never sees; a lone input is
+    /// cloned, the one place an input itself must become an owned result.
     ///
-    /// Adjacent clone-identical inputs collapse before the counter
-    /// reads them ([`DedupRuns`], citing the idempotence laws): both
-    /// combiners are idempotent, so a run of one shared buffer is one
-    /// operand.
+    /// Adjacent clone-identical inputs collapse before the counter reads them
+    /// ([`DedupRuns`], citing the idempotence laws): both combiners are
+    /// idempotent, so a run of one shared buffer is one operand.
     fn balanced_fold<I>(
         iter: I,
         refs: fn(&Version, &Version) -> Version,
@@ -852,11 +707,10 @@ impl Version {
                     a
                 }
                 // Unreachable through the counter's weight discipline (a
-                // weight-0 lone input never sits below a merged group in
-                // the closing drain), but the match stays total rather
-                // than asserting: both combiners are commutative, so
-                // folding the borrowed side into the owned side is
-                // value-identical.
+                // weight-0 lone input never sits below a merged group in the
+                // closing drain), but the match stays total rather than
+                // asserting: both combiners are commutative, so folding the
+                // borrowed side into the owned side is value-identical.
                 (Group::Input(a), Group::Merged(mut b)) => {
                     view(&mut b, a.borrow().view());
                     b
@@ -869,26 +723,36 @@ impl Version {
         })
     }
 
+    /// This version and then the caller's items: the never-empty input stream
+    /// every receiver-seeded fold ([`join_all`](Self::join_all),
+    /// [`meet_all`](Self::meet_all), [`span_all`](Self::span_all)) reads.
+    fn with_items<I>(&self, others: I) -> impl Iterator<Item = FoldInput<'_, I::Item>>
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        core::iter::once(FoldInput::Receiver(self)).chain(others.into_iter().map(FoldInput::Item))
+    }
+
     /// A read-only view of this version's stored skyline stream.
     pub(crate) fn view(&self) -> &codec::Bits {
         &self.0
     }
 
-    /// The view-taking join core: fold an arbitrary skyline stream into
-    /// this version in place.
+    /// The view-taking join core: fold an arbitrary skyline stream into this
+    /// version in place.
     ///
-    /// Every `|`/`|=` cell routes through here, so owned and borrowed
-    /// operands join without transcoding.
+    /// Every `|`/`|=` cell routes through here, so owned and borrowed operands
+    /// join without transcoding.
     ///
     /// Before the merge sweep, two `O(1)` short-circuits settle the cases
-    /// canonical form makes immediate: trivial equality (`a ∨ a = a`, a
-    /// no-op, decided by a byte compare of the two unique streams) and the
-    /// lattice identity `0 ∨ v = v` — an empty incoming leaves the current
-    /// tree untouched, and an empty current adopts the incoming stream
-    /// wholesale (a copy, byte-identical to what the merge would emit). The
-    /// identity path is the common seed pattern: folds seeded with
-    /// [`Version::new`] (the `|=` accumulation shape) hit it on their
-    /// first join.
+    /// canonical form makes immediate: trivial equality (`a ∨ a = a`, a no-op,
+    /// decided by a byte compare of the two unique streams) and the lattice
+    /// identity `0 ∨ v = v` — an empty incoming leaves the current tree
+    /// untouched, and an empty current adopts the incoming stream wholesale (a
+    /// copy, byte-identical to what the merge would emit). The identity path is
+    /// the common seed pattern: folds seeded with [`Version::new`] (the `|=`
+    /// accumulation shape) hit it on their first join.
     pub(crate) fn join_view(&mut self, incoming: &codec::Bits) {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∨ a = a
@@ -897,24 +761,23 @@ impl Version {
             return; // v ∨ 0 = v: nothing to fold in
         }
         if skyline::is_empty_stream(&self.0) {
-            // 0 ∨ v = v: adopt the incoming stream wholesale. Both streams
-            // are canonical, so the shared buffer (an `O(1)` refcount
-            // clone) equals the merge byte for byte.
+            // 0 ∨ v = v: adopt the incoming stream wholesale. Both streams are
+            // canonical, so the shared buffer (an `O(1)` refcount clone) equals
+            // the merge byte for byte.
             *self = Version::from_frozen(incoming.clone());
             return;
         }
         *self = Version::from_bits(skyline::emit::join(&self.0, incoming));
     }
 
-    /// The borrowed-operands join: `a ∨ b` as a fresh [`Version`],
-    /// reading both operands in place.
+    /// The borrowed-operands join: `a ∨ b` as a fresh [`Version`], reading both
+    /// operands in place.
     ///
-    /// [`join_view`](Self::join_view) for the case where neither operand
-    /// is owned — the same short-circuits in the same order (keep the two
-    /// in lockstep), with each hand-back arm cloning the operand that is
-    /// itself the answer. The general path emits the merged stream
-    /// straight from the two views, so borrowing costs no clone and no
-    /// transcoding.
+    /// [`join_view`](Self::join_view) for the case where neither operand is
+    /// owned — the same short-circuits in the same order (keep the two in
+    /// lockstep), with each hand-back arm cloning the operand that is itself
+    /// the answer. The general path emits the merged stream straight from the
+    /// two views, so borrowing costs no clone and no transcoding.
     pub(crate) fn join_refs(a: &Version, b: &Version) -> Version {
         if codec::canonical_eq(&a.0, &b.0) {
             return a.clone(); // a ∨ a = a
@@ -928,17 +791,16 @@ impl Version {
         Version::from_bits(skyline::emit::join(&a.0, &b.0))
     }
 
-    /// The view-taking meet core, the dual of
-    /// [`join_view`](Self::join_view): meet an arbitrary skyline stream
-    /// into this version in place.
+    /// The view-taking meet core, the dual of [`join_view`](Self::join_view):
+    /// meet an arbitrary skyline stream into this version in place.
     ///
     /// The `&`/`&=` matrix routes through here just as the `|`/`|=` matrix
     /// routes through `join_view`.
     ///
     /// The dual short-circuits apply: trivial equality (`a ∧ a = a`), and the
-    /// empty version as the *absorbing* element, `0 ∧ v = 0` — an empty
-    /// current is already the answer, and an empty incoming makes the result
-    /// the empty version outright, no merge sweep either way.
+    /// empty version as the *absorbing* element, `0 ∧ v = 0` — an empty current
+    /// is already the answer, and an empty incoming makes the result the empty
+    /// version outright, no merge sweep either way.
     pub(crate) fn meet_view(&mut self, incoming: &codec::Bits) {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∧ a == a
@@ -954,13 +816,13 @@ impl Version {
         *self = Version::from_bits(skyline::emit::meet(&self.0, incoming));
     }
 
-    /// The borrowed-operands meet: `a ∧ b` as a fresh [`Version`],
-    /// reading both operands in place.
+    /// The borrowed-operands meet: `a ∧ b` as a fresh [`Version`], reading both
+    /// operands in place.
     ///
-    /// [`meet_view`](Self::meet_view) for the case where neither operand
-    /// is owned, exactly as [`join_refs`](Self::join_refs) mirrors
-    /// [`join_view`](Self::join_view): the same short-circuits in the
-    /// same order — keep the two in lockstep.
+    /// [`meet_view`](Self::meet_view) for the case where neither operand is
+    /// owned, exactly as [`join_refs`](Self::join_refs) mirrors
+    /// [`join_view`](Self::join_view): the same short-circuits in the same
+    /// order — keep the two in lockstep.
     pub(crate) fn meet_refs(a: &Version, b: &Version) -> Version {
         if codec::canonical_eq(&a.0, &b.0) {
             return a.clone(); // a ∧ a = a
@@ -974,25 +836,27 @@ impl Version {
         Version::from_bits(skyline::emit::meet(&a.0, &b.0))
     }
 
-    /// The borrowed-operands hull: `(a ∧ b, a ∨ b)` as fresh
-    /// [`Version`]s, emitting only when it must.
+    /// The borrowed-operands hull: `(a ∧ b, a ∨ b)` as fresh [`Version`]s,
+    /// emitting only when it must.
     ///
     /// The first three rungs are [`meet_refs`](Self::meet_refs) and
-    /// [`join_refs`](Self::join_refs)'s in the same order — keep the
-    /// three in lockstep — each settling both endpoints at once, and
-    /// the equal rung's two clones share one buffer (the coincident
-    /// hull stores its stream once). The span ladder then adds the
-    /// comparable rung the pair operations don't have: a comparable
-    /// pair's hull IS the pair, reordered (the `span_is_the_pair_hull`
-    /// law in [`laws`](crate::laws) — the meet and join of comparable
-    /// versions are the smaller and the larger), so one comparison
-    /// sweep hands the operands back as the endpoints, `O(1)` clones,
-    /// zero emission. Only a concurrent pair reaches the fused
-    /// emission walk (`skyline::emit::hull`, one pair walk feeding
-    /// both output builders where composing the two emitters would
-    /// decode each operand twice); the comparison it paid first is the
-    /// sweep's early-exiting prefix, which stops at the second
-    /// refuting interval.
+    /// [`join_refs`](Self::join_refs)'s in the same order — keep the three in
+    /// lockstep — each settling both endpoints at once, and the equal rung's
+    /// two clones share one buffer (the coincident hull stores its stream
+    /// once).
+    ///
+    /// The span ladder then adds the comparable rung the pair operations don't
+    /// have: a comparable pair's hull IS the pair, reordered (the
+    /// `span_is_the_pair_hull` law in [`laws`](crate::laws) — the meet and join
+    /// of comparable versions are the smaller and the larger), so one
+    /// comparison sweep hands the operands back as the endpoints, `O(1)`
+    /// clones, zero emission.
+    ///
+    /// Only a concurrent pair reaches the fused emission walk
+    /// (`skyline::emit::hull`, one pair walk feeding both output builders where
+    /// composing the two emitters would decode each operand twice); the
+    /// comparison it paid first is the sweep's early-exiting prefix, which
+    /// stops at the second refuting interval.
     pub(crate) fn span_refs(a: &Version, b: &Version) -> (Version, Version) {
         use hull_traffic::Rung;
         if codec::canonical_eq(&a.0, &b.0) {
@@ -1026,10 +890,9 @@ impl Version {
         }
         hull_traffic::record(Rung::Concurrent);
         let hull = skyline::emit::hull(&a.0, &b.0);
-        // The fused walk folds the pair relation beside its emissions
-        // (an O(1) flag pair riding sign reads the walk performs
-        // anyway), so the ladder's classification is cross-checked at
-        // the only door that emits.
+        // The fused walk folds the pair relation beside its emissions (an O(1)
+        // flag pair riding sign reads the walk performs anyway), so the
+        // ladder's classification is cross-checked at the only door that emits.
         debug_assert!(
             hull.relation.is_none(),
             "the comparison rung admits only concurrent pairs to the emitting walk"
@@ -1039,15 +902,12 @@ impl Version {
 
     /// Encodes this [`Version`] to bytes.
     ///
-    /// A [`Clock`](crate::Clock)'s encoding is the byte-level concatenation
-    /// of its [`Party`]'s and [`Version`]'s encodings; see
-    /// [`Clock::encode`](crate::Clock::encode) for the framing rule.
+    /// Prefer [`as_bytes`](Version::as_bytes) to get a reference to the
+    /// underlying encoding without cloning it.
     ///
     /// # Complexity
     ///
     /// `O(|self|)`.
-    /// One copy of the stored bytes ([`as_bytes`](Self::as_bytes) borrows
-    /// the same bytes without copying).
     ///
     /// # Example
     ///
@@ -1065,8 +925,6 @@ impl Version {
     /// # Complexity
     ///
     /// `O(|self|)`.
-    /// One write of the stored bytes, plus whatever `writer` itself
-    /// costs.
     ///
     /// # Example
     ///
@@ -1092,7 +950,7 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// use before::Version;
+    /// use before::{Rank, Version};
     /// let v = Version::new();
     /// assert_eq!(Rank::decode(&v.encode_rank()[..]).unwrap(), v.rank());
     /// ```
@@ -1145,10 +1003,10 @@ impl Version {
             codec::require_zero_padding(bits, end)?;
             end
         };
-        // Adopt the read buffer as the result's backing store without
-        // copying: the padding check proved the buffer covers exactly the
-        // live bits' bytes with the dead bits zero — the canonical form
-        // the at-rest container stores.
+        // Adopt the read buffer as the result's backing store without copying:
+        // the padding check proved the buffer covers exactly the live bits'
+        // bytes with the dead bits zero — the canonical form the at-rest
+        // container stores.
         Ok(Version::from_frozen(codec::Bits::from_canonical(
             buf.into(),
             end,
@@ -1173,12 +1031,7 @@ impl Version {
         self.0.len()
     }
 
-    /// The canonical packed bytes of this [`Version`]: what
-    /// [`encode`](Self::encode) produces, borrowed without copying.
-    ///
-    /// The final partial byte is zero-padded in the stored form, so these
-    /// bytes are a canonical identity: byte-equal if and only if the versions
-    /// are equal, and consistent with [`hash`](core::hash::Hash).
+    /// The canonical bytes of this [`Version`], borrowed.
     ///
     /// Their lexicographic order is an arbitrary total order with no causal
     /// meaning; use it only as a deterministic tiebreak between distinct
@@ -1206,55 +1059,52 @@ impl Version {
 
     /// The stored skyline stream, borrowed as live bits.
     ///
-    /// Test- and meter-only: the meter surface's `skyline::encode` and
-    /// the differential bridges read it; production code goes through
+    /// Test- and meter-only: the meter surface's `skyline::encode` and the
+    /// differential bridges read it; production code goes through
     /// [`Self::as_bytes`] or the crate-internal `view`.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn as_bits(&self) -> &codec::BitsSlice {
         &self.0
     }
 
-    /// Freeze a normal-form skyline bit stream as a `Version`,
-    /// canonicalizing its storage. The single build-side gate every
-    /// built/parsed `Version` passes through.
+    /// Freeze a normal-form skyline bit stream as a `Version`, canonicalizing
+    /// its storage. The single build-side gate every built/parsed `Version`
+    /// passes through.
     ///
-    /// Callers guarantee canonical skyline form; the freeze zeroes the
-    /// dead bits past the live length so the stored bytes are canonical
-    /// (see [`codec::Bits::freeze`]).
+    /// Callers guarantee canonical skyline form; the freeze zeroes the dead
+    /// bits past the live length so the stored bytes are canonical (see
+    /// [`codec::Bits::freeze`]).
     pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
         Version(codec::Bits::freeze(bits))
     }
 
-    /// Adopt an already-frozen canonical skyline stream as a `Version`:
-    /// the decode-side gate, dual to the build-side
-    /// [`from_bits`](Self::from_bits).
+    /// Adopt an already-frozen canonical skyline stream as a `Version`: the
+    /// decode-side gate, dual to the build-side [`from_bits`](Self::from_bits).
     ///
-    /// Callers guarantee the stream is canonical skyline form in
-    /// canonical storage — what a validated decode slice or another
-    /// version's stored stream already is — so no re-canonicalization
-    /// runs and adoption is `O(1)`.
+    /// Callers guarantee the stream is canonical skyline form in canonical
+    /// storage — what a validated decode slice or another version's stored
+    /// stream already is — so no re-canonicalization runs and adoption is
+    /// `O(1)`.
     pub(crate) fn from_frozen(bits: codec::Bits) -> Self {
         Version(bits)
     }
 }
 
-/// An iterator adapter collapsing adjacent runs of one shared stored
-/// buffer before a lattice fold reads them.
+/// An iterator adapter collapsing adjacent runs of one shared stored buffer
+/// before a lattice fold reads them.
 ///
-/// A run of clones is one operand under idempotence — the
-/// `merge_idempotent` and `meet_idempotent` laws in
-/// [`laws`](crate::laws) (both at once for the hull fold, whose
-/// accumulator carries one endpoint per direction) — and clone identity
-/// (`codec::Bits::ptr_eq`, through the items' views) certifies the
+/// A run of clones is one operand under idempotence — the `merge_idempotent`
+/// and `meet_idempotent` laws in [`laws`](crate::laws) (both at once for the
+/// hull fold, whose accumulator carries one endpoint per direction) — and clone
+/// identity (`codec::Bits::ptr_eq`, through the items' views) certifies the
 /// duplication in `O(1)` without reading either stream. Only *adjacent*
-/// duplicates collapse: the window is one item, so the collapse costs
-/// `O(1)` state and the fold stays single-pass; scattered duplicates
-/// still fold — correctly, at the combine's own equality rung.
+/// duplicates collapse: the window is one item, so the collapse costs `O(1)`
+/// state and the fold stays single-pass; scattered duplicates still fold —
+/// correctly, at the combine's own equality rung.
 ///
-/// `last` holds a **clone** of the last yielded item's version, not a
-/// raw address: the clone keeps the run's buffer alive, so no freed
-/// allocation can be reused at the same address mid-iteration and
-/// masquerade as a duplicate.
+/// `last` holds a **clone** of the last yielded item's version, not a raw
+/// address: the clone keeps the run's buffer alive, so no freed allocation can
+/// be reused at the same address mid-iteration and masquerade as a duplicate.
 struct DedupRuns<I, F> {
     inner: I,
     /// Projects each item to the version it contributes.
@@ -1297,14 +1147,14 @@ where
     }
 }
 
-/// One group in [`Version::balanced_fold`]'s counter: an input exactly as
-/// the caller supplied it (owned or borrowed through [`Borrow`], never
-/// cloned on entry), or the owned version a combine produced.
+/// One group in [`Version::balanced_fold`]'s counter: an input exactly as the
+/// caller supplied it (owned or borrowed through [`Borrow`], never cloned on
+/// entry), or the owned version a combine produced.
 ///
-/// Weight-0 counter entries are always lone [`Input`](Group::Input)s and
-/// every combine's output is [`Merged`](Group::Merged), so the
-/// distinction lets each combine pick the operand form its combiner
-/// needs — in place for borrowed inputs, by view-fold for owned groups.
+/// Weight-0 counter entries are always lone [`Input`](Group::Input)s and every
+/// combine's output is [`Merged`](Group::Merged), so the distinction lets each
+/// combine pick the operand form its combiner needs — in place for borrowed
+/// inputs, by view-fold for owned groups.
 enum Group<B> {
     /// An input the fold has not yet combined, still in the caller's form.
     Input(B),
@@ -1312,33 +1162,42 @@ enum Group<B> {
     Merged(Version),
 }
 
-/// One raw input to [`Version::span_all`]'s fold: the receiver rides by
-/// borrow, the caller's items in their own form (owned or borrowed
-/// through [`Borrow`], never cloned on entry).
-enum SpanInput<'r, B> {
-    /// The receiver: the guaranteed first element that keeps the hull
+/// One raw input to a receiver-seeded fold ([`Version::join_all`],
+/// [`Version::meet_all`], [`Version::span_all`]): the receiver rides by borrow,
+/// the caller's items in their own form (owned or borrowed through [`Borrow`],
+/// never cloned on entry).
+enum FoldInput<'r, B> {
+    /// The receiver: the guaranteed first element that keeps the fold
     /// total.
     Receiver(&'r Version),
     /// One of the caller's items.
     Item(B),
 }
 
-impl<B: Borrow<Version>> SpanInput<'_, B> {
+impl<B: Borrow<Version>> FoldInput<'_, B> {
     /// The borrowed version this input contributes.
     fn version(&self) -> &Version {
         match self {
-            SpanInput::Receiver(v) => v,
-            SpanInput::Item(b) => b.borrow(),
+            FoldInput::Receiver(v) => v,
+            FoldInput::Item(b) => b.borrow(),
         }
     }
 }
 
-/// One group in [`Version::span_all`]'s counter: [`Group`]'s shape with
-/// the two-sided hull accumulator, so one balanced fold carries both
-/// lattice directions.
+/// Lends the contributed version, so [`Version::balanced_fold`] reads a
+/// receiver-seeded input stream exactly as it reads a bare one.
+impl<B: Borrow<Version>> Borrow<Version> for FoldInput<'_, B> {
+    fn borrow(&self) -> &Version {
+        self.version()
+    }
+}
+
+/// One group in [`Version::span_all`]'s counter: [`Group`]'s shape with the
+/// two-sided hull accumulator, so one balanced fold carries both lattice
+/// directions.
 enum Hull<'r, B> {
     /// An input the fold has not yet combined.
-    Input(SpanInput<'r, B>),
+    Input(FoldInput<'r, B>),
     /// The owned running hull of one or more combines.
     Merged {
         /// The running meet of every input combined so far.
@@ -1363,22 +1222,21 @@ impl Default for Version {
 
 // `Version` under `|` is a commutative idempotent monoid with identity
 // [`Version::new`], so it folds from an iterator both ways std offers: `.sum()`
-// over an `Iterator` and `.collect()` into a `Version`. Both are
-// [`join_all`](Version::join_all) (the empty case is the empty version), which
-// takes the borrowed forms' references as they come. There is deliberately no
-// meet counterpart here — the meet has no identity, so its fold is the
-// `Option`-returning [`Version::meet_all`].
+// over an `Iterator` and `.collect()` into a `Version`. Both run the balanced
+// reduction behind [`join_all`](Version::join_all) with no receiver to seed it
+// (the empty case is the empty version), taking the borrowed forms' references
+// as they come. There is deliberately no meet counterpart here — the meet has
+// no identity to give an empty iterator, so its only fold is the
+// receiver-seeded [`Version::meet_all`].
 
 /// Joins the iterator's versions; the empty sum is [`Version::new`].
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time, `O(D)` space, `D` the elements' total size
-/// in bytes and `k` their count.
-/// As [`Version::join_all`], the fold it is.
+/// `O(|iter| log k)` time, `O(|iter|)` space, with `k` the count of `iter`.
 impl Sum<Version> for Version {
     fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
-        Version::join_all(iter)
+        Version::balanced_fold(iter, Version::join_refs, Version::join_view).unwrap_or_default()
     }
 }
 
@@ -1386,13 +1244,10 @@ impl Sum<Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time, `O(D)` space, `D` the elements' total size
-/// in bytes and `k` their count.
-/// As [`Version::join_all`], the fold it is: the borrowed elements are read
-/// in place, not cloned.
+/// `O(|iter| log k)` time, `O(|iter|)` space, with `k` the count of `iter`.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
-        Version::join_all(iter)
+        Version::balanced_fold(iter, Version::join_refs, Version::join_view).unwrap_or_default()
     }
 }
 
@@ -1400,12 +1255,10 @@ impl<'a> Sum<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time, `O(D)` space, `D` the elements' total size
-/// in bytes and `k` their count.
-/// As [`Version::join_all`], the fold it is.
+/// `O(|iter| log k)` time, `O(|iter|)` space, with `k` the count of `iter`.
 impl FromIterator<Version> for Version {
     fn from_iter<I: IntoIterator<Item = Version>>(iter: I) -> Version {
-        Version::join_all(iter)
+        iter.into_iter().sum()
     }
 }
 
@@ -1413,31 +1266,19 @@ impl FromIterator<Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(D log k)` time, `O(D)` space, `D` the elements' total size
-/// in bytes and `k` their count.
-/// As [`Version::join_all`], the fold it is: the borrowed elements are read
-/// in place, not cloned.
+/// `O(|iter| log k)` time, `O(|iter|)` space, with `k` the count of `iter`.
 impl<'a> FromIterator<&'a Version> for Version {
     fn from_iter<I: IntoIterator<Item = &'a Version>>(iter: I) -> Version {
-        Version::join_all(iter)
+        iter.into_iter().sum()
     }
 }
 
-/// Paper notation: `n` leaves, `(n, e1, e2)` nodes. E.g. `(1, 2, (0, (1, 0, 2), 0))`.
+/// Paper notation: `n` leaves, `(n, e1, e2)` nodes. E.g. `(1, 2, (0, (1, 0, 2),
+/// 0))`.
 ///
 /// # Complexity
 ///
-/// `O(|self|)` space — the rendered text is itself `O(|self|)` bytes,
-/// a value's decimal spelling being linear in its stored width — and
-/// time superlinear in the spelled value widths (decimal conversion
-/// plus the render merge).
-/// Time is **superlinear** in the worst case, on two counts: each value
-/// wider than a machine word pays binary-to-decimal conversion, superlinear
-/// (though subquadratic) in its width; and a deep tree of wide interior
-/// values additionally pays a summary-merge cost that grows faster than the
-/// operand. The merge cost is the renderer's, not the format's — parsing
-/// the same text back pays only the conversion — and is not contractual: a
-/// future release may render in time linear but for conversion.
+/// Superlinear but subquadratic time, `O(|self|)` space.
 ///
 /// # Example
 ///
@@ -1470,12 +1311,7 @@ impl Debug for Version {
 ///
 /// # Complexity
 ///
-/// `O(|s|)` space — the parsed version is itself `O(|s|)` bytes — and
-/// time superlinear in the spelled value widths (decimal-to-binary
-/// conversion).
-/// The bound holds accepted or rejected, except that each spelled value
-/// wider than a machine word pays decimal-to-binary conversion, superlinear
-/// (though subquadratic) in that value's width.
+/// Superlinear but subquadratic time, `O(|s|)` space.
 ///
 /// # Example
 ///
@@ -1484,7 +1320,7 @@ impl Debug for Version {
 /// let v: Version = "(1, 0, 1)".parse().unwrap();
 /// assert_eq!(v.to_string(), "(1, 0, 1)");
 /// ```
-impl core::str::FromStr for Version {
+impl FromStr for Version {
     type Err = Parse;
     fn from_str(s: &str) -> Result<Self, Parse> {
         Ok(Version::from_bits(skyline::text::parse(s)?))
@@ -1510,14 +1346,15 @@ impl TryFrom<u64> for Version {
     }
 }
 
-/// An event node from an `(n, left, right)` literal, e.g.
-/// `Version::try_from((1u64, 0u64, (2u64, 0u64, 1u64)))`. Rejects non-normal-form nodes
-/// (no zero-base child, or a collapsible `(n, m, m)`).
+/// A [`Version`] from an `(n, left, right)` literal, e.g.
+/// `Version::try_from((1u64, 0u64, (2u64, 0u64, 1u64)))`.
+///
+/// Rejects non-normal-form nodes (no zero-base child, or a collapsible `(n, m,
+/// m)`).
 ///
 /// # Complexity
 ///
-/// `O(m)`, `m` the built version's size in bytes (`n` is the literal's
-/// leaf count).
+/// `O(m)`, with `m` the built version's size in bytes.
 ///
 /// # Example
 ///
@@ -1538,28 +1375,28 @@ where
     }
 }
 
-// The join (`|`, `|=`) and meet (`&`, `&=`) matrices over owned and
-// borrowed `Version` operands, duals of each other, mirroring the
-// comparison matrix below. The `binop_matrix!` macro generates every cell
-// of both families: four value-operator cells (lhs × rhs over
-// {Version, &Version}) and two assign cells (rhs over {Version, &Version}).
+// The join (`|`, `|=`) and meet (`&`, `&=`) matrices over owned and borrowed
+// `Version` operands, duals of each other, mirroring the comparison matrix
+// below. The `binop_matrix!` macro generates every cell of both families: four
+// value-operator cells (lhs × rhs over {Version, &Version}) and two assign
+// cells (rhs over {Version, &Version}).
 //
 // A value-operator cell turns its left operand into a fresh owned `Version`
-// (`own` moves an owned `Version`, `clone` copies a borrowed one), then
-// folds the right operand's view into it. An assign cell folds the right
-// operand's view into the receiver in place. The two families differ only
-// in the view-folding method each cell routes through: `Version::join_view`
-// for join, `Version::meet_view` for meet.
+// (`own` moves an owned `Version`, `clone` copies a borrowed one), then folds
+// the right operand's view into it. An assign cell folds the right operand's
+// view into the receiver in place. The two families differ only in the
+// view-folding method each cell routes through: `Version::join_view` for join,
+// `Version::meet_view` for meet.
 
-/// Generates one binary-operator family's full matrix over owned and
-/// borrowed `Version` operands.
+/// Generates one binary-operator family's full matrix over owned and borrowed
+/// `Version` operands.
 ///
 /// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`), its
-/// assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`), and the
-/// view-folding method `$view` every cell routes through (`join_view` or
+/// assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`), and
+/// the view-folding method `$view` every cell routes through (`join_view` or
 /// `meet_view`). Each strategy — `own`/`clone` for value cells, `assign` for
-/// assign cells — has its own `@cell` arm so the receiver `self` is written
-/// in the same expansion as the method it belongs to (`self` cannot cross a
+/// assign cells — has its own `@cell` arm so the receiver `self` is written in
+/// the same expansion as the method it belongs to (`self` cannot cross a
 /// macro-invocation boundary).
 macro_rules! binop_matrix {
     ($Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident;
@@ -1626,19 +1463,19 @@ binop_matrix! {
 
 // ───────────────────────── the pair hull (`^`) ─────────────────────────
 //
-// `a ^ b` is `a.span(&b)`: the tightest `Span` containing both operands,
-// `[a & b, a | b]`. Unlike the join and meet matrices above, the result
-// leaves the operand type — a `Span`, not a `Version` — so the family has
-// no assigning form (nothing of the receiver's type to assign back) and
-// no owned-operand strategy: every cell reads both operands in place and
-// mints the endpoints owned, exactly as the named method does.
+// `a ^ b` is `a.span(&b)`: the tightest `Span` containing both operands, `[a &
+// b, a | b]`. Unlike the join and meet matrices above, the result leaves the
+// operand type — a `Span`, not a `Version` — so the family has no assigning
+// form (nothing of the receiver's type to assign back) and no owned-operand
+// strategy: every cell reads both operands in place and mints the endpoints
+// owned, exactly as the named method does.
 
 /// Generates the span (`^`) matrix over owned and borrowed `Version`
 /// operands.
 ///
-/// Every cell delegates to [`Version::span`]; `Borrow::borrow` coerces
-/// an owned or borrowed operand uniformly to `&Version`, so one arm
-/// covers all four cells.
+/// Every cell delegates to [`Version::span`]; `Borrow::borrow` coerces an owned
+/// or borrowed operand uniformly to `&Version`, so one arm covers all four
+/// cells.
 macro_rules! span_matrix {
     ($($lhs:ty, $rhs:ty);* $(;)?) => {
         $(
@@ -1688,8 +1525,6 @@ span_matrix! {
 /// # Complexity
 ///
 /// `O(1)`.
-/// The view borrows its operands. Every cost lives on the view's operations
-/// ([`OwnVersion`]'s doc carries them).
 ///
 /// # Example
 ///
@@ -1716,14 +1551,14 @@ impl<'a> Div<&'a Party> for &'a Version {
     }
 }
 
-// Causal comparison over owned and borrowed `Version` operands, reading
-// current state in place. Every cell comes from this macro, so the
-// comparison matrix reads as a matrix. Each ordering cell delegates to the
-// skyline comparison sweep; each equality cell is a byte compare of the two
-// stored streams (`codec::canonical_eq`) — the skyline coding is a canonical
-// unique representation, so byte equality is exactly causal equality. The
-// `Version` derive list deliberately omits `PartialEq`/`PartialOrd` so the
-// macro is the single source of both (see the note on the derive above).
+// Causal comparison over owned and borrowed `Version` operands, reading current
+// state in place. Every cell comes from this macro, so the comparison matrix
+// reads as a matrix. Each ordering cell delegates to the skyline comparison
+// sweep; each equality cell is a byte compare of the two stored streams
+// (`codec::canonical_eq`) — the skyline coding is a canonical unique
+// representation, so byte equality is exactly causal equality. The `Version`
+// derive list deliberately omits `PartialEq`/`PartialOrd` so the macro is the
+// single source of both (see the note on the derive above).
 macro_rules! causal_cmp_impls {
     ($($lhs:ty, $rhs:ty);* $(;)?) => {
         $(

@@ -1,34 +1,35 @@
-//! The word-parallel stream cursor: sequential bit, unary, and
-//! Elias-gamma reads over one packed stream, on `dsi-bitstream`'s
-//! buffered big-endian reader.
+//! The word-parallel stream cursor: sequential bit, unary, and Elias-gamma
+//! reads over one packed stream, on `dsi-bitstream`'s buffered big-endian
+//! reader.
 //!
-//! [`DsiCursor`] is the skyline walks' production reader. It reads the
-//! same bits and returns the same values as the per-bit [`BitCursor`]
-//! loop over a [`SliceCursor`](super::SliceCursor) — the differential suites and this
-//! module's word-seam witnesses pin the equivalence — while taking whole
-//! topology runs in one [`read_unary`](DsiCursor::read_unary) (a
-//! `leading_zeros` over a buffered window) and whole payload codes in
-//! `O(1)` word operations. The accept/reject boundary lives in this
-//! wrapper, not the library: `position`/`len` bound every read against
-//! the slice's live bit length, so the reader's zero padding past the
-//! live bits is never surfaced as data.
+//! [`DsiCursor`] is the skyline walks' production reader. It reads the same
+//! bits and returns the same values as the per-bit [`BitCursor`] loop over a
+//! [`SliceCursor`](super::SliceCursor), while taking whole topology runs in one
+//! [`read_unary`](DsiCursor::read_unary) (a `leading_zeros` over a buffered
+//! window) and whole payload codes in `O(1)` word operations. The accept/reject
+//! boundary lives in this wrapper, not the library: `position`/`len` bound
+//! every read against the slice's live bit length, so the reader's zero padding
+//! past the live bits is never surfaced as data.
 //!
-//! Values are read through the in-house wide arm, never
-//! `dsi-bitstream`'s own `read_gamma`: that entry supports only values
-//! below `2^64` (guarded by a `debug_assert`, a silent mis-decode in
-//! release), while this crate's coding has no value cap — joins
-//! propagate arbitrary-width heights. [`read_int`](DsiCursor::read_int)
-//! therefore composes the unary prefix and mantissa itself: a 9-bit
-//! table tier, a machine-word arm for `k < 64`, and a `UBig` wide arm
-//! for `k >= 64`, bit-identical to the per-bit loop's
-//! ([`decode_int_from`](super::decode_int_from)) wide fallback.
-//! The witnesses in `tests` pin the value and the consumed width at and
-//! across the word seam (`k = 63, 64, 65, ~100`).
+//! Values are read through the in-house wide arm, never `dsi-bitstream`'s own
+//! `read_gamma`: that entry supports only values below `2^64` (guarded by a
+//! `debug_assert`, a silent mis-decode in release), while this crate's coding
+//! has no value cap, which is required because joins must be allowed to
+//! propagate arbitrary-width heights.
 //!
-//! The writers stay in-house ([`PackedBuilder`](super::PackedBuilder)
-//! and the byte-backed append paths): `dsi-bitstream`'s writer wants a
-//! word sink, and adapting the byte-backed stores to one is a separate
-//! trade this module does not make.
+//! [`read_int`](DsiCursor::read_int) therefore composes the unary prefix and
+//! mantissa itself: a 9-bit table tier, a machine-word arm for `k < 64`, and a
+//! `UBig` wide arm for `k >= 64`, bit-identical to the per-bit loop's
+//! ([`decode_int_from`](super::decode_int_from)) wide fallback. The witnesses
+//! in `tests` pin the value and the consumed width at and across the word seam
+//! (`k = 63, 64, 65, ~100`).
+//!
+//! The writers stay in-house ([`PackedBuilder`](super::PackedBuilder) and the
+//! byte-backed append paths): `dsi-bitstream`'s writer wants a word sink, and
+//! adapting the byte-backed stores to one is a separate trade this module does
+//! not make.
+
+use core::fmt::Display;
 
 use dashu_int::UBig;
 use dsi_bitstream::codes::gamma_tables;
@@ -42,13 +43,12 @@ use super::{Base, BitCursor, BitsSlice, Int};
 
 /// A word-parallel sequential cursor over an existing packed bit slice.
 ///
-/// The skyline walks' reader: [`read_bit`](BitCursor::read_bit) for
-/// interleaved single flags, [`read_unary`](BitCursor::read_unary) for
-/// topology runs, [`read_int`](BitCursor::read_int) for payload codes,
-/// and [`skip_int`](DsiCursor::skip_int) for codes whose value is not
-/// needed. Every read records the same scan-meter bits as the per-bit
-/// loop it replaces: the meter prices bits examined, not how the
-/// examining path batches them.
+/// The skyline walks' reader: [`read_bit`](BitCursor::read_bit) for interleaved
+/// single flags, [`read_unary`](BitCursor::read_unary) for topology runs,
+/// [`read_int`](BitCursor::read_int) for payload codes, and
+/// [`skip_int`](DsiCursor::skip_int) for codes whose value is not needed. Every
+/// read records the same scan-meter bits as the per-bit loop it replaces: the
+/// meter prices bits examined, not how the examining path batches them.
 pub(crate) struct DsiCursor<'a> {
     reader: BufBitReader<BE, ByteWords<'a>>,
     /// The position immediately after the last live bit read.
@@ -62,22 +62,22 @@ impl<'a> DsiCursor<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if the slice does not start on a byte boundary of its
-    /// backing store; every stored `Version` stream does.
+    /// Panics if the slice does not start on a byte boundary of its backing
+    /// store; every stored `Version` stream does.
     pub(crate) fn new(bits: &'a BitsSlice) -> Self {
         DsiCursor::new_at(bits, 0)
     }
 
     /// Open a cursor at bit `pos` of a stored stream.
     ///
-    /// `O(1)`: the word source starts at `pos`'s byte and the cursor
-    /// discards the at most 7 leading bits before `pos` unrecorded (the
-    /// walk never examines them).
+    /// `O(1)`: the word source starts at `pos`'s byte and the cursor discards
+    /// the at most 7 leading bits before `pos` unrecorded (the walk never
+    /// examines them).
     ///
     /// # Panics
     ///
-    /// Panics if `pos` lies past the stream's end, or if the slice does
-    /// not start on a byte boundary of its backing store; every stored
+    /// Panics if `pos` lies past the stream's end, or if the slice does not
+    /// start on a byte boundary of its backing store; every stored
     /// `Version` stream does.
     pub(crate) fn new_at(bits: &'a BitsSlice, pos: usize) -> Self {
         assert!(pos <= bits.len(), "cursor opened past the stream's end");
@@ -98,14 +98,13 @@ impl<'a> DsiCursor<'a> {
         }
     }
 
-    /// Read the unary prefix at the cursor without recording a
-    /// successful run: the count of `0` bits before (and consuming) the
-    /// terminating `1`.
+    /// Read the unary prefix at the cursor without recording a successful run:
+    /// the count of `0` bits before (and consuming) the terminating `1`.
     ///
-    /// `Truncated` when the live bits end before a `1`: the phantom
-    /// zeros past the live length (dead bits are zeroed at every storage
-    /// seam and the word source zero-fills) can only lengthen an
-    /// apparent prefix past `len`, never terminate one early.
+    /// `Truncated` when the live bits end before a `1`: the phantom zeros past
+    /// the live length (dead bits are zeroed at every storage seam and the word
+    /// source zero-fills) can only lengthen an apparent prefix past `len`,
+    /// never terminate one early.
     fn unary_raw(&mut self) -> Result<usize, Truncated> {
         match self.reader.read_unary() {
             Err(_) => Err(self.truncated()),
@@ -122,25 +121,25 @@ impl<'a> DsiCursor<'a> {
     /// Reject at the live length, recording the examined tail.
     ///
     /// A rejecting read still examined every remaining live bit — a
-    /// self-delimiting stream's truncation is only discoverable by
-    /// parsing to its end, which is exactly what the truncation-reject
-    /// scan floors demand the meter see — so the tail records before the
-    /// reject surfaces, and the cursor parks at the live length, where
-    /// the per-bit loop's failing read leaves its own cursor.
+    /// self-delimiting stream's truncation is only discoverable by parsing to
+    /// its end, which is exactly what the truncation-reject scan floors demand
+    /// the meter see — so the tail records before the reject surfaces, and the
+    /// cursor parks at the live length, where the per-bit loop's failing read
+    /// leaves its own cursor.
     fn truncated(&mut self) -> Truncated {
         super::scan::record_bits(self.len - self.position);
         self.position = self.len;
         Truncated
     }
 
-    /// Skip one Elias-gamma-coded integer at the cursor without
-    /// materializing its value; `Truncated` exactly where
-    /// [`read_int`](BitCursor::read_int) would be.
+    /// Skip one Elias-gamma-coded integer at the cursor without materializing
+    /// its value; `Truncated` exactly where [`read_int`](BitCursor::read_int)
+    /// would be.
     ///
-    /// The prefix length alone determines the code's width, so the skip
-    /// is one unary read plus a bit discard; it records the same
-    /// scan-meter bits a read would — the skip is the topology walks'
-    /// stand-in for reading the code.
+    /// The prefix length alone determines the code's width, so the skip is one
+    /// unary read plus a bit discard; it records the same scan-meter bits a
+    /// read would — the skip is the topology walks' stand-in for reading the
+    /// code.
     pub(crate) fn skip_int(&mut self) -> Result<(), Truncated> {
         let k = self.unary_raw()?;
         let code_len = 2 * k + 1;
@@ -191,9 +190,9 @@ impl BitCursor for DsiCursor<'_> {
         Ok(k)
     }
 
-    /// Read one Elias-gamma-coded integer: accepting and rejecting on
-    /// exactly the same inputs as
-    /// [`decode_int_from`](super::decode_int_from), per-bit over this cursor.
+    /// Read one Elias-gamma-coded integer: accepting and rejecting on exactly
+    /// the same inputs as [`decode_int_from`](super::decode_int_from), per-bit
+    /// over this cursor.
     ///
     /// Three tiers, all word-parallel through the buffered reader:
     ///
@@ -209,10 +208,10 @@ impl BitCursor for DsiCursor<'_> {
     ///   fallback: mantissa top bit at `k`, then `k` stream bits filled
     ///   from word chunks.
     ///
-    /// A `1` bit can only live inside the live length, so a returned
-    /// unary prefix always ends inside the stream; the explicit length
-    /// checks bound the mantissa, and a stream ending mid-code reads
-    /// `Truncated` exactly as the per-bit loop does.
+    /// A `1` bit can only live inside the live length, so a returned unary
+    /// prefix always ends inside the stream; the explicit length checks bound
+    /// the mantissa, and a stream ending mid-code reads `Truncated` exactly as
+    /// the per-bit loop does.
     fn read_int(&mut self) -> Result<Int, Decode> {
         // Table tier: only when the peeked 9 bits are all live.
         if self.len - self.position >= gamma_tables::READ_BITS {
@@ -223,12 +222,11 @@ impl BitCursor for DsiCursor<'_> {
             }
         }
         let k = self.unary_raw().map_err(|_| Decode::Truncated)?;
-        // The unary prefix's terminating 1 is a live bit, so the prefix
-        // fits; the whole `2k + 1`-bit code must too. Rejecting here —
-        // before either mantissa arm runs — is where this reader parts
-        // from the per-bit loop on cost: a truncated wide code allocates
-        // nothing, where the loop sizes the wide value before its
-        // mantissa read can fail.
+        // The unary prefix's terminating 1 is a live bit, so the prefix fits;
+        // the whole `2k + 1`-bit code must too. Rejecting here — before either
+        // mantissa arm runs — is where this reader parts from the per-bit loop
+        // on cost: a truncated wide code allocates nothing, where the loop
+        // sizes the wide value before its mantissa read can fail.
         let code_len = 2 * k + 1;
         if self.position + code_len > self.len {
             self.truncated();
@@ -244,9 +242,9 @@ impl BitCursor for DsiCursor<'_> {
             self.position += code_len;
             return Ok(Int::Small(m - 1));
         }
-        // Wide arm: the mantissa's top bit is at position `k`; the next
-        // `k` stream bits fill positions `k - 1 ..= 0`, most-significant
-        // first, read in machine-word chunks.
+        // Wide arm: the mantissa's top bit is at position `k`; the next `k`
+        // stream bits fill positions `k - 1 ..= 0`, most-significant first,
+        // read in machine-word chunks.
         let mut m = UBig::ZERO;
         m.set_bit(k);
         let mut remaining = k;
@@ -263,8 +261,8 @@ impl BitCursor for DsiCursor<'_> {
                 }
             }
         }
-        // One width-proportional record per wide value, exactly as the
-        // per-bit wide fallback records.
+        // One width-proportional record per wide value, exactly as the per-bit
+        // wide fallback records.
         #[cfg(feature = "limb-meter")]
         super::limb_meter::record_wide(&m);
         super::scan::record_bits(code_len);
@@ -273,16 +271,16 @@ impl BitCursor for DsiCursor<'_> {
     }
 }
 
-/// Native-order `u32` words over one stored stream's packed bytes: the
-/// word source under the buffered reader.
+/// Native-order `u32` words over one stored stream's packed bytes: the word
+/// source under the buffered reader.
 ///
-/// The final partial word zero-fills past the stream's bytes (the tail
-/// byte's dead bits arrive already masked through `bitvec`'s domain
-/// view), which parallels the slice cursor's zero-filled decode window:
-/// the phantom zeros can only lengthen an apparent unary prefix, and the
-/// cursor's live-length checks keep them from ever surfacing in a
-/// decoded value. Reads past the last byte-bearing word fail, so a
-/// truncated all-zero tail terminates instead of reading zeros forever.
+/// The final partial word zero-fills past the stream's bytes (the tail byte's
+/// dead bits arrive already masked through `bitvec`'s domain view), which
+/// parallels the slice cursor's zero-filled decode window: the phantom zeros
+/// can only lengthen an apparent unary prefix, and the cursor's live-length
+/// checks keep them from ever surfacing in a decoded value. Reads past the last
+/// byte-bearing word fail, so a truncated all-zero tail terminates instead of
+/// reading zeros forever.
 struct ByteWords<'a> {
     body: &'a [u8],
     /// The final partial byte, dead bits zeroed, if the stream has one.
@@ -315,9 +313,9 @@ impl<'a> ByteWords<'a> {
         }
     }
 
-    /// Gather the word at `self.next` in native byte order, zero-padded:
-    /// the BE reader's `to_be()` then makes byte `next` most significant,
-    /// which is exactly the stored form's MSB-first bit order.
+    /// Gather the word at `self.next` in native byte order, zero-padded: the BE
+    /// reader's `to_be()` then makes byte `next` most significant, which is
+    /// exactly the stored form's MSB-first bit order.
     fn gather(&self) -> u32 {
         u32::from_ne_bytes([
             self.byte_at(self.next),
@@ -332,7 +330,7 @@ impl<'a> ByteWords<'a> {
 #[derive(Debug)]
 struct OutOfBytes;
 
-impl core::fmt::Display for OutOfBytes {
+impl Display for OutOfBytes {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("out of stream bytes")
     }

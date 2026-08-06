@@ -1,13 +1,12 @@
-//! [`OwnVersion`] tests: the fused projected comparisons against the
-//! recursive oracle's composed projection-and-compare, and the view's
-//! semantic-equality contract.
+//! [`OwnVersion`] tests: the fused projected comparisons against the recursive
+//! oracle's composed projection-and-compare, and the view's semantic-equality
+//! contract.
 //!
-//! The materialized-form coherence (`view ⋚ w ≡ view.to_version() ⋚ w`,
-//! three- and four-stream, plus the seed-mask coherence) lives in
-//! [`crate::laws`] and runs through every law consumer; the suites here
-//! bind the fused walks to the *oracle* — the independent recursive
-//! implementation the impl shares nothing with — over arbitrary
-//! normal-form operands and organic op-trace populations.
+//! The materialized-form coherence (`view ⋚ w ≡ view.to_version() ⋚ w`, three-
+//! and four-stream, plus the seed-mask coherence) lives in [`crate::laws`] and
+//! runs through every law consumer; the suites here bind the fused walks to the
+//! *oracle* — the independent recursive implementation the impl shares nothing
+//! with — over arbitrary normal-form operands and organic op-trace populations.
 
 use proptest::prelude::*;
 
@@ -17,8 +16,8 @@ use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, versions, world_strategy};
 use crate::{oracle, Clock, Party, Version};
 
-/// The oracle's composed verdict for `(v / p) ⋚ w`: materialize the
-/// projection on the recursive trees, then compare.
+/// The oracle's composed verdict for `(v / p) ⋚ w`: materialize the projection
+/// on the recursive trees, then compare.
 fn oracle_view_cmp(
     v: &oracle::Version,
     p: &oracle::Party,
@@ -28,9 +27,9 @@ fn oracle_view_cmp(
 }
 
 proptest! {
-    /// Differential. The fused three-stream comparison `(v / p) ⋚ w`
-    /// matches the oracle's materialize-then-compare on arbitrary
-    /// normal-form operands, in both operand orders and under `==`.
+    /// Differential. The fused three-stream comparison `(v / p) ⋚ w` matches
+    /// the oracle's materialize-then-compare on arbitrary normal-form operands,
+    /// in both operand orders and under `==`.
     #[test]
     fn view_cmp_matches_oracle_composed(
         v in arb_oracle_version(),
@@ -46,9 +45,9 @@ proptest! {
 }
 
 proptest! {
-    /// Differential. The fused four-stream comparison `(v/p) ⋚ (w/q)`
-    /// matches the oracle's materialize-then-compare on arbitrary
-    /// normal-form operands, under `partial_cmp` and `==` alike.
+    /// Differential. The fused four-stream comparison `(v/p) ⋚ (w/q)` matches
+    /// the oracle's materialize-then-compare on arbitrary normal-form operands,
+    /// under `partial_cmp` and `==` alike.
     #[test]
     fn view_pair_cmp_matches_oracle_composed(
         v in arb_oracle_version(),
@@ -68,12 +67,12 @@ proptest! {
 }
 
 proptest! {
-    /// Differential. Both fused walks match the oracle's composed
-    /// verdicts over organic op-trace populations.
+    /// Differential. Both fused walks match the oracle's composed verdicts over
+    /// organic op-trace populations.
     ///
-    /// Live sibling parties and causally related versions — the value
-    /// shapes real fork/tick/join/sync schedules produce, where
-    /// domination and equality actually occur.
+    /// Live sibling parties and causally related versions — the value shapes
+    /// real fork/tick/join/sync schedules produce, where domination and
+    /// equality actually occur.
     #[test]
     fn view_cmp_matches_oracle_on_organic_populations(
         ops in world_strategy(),
@@ -99,11 +98,11 @@ proptest! {
     }
 }
 
-/// Equality on the view is semantic, not representational: `view == w`
-/// requires `w` to be zero outside the party's region.
+/// Equality on the view is semantic, not representational: `view == w` requires
+/// `w` to be zero outside the party's region.
 ///
-/// A version equal to the projection *inside* the region but live
-/// outside it compares unequal (and strictly greater).
+/// A version equal to the projection *inside* the region but live outside it
+/// compares unequal (and strictly greater).
 #[test]
 fn view_equality_requires_zero_outside_the_region() {
     let mut a = Clock::seed();
@@ -120,8 +119,8 @@ fn view_equality_requires_zero_outside_the_region() {
     assert_eq!(view, view.to_version());
 }
 
-/// The `From` impl is `to_version`, and the view is `Copy`: one view can
-/// be compared and materialized repeatedly without re-projecting.
+/// The `From` impl is `to_version`, and the view is `Copy`: one view can be
+/// compared and materialized repeatedly without re-projecting.
 #[test]
 fn from_impl_is_to_version() {
     let mut a = Clock::seed();

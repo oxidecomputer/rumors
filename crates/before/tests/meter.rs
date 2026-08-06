@@ -6536,7 +6536,7 @@ fn join_all_equal_operands_is_clone_cheap() {
         let input_bytes = a.encode().len() + b.encode().len();
         HEAP.reset_peak_usage();
         let baseline = HEAP.current_usage();
-        let out = Version::join_all([&a, &b]);
+        let out = a.join_all([&b]);
         let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
         eprintln!(
             "MEASURED join_all_equal_operands/{depth}: input_bytes={input_bytes} \
@@ -6621,14 +6621,16 @@ fn scatter_population() -> (Vec<Version>, Vec<before::Party>) {
 /// left fold re-scanned its whole accumulator per input.
 #[test]
 fn fold_version_scatter_envelope() {
-    let (versions, _) = scatter_population();
+    let (mut versions, _) = scatter_population();
     let input_bytes: usize = versions.iter().map(|v| v.encode().len()).sum();
     let reference = versions.iter().fold(Version::new(), |acc, v| acc | v);
+    let rest = versions.split_off(1);
+    let receiver = versions.pop().expect("the population is nonempty");
     let out = query_metered(
         "fold_version_scatter",
         input_bytes,
         &query_env::FOLD_VERSION_SCATTER,
-        || Version::join_all(versions),
+        || receiver.join_all(rest),
     );
     assert_eq!(out, reference, "the balanced fold equals the left fold");
 }
@@ -6710,13 +6712,15 @@ mod fold_stagger {
     /// fold's accumulator work left the metered representation.
     fn version_fold_run(n: usize, m: usize) -> Run {
         let (versions, _) = Shape::StaggerPopulation.population(n, m);
-        let versions: Vec<Version> = versions.iter().map(meter::Packed::version).collect();
+        let mut versions: Vec<Version> = versions.iter().map(meter::Packed::version).collect();
         let bytes: u64 = versions.iter().map(|v| v.encode().len() as u64).sum();
         let sequential = versions.iter().fold(Version::new(), |acc, v| acc | v);
+        let rest = versions.split_off(1);
+        let receiver = versions.pop().expect("the population is nonempty");
         touch_meter::reset();
         meter::reset_limb_ops();
         meter::reset_scan_bits();
-        let out = Version::join_all(versions);
+        let out = receiver.join_all(rest);
         let run = Run {
             bytes,
             levels: (2.0 * n as f64).log2(),
@@ -7136,7 +7140,7 @@ mod meet_fold {
     /// Carries the population's semantic leg (the fold returns the
     /// carrier, byte for byte) and the one-touch-per-operand-byte
     /// liveness floor.
-    fn run(d: usize, k: usize, fold: fn(Vec<Version>) -> Option<Version>) -> Run {
+    fn run(d: usize, k: usize, fold: fn(Vec<Version>) -> Version) -> Run {
         let population = Shape::MeetShade.versions(d, k);
         let bytes: u64 = population.iter().map(|v| v.encode().len() as u64).sum();
         let carrier = population[0].clone();
@@ -7150,8 +7154,7 @@ mod meet_fold {
             limb_ops: meter::limb_ops(),
         };
         assert_eq!(
-            met.expect("the population is nonempty"),
-            carrier,
+            met, carrier,
             "the shades dominate the carrier everywhere: the meet is the carrier"
         );
         assert!(
@@ -7232,11 +7235,18 @@ mod meet_fold {
     /// is never decoration.
     #[test]
     fn meet_all_shade_is_flat_per_unit() {
+        // The public door, entered as callers do: the population's first
+        // element (the carrier) as the receiver, the rest as items.
+        let door: fn(Vec<Version>) -> Version = |mut population| {
+            let rest = population.split_off(1);
+            let receiver = population.pop().expect("the population is nonempty");
+            receiver.meet_all(rest)
+        };
         let n = MEET_SHADE_SMALL;
         let runs = [
-            run(n, n, Version::meet_all),
-            run(2 * n, 2 * n, Version::meet_all),
-            run(4 * n, 4 * n, Version::meet_all),
+            run(n, n, door),
+            run(2 * n, 2 * n, door),
+            run(4 * n, 4 * n, door),
         ];
         for (r, (touch, limb)) in runs.iter().zip(MEET_SHADE_CEILINGS) {
             eprintln!(
@@ -7283,8 +7293,12 @@ mod meet_fold {
     /// `Θ(k · d)`, each factor independently linear.]
     #[test]
     fn sequential_meet_reduce_reads_superlinear_on_shade() {
-        let sequential: fn(Vec<Version>) -> Option<Version> =
-            |population| population.into_iter().reduce(|acc, v| acc & v);
+        let sequential: fn(Vec<Version>) -> Version = |population| {
+            population
+                .into_iter()
+                .reduce(|acc, v| acc & v)
+                .expect("the population is nonempty")
+        };
         let n = 2 * MEET_SHADE_SMALL;
         let small = run(n, n, sequential);
         let large = run(2 * n, 2 * n, sequential);
@@ -8386,6 +8400,28 @@ mod placement {
              that cursor: dominance ({dominance}) under full resolution ({fused})"
         );
 
+        // The mirrored coarsening on the same contained probe: the
+        // start stream's refuted precedence drops that cursor, while
+        // the membership walk — both required directions confirming
+        // only at exhaustion — is the placement walk to the bit.
+        let precedence = scanned(|| {
+            assert_eq!(span.precedence(&v), causally::Precedence::Between);
+        });
+        let contains = scanned(|| {
+            assert!(span.contains(&v));
+        });
+        eprintln!("MEASURED span_one_pass_mirror: precedence={precedence} contains={contains}");
+        assert!(
+            precedence < fused,
+            "on a contained probe the start stream's refuted precedence must drop \
+             that cursor: precedence ({precedence}) under full resolution ({fused})"
+        );
+        assert_eq!(
+            contains, fused,
+            "with both membership directions confirming only at exhaustion, the \
+             membership walk is the placement walk to the bit"
+        );
+
         // A probe dominating the whole span refutes nothing on
         // either side: the dominance walk is the placement walk to the
         // bit.
@@ -8400,6 +8436,22 @@ mod placement {
         assert_eq!(
             dominance_whole, place_whole,
             "with nothing refuted, the dominance walk is the placement walk to the bit"
+        );
+
+        // Dually, a probe preceding the whole span refutes nothing on
+        // either side: the precedence walk is the placement walk to
+        // the bit.
+        let ahead = causally::Span::new(&v, &e).unwrap();
+        let place_ahead = scanned(|| {
+            assert_eq!(ahead.place(&s), causally::Placement::Before);
+        });
+        let precedence_ahead = scanned(|| {
+            assert_eq!(ahead.precedence(&s), causally::Precedence::Before);
+        });
+        eprintln!("MEASURED span_whole_precede: place={place_ahead} precedence={precedence_ahead}");
+        assert_eq!(
+            precedence_ahead, place_ahead,
+            "with nothing refuted, the precedence walk is the placement walk to the bit"
         );
     }
 
@@ -8542,6 +8594,126 @@ mod placement {
         assert!(
             fused < two_check,
             "the dominance bail ({fused}) must undercut the two-check shape ({two_check})"
+        );
+    }
+
+    /// GREEN PIN: the precedence face's bail on an end the probe fails
+    /// to precede — the dominance bail, mirrored — on both failure
+    /// genres.
+    ///
+    /// A *concurrent* end refutes `probe <= hi` at its first opposing
+    /// interval — one interval before the pair sweep's two-flag
+    /// concurrency exit — so the walk returns strictly before full
+    /// resolution and strictly under the ceiling-first two-check shape
+    /// it replaces. A *preceded* end (`hi < probe`, comparable) is
+    /// where the bail changes class: the ceiling-first check could
+    /// confirm `Less` only at exhaustion, while the single-flag
+    /// refutation lands at the first excess interval — strictly under
+    /// even the first check.
+    #[test]
+    fn precedence_bails_at_the_refuted_end() {
+        let (s, v, e, div) = fixture();
+
+        // Genre 1: the end is concurrent to the probe.
+        let span = causally::Span::new(&s, &div).unwrap();
+        let fused = scanned(|| {
+            assert_eq!(span.precedence(&v), causally::Precedence::After);
+        });
+        let place = scanned(|| {
+            assert_eq!(
+                span.place(&v),
+                causally::Placement::Concurrent(causally::Endpoint::End)
+            );
+        });
+        // The two-check shape the precedence face replaces: compare the
+        // end version against the probe (the ceiling-first check, which
+        // exits at the concurrency), then check the start version's
+        // containment in the probe's causal future (the second probe
+        // decode the fusion ends).
+        let first_check = scanned(|| {
+            assert!(div.partial_cmp(&v).is_none());
+        });
+        let two_check = first_check
+            + scanned(|| {
+                assert!(!causally::after(&v).contains(&s));
+            });
+        eprintln!(
+            "MEASURED precedence_bail_concurrent: fused={fused} place={place} \
+             first_check={first_check} two_check={two_check}"
+        );
+        assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+        assert!(
+            fused < place,
+            "the precedence bail ({fused}) must return before full resolution ({place})"
+        );
+        assert!(
+            fused < two_check,
+            "the precedence bail ({fused}) must undercut the two-check shape ({two_check})"
+        );
+
+        // Genre 2: the end strictly precedes the probe.
+        let span = causally::Span::new(&s, &v).unwrap();
+        let fused = scanned(|| {
+            assert_eq!(span.precedence(&e), causally::Precedence::After);
+        });
+        let first_check = scanned(|| {
+            assert_eq!(v.partial_cmp(&e), Some(Ordering::Less));
+        });
+        let two_check = first_check
+            + scanned(|| {
+                assert!(!causally::after(&e).contains(&s));
+            });
+        eprintln!(
+            "MEASURED precedence_bail_preceded: fused={fused} \
+             first_check={first_check} two_check={two_check}"
+        );
+        assert!(
+            fused < first_check,
+            "on a preceded end the single-flag bail ({fused}) must undercut \
+             even the ceiling-first check ({first_check}), which confirms Less \
+             only at exhaustion"
+        );
+        assert!(
+            fused < two_check,
+            "the precedence bail ({fused}) must undercut the two-check shape ({two_check})"
+        );
+    }
+
+    /// GREEN PIN: the membership face bails at the first refuted
+    /// required direction, on either side.
+    ///
+    /// A probe above the end refutes `probe <= hi` at its first excess
+    /// interval; a probe below the start refutes `lo <= probe` the
+    /// same way. Either bail answers strictly before the
+    /// full-resolution placement walk, which confirms its
+    /// `After`/`Before` verdict only at exhaustion.
+    #[test]
+    fn contains_bails_at_either_refuted_side() {
+        let (s, v, e, _) = fixture();
+
+        // Above the end: `probe <= hi` refuted mid-walk.
+        let span = causally::Span::new(&s, &v).unwrap();
+        let fused = scanned(|| assert!(!span.contains(&e)));
+        let place = scanned(|| {
+            assert_eq!(span.place(&e), causally::Placement::After);
+        });
+        eprintln!("MEASURED contains_bail_above: fused={fused} place={place}");
+        assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
+        assert!(
+            fused < place,
+            "the membership bail ({fused}) must return before full resolution ({place})"
+        );
+
+        // Below the start: `lo <= probe` refuted mid-walk.
+        let span = causally::Span::new(&v, &e).unwrap();
+        let fused = scanned(|| assert!(!span.contains(&s)));
+        let place = scanned(|| {
+            assert_eq!(span.place(&s), causally::Placement::Before);
+        });
+        eprintln!("MEASURED contains_bail_below: fused={fused} place={place}");
+        assert!(
+            fused < place,
+            "the membership bail ({fused}) must return before full resolution ({place})"
         );
     }
 }
@@ -8717,9 +8889,8 @@ mod span {
             let _ = s.span_all(&population);
         });
         let composed = scanned(|| {
-            let _ = Version::meet_all(core::iter::once(&s).chain(&population))
-                .expect("a seeded fold is nonempty");
-            let _ = Version::join_all(core::iter::once(&s).chain(&population));
+            let _ = s.meet_all(&population);
+            let _ = s.join_all(&population);
         });
         eprintln!("MEASURED span_all_population: fused={fused} composed={composed}");
         assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
@@ -9081,15 +9252,15 @@ mod identity_fast_paths {
             ("cmp", &|| assert!(v.partial_cmp(&c).is_some())),
             ("join", &|| assert_eq!(&(&v | &c), &v)),
             ("meet", &|| assert_eq!(&(&v & &c), &v)),
-            ("span", &|| assert_eq!(v.span(&c).meet(), &v)),
+            ("span", &|| assert_eq!(v.span(&c).lo(), &v)),
             ("join_all", &|| {
-                assert_eq!(Version::join_all([&v, &c, &v]), v);
+                assert_eq!(v.join_all([&c, &v]), v);
             }),
             ("meet_all", &|| {
-                assert_eq!(Version::meet_all([&v, &c, &v]), Some(v.clone()));
+                assert_eq!(v.meet_all([&c, &v]), v);
             }),
             ("span_all", &|| {
-                assert_eq!(v.span_all([&c, &v]).join(), &v);
+                assert_eq!(v.span_all([&c, &v]).hi(), &v);
             }),
         ];
         for (name, cell) in cells {
@@ -9107,7 +9278,7 @@ mod identity_fast_paths {
         let walking: &[(&str, &dyn Fn())] = &[
             ("cmp", &|| assert!(v.partial_cmp(&w).is_none())),
             ("join", &|| assert!((&v | &w) >= v)),
-            ("span", &|| assert!(v.span(&w).join() >= v)),
+            ("span", &|| assert!(v.span(&w).hi() >= v)),
         ];
         for (name, cell) in walking {
             let read = scanned(cell);
@@ -9145,7 +9316,7 @@ mod identity_fast_paths {
         let byte_rung: &[(&str, &dyn Fn())] = &[
             ("join", &|| assert_eq!(&(&v | &redecoded), &v)),
             ("meet", &|| assert_eq!(&(&v & &redecoded), &v)),
-            ("span", &|| assert_eq!(v.span(&redecoded).meet(), &v)),
+            ("span", &|| assert_eq!(v.span(&redecoded).lo(), &v)),
         ];
         for (name, cell) in byte_rung {
             let read = scanned(cell);
@@ -9229,8 +9400,8 @@ mod identity_fast_paths {
             ("join_noop", &|| assert_eq!(&(&v | &empty), &v)),
             ("meet_absorb_l", &|| assert_eq!(&(&empty & &v), &empty)),
             ("meet_absorb_r", &|| assert_eq!(&(&v & &empty), &empty)),
-            ("span_l", &|| assert_eq!(empty.span(&v).join(), &v)),
-            ("span_r", &|| assert_eq!(v.span(&empty).join(), &v)),
+            ("span_l", &|| assert_eq!(empty.span(&v).hi(), &v)),
+            ("span_r", &|| assert_eq!(v.span(&empty).hi(), &v)),
             ("join_view_seed", &|| {
                 let mut acc = Version::new();
                 acc |= &v;
@@ -9255,17 +9426,13 @@ mod identity_fast_paths {
             // borrowed-pair core, so these cells are what reach the
             // `refs` rungs (the operator matrix routes through the
             // in-place cores exclusively).
-            ("join_fold_noop", &|| {
-                assert_eq!(&Version::join_all([&v, &empty]), &v)
-            }),
-            ("join_fold_adopt", &|| {
-                assert_eq!(&Version::join_all([&empty, &v]), &v)
-            }),
+            ("join_fold_noop", &|| assert_eq!(&v.join_all([&empty]), &v)),
+            ("join_fold_adopt", &|| assert_eq!(&empty.join_all([&v]), &v)),
             ("meet_fold_absorb_r", &|| {
-                assert_eq!(Version::meet_all([&v, &empty]).as_ref(), Some(&empty))
+                assert_eq!(&v.meet_all([&empty]), &empty)
             }),
             ("meet_fold_absorb_l", &|| {
-                assert_eq!(Version::meet_all([&empty, &v]).as_ref(), Some(&empty))
+                assert_eq!(&empty.meet_all([&v]), &empty)
             }),
         ];
         for (name, cell) in cells {

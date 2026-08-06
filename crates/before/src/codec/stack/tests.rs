@@ -2,10 +2,9 @@ use proptest::prelude::*;
 
 use super::{BitStack, PopStack};
 
-/// The pop-able bit stack round-trips arbitrary pushes through pops in
-/// LIFO order — zero included (it stores one real value bit) and the
-/// full word width — so every consumer's coordinate comes back exactly
-/// as pushed.
+/// The pop-able bit stack round-trips arbitrary pushes through pops in LIFO
+/// order — zero included (it stores one real value bit) and the full word width
+/// — so every consumer's coordinate comes back exactly as pushed.
 #[test]
 fn pop_stack_round_trips_lifo() {
     let mut stack = PopStack::new();

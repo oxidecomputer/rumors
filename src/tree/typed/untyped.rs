@@ -492,7 +492,7 @@ impl<T> Node<T> {
             Children::Leaf { version, .. } => version,
             Children::Branch {
                 bounds, children, ..
-            } => Self::bounds(bounds, children).join(),
+            } => Self::bounds(bounds, children).hi(),
         }
     }
 
@@ -510,7 +510,7 @@ impl<T> Node<T> {
             Children::Leaf { version, .. } => version,
             Children::Branch {
                 bounds, children, ..
-            } => Self::bounds(bounds, children).meet(),
+            } => Self::bounds(bounds, children).lo(),
         }
     }
 
@@ -525,7 +525,7 @@ impl<T> Node<T> {
     /// [`ceiling`](Self::ceiling) and [`floor`](Self::floor) share.
     pub fn span(&self) -> causally::Span<'_> {
         match &self.inner.children {
-            Children::Leaf { version, .. } => causally::Span::new_unchecked(version, version),
+            Children::Leaf { version, .. } => causally::Span::at(version),
             Children::Branch {
                 bounds, children, ..
             } => Self::bounds(bounds, children).reborrow(),

@@ -1,13 +1,12 @@
 //! Id operations on the packed form. Ids mutate by re-emission, so
-//! `split`/`sum`/`diff`/`is_disjoint`/`compare` run directly on the packed
-//! id bit stream.
+//! `split`/`sum`/`diff`/`is_disjoint`/`compare` run directly on the packed id
+//! bit stream.
 //!
 //! Each node is a 2-bit presence tag (see [`idbits`](crate::idbits)): a `0` is
-//! the *absence* of a child, never a node. Every operation is `O(n + m)` in
-//! its inputs, with no re-scan to find a right child, and none recurses —
-//! a deep operand costs bits, not stack frames or grown segments. Two walk
-//! shapes serve them, both on the event side's single-use-cursor
-//! discipline:
+//! the *absence* of a child, never a node. Every operation is `O(n + m)` in its
+//! inputs, with no re-scan to find a right child, and none recurses — a deep
+//! operand costs bits, not stack frames or grown segments. Two walk shapes
+//! serve them, both on the event side's single-use-cursor discipline:
 //!
 //! - **Node lockstep** (`sum`, `covers`, `is_disjoint`): the consuming
 //!   cursors carry the traversal and the per-ancestor control state is two
@@ -27,19 +26,18 @@
 //!   tilings' overlay, on the event sweep's boundary bookkeeping (`diff`'s
 //!   module doc maps the correspondence).
 //!
-//! (`split` fits neither: it walks its unary spine by bit *position* in a
-//! loop and splices the input on the branch. `sum_split`, the fused
-//! sum-then-split behind [`Clock::sync`](crate::Clock::sync), walks the
-//! *union's* spine as a two-cursor lockstep and delegates the branch
-//! children to `sum` or a verbatim splice — its method doc carries the
-//! argument that the two structures coincide.)
+//! (`split` fits neither: it walks its unary spine by bit *position* in a loop
+//! and splices the input on the branch. `sum_split`, the fused sum-then-split
+//! behind [`Clock::sync`](crate::Clock::sync), walks the *union's* spine as a
+//! two-cursor lockstep and delegates the branch children to `sum` or a verbatim
+//! splice — its method doc carries the argument that the two structures
+//! coincide.)
 //!
 //! Emptiness/fullness are `O(1)` leaf checks (see [`idbits`](crate::idbits)),
 //! valid because every `Party` — and every subtree of one — is in canonical
 //! normal form. Output is built by [`build::IdBuilder`] (`sum`), the
 //! leaf-driven [`build::IdSkylineBuilder`] (`diff`), or by direct bit-splice
-//! (`split`); see `split`'s `build_split` for why it does not use the
-//! builder.
+//! (`split`); see `split`'s `build_split` for why it does not use the builder.
 
 mod build;
 mod compare;

@@ -259,7 +259,7 @@ where
     N: Node<T>,
 {
     let bounds = node.span();
-    bounds.join().as_bytes().len() + bounds.meet().as_bytes().len()
+    bounds.hi().as_bytes().len() + bounds.lo().as_bytes().len()
 }
 
 impl<B, T> Backend<T> for Charged<B>
@@ -321,8 +321,8 @@ where
             }
             let bounds = node.span();
             let version_bytes = version_bytes
-                .max(bounds.join().as_bytes().len())
-                .max(bounds.meet().as_bytes().len());
+                .max(bounds.hi().as_bytes().len())
+                .max(bounds.lo().as_bytes().len());
             if fan > 0 && node.version_bytes() != version_bytes {
                 ledger::violation(format!(
                     "mis-propagated version_bytes: parent answers {}, \
@@ -501,8 +501,8 @@ where
     let bounds = node.span();
     let floor = run
         .version_bytes
-        .max(bounds.join().as_bytes().len())
-        .max(bounds.meet().as_bytes().len());
+        .max(bounds.hi().as_bytes().len())
+        .max(bounds.lo().as_bytes().len());
     if node.version_bytes() < floor {
         ledger::violation(format!(
             "deflated version_bytes: bulk-assembled node answers {} B, \
@@ -744,7 +744,7 @@ where
     // The spans are bound to a local so their borrowed join endpoints
     // outlive the fold's iterator.
     let bounds: Vec<causally::Span<'_>> = leaves.iter().map(|(_, leaf)| leaf.span()).collect();
-    let ceiling = Version::join_all(bounds.iter().map(|bounds| bounds.join()));
+    let ceiling: Version = bounds.iter().map(|bounds| bounds.hi()).sum();
 
     let mut assembled = pin!(
         charged

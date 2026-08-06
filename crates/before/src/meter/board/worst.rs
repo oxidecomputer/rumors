@@ -1,13 +1,12 @@
-//! The worst-case map: the argmax family per operation × currency, folded
-//! from the same judged cells the rendered matrix walks, with a committed
-//! ranking pin.
+//! The worst-case map: the argmax family per operation × currency, folded from
+//! the same judged cells the rendered matrix walks, with a committed ranking
+//! pin.
 //!
 //! "Which committed shape is worst for operation X" is a mechanically
 //! re-derivable fact, never a curated list: the map is a pure fold over a
-//! sweep's cell results — the board's own
-//! readings, normalized by each cell's own denominator of record — and the
-//! rankings are drift-detected by [`WORST_RANKINGS`], a tamper-evident pin
-//! whose diff a reviewer sees
+//! sweep's cell results — the board's own readings, normalized by each cell's
+//! own denominator of record — and the rankings are drift-detected by
+//! [`WORST_RANKINGS`], a tamper-evident pin whose diff a reviewer sees
 //! ([`check_worst_map`](super::shard::check_worst_map)).
 //!
 //! # Honest scope
@@ -17,26 +16,24 @@
 //! carried by the rustdoc's `# Complexity` sections and the asymptotics
 //! liveness pins, not by this table.
 //!
-//! The ranking pin defends **relative structure**: which family names
-//! hold the argmax within each operation × currency cell. That is the
-//! whole of its jurisdiction. Absolute deterministic counter readings
-//! are the envelope tests' domain (the pinned ceilings and liveness
-//! floors in the meter suites), and absolute performance is the
-//! benchmarks' — a change that moves every family's reading in
-//! proportion leaves this pin green by design, because the fact it
-//! holds (which shape is worst, per cell) has not moved.
+//! The ranking pin defends **relative structure**: which family names hold the
+//! argmax within each operation × currency cell. That is the whole of its
+//! jurisdiction. Absolute deterministic counter readings are the envelope
+//! tests' domain (the pinned ceilings and liveness floors in the meter suites),
+//! and absolute performance is the benchmarks' — a change that moves every
+//! family's reading in proportion leaves this pin green by design, because the
+//! fact it holds (which shape is worst, per cell) has not moved.
 //!
 //! # The reading and its denominator
 //!
 //! Each cell contributes the board's normalized constant of record at the
 //! cell's larger sample (`Score::per_unit`, exactly the number the matrix
-//! prints): heap bytes net of the flat allowance per denominator byte,
-//! limb ops per denominator byte (text rows: per radix-work unit `R`),
-//! scan bits and touches per denominator byte. The denominator is the
-//! cell's own denominator of record — packed input, or total I/O where the
-//! board re-denominates (the `cell` module's Denomination rules) — so the
-//! map ranks cost *density*, and a row may mix denominators exactly where
-//! the board does.
+//! prints): heap bytes net of the flat allowance per denominator byte, limb ops
+//! per denominator byte (text rows: per radix-work unit `R`), scan bits and
+//! touches per denominator byte. The denominator is the cell's own denominator
+//! of record — packed input, or total I/O where the board re-denominates (the
+//! `cell` module's Denomination rules) — so the map ranks cost *density*, and a
+//! row may mix denominators exactly where the board does.
 //!
 //! Segments is deliberately absent from the map: it is an absolute,
 //! ceiling-only count by policy (the target is walks that never grow the
@@ -44,13 +41,12 @@
 //!
 //! # Ties and near-ties
 //!
-//! Every judged quantity is a deterministic counter, so an exact tie at
-//! the top is a stable fact: the fold records **all** tied families,
-//! sorted by name, and the pin carries the whole set — a tie can never
-//! make the pin flappy. Near-ties are a *reading* hazard, not a pin
-//! hazard: a runner-up within [`NEAR_TIE_RATIO`] is flagged in the
-//! rendered table so rank 1 vs rank 2 is not over-read, but the pin still
-//! records the exact argmax.
+//! Every judged quantity is a deterministic counter, so an exact tie at the top
+//! is a stable fact: the fold records **all** tied families, sorted by name,
+//! and the pin carries the whole set — a tie can never make the pin flappy.
+//! Near-ties are a *reading* hazard, not a pin hazard: a runner-up within
+//! [`NEAR_TIE_RATIO`] is flagged in the rendered table so rank 1 vs rank 2 is
+//! not over-read, but the pin still records the exact argmax.
 
 use std::collections::BTreeSet;
 use std::io::{self, Write};
@@ -59,33 +55,31 @@ use super::ceilings::{ACCEPTANCE_SCALE, HEAP_FLAT_ALLOWANCE_BYTES};
 use super::currency::Currency;
 use super::judge::CellResult;
 
-/// The two scales of record the worst-case map is rendered and pinned at:
-/// the board's seconds-scale default and the acceptance scale
+/// The two scales of record the worst-case map is rendered and pinned at: the
+/// board's seconds-scale default and the acceptance scale
 /// ([`ACCEPTANCE_SCALE`], which owns the ×4 calibration argument).
 ///
 /// The map's claim is scale-qualified because a ranking is: a shape's
-/// normalized constant carries its intercept at the default scale, and
-/// the acceptance scale is where the known onset effects (segment growth,
+/// normalized constant carries its intercept at the default scale, and the
+/// acceptance scale is where the known onset effects (segment growth,
 /// doubling-chain steps) have fired.
 pub const WORST_MAP_SCALES: [(&str, f64); 2] = [("default", 1.0), ("acceptance", ACCEPTANCE_SCALE)];
 
-/// A runner-up within this ratio of the worst reading is flagged
-/// `~near-tie` in the rendered table.
+/// A runner-up within this ratio of the worst reading is flagged `~near-tie` in
+/// the rendered table.
 ///
-/// The band is the constant-factor headroom the board's family-stated
-/// ceilings grant a single reading (a ratified ceiling is the worst
-/// reading ×1.25, as at
+/// The band is the constant-factor headroom the board's family-stated ceilings
+/// grant a single reading (a ratified ceiling is the worst reading ×1.25, as at
 /// [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`](super::ceilings::MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT)):
-/// two families inside it are one reading apart, not two classes, so
-/// their rank order is a fact about the chosen scale's constants, not
-/// about the shapes — the flag stops a reader from over-reading rank 1
-/// vs rank 2. The flag never enters the pin: the pin records the exact
-/// deterministic argmax, and a flip inside the band is still news worth
-/// a look.
+/// two families inside it are one reading apart, not two classes, so their rank
+/// order is a fact about the chosen scale's constants, not about the shapes —
+/// the flag stops a reader from over-reading rank 1 vs rank 2. The flag never
+/// enters the pin: the pin records the exact deterministic argmax, and a flip
+/// inside the band is still news worth a look.
 pub const NEAR_TIE_RATIO: f64 = 1.25;
 
-/// The map's currency axis: the four normalized counter columns, in
-/// render and pin order (segments is excluded; the module doc says why).
+/// The map's currency axis: the four normalized counter columns, in render and
+/// pin order (segments is excluded; the module doc says why).
 const MAP_CURRENCIES: [Currency; 4] = [
     Currency::Heap,
     Currency::Limb,
@@ -135,12 +129,11 @@ pub(super) struct OpWorst {
 /// The argmax kernel: the worst set and the runner-up from one row's
 /// candidates.
 ///
-/// Zero readings never place (a shape that does none of this work is not
-/// a worst case); an empty result means the currency is dead on the row.
-/// Exact ties — stable facts, since every reading is a deterministic
-/// counter over a fixed denominator — are all recorded, sorted by family
-/// name; the runner-up is the best entry strictly below the maximum,
-/// name-order first on a tie.
+/// Zero readings never place (a shape that does none of this work is not a
+/// worst case); an empty result means the currency is dead on the row. Exact
+/// ties — stable facts, since every reading is a deterministic counter over a
+/// fixed denominator — are all recorded, sorted by family name; the runner-up
+/// is the best entry strictly below the maximum, name-order first on a tie.
 pub(super) fn rank(mut candidates: Vec<Entry>) -> (Vec<Entry>, Option<Entry>) {
     candidates.retain(|e| e.value > 0.0);
     let Some(max) = candidates.iter().map(|e| e.value).max_by(f64::total_cmp) else {
@@ -161,12 +154,12 @@ pub(super) fn rank(mut candidates: Vec<Entry>) -> (Vec<Entry>, Option<Entry>) {
     (worst, runner_up)
 }
 
-/// Whether a cell's reading in `currency` is judged under a declared
-/// per-cell model (the `ceilings` module's declared-models section).
+/// Whether a cell's reading in `currency` is judged under a declared per-cell
+/// model (the `ceilings` module's declared-models section).
 ///
-/// The models by currency: the capacity-chain band and family-stated
-/// heap ceilings on heap, the family-stated limb models on limb, and the
-/// fold rows' `O(D log k)` model on limb, scan, and touch.
+/// The models by currency: the capacity-chain band and family-stated heap
+/// ceilings on heap, the family-stated limb models on limb, and the fold rows'
+/// `O(D log k)` model on limb, scan, and touch.
 fn modeled(r: &CellResult, currency: Currency) -> bool {
     match currency {
         Currency::Heap => r.s2.declared_heap.is_some() || r.s2.heap_model.is_some(),
@@ -176,8 +169,7 @@ fn modeled(r: &CellResult, currency: Currency) -> bool {
     }
 }
 
-/// Fold one sweep's cell results into the worst-case map, in board row
-/// order.
+/// Fold one sweep's cell results into the worst-case map, in board row order.
 pub(super) fn fold(results: &[CellResult]) -> Vec<OpWorst> {
     let mut map: Vec<OpWorst> = Vec::new();
     let mut start = 0;
@@ -188,8 +180,8 @@ pub(super) fn fold(results: &[CellResult]) -> Vec<OpWorst> {
             end += 1;
         }
         let row = &results[start..end];
-        // A row's denomination rule is the operation's, so the text-row
-        // marker cannot vary across a row's families.
+        // A row's denomination rule is the operation's, so the text-row marker
+        // cannot vary across a row's families.
         assert!(
             row.iter().all(|r| r.s2.text_row == row[0].s2.text_row),
             "worst-case map: {op}: text denomination differs across families"
@@ -226,8 +218,8 @@ pub(super) fn fold(results: &[CellResult]) -> Vec<OpWorst> {
     map
 }
 
-/// A reading rendered at a precision that keeps small constants legible
-/// without decorating large ones.
+/// A reading rendered at a precision that keeps small constants legible without
+/// decorating large ones.
 fn fmt_value(v: f64) -> String {
     if v >= 100.0 {
         format!("{v:.1}")
@@ -295,15 +287,14 @@ pub(super) fn row(out: &mut dyn Write, op: &str, c: &CurrencyWorst) -> io::Resul
     writeln!(out, "{lead}  worst {worst:<42}{tail}", worst = fmt_worst(c))
 }
 
-/// Fold one whole sweep's judged cells and render the worst-case map
-/// table to `out`, one row per operation × mapped currency, in board row
-/// order.
+/// Fold one whole sweep's judged cells and render the worst-case map table to
+/// `out`, one row per operation × mapped currency, in board row order.
 ///
-/// `results` must be a whole board's cells in board row order: a shard
-/// merge's reconstruction of one sweep. `label` names the scale in the
-/// header (the scales of record are [`WORST_MAP_SCALES`]; a smoke run may
-/// pass its own). The fold is a pure consumer of the board's own judged
-/// cells: no reading, family, or ceiling is recomputed here.
+/// `results` must be a whole board's cells in board row order: a shard merge's
+/// reconstruction of one sweep. `label` names the scale in the header (the
+/// scales of record are [`WORST_MAP_SCALES`]; a smoke run may pass its own).
+/// The fold is a pure consumer of the board's own judged cells: no reading,
+/// family, or ceiling is recomputed here.
 pub(super) fn render_map(
     label: &str,
     scale: f64,
@@ -362,29 +353,28 @@ pub(super) fn render_map(
 /// The committed argmax rankings: `(scale, operation, [heap, limb, scan,
 /// touch])`.
 ///
-/// Each column is the worst family set, comma-joined in family-name
-/// order, `-` where no committed shape drives the currency; one entry
-/// per operation per scale of record, in board row order.
+/// Each column is the worst family set, comma-joined in family-name order, `-`
+/// where no committed shape drives the currency; one entry per operation per
+/// scale of record, in board row order.
 ///
 /// The tamper-evident ranking pin:
-/// [`check_worst_map`](super::shard::check_worst_map) entry-compares the
-/// live fold against this table, so "which committed shape is worst for
-/// operation X" is a drift-detected fact. A ranking flip is news: either
-/// a family legitimately overtook (re-pin deliberately, with the movement
-/// annotated in the re-pinning commit) or a code change made some
-/// shape relatively worse (investigate first). Exact ties are stable
-/// deterministic facts and the whole tied set is pinned, so a tie cannot
-/// flap this table.
+/// [`check_worst_map`](super::shard::check_worst_map) entry-compares the live
+/// fold against this table, so "which committed shape is worst for operation X"
+/// is a drift-detected fact. A ranking flip is news: either a family
+/// legitimately overtook (re-pin deliberately, with the movement annotated in
+/// the re-pinning commit) or a code change made some shape relatively worse
+/// (investigate first). Exact ties are stable deterministic facts and the whole
+/// tied set is pinned, so a tie cannot flap this table.
 ///
-/// Pinned from the release-profile fold (the board's profile of record)
-/// at both [`WORST_MAP_SCALES`].
+/// Pinned from the release-profile fold (the board's profile of record) at both
+/// [`WORST_MAP_SCALES`].
 ///
 /// # Reading the map
 ///
 /// The rationale for any single entry — why that family maximizes that
-/// operation x currency cell — lives in the commit that pinned the
-/// entry; `git blame` on the row is the lookup. Genre-level regularities
-/// hold across the table:
+/// operation x currency cell — lives in the commit that pinned the entry; `git
+/// blame` on the row is the lookup. Genre-level regularities hold across the
+/// table:
 ///
 /// - **Materialization rows rank by per-byte payload density.** Cells
 ///   whose cost is a materialized wide value (decode, merge outputs,
@@ -578,24 +568,23 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "party_without_none", ["id-pair", "-", "id-pair", "-"]),
 ];
 
-/// Entry-compare the live worst-case fold against the committed ranking
-/// pin (the `WORST_RANKINGS` table beside the fold), writing one drift
-/// line per disagreement to `out`.
+/// Entry-compare the live worst-case fold against the committed ranking pin
+/// (the `WORST_RANKINGS` table beside the fold), writing one drift line per
+/// disagreement to `out`.
 ///
-/// `sweeps` yields one whole board's judged cells per scale of record —
-/// a shard merge under
-/// [`check_worst_map`](super::shard::check_worst_map).
+/// `sweeps` yields one whole board's judged cells per scale of record — a shard
+/// merge under [`check_worst_map`](super::shard::check_worst_map).
 ///
-/// Returns `Ok(true)` when the pin matches exactly. Detects both
-/// directions of rot: a live row missing from the pin and a pinned row
-/// the board no longer produces.
+/// Returns `Ok(true)` when the pin matches exactly. Detects both directions of
+/// rot: a live row missing from the pin and a pinned row the board no longer
+/// produces.
 ///
 /// # Panics
 ///
-/// Panics if a mapped counter is not compiled into this run (the pin is
-/// stated over all four currencies, so the check requires the
-/// `limb-meter` and `scan-meter` features), or if the pin table itself is
-/// malformed (duplicate or unknown scale/operation keys).
+/// Panics if a mapped counter is not compiled into this run (the pin is stated
+/// over all four currencies, so the check requires the `limb-meter` and
+/// `scan-meter` features), or if the pin table itself is malformed (duplicate
+/// or unknown scale/operation keys).
 pub(super) fn check_with(
     sweeps: &mut dyn FnMut(f64) -> io::Result<Vec<CellResult>>,
     out: &mut dyn Write,

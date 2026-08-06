@@ -682,7 +682,9 @@ fn decimal_digest(text: &str) -> i64 {
     (h & 0x7fff_ffff_ffff_ffff) as i64
 }
 
-/// `Version::join_all` over registers `src..src + n`, result into `dst`.
+/// `Version::join_all` over registers `src..src + n` (the first register
+/// the receiver, the rest the items), result into `dst`; an empty range
+/// has no receiver and refuses with `ERR_OP`.
 #[no_mangle]
 pub extern "C" fn ff_version_join_all(dst: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -692,11 +694,19 @@ pub extern "C" fn ff_version_join_all(dst: u32, src: u32, n: u32) -> i32 {
             None => return ERR_REG,
         }
     }
-    put(dst, Val::V(Version::join_all(ops)));
-    OK
+    let mut ops = ops.into_iter();
+    match ops.next() {
+        Some(first) => {
+            put(dst, Val::V(first.join_all(ops)));
+            OK
+        }
+        None => ERR_OP,
+    }
 }
 
-/// `Version::meet_all` over registers `src..src + n`, result into `dst`.
+/// `Version::meet_all` over registers `src..src + n` (the first register
+/// the receiver, the rest the items), result into `dst`; an empty range
+/// has no receiver and refuses with `ERR_OP`.
 #[no_mangle]
 pub extern "C" fn ff_version_meet_all(dst: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -706,9 +716,10 @@ pub extern "C" fn ff_version_meet_all(dst: u32, src: u32, n: u32) -> i32 {
             None => return ERR_REG,
         }
     }
-    match Version::meet_all(ops) {
-        Some(met) => {
-            put(dst, Val::V(met));
+    let mut ops = ops.into_iter();
+    match ops.next() {
+        Some(first) => {
+            put(dst, Val::V(first.meet_all(ops)));
             OK
         }
         None => ERR_OP,

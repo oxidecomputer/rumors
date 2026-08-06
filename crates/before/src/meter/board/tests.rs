@@ -3,14 +3,13 @@
 //! catches what the others cannot.
 //!
 //! The tripwires: κ against a digit-by-digit schoolbook probe (and the
-//! production delegating parser pinned under κ with a live counter); the
-//! `n_io` exponent leg against a chunked schoolbook converter; the
-//! liveness floors against a meter-bypassing walk. The time leg's tripwire
-//! (an unmetered quadratic reading red on its fitted exponent) lives with
-//! the leg, in `tools/benchjudge`'s self-test and the `tripwire` bench
-//! target. The join_all fold's scan-flatness pin (growth across a joint
-//! doubling, over a build-liveness floor) lives here too, beside the board
-//! row that carries it.
+//! production delegating parser pinned under κ with a live counter); the `n_io`
+//! exponent leg against a chunked schoolbook converter; the liveness floors
+//! against a meter-bypassing walk. The time leg's tripwire (an unmetered
+//! quadratic reading red on its fitted exponent) lives with the leg, in
+//! `tools/benchjudge`'s self-test and the `tripwire` bench target. The join_all
+//! fold's scan-flatness pin (growth across a joint doubling, over a
+//! build-liveness floor) lives here too, beside the board row that carries it.
 
 use crate::meter::{bigroot, dense, hugeleaf, reveal_comb, Packed};
 use crate::{Party, Version};
@@ -40,15 +39,15 @@ fn version_of(p: &Packed) -> Version {
 
 /// The two limb-floor derivations split exactly where their rustdoc says.
 ///
-/// On a plateau shape (equal wide leaves behind unit deltas) the
-/// stream-derived floor counts the stored width once — the wide boundary
-/// codes alone — while the tree-derived floor demands it per site, work no
-/// conforming walk does; on a single wide leaf the two coincide (the one
-/// stored code is the value), and on a small-value tree both are zero.
+/// On a plateau shape (equal wide leaves behind unit deltas) the stream-derived
+/// floor counts the stored width once — the wide boundary codes alone — while
+/// the tree-derived floor demands it per site, work no conforming walk does; on
+/// a single wide leaf the two coincide (the one stored code is the value), and
+/// on a small-value tree both are zero.
 ///
-/// This is the derivation behind the walk rows (decode, rank, distance,
-/// lag, tick) flooring at [`mandatory_limbs_stream`] while the
-/// value-materializing parse rows keep [`mandatory_limbs_version`].
+/// This is the derivation behind the walk rows (decode, rank, distance, lag,
+/// tick) flooring at [`mandatory_limbs_stream`] while the value-materializing
+/// parse rows keep [`mandatory_limbs_version`].
 #[test]
 fn limb_floor_derivations_split_on_plateaus_and_coincide_on_a_leaf() {
     // A single wide leaf: one stored code, which is the value itself.
@@ -59,9 +58,9 @@ fn limb_floor_derivations_split_on_plateaus_and_coincide_on_a_leaf() {
         4,
         "the tree stores the same single value"
     );
-    // A plateau: 8 sites sharing one 2^256-scale minimum. The stream pays
-    // wide codes only where the walk crosses the plateau boundary; the
-    // decoded tree holds a wide base per site.
+    // A plateau: 8 sites sharing one 2^256-scale minimum. The stream pays wide
+    // codes only where the walk crosses the plateau boundary; the decoded tree
+    // holds a wide base per site.
     let plateau = version_of(&reveal_comb(8, 256));
     let stream = mandatory_limbs_stream(&plateau);
     let tree = mandatory_limbs_version(&plateau);
@@ -86,9 +85,9 @@ fn limb_floor_derivations_split_on_plateaus_and_coincide_on_a_leaf() {
 /// The radix-work term is exact on shapes whose digit and limb counts are
 /// hand-derivable.
 ///
-/// An empty version is one single-digit, single-limb value, and
-/// `hugeleaf(b)` is one value of `2b + 1` gamma bits spelling
-/// `floor(b * log10(2)) + 1` digits over `ceil(b / 64)` limbs.
+/// An empty version is one single-digit, single-limb value, and `hugeleaf(b)`
+/// is one value of `2b + 1` gamma bits spelling `floor(b * log10(2)) + 1`
+/// digits over `ceil(b / 64)` limbs.
 #[test]
 fn radix_units_match_hand_counts() {
     // Version::new() renders "0": 1 digit x 1 limb.
@@ -102,8 +101,8 @@ fn radix_units_match_hand_counts() {
     assert_eq!(radix_units_version(&version_of(&dense(2))), 5);
 }
 
-/// Every family's rendered text sits under the output-honesty ceiling, and
-/// the ceiling is tight enough that a text stream padded past
+/// Every family's rendered text sits under the output-honesty ceiling, and the
+/// ceiling is tight enough that a text stream padded past
 /// [`TEXT_BYTES_PER_RADIX_UNIT`] bytes per radix unit trips it.
 #[test]
 fn rendered_text_is_honest_and_padding_trips() {
@@ -126,26 +125,24 @@ fn rendered_text_is_honest_and_padding_trips() {
     );
 }
 
-/// Pinned liveness floors for the delegating-parser pin, one per family:
-/// the whole `FromStr` pipeline's measured limb records × 0.85.
+/// Pinned liveness floors for the delegating-parser pin, one per family: the
+/// whole `FromStr` pipeline's measured limb records × 0.85.
 ///
-/// The pipeline records from three sites — the delegated radix conversion
-/// (one width-proportional count per materialized value), the gamma
-/// encoder's arithmetic, and the validator's wide decodes — and the radix
-/// site alone contributes ~33% on hugeleaf and ~25% on bigroot \[measured:
-/// pipeline totals 752 and 16_391; the radix side's own contribution is
-/// 250 and 4_127, so the bypass readings are 502 and 12_264\]. A floor at
-/// ×0.85 of the pipeline total (639 and
-/// 13_932) sits above what the other two sites can reach, so a parse path
-/// that stops recording trips it; the values' mandatory limbs alone cannot
-/// separate that bypass (the encode-side arithmetic already covers them).
-/// The bigroot separation margin is thin — the floor sits over a bypass
-/// reading of pipeline-total-minus-radix — so a re-measure that moves
-/// the other sites up must re-derive both readings before trusting the
-/// floor separates. Bigroot re-measured at 8_385 (the gamma encoder's
-/// word-path arithmetic and then the word-valued decoded form left the
-/// limb denomination): floor 7_127 (×0.85) over the derived bypass
-/// 4_258 (8_385 − 4_127) keeps the separation.
+/// The pipeline records from three sites — the delegated radix conversion (one
+/// width-proportional count per materialized value), the gamma encoder's
+/// arithmetic, and the validator's wide decodes — and the radix site alone
+/// contributes ~33% on hugeleaf and ~25% on bigroot \[measured: pipeline totals
+/// 752 and 16_391; the radix side's own contribution is 250 and 4_127, so the
+/// bypass readings are 502 and 12_264\]. A floor at ×0.85 of the pipeline total
+/// (639 and 13_932) sits above what the other two sites can reach, so a parse
+/// path that stops recording trips it; the values' mandatory limbs alone cannot
+/// separate that bypass (the encode-side arithmetic already covers them). The
+/// bigroot separation margin is thin — the floor sits over a bypass reading of
+/// pipeline-total-minus-radix — so a re-measure that moves the other sites up
+/// must re-derive both readings before trusting the floor separates. Bigroot
+/// re-measured at 8_385 (the gamma encoder's word-path arithmetic and then the
+/// word-valued decoded form left the limb denomination): floor 7_127 (×0.85)
+/// over the derived bypass 4_258 (8_385 − 4_127) keeps the separation.
 #[cfg(feature = "limb-meter")]
 const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 639), ("bigroot", 7_127)];
 
@@ -153,16 +150,15 @@ const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 639), ("big
 /// ceiling κ on the wide-magnitude families, with a live counter.
 ///
 /// The parse delegates radix conversion to the backend's subquadratic
-/// divide-and-conquer parser and records one width-proportional limb count
-/// per materialized value (the wide-gamma decode's convention), so its
-/// score against `R = n_io + Σ digits × limbs` is far under κ where
-/// conversion work dominates. The ceiling leg alone would pass vacuously
-/// if the parse path stopped recording, so the pin pairs it with two
-/// liveness floors: the derived one (the recorded ops cover the values'
-/// mandatory limbs) and the pinned per-family
-/// [`DELEGATING_PARSE_LIMB_FLOORS`], set above what the pipeline's
-/// non-radix recording sites reach so the radix delegation's own
-/// recording is required to pass.
+/// divide-and-conquer parser and records one width-proportional limb count per
+/// materialized value (the wide-gamma decode's convention), so its score
+/// against `R = n_io + Σ digits × limbs` is far under κ where conversion work
+/// dominates. The ceiling leg alone would pass vacuously if the parse path
+/// stopped recording, so the pin pairs it with two liveness floors: the derived
+/// one (the recorded ops cover the values' mandatory limbs) and the pinned
+/// per-family [`DELEGATING_PARSE_LIMB_FLOORS`], set above what the pipeline's
+/// non-radix recording sites reach so the radix delegation's own recording is
+/// required to pass.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn delegating_parser_stays_under_the_text_limb_ceiling() {
@@ -207,13 +203,12 @@ fn delegating_parser_stays_under_the_text_limb_ceiling() {
 /// A schoolbook conversion probe exceeds the text-row limb ceiling κ: the
 /// constant leg still excludes the digit-by-digit strategy.
 ///
-/// The probe folds each digit through one metered `mul; add` pair —
-/// `Θ(digits × limbs)` at the largest constant the strategy admits — and
-/// scores ~1 limb per `R` unit on the magnitude families, over the pinned
-/// κ (the pipeline term is negligible where conversion dominates, so `R`
-/// is the schoolbook cost law there). This pin is the constant leg's
-/// anti-softening tripwire: it fails if κ drifts up to where digit-by-digit
-/// conversion passes.
+/// The probe folds each digit through one metered `mul; add` pair — `Θ(digits ×
+/// limbs)` at the largest constant the strategy admits — and scores ~1 limb per
+/// `R` unit on the magnitude families, over the pinned κ (the pipeline term is
+/// negligible where conversion dominates, so `R` is the schoolbook cost law
+/// there). This pin is the constant leg's anti-softening tripwire: it fails if
+/// κ drifts up to where digit-by-digit conversion passes.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn schoolbook_probe_exceeds_the_text_limb_ceiling() {
@@ -238,13 +233,12 @@ fn schoolbook_probe_exceeds_the_text_limb_ceiling() {
     }
 }
 
-/// Decimal digits one `mul; add` accumulator pair folds at a time: the
-/// widest chunk a `u32` multiplier covers (`10^9 < 2^32`).
+/// Decimal digits one `mul; add` accumulator pair folds at a time: the widest
+/// chunk a `u32` multiplier covers (`10^9 < 2^32`).
 ///
 /// Off-the-shelf chunked parsers use this strategy at `u32` or `u64` chunk
-/// width; wider chunks only shrink the constant further, so this width is
-/// the conservative choice for a tripwire pinning that the constant sits
-/// under κ.
+/// width; wider chunks only shrink the constant further, so this width is the
+/// conservative choice for a tripwire pinning that the constant sits under κ.
 #[cfg(feature = "limb-meter")]
 const SCHOOLBOOK_CHUNK_DIGITS: usize = 9;
 
@@ -253,13 +247,13 @@ const SCHOOLBOOK_CHUNK_DIGITS: usize = 9;
 /// operations.
 ///
 /// This is chunked schoolbook conversion: per run, `acc = acc·10^len + chunk`
-/// left to right — `Θ(digits × limbs)`, quadratic in the value's bits, with
-/// a constant that shrinks as the chunks widen (`chunk_digits` 1 is the
+/// left to right — `Θ(digits × limbs)`, quadratic in the value's bits, with a
+/// constant that shrinks as the chunks widen (`chunk_digits` 1 is the
 /// digit-by-digit strategy at the genre's largest constant; at most
-/// [`SCHOOLBOOK_CHUNK_DIGITS`], so every chunk fits a `u32`). Each
-/// accumulated value is checked exact against its run (outside the metered
-/// window), so the probe's cost is the cost of the whole conversion, never
-/// of a sampled fraction.
+/// [`SCHOOLBOOK_CHUNK_DIGITS`], so every chunk fits a `u32`). Each accumulated
+/// value is checked exact against its run (outside the metered window), so the
+/// probe's cost is the cost of the whole conversion, never of a sampled
+/// fraction.
 #[cfg(feature = "limb-meter")]
 fn schoolbook_limb_ops(text: &str, chunk_digits: usize) -> u64 {
     use crate::codec::Base;
@@ -295,21 +289,20 @@ fn schoolbook_limb_ops(text: &str, chunk_digits: usize) -> u64 {
 /// A chunked schoolbook converter reads red on the text limb criterion, and
 /// only on its exponent leg: chunking slips the constant under κ.
 ///
-/// κ alone does not enforce subquadratic conversion: `u32` chunking shrinks
-/// the schoolbook constant ~9× to well under κ (measured 0.11 limb/`R` on
-/// hugeleaf, 0.15 on bigroot) while leaving the complexity class untouched
-/// (`Θ(digits × limbs)`, limb work quadratic in the value's bits — recorded
-/// here through the same metered ops the board reads). The criterion's
-/// teeth against it are entirely in the limb exponent judged against
-/// `n_io`: quadratic limb work reads ~2 there, over
-/// [`MAX_SCALING_EXPONENT`], where a subquadratic converter's near-linear
-/// recorded work stays under. (Against `R` the exponent is toothless on any
-/// schoolbook converter: `R` is its own cost law, so it reads a flat ~1.)
-/// This pin is the exponent leg's anti-softening tripwire: the probe's
-/// measured samples go through [`evaluate`] itself, so it fails if the leg
-/// re-denominates to `R` or its ceiling drifts up to where quadratic
-/// conversion passes; the κ assertions pin the premise that the constant
-/// leg cannot exclude this converter.
+/// κ alone does not enforce subquadratic conversion: `u32` chunking shrinks the
+/// schoolbook constant ~9× to well under κ (measured 0.11 limb/`R` on hugeleaf,
+/// 0.15 on bigroot) while leaving the complexity class untouched (`Θ(digits ×
+/// limbs)`, limb work quadratic in the value's bits — recorded here through the
+/// same metered ops the board reads). The criterion's teeth against it are
+/// entirely in the limb exponent judged against `n_io`: quadratic limb work
+/// reads ~2 there, over [`MAX_SCALING_EXPONENT`], where a subquadratic
+/// converter's near-linear recorded work stays under. (Against `R` the exponent
+/// is toothless on any schoolbook converter: `R` is its own cost law, so it
+/// reads a flat ~1.) This pin is the exponent leg's anti-softening tripwire:
+/// the probe's measured samples go through [`evaluate`] itself, so it fails if
+/// the leg re-denominates to `R` or its ceiling drifts up to where quadratic
+/// conversion passes; the κ assertions pin the premise that the constant leg
+/// cannot exclude this converter.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
@@ -383,9 +376,9 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
 /// The mandatory-limb term is exact on shapes whose magnitude widths are
 /// hand-derivable.
 ///
-/// An empty version and a small dense spine hold only machine-word-scale
-/// values (no limb work is mandatory); `hugeleaf(200)` stores one 200-bit
-/// value, whose four limbs any materialization must touch.
+/// An empty version and a small dense spine hold only machine-word-scale values
+/// (no limb work is mandatory); `hugeleaf(200)` stores one 200-bit value, whose
+/// four limbs any materialization must touch.
 #[test]
 fn mandatory_limbs_match_hand_counts() {
     assert_eq!(mandatory_limbs_version(&Version::new()), 0);
@@ -393,26 +386,26 @@ fn mandatory_limbs_match_hand_counts() {
     assert_eq!(mandatory_limbs_version(&version_of(&hugeleaf(200))), 4);
 }
 
-/// Sum the stored bits of `v` by direct slice indexing: real linear
-/// traversal work that touches no metered primitive (no cursor, no builder,
-/// no arithmetic, no allocation).
+/// Sum the stored bits of `v` by direct slice indexing: real linear traversal
+/// work that touches no metered primitive (no cursor, no builder, no
+/// arithmetic, no allocation).
 #[cfg(feature = "scan-meter")]
 fn bypass_walk(v: &Version) -> usize {
     let bits = v.as_bits();
     (0..bits.len()).filter(|&i| bits[i]).count()
 }
 
-/// A body that does its traversal outside the metered primitives reads
-/// green under ceilings alone and red under the committed liveness floors.
+/// A body that does its traversal outside the metered primitives reads green
+/// under ceilings alone and red under the committed liveness floors.
 ///
-/// A criterion of ceilings alone is vacuous against exactly this bypass;
-/// the floors close it.
+/// A criterion of ceilings alone is vacuous against exactly this bypass; the
+/// floors close it.
 ///
-/// The probe walks a decoded dense spine by direct indexing, so every
-/// counter column records ~nothing while real linear work runs. Both legs
-/// go through [`evaluate`] with the probe's real counter readings; the only
-/// difference is the declarations — all-NA (ceilings alone) versus the
-/// committed walk convention (scan floored at one bit per packed byte).
+/// The probe walks a decoded dense spine by direct indexing, so every counter
+/// column records ~nothing while real linear work runs. Both legs go through
+/// [`evaluate`] with the probe's real counter readings; the only difference is
+/// the declarations — all-NA (ceilings alone) versus the committed walk
+/// convention (scan floored at one bit per packed byte).
 #[cfg(feature = "scan-meter")]
 #[test]
 fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
@@ -431,9 +424,9 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             touch: na(PROBE_NA),
         }
     }
-    /// The committed walk convention with the touch column honestly
-    /// undeclared: the probe folds no accumulator, and the leg under test
-    /// is the scan floor.
+    /// The committed walk convention with the touch column honestly undeclared:
+    /// the probe folds no accumulator, and the leg under test is the scan
+    /// floor.
     fn probe_walk_floors(packed_bytes: usize) -> Floors {
         walk_floors(packed_bytes, na(PROBE_NA))
     }
@@ -494,27 +487,26 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
     );
 }
 
-/// The join_all up-front overlap test reads scan-flat: a joint doubling
-/// of accumulator and input count grows the fold's scan bits ≤ ×2.05,
-/// over a liveness floor proving the meter watches the discipline.
+/// The join_all up-front overlap test reads scan-flat: a joint doubling of
+/// accumulator and input count grows the fold's scan bits ≤ ×2.05, over a
+/// liveness floor proving the meter watches the discipline.
 ///
-/// \[Measured ×2.00, 33,036 → 66,060 bits — the re-pin landed with the
-/// per-call index.\]
+/// \[Measured ×2.00, 33,036 → 66,060 bits — the re-pin landed with the per-call
+/// index.\]
 ///
-/// `Party::join_all` tests every input against the *fixed* accumulator up
-/// front (the hand-back granularity the contract documents), through a
-/// per-call `IdIndex` of the accumulator: the index build scans the
-/// accumulator's tags twice, and each per-input test then costs O(input)
-/// recorded reads, so a population of one-byte probes overlapping the
-/// accumulator's right half behind its whole left shape prices linear in
-/// the joint operands. A discipline that instead cursor-walks the fixed
-/// accumulator per input reads ~×4 across the joint doubling — the packed
-/// coding has no random access, so each such test skip-scans the whole
-/// left shape — and trips this ceiling. The floor closes the vacuous
-/// pass: a counter that stops watching the up-front discipline reads
-/// under one full pass of the accumulator's stored bits. The board's
-/// `party_join_all_overlap` row carries the same reading at the scales of
-/// record; the cure's decision record lives in the design doc's §3 entry.
+/// `Party::join_all` tests every input against the *fixed* accumulator up front
+/// (the hand-back granularity the contract documents), through a per-call
+/// `IdIndex` of the accumulator: the index build scans the accumulator's tags
+/// twice, and each per-input test then costs O(input) recorded reads, so a
+/// population of one-byte probes overlapping the accumulator's right half
+/// behind its whole left shape prices linear in the joint operands. A
+/// discipline that instead cursor-walks the fixed accumulator per input reads
+/// ~×4 across the joint doubling — the packed coding has no random access, so
+/// each such test skip-scans the whole left shape — and trips this ceiling. The
+/// floor closes the vacuous pass: a counter that stops watching the up-front
+/// discipline reads under one full pass of the accumulator's stored bits. The
+/// board's `party_join_all_overlap` row carries the same reading at the scales
+/// of record; the cure's decision record lives in the design doc's §3 entry.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn join_all_overlap_upfront_test_reads_flat() {
@@ -557,12 +549,11 @@ fn join_all_overlap_upfront_test_reads_flat() {
 /// exponent out of measured flat per-tooth work.
 ///
 /// The value-content fit reads the same measurements linear. This is the
-/// tripwire the comb-scatter exponent re-denomination rests on: the
-/// comparison sweep's limb work per tooth is flat across a tooth-count
-/// doubling (the honest linear witness), the packed denominator grows
-/// under x1.5 because the fixed 1000-bit magnitude dominates it (the
-/// intercept premise), and the two fits disagree by an exponent class on
-/// identical readings.
+/// tripwire the comb-scatter exponent re-denomination rests on: the comparison
+/// sweep's limb work per tooth is flat across a tooth-count doubling (the
+/// honest linear witness), the packed denominator grows under x1.5 because the
+/// fixed 1000-bit magnitude dominates it (the intercept premise), and the two
+/// fits disagree by an exponent class on identical readings.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn flat_denominator_packed_fit_manufactures_an_exponent() {
@@ -572,9 +563,9 @@ fn flat_denominator_packed_fit_manufactures_an_exponent() {
         w.tick(&Party::seed());
         let packed = v.encode().len() + w.encode().len();
         let content = value_content_bytes(&v) + value_content_bytes(&w);
-        // The sweep's per-tooth work is accumulator folds: word-scale
-        // deltas never touch the limb denomination, so the flat
-        // marginal quantity this tripwire needs is digit touches.
+        // The sweep's per-tooth work is accumulator folds: word-scale deltas
+        // never touch the limb denomination, so the flat marginal quantity this
+        // tripwire needs is digit touches.
         suanpan::touch_meter::reset();
         let ord = v.partial_cmp(&w);
         let ops = suanpan::touch_meter::touches();
@@ -615,12 +606,12 @@ fn flat_denominator_packed_fit_manufactures_an_exponent() {
 }
 
 /// A genuinely quadratic-in-teeth walk still reads red against the value
-/// content denominator: the re-denomination corrects the fit's axis,
-/// never the criterion's teeth.
+/// content denominator: the re-denomination corrects the fit's axis, never the
+/// criterion's teeth.
 ///
-/// The probe does one metered accumulator pass per tooth over all earlier
-/// teeth — Theta(teeth^2) limb ops on a content-linear operand — and its
-/// content fit lands a full exponent class over the ceiling.
+/// The probe does one metered accumulator pass per tooth over all earlier teeth
+/// — Theta(teeth^2) limb ops on a content-linear operand — and its content fit
+/// lands a full exponent class over the ceiling.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn quadratic_in_teeth_work_reads_red_against_the_content_denominator() {
@@ -649,15 +640,15 @@ fn quadratic_in_teeth_work_reads_red_against_the_content_denominator() {
     );
 }
 
-/// The exponent guards judge the denominator's ability to scale and the
-/// heap reading's materiality, never the reading's growth.
+/// The exponent guards judge the denominator's ability to scale and the heap
+/// reading's materiality, never the reading's growth.
 ///
-/// The same amplifier-shaped readings read green where the operand pair
-/// cannot scale (6 -> 7 bytes: the fit divides by a vanishing log) or
-/// where both heap readings sit inside the flat allowance the constant
-/// leg already forgives, and read red the moment the denominator honestly
-/// doubles or the readings clear the allowance. Both directions pinned so
-/// neither guard can silently widen into an exemption hole.
+/// The same amplifier-shaped readings read green where the operand pair cannot
+/// scale (6 -> 7 bytes: the fit divides by a vanishing log) or where both heap
+/// readings sit inside the flat allowance the constant leg already forgives,
+/// and read red the moment the denominator honestly doubles or the readings
+/// clear the allowance. Both directions pinned so neither guard can silently
+/// widen into an exemption hole.
 #[test]
 fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
     use super::floors::na;
@@ -692,9 +683,9 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
             },
         }
     };
-    // A x5 limb growth over a denominator pair that cannot scale: the fit
-    // is noise amplification, unjudged; the identical readings over an
-    // honestly doubling pair are a real amplifier, red.
+    // A x5 limb growth over a denominator pair that cannot scale: the fit is
+    // noise amplification, unjudged; the identical readings over an honestly
+    // doubling pair are a real amplifier, red.
     let sub_scaling = evaluate(
         "guard_probe",
         "sub-scaling",
@@ -718,8 +709,8 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
         scaling.red
     );
     // A cubic-shaped heap growth entirely inside the flat allowance is
-    // size-class noise, unjudged; the same shape clearing the allowance
-    // is judged and red.
+    // size-class noise, unjudged; the same shape clearing the allowance is
+    // judged and red.
     let sub_allowance = evaluate(
         "guard_probe",
         "sub-allowance",
@@ -745,12 +736,12 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
         "heap readings clearing the allowance must be judged and red: {:?}",
         over_allowance.red
     );
-    // A probe pair straddling the allowance boundary manufactures an
-    // exponent: the flat term the constant leg forgives deflates the
-    // base reading and releases at the large one, so the fit measures
-    // the boundary, not a scaling class. The straddling pair stays
-    // unjudged; the class is judged at the next doubling, where both
-    // probes sit in the scaling regime (the over-allowance probe above).
+    // A probe pair straddling the allowance boundary manufactures an exponent:
+    // the flat term the constant leg forgives deflates the base reading and
+    // releases at the large one, so the fit measures the boundary, not a
+    // scaling class. The straddling pair stays unjudged; the class is judged at
+    // the next doubling, where both probes sit in the scaling regime (the
+    // over-allowance probe above).
     let straddling = evaluate(
         "guard_probe",
         "straddle-allowance",
@@ -765,22 +756,20 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
     );
 }
 
-/// The declared fold model admits the balanced reduction's log factor
-/// and nothing steeper.
+/// The declared fold model admits the balanced reduction's log factor and
+/// nothing steeper.
 ///
-/// Three probes through [`evaluate`], all at the benign control's
-/// committed arity pair (k 256 -> 512 over a x2.19 denominator): the
-/// pre-declaration honest readings (scan exponent ~1.17, constant
-/// ~114 bits/B — the readings that were red under the flat ceilings and
-/// are exactly the reduction's own log factor) read green under the
-/// model; a quadratic fold (a left fold re-walking its accumulator,
-/// exponent ~2 — the cheapest wrong artifact the model could bless)
-/// stays exponent-red; and a fold whose per-level scan constant
-/// regresses past the model's allowance reads constant-red even at an
-/// admissible exponent. The ceiling-tightness leg pins the formula
-/// itself: at every committed arity pair the declared exponent ceiling
-/// stays under 1.5, so a quadratic's ~2 can never fit however the
-/// populations scale.
+/// Three probes through [`evaluate`], all at the benign control's committed
+/// arity pair (k 256 -> 512 over a x2.19 denominator): the pre-declaration
+/// honest readings (scan exponent ~1.17, constant ~114 bits/B — the readings
+/// that were red under the flat ceilings and are exactly the reduction's own
+/// log factor) read green under the model; a quadratic fold (a left fold
+/// re-walking its accumulator, exponent ~2 — the cheapest wrong artifact the
+/// model could bless) stays exponent-red; and a fold whose per-level scan
+/// constant regresses past the model's allowance reads constant-red even at an
+/// admissible exponent. The ceiling-tightness leg pins the formula itself: at
+/// every committed arity pair the declared exponent ceiling stays under 1.5, so
+/// a quadratic's ~2 can never fit however the populations scale.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
@@ -817,8 +806,8 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
             },
         }
     };
-    // The benign control's committed pair: k 256 -> 512, denominators
-    // 1322 -> 2897 bytes.
+    // The benign control's committed pair: k 256 -> 512, denominators 1322 ->
+    // 2897 bytes.
     let (n1, n2, k1, k2) = (1_322usize, 2_897usize, 256u64, 512u64);
     let honest = evaluate(
         "fold_probe",
@@ -853,11 +842,11 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
         "a per-level constant regression must read constant-red: {:?}",
         fat_constant.red
     );
-    // The party fold's search allowance admits the binary search's own
-    // probe bound and nothing looser: readings at the weave family's
-    // committed proportions (fold model + allowance, ~7% under) are
-    // green, and a search discipline paying twice the bound — linear
-    // re-probing where the partition search is logarithmic — reads red.
+    // The party fold's search allowance admits the binary search's own probe
+    // bound and nothing looser: readings at the weave family's committed
+    // proportions (fold model + allowance, ~7% under) are green, and a search
+    // discipline paying twice the bound — linear re-probing where the partition
+    // search is logarithmic — reads red.
     let search = |denom: usize, arity: u64, search_bits: u64, scan: u64| -> Sample {
         let mut s = sample(denom, arity, scan);
         s.fold_search_bits = search_bits;
@@ -885,9 +874,9 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
         "a search paying past its declared allowance must read red: {:?}",
         over_searched.red
     );
-    // Ceiling tightness: at every committed arity pair (scatter and
-    // benign, both scales, doubling denominators and beyond) the
-    // declared exponent ceiling leaves no room for a quadratic.
+    // Ceiling tightness: at every committed arity pair (scatter and benign,
+    // both scales, doubling denominators and beyond) the declared exponent
+    // ceiling leaves no room for a quadratic.
     for (k1, k2, n1, n2) in [
         (256u64, 512u64, 1_322usize, 2_897usize),
         (1_024, 2_048, 5_120, 10_240),
@@ -909,18 +898,18 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
     }
 }
 
-/// The declared capacity model bands the projection's peak on both sides
-/// and retires the unjudgeable exponent fit.
+/// The declared capacity model bands the projection's peak on both sides and
+/// retires the unjudgeable exponent fit.
 ///
-/// Probes through [`evaluate`] at the comb-scatter cross's committed
-/// geometry (the model reads 68 160 -> 176 256 B there): the ratified
-/// profile (measured/model 1.005–1.017 at every probed point) is green;
-/// a regressed builder — an unanchored doubling chain or an extra buffer
-/// copy, reading 2x the model — is red on the model ceiling; an improved
-/// builder reading half the model trips the stale-model floor, forcing a
-/// deliberate re-declaration; and the heap exponent stays unjudged (the
-/// chain's power-of-two quantization is why the fit lies), so no k-step
-/// straddle can re-manufacture the old exponent red.
+/// Probes through [`evaluate`] at the comb-scatter cross's committed geometry
+/// (the model reads 68 160 -> 176 256 B there): the ratified profile
+/// (measured/model 1.005–1.017 at every probed point) is green; a regressed
+/// builder — an unanchored doubling chain or an extra buffer copy, reading 2x
+/// the model — is red on the model ceiling; an improved builder reading half
+/// the model trips the stale-model floor, forcing a deliberate re-declaration;
+/// and the heap exponent stays unjudged (the chain's power-of-two quantization
+/// is why the fit lies), so no k-step straddle can re-manufacture the old
+/// exponent red.
 #[test]
 fn declared_capacity_model_bands_the_projection_peak() {
     use super::floors::na;
@@ -999,12 +988,11 @@ fn declared_capacity_model_bands_the_projection_peak() {
     );
 }
 
-/// Every declared-model bench rider names a live board cell that
-/// actually carries a declared model, so the rider census cannot go
-/// stale.
+/// Every declared-model bench rider names a live board cell that actually
+/// carries a declared model, so the rider census cannot go stale.
 ///
-/// A cure that dissolves a cell's model must retire its rider in
-/// the same change, and a rider can never point at an undeclared cell.
+/// A cure that dissolves a cell's model must retire its rider in the same
+/// change, and a rider can never point at an undeclared cell.
 #[test]
 fn bench_riders_name_declared_model_cells() {
     use super::family::FamilyData;
@@ -1042,8 +1030,8 @@ fn bench_riders_name_declared_model_cells() {
 
 // ─── the worst-case map ─────────────────────────────────────────────────────
 
-/// An [`Entry`](super::worst::Entry) candidate with the modeled flag off,
-/// for the argmax-kernel tests.
+/// An [`Entry`](super::worst::Entry) candidate with the modeled flag off, for
+/// the argmax-kernel tests.
 fn candidate(family: &'static str, value: f64) -> super::worst::Entry {
     super::worst::Entry {
         family,
@@ -1052,12 +1040,12 @@ fn candidate(family: &'static str, value: f64) -> super::worst::Entry {
     }
 }
 
-/// The argmax kernel records every exactly-tied family at the top, sorted
-/// by name, and picks the runner-up strictly below the maximum.
+/// The argmax kernel records every exactly-tied family at the top, sorted by
+/// name, and picks the runner-up strictly below the maximum.
 ///
-/// A tie is recorded whole, so it can never make the ranking pin flappy;
-/// a runner-up tie reports the name-order first entry, and a runner-up
-/// never shadows a tied worst.
+/// A tie is recorded whole, so it can never make the ranking pin flappy; a
+/// runner-up tie reports the name-order first entry, and a runner-up never
+/// shadows a tied worst.
 #[test]
 fn worst_rank_records_ties_whole_and_runner_up_strictly_below() {
     let (worst, runner_up) = super::worst::rank(vec![
@@ -1083,10 +1071,9 @@ fn worst_rank_records_ties_whole_and_runner_up_strictly_below() {
 
 /// Zero readings never place in the argmax.
 ///
-/// A currency every shape reads zero on folds to an empty worst set
-/// (rendered `-`), and a currency only one shape drives has a worst but
-/// no runner-up — a shape that does none of the work is not a runner-up
-/// at zero.
+/// A currency every shape reads zero on folds to an empty worst set (rendered
+/// `-`), and a currency only one shape drives has a worst but no runner-up — a
+/// shape that does none of the work is not a runner-up at zero.
 #[test]
 fn worst_rank_excludes_zero_readings() {
     let (worst, runner_up) =
@@ -1119,10 +1106,9 @@ fn rendered_row(worst_value: f64, runner_up_value: f64) -> String {
 
 /// The `~near-tie` flag fires exactly under [`NEAR_TIE_RATIO`](super::NEAR_TIE_RATIO).
 ///
-/// A margin strictly inside the band is flagged, and a margin at the
-/// boundary or beyond is not: the flag marks rank orders a reader must
-/// not over-read, and its boundary is the pinned constant, not a
-/// formatting accident.
+/// A margin strictly inside the band is flagged, and a margin at the boundary
+/// or beyond is not: the flag marks rank orders a reader must not over-read,
+/// and its boundary is the pinned constant, not a formatting accident.
 #[test]
 fn worst_row_flags_near_ties_strictly_under_the_ratio() {
     assert!(
@@ -1139,17 +1125,17 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
     );
 }
 
-/// The committed ranking pin stays well-formed against the live axes
-/// without a board run.
+/// The committed ranking pin stays well-formed against the live axes without a
+/// board run.
 ///
-/// Per scale of record it names exactly the board's operation rows, in
-/// board row order, and every pinned worst set is name-sorted,
-/// duplicate-free rostered family names (or the dead-row `-`).
+/// Per scale of record it names exactly the board's operation rows, in board
+/// row order, and every pinned worst set is name-sorted, duplicate-free
+/// rostered family names (or the dead-row `-`).
 ///
-/// The cheap structural half of the pin's tamper evidence; the readings
-/// half — the argmax itself — is the release-profile entry-compare
-/// (`just worst-cases-pin`), because rankings derive from readings and
-/// dev readings are never pinned.
+/// The cheap structural half of the pin's tamper evidence; the readings half —
+/// the argmax itself — is the release-profile entry-compare (`just
+/// worst-cases-pin`), because rankings derive from readings and dev readings
+/// are never pinned.
 #[test]
 fn worst_rankings_pin_is_well_formed() {
     use super::worst::WORST_RANKINGS;

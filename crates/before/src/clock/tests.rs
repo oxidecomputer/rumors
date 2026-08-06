@@ -750,16 +750,16 @@ fn deep_tree_query_and_causal_stack_safety() {
     // Span hulls (pair and n-ary), the fused decode/admit walk, and the
     // 3-stream placement walks.
     let span = early.span(&late);
-    assert_eq!(span.meet(), &early);
-    assert_eq!(span.join(), &late);
+    assert_eq!(span.lo(), &early);
+    assert_eq!(span.hi(), &late);
     let span_bytes = span.encode();
     let decoded = causally::Span::decode(&span_bytes[..]).expect("canonical span");
-    assert_eq!(decoded.meet(), &early);
+    assert_eq!(decoded.lo(), &early);
     let validated = causally::Span::new(&early, &late).expect("early <= late");
     let _ = validated.place(&early);
     let _ = validated.dominance(&late);
     let hull = early.span_all([late.clone()]);
-    assert_eq!(hull.join(), &late);
+    assert_eq!(hull.hi(), &late);
 
     // The span algebra at depth: each operator's legs run the join and meet
     // kernels over the deep endpoints, the n-ary door drives the balanced

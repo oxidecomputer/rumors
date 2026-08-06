@@ -1,11 +1,11 @@
-//! The liveness vocabulary: the floor derivations and not-applicable
-//! reasons every cell commits, shared across rows so the rendered legend
-//! stays small and uniform.
+//! The liveness vocabulary: the floor derivations and not-applicable reasons
+//! every cell commits, shared across rows so the rendered legend stays small
+//! and uniform.
 //!
-//! A floor states the least a watching counter can honestly read,
-//! derived from what the operation must do, never from how it does it;
-//! the board module doc's Liveness floors section carries the criterion
-//! and what a trip means. The conventions, per currency:
+//! A floor states the least a watching counter can honestly read, derived from
+//! what the operation must do, never from how it does it; the board module
+//! doc's Liveness floors section carries the criterion and what a trip means.
+//! The conventions, per currency:
 //!
 //! - **Scan** is the universal leg: an operation that must examine its
 //!   packed operands scans at least
@@ -81,33 +81,31 @@
 //!   grow the stack, so its honest floor is zero and a zero floor asserts
 //!   nothing.
 //!
-//! The rejection rows floor scan alone: their committed shapes place the
-//! defect at the stream's end, and a self-delimiting stream's terminal
-//! defect (or an overlap at both operands' preorder ends, under a coding
-//! with no random access) is only discoverable by parsing to it, while
-//! heap, limb, and touch are honestly not-applicable — rejection
-//! materializes no result and forces neither value work nor an
-//! accumulator fold. The text-rejection rows declare no floor on any
-//! column, by the same honest derivation: no deterministic counter
-//! watches text-byte consumption, and a parser may find the defect in
-//! tokenization before any packed or value work — their ceilings judge
-//! live readings (the shipped parsers do metered work greedily) and the
-//! bench mirror times them like every row.
+//! The rejection rows floor scan alone: their committed shapes place the defect
+//! at the stream's end, and a self-delimiting stream's terminal defect (or an
+//! overlap at both operands' preorder ends, under a coding with no random
+//! access) is only discoverable by parsing to it, while heap, limb, and touch
+//! are honestly not-applicable — rejection materializes no result and forces
+//! neither value work nor an accumulator fold. The text-rejection rows declare
+//! no floor on any column, by the same honest derivation: no deterministic
+//! counter watches text-byte consumption, and a parser may find the defect in
+//! tokenization before any packed or value work — their ceilings judge live
+//! readings (the shipped parsers do metered work greedily) and the bench mirror
+//! times them like every row.
 //!
-//! Four cells are watched by neither leg, an exposure accepted here so it
-//! is stated rather than silent: `version_hash`, `party_hash`,
-//! `clock_hash`, and `version_eq` on the benign family. Hashing folds the
-//! stored canonical bytes wholesale, and same-form equality compares them
-//! wholesale, below every metered primitive — no stream walk, no forced
-//! arithmetic, no forced allocation — so every floor column is honestly
-//! not-applicable, and the benign operands are small enough (a few hundred
-//! packed bytes across both scales) that the body never reaches the bench
-//! judge's 10 µs judgment floor. The exposure is bounded by exactly those
-//! two facts: sub-10 µs of word arithmetic per call over a
-//! few-hundred-byte operand, with the same rows under the time leg on
-//! every larger family. `version_eq`'s exposure differs from the hash
-//! rows' in one respect its NA reason states on the board face: eq
-//! operands grow without bound, so the time leg — under its own sub-floor
+//! Four cells are watched by neither leg, an exposure accepted here so it is
+//! stated rather than silent: `version_hash`, `party_hash`, `clock_hash`, and
+//! `version_eq` on the benign family. Hashing folds the stored canonical bytes
+//! wholesale, and same-form equality compares them wholesale, below every
+//! metered primitive — no stream walk, no forced arithmetic, no forced
+//! allocation — so every floor column is honestly not-applicable, and the
+//! benign operands are small enough (a few hundred packed bytes across both
+//! scales) that the body never reaches the bench judge's 10 µs judgment floor.
+//! The exposure is bounded by exactly those two facts: sub-10 µs of word
+//! arithmetic per call over a few-hundred-byte operand, with the same rows
+//! under the time leg on every larger family. `version_eq`'s exposure differs
+//! from the hash rows' in one respect its NA reason states on the board face:
+//! eq operands grow without bound, so the time leg — under its own sub-floor
 //! discipline — is the one backstop that the compare stays linear.
 
 use std::cmp::Ordering;
@@ -382,8 +380,8 @@ pub(super) fn rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
 }
 
 /// The id-side rejection rows' floors: as [`rejection_floors`], with the
-/// stronger id-tree reasons on the value columns (id trees store no
-/// magnitudes at all, rejected or not).
+/// stronger id-tree reasons on the value columns (id trees store no magnitudes
+/// at all, rejected or not).
 pub(super) fn id_rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
@@ -407,8 +405,8 @@ const WHY_SCAN_OVERLAP_CLOCK: &str = "the pair's one overlapping region sits at 
 /// The clock overlap rows' floors.
 ///
 /// The scan floor derives from the id bytes alone (the party join is the
-/// rejection gate; the version operands are fed but rejection never
-/// reads them); everything else is the rejection convention.
+/// rejection gate; the version operands are fed but rejection never reads
+/// them); everything else is the rejection convention.
 pub(super) fn clock_overlap_floors(id_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
@@ -424,10 +422,9 @@ pub(super) fn clock_overlap_floors(id_bytes: usize) -> Floors {
 
 /// The text-rejection rows' floors: none, by honest derivation.
 ///
-/// No deterministic counter watches text-byte consumption, and a parser
-/// may find the defect before any packed or value work; `limb`/`touch`
-/// take the caller's operand-specific reason (id trees have no values at
-/// all).
+/// No deterministic counter watches text-byte consumption, and a parser may
+/// find the defect before any packed or value work; `limb`/`touch` take the
+/// caller's operand-specific reason (id trees have no values at all).
 pub(super) fn text_rejection_floors(limb: Liveness, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
@@ -438,14 +435,12 @@ pub(super) fn text_rejection_floors(limb: Liveness, touch: Liveness) -> Floors {
     }
 }
 
-/// A delta-fold touch floor over `deltas` *nonzero* stored delta codes
-/// (pass [`stored_nonzero_deltas`]), or NA when the operand streams
-/// store none.
+/// A delta-fold touch floor over `deltas` *nonzero* stored delta codes (pass
+/// [`stored_nonzero_deltas`]), or NA when the operand streams store none.
 ///
-/// The single-operand kernels' premise: every nonzero stored delta of
-/// the one stream is folded individually. Zero deltas fold nothing, so
-/// a count that included them would demand touch work no conforming
-/// fold does.
+/// The single-operand kernels' premise: every nonzero stored delta of the one
+/// stream is folded individually. Zero deltas fold nothing, so a count that
+/// included them would demand touch work no conforming fold does.
 pub(super) fn touch_delta_fold(deltas: u64) -> Liveness {
     if deltas == 0 {
         na(NA_TOUCH_NO_DELTAS)
@@ -457,30 +452,27 @@ pub(super) fn touch_delta_fold(deltas: u64) -> Liveness {
     }
 }
 
-/// The pair-walk touch floor: one accumulator touch per overlay boundary
-/// at which the operand with more nonzero stored deltas folds one.
+/// The pair-walk touch floor: one accumulator touch per overlay boundary at
+/// which the operand with more nonzero stored deltas folds one.
 ///
 /// Derived from the fused sweep's irreducible work (every two-operand
-/// comparison, merge emission, and pair query rides it), at one
-/// universal premise: the running difference lives on the metered
-/// accumulator, and every *nonzero* stored delta of either operand must
-/// land in it — at least one digit touch each, and distinct nonzero
-/// deltas of one operand step at distinct boundaries of the common
-/// refinement, so the larger operand's nonzero-delta count is sound for
-/// every pair, aligned or not (a shared boundary lands both codes in
-/// one fold, which is why the counts take a max, never a sum). Zero
-/// deltas are excluded because they are honest less-work inputs, not
-/// slack: a zero delta folds nothing (an accumulator add of zero is a
-/// no-op), and a sweep that skips the sign re-read where nothing folded
-/// is conforming — the tooth-tail family's flat unit plateaus are
-/// exactly such a stream, so a floor counting every stored delta would
-/// read family-typical sign-read traffic as mandatory and ban the
-/// efficiency. The floor stays strictly positive wherever either
-/// operand stores a nonzero delta, so a dead touch meter still trips it
-/// on every committed pair family. Equal operands are answered by
-/// canonical byte identity before any sweep runs (`a ∨ a = a`,
-/// `a ∧ a = a`, ordering by equality), so they force no fold and
-/// declare NA.
+/// comparison, merge emission, and pair query rides it), at one universal
+/// premise: the running difference lives on the metered accumulator, and every
+/// *nonzero* stored delta of either operand must land in it — at least one
+/// digit touch each, and distinct nonzero deltas of one operand step at
+/// distinct boundaries of the common refinement, so the larger operand's
+/// nonzero-delta count is sound for every pair, aligned or not (a shared
+/// boundary lands both codes in one fold, which is why the counts take a max,
+/// never a sum). Zero deltas are excluded because they are honest less-work
+/// inputs, not slack: a zero delta folds nothing (an accumulator add of zero is
+/// a no-op), and a sweep that skips the sign re-read where nothing folded is
+/// conforming — the tooth-tail family's flat unit plateaus are exactly such a
+/// stream, so a floor counting every stored delta would read family-typical
+/// sign-read traffic as mandatory and ban the efficiency. The floor stays
+/// strictly positive wherever either operand stores a nonzero delta, so a dead
+/// touch meter still trips it on every committed pair family. Equal operands
+/// are answered by canonical byte identity before any sweep runs (`a ∨ a = a`,
+/// `a ∧ a = a`, ordering by equality), so they force no fold and declare NA.
 pub(super) fn touch_pair_fold(v: &Version, w: &Version) -> Liveness {
     if v == w {
         return na(NA_TOUCH_EQUAL_PAIR);
@@ -496,18 +488,17 @@ pub(super) fn touch_pair_fold(v: &Version, w: &Version) -> Liveness {
     }
 }
 
-/// The n-ary join fold's touch floor: what the balanced reduction's
-/// first level alone forces.
+/// The n-ary join fold's touch floor: what the balanced reduction's first level
+/// alone forces.
 ///
-/// The binary-counter reduction merges arrival-adjacent inputs first,
-/// and each such merge is a pair walk over its two input streams
-/// ([`touch_pair_fold`]'s premise): at least the larger input's
-/// nonzero-stored-delta count for a byte-distinct pair, nothing for an
-/// equal pair (canonical equality answers it without a sweep) or an
-/// unpaired tail input. Later levels merge *derived* groups whose
-/// streams the operands do not determine cheaply, so they are
-/// deliberately un-floored — the declaration is the sound first-level
-/// sum, strictly positive on every committed fold population.
+/// The binary-counter reduction merges arrival-adjacent inputs first, and each
+/// such merge is a pair walk over its two input streams ([`touch_pair_fold`]'s
+/// premise): at least the larger input's nonzero-stored-delta count for a
+/// byte-distinct pair, nothing for an equal pair (canonical equality answers it
+/// without a sweep) or an unpaired tail input. Later levels merge *derived*
+/// groups whose streams the operands do not determine cheaply, so they are
+/// deliberately un-floored — the declaration is the sound first-level sum,
+/// strictly positive on every committed fold population.
 pub(super) fn touch_fold_first_merges(versions: &[Version]) -> Liveness {
     let first_level: u64 = versions
         .chunks(2)
@@ -549,21 +540,20 @@ const WHY_SCAN_SYNC_VERSIONS: &str = "the reconciliation's version join must rea
      tags — the fused sum-split splices a subtree owned by one side alone without \
      scanning its nodes, so no party-bytes floor is honest";
 
-/// The `clock_sync` row's floors, derived from the reconciliation's two
-/// legs on the pair's own operands (outside any measurement).
+/// The `clock_sync` row's floors, derived from the reconciliation's two legs on
+/// the pair's own operands (outside any measurement).
 ///
-/// The version join reads both streams in full whenever they are
-/// distinct and nonempty (a merge emission consumes both operands to
-/// the end; byte-equal and empty operands are answered by the join's
-/// `O(1)` short-circuits before any sweep, so they floor at the root
-/// codes alone). The party leg never floors above the root codes: the
-/// fused sum-split walks the union's spine and splices any subtree
-/// owned by one side alone without reading its nodes, so a pair whose
-/// regions do not interleave — the disjoint-mounted board pairs among
-/// them — legitimately scans `O(1)` party bits, and a party-bytes
-/// floor would ban the efficiency. Touch is the shared pair-fold
-/// premise ([`touch_pair_fold`]); the value columns are the walk
-/// convention (no forced materialization, no forced accumulator).
+/// The version join reads both streams in full whenever they are distinct and
+/// nonempty (a merge emission consumes both operands to the end; byte-equal and
+/// empty operands are answered by the join's `O(1)` short-circuits before any
+/// sweep, so they floor at the root codes alone). The party leg never floors
+/// above the root codes: the fused sum-split walks the union's spine and
+/// splices any subtree owned by one side alone without reading its nodes, so a
+/// pair whose regions do not interleave — the disjoint-mounted board pairs
+/// among them — legitimately scans `O(1)` party bits, and a party-bytes floor
+/// would ban the efficiency. Touch is the shared pair-fold premise
+/// ([`touch_pair_fold`]); the value columns are the walk convention (no forced
+/// materialization, no forced accumulator).
 pub(super) fn sync_floors(v: &Version, w: &Version) -> Floors {
     let scan = if v == w || v.is_empty() || w.is_empty() {
         scan_touch()
@@ -586,9 +576,9 @@ pub(super) fn sync_floors(v: &Version, w: &Version) -> Floors {
 /// A stored-stream limb floor (one limb per 64 bits of every wide payload
 /// code), or NA when every code fits machine words.
 ///
-/// The honest floor for rows that read the stored form as-is (decode, the
-/// query folds, the tick walk), which provably need not materialize the
-/// decoded tree's absolute values.
+/// The honest floor for rows that read the stored form as-is (decode, the query
+/// folds, the tick walk), which provably need not materialize the decoded
+/// tree's absolute values.
 pub(super) fn limb_stream(mandatory_limbs: u64) -> Liveness {
     if mandatory_limbs == 0 {
         Liveness::NotApplicable {
@@ -602,9 +592,9 @@ pub(super) fn limb_stream(mandatory_limbs: u64) -> Liveness {
     }
 }
 
-/// A wide-magnitude limb floor over the decoded tree's stored bases, or NA
-/// when every base fits machine words: the honest floor for the
-/// value-materializing parse rows alone.
+/// A wide-magnitude limb floor over the decoded tree's stored bases, or NA when
+/// every base fits machine words: the honest floor for the value-materializing
+/// parse rows alone.
 pub(super) fn limb_wide(mandatory_limbs: u64) -> Liveness {
     if mandatory_limbs == 0 {
         Liveness::NotApplicable {
@@ -645,8 +635,8 @@ pub(super) fn seg_ceiling_only() -> Liveness {
 /// The floors of the many rows that must walk their operands but are forced
 /// into neither allocation nor arithmetic: scan floored, heap and limb NA.
 ///
-/// The touch declaration is the caller's: each walk row answers the
-/// accumulator question for its own kernel.
+/// The touch declaration is the caller's: each walk row answers the accumulator
+/// question for its own kernel.
 pub(super) fn walk_floors(packed_bytes: usize, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
@@ -657,9 +647,9 @@ pub(super) fn walk_floors(packed_bytes: usize, touch: Liveness) -> Floors {
     }
 }
 
-/// Touch NA on comparison rows whose operands are concurrent: no
-/// delta-fold count is forced when one witness divergence per direction
-/// decides the answer.
+/// Touch NA on comparison rows whose operands are concurrent: no delta-fold
+/// count is forced when one witness divergence per direction decides the
+/// answer.
 const NA_TOUCH_CONCURRENT_OPERANDS: &str = "the operands are concurrent, so the comparison \
      may decide at one witness divergence per direction: no delta-fold count is forced";
 
@@ -667,12 +657,11 @@ const NA_TOUCH_CONCURRENT_OPERANDS: &str = "the operands are concurrent, so the 
 /// (outside any measurement).
 ///
 /// A *distinct* comparable pair must be walked to the end — certifying
-/// dominance means checking every region — so the full-examination scan
-/// floor and the per-overlay-boundary touch floor
-/// ([`touch_pair_fold`]'s premise) bind; an equal pair is answered by
-/// canonical byte identity before any sweep, so neither does; a
-/// concurrent pair may be decided at one witness divergence per
-/// direction, so only the root-codes scan floor does.
+/// dominance means checking every region — so the full-examination scan floor
+/// and the per-overlay-boundary touch floor ([`touch_pair_fold`]'s premise)
+/// bind; an equal pair is answered by canonical byte identity before any sweep,
+/// so neither does; a concurrent pair may be decided at one witness divergence
+/// per direction, so only the root-codes scan floor does.
 pub(super) fn comparison_floors(v: &Version, w: &Version, packed_bytes: usize) -> Floors {
     if v == w {
         return Floors {
@@ -696,17 +685,16 @@ pub(super) fn comparison_floors(v: &Version, w: &Version, packed_bytes: usize) -
     }
 }
 
-/// The fused projected-comparison rows' floors, from the verdict the cell
-/// will produce (computed at prepare, outside measurement).
+/// The fused projected-comparison rows' floors, from the verdict the cell will
+/// produce (computed at prepare, outside measurement).
 ///
-/// A comparable projected pair must certify dominance over every region,
-/// so the walk consumes both event streams whole: full-examination scan
-/// and one accumulator touch per overlay boundary at which either event
-/// stream steps ([`touch_pair_fold`]'s premise — the projected sweep
-/// rides the same fused walk, so an aligned pair honestly folds both
-/// step codes per boundary at once; the id streams store no deltas). A
-/// concurrent pair may exit at its witnessing divergences, so only the
-/// root-code scan floor binds.
+/// A comparable projected pair must certify dominance over every region, so the
+/// walk consumes both event streams whole: full-examination scan and one
+/// accumulator touch per overlay boundary at which either event stream steps
+/// ([`touch_pair_fold`]'s premise — the projected sweep rides the same fused
+/// walk, so an aligned pair honestly folds both step codes per boundary at
+/// once; the id streams store no deltas). A concurrent pair may exit at its
+/// witnessing divergences, so only the root-code scan floor binds.
 pub(super) fn masked_cmp_floors(
     verdict: &Option<Ordering>,
     v: &Version,
@@ -726,18 +714,17 @@ pub(super) fn masked_cmp_floors(
     }
 }
 
-/// The tick-cross rows' floors: full-examination scan, per-stored-code
-/// limb, in-place heap.
+/// The tick-cross rows' floors: full-examination scan, per-stored-code limb,
+/// in-place heap.
 ///
 /// The paired fill walk examines every bit of both packed operands (a
-/// full-examination scan floor, 8 bits per byte — the measured
-/// tick-walk constants sit 2–5× above it), and every wide payload code
-/// of the version's own stored stream must be decoded limb by limb
-/// (the mandatory limb floor; NA on the word-scale families). The limb
-/// floor derives from the stream's codes, not the decoded tree's
-/// min-lifted bases: a plateau of equal wide leaves stores its width
-/// once and steps by unit deltas after, and the walk provably need not
-/// materialize each leaf's absolute value — a tree-derived floor would
+/// full-examination scan floor, 8 bits per byte — the measured tick-walk
+/// constants sit 2–5× above it), and every wide payload code of the version's
+/// own stored stream must be decoded limb by limb (the mandatory limb floor; NA
+/// on the word-scale families). The limb floor derives from the stream's codes,
+/// not the decoded tree's min-lifted bases: a plateau of equal wide leaves
+/// stores its width once and steps by unit deltas after, and the walk provably
+/// need not materialize each leaf's absolute value — a tree-derived floor would
 /// demand limb work no conforming walk does.
 pub(super) fn tick_walk_floors(version: &Version, packed_bytes: usize) -> Floors {
     Floors {

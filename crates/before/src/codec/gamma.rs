@@ -2,13 +2,13 @@
 //! [`Version`](crate::Version).
 //!
 //! A stored [`Version`](crate::Version) codes its integers as the skyline
-//! payload stream (`version::skyline` documents the coding): the first
-//! leaf's absolute height, then one zigzag delta per later leaf. A delta's
-//! width is the height step between neighboring plateaus, which
-//! normalization keeps small in organic histories, so most stored integers
-//! are small even after many events. Elias-gamma encodes a zero in one bit
-//! and other integers in bits proportional to the log of their magnitude,
-//! so the encoding is close to minimal for this distribution.
+//! payload stream (`version::skyline` documents the coding): the first leaf's
+//! absolute height, then one zigzag delta per later leaf. A delta's width is
+//! the height step between neighboring plateaus, which normalization keeps
+//! small in organic histories, so most stored integers are small even after
+//! many events. Elias-gamma encodes a zero in one bit and other integers in
+//! bits proportional to the log of their magnitude, so the encoding is close to
+//! minimal for this distribution.
 //!
 //! Both directions keep the coding's cost word-scale: the stream is
 //! byte-backed, so a whole code is decoded from one 64-bit window
@@ -32,10 +32,10 @@ use super::{Base, BitCursor, BitsMut, BitsSlice, Code, SliceCursor};
 pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
     let m = n + 1u32;
     match m.to_u64() {
-        // Word case: the mantissa fits a machine word, so append the whole
-        // code word-wise — the `2k+1` bits (zeros and all) in one `resize`,
-        // then the `k+1` mantissa bits in one `store_be` — instead of one
-        // `push` per bit. Byte-identical to the per-bit emit below.
+        // Word case: the mantissa fits a machine word, so append the whole code
+        // word-wise — the `2k+1` bits (zeros and all) in one `resize`, then the
+        // `k+1` mantissa bits in one `store_be` — instead of one `push` per
+        // bit. Byte-identical to the per-bit emit below.
         Some(m) => {
             // m >= 1, so `leading_zeros < 64` and `k = floor(log2(m))` never
             // underflows.
@@ -63,11 +63,10 @@ pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
 
 /// The Elias gamma code of `n` as a [`Code`] value.
 ///
-/// [`encode_int`]'s value form: the same code bit for bit, carried as
-/// two machine words whenever it fits [`Code::Small`] — the whole gamma
-/// code of `m = n + 1` *is* `m` value-packed under its `k` leading
-/// zeros, so the fast path is two shifts — and as an owned buffer past
-/// that.
+/// [`encode_int`]'s value form: the same code bit for bit, carried as two
+/// machine words whenever it fits [`Code::Small`] — the whole gamma code of `m
+/// = n + 1` *is* `m` value-packed under its `k` leading zeros, so the fast path
+/// is two shifts — and as an owned buffer past that.
 pub(crate) fn code_int(n: &Base) -> Code {
     if let Some(m) = n.to_u64().and_then(|n| n.checked_add(1)) {
         let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
@@ -84,8 +83,8 @@ pub(crate) fn code_int(n: &Base) -> Code {
     Code::Wide(out)
 }
 
-/// The Elias gamma code of a word-scale `n` as a [`Code`] value:
-/// [`code_int`]'s machine-word form, with no intermediate [`Base`].
+/// The Elias gamma code of a word-scale `n` as a [`Code`] value: [`code_int`]'s
+/// machine-word form, with no intermediate [`Base`].
 pub(crate) fn code_int_small(n: u64) -> Code {
     if let Some(m) = n.checked_add(1) {
         let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
@@ -110,8 +109,8 @@ pub(crate) fn code_int_small(n: u64) -> Code {
 /// the `Truncated` checks enforce, so a declared code can never exceed the
 /// input.
 ///
-/// Reads word-wise when [`decode_int_window`] can prove the whole code from
-/// one window; every other input — including every reject — is decided by the
+/// Reads word-wise when [`decode_int_window`] can prove the whole code from one
+/// window; every other input — including every reject — is decided by the
 /// per-bit loop ([`decode_int_from`]), so the two paths accept and reject
 /// identically by construction (the routing lives in
 /// [`SliceCursor::read_int`](BitCursor::read_int)).
@@ -124,8 +123,8 @@ pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), 
 /// The number of bits a [`decode_int_window`] window holds.
 const WINDOW_BITS: usize = u64::BITS as usize;
 
-/// One-window fast path of the gamma decoder: the value and end position of
-/// the code at `pos`, when a single 64-bit window proves the whole code.
+/// One-window fast path of the gamma decoder: the value and end position of the
+/// code at `pos`, when a single 64-bit window proves the whole code.
 ///
 /// Loads a [`WINDOW_BITS`]-bit big-endian window at `pos`, takes one
 /// `leading_zeros` for the whole unary prefix `k`, and shifts the mantissa out
@@ -143,13 +142,13 @@ const WINDOW_BITS: usize = u64::BITS as usize;
 ///   reads every `k ≤ 63` mantissa — the `k + 1`-bit mantissa is the value
 ///   itself and fits `u64` — and only wider codes take the wide fallback).
 ///
-/// The conditions are conservative, never guesses: `Some` is returned only
-/// when every bit of the code lies within the window *and* within the stream,
-/// so the fallback loop remains the sole arbiter of every reject. Bits between
-/// the end of the stream and the end of the window read as zero (the tail
-/// byte's dead bits are masked, missing bytes are zero-filled), which only
-/// ever *lengthens* the apparent prefix — pushing `2k+1` past the proven
-/// bits and into the fallback — never shortens it into a bogus accept.
+/// The conditions are conservative, never guesses: `Some` is returned only when
+/// every bit of the code lies within the window *and* within the stream, so the
+/// fallback loop remains the sole arbiter of every reject. Bits between the end
+/// of the stream and the end of the window read as zero (the tail byte's dead
+/// bits are masked, missing bytes are zero-filled), which only ever *lengthens*
+/// the apparent prefix — pushing `2k+1` past the proven bits and into the
+/// fallback — never shortens it into a bogus accept.
 pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, usize)> {
     // Bits of real stream between `pos` and the window's end.
     let proven = bits.len().checked_sub(pos)?.min(WINDOW_BITS);
@@ -169,9 +168,9 @@ pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, us
 /// of the stream in the most significant position, zero past the stream's end.
 ///
 /// `None` when the slice does not begin on a byte boundary of its own backing
-/// store, the one shape with no direct byte view. Every decode surface hands
-/// in a whole stored stream (offsets travel as `pos`), so this fallback is
-/// latent, kept for correctness rather than reached in practice.
+/// store, the one shape with no direct byte view. Every decode surface hands in
+/// a whole stored stream (offsets travel as `pos`), so this fallback is latent,
+/// kept for correctness rather than reached in practice.
 fn load_window(bits: &BitsSlice, pos: usize) -> Option<u64> {
     let (body, tail) = super::byte_view(bits)?;
     let byte = pos / 8;
@@ -207,9 +206,9 @@ where
 {
     let mut k = 0usize;
     while !cursor.read_bit()? {
-        // The match (rather than `ok_or`) keeps the error value — `Decode`
-        // has drop glue — from being constructed and dropped on every
-        // iteration of this per-bit loop; see `codec::cursor::Truncated`.
+        // The match (rather than `ok_or`) keeps the error value — `Decode` has
+        // drop glue — from being constructed and dropped on every iteration of
+        // this per-bit loop; see `codec::cursor::Truncated`.
         k = match k.checked_add(1) {
             Some(k) => k,
             None => return Err(Decode::NotCanonical),
@@ -231,11 +230,11 @@ where
     // Wide fallback: the leading 1 has already been consumed, and it is the
     // mantissa's top bit, at position `k`; the next `k` stream bits are the
     // mantissa's remaining bits, most-significant first. Setting the top bit
-    // first sizes the value's storage once, and each later set writes one
-    // limb in place, so the total limb work is linear in the code's bit
-    // width and the only allocation is the value itself. A truncated stream
-    // still fails at the same `read_bit` position it would reading into an
-    // accumulator, so the accept/reject boundary is unchanged.
+    // first sizes the value's storage once, and each later set writes one limb
+    // in place, so the total limb work is linear in the code's bit width and
+    // the only allocation is the value itself. A truncated stream still fails
+    // at the same `read_bit` position it would reading into an accumulator, so
+    // the accept/reject boundary is unchanged.
     let mut m = UBig::ZERO;
     m.set_bit(k);
     for i in (0..k).rev() {

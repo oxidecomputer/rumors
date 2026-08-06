@@ -12,15 +12,15 @@ type Cost = (u32, u32); // (#expansions, depth), lexicographic
 
 /// Event component.
 ///
-/// Bases are the arbitrary-precision `Base`, matching the
-/// implementation's leaf payloads, so large-base differentials lower losslessly
-/// — there is no `u64` truncation point. Literal/`u64` construction still works
-/// via `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the
+/// Bases are the arbitrary-precision `Base`, matching the implementation's leaf
+/// payloads, so large-base differentials lower losslessly — there is no `u64`
+/// truncation point. Literal/`u64` construction still works via
+/// `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the
 /// [`From<u64>`](Version) conversion.
 ///
-/// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump:
-/// the paper's subtree-preserving cases (`shift` rebuilding only a root,
-/// `grow` keeping the sibling it didn't inflate) share structure instead of
+/// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
+/// paper's subtree-preserving cases (`shift` rebuilding only a root, `grow`
+/// keeping the sibling it didn't inflate) share structure instead of
 /// deep-copying, which keeps every oracle walk linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {
@@ -39,8 +39,6 @@ impl Version {
         Version::Leaf(Base::ZERO)
     }
 
-    /// Build a leaf from any `u64`/`Base`. Keeps literal construction ergonomic now
-    /// that the base is arbitrary-precision.
     pub(crate) fn leaf(n: impl Into<Base>) -> Version {
         Version::Leaf(n.into())
     }
@@ -124,11 +122,6 @@ impl Version {
     }
 
     /// Meet (GLB) of two event trees, offset-threaded.
-    ///
-    /// The order-theoretic dual of [`join_off`](Self::join_off): pointwise
-    /// *minimum* in place of maximum, identical structure otherwise (a leaf
-    /// still broadcasts as the constant `(n, 0, 0)` to both of the other side's
-    /// children).
     fn meet_off(&self, so: &Base, other: &Version, oo: &Base) -> Version {
         if let (Version::Leaf(sn), Version::Leaf(on)) = (self, other) {
             return Version::Leaf((so + sn).min(oo + on));
@@ -359,10 +352,14 @@ impl Version {
 
     /// The meet (GLB) of every version in `iter`, or [`None`] for an empty
     /// iterator — the reference for
-    /// [`Version::meet_all`](crate::Version::meet_all).
+    /// [`Version::meet_all`](crate::Version::meet_all), whose differential
+    /// feeds the production door's `{receiver} ∪ items` family here as one
+    /// list.
     ///
     /// The sequential fold of the binary meet; `None` because the
-    /// meet-semilattice has no identity (no version dominates all others).
+    /// meet-semilattice has no identity (no version dominates all others) —
+    /// the same missing top that makes the production door seed its fold
+    /// with the receiver.
     pub fn meet_all(iter: impl IntoIterator<Item = Version>) -> Option<Version> {
         iter.into_iter().reduce(|acc, v| acc & v)
     }

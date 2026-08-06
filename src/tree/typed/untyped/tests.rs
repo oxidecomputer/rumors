@@ -298,13 +298,14 @@ proptest! {
                 }
                 Err(leaf) => vec![leaf.ceiling().clone()],
             };
+            let (first, rest) = leaves.split_first().expect("every subtree holds a leaf");
             prop_assert_eq!(
-                &Version::meet_all(&leaves).expect("every subtree holds a leaf"),
+                &first.meet_all(rest),
                 &floor,
                 "a node's floor must be its own leaves' meet"
             );
             prop_assert_eq!(
-                &Version::join_all(&leaves),
+                &first.join_all(rest),
                 &ceiling,
                 "a node's ceiling must be its own leaves' join"
             );

@@ -1,6 +1,6 @@
-//! Equivalence pins for the word-parallel cursor against the per-bit
-//! readers it replaces: same bits consumed, same values decoded, same
-//! rejects — or the cursor is not the same reader.
+//! Equivalence pins for the word-parallel cursor against the per-bit readers it
+//! replaces: same bits consumed, same values decoded, same rejects — or the
+//! cursor is not the same reader.
 
 use proptest::prelude::*;
 

@@ -1,17 +1,17 @@
-//! The causal rank: [`Rank`], the exact measure of an event tree, and
-//! its canonical order-preserving byte encoding.
+//! The causal rank: [`Rank`], the exact measure of an event tree, and its
+//! canonical order-preserving byte encoding.
 //!
 //! The public contract lives on the type and on
-//! [`Version::rank`](crate::Version::rank); the fold that computes it is
-//! the skyline query kernel. This module is private.
+//! [`Version::rank`](crate::Version::rank); the fold that computes it is the
+//! skyline query kernel. This module is private.
 //!
 //! # The wire form
 //!
 //! [`Rank::encode`] emits a *prefix-ascending* bit stream — one whose
-//! lexicographic order equals the ranks' numeric order even when each
-//! stream is followed by arbitrary further bits, because two distinct
-//! ranks' streams always differ at a bit position inside both — packed
-//! MSB-first into zero-padded bytes:
+//! lexicographic order equals the ranks' numeric order even when each stream is
+//! followed by arbitrary further bits, because two distinct ranks' streams
+//! always differ at a bit position inside both — packed MSB-first into
+//! zero-padded bytes:
 //!
 //! 1. **The integral part** `I = ⌊r⌋`, as the Elias delta code of
 //!    `I + 1` with the length run's bit sense inverted: for
@@ -64,6 +64,7 @@
 //!    FoundationDB tuple encoding's arbitrary-precision integers cap
 //!    at 255-byte magnitudes behind a one-byte length header — both
 //!    would truncate a counter a version can legitimately carry.
+//!
 //! 2. **The fractional part**, as its binary expansion (the
 //!    numerator's low `exp` bits MSB-first) in groups of eight bits,
 //!    each group opened by a set *continuation* bit and the last
@@ -103,35 +104,31 @@
 //!    allocation-bomb rejection surface the framed form structurally
 //!    lacks (every allocation is fed by bits actually read).
 //!
-//! The closing bit makes every stream self-delimiting, so distinct
-//! ranks' streams are never prefixes of one another: they differ at a
-//! bit position **inside both**, the padded byte forms differ at that
-//! byte, and neither byte string is a byte prefix of the other. Hence
-//! zero-padding can create neither ties nor inversions, **byte-wise
-//! lexicographic order on encodings equals [`Ord`] on ranks**, and no
-//! appended suffix can flip the order between distinct ranks — the
-//! laws the committed sweep and proptests pin.
+//! The closing bit makes every stream self-delimiting, so distinct ranks'
+//! streams are never prefixes of one another: they differ at a bit position
+//! **inside both**, the padded byte forms differ at that byte, and neither byte
+//! string is a byte prefix of the other. Hence zero-padding can create neither
+//! ties nor inversions, **byte-wise lexicographic order on encodings equals
+//! [`Ord`] on ranks**, and no appended suffix can flip the order between
+//! distinct ranks — the laws the committed sweep and proptests pin.
 //!
-//! Every piece of the stream is forced: the `I + 1` bias does two
-//! jobs — it gives zero (a codeless value in the delta family) the
-//! smallest codeword, and it keeps `m ≥ 1` so the leading bits of
-//! both `m` and `w` stay implied, which is what makes the header
-//! bijective (each `(ρ, payload)` pair decodes to a width `w` whose
-//! own width is exactly `ρ + 1`, so non-minimal headers are
-//! unrepresentable and no rejection genre exists for them) — and
-//! the fraction's depth is recovered from the final group's last set
-//! bit (a "fraction with trailing zeros" is not expressible — inside
-//! the final group those bits *are* the padding, and spilling them
-//! into a further group leaves that group all-zero, which the decoder
-//! rejects as non-minimal). The decoder rejects exactly: truncation
-//! (the unary run, the header payload, the mantissa, a group, or its
-//! continuation bit running off the end), non-minimal packing (byte
-//! length beyond the stream's own, a set bit in the padding, or an
-//! all-zero final group), and the format's one representation bound
-//! (an integral mantissa of `2⁶⁴` or more bits — beyond any rank this
-//! crate can hold, and beyond any input under 2 EiB; the fraction's
-//! depth is counted from bits actually read, so it can never outrun
-//! the exponent that stores it).
+//! Every piece of the stream is forced: the `I + 1` bias does two jobs — it
+//! gives zero (a codeless value in the delta family) the smallest codeword, and
+//! it keeps `m ≥ 1` so the leading bits of both `m` and `w` stay implied, which
+//! is what makes the header bijective (each `(ρ, payload)` pair decodes to a
+//! width `w` whose own width is exactly `ρ + 1`, so non-minimal headers are
+//! unrepresentable and no rejection genre exists for them) — and the fraction's
+//! depth is recovered from the final group's last set bit (a "fraction with
+//! trailing zeros" is not expressible — inside the final group those bits *are*
+//! the padding, and spilling them into a further group leaves that group
+//! all-zero, which the decoder rejects as non-minimal). The decoder rejects
+//! exactly: truncation (the unary run, the header payload, the mantissa, a
+//! group, or its continuation bit running off the end), non-minimal packing
+//! (byte length beyond the stream's own, a set bit in the padding, or an
+//! all-zero final group), and the format's one representation bound (an
+//! integral mantissa of `2⁶⁴` or more bits — beyond any rank this crate can
+//! hold, and beyond any input under 2 EiB; the fraction's depth is counted from
+//! bits actually read, so it can never outrun the exponent that stores it).
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -143,76 +140,74 @@ use suanpan::Accumulator;
 use crate::codec::Base;
 use crate::error::Decode;
 
-/// The causal rank of a [`Version`](crate::Version).
+/// The causal rank of a [`Version`](crate::Version) as an exact dyadic
+/// rational, produced by [`Version::rank`](crate::Version::rank).
 ///
-/// The exact area under its event tree, a nonnegative dyadic rational `num ·
-/// 2⁻ᵉˣᵖ` with arbitrary-precision numerator. Produced by
-/// [`Version::rank`](crate::Version::rank).
-///
-/// An event tree is a height function over the unit id interval: a leaf
-/// `n` is height `n` everywhere, and a node `(n, l, r)` lifts its children
-/// by `n`, each over half the parent's width. The area under that function
-/// — `Σ base · 2⁻ᵈᵉᵖᵗʰ` over every node — grows whenever the function
-/// grows anywhere, and the causal order on versions *is* pointwise
-/// comparison of their height functions. The area is therefore a
-/// **strictly monotone rank**:
+/// The [`Rank`] of a [`Version`] is **strictly monotone** in
+/// [`tick`](Version::tick)s; that is, for every pair of versions `v` and `w`:
 ///
 /// > if `v < w` then `v.rank() < w.rank()`.
 ///
-/// Heights are step functions on dyadic intervals, so two distinct
-/// versions ordered by `<` differ over an interval of positive width, and
-/// the dominated one strictly loses area there. The contrapositive is what
-/// consumers lean on: **equal ranks are never causally ordered** (they are
-/// the same version or concurrent). Any tiebreak between equal ranks — a
-/// content hash, [`as_bytes`](crate::Version::as_bytes) — therefore
-/// extends the causal order to a total one, which is what makes `Rank` fit
-/// for sorted-container keys that must deliver causes before effects
-/// (the [`Ranked`](crate::Ranked) view builds exactly such a total
-/// order in, with the version's bytes as the tiebreak).
+/// Contrapositively, **equal ranks are never causally ordered** (they are the
+/// same version or concurrent). This means that any tiebreak between equal
+/// ranks therefore extends [`Rank`]'s induced causal order to a total one. This
+/// makes `Rank` well-fitted for sorted-container keys that must deliver causes
+/// before effects. Indeed, the [`Ranked`](crate::Ranked) view builds exactly
+/// such a total order in, with the version's own bytes as the tiebreak.
 ///
-/// [`min_ticks`](crate::Version::min_ticks) is the integer shadow of this
-/// measure (every width rounded up to the whole interval): a valid but
-/// only *weakly* monotone rank, blind to growth that fills concurrent gaps
-/// — `(0, 1, 0) < 1`, yet both count one tick. The rank separates every
-/// such pair exactly.
+/// [`Rank`], and its companion view [`Ranked`], are both totally ordered
+/// ([`Ord`]), unlike the [`Version`]s it ranks.
 ///
-/// Totally ordered ([`Ord`]), unlike the versions it ranks. Comparison is
-/// exact at any magnitude: mismatched magnitude classes are decided from
-/// the stored widths in O(1), and class ties stream the numerators
-/// most-significant-first, so no alignment of the exponents is ever
-/// materialized; equality is structural (the stored form is normalized, so
-/// equal values are identical representations, consistent with [`Hash`]).
+/// # Serialization and causal ordering
 ///
-/// # Complexity
-///
-/// Comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display`
-/// superlinear in the numerator width (decimal conversion).
-/// A rank's costs are denominated in its *numeric size* `‖r‖` — the
-/// numerator's bit width plus the exponent — which every
-/// producing fold ([`Version::rank`](crate::Version::rank),
-/// [`distance`](crate::Version::distance), [`lag`](crate::Version::lag))
-/// keeps linear in the bytes it read, and which
-/// [`encode`](Rank::encode) makes tangible: the canonical byte form is
-/// at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits. Comparison (`==`, [`Ord`])
-/// answers in `O(1)` when the two magnitudes differ in scale and
-/// allocates nothing on scale ties; hashing and cloning are `O(‖r‖)`.
-/// An n-ary [`Sum`]'s `N` is the summands' total numeric size: the fold
-/// carries one running accumulator, and each summand pays its own width
-/// rather than the accumulator's. Rendering (`Display`) is `O(d)` space
-/// in the `d` decimal digits printed (`d = Θ(‖r‖)`), but its time
-/// additionally pays
-/// binary-to-decimal conversion of the numerator, superlinear (though
-/// subquadratic) in its width past a machine word.
-///
-/// # Example
+/// Like [`Clock`], [`Party`], [`Version`], and [`Span`], [`Rank`] and its
+/// companion view [`Ranked`] have a canonical representation as encoded bytes.
+/// This representation has a very deliberate property: *lexicographic ordering
+/// on encoded [`Rank`]/[`Ranked`] exactly matches comparison by [`Ord`]*.
 ///
 /// ```
-/// use before::Version;
-/// let half: Version = "(0, 1, 0)".parse().unwrap(); // height 1 over half the interval
-/// let one = Version::try_from(1).unwrap();          // height 1 everywhere
-/// assert!(half < one);                              // strictly dominated...
-/// assert!(half.rank() < one.rank());                // ...so strictly smaller rank
-/// assert_eq!(half.min_ticks(), one.min_ticks());    // the tick floor cannot see it
+/// use before::{Party, Version};
+/// let mut p = Party::seed();
+/// let q = p.fork();
+/// let mut v = Version::new();
+/// let mut w = Version::new();
+/// // Tick `v` only once, by `p`:
+/// p.tick(v);
+/// // Tick `w` concurrently by `p` and `q`:
+/// p.tick(w);
+/// q.tick(w);
+/// // `w` out-ranks `v`, and so does its encoding:
+/// assert!(w > v);
+/// assert!(w.encode() > v.encode());
+/// ```
+///
+/// As a consequence, [`Rank`] and [`Ranked`] may be used to provide a
+/// deterministic causal ordering to keys in an external data store which only
+/// understands lexicographic ordering. See also the documentation for
+/// [`Ranked`] for a fuller discussion.
+///
+/// # Relationship to [`min_ticks`](Version::min_ticks)
+///
+/// [`Rank`] buys a more fine-grained differentiation than
+/// [`min_ticks`](crate::Version::min_ticks), since the latter cannot
+/// differentiate between a [`Version`] comprising one [`tick`](Version::tick)
+/// and a [`Version`] comprising two concurrent [`tick`](Version::tick)s. By
+/// contrast, the latter strictly out-[`Rank`]s the former:
+///
+/// ```
+/// use before::{Party, Version};
+/// let mut p = Party::seed();
+/// let q = p.fork();
+/// let mut v = Version::new();
+/// let mut w = Version::new();
+/// // Tick `v` only once, by `p`:
+/// p.tick(v);
+/// // Tick `w` concurrently by `p` and `q`:
+/// p.tick(w);
+/// q.tick(w);
+/// // The two versions have equal `min_ticks` but ordered `rank`s:
+/// assert_eq!(v.min_tick(), w.min_tick());
+/// assert!(v.rank() < w.rank());
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Rank {
@@ -225,9 +220,9 @@ pub struct Rank {
 }
 
 impl Rank {
-    /// The zero rank: the area under the empty [`Version`](crate::Version),
-    /// and the identity for [`Rank`] addition. Equal to
-    /// [`Version::new().rank()`](crate::Version::rank).
+    /// The [`Rank`] of [`Version::new()`](crate::Version::new).
+    ///
+    /// Equal to [`Version::new().rank()`](crate::Version::rank).
     ///
     /// # Example
     ///
@@ -243,15 +238,6 @@ impl Rank {
     };
 
     /// The difference `self - rhs`, or [`None`] when `rhs` exceeds `self`.
-    ///
-    /// Ranks are nonnegative dyadic rationals — a totally ordered commutative
-    /// monoid under [`+`](Add), not a group — so subtraction is partial. The
-    /// difference exists exactly when `rhs <= self`: a caller subtracting
-    /// along the lattice order — a dominated version's rank from a
-    /// dominating one's, as when re-deriving
-    /// [`distance`](crate::Version::distance) or
-    /// [`lag`](crate::Version::lag) from per-version ranks — never sees
-    /// the [`None`] arm.
     ///
     /// # Complexity
     ///
@@ -271,8 +257,8 @@ impl Rank {
     pub fn checked_sub(&self, rhs: &Rank) -> Option<Rank> {
         // The ordering pre-check rides the class-first comparison, so the
         // `None` and zero arms cost no alignment at all; only a strictly
-        // positive difference aligns to the common exponent and subtracts,
-        // and that transient is the output's own value content.
+        // positive difference aligns to the common exponent and subtracts, and
+        // that transient is the output's own value content.
         match self.cmp(rhs) {
             Ordering::Less => None,
             Ordering::Equal => Some(Rank::ZERO),

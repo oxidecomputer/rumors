@@ -110,10 +110,9 @@ fn gamma_truncated() {
 
 /// `Bits::freeze` canonicalizes storage.
 ///
-/// A build buffer whose `truncate` left stale bits in the final partial
-/// byte freezes to a raw slice with the dead bits zero, covering
-/// exactly the live bits' bytes, with the live length and bit content
-/// preserved.
+/// A build buffer whose `truncate` left stale bits in the final partial byte
+/// freezes to a raw slice with the dead bits zero, covering exactly the live
+/// bits' bytes, with the live length and bit content preserved.
 #[test]
 fn freeze_canonicalizes_storage() {
     // Write a byte of ones, then truncate to 3 live bits: the shed ones
@@ -130,15 +129,14 @@ fn freeze_canonicalizes_storage() {
 /// `Bits::ptr_eq` implies value equality, and clones are its nonempty
 /// source.
 ///
-/// A clone shares the frozen buffer (`ptr_eq` true), while two
-/// independent freezes of the same *nonempty* content are equal
-/// (`canonical_eq`) but not pointer-identical — so `ptr_eq` is a fast
-/// path *into* byte equality, never a substitute for it. The empty
-/// stream is the deliberate exception the predicate's docs carry: every
-/// zero-byte allocation shares one dangling pointer, so two independent
-/// empty freezes read `ptr_eq` true *without* clone provenance — which
-/// is why a rung may derive from `ptr_eq` only what value equality
-/// gives it, never a clone-history fact.
+/// A clone shares the frozen buffer (`ptr_eq` true), while two independent
+/// freezes of the same *nonempty* content are equal (`canonical_eq`) but not
+/// pointer-identical — so `ptr_eq` is a fast path *into* byte equality, never a
+/// substitute for it. The empty stream is the deliberate exception the
+/// predicate's docs carry: every zero-byte allocation shares one dangling
+/// pointer, so two independent empty freezes read `ptr_eq` true *without* clone
+/// provenance — which is why a rung may derive from `ptr_eq` only what value
+/// equality gives it, never a clone-history fact.
 #[test]
 fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
     let build = || super::Bits::freeze(bitvec![u8, Msb0; 1, 0, 1, 1, 0]);
@@ -149,9 +147,8 @@ fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
     let b = build();
     assert!(!a.ptr_eq(&b));
     assert!(super::canonical_eq(&a, &b));
-    // Independently frozen empty streams alias: ptr_eq true with no
-    // clone anywhere — and still value-equal, the only fact a fast
-    // path may use.
+    // Independently frozen empty streams alias: ptr_eq true with no clone
+    // anywhere — and still value-equal, the only fact a fast path may use.
     let e1 = super::Bits::freeze(BitsMut::new());
     let e2 = super::Bits::freeze(BitsMut::new());
     assert!(e1.ptr_eq(&e2));
@@ -160,9 +157,9 @@ fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
 
 /// The two freeze doors agree.
 ///
-/// Adopting already-canonical bytes (`from_canonical`, the decode side)
-/// yields a stream equal to the build-side freeze of the same bits, and
-/// the empty constructor is the freeze of the empty buffer.
+/// Adopting already-canonical bytes (`from_canonical`, the decode side) yields
+/// a stream equal to the build-side freeze of the same bits, and the empty
+/// constructor is the freeze of the empty buffer.
 #[test]
 fn from_canonical_matches_freeze() {
     let frozen = super::Bits::freeze(bitvec![u8, Msb0; 1, 0, 1]);
@@ -186,15 +183,15 @@ fn from_canonical_matches_freeze() {
 //
 // `encode_int` and `decode_int` carry word-wise fast paths riding on
 // `gamma::decode_int_window` / `store_be`, and the word-parallel cursor's
-// `skip_int` settles a code's width from one unary read; the per-bit loop
-// is the specification. These tests pin the fast paths to it
-// differentially, with generators seeded at the window-edge boundaries
-// (prefix length 31/32 around the window's widest provable code, 63/64/65
-// around the word width, codes straddling the window edge, streams ending
-// mid-code) where a window bug would hide.
+// `skip_int` settles a code's width from one unary read; the per-bit loop is
+// the specification. These tests pin the fast paths to it differentially, with
+// generators seeded at the window-edge boundaries (prefix length 31/32 around
+// the window's widest provable code, 63/64/65 around the word width, codes
+// straddling the window edge, streams ending mid-code) where a window bug would
+// hide.
 
-/// The per-bit reference emitter, the encode-side differential oracle:
-/// unary prefix then MSB-first mantissa, one push per bit.
+/// The per-bit reference emitter, the encode-side differential oracle: unary
+/// prefix then MSB-first mantissa, one push per bit.
 fn encode_int_bitwise(out: &mut BitsMut, n: &Base) {
     let m = n + 1u32;
     let k = m.bits() - 1;
@@ -206,8 +203,8 @@ fn encode_int_bitwise(out: &mut BitsMut, n: &Base) {
     }
 }
 
-/// The per-bit reference `skip_int`, the skip-side differential oracle:
-/// counts the unary prefix, then steps over the mantissa bit by bit.
+/// The per-bit reference `skip_int`, the skip-side differential oracle: counts
+/// the unary prefix, then steps over the mantissa bit by bit.
 fn skip_int_bitwise(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
     let mut k = 0usize;
     loop {
@@ -228,8 +225,8 @@ fn skip_int_bitwise(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
     }
 }
 
-/// Assert `decode_int` (windowed) agrees with the pure bit loop at `pos`:
-/// same accept/reject, same error variant, same value, same end position.
+/// Assert `decode_int` (windowed) agrees with the pure bit loop at `pos`: same
+/// accept/reject, same error variant, same value, same end position.
 fn assert_decode_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), TestCaseError> {
     let subject = decode_int(bits, pos);
     let mut cursor = SliceCursor::new(bits, pos);
@@ -250,9 +247,9 @@ fn assert_decode_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), Te
 /// Assert the word-parallel cursor's `skip_int` agrees with the per-bit
 /// reference at `pos` on distance and accept/reject.
 ///
-/// Runs inside the cursor's stated domain — a byte-aligned slice origin
-/// and `pos` at or inside the live length; every production skip site
-/// satisfies both (stored streams, positions from the same cursor).
+/// Runs inside the cursor's stated domain — a byte-aligned slice origin and
+/// `pos` at or inside the live length; every production skip site satisfies
+/// both (stored streams, positions from the same cursor).
 fn assert_skip_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), TestCaseError> {
     let mut cursor = DsiCursor::new_at(bits, pos);
     match (cursor.skip_int(), skip_int_bitwise(bits, pos)) {
@@ -314,9 +311,8 @@ proptest! {
     /// The word-wise `encode_int` is byte-identical to the per-bit emitter.
     ///
     /// Holds for every value — `u64`-range codes (the `store_be` path) and
-    /// spilled wide values alike — even appending at an unaligned
-    /// mid-stream position; and the windowed decoder reads its output back
-    /// exactly.
+    /// spilled wide values alike — even appending at an unaligned mid-stream
+    /// position; and the windowed decoder reads its output back exactly.
     #[test]
     fn gamma_word_encode_matches_bit_encode(
         prefix in proptest::collection::vec(any::<bool>(), 0..17),
@@ -350,9 +346,9 @@ proptest! {
     /// word-parallel cursor's `skip_int` behave exactly like the per-bit
     /// loops.
     ///
-    /// Agreement covers accept/reject, error variant, value, and consumed
-    /// bits — at the code position, near and past the stream end, and on a
-    /// mid-byte re-slice (where the window declines and only the loop runs).
+    /// Agreement covers accept/reject, error variant, value, and consumed bits
+    /// — at the code position, near and past the stream end, and on a mid-byte
+    /// re-slice (where the window declines and only the loop runs).
     #[test]
     fn gamma_word_decode_matches_bit_loop(
         (bits, pos) in arb_gamma_stream(),
@@ -361,17 +357,17 @@ proptest! {
         assert_decode_matches_bit_loop(&bits, pos)?;
         assert_skip_matches_bit_loop(&bits, pos)?;
 
-        // The end of the stream, just before it, and past it (the skip
-        // cursor's domain ends at the live length; `decode_int` alone
-        // covers the past-the-end positions).
+        // The end of the stream, just before it, and past it (the skip cursor's
+        // domain ends at the live length; `decode_int` alone covers the
+        // past-the-end positions).
         assert_decode_matches_bit_loop(&bits, bits.len().saturating_sub(extra))?;
         assert_skip_matches_bit_loop(&bits, bits.len().saturating_sub(extra))?;
         assert_decode_matches_bit_loop(&bits, bits.len() + extra)?;
 
-        // A slice whose origin is mid-byte in its backing store: the
-        // window declines and only the per-bit loop runs. The skip
-        // cursor's domain excludes such slices (stored streams are
-        // byte-aligned), so the decode pair alone covers them.
+        // A slice whose origin is mid-byte in its backing store: the window
+        // declines and only the per-bit loop runs. The skip cursor's domain
+        // excludes such slices (stored streams are byte-aligned), so the decode
+        // pair alone covers them.
         if !bits.is_empty() {
             assert_decode_matches_bit_loop(&bits[1..], pos.saturating_sub(1))?;
         }
@@ -379,13 +375,13 @@ proptest! {
 }
 
 proptest! {
-    /// On arbitrary raw byte streams — mostly invalid input — the
-    /// windowed `decode_int` and the word-parallel cursor's `skip_int`
-    /// agree with the per-bit loops.
+    /// On arbitrary raw byte streams — mostly invalid input — the windowed
+    /// `decode_int` and the word-parallel cursor's `skip_int` agree with the
+    /// per-bit loops.
     ///
-    /// Agreement covers accept/reject, error variant, value, and
-    /// consumed bits at every position (the skip at every position
-    /// inside the live length, its cursor's domain).
+    /// Agreement covers accept/reject, error variant, value, and consumed bits
+    /// at every position (the skip at every position inside the live length,
+    /// its cursor's domain).
     #[test]
     fn gamma_word_paths_match_on_arbitrary_bytes(
         bytes in proptest::collection::vec(any::<u8>(), 0..12),
@@ -401,9 +397,9 @@ proptest! {
 /// declines one bit past that; junk after a code never leaks into the mantissa.
 ///
 /// Prefix `k = 31` (a 63-bit code) is the widest code one window proves and
-/// must decode; `k = 32` (65 bits) straddles the window edge and must fall
-/// back — where the bit loop still decodes it — as must the 63-bit code cut
-/// one bit short of complete.
+/// must decode; `k = 32` (65 bits) straddles the window edge and must fall back
+/// — where the bit loop still decodes it — as must the 63-bit code cut one bit
+/// short of complete.
 #[test]
 fn gamma_window_edge() {
     use super::gamma::decode_int_window;
@@ -418,8 +414,8 @@ fn gamma_window_edge() {
     // The same code cut one bit short: nothing provable, decline.
     assert_eq!(decode_int_window(&bits[..62], 0), None);
 
-    // k = 32: a 65-bit code straddles the window edge — decline, and the
-    // full decoder still reads it through the loop.
+    // k = 32: a 65-bit code straddles the window edge — decline, and the full
+    // decoder still reads it through the loop.
     let n = (1u64 << 32) - 1;
     let mut bits = BitsMut::new();
     encode_int(&mut bits, &Base::from(n));
@@ -450,8 +446,8 @@ fn gamma_window_declines_conservatively() {
     bits.push(false);
     bits.push(true);
 
-    // Mid-byte slice origin: no byte view, decline — but the same bit
-    // addressed as (whole slice, pos) has one, and the fast path fires.
+    // Mid-byte slice origin: no byte view, decline — but the same bit addressed
+    // as (whole slice, pos) has one, and the fast path fires.
     assert_eq!(decode_int_window(&bits[1..], 0), None);
     assert_eq!(decode_int_window(&bits, 1), Some((0, 2)));
 
@@ -464,9 +460,9 @@ fn gamma_window_declines_conservatively() {
     assert_eq!(decode_int_window(&zeros, 0), None);
 }
 
-/// A gamma code wide enough to spill machine-word decoding round-trips
-/// exactly and remains self-delimiting (the whole mantissa is one spilled
-/// value, byte-unaligned on both ends).
+/// A gamma code wide enough to spill machine-word decoding round-trips exactly
+/// and remains self-delimiting (the whole mantissa is one spilled value,
+/// byte-unaligned on both ends).
 #[test]
 fn gamma_roundtrip_wide_value() {
     // 2^1000 + 12345: a 1001-bit mantissa with live bits at both ends.
@@ -479,15 +475,15 @@ fn gamma_roundtrip_wide_value() {
 }
 
 /// A stream that ends anywhere inside a wide mantissa is `Truncated`: the
-/// wide-decode accept/reject boundary sits exactly at the declared code
-/// length, wherever the cut falls relative to byte alignment.
+/// wide-decode accept/reject boundary sits exactly at the declared code length,
+/// wherever the cut falls relative to byte alignment.
 #[test]
 fn gamma_truncated_inside_wide_mantissa() {
     let n = (Base::from(1u8) << 1000u32) + 12345u64;
     let mut bits = BitsMut::new();
     encode_int(&mut bits, &n);
-    // Cuts inside the unary prefix, at the leading mantissa 1, just after
-    // it, at byte-scale offsets into the mantissa, and one bit short.
+    // Cuts inside the unary prefix, at the leading mantissa 1, just after it,
+    // at byte-scale offsets into the mantissa, and one bit short.
     for cut in [1, 500, 1001, 1002, 1009, 1500, bits.len() - 1] {
         let truncated = &bits[..cut];
         assert!(
@@ -504,8 +500,8 @@ fn gamma_truncated_inside_wide_mantissa() {
 // ──────────────────── metered Base equality and hashing ────────────────────
 
 /// A mirror of `Base` carrying the compiler-derived `PartialEq`/`Hash`: the
-/// semantics of record that `Base`'s manual limb-metered impls must
-/// reproduce exactly.
+/// semantics of record that `Base`'s manual limb-metered impls must reproduce
+/// exactly.
 #[derive(PartialEq, Hash)]
 struct DerivedBase(dashu_int::UBig);
 
@@ -516,8 +512,8 @@ impl DerivedBase {
     }
 }
 
-/// One value's `DefaultHasher` output, so hash streams can be compared
-/// across `Base` and its derived-impl mirror.
+/// One value's `DefaultHasher` output, so hash streams can be compared across
+/// `Base` and its derived-impl mirror.
 fn default_hash<T: std::hash::Hash>(v: &T) -> u64 {
     use std::hash::Hasher;
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -529,9 +525,9 @@ fn default_hash<T: std::hash::Hash>(v: &T) -> u64 {
 /// compiler-derived semantics over a value grid spanning the `u64::MAX`
 /// boundary.
 ///
-/// Every pairwise equality answer matches the derived impl's, every hash
-/// stream matches the derived impl's, and equal values hash equally:
-/// metering must never change an answer.
+/// Every pairwise equality answer matches the derived impl's, every hash stream
+/// matches the derived impl's, and equal values hash equally: metering must
+/// never change an answer.
 #[test]
 fn base_eq_hash_agree_with_derived_semantics() {
     let grid: Vec<Base> = vec![
@@ -781,23 +777,21 @@ fn reject_intra_byte_padding() {
     }
 }
 
-/// The `Version` and `Clock` decode doors reject a set padding bit
-/// *inside* the final byte, functionally (an `Err`, not a debug assert).
+/// The `Version` and `Clock` decode doors reject a set padding bit *inside* the
+/// final byte, functionally (an `Err`, not a debug assert).
 ///
-/// The shared padding validator is bit-granular, and the `Party` door
-/// pins that at its own byte ([`reject_intra_byte_padding`]); these are
-/// the per-door witnesses for the two doors whose other committed
-/// rejection tests perturb only whole spurious bytes — which the
-/// validator's *length* arm rejects on its own. A set bit within the
-/// final byte's padding is the one defect only the bit arm sees, and
-/// the buffer-adopting representation makes round-trip checks blind to
-/// it (an accepted dirty buffer re-encodes to itself, and byte equality
-/// is what `Eq`/`Hash` rest on), so the rejection must be asserted
-/// directly at each door. The clock gets the defect in both components:
-/// the party's byte-aligned padding mid-stream and the version's final
-/// byte — and at the party leg the length arm is vacuous (the id's byte
-/// count is exactly its bit length rounded up), so the bit arm is the
-/// entire check there.
+/// The shared padding validator is bit-granular, and the `Party` door pins that
+/// at its own byte ([`reject_intra_byte_padding`]); these are the per-door
+/// witnesses for the two doors whose other committed rejection tests perturb
+/// only whole spurious bytes — which the validator's *length* arm rejects on
+/// its own. A set bit within the final byte's padding is the one defect only
+/// the bit arm sees, and the buffer-adopting representation makes round-trip
+/// checks blind to it (an accepted dirty buffer re-encodes to itself, and byte
+/// equality is what `Eq`/`Hash` rest on), so the rejection must be asserted
+/// directly at each door. The clock gets the defect in both components: the
+/// party's byte-aligned padding mid-stream and the version's final byte — and
+/// at the party leg the length arm is vacuous (the id's byte count is exactly
+/// its bit length rounded up), so the bit arm is the entire check there.
 #[test]
 fn version_and_clock_doors_reject_intra_byte_padding_functionally() {
     // The empty version is the 2-bit stream `11` in one byte: bits 2..8
@@ -813,9 +807,9 @@ fn version_and_clock_doors_reject_intra_byte_padding_functionally() {
         );
     }
 
-    // The seed clock is the party byte `0x00` (2 live bits) then the
-    // version byte `0xC0` (2 live bits): four defect sites, two per
-    // component's padding.
+    // The seed clock is the party byte `0x00` (2 live bits) then the version
+    // byte `0xC0` (2 live bits): four defect sites, two per component's
+    // padding.
     let clock = Clock::seed().encode();
     assert_eq!(clock, vec![0x00, 0b1100_0000]);
     for (byte, bit) in [(0usize, 2u8), (0, 7), (1, 2), (1, 7)] {
@@ -832,11 +826,11 @@ fn version_and_clock_doors_reject_intra_byte_padding_functionally() {
 ///
 /// The skyline wire coding is a function of the step function alone, so a
 /// hoarded liftable minimum *cannot be spelled on the wire*: transcoding a
-/// non-min-lifted tree lands on the same stream as its normalized form.
-/// The literal surface can still spell both non-normal shapes, and rejects
-/// them; the one wire-expressible non-canonicality (a collapsible sibling
-/// pair, a zero right delta) is rejected by strict decode — the skyline
-/// suite's reject corpus holds that pin.
+/// non-min-lifted tree lands on the same stream as its normalized form. The
+/// literal surface can still spell both non-normal shapes, and rejects them;
+/// the one wire-expressible non-canonicality (a collapsible sibling pair, a
+/// zero right delta) is rejected by strict decode — the skyline suite's reject
+/// corpus holds that pin.
 #[test]
 fn reject_noncanonical_event() {
     use oracle::Version::{Leaf, Node};
@@ -872,15 +866,15 @@ fn reject_noncanonical_event() {
     ));
 }
 
-/// The text grammar reads a base as one ASCII digit run: value-preserving
-/// under leading zeros, ended by the first non-digit, unbounded in width.
+/// The text grammar reads a base as one ASCII digit run: value-preserving under
+/// leading zeros, ended by the first non-digit, unbounded in width.
 ///
 /// The digit run is handed whole to the delegated radix conversion, so this
 /// pins the run-level grammar the delegation must preserve: exactly what
-/// digit-at-a-time accumulation accepts, nothing more — ASCII digits only
-/// (a Unicode digit is a syntax error wherever it touches a run), exact
-/// across the `u64` and `u128` representation boundaries, at any width,
-/// and identically at every syntax position of the event grammar.
+/// digit-at-a-time accumulation accepts, nothing more — ASCII digits only (a
+/// Unicode digit is a syntax error wherever it touches a run), exact across the
+/// `u64` and `u128` representation boundaries, at any width, and identically at
+/// every syntax position of the event grammar.
 #[test]
 fn parse_base_digit_run_grammar() {
     use dashu_int::UBig;
@@ -951,17 +945,17 @@ fn parse_base_digit_run_grammar() {
     assert_eq!(v.to_string(), embedded);
 }
 
-/// Zero bytes is exhausted input to every raw decoder, rejected as
-/// `Truncated` — the same starvation genre the borsh reader path reports
-/// when its reader runs dry before a value.
+/// Zero bytes is exhausted input to every raw decoder, rejected as `Truncated`
+/// — the same starvation genre the borsh reader path reports when its reader
+/// runs dry before a value.
 ///
-/// The wire grammar has no empty production: an anonymous (`0`) id is
-/// spelled by a zero presence bit in its parent's 2-bit tag (structural
-/// absence), never by bits of its own, and no encoder emits a value with
-/// zero bytes — the tree codes are prefix-free, and a zero-length spelling
-/// cannot be self-delimiting. So the empty input is not a parse of
-/// anything; in particular, `Party::decode` and `Clock::decode` reject it
-/// as truncation before any anonymity question could arise.
+/// The wire grammar has no empty production: an anonymous (`0`) id is spelled
+/// by a zero presence bit in its parent's 2-bit tag (structural absence), never
+/// by bits of its own, and no encoder emits a value with zero bytes — the tree
+/// codes are prefix-free, and a zero-length spelling cannot be self-delimiting.
+/// So the empty input is not a parse of anything; in particular,
+/// `Party::decode` and `Clock::decode` reject it as truncation before any
+/// anonymity question could arise.
 #[test]
 fn empty_input_is_truncated() {
     // The test-only anonymous id has no wire spelling: it encodes to zero
@@ -981,13 +975,13 @@ fn empty_input_is_truncated() {
 /// invariant the whole stack rests on (paper §3: a live share is `i ≠ 0`).
 ///
 /// The party is the byte-aligned prefix and the id grammar has no empty
-/// production (the only would-be-empty prefix is the whole empty stream,
-/// itself rejected as exhausted input), so an anonymous-party clock has *no*
-/// encoding: its bytes (just
-/// the version, since the `0` party contributes none) decode to a *different*,
-/// non-anonymous clock or fail canonicity — never round-trip back. This sweeps
-/// every byte string up to two bytes, where the empty-prefix boundary lives:
-/// each either fails to decode or yields a nonzero party, and none panics.
+/// production (the only would-be-empty prefix is the whole empty stream, itself
+/// rejected as exhausted input), so an anonymous-party clock has *no* encoding:
+/// its bytes (just the version, since the `0` party contributes none) decode to
+/// a *different*, non-anonymous clock or fail canonicity — never round-trip
+/// back. This sweeps every byte string up to two bytes, where the empty-prefix
+/// boundary lives: each either fails to decode or yields a nonzero party, and
+/// none panics.
 #[test]
 fn decode_never_yields_anonymous_party() {
     // A test-only anonymous clock encodes to just its version bytes; decoding
@@ -1188,15 +1182,15 @@ proptest! {
 ///
 /// A canonical encoding zero-pads only to the next byte boundary (the stored
 /// raw slice covers exactly the live bits' bytes), so it has **at most 7
-/// trailing zero bits**. The original
-/// [`require_zero_padding`] (`codec.rs`) only checked that the bits after the
-/// tree are all zero — it never bounded how *many* there are, so appending one
-/// or more whole `0x00` bytes (≥8 zero bits) was wrongly accepted, making
-/// `decode` **non-injective on byte strings** (the accepted value re-encoded to
-/// a *shorter* stream than its own input), violating `decode`'s contract
-/// ("strictly rejects ... non-canonical input") and the keystone
-/// byte-canonicity property. The fix bounds the trailing run: `bits.len() -
-/// pos` must be `< 8`. This test is the permanent regression guard.
+/// trailing zero bits**. The original [`require_zero_padding`] (`codec.rs`)
+/// only checked that the bits after the tree are all zero — it never bounded
+/// how *many* there are, so appending one or more whole `0x00` bytes (≥8 zero
+/// bits) was wrongly accepted, making `decode` **non-injective on byte
+/// strings** (the accepted value re-encoded to a *shorter* stream than its own
+/// input), violating `decode`'s contract ("strictly rejects ... non-canonical
+/// input") and the keystone byte-canonicity property. The fix bounds the
+/// trailing run: `bits.len() - pos` must be `< 8`. This test is the permanent
+/// regression guard.
 ///
 /// `(2, 0, 1)` is the smallest witness: its canonical encoding is the 2 bytes
 /// `[180, 128]` (16 bits exactly — no intra-byte padding), so a third `0x00`
@@ -1265,21 +1259,21 @@ proptest! {
 /// Trees far deeper than any real id or event tree validate, decode, and
 /// round-trip exactly, with the parse frames grown on the heap.
 ///
-/// The tree parsers keep one explicit frame per unfinished ancestor, so a
-/// deep spine grows its frame stack through several doublings while every
-/// ancestor is still open — and the grown frames must survive to complete
-/// the normal-form checks on the way back up. A right-spine event tree
-/// and a left-spine id tree exercise both parsers.
+/// The tree parsers keep one explicit frame per unfinished ancestor, so a deep
+/// spine grows its frame stack through several doublings while every ancestor
+/// is still open — and the grown frames must survive to complete the
+/// normal-form checks on the way back up. A right-spine event tree and a
+/// left-spine id tree exercise both parsers.
 #[test]
 fn parse_stacks_handle_deep_spines() {
-    // Deep enough that the frame stack regrows several times mid-parse;
-    // vastly deeper than any organic tree (the 100k-level extreme lives in
+    // Deep enough that the frame stack regrows several times mid-parse; vastly
+    // deeper than any organic tree (the 100k-level extreme lives in
     // `clock::tests::deep_tree_stack_safety`).
     const DEPTH: usize = 48;
 
-    // Event tree: a right spine `(1, 0, (1, 0, … 2))`. Every node has a
-    // base-0 left leaf, and the innermost pair of leaves differ, so the
-    // whole spine is canonical.
+    // Event tree: a right spine `(1, 0, (1, 0, … 2))`. Every node has a base-0
+    // left leaf, and the innermost pair of leaves differ, so the whole spine is
+    // canonical.
     let mut spine = String::from("2");
     for _ in 0..DEPTH {
         spine = format!("(1, 0, {spine})");
@@ -1303,9 +1297,9 @@ fn parse_stacks_handle_deep_spines() {
 // A recursive reference transcription of the id grammar (`0 | 1 | (i1, i2)`)
 // pins `parse_id_str`'s whole behavior surface — accepted language, emitted
 // canonical bits, and error variants with their precedence (a structural
-// `Syntax` defect outranks the `(0, 0)`/`(1, 1)` canonicality check at the
-// same node). The reference recurses on native frames, so the differential
-// runs at small scope; the production parser's depth behavior is pinned by
+// `Syntax` defect outranks the `(0, 0)`/`(1, 1)` canonicality check at the same
+// node). The reference recurses on native frames, so the differential runs at
+// small scope; the production parser's depth behavior is pinned by
 // `parse_stacks_handle_deep_spines` and the deep board families.
 
 /// The reference mirror of the production parser's subtree classification:
@@ -1351,10 +1345,10 @@ impl RefCur<'_> {
 
 /// One reference id subtree: append its canonical bits, report its kind.
 ///
-/// The recursive image of the grammar with the production parser's exact
-/// error precedence: each token defect is a `Syntax` error at the point the
-/// token is demanded, and a node's collapsible-children check (`(0, 0)` /
-/// `(1, 1)` → `NotCanonical`) runs only after its closing paren parsed.
+/// The recursive image of the grammar with the production parser's exact error
+/// precedence: each token defect is a `Syntax` error at the point the token is
+/// demanded, and a node's collapsible-children check (`(0, 0)` / `(1, 1)` →
+/// `NotCanonical`) runs only after its closing paren parsed.
 fn ref_parse_id_node(
     cur: &mut RefCur,
     bits: &mut BitsMut,
@@ -1409,8 +1403,8 @@ fn ref_parse_id_str(s: &str) -> Result<BitsMut, crate::error::Parse> {
     Ok(bits)
 }
 
-/// Assert the production parser and the recursive reference agree on one
-/// input: same acceptance, same canonical bits, same error variant.
+/// Assert the production parser and the recursive reference agree on one input:
+/// same acceptance, same canonical bits, same error variant.
 fn assert_id_parse_matches_reference(s: &str) -> Result<(), TestCaseError> {
     let prod = super::parse_id_str(s);
     let reference = ref_parse_id_str(s);
@@ -1423,11 +1417,11 @@ fn assert_id_parse_matches_reference(s: &str) -> Result<(), TestCaseError> {
     Ok(())
 }
 
-/// The production id parser matches the recursive reference on every string
-/// up to length 7 over the grammar alphabet (plus a space).
+/// The production id parser matches the recursive reference on every string up
+/// to length 7 over the grammar alphabet (plus a space).
 ///
-/// Identical accept/reject verdicts, identical canonical bits, identical
-/// error variants — the exhaustive small-scope leg of the parser pin.
+/// Identical accept/reject verdicts, identical canonical bits, identical error
+/// variants — the exhaustive small-scope leg of the parser pin.
 #[test]
 fn id_text_parser_matches_reference_exhaustively() {
     const ALPHABET: &[u8] = b"()01, ";
@@ -1464,8 +1458,8 @@ fn id_text_parser_matches_reference_exhaustively() {
     }
 }
 
-/// Splice pseudo-random ASCII whitespace between the characters of a
-/// rendered id, deterministically from `seed` (xorshift64).
+/// Splice pseudo-random ASCII whitespace between the characters of a rendered
+/// id, deterministically from `seed` (xorshift64).
 fn inject_whitespace(s: &str, seed: u64) -> String {
     const WS: &[u8] = b" \t\n\r";
     let mut rng = seed | 1;
@@ -1492,8 +1486,8 @@ proptest! {
     /// On rendered arbitrary normal-form ids — whitespace-injected in
     /// pseudo-random positions — the parser matches the reference.
     ///
-    /// Both recover the party's exact canonical bits: the round-trip leg
-    /// of the parser pin.
+    /// Both recover the party's exact canonical bits: the round-trip leg of the
+    /// parser pin.
     #[test]
     fn id_text_parser_matches_reference_on_rendered_ids(
         op in arb_oracle_party_nonempty(),
@@ -1550,9 +1544,9 @@ proptest! {
 ///
 /// A structural defect is `Syntax` even when a canonicality defect is also
 /// present ("(0, 0" truncated), a well-formed collapsible node is
-/// `NotCanonical`, trailing input is `Syntax`, whitespace is skipped
-/// between any two tokens, and the bare `0` parses to the empty bit
-/// stream (rejecting anonymity is the caller's job, not the grammar's).
+/// `NotCanonical`, trailing input is `Syntax`, whitespace is skipped between
+/// any two tokens, and the bare `0` parses to the empty bit stream (rejecting
+/// anonymity is the caller's job, not the grammar's).
 #[test]
 fn id_text_parser_error_precedence_pins() {
     use crate::error::Parse;
@@ -1576,9 +1570,9 @@ fn id_text_parser_error_precedence_pins() {
 /// A 100k-deep id in paper notation renders and parses without native
 /// recursion.
 ///
-/// The text parser's explicit frame stack carries the nesting (the text
-/// mirror of `clock::tests::deep_tree_stack_safety`'s packed-codec leg),
-/// so parse depth can never overflow the call stack.
+/// The text parser's explicit frame stack carries the nesting (the text mirror
+/// of `clock::tests::deep_tree_stack_safety`'s packed-codec leg), so parse
+/// depth can never overflow the call stack.
 #[test]
 fn deep_id_text_roundtrip() {
     const DEPTH: usize = 100_000;

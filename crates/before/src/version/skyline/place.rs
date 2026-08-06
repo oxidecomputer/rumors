@@ -65,16 +65,28 @@
 //!   end cursor while the start relation still decides
 //!   [`Between`](Dominance::Between) vs
 //!   [`Before`](Dominance::Before).
+//! - [`precedence`], the three-way [`Precedence`] verdict:
+//!   [`dominance`] mirrored — the verdict reads only the
+//!   probe-at-or-below-bound directions, so `probe <= hi` refuted
+//!   returns [`Precedence::After`] at the refuting interval, and
+//!   `probe <= lo` refuted drops the start cursor while the end
+//!   relation still decides [`Between`](Precedence::Between) vs
+//!   [`After`](Precedence::After).
+//! - [`contains`], the membership verdict `lo <= probe <= hi`: both
+//!   watched directions are required, so either side's refutation is
+//!   the whole verdict — `false` at the refuting interval — and `true`
+//!   confirms only at exhaustion.
 //!
 //! Every other relation ((in)equality against a bound, domination either
 //! way) is refutable early but confirmable only at exhaustion, again
 //! exactly as in the pair sweep.
 //!
 //! The span walks speak the public vocabulary directly: the
-//! nine-state [`Placement`] and its [`Dominance`] coarsening are raw
-//! relation facts against two concrete versions — exactly this layer's
-//! vocabulary — so a stream-level duplicate would add a 1:1 mapping
-//! with no semantic content. The query filter walks, which sweep one
+//! nine-state [`Placement`], its [`Dominance`] and [`Precedence`]
+//! coarsenings, and the membership verdict are raw relation facts
+//! against two concrete versions — exactly this layer's vocabulary —
+//! so a stream-level duplicate would add a 1:1 mapping with no
+//! semantic content. The query filter walks, which sweep one
 //! or two probes against any number of demand-carrying bound streams
 //! in the same idiom, live in [`filter`].
 //!
@@ -98,7 +110,8 @@
 //! # Testing
 //!
 //! The two-walk composition is the oracle, once per question: the
-//! `span_place_matches_relations` and `span_dominance_coarsens_place`
+//! `span_place_matches_relations`, `span_dominance_coarsens_place`,
+//! `span_precedence_coarsens_place`, and `span_contains_matches_place`
 //! laws in [`crate::laws`] pin each verdict to the raw `partial_cmp`
 //! verdicts on every law consumer (generated, organic, exhaustive, and
 //! fuzzed populations), the stream-level proptests beside this module
@@ -118,7 +131,7 @@ use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
-use crate::causally::{Dominance, Endpoint, Placement};
+use crate::causally::{Dominance, Endpoint, Placement, Precedence};
 use crate::codec::{BitsSlice, Int};
 
 use super::sweep::{fold, Directions, LeafCursor, PlateauCursor, Side, Step};
@@ -272,6 +285,104 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
             } else {
                 Dominance::Before
             }
+        },
+    )
+}
+
+/// The precedence face of [`span`]: [`dominance`] mirrored — the
+/// three-way verdict over the probe-at-or-below-bound directions, with
+/// the mirrored earliest bail (a refuted `probe <= hi` returns at the
+/// refuting interval; a refuted `probe <= lo` stops the start stream's
+/// scan).
+///
+/// The same operand contract as [`span`].
+///
+/// # Panics
+///
+/// The canonical-stream contract of [`causal_cmp`](super::sweep::causal_cmp),
+/// on all three operands.
+pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Precedence {
+    walk(
+        probe,
+        Some(lo),
+        Some(hi),
+        // `probe <= lo` refuted takes `Precedence::Before` off the table, and
+        // the verdict now rides the end relation alone — the start
+        // stream is never scanned further.
+        |dirs, _| {
+            if dirs.le {
+                ControlFlow::Continue(Fate::Sweep)
+            } else {
+                ControlFlow::Continue(Fate::Drop)
+            }
+        },
+        // `probe <= hi` refuted is the whole verdict — the probe
+        // precedes not even the end, whatever the start relation: the
+        // dominance bail, mirrored.
+        |dirs, _| {
+            if dirs.le {
+                ControlFlow::Continue(Fate::Sweep)
+            } else {
+                ControlFlow::Break(Precedence::After)
+            }
+        },
+        // `probe <= lo` surviving to exhaustion is precedence of the
+        // whole span; otherwise `probe <= hi` surviving is the end.
+        // `Precedence::After` is unreachable here on canonical validated
+        // inputs (a refuted end direction returned from the loop) but
+        // keeps the map total.
+        |lo, hi| {
+            if matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Less)) {
+                Precedence::Before
+            } else if matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Less)) {
+                Precedence::Between
+            } else {
+                Precedence::After
+            }
+        },
+    )
+}
+
+/// The membership face of [`span`]: whether `lo <= probe <= hi`.
+///
+/// Both watched directions are required, so either side's refutation
+/// is the whole verdict — the walk bails at the first interval refuting
+/// `lo <= probe` or `probe <= hi` — while `true` confirms only at
+/// exhaustion, exactly as the pair sweep confirms domination.
+///
+/// The same operand contract as [`span`].
+///
+/// # Panics
+///
+/// The canonical-stream contract of [`causal_cmp`](super::sweep::causal_cmp),
+/// on all three operands.
+pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> bool {
+    walk(
+        probe,
+        Some(lo),
+        Some(hi),
+        // `lo <= probe` refuted: the probe is below or beside the
+        // start — outside the segment, whatever the end relation.
+        |dirs, _| {
+            if dirs.ge {
+                ControlFlow::Continue(Fate::Sweep)
+            } else {
+                ControlFlow::Break(false)
+            }
+        },
+        // `probe <= hi` refuted: the probe is above or beside the end.
+        |dirs, _| {
+            if dirs.le {
+                ControlFlow::Continue(Fate::Sweep)
+            } else {
+                ControlFlow::Break(false)
+            }
+        },
+        // Both watched directions survived to exhaustion: membership
+        // holds exactly when both decided relations admit the probe.
+        |lo, hi| {
+            matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Greater))
+                && matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Less))
         },
     )
 }

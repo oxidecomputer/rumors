@@ -1727,24 +1727,27 @@ fn world_versions(ops: &[Op]) -> Vec<Version> {
 }
 
 proptest! {
-    /// The balanced `join_all` is the sequential fold on versions.
+    /// The balanced join folds are the sequential fold on versions.
     ///
     /// Over organic version populations in both orders, `join_all` fed
-    /// owned versions, `join_all` fed references, both `Sum` forms, and
+    /// owned items, `join_all` fed references, both `Sum` forms, and
     /// both `FromIterator` forms all return exactly the left fold's join —
-    /// the reduction changes the grouping and the borrowing changes the
-    /// operand form, never the value.
+    /// the reduction changes the grouping, the borrowing changes the
+    /// operand form, and the receiver seeding changes the entry, never
+    /// the value.
     #[test]
     fn join_all_equals_the_sequential_fold(ops in world_strategy()) {
         let pool = world_versions(&ops);
         let reference = pool
             .iter()
             .fold(Version::new(), |acc, v| acc | v);
-        prop_assert_eq!(&Version::join_all(pool.clone()), &reference);
-        prop_assert_eq!(&Version::join_all(pool.iter()), &reference);
-        let mut reversed = pool.clone();
-        reversed.reverse();
-        prop_assert_eq!(&Version::join_all(reversed), &reference);
+        if let Some((first, rest)) = pool.split_first() {
+            prop_assert_eq!(&first.join_all(rest.iter().cloned()), &reference);
+            prop_assert_eq!(&first.join_all(rest), &reference);
+        }
+        if let Some((last, front)) = pool.split_last() {
+            prop_assert_eq!(&last.join_all(front.iter().rev()), &reference);
+        }
         prop_assert_eq!(&pool.clone().into_iter().sum::<Version>(), &reference);
         prop_assert_eq!(&pool.iter().sum::<Version>(), &reference);
         prop_assert_eq!(&pool.clone().into_iter().collect::<Version>(), &reference);
@@ -1756,21 +1759,22 @@ proptest! {
     /// The balanced `meet_all` is the sequential fold on versions.
     ///
     /// Over organic version populations in both orders, `meet_all` fed
-    /// owned versions and `meet_all` fed references both return exactly
-    /// the left fold of `&` — the reduction changes the grouping and the
-    /// borrowing changes the operand form, never the value — and `None`
-    /// for the empty iterator, which has no meet (the lattice has no top
-    /// element).
+    /// owned items and `meet_all` fed references both return exactly
+    /// the left fold of `&` from the receiver — the reduction changes
+    /// the grouping and the borrowing changes the operand form, never
+    /// the value — and the receiver itself at zero items, the seed the
+    /// identityless meet folds from.
     #[test]
     fn meet_all_equals_the_sequential_fold(ops in world_strategy()) {
         let pool = world_versions(&ops);
-        let reference = pool.iter().cloned().reduce(|acc, v| acc & v);
-        prop_assert_eq!(Version::meet_all(pool.clone()), reference.clone());
-        prop_assert_eq!(Version::meet_all(pool.iter()), reference.clone());
-        let mut reversed = pool;
-        reversed.reverse();
-        prop_assert_eq!(Version::meet_all(reversed), reference);
-        prop_assert_eq!(Version::meet_all(Vec::<Version>::new()), None);
+        if let Some((first, rest)) = pool.split_first() {
+            let reference = rest.iter().fold(first.clone(), |acc, v| acc & v);
+            prop_assert_eq!(first.meet_all(rest.iter().cloned()), reference.clone());
+            prop_assert_eq!(first.meet_all(rest), reference.clone());
+            let (last, front) = pool.split_last().expect("the pool is nonempty");
+            prop_assert_eq!(last.meet_all(front.iter().rev()), reference);
+            prop_assert_eq!(&first.meet_all(Vec::<Version>::new()), first);
+        }
     }
 }
 
@@ -1778,17 +1782,20 @@ proptest! {
     /// `meet_all` matches the recursive oracle's fold over arbitrary
     /// normal-form pools.
     ///
-    /// `Some` exactly when the pool is nonempty, the production meet of
-    /// every pool lowering to the oracle's; independent arbitrary shapes
+    /// The production door folds the receiver and its items; the oracle
+    /// folds the same family as one list. Independent arbitrary shapes
     /// (not just op-trace populations) are the corner where meets
     /// restructure most.
     #[test]
     fn meet_all_matches_oracle(
-        pool in proptest::collection::vec(arb_oracle_version(), 0..8),
+        pool in proptest::collection::vec(arb_oracle_version(), 1..8),
     ) {
-        let prod = Version::meet_all(pool.iter().map(from_oracle_version));
-        let reference = crate::oracle::Version::meet_all(pool.iter().cloned());
-        prop_assert_eq!(prod.map(|v| to_oracle_version(&v)), reference);
+        let versions: Vec<Version> = pool.iter().map(from_oracle_version).collect();
+        let (first, rest) = versions.split_first().expect("the pool is nonempty");
+        let prod = first.meet_all(rest);
+        let reference = crate::oracle::Version::meet_all(pool.iter().cloned())
+            .expect("the pool is nonempty");
+        prop_assert_eq!(to_oracle_version(&prod), reference);
     }
 }
 
@@ -1816,15 +1823,15 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
             .expect("the population is nonempty");
         assert_eq!(sequential, carrier, "the shades dominate the carrier");
         assert_eq!(
-            Version::meet_all(population.clone()),
-            Some(carrier.clone()),
+            population[0].meet_all(&population[1..]),
+            carrier,
             "meet_all must return the carrier on MS({d}, {k})"
         );
         let mut reversed = population.clone();
         reversed.reverse();
         assert_eq!(
-            Version::meet_all(reversed),
-            Some(carrier.clone()),
+            reversed[0].meet_all(&reversed[1..]),
+            carrier,
             "feed order must not change the meet on MS({d}, {k})"
         );
         let oracle = crate::oracle::Version::meet_all(population.iter().map(to_oracle_version))
@@ -2391,8 +2398,8 @@ proptest! {
             prop_assert_eq!(a.distance(b), crate::Rank::ZERO);
             prop_assert_eq!(a.lag(b), crate::Rank::ZERO);
             let hull = a.span(b);
-            prop_assert_eq!(hull.meet(), &a);
-            prop_assert_eq!(hull.join(), &a);
+            prop_assert_eq!(hull.lo(), &a);
+            prop_assert_eq!(hull.hi(), &a);
         }
     }
 }
@@ -2415,8 +2422,8 @@ proptest! {
             .zip(reps.iter().cycle())
             .flat_map(|(v, &r)| std::iter::repeat_with(|| v.clone()).take(r))
             .collect();
-        prop_assert_eq!(Version::join_all(&dup), Version::join_all(&vs));
-        prop_assert_eq!(Version::meet_all(&dup), Version::meet_all(&vs));
+        prop_assert_eq!(vs[0].join_all(&dup), vs[0].join_all(&vs));
+        prop_assert_eq!(vs[0].meet_all(&dup), vs[0].meet_all(&vs));
         prop_assert_eq!(vs[0].span_all(&dup), vs[0].span_all(&vs));
     }
 }
@@ -2488,9 +2495,10 @@ fn boundary_arity_fan_folds_match_the_sequential_fold() {
         salted.insert(1, fan[0].clone()); // a run of three total
         salted.push(Version::new()); // identity rung on the drain side
         for pool in [&fan, &salted] {
+            let (first, rest) = pool.split_first().expect("nonempty pool");
             let join_seq = pool.iter().fold(Version::new(), |acc, v| acc | v);
             assert_eq!(
-                Version::join_all(pool.iter()),
+                first.join_all(rest),
                 join_seq,
                 "join_all diverged from the sequential fold at k={k}",
             );
@@ -2500,13 +2508,13 @@ fn boundary_arity_fan_folds_match_the_sequential_fold() {
                 .reduce(|acc, v| acc & v)
                 .expect("nonempty pool");
             assert_eq!(
-                Version::meet_all(pool.iter()),
-                Some(meet_seq.clone()),
+                first.meet_all(rest),
+                meet_seq,
                 "meet_all diverged from the sequential fold at k={k}",
             );
             let hull = pool[0].span_all(pool[1..].iter());
-            assert_eq!(hull.meet(), &meet_seq, "span_all meet leg at k={k}");
-            assert_eq!(hull.join(), &join_seq, "span_all join leg at k={k}");
+            assert_eq!(hull.lo(), &meet_seq, "span_all meet leg at k={k}");
+            assert_eq!(hull.hi(), &join_seq, "span_all join leg at k={k}");
         }
     }
 }

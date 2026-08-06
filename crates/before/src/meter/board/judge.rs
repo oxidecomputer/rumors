@@ -1,6 +1,6 @@
-//! The judgment: score a cell's two samples against the exponent bounds,
-//! the ceilings, the declared models, and the committed liveness floors,
-//! per currency.
+//! The judgment: score a cell's two samples against the exponent bounds, the
+//! ceilings, the declared models, and the committed liveness floors, per
+//! currency.
 
 use super::ceilings::{
     fold_exponent_ceiling, CAPACITY_MODEL_CEILING, CAPACITY_MODEL_FLOOR,
@@ -16,8 +16,8 @@ use super::measure::Sample;
 ///
 /// A meter that reads zero at both scales scores 0; a zero at one scale is
 /// clamped through `max(m, 1)` so the ratio stays defined. Degenerate input
-/// sizes (`n2 <= n1`, possible only at extreme scale-down) score 0 rather
-/// than dividing by a vanishing log.
+/// sizes (`n2 <= n1`, possible only at extreme scale-down) score 0 rather than
+/// dividing by a vanishing log.
 pub(super) fn exponent(m1: u64, m2: u64, n1: usize, n2: usize) -> f64 {
     if (m1 == 0 && m2 == 0) || n2 <= n1 {
         return 0.0;
@@ -62,11 +62,10 @@ pub(super) struct Score {
     /// Whether the exponent leg is judged.
     ///
     /// False where the denominator pair does not scale
-    /// ([`MIN_EXPONENT_DENOM_GROWTH`]) or, on the heap column, where
-    /// either reading sits inside the flat allowance the constant leg
-    /// already forgives (a sub-allowance exponent is allocator size-class
-    /// noise, and a fit from a sub-allowance base manufactures an
-    /// exponent at the boundary).
+    /// ([`MIN_EXPONENT_DENOM_GROWTH`]) or, on the heap column, where either
+    /// reading sits inside the flat allowance the constant leg already forgives
+    /// (a sub-allowance exponent is allocator size-class noise, and a fit from
+    /// a sub-allowance base manufactures an exponent at the boundary).
     pub(super) exp_judged: bool,
     pub(super) per_unit: Option<f64>,
 }
@@ -82,19 +81,19 @@ pub(super) struct CellResult {
     pub(super) red: Vec<&'static str>,
 }
 
-/// Score a cell's two samples against the exponent bound, the ceilings,
-/// and the liveness floors, per currency.
+/// Score a cell's two samples against the exponent bound, the ceilings, and the
+/// liveness floors, per currency.
 ///
 /// Every exponent — the limb column's included — is judged against the
-/// denominator bytes (packed input, or `n_io` on the I/O-denominated
-/// cells), never against `R`: `R` is the schoolbook cost law, so a limb
-/// exponent against it reads a flat ~1 on exactly the quadratic converters
-/// the bound exists to catch. Constants are judged per denominator byte,
-/// except segments (an absolute count: the target is walks that never grow
-/// the stack) and the text rows' limb constant, which is per `R` unit
-/// under the κ ceiling. The loops run over the currency axis itself
-/// ([`ByCurrency::each`]), so a currency added to the axis is judged on
-/// every cell or the destructuring fails to compile.
+/// denominator bytes (packed input, or `n_io` on the I/O-denominated cells),
+/// never against `R`: `R` is the schoolbook cost law, so a limb exponent
+/// against it reads a flat ~1 on exactly the quadratic converters the bound
+/// exists to catch. Constants are judged per denominator byte, except segments
+/// (an absolute count: the target is walks that never grow the stack) and the
+/// text rows' limb constant, which is per `R` unit under the κ ceiling. The
+/// loops run over the currency axis itself ([`ByCurrency::each`]), so a
+/// currency added to the axis is judged on every cell or the destructuring
+/// fails to compile.
 pub(super) fn evaluate(
     op: &'static str,
     family: &'static str,
@@ -104,8 +103,8 @@ pub(super) fn evaluate(
     let denom_scales =
         s2.exp_denom_bytes as f64 >= s1.exp_denom_bytes as f64 * MIN_EXPONENT_DENOM_GROWTH;
     // The declared models, resolved for this cell (the declared-models
-    // section): the fold exponent ceiling needs both samples' arities,
-    // and the capacity-chain judgment both samples' predictions.
+    // section): the fold exponent ceiling needs both samples' arities, and the
+    // capacity-chain judgment both samples' predictions.
     let fold_exp_ceiling = match (s1.fold_arity, s2.fold_arity) {
         (Some(k1), Some(k2)) if denom_scales => Some(fold_exponent_ceiling(
             k1,
@@ -125,18 +124,17 @@ pub(super) fn evaluate(
             };
         };
         let exp = exponent(m1, m2, s1.exp_denom_bytes, s2.exp_denom_bytes);
-        // A capacity-model cell's heap exponent is honestly unjudgeable:
-        // the doubling chain quantizes the peak by powers of two, so a
-        // probe pair straddling a k step manufactures an exponent and one
-        // inside a step reads sublinear; the model judgment below is what
-        // binds instead. Every other cell's heap exponent is fitted only
-        // where BOTH probes clear the flat allowance the constant leg
-        // already forgives: a base inside the forgiven flat zone deflates
-        // the fit and manufactures an exponent at the allowance boundary
-        // (the flat term masks the scaling part at the small probe and
-        // releases it at the large one), so a straddling pair stays
-        // unjudged and the class is judged at the next doubling, where
-        // both probes sit in the scaling regime.
+        // A capacity-model cell's heap exponent is honestly unjudgeable: the
+        // doubling chain quantizes the peak by powers of two, so a probe pair
+        // straddling a k step manufactures an exponent and one inside a step
+        // reads sublinear; the model judgment below is what binds instead.
+        // Every other cell's heap exponent is fitted only where BOTH probes
+        // clear the flat allowance the constant leg already forgives: a base
+        // inside the forgiven flat zone deflates the fit and manufactures an
+        // exponent at the allowance boundary (the flat term masks the scaling
+        // part at the small probe and releases it at the large one), so a
+        // straddling pair stays unjudged and the class is judged at the next
+        // doubling, where both probes sit in the scaling regime.
         let exp_judged = denom_scales
             && (c != Currency::Heap
                 || (!capacity_model && m1.min(m2) > HEAP_FLAT_ALLOWANCE_BYTES as u64));
@@ -195,10 +193,10 @@ pub(super) fn evaluate(
                 "touch constant",
             ),
         };
-        // The capacity-model heap leg: both samples' readings must sit
-        // inside the declared band around the model — over the ceiling is
-        // the regression the model prices, under the floor is a stale
-        // model that must be re-declared against the improved kernel.
+        // The capacity-model heap leg: both samples' readings must sit inside
+        // the declared band around the model — over the ceiling is the
+        // regression the model prices, under the floor is a stale model that
+        // must be re-declared against the improved kernel.
         if c == Currency::Heap && capacity_model {
             let banded = |sample: &Sample, edge: f64| -> Option<bool> {
                 let reading = (*sample.readings.get(c))? as f64;
@@ -223,26 +221,24 @@ pub(super) fn evaluate(
             }
             continue;
         }
-        // A family-stated flat heap ceiling replaces the global heap
-        // constant on the cells that declare one; the exponent leg is
-        // untouched.
+        // A family-stated flat heap ceiling replaces the global heap constant
+        // on the cells that declare one; the exponent leg is untouched.
         if c == Currency::Heap {
             if let Some(declared) = s2.declared_heap {
                 ceiling = declared;
             }
         }
-        // A family-stated limb model replaces both limb legs on the
-        // cells that declare one (the ceilings module's declared-models
-        // section): the
-        // stated constant in place of the global (or text) ceiling,
-        // the stated exponent below in place of the global bound.
+        // A family-stated limb model replaces both limb legs on the cells that
+        // declare one (the ceilings module's declared-models section): the
+        // stated constant in place of the global (or text) ceiling, the stated
+        // exponent below in place of the global bound.
         if c == Currency::Limb {
             if let Some((_, per_radix_unit)) = s2.declared_limb {
                 ceiling = per_radix_unit;
             }
         }
-        // The fold rows' declared exponent ceiling (limb, scan, touch)
-        // and scan-constant model.
+        // The fold rows' declared exponent ceiling (limb, scan, touch) and
+        // scan-constant model.
         let mut exp_ceiling = match (c, fold_exp_ceiling) {
             (Currency::Limb | Currency::Scan | Currency::Touch, Some(ceiling)) => ceiling,
             _ => MAX_SCALING_EXPONENT,

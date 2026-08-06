@@ -847,7 +847,7 @@ fn span_borsh_dedups_the_coincident_span() {
     assert_eq!(decoded, span, "the wire round-trips the coincident span");
     assert_eq!(borsh::to_vec(&decoded).unwrap(), bytes);
     assert!(
-        decoded.meet().view().ptr_eq(decoded.join().view()),
+        decoded.lo().view().ptr_eq(decoded.hi().view()),
         "the borsh admission verdict must dedup the coincident span's storage"
     );
 }
@@ -875,7 +875,7 @@ fn coincident_span_keeps_borsh_container_framing() {
     }
     let v = clock.version().clone();
     let span = v.span(&v);
-    assert_eq!(span.meet(), span.join(), "the hull of (v, v) is coincident");
+    assert_eq!(span.lo(), span.hi(), "the hull of (v, v) is coincident");
     let mut party = Party::seed();
     let _ = party.fork();
     let rank = v.rank();

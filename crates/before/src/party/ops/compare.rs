@@ -4,30 +4,31 @@ use crate::codec::BitsMut;
 use crate::idbits::{IdNode, IdReader};
 
 impl IdReader<'_> {
-    /// Whether `self` and `other` (normal-form ids) share no owned region. `O(n + m)`: both
-    /// cursors are threaded, and a side is skipped only where the other's leaf dominates it.
+    /// Whether `self` and `other` (normal-form ids) share no owned region. `O(n
+    /// + m)`: both cursors are threaded, and a side is skipped only where the
+    /// other's leaf dominates it.
     ///
-    /// The cursor form of the paper's region-disjointness test, on the
-    /// shared lockstep predicate walk ([`lockstep_holds`]).
+    /// The cursor form of the paper's region-disjointness test, on the shared
+    /// lockstep predicate walk ([`lockstep_holds`]).
     // Takes the cursors by value: a reader is single-use, and the walk consumes
     // both. (`is_*`-by-value is unusual, hence the allow.)
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn is_disjoint(self, other: IdReader) -> bool {
-        // An empty `a` settles a pair: `a` owns nothing there, so
-        // nothing `b` holds can overlap it. The refuting mixes are then
-        // a full side against any nonempty other — an overlap.
+        // An empty `a` settles a pair: `a` owns nothing there, so nothing `b`
+        // holds can overlap it. The refuting mixes are then a full side against
+        // any nonempty other — an overlap.
         lockstep_holds(self, other, |a_node| matches!(a_node, IdNode::Empty))
     }
 
-    /// Whether `self` (a normal-form id) *covers* `other` — every region `other`
-    /// owns is also owned by `self` (`self ⊇ other`).
+    /// Whether `self` (a normal-form id) *covers* `other` — every region
+    /// `other` owns is also owned by `self` (`self ⊇ other`).
     ///
-    /// `O(n + m)`: both cursors
-    /// are threaded, and a side is skipped only where the other's leaf dominates
-    /// it, exactly as in [`is_disjoint`](IdReader::is_disjoint).
+    /// `O(|self| + |other|)`: both cursors are threaded, and a side is skipped
+    /// only where the other's leaf dominates it, exactly as in
+    /// [`is_disjoint`](IdReader::is_disjoint).
     ///
-    /// The asymmetric counterpart of [`is_disjoint`](IdReader::is_disjoint),
-    /// on the same lockstep predicate walk ([`lockstep_holds`]).
+    /// The asymmetric counterpart of [`is_disjoint`](IdReader::is_disjoint), on
+    /// the same lockstep predicate walk ([`lockstep_holds`]).
     // Single-use by-value readers, as with `is_disjoint`.
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn covers(self, other: IdReader) -> bool {
@@ -40,23 +41,21 @@ impl IdReader<'_> {
     }
 }
 
-/// Whether a region-pair predicate holds everywhere across two
-/// normal-form ids, walked in lockstep — the shared spelling of
-/// [`is_disjoint`](IdReader::is_disjoint) and
-/// [`covers`](IdReader::covers).
+/// Whether a region-pair predicate holds everywhere across two normal-form ids,
+/// walked in lockstep — the shared spelling of
+/// [`is_disjoint`](IdReader::is_disjoint) and [`covers`](IdReader::covers).
 ///
 /// Iterative: the two consuming cursors carry the traversal, and the
-/// per-ancestor control state is two bits on a bit stack (see
-/// [`Lockstep`]), so a deep operand costs bits, not stack frames or
-/// grown segments. A refuted pair (`false`) ends the whole walk.
+/// per-ancestor control state is two bits on a bit stack (see [`Lockstep`]), so
+/// a deep operand costs bits, not stack frames or grown segments. A refuted
+/// pair (`false`) ends the whole walk.
 ///
-/// `a_settles` is the predicate's whole identity — the `a` node whose
-/// region satisfies it against anything `b` holds there. The rest of
-/// the algebra is fixed and shared: an empty `b` holds trivially (both
-/// predicates are vacuous over a region `b` does not own, and `a`'s
-/// remaining subtree is skipped to resync); two internal nodes descend,
-/// the predicate holding iff it holds on every child pair; any other
-/// pairing refutes.
+/// `a_settles` is the predicate's whole identity — the `a` node whose region
+/// satisfies it against anything `b` holds there. The rest of the algebra is
+/// fixed and shared: an empty `b` holds trivially (both predicates are vacuous
+/// over a region `b` does not own, and `a`'s remaining subtree is skipped to
+/// resync); two internal nodes descend, the predicate holding iff it holds on
+/// every child pair; any other pairing refutes.
 fn lockstep_holds(mut a: IdReader, mut b: IdReader, a_settles: impl Fn(IdNode) -> bool) -> bool {
     let mut walk = Lockstep::new();
     loop {
@@ -105,18 +104,17 @@ fn lockstep_holds(mut a: IdReader, mut b: IdReader, a_settles: impl Fn(IdNode) -
 /// ([`lockstep_holds`]).
 ///
 /// A walk visits a both-internal node pair's child pairs left to right,
-/// threading the two consuming cursors; the verdict either passes (the
-/// walk moves on) or fails (the caller returns at once), so no value is
-/// ever carried. The only per-ancestor state is the innermost right child
-/// pairs still to walk — two presence bits each, on one bit stack. An
-/// ancestor whose right pair is absent on both sides queues nothing (its
-/// completion is its left pair's), so a unary lockstep chain of any depth
-/// keeps the stack empty.
+/// threading the two consuming cursors; the verdict either passes (the walk
+/// moves on) or fails (the caller returns at once), so no value is ever
+/// carried. The only per-ancestor state is the innermost right child pairs
+/// still to walk — two presence bits each, on one bit stack. An ancestor whose
+/// right pair is absent on both sides queues nothing (its completion is its
+/// left pair's), so a unary lockstep chain of any depth keeps the stack empty.
 struct Lockstep {
     /// Two presence bits per queued right child pair, innermost on top.
     pending: BitsMut,
-    /// Whether the current pair's `a` side is a present child (read the
-    /// real cursor) or an absent `0` (stand in a synthetic empty).
+    /// Whether the current pair's `a` side is a present child (read the real
+    /// cursor) or an absent `0` (stand in a synthetic empty).
     a_on: bool,
     /// The `b` side of [`a_on`](Lockstep::a_on).
     b_on: bool,
@@ -132,10 +130,9 @@ impl Lockstep {
         }
     }
 
-    /// Decode the current pair's `a`-side node: the real cursor's node
-    /// where the side is a present child, the absent child's `Empty`
-    /// otherwise (a stored stream never encodes one, so the two cannot be
-    /// confused).
+    /// Decode the current pair's `a`-side node: the real cursor's node where
+    /// the side is a present child, the absent child's `Empty` otherwise (a
+    /// stored stream never encodes one, so the two cannot be confused).
     fn read_a(&self, a: &mut IdReader) -> IdNode {
         if self.a_on {
             a.read()
@@ -153,15 +150,14 @@ impl Lockstep {
         }
     }
 
-    /// Enter the child pairs of a both-internal node pair with presence
-    /// bits `(al, ar)` / `(bl, br)`: queue the right pair if either side
-    /// has a right child, and step into the leftmost pair either side has
-    /// at all.
+    /// Enter the child pairs of a both-internal node pair with presence bits
+    /// `(al, ar)` / `(bl, br)`: queue the right pair if either side has a right
+    /// child, and step into the leftmost pair either side has at all.
     ///
     /// A pair absent on both sides is never walked — both predicates hold
-    /// trivially on it, and neither cursor moves for it — which is what
-    /// keeps the pending stack empty on unary chains. Both pairs absent
-    /// cannot happen: an internal node has at least one present child.
+    /// trivially on it, and neither cursor moves for it — which is what keeps
+    /// the pending stack empty on unary chains. Both pairs absent cannot
+    /// happen: an internal node has at least one present child.
     fn descend(&mut self, al: bool, ar: bool, bl: bool, br: bool) {
         if (al || bl) && (ar || br) {
             self.pending.push(ar);
@@ -175,12 +171,11 @@ impl Lockstep {
     }
 
     /// Complete the current pair with a passing verdict: step into the
-    /// innermost queued right pair (`Continue`), or report the whole
-    /// walk done (`Break`) when no ancestor is waiting.
+    /// innermost queued right pair (`Continue`), or report the whole walk done
+    /// (`Break`) when no ancestor is waiting.
     ///
-    /// Ancestors between the queued pair and the completed one queued
-    /// nothing, so their completion needs no bookkeeping: it *is* this
-    /// completion.
+    /// Ancestors between the queued pair and the completed one queued nothing,
+    /// so their completion needs no bookkeeping: it *is* this completion.
     fn complete(&mut self) -> ControlFlow<()> {
         let Some(br) = self.pending.pop() else {
             return ControlFlow::Break(());

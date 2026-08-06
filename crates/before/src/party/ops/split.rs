@@ -4,17 +4,17 @@ use crate::idbits::{IdNode, IdReader};
 impl IdReader<'_> {
     /// Split this id (`self`) into two non-overlapping ids that sum to it.
     ///
-    /// `O(n)`: descend the *spine* — the chain of unary nodes, each owning
+    /// `O(|self|)`: descend the *spine* — the chain of unary nodes, each owning
     /// exactly one present child — to the *branch* (the first node with both
     /// children present) or the spine's terminal `1` leaf, then build both
     /// halves by copying the spine prefix with one side of the branch kept.
     ///
     /// In the pruned encoding a unary node names its one present child directly
-    /// (the child sits at `pos + 2`, right past the tag), so the spine walk is a
-    /// simple loop — no recursion, no emptiness scan. At the branch each half
-    /// keeps one child and drops the other: a `Both` tag becomes `Left-only` (a)
-    /// or `Right-only` (b), and the dropped child is simply omitted (a `0` is
-    /// absence, not a leaf). At a terminal the split is `(1,0)`/`(0,1)`.
+    /// (the child sits at `pos + 2`, right past the tag), so the spine walk is
+    /// a simple loop — no recursion, no emptiness scan. At the branch each half
+    /// keeps one child and drops the other: a `Both` tag becomes `Left-only`
+    /// (a) or `Right-only` (b), and the dropped child is simply omitted (a `0`
+    /// is absence, not a leaf). At a terminal the split is `(1,0)`/`(0,1)`.
     ///
     /// The recursive form of `oracle::Party::split` (the paper's `split`).
     pub(crate) fn split(self) -> (BitsMut, BitsMut) {
@@ -37,10 +37,9 @@ enum SpineEnd {
 
 /// Build the two split halves of the id rooted at `start` in `bits`.
 ///
-/// Walks the
-/// unary spine to the branch (or terminal), then splices: each half is the
-/// spine prefix, a retagged node, and the kept child — a bulk verbatim copy of
-/// already-normal bit ranges, normal by construction (the kept child is
+/// Walks the unary spine to the branch (or terminal), then splices: each half
+/// is the spine prefix, a retagged node, and the kept child — a bulk verbatim
+/// copy of already-normal bit ranges, normal by construction (the kept child is
 /// nonempty, so no collapse can arise). Iterative: the spine walk is a loop, so
 /// deep ids cannot overflow.
 fn build_split(bits: &BitsSlice, start: usize) -> (BitsMut, BitsMut) {

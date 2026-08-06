@@ -3,11 +3,11 @@
 //!
 //! # The invariant
 //!
-//! Every adversarial input family is a [`FamilyId`] variant carrying its
-//! row of record ([`FamilySpec`]), and every instrument derives its
-//! family axis from this roster, so a family existing outside an
-//! instrument's coverage is structurally impossible — enforced by the
-//! compiler wherever the compiler can reach:
+//! Every adversarial input family is a [`FamilyId`] variant carrying its row of
+//! record ([`FamilySpec`]), and every instrument derives its family axis from
+//! this roster, so a family existing outside an instrument's coverage is
+//! structurally impossible — enforced by the compiler wherever the compiler can
+//! reach:
 //!
 //! - **Construction.** The raw shape constructors are private to the
 //!   [`meter`](crate::meter) module, and [`Shape`] is the one public door:
@@ -87,13 +87,12 @@ use crate::Version;
 /// One registered shape constructor: the only public door to the
 /// [`meter`](crate::meter) module's adversarial generators.
 ///
-/// Each variant names its knobs and the accessor it builds through; the
-/// full construction derivation (layout, normal-form argument,
-/// closed-form size, panics) lives on the private constructor behind it,
-/// rendered by the internal documentation build. Every variant is cited
-/// by at least one [`FamilyId`] spec (this module's tests hold it), so
-/// building through this enum is building inside the registry's
-/// coverage.
+/// Each variant names its knobs and the accessor it builds through; the full
+/// construction derivation (layout, normal-form argument, closed-form size,
+/// panics) lives on the private constructor behind it, rendered by the internal
+/// documentation build. Every variant is cited by at least one [`FamilyId`]
+/// spec (this module's tests hold it), so building through this enum is
+/// building inside the registry's coverage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Shape {
     /// The dense event spine `S(d)`: [`Shape::packed1`]`(d)`.
@@ -519,34 +518,32 @@ impl Shape {
 /// One adversarial input family: the roster every instrument's family
 /// axis derives from.
 ///
-/// The first thirty-two variants are the amplification board's columns,
-/// in render order (each variant's doc carries its genre note); the rest
-/// are the envelope suite's kernel-seam probe families, each answering
-/// [`Coverage::EnvelopeOnly`] with the dated reason it earns no column.
-/// Every variant's row of record is its [`FamilyId::spec`] answer.
+/// The first thirty-two variants are the amplification board's columns, in
+/// render order (each variant's doc carries its genre note); the rest are the
+/// envelope suite's kernel-seam probe families, each answering
+/// [`Coverage::EnvelopeOnly`] with the dated reason it earns no column. Every
+/// variant's row of record is its [`FamilyId::spec`] answer.
 ///
-/// Adding a family: the [`FamilyId::spec`] and [`FamilyId::index`] arms
-/// and — for a board column — the board family module's bundle-build and
-/// designed-diagonal match arms are compiler-forced from the variant.
-/// What the compiler cannot force, in the order it is otherwise found by
-/// luck: the roster entry in [`FamilyId::ALL`], the shape's base-size
-/// constant (the board family module, with its derivation doc), that
-/// module's family prose and any cardinality it carries, the declared
-/// bundle reach on the variant's [`Coverage::Board`] answer, the
-/// envelope rows in `tests/meter.rs` (the enforced record), the
-/// ceiling-calibration witnesses (the board `ceilings` module's header
-/// comment), and — only if a cell needs a declared model or turns up
-/// red — the declaration site (the `ceilings` module's declared-models
+/// Adding a family: the [`FamilyId::spec`] and [`FamilyId::index`] arms and —
+/// for a board column — the board family module's bundle-build and
+/// designed-diagonal match arms are compiler-forced from the variant. What the
+/// compiler cannot force, in the order it is otherwise found by luck: the
+/// roster entry in [`FamilyId::ALL`], the shape's base-size constant (the board
+/// family module, with its derivation doc), that module's family prose and any
+/// cardinality it carries, the declared bundle reach on the variant's
+/// [`Coverage::Board`] answer, the envelope rows in `tests/meter.rs` (the
+/// enforced record), the ceiling-calibration witnesses (the board `ceilings`
+/// module's header comment), and — only if a cell needs a declared model or
+/// turns up red — the declaration site (the `ceilings` module's declared-models
 /// section), the red-triage buffer
-/// ([`BOARD_EXPECTED_REDS`](crate::meter::board::BOARD_EXPECTED_REDS),
-/// with a live task), the rider list
+/// ([`BOARD_EXPECTED_REDS`](crate::meter::board::BOARD_EXPECTED_REDS), with a
+/// live task), the rider list
 /// ([`BOARD_DECLARED_BENCH_RIDERS`](crate::meter::board::BOARD_DECLARED_BENCH_RIDERS)),
 /// and the judge roster with its membership pin
-/// (`tools/benchjudge-expected.json`, `tests/bench_judge_roster.rs`).
-/// And not every family belongs on the board: a whole-surface adversary
-/// earns a column, while a kernel-seam shape answers
-/// [`Coverage::EnvelopeOnly`] with the dated reason, as wide-tooth-comb,
-/// alt-spine, and the memo probes do.
+/// (`tools/benchjudge-expected.json`, `tests/bench_judge_roster.rs`). And not
+/// every family belongs on the board: a whole-surface adversary earns a column,
+/// while a kernel-seam shape answers [`Coverage::EnvelopeOnly`] with the dated
+/// reason, as wide-tooth-comb, alt-spine, and the memo probes do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FamilyId {
     /// The dense event spine `S(d)`: node count and depth maximizer.
@@ -562,354 +559,327 @@ pub enum FamilyId {
     IdPair,
     /// The output-domination cross: boundary comb × scattered party.
     CombScatter,
-    /// The harmonic spine `H(d)`: the rank fold's wide-numerator
-    /// adversary, designed against the linear-functional rows and the
-    /// rank pair.
+    /// The harmonic spine `H(d)`: the rank fold's wide-numerator adversary,
+    /// designed against the linear-functional rows and the rank pair.
     Harmonic,
     /// The scatter-ordered fold population: balanced-forked single-tick
-    /// operands whose join accumulator never coalesces; its bundle
-    /// carries fold operands alone, so only the fold rows apply.
+    /// operands whose join accumulator never coalesces; its bundle carries fold
+    /// operands alone, so only the fold rows apply.
     Scatter,
-    /// The weave fold population: the leaves of one balanced fork tree
-    /// dealt round-robin among 16 group parties (the board's weave-group
-    /// constant), one tick each.
+    /// The weave fold population: the leaves of one balanced fork tree dealt
+    /// round-robin among 16 group parties (the board's weave-group constant),
+    /// one tick each.
     ///
     /// Every operand is individually benign — an organic region set any
-    /// retire/reunite call site could hold — while every internal node
-    /// of the shared upper skeleton is both-present in every operand
-    /// pair, so the fold's per-node costs that scale with the *other*
-    /// operand (the overlap test against the accumulator, the join
-    /// merges over interleaved trees) dominate. Scatter cannot reach
-    /// this genre (its operands are single leaves) and benign reaches
-    /// it only diluted; the arity is fixed so the scaling axis is
-    /// both-present richness alone. Its bundle carries fold operands
-    /// alone, so only the fold rows apply.
+    /// retire/reunite call site could hold — while every internal node of the
+    /// shared upper skeleton is both-present in every operand pair, so the
+    /// fold's per-node costs that scale with the *other* operand (the overlap
+    /// test against the accumulator, the join merges over interleaved trees)
+    /// dominate. Scatter cannot reach this genre (its operands are single
+    /// leaves) and benign reaches it only diluted; the arity is fixed so the
+    /// scaling axis is both-present richness alone. Its bundle carries fold
+    /// operands alone, so only the fold rows apply.
     Weave,
     /// The staggered fold population ([`Shape::StaggerPopulation`]): `n`
-    /// operands of `m` unit teeth each, every operand's teeth landing
-    /// in the gaps of every other's, fed in bit-reversed order.
+    /// operands of `m` unit teeth each, every operand's teeth landing in the
+    /// gaps of every other's, fed in bit-reversed order.
     ///
-    /// The correlated-population loading of the balanced reduction
-    /// itself: the feed order pairs operands whose slot addresses
-    /// diverge at the top bit, so every internal merge — at every
-    /// level — joins region sets that interleave maximally and swell
-    /// to near the sum of their sizes, the intermediate-swell worst
-    /// case of the declared `O(D log k)` fold model, held until the
-    /// last level (the full union collapses to the constant-1 skyline
-    /// on the version side, the whole seed region on the id side).
-    /// Scatter scales arity at single-leaf operands and weave scales
-    /// operand size at fixed arity; this population scales both, and
-    /// its bit-reversed feed forecloses the adjacent-slot coalescing
-    /// luck index order would hand the counter. Its bundle carries
-    /// fold operands alone, so only the fold rows apply.
+    /// The correlated-population loading of the balanced reduction itself: the
+    /// feed order pairs operands whose slot addresses diverge at the top bit,
+    /// so every internal merge — at every level — joins region sets that
+    /// interleave maximally and swell to near the sum of their sizes, the
+    /// intermediate-swell worst case of the declared `O(D log k)` fold model,
+    /// held until the last level (the full union collapses to the constant-1
+    /// skyline on the version side, the whole seed region on the id side).
+    /// Scatter scales arity at single-leaf operands and weave scales operand
+    /// size at fixed arity; this population scales both, and its bit-reversed
+    /// feed forecloses the adjacent-slot coalescing luck index order would hand
+    /// the counter. Its bundle carries fold operands alone, so only the fold
+    /// rows apply.
     Stagger,
     /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
     ///
-    /// Every level a right-full shortcut site, the deepest stacking of
-    /// the walk's deferred right-full decisions and raise bookkeeping
-    /// on narrow values — the designated cross of the two tick rows.
+    /// Every level a right-full shortcut site, the deepest stacking of the
+    /// walk's deferred right-full decisions and raise bookkeeping on narrow
+    /// values — the designated cross of the two tick rows.
     NestedFull,
     /// The wide right-full cross: `bigroot(b, d)` × `N(d)`.
     ///
-    /// The stream's first payload is coded absolute, so the deepest
-    /// subtree's net movement carries the root's full magnitude and
-    /// every level's bookkeeping meets it — width × depth through the
-    /// right-full arm. The designated cross of the two tick rows.
+    /// The stream's first payload is coded absolute, so the deepest subtree's
+    /// net movement carries the root's full magnitude and every level's
+    /// bookkeeping meets it — width × depth through the right-full arm. The
+    /// designated cross of the two tick rows.
     NestedWide,
     /// The wide left-full (memo) cross: `wide_tail(b, d)` × `M(d)`.
     ///
-    /// Every proper subtree nets the tail's full magnitude while every
-    /// level is a memoized pre-scan site — width × depth through the
-    /// left-full arm and the pre-scan's own chains. The designated cross
-    /// of the two tick rows.
+    /// Every proper subtree nets the tail's full magnitude while every level is
+    /// a memoized pre-scan site — width × depth through the left-full arm and
+    /// the pre-scan's own chains. The designated cross of the two tick rows.
     MirrorWide,
     /// The narrow left-full (memo) cross: `wide_tail(1, d)` × `M(d)`.
     ///
-    /// The memoized pre-scan machinery itself, all values word-scale.
-    /// The designated cross of the two tick rows.
+    /// The memoized pre-scan machinery itself, all values word-scale. The
+    /// designated cross of the two tick rows.
     MirrorNarrow,
     /// The descending staircase `D(d)` × the unary id spine `I(d)`.
     ///
     /// Every consumed leaf undercuts every open range's minimum —
-    /// full-penetration minimum updates at every level, all values
-    /// word-scale. The designated cross of the two tick rows.
+    /// full-penetration minimum updates at every level, all values word-scale.
+    /// The designated cross of the two tick rows.
     Staircase,
     /// The reveal-comb cross: `reveal_comb(s, s)` × its own id.
     ///
-    /// `s` sibling left-full sites share one `2^s`-wide minimum over a
-    /// zero floor, and the left-leaning spine closes each site's frame
-    /// back into the floor frame between consecutive consumes: the
-    /// width-`s` boundary difference is minted at every consume and
-    /// popped at every close — the unfunded width circulation, in the
-    /// touch currency these columns do not carry (the gate pins in
-    /// `tests/meter.rs` enforce it; the bench mirror's time leg sees
-    /// it). The designated cross of the two tick rows.
+    /// `s` sibling left-full sites share one `2^s`-wide minimum over a zero
+    /// floor, and the left-leaning spine closes each site's frame back into the
+    /// floor frame between consecutive consumes: the width-`s` boundary
+    /// difference is minted at every consume and popped at every close — the
+    /// unfunded width circulation, in the touch currency these columns do not
+    /// carry (the gate pins in `tests/meter.rs` enforce it; the bench mirror's
+    /// time leg sees it). The designated cross of the two tick rows.
     RevealComb,
     /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the
     /// reveal-comb id.
     ///
-    /// Identical forest and close-reveal cycle with the floor raised
-    /// to `2^s − 2`, so the circulated boundary difference is O(1)
-    /// wide: the gap control. The designated cross of the two tick rows.
+    /// Identical forest and close-reveal cycle with the floor raised to `2^s −
+    /// 2`, so the circulated boundary difference is O(1) wide: the gap control.
+    /// The designated cross of the two tick rows.
     RevealHifloor,
     /// The pure-comb cross: `pure_comb(s, s)` × its own id.
     ///
-    /// The reveal comb's cycle with no left-full site anywhere — no
-    /// memo, no pre-scan, no site consume: the base watermark stack's
-    /// own arm-move + close-pop width circulation, isolated from the
-    /// frame ledger. The designated cross of the two tick rows.
+    /// The reveal comb's cycle with no left-full site anywhere — no memo, no
+    /// pre-scan, no site consume: the base watermark stack's own arm-move +
+    /// close-pop width circulation, isolated from the frame ledger. The
+    /// designated cross of the two tick rows.
     PureComb,
     /// The ascending-cliff cross: `ascend_cliff(s, s)` × its own id.
     ///
     /// `s` ascending wide leaves stack `s − 1` nonzero unit boundary
-    /// differences and a terminal 0-cliff drives one width-`s` undercut
-    /// residue through all of them — the cascade whose per-hop fold
-    /// direction the gate pins in `tests/meter.rs` price in the touch
-    /// currency these columns do not carry. The designated cross of the
-    /// two tick rows.
+    /// differences and a terminal 0-cliff drives one width-`s` undercut residue
+    /// through all of them — the cascade whose per-hop fold direction the gate
+    /// pins in `tests/meter.rs` price in the touch currency these columns do
+    /// not carry. The designated cross of the two tick rows.
     AscendCliff,
     /// The ascending-cliff control: `ascend_cliff_plateau(s, s)` × the
     /// ascending-cliff id.
     ///
-    /// Identical spine, arming schedule, and cliff undercut with every
-    /// leaf leveled, so the difference stack is one compressed zero run
-    /// the residue passes whole in O(1): the hop-schedule control.
-    /// The designated cross of the two tick rows.
+    /// Identical spine, arming schedule, and cliff undercut with every leaf
+    /// leveled, so the difference stack is one compressed zero run the residue
+    /// passes whole in O(1): the hop-schedule control. The designated cross of
+    /// the two tick rows.
     AscendPlateau,
-    /// The two-operand jump comb `jump_pair(k, m, d)`: wide
-    /// height-difference crests over a dense-position spine.
+    /// The two-operand jump comb `jump_pair(k, m, d)`: wide height-difference
+    /// crests over a dense-position spine.
     ///
-    /// The overlay interleaves one operand's wide teeth with the
-    /// other's cheap codes, so the pair rows park wide drift at the
-    /// other operand's boundaries `2m` times while every absolute
-    /// position stays `d` digits dense — the shape that separates
-    /// segment-anchored freeze accounting (flat) from absolute-position
-    /// accounting (superlinear), with each operand certified-linear
-    /// alone (the generator doc carries the mechanism).
+    /// The overlay interleaves one operand's wide teeth with the other's cheap
+    /// codes, so the pair rows park wide drift at the other operand's
+    /// boundaries `2m` times while every absolute position stays `d` digits
+    /// dense — the shape that separates segment-anchored freeze accounting
+    /// (flat) from absolute-position accounting (superlinear), with each
+    /// operand certified-linear alone (the generator doc carries the
+    /// mechanism).
     JumpPair,
-    /// The freeze-position spine `freeze_position(s)`: the
-    /// many-freezes sentinel.
-    ///
-    /// `2s` descending wide leaves alternate a ten-digit drop and a
-    /// unit drop down a right spine, so a query fold freezes `Θ(s)`
-    /// times at ever-deeper stream positions — every comb fires O(1)
-    /// freezes, which was exactly the coverage hole — and any freeze
-    /// accounting that reads an absolute position (or any
-    /// whole-history state) per freeze goes quadratic here while the
-    /// family's positions compact to O(1) digits. The committed
-    /// known-bad kernel reads ×1.50 per byte across the doubling on
-    /// this shape (the query fold's adequacy tripwire); the
-    /// anchored-segment discipline reads flat (the `skyline_flatness`
-    /// freeze-position band). Designed against the linear-functional
-    /// query rows.
-    FreezePos,
-    /// The promotion re-arm spine `promotion_rearm(s)`: the
-    /// many-armings sentinel.
-    ///
-    /// `32s` span-building levels grow the consumed mass's written
-    /// span, then `s` four-node blocks each park a wide drift and
-    /// promote it at a narrow one — `Θ(s)` query-fold promotions at
-    /// O(1) stored codes each, where every comb promotes never and the
-    /// freeze-position spine's parked drift is monotone. Any promotion
-    /// accounting that re-reads whole-history state per arming goes
-    /// quadratic here while the family's suffix masses compact to O(1)
-    /// balanced terms. The committed known-bad kernel reads ×1.74 per
-    /// byte across the doubling on this shape (the query fold's
-    /// span-promotion tripwire); the promotion ledger reads flat (the
-    /// `skyline_flatness` promotion re-arm bands). Designed against
-    /// the linear-functional query rows.
-    PromoRearm,
-    /// The weight-comb spine `weight_comb(n)`: the many-jumps
+    /// The freeze-position spine `freeze_position(s)`: the many-freezes
     /// sentinel.
     ///
-    /// A depth-`32n` parked-unit spine, then `2n` shallow leaves
-    /// oscillating heights 0 and 2: the rank integral deposits the
-    /// oscillation at one digit position `Θ(n)` digits above the
-    /// parked unit for O(1) stored bits per event — the position
-    /// weight is topology, so no code funds the gap — and every
-    /// cancellation makes the accumulator's top settle back across the
-    /// never-written run. A settlement scan that steps the gap digit
-    /// by digit goes quadratic here (×1.93 per byte across the
-    /// doubling, measured under a probe build with certificate
-    /// consumption disabled); consuming one zero-run certificate per
-    /// jumped run reads flat (the `skyline_flatness` weight-comb
-    /// band). Designed against the linear-functional query rows.
+    /// `2s` descending wide leaves alternate a ten-digit drop and a unit drop
+    /// down a right spine, so a query fold freezes `Θ(s)` times at ever-deeper
+    /// stream positions — every comb fires O(1) freezes, which was exactly the
+    /// coverage hole — and any freeze accounting that reads an absolute
+    /// position (or any whole-history state) per freeze goes quadratic here
+    /// while the family's positions compact to O(1) digits. The committed
+    /// known-bad kernel reads ×1.50 per byte across the doubling on this shape
+    /// (the query fold's adequacy tripwire); the anchored-segment discipline
+    /// reads flat (the `skyline_flatness` freeze-position band). Designed
+    /// against the linear-functional query rows.
+    FreezePos,
+    /// The promotion re-arm spine `promotion_rearm(s)`: the many-armings
+    /// sentinel.
+    ///
+    /// `32s` span-building levels grow the consumed mass's written span, then
+    /// `s` four-node blocks each park a wide drift and promote it at a narrow
+    /// one — `Θ(s)` query-fold promotions at O(1) stored codes each, where
+    /// every comb promotes never and the freeze-position spine's parked drift
+    /// is monotone. Any promotion accounting that re-reads whole-history state
+    /// per arming goes quadratic here while the family's suffix masses compact
+    /// to O(1) balanced terms. The committed known-bad kernel reads ×1.74 per
+    /// byte across the doubling on this shape (the query fold's span-promotion
+    /// tripwire); the promotion ledger reads flat (the `skyline_flatness`
+    /// promotion re-arm bands). Designed against the linear-functional query
+    /// rows.
+    PromoRearm,
+    /// The weight-comb spine `weight_comb(n)`: the many-jumps sentinel.
+    ///
+    /// A depth-`32n` parked-unit spine, then `2n` shallow leaves oscillating
+    /// heights 0 and 2: the rank integral deposits the oscillation at one digit
+    /// position `Θ(n)` digits above the parked unit for O(1) stored bits per
+    /// event — the position weight is topology, so no code funds the gap — and
+    /// every cancellation makes the accumulator's top settle back across the
+    /// never-written run. A settlement scan that steps the gap digit by digit
+    /// goes quadratic here (×1.93 per byte across the doubling, measured under
+    /// a probe build with certificate consumption disabled); consuming one
+    /// zero-run certificate per jumped run reads flat (the `skyline_flatness`
+    /// weight-comb band). Designed against the linear-functional query rows.
     WeightComb,
-    /// The freeze-parade spine `freeze_parade(k)`: the deep-segment
-    /// freeze sentinel.
+    /// The freeze-parade spine `freeze_parade(k)`: the deep-segment freeze
+    /// sentinel.
     ///
-    /// The parked-unit spine at depth `64k`, then `k` shallow freeze
-    /// blocks whose wide in-pair drops each fire one query-fold freeze
-    /// at the block's position weight, `Θ(k)` digits above digit 0, so
-    /// every freeze's scaled segment read starts `Θ(k)` digits up. The
-    /// accumulator's write watermark prices each read at the segment's
-    /// written span; a scaled read that starts at digit 0 walks the
-    /// never-written prefix per freeze and goes quadratic in the touch
-    /// and limb currencies together (×1.91 per byte across the
-    /// doubling, measured under a probe build whose scaled reads start
-    /// at digit 0); the watermark reads flat (the `skyline_flatness`
-    /// freeze-parade band). The freeze-position spine prices the query
-    /// layer's per-freeze accounting; this family prices the
-    /// accumulator's read side under the same schedule. Designed
-    /// against the linear-functional query rows.
+    /// The parked-unit spine at depth `64k`, then `k` shallow freeze blocks
+    /// whose wide in-pair drops each fire one query-fold freeze at the block's
+    /// position weight, `Θ(k)` digits above digit 0, so every freeze's scaled
+    /// segment read starts `Θ(k)` digits up. The accumulator's write watermark
+    /// prices each read at the segment's written span; a scaled read that
+    /// starts at digit 0 walks the never-written prefix per freeze and goes
+    /// quadratic in the touch and limb currencies together (×1.91 per byte
+    /// across the doubling, measured under a probe build whose scaled reads
+    /// start at digit 0); the watermark reads flat (the `skyline_flatness`
+    /// freeze-parade band). The freeze-position spine prices the query layer's
+    /// per-freeze accounting; this family prices the accumulator's read side
+    /// under the same schedule. Designed against the linear-functional query
+    /// rows.
     FreezeParade,
-    /// The dense-suffix pair `dense_suffix(p, p)` against its unit
-    /// mate `dense_suffix_mate(p, p)`: the many-armings ×
-    /// dense-trailing-mass sentinel.
+    /// The dense-suffix pair `dense_suffix(p, p)` against its unit mate
+    /// `dense_suffix_mate(p, p)`: the many-armings × dense-trailing-mass
+    /// sentinel.
     ///
-    /// A gap spine holds the trailing interval mass at `Θ(p)` balanced
-    /// digits, then `p` re-arm blocks each park a wide drift and
-    /// promote it at O(1) stored codes — `Θ(p)` ledger armings all
-    /// owing their debt across the same `Θ(p)`-dense trailing mass, so
-    /// a settle that walks the suffix once per arming (or re-reads a
-    /// promoted prefix once per window) goes quadratic here while the
-    /// mass-balanced product tree charges every arming-window cross
-    /// term inside one aggregate product and reads flat. The committed
-    /// tripwire beside the kernel
-    /// (`suffix_walk_settle_reads_superlinear_on_dense_suffix`, the
-    /// query fold's test suite) keeps the per-arming walk failing on
-    /// this family. The mate is the same topology at unit bases, and
-    /// the wide operand dominates it pointwise, so the pair rows run
-    /// the co-sweep whose freezes and promotions fire on drift only
-    /// the wide operand deposited (the `skyline_flatness` dense-suffix
-    /// rank and distance bands carry the enforcement). Designed
-    /// against the linear-functional query rows.
+    /// A gap spine holds the trailing interval mass at `Θ(p)` balanced digits,
+    /// then `p` re-arm blocks each park a wide drift and promote it at O(1)
+    /// stored codes — `Θ(p)` ledger armings all owing their debt across the
+    /// same `Θ(p)`-dense trailing mass, so a settle that walks the suffix once
+    /// per arming (or re-reads a promoted prefix once per window) goes
+    /// quadratic here while the mass-balanced product tree charges every
+    /// arming-window cross term inside one aggregate product and reads flat.
+    /// The committed tripwire beside the kernel
+    /// (`suffix_walk_settle_reads_superlinear_on_dense_suffix`, the query
+    /// fold's test suite) keeps the per-arming walk failing on this family. The
+    /// mate is the same topology at unit bases, and the wide operand dominates
+    /// it pointwise, so the pair rows run the co-sweep whose freezes and
+    /// promotions fire on drift only the wide operand deposited (the
+    /// `skyline_flatness` dense-suffix rank and distance bands carry the
+    /// enforcement). Designed against the linear-functional query rows.
     DenseSuffix,
-    /// The wide-arming family `wide_arming(s, s)`: the single-arming
-    /// wide × dense sentinel, both factors on one knob.
+    /// The wide-arming family `wide_arming(s, s)`: the single-arming wide ×
+    /// dense sentinel, both factors on one knob.
     ///
-    /// The gap spine holds the trailing interval mass at `Θ(s)`
-    /// isolated digits and the one re-arm block parks a `2^(32s)`
-    /// drift and promotes it — one ledger arming as wide as the input
-    /// owing its debt across a trailing mass as dense as the input,
-    /// so the settle's one aggregate product is the wide × dense
-    /// cross term at its purest, undodgeable by seam cancellation
-    /// (the `ledger_wide_arming` band in `tests/meter.rs` carries the
-    /// enforcement; the committed schoolbook settle kernel keeps the
-    /// per-digit charge failing on this family). Its rendered text is
-    /// the same shape at the parse seam: one wide swing ahead of
-    /// `Θ(s)` trailing zero-delta leaves, where a per-leaf delta
-    /// extraction that pays a stale high-water span instead of the
-    /// settled top reads `Θ(w·d)` touches on `Θ(w + d)` text (the
-    /// `parse_wide_arming` band and the committed schoolbook parse
-    /// kernel carry both readings), so the column's five text-parse
-    /// cells are the standing watch on the exact-`top` genre at the
-    /// text seam. Designed against the linear-functional query rows.
+    /// The gap spine holds the trailing interval mass at `Θ(s)` isolated digits
+    /// and the one re-arm block parks a `2^(32s)` drift and promotes it — one
+    /// ledger arming as wide as the input owing its debt across a trailing mass
+    /// as dense as the input, so the settle's one aggregate product is the wide
+    /// × dense cross term at its purest, undodgeable by seam cancellation (the
+    /// `ledger_wide_arming` band in `tests/meter.rs` carries the enforcement;
+    /// the committed schoolbook settle kernel keeps the per-digit charge
+    /// failing on this family). Its rendered text is the same shape at the
+    /// parse seam: one wide swing ahead of `Θ(s)` trailing zero-delta leaves,
+    /// where a per-leaf delta extraction that pays a stale high-water span
+    /// instead of the settled top reads `Θ(w·d)` touches on `Θ(w + d)` text
+    /// (the `parse_wide_arming` band and the committed schoolbook parse kernel
+    /// carry both readings), so the column's five text-parse cells are the
+    /// standing watch on the exact-`top` genre at the text seam. Designed
+    /// against the linear-functional query rows.
     WideArming,
     /// The plateau-puncture family `plateau_puncture(s, s)`: the
-    /// answer-embedded-product sentinel, and the floor under every
-    /// settle.
+    /// answer-embedded-product sentinel, and the floor under every settle.
     ///
-    /// Every turn leaf sits on one incompressible pseudorandom plateau
-    /// `x` of `Θ(s)` digits and the turn positions spell a jittered
-    /// punctured mass `y` of `Θ(s)` isolated digits, so the exact rank
-    /// embeds the integer product `2·x·y + 1` — bought with `Θ(s)`
-    /// input bits, both factors' content beyond the settle's own
-    /// balanced-digit compaction. No promotion ever fires; the cost is
-    /// the close-time settle, one wide × dense multiplication run
-    /// inside the backend at its bound `M(|v|)` — and because the same
-    /// constructor embeds the product of arbitrary factors, any fold
-    /// that answers exactly multiplies arbitrary input-funded
-    /// integers, so `Ω(M(|v|))` floors every settle. The committed
-    /// kernel
-    /// (`schoolbook_settle_reads_superlinear_on_plateau_puncture`, the
-    /// query fold's test suite) keeps the per-digit charge failing on
-    /// this family (the `skyline_flatness` plateau-puncture band
-    /// carries the enforcement). Designed against the
-    /// linear-functional query rows.
+    /// Every turn leaf sits on one incompressible pseudorandom plateau `x` of
+    /// `Θ(s)` digits and the turn positions spell a jittered punctured mass `y`
+    /// of `Θ(s)` isolated digits, so the exact rank embeds the integer product
+    /// `2·x·y + 1` — bought with `Θ(s)` input bits, both factors' content
+    /// beyond the settle's own balanced-digit compaction. No promotion ever
+    /// fires; the cost is the close-time settle, one wide × dense
+    /// multiplication run inside the backend at its bound `M(|v|)` — and
+    /// because the same constructor embeds the product of arbitrary factors,
+    /// any fold that answers exactly multiplies arbitrary input-funded
+    /// integers, so `Ω(M(|v|))` floors every settle. The committed kernel
+    /// (`schoolbook_settle_reads_superlinear_on_plateau_puncture`, the query
+    /// fold's test suite) keeps the per-digit charge failing on this family
+    /// (the `skyline_flatness` plateau-puncture band carries the enforcement).
+    /// Designed against the linear-functional query rows.
     PlateauPuncture,
-    /// The lone-freeze spine `lone_freeze(s, s)`: the first-freeze
-    /// gate straddle, both sides on one knob.
+    /// The lone-freeze spine `lone_freeze(s, s)`: the first-freeze gate
+    /// straddle, both sides on one knob.
     ///
-    /// `s` unit-oscillation pairs ride a wide plateau strictly before
-    /// the sweep's one freeze-firing drop, and `s` more run behind it
-    /// with the gate open and a ten-digit drift parked — so any
-    /// per-interval deposit toward the settle machinery made before
-    /// drift exists to settle scales with the prefix, and a segment
-    /// feed or close read that is not amortized O(1) per interval
-    /// scales with the tail, while the family's funded wide codes stay
-    /// O(1). Exactly one freeze and no promotion ever fires, so the
-    /// column also prices the settle's smallest nonempty
-    /// configuration. The `skyline_flatness` lone-freeze bands isolate
-    /// each axis at the generator minimum and carry the enforcement;
-    /// the column scales both together. Designed against the
-    /// linear-functional query rows.
+    /// `s` unit-oscillation pairs ride a wide plateau strictly before the
+    /// sweep's one freeze-firing drop, and `s` more run behind it with the gate
+    /// open and a ten-digit drift parked — so any per-interval deposit toward
+    /// the settle machinery made before drift exists to settle scales with the
+    /// prefix, and a segment feed or close read that is not amortized O(1) per
+    /// interval scales with the tail, while the family's funded wide codes stay
+    /// O(1). Exactly one freeze and no promotion ever fires, so the column also
+    /// prices the settle's smallest nonempty configuration. The
+    /// `skyline_flatness` lone-freeze bands isolate each axis at the generator
+    /// minimum and carry the enforcement; the column scales both together.
+    /// Designed against the linear-functional query rows.
     LoneFreeze,
-    /// The concurrent pair `concurrent_pair(n)`: the emit side-switch
-    /// density population.
+    /// The concurrent pair `concurrent_pair(n)`: the emit side-switch density
+    /// population.
     ///
-    /// Organically forked and ticked so the sweep's side switch fires at
-    /// every one of the `n − 1` overlay boundaries, join and meet alike
-    /// — the pairing the ticked counterpart cannot reach.
+    /// Organically forked and ticked so the sweep's side switch fires at every
+    /// one of the `n − 1` overlay boundaries, join and meet alike — the pairing
+    /// the ticked counterpart cannot reach.
     ConcurrentPair,
-    /// The tooth-tail pair `tooth_tail(g, m)`: the boundary-aligned
-    /// exact-`top` population.
+    /// The tooth-tail pair `tooth_tail(g, m)`: the boundary-aligned exact-`top`
+    /// population.
     ///
-    /// Two same-shape unit chains whose second leaves spike `2^(32g)`
-    /// in both operands, `b` one tick above `a` everywhere except the
-    /// shared terminal: the pair sweep folds both spikes into one
-    /// cancelling difference at the same boundary, then reads
-    /// `sign(D)` once per remaining boundary with no intervening
-    /// write. Exact-`top` maintenance prices each read at the settled
-    /// value's own width; a high-water bound re-walks the spike's `g`
+    /// Two same-shape unit chains whose second leaves spike `2^(32g)` in both
+    /// operands, `b` one tick above `a` everywhere except the shared terminal:
+    /// the pair sweep folds both spikes into one cancelling difference at the
+    /// same boundary, then reads `sign(D)` once per remaining boundary with no
+    /// intervening write. Exact-`top` maintenance prices each read at the
+    /// settled value's own width; a high-water bound re-walks the spike's `g`
     /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the
-    /// `skyline_flatness` tooth-tail band carries both readings).
-    /// Every overlay boundary is shared by both operands and almost
-    /// every stored delta is zero, so the pair is also the touch
-    /// floor's honest-less-work witness (the board floor module's
-    /// `touch_pair_fold`): a conforming sweep is forced to fold only
-    /// the three nonzero deltas per operand, and the measured
-    /// per-boundary sign-read traffic sits far above that floor as
+    /// `skyline_flatness` tooth-tail band carries both readings). Every overlay
+    /// boundary is shared by both operands and almost every stored delta is
+    /// zero, so the pair is also the touch floor's honest-less-work witness
+    /// (the board floor module's `touch_pair_fold`): a conforming sweep is
+    /// forced to fold only the three nonzero deltas per operand, and the
+    /// measured per-boundary sign-read traffic sits far above that floor as
     /// implementation, never mandate.
     ToothTail,
     /// The fixed-seed organic control population.
     Benign,
-    /// The wide-tooth comb `W(k, w, n)`: bounded wide oscillation —
-    /// height state that must *stay* live across a fixed-width window.
+    /// The wide-tooth comb `W(k, w, n)`: bounded wide oscillation — height
+    /// state that must *stay* live across a fixed-width window.
     WideToothComb,
-    /// The jump comb `J(k, n)`: the stale-drift eviction probe — height
-    /// state that must *leave* the cheap-delta path exactly once.
+    /// The jump comb `J(k, n)`: the stale-drift eviction probe — height state
+    /// that must *leave* the cheap-delta path exactly once.
     JumpComb,
-    /// The unpaid-crossing fan `F(k, n)`: `n` sibling carry excursions
-    /// funded by one stored magnitude.
+    /// The unpaid-crossing fan `F(k, n)`: `n` sibling carry excursions funded
+    /// by one stored magnitude.
     CliffFan,
-    /// The cancelling-prefix chain `P(k, n)`: deep sign scans funded by
-    /// the wide writes that immediately precede them.
+    /// The cancelling-prefix chain `P(k, n)`: deep sign scans funded by the
+    /// wide writes that immediately precede them.
     CancellingChain,
-    /// The alternating-binary spine `A(d)`: the frame-count adversary
-    /// for iterative walks that keep per-level records.
+    /// The alternating-binary spine `A(d)`: the frame-count adversary for
+    /// iterative walks that keep per-level records.
     AltSpine,
-    /// The memo-chain pair `Q(k, distinct)` × its id: `k`
-    /// consumption-sibling memo records in one fresh scan, with the
-    /// shared twin (all differences zero) as the unstored control.
+    /// The memo-chain pair `Q(k, distinct)` × its id: `k` consumption-sibling
+    /// memo records in one fresh scan, with the shared twin (all differences
+    /// zero) as the unstored control.
     MemoChain,
-    /// The memo-comb pair `B(d)` × its id: consecutively consumed sites
-    /// Θ(d) apart in recording order, the resolution-order adversary.
+    /// The memo-comb pair `B(d)` × its id: consecutively consumed sites Θ(d)
+    /// apart in recording order, the resolution-order adversary.
     MemoComb,
-    /// The memo fan-out `F(k, b)`: one wide minimum shared by `k` sites,
-    /// paid by the input exactly once — the funding argument's red side.
+    /// The memo fan-out `F(k, b)`: one wide minimum shared by `k` sites, paid
+    /// by the input exactly once — the funding argument's red side.
     MemoFanout,
-    /// The oscillating siblings `O(k, b)`: every ledger link wide but
-    /// funded one-for-one by the input — the funding argument's control.
+    /// The oscillating siblings `O(k, b)`: every ledger link wide but funded
+    /// one-for-one by the input — the funding argument's control.
     MemoOscillating,
-    /// The memo-churn pair `U(d)` × its id: a descending run
-    /// undercutting `d` live records, the live-anchored followers'
-    /// tombstone.
+    /// The memo-churn pair `U(d)` × its id: a descending run undercutting `d`
+    /// live records, the live-anchored followers' tombstone.
     MemoChurn,
-    /// The descending raises `W(d)` × its id: a floor realized high with
-    /// every site's raise landing below it — the decide-then-emit
-    /// ordering's one exerciser.
+    /// The descending raises `W(d)` × its id: a floor realized high with every
+    /// site's raise landing below it — the decide-then-emit ordering's one
+    /// exerciser.
     DescendingRaises,
-    /// The masked-comparison correlated tuples `MT(k, n)` / `MQ(k, n)`:
-    /// operand pairings built for the fused three- and four-stream
-    /// comparison walks alone.
+    /// The masked-comparison correlated tuples `MT(k, n)` / `MQ(k, n)`: operand
+    /// pairings built for the fused three- and four-stream comparison walks
+    /// alone.
     MaskDrift,
-    /// The meet-shade population `MS(d, k)`: one deep carrier under
-    /// `k − 1` dominating plateau shades, the meet fold's wedge.
+    /// The meet-shade population `MS(d, k)`: one deep carrier under `k − 1`
+    /// dominating plateau shades, the meet fold's wedge.
     MeetShade,
-    /// The arming-train family `AT(n, w, g, alternate)`: the product
-    /// tree's level-ratio probe, three fixed-width points in two sign
-    /// schedules.
+    /// The arming-train family `AT(n, w, g, alternate)`: the product tree's
+    /// level-ratio probe, three fixed-width points in two sign schedules.
     ArmingTrain,
 }
 
@@ -917,58 +887,55 @@ pub enum FamilyId {
 /// from.
 #[derive(Debug, Clone, Copy)]
 pub struct FamilySpec {
-    /// The family name of record: the board column header, the bench
-    /// cell key, and the prose name the bands and pins use.
+    /// The family name of record: the board column header, the bench cell key,
+    /// and the prose name the bands and pins use.
     pub name: &'static str,
     /// The registered constructors that build this family's operands.
     ///
-    /// Empty exactly for the populations built organically from the
-    /// public API (scatter, weave, benign), whose construction lives in
-    /// the board's family module.
+    /// Empty exactly for the populations built organically from the public API
+    /// (scatter, weave, benign), whose construction lives in the board's family
+    /// module.
     pub shapes: &'static [Shape],
-    /// The board answer: a column with its declared bundle reach, or
-    /// the dated reason this family earns no column.
+    /// The board answer: a column with its declared bundle reach, or the dated
+    /// reason this family earns no column.
     pub coverage: Coverage,
-    /// The envelope-band answer: the committed band roster in
-    /// `tests/meter.rs`, or the dated reason no band exists.
+    /// The envelope-band answer: the committed band roster in `tests/meter.rs`,
+    /// or the dated reason no band exists.
     pub bands: Bands,
-    /// The denominator of record: what this family's priced readings
-    /// are charged against.
+    /// The denominator of record: what this family's priced readings are
+    /// charged against.
     pub denominator: &'static str,
-    /// The closed-form hook, where one exists: the quantity computable
-    /// two ways and the pin that compares them.
+    /// The closed-form hook, where one exists: the quantity computable two ways
+    /// and the pin that compares them.
     pub closed_form: Option<&'static str>,
 }
 
 /// A family's board answer.
 #[derive(Debug, Clone, Copy)]
 pub enum Coverage {
-    /// A board column: the whole-surface product prices this family on
-    /// every operation row its operand bundle supplies.
+    /// A board column: the whole-surface product prices this family on every
+    /// operation row its operand bundle supplies.
     ///
-    /// `cells` is the declared bundle reach — how many operation rows
-    /// the bundle feeds, scale-independent — which the board smoke
-    /// suite holds the rendered matrix to, so a bundle slot gained or
-    /// lost without a deliberate re-declaration fails there.
+    /// `cells` is the declared bundle reach — how many operation rows the
+    /// bundle feeds, scale-independent — which the board smoke suite holds the
+    /// rendered matrix to, so a bundle slot gained or lost without a deliberate
+    /// re-declaration fails there.
     Board {
         /// The declared operation-row reach of this family's bundle.
         ///
-        /// The version-only shapes (a version, its derived pairings,
-        /// and its rejection rows) supply 55 rows; the id pair
-        /// (parties only) 38; the cross shapes (version, mounted
-        /// party pair, clock, and the id-side rejections) 76; the
-        /// fold-only populations exactly the 4 fold rows their
-        /// operand bundles feed (`version_join_all`,
-        /// `version_meet_all`, `version_span_all`, `party_join_all`);
-        /// and the benign control supplies every row.
+        /// The version-only shapes (a version, its derived pairings, and its
+        /// rejection rows) supply 55 rows; the id pair (parties only) 38; the
+        /// cross shapes (version, mounted party pair, clock, and the id-side
+        /// rejections) 76; the fold-only populations exactly the 4 fold rows
+        /// their operand bundles feed (`version_join_all`, `version_meet_all`,
+        /// `version_span_all`, `party_join_all`); and the benign control
+        /// supplies every row.
         cells: usize,
     },
-    /// No board column: a kernel-seam probe (or an operand-tuple
-    /// pairing) whose enforcement home is the envelope suite alone,
-    /// with the dated ruling.
+    /// No board column: a kernel-seam probe (or an operand-tuple pairing) whose
+    /// enforcement home is the envelope suite alone, with the dated ruling.
     EnvelopeOnly {
-        /// Why this family earns no column (the board-roster criterion
-        /// answer).
+        /// Why this family earns no column (the board-roster criterion answer).
         reason: &'static str,
         /// The date of the ruling of record.
         decided: &'static str,
@@ -978,11 +945,11 @@ pub enum Coverage {
 /// A family's envelope-band answer.
 #[derive(Debug, Clone, Copy)]
 pub enum Bands {
-    /// The committed flatness/adequacy bands in `tests/meter.rs` that
-    /// price this family, by test name.
+    /// The committed flatness/adequacy bands in `tests/meter.rs` that price
+    /// this family, by test name.
     Priced(&'static [&'static str]),
-    /// No band, with the dated reason (which instrument prices the
-    /// family instead).
+    /// No band, with the dated reason (which instrument prices the family
+    /// instead).
     Unbanded {
         /// Why no two-point band exists for this family.
         reason: &'static str,
@@ -1056,10 +1023,9 @@ impl FamilyId {
         FamilyId::ArmingTrain,
     ];
 
-    /// This family's position in [`FamilyId::ALL`] — the roster-order
-    /// tie the registry tests hold against the array, so a variant
-    /// cannot be declared without joining the roster at a committed
-    /// position.
+    /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
+    /// registry tests hold against the array, so a variant cannot be declared
+    /// without joining the roster at a committed position.
     pub const fn index(self) -> usize {
         match self {
             FamilyId::Dense => 0,
@@ -1111,8 +1077,8 @@ impl FamilyId {
         }
     }
 
-    /// The amplification board's family axis, in render order: the
-    /// roster filtered on each variant's committed coverage answer.
+    /// The amplification board's family axis, in render order: the roster
+    /// filtered on each variant's committed coverage answer.
     pub fn board() -> impl Iterator<Item = FamilyId> {
         FamilyId::ALL
             .into_iter()
@@ -1719,13 +1685,13 @@ impl FamilyId {
     }
 }
 
-/// Bands that price an operation-argument axis or an API seam rather
-/// than a registered shape, each with its dated disposition: the
-/// registry's answer for band names no family row can carry.
+/// Bands that price an operation-argument axis or an API seam rather than a
+/// registered shape, each with its dated disposition: the registry's answer for
+/// band names no family row can carry.
 ///
-/// The board smoke suite's band-name scan (the named parity survivor in
-/// the module doc) accepts a scanned band exactly when some family's
-/// [`Bands`] roster or this table cites it.
+/// The board smoke suite's band-name scan (the named parity survivor in the
+/// module doc) accepts a scanned band exactly when some family's [`Bands`]
+/// roster or this table cites it.
 pub const AXIS_BANDS: &[(&str, &str)] = &[
     (
         "ticks_flatness_holds_the_log_band",

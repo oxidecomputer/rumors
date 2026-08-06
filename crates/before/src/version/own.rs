@@ -11,33 +11,13 @@ mod tests;
 
 /// The projection of a [`Version`] by a [`Party`]: `v / &p`.
 ///
-/// Both projection spellings construct it in `O(1)`, borrowing their operands:
-/// the operator `&v / &p` and
-/// [`Clock::own_version`](crate::Clock::own_version). The view compares
-/// directly — against a [`Version`] or against another `OwnVersion`, with `==`,
-/// `<=`, and the rest of [`PartialOrd`] — in one pass over the operands' packed
-/// streams, and materializing the projected [`Version`] is a separate, explicit
-/// call: [`to_version`](Self::to_version) (or the [`From`] impl).
-/// Materialization is the one projection operation whose output can outgrow its
-/// operands (its result is not bounded by a constant factor of the inputs),
-/// which is why it does not happen implicitly: every lazy comparison costs the
-/// operands' sizes, never the projection's.
+/// The view compares directly against a [`Version`] or against another
+/// `OwnVersion`, with `==`, `<=`, and the rest of [`PartialOrd`]; materializing
+/// the projected [`Version`] is a separate, explicit call:
+/// [`to_version`](Self::to_version) (or the [`From`] impl).
 ///
-/// Equality is semantic — the projected histories agree — not representational:
-/// `view == w` holds only if `w` is zero outside the party's region. There is
-/// deliberately no `Hash`: the view holds borrowed operands, not canonical
-/// bytes, and hashing would cost a materialization it exists to avoid;
-/// materialize with [`to_version`](Self::to_version) where a hashable value is
-/// needed.
-///
-/// # Complexity
-///
-/// Construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs
-/// view `O(|v₁| + |p₁| + |v₂| + |p₂|)` — `v`/`p` the viewed version and
-/// projecting party, `w` the [`Version`] operand, all sizes in bytes.
-/// Every comparison (either direction, `==` or [`PartialOrd`]) is one
-/// pass in time and space, allocation-free but for transient cursors.
-/// [`Clone`] and [`Copy`] cost as construction does.
+/// Materializing a projection can outgrow its operands by a multiplicative
+/// factor of its operands' sizes, so is kept explicit.
 ///
 /// # Example
 ///
@@ -65,22 +45,18 @@ pub struct OwnVersion<'a> {
 }
 
 impl OwnVersion<'_> {
-    /// Materializes the projected [`Version`]: the explicit, eager form
-    /// of this view.
+    /// Materializes the projected [`Version`].
     ///
     /// This is the one path to the projection as an object, and the one
-    /// projection cost not bounded by the operands: the result re-codes the
-    /// version's heights once per owned fragment, so its size can grow
-    /// as the operands' product ([`encoded_bits`](Version::encoded_bits) on the
-    /// result is the honest measure). Prefer the view's own comparisons
-    /// wherever the projection is only being compared.
+    /// projection cost not linearly bounded by the operands: the size of its
+    /// output can grow as the operands' product. Prefer the view's own
+    /// comparisons wherever the projection is only being compared.
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p| + |r|)` — `v`/`p` the viewed version and projecting
-    /// party, `r` the result — with `|r| = O(|v| · |p|)`: the result
-    /// re-codes a height once per owned fragment, so one wide value
-    /// spanning every fragment makes the product tight.
+    /// `O(|v| + |p| + |r|)`, where `v`/`p` are the viewed version and
+    /// projecting party, and `r` is the result, with the worst case size of
+    /// `|r| = O(|v| · |p|)`.
     ///
     /// # Example
     ///
@@ -108,7 +84,7 @@ impl OwnVersion<'_> {
 ///
 /// # Complexity
 ///
-/// `O(|v| + |p| + |r|)` with `|r| = O(|v| · |p|)`, as
+/// `O(|v| + |p| + |r|)` with the worst case size of `|r| = O(|v| · |p|)`, as
 /// [`to_version`](OwnVersion::to_version).
 ///
 /// # Example

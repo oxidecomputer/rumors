@@ -1,5 +1,5 @@
-//! The registry's own pins: the seams between the roster and its data
-//! tables that the compiler cannot check, held by tests instead.
+//! The registry's own pins: the seams between the roster and its data tables
+//! that the compiler cannot check, held by tests instead.
 
 use std::collections::BTreeSet;
 
@@ -7,10 +7,9 @@ use super::{Bands, Coverage, FamilyId, Shape, AXIS_BANDS};
 
 /// Every shape constructor, for the citation pin below.
 ///
-/// Completeness rides the same review discipline as [`FamilyId::ALL`]:
-/// a variant missing here escapes only the citation pin, never the
-/// compiler ties (its constructor arm in `Shape::builder` is still
-/// forced).
+/// Completeness rides the same review discipline as [`FamilyId::ALL`]: a
+/// variant missing here escapes only the citation pin, never the compiler ties
+/// (its constructor arm in `Shape::builder` is still forced).
 const ALL_SHAPES: [Shape; 55] = [
     Shape::Dense,
     Shape::Bigroot,
@@ -69,9 +68,9 @@ const ALL_SHAPES: [Shape; 55] = [
     Shape::MaskDriftQuadruple,
 ];
 
-/// The roster array and the per-variant index agree: every family sits
-/// in [`FamilyId::ALL`] at its committed position, so the roster order
-/// every instrument derives (board render order included) is pinned.
+/// The roster array and the per-variant index agree: every family sits in
+/// [`FamilyId::ALL`] at its committed position, so the roster order every
+/// instrument derives (board render order included) is pinned.
 #[test]
 fn roster_order_is_committed() {
     for (i, family) in FamilyId::ALL.iter().enumerate() {
@@ -84,8 +83,8 @@ fn roster_order_is_committed() {
     }
 }
 
-/// Family names are unique: the name is the board column header and the
-/// bench cell key, so a collision would silently merge two columns.
+/// Family names are unique: the name is the board column header and the bench
+/// cell key, so a collision would silently merge two columns.
 #[test]
 fn family_names_are_unique() {
     let names: BTreeSet<&str> = FamilyId::ALL.iter().map(|f| f.name()).collect();
@@ -98,10 +97,9 @@ fn family_names_are_unique() {
 
 /// Every shape constructor is cited by at least one family's spec.
 ///
-/// The named parity survivor for shape citation: membership of a
-/// [`Shape`] in a family's `shapes` row is data, not types, so this pin
-/// is what keeps a constructor from riding the registry door with no
-/// family answering for it.
+/// The named parity survivor for shape citation: membership of a [`Shape`] in a
+/// family's `shapes` row is data, not types, so this pin is what keeps a
+/// constructor from riding the registry door with no family answering for it.
 #[test]
 fn every_shape_is_cited_by_a_family() {
     let cited: BTreeSet<Shape> = FamilyId::ALL
@@ -117,10 +115,9 @@ fn every_shape_is_cited_by_a_family() {
     }
 }
 
-/// Band citations are unique across the family specs and the axis-band
-/// table, and every `Priced` roster is nonempty: one band name resolves
-/// to exactly one registry answer, and a family claiming bands must
-/// name at least one.
+/// Band citations are unique across the family specs and the axis-band table,
+/// and every `Priced` roster is nonempty: one band name resolves to exactly one
+/// registry answer, and a family claiming bands must name at least one.
 #[test]
 fn band_citations_are_unique_and_nonempty() {
     let mut seen: BTreeSet<&str> = BTreeSet::new();
@@ -160,9 +157,9 @@ fn band_citations_are_unique_and_nonempty() {
 
 /// The board roster is exactly the families answering `Board`.
 ///
-/// Its declared bundle reach is nonzero everywhere and the roster is
-/// nonempty: the filter every board sweep derives its family axis
-/// from cannot silently go empty or carry a zero-reach column.
+/// Its declared bundle reach is nonzero everywhere and the roster is nonempty:
+/// the filter every board sweep derives its family axis from cannot silently go
+/// empty or carry a zero-reach column.
 #[test]
 fn board_roster_derives_from_coverage_answers() {
     let mut columns = 0usize;
@@ -191,8 +188,8 @@ fn board_roster_derives_from_coverage_answers() {
     assert!(columns > 0, "the board roster is empty");
 }
 
-/// Every envelope-only ruling carries a dated, non-empty reason: NA is
-/// an explicit answer, never an omission.
+/// Every envelope-only ruling carries a dated, non-empty reason: NA is an
+/// explicit answer, never an omission.
 #[test]
 fn envelope_only_rulings_are_dated() {
     for family in FamilyId::ALL {

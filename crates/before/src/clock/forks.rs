@@ -13,12 +13,9 @@ use crate::{party, Clock, Party, Version};
 ///
 /// # Complexity
 ///
-/// A full drain `O(|c| + n (d + log n))`, `|c|` the borrowed clock's
-/// size in bytes and `d` its party's id-tree depth (the split's bound —
-/// see [`iter::Party`](crate::iter::Party)), plus one `O(1)` version
-/// clone per child. Each `next` costs its own share's path plus one
-/// clone; an early drop rejoins as the party iterator does, cloning
-/// nothing more.
+/// A full drain costs `O(|c| + n (|c| + log n))`, with `|c|` the borrowed
+/// clock's size in bytes. Each `next` costs its own share's portion of this
+/// total cost; an early drop rejoins in `O(|c| log n)`.
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.
@@ -69,9 +66,7 @@ impl ExactSizeIterator for Forks<'_> {}
 ///
 /// # Complexity
 ///
-/// `O(|clock| + N (d + log N))`, `d` the consumed clock's party
-/// id-tree depth (as [`iter::Party`](crate::iter::Party)), plus one
-/// `O(1)` version clone per share.
+/// `O(|clock| + N (|clock| + log N))`.
 ///
 /// # Example
 ///

@@ -8,22 +8,20 @@ impl IdReader<'_> {
     /// producing a normalized id, or `None` if they overlap (share a region, so
     /// no disjoint union exists).
     ///
-    /// This is the single point of overlap
-    /// detection: callers (`Party::join`) need not pre-check
-    /// [`is_disjoint`](IdReader::is_disjoint), since a successful `sum` *is* the
-    /// disjointness proof. `O(n + m)`: the both-internal case threads (no
-    /// skip); a `0` child copies the other subtree verbatim (work bounded by
-    /// the output size).
+    /// This is the single point of overlap detection: callers (`Party::join`)
+    /// need not pre-check [`is_disjoint`](IdReader::is_disjoint), since a
+    /// successful `sum` *is* the disjointness proof. `O(n + m)`: the
+    /// both-internal case threads (no skip); a `0` child copies the other
+    /// subtree verbatim (work bounded by the output size).
     ///
     /// The cursor form of `oracle::Party::sum` (the paper's `sum`/`norm`),
-    /// walked iteratively: the two consuming cursors carry the traversal,
-    /// and the per-node control state is two or three bits on a bit stack
-    /// (see [`Frames`]), so a deep operand costs bits, not stack frames or
-    /// grown segments. Each pair of subtrees reads as a match on the two
-    /// id nodes: `sum(0, b) = b`, `sum(a, 0) = a` (copy the nonempty side),
-    /// two nodes descend and normalize on close, and a full side over a
-    /// nonempty other is an overlap — `None` at once, discarding the
-    /// partial output.
+    /// walked iteratively: the two consuming cursors carry the traversal, and
+    /// the per-node control state is two or three bits on a bit stack (see
+    /// [`Frames`]), so a deep operand costs bits, not stack frames or grown
+    /// segments. Each pair of subtrees reads as a match on the two id nodes:
+    /// `sum(0, b) = b`, `sum(a, 0) = a` (copy the nonempty side), two nodes
+    /// descend and normalize on close, and a full side over a nonempty other is
+    /// an overlap — `None` at once, discarding the partial output.
     ///
     /// The nodes are [`peek`](IdReader::peek)ed, not read: a copied side must
     /// stay unconsumed so `copy_reader` can splice its whole subtree.
@@ -48,14 +46,14 @@ impl IdReader<'_> {
                         Built::Empty
                     }
                 }
-                // sum(a, 0) = a: copy a (present here, or the first arm
-                // would have matched).
+                // sum(a, 0) = a: copy a (present here, or the first arm would
+                // have matched).
                 (_, IdNode::Empty) => out.copy_reader(&mut self),
-                // A `1` (full) leaf meets a nonempty subtree: the two ids
-                // share a region, so there is no disjoint union.
+                // A `1` (full) leaf meets a nonempty subtree: the two ids share
+                // a region, so there is no disjoint union.
                 (IdNode::Full, _) | (_, IdNode::Full) => return None,
-                // Both internal: consume the node headers, emit the node's
-                // tag, and descend into its child pairs.
+                // Both internal: consume the node headers, emit the node's tag,
+                // and descend into its child pairs.
                 (
                     IdNode::Internal {
                         left: al,
@@ -69,10 +67,10 @@ impl IdReader<'_> {
                     self.read();
                     other.read();
                     // The tag is final at first sight: an output child is
-                    // nonempty exactly when either input child is present
-                    // (a disjoint union of nonempty regions is nonempty),
-                    // so no slot is reserved or patched. Only the
-                    // `(1, 1) → 1` collapse is close-time knowledge.
+                    // nonempty exactly when either input child is present (a
+                    // disjoint union of nonempty regions is nonempty), so no
+                    // slot is reserved or patched. Only the `(1, 1) → 1`
+                    // collapse is close-time knowledge.
                     let left = al || bl;
                     let right = ar || br;
                     out.push_tag(left, right);
@@ -80,19 +78,19 @@ impl IdReader<'_> {
                         frames.push_pending_right(ar, br);
                         (a_on, b_on) = (al, bl);
                     } else {
-                        // One child pair is absent on both sides: its sum
-                        // is empty, so the node cannot collapse and closes
-                        // when its single nonempty pair completes. (Both
-                        // absent cannot happen: each internal node has a
-                        // present child.)
+                        // One child pair is absent on both sides: its sum is
+                        // empty, so the node cannot collapse and closes when
+                        // its single nonempty pair completes. (Both absent
+                        // cannot happen: each internal node has a present
+                        // child.)
                         frames.push_pending_close(false);
                         (a_on, b_on) = if left { (al, bl) } else { (ar, br) };
                     }
                     continue;
                 }
             };
-            // The current pair is summed: unwind closes until a queued
-            // right pair resumes the walk, or the root pair is done.
+            // The current pair is summed: unwind closes until a queued right
+            // pair resumes the walk, or the root pair is done.
             loop {
                 match frames.pop() {
                     None => return Some(out.finish()),
@@ -102,11 +100,11 @@ impl IdReader<'_> {
                         break;
                     }
                     Some(Frame::PendingClose { left_terminal }) => {
-                        // Normalize on close: two terminal children
-                        // collapse to a single terminal; any other
-                        // combination is already final under its tag. A
-                        // pair the walk entered never sums to empty, so
-                        // terminal-or-not is the whole question.
+                        // Normalize on close: two terminal children collapse to
+                        // a single terminal; any other combination is already
+                        // final under its tag. A pair the walk entered never
+                        // sums to empty, so terminal-or-not is the whole
+                        // question.
                         built = if left_terminal && matches!(built, Built::Terminal) {
                             out.collapse_terminal_pair()
                         } else {
@@ -121,8 +119,8 @@ impl IdReader<'_> {
 
 /// The per-node control stack of a [`sum`](IdReader::sum) walk.
 ///
-/// Each open output node holds exactly one frame — two or three bits on
-/// one bit stack — in one of two shapes:
+/// Each open output node holds exactly one frame — two or three bits on one bit
+/// stack — in one of two shapes:
 ///
 /// - *pending right*: the node's right child pair is still to sum; the
 ///   frame carries the two input presence bits that thread it.
@@ -130,9 +128,9 @@ impl IdReader<'_> {
 ///   whether the node's left output child closed as a terminal, which is
 ///   all the `(1, 1) → 1` collapse test needs.
 ///
-/// No cursor position and no value is saved anywhere: the consuming
-/// readers advance in place, the output tag is written final at descent,
-/// and a collapse retracts a fixed-width suffix of the output
+/// No cursor position and no value is saved anywhere: the consuming readers
+/// advance in place, the output tag is written final at descent, and a collapse
+/// retracts a fixed-width suffix of the output
 /// ([`IdBuilder::collapse_terminal_pair`]).
 struct Frames {
     bits: BitsMut,
@@ -143,8 +141,8 @@ enum Frame {
     /// The enclosing node's right child pair is next, threaded by these
     /// presence bits.
     PendingRight { ar: bool, br: bool },
-    /// The enclosing node closes with the pair now completing; its left
-    /// output child closed as a terminal iff `left_terminal`.
+    /// The enclosing node closes with the pair now completing; its left output
+    /// child closed as a terminal iff `left_terminal`.
     PendingClose { left_terminal: bool },
 }
 
@@ -165,17 +163,17 @@ impl Frames {
 
     /// Mark the innermost open node as awaiting only its close.
     ///
-    /// Pushed when its right pair starts (recording what the left pair
-    /// built), and directly at descent where one child pair is absent on
-    /// both sides (whose sum is empty and can never make the node
-    /// collapse, so `left_terminal` is fixed `false`).
+    /// Pushed when its right pair starts (recording what the left pair built),
+    /// and directly at descent where one child pair is absent on both sides
+    /// (whose sum is empty and can never make the node collapse, so
+    /// `left_terminal` is fixed `false`).
     fn push_pending_close(&mut self, left_terminal: bool) {
         self.bits.push(left_terminal);
         self.bits.push(false);
     }
 
-    /// Pop the innermost frame, or `None` when no node is open (the pair
-    /// just completed was the root).
+    /// Pop the innermost frame, or `None` when no node is open (the pair just
+    /// completed was the root).
     fn pop(&mut self) -> Option<Frame> {
         let pending_right = self.bits.pop()?;
         if pending_right {

@@ -15,11 +15,11 @@
 //!
 //! This module is that move set, with the packed-stream write meter
 //! ([`scan::record_bits`](crate::codec::scan)) applied uniformly at the
-//! primitives so every builder's write work is counted once, in one place.
-//! The per-node payload discipline lives in the wrappers: the id builder
-//! (`party::ops`) patches presence tags and collapses uniform subtrees to
-//! their tag; the skyline builder ([`crate::version::skyline`]) appends
-//! leaf delta codes and collapses equal sibling leaves by truncation.
+//! primitives so every builder's write work is counted once, in one place. The
+//! per-node payload discipline lives in the wrappers: the id builder
+//! (`party::ops`) patches presence tags and collapses uniform subtrees to their
+//! tag; the skyline builder ([`crate::version::skyline`]) appends leaf delta
+//! codes and collapses equal sibling leaves by truncation.
 //!
 //! # Storage
 //!

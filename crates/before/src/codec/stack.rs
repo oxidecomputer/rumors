@@ -1,22 +1,20 @@
-//! Pop-able stacks held as bits: the word-backed bit stack the deep
-//! walks keep their paths and phases on, and the nonnegative-integer
-//! stack built over it.
+//! Pop-able stacks held as bits: the word-backed bit stack the deep walks keep
+//! their paths and phases on, and the nonnegative-integer stack built over it.
 //!
-//! Depth is priced in *bits* here — one path bit per open ancestor,
-//! `~2·w` bits per stacked `w`-bit integer — the currency the deep-input
-//! walks pay their transient in, where a machine word per level would
-//! dominate it. The backing is machine words, so every push and pop is
-//! shift arithmetic on a register with at most one word spill.
+//! Depth is priced in *bits* here — one path bit per open ancestor, `~2·w` bits
+//! per stacked `w`-bit integer — the currency the deep-input walks pay their
+//! transient in, where a machine word per level would dominate it. The backing
+//! is machine words, so every push and pop is shift arithmetic on a register
+//! with at most one word spill.
 
 #[cfg(test)]
 mod tests;
 
 /// A pop-able stack of bits over machine words.
 ///
-/// The newest bit lives at the low end of the top register; a filled
-/// register spills whole into the word vector and refills on the pop
-/// that crosses back. Every operation is O(1) with no bit-addressing
-/// arithmetic.
+/// The newest bit lives at the low end of the top register; a filled register
+/// spills whole into the word vector and refills on the pop that crosses back.
+/// Every operation is O(1) with no bit-addressing arithmetic.
 pub(crate) struct BitStack {
     /// Completed 64-bit groups below the top register, oldest first.
     words: Vec<u64>,
@@ -52,9 +50,9 @@ impl BitStack {
         self.top_len += 1;
     }
 
-    /// Push `len <= 63` bits at once, oldest at the value's high end —
-    /// popping returns them newest-first, exactly as `len` single
-    /// pushes of the value's bits from high to low.
+    /// Push `len <= 63` bits at once, oldest at the value's high end — popping
+    /// returns them newest-first, exactly as `len` single pushes of the value's
+    /// bits from high to low.
     fn push_bits(&mut self, value: u64, len: u32) {
         debug_assert!(len <= 63 && (len == 64 || value >> len == 0));
         let total = self.top_len + len;
@@ -75,8 +73,8 @@ impl BitStack {
     }
 
     /// Pop `len <= 63` bits at once, returned exactly as
-    /// [`push_bits`](Self::push_bits) packed them: the inverse, equal
-    /// to `len` single pops assembled low bit first.
+    /// [`push_bits`](Self::push_bits) packed them: the inverse, equal to `len`
+    /// single pops assembled low bit first.
     ///
     /// # Panics
     ///
@@ -100,9 +98,8 @@ impl BitStack {
 
     /// The exact run of set bits at the top of the stack.
     ///
-    /// One word read per 64 bits of the run: the cost is the run the
-    /// caller is about to pop (or has decided not to), never the whole
-    /// stack.
+    /// One word read per 64 bits of the run: the cost is the run the caller is
+    /// about to pop (or has decided not to), never the whole stack.
     pub(crate) fn trailing_ones(&self) -> usize {
         let top_run = self.top.trailing_ones().min(self.top_len);
         if top_run < self.top_len {
@@ -121,11 +118,10 @@ impl BitStack {
 
     /// The run of set bits at the top of the stack, capped at 62.
     ///
-    /// Reads only the top register and at most one spilled word (a cap
-    /// under 63 never needs a second): the integer stack's width scan.
-    /// Bits above the register's live length are zero by construction,
-    /// so `trailing_ones` stops inside the live region or exactly at
-    /// its edge.
+    /// Reads only the top register and at most one spilled word (a cap under 63
+    /// never needs a second): the integer stack's width scan. Bits above the
+    /// register's live length are zero by construction, so `trailing_ones`
+    /// stops inside the live region or exactly at its edge.
     fn trailing_ones_capped(&self) -> u32 {
         let mut run = self.top.trailing_ones().min(self.top_len);
         if run == self.top_len {
@@ -184,14 +180,13 @@ impl BitStack {
 
 /// A pop-able stack of nonnegative integers held as bits.
 ///
-/// Each entry costs `2·w` bits for a `w`-bit value: the value's bits on
-/// one stack, and `w` in pop-able unary — a terminator under `w − 1`
-/// continuation bits — on the other. A stack with one entry per open
-/// ancestor therefore prices depth in *bits*, the currency the deep-input
-/// walks already pay their path and phase stacks in, where a machine word
-/// per level would dominate the transient. Consumers keep entries narrow
-/// by construction — deltas from a register, code lengths — so an entry
-/// typically costs a few bits.
+/// Each entry costs `2·w` bits for a `w`-bit value: the value's bits on one
+/// stack, and `w` in pop-able unary — a terminator under `w − 1` continuation
+/// bits — on the other. A stack with one entry per open ancestor therefore
+/// prices depth in *bits*, the currency the deep-input walks already pay their
+/// path and phase stacks in, where a machine word per level would dominate the
+/// transient. Consumers keep entries narrow by construction — deltas from a
+/// register, code lengths — so an entry typically costs a few bits.
 pub(crate) struct PopStack {
     /// Width markers: for each entry, one `false` under `w − 1` `true`s.
     unary: BitStack,
@@ -211,11 +206,10 @@ impl PopStack {
     /// Push a value (zero included: it stores one value bit).
     pub(crate) fn push(&mut self, v: u64) {
         let width = (u64::BITS - v.leading_zeros()).max(1);
-        // The value's bits, high first; pops then read it back low
-        // first, which is the packing `pop_bits` returns whole. The
-        // width marker is `width - 1` continuation `true`s over one
-        // `false` terminator: newest-first pops read the `true`s, so
-        // they sit above the terminator on the stack.
+        // The value's bits, high first; pops then read it back low first, which
+        // is the packing `pop_bits` returns whole. The width marker is `width -
+        // 1` continuation `true`s over one `false` terminator: newest-first
+        // pops read the `true`s, so they sit above the terminator on the stack.
         if width == 64 {
             self.value.push(v >> 63 & 1 == 1);
             self.value.push_bits(v & (u64::MAX >> 1), 63);
@@ -236,8 +230,8 @@ impl PopStack {
     ///
     /// Panics if the stack is empty.
     pub(crate) fn pop(&mut self) -> u64 {
-        // The width scan: count continuation bits in the registers,
-        // falling back to single pops past the batched cap.
+        // The width scan: count continuation bits in the registers, falling
+        // back to single pops past the batched cap.
         let quick = self.unary.trailing_ones_capped();
         let width = if quick < 62 {
             self.unary.pop_bits(quick + 1);

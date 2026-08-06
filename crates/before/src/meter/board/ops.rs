@@ -1,8 +1,8 @@
 //! The operation axis: the board's row table.
 //!
-//! Each row declares the bundle slots its signature consumes and prepares
-//! its cell from them alone — never from the shape's identity — so a row
-//! reaches every shape that supplies its operands.
+//! Each row declares the bundle slots its signature consumes and prepares its
+//! cell from them alone — never from the shape's identity — so a row reaches
+//! every shape that supplies its operands.
 
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
@@ -804,14 +804,15 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (versions, _) = f.fold.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
-                let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
+                let mut versions: Vec<Version> =
+                    versions.iter().map(|b| decode_version(b)).collect();
                 let arity = versions.len() as u64;
                 let touch = touch_fold_first_merges(&versions);
+                let rest = versions.split_off(1);
+                let receiver = versions.pop()?;
                 Some(
-                    Cell::new(n, walk_floors(n, touch), move || {
-                        Version::join_all(versions)
-                    })
-                    .with_fold_arity(arity),
+                    Cell::new(n, walk_floors(n, touch), move || receiver.join_all(rest))
+                        .with_fold_arity(arity),
                 )
             },
         },
@@ -828,14 +829,15 @@ pub(super) fn ops() -> Vec<Op> {
                 // sweep).
                 let (versions, _) = f.fold.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
-                let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
+                let mut versions: Vec<Version> =
+                    versions.iter().map(|b| decode_version(b)).collect();
                 let arity = versions.len() as u64;
                 let touch = touch_fold_first_merges(&versions);
+                let rest = versions.split_off(1);
+                let receiver = versions.pop()?;
                 Some(
-                    Cell::new(n, walk_floors(n, touch), move || {
-                        Version::meet_all(versions)
-                    })
-                    .with_fold_arity(arity),
+                    Cell::new(n, walk_floors(n, touch), move || receiver.meet_all(rest))
+                        .with_fold_arity(arity),
                 )
             },
         },
@@ -1129,8 +1131,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, _) = f.version_pair()?;
                 let span = v.span(&w);
                 let probe = decode_version(&v.encode());
-                let n =
-                    span.meet().encode().len() + span.join().encode().len() + probe.encode().len();
+                let n = span.lo().encode().len() + span.hi().encode().len() + probe.encode().len();
                 Some(Cell::new(
                     n,
                     walk_floors(n, na(NA_TOUCH_PLACEMENT)),
@@ -1148,8 +1149,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, _) = f.version_pair()?;
                 let span = v.span(&w);
                 let probe = decode_version(&v.encode());
-                let n =
-                    span.meet().encode().len() + span.join().encode().len() + probe.encode().len();
+                let n = span.lo().encode().len() + span.hi().encode().len() + probe.encode().len();
                 Some(Cell::new(
                     n,
                     walk_floors(n, na(NA_TOUCH_PLACEMENT)),
@@ -1200,8 +1200,8 @@ pub(super) fn ops() -> Vec<Op> {
                 let span = lo.span(&hi);
                 let n = v.encode().len()
                     + w.encode().len()
-                    + span.meet().encode().len()
-                    + span.join().encode().len();
+                    + span.lo().encode().len()
+                    + span.hi().encode().len();
                 Some(Cell::new(
                     n,
                     walk_floors(n, na(NA_TOUCH_PLACEMENT)),

@@ -1,45 +1,29 @@
-//! The balanced binary-counter reduction every n-ary fold runs on: the
-//! one home for the counter discipline, so a hardening of the fold
-//! shape reaches every fold at once.
+//! The balanced binary-counter reduction every n-ary fold runs on: the one home
+//! for the counter discipline, so a hardening of the fold shape reaches every
+//! fold at once.
 //!
-//! An incoming operand merges upward while the top stack entry holds as
-//! many inputs as it does, so every input passes through `O(log k)`
-//! combines against similarly sized partners and no combine's operand
-//! is more than a bounded factor larger than its partner. A sequential
-//! left fold instead combines every input into the whole accumulated
-//! result — quadratic sweep work whenever the accumulator's packed size
-//! tracks the population's, which every lattice direction here reaches:
-//! a join's union can grow without coalescing (interleaved single-tick
-//! versions; scattered party regions), and a meet's result can shrink
-//! in value but not in packed size (one deep version among operands
-//! that dominate it). Every combiner fed to this module is associative
-//! and commutative, so the counter's regrouping is value-identical to
-//! the left fold's.
-//!
-//! The callers: [`Version::join_all`](crate::Version::join_all) and
-//! [`Version::meet_all`](crate::Version::meet_all) through
-//! [`balanced_reduce`]; [`Party::join_all`](crate::Party::join_all),
-//! [`Clock::join_all`](crate::Clock::join_all), and
-//! [`Clock::sync_all`](crate::Clock::sync_all) through
-//! [`balanced_try_fold`] — the first two's fallible combiner and
-//! rejection channel carry their aliased-input hand-back policy, while
-//! `sync_all` runs the counter over aliases and collapses any rejection
-//! into its all-or-nothing overlap error. The promotion ledger's
-//! product-tree settle (`Integrator::settle_armings`, the skyline query
-//! fold) runs the same counter discipline hand-rolled: its combiner
-//! charges an accumulator as a side effect and its closing drain folds
-//! newest-first (the committed settle readings are pinned against that
-//! association), so it names this module instead of routing through it.
+//! An incoming operand merges upward while the top stack entry holds as many
+//! inputs as it does, so every input passes through `O(log k)` combines against
+//! similarly sized partners and no combine's operand is more than a bounded
+//! factor larger than its partner. A sequential left fold instead combines
+//! every input into the whole accumulated result — quadratic sweep work
+//! whenever the accumulator's packed size tracks the population's, which every
+//! lattice direction here reaches: a join's union can grow without coalescing
+//! (interleaved single-tick versions; scattered party regions), and a meet's
+//! result can shrink in value but not in packed size (one deep version among
+//! operands that dominate it). Every combiner fed to this module is associative
+//! and commutative, so the counter's regrouping is value-identical to the left
+//! fold's.
 
-/// Reduce `iter` through the balanced binary counter with a fallible
-/// combiner, returning the surviving groups oldest-first; inputs the
-/// fold cannot place land in `rejected`.
+/// Reduce `iter` through the balanced binary counter with a fallible combiner,
+/// returning the surviving groups oldest-first; inputs the fold cannot place
+/// land in `rejected`.
 ///
-/// Each accepted input enters the counter at weight 0 and merges upward
-/// through `combine(older, newer)` — the left operand is always the
-/// group that arrived earlier — while the top stack entry holds as many
-/// inputs as the merging group does. The two rejection paths preserve
-/// the caller's feed-order accounting exactly:
+/// Each accepted input enters the counter at weight 0 and merges upward through
+/// `combine(older, newer)` — the left operand is always the group that arrived
+/// earlier — while the top stack entry holds as many inputs as the merging
+/// group does. The two rejection paths preserve the caller's feed-order
+/// accounting exactly:
 ///
 /// - an input failing `accept` is handed to `rejected` immediately,
 ///   before it touches the counter (the callers' up-front overlap test
@@ -100,9 +84,10 @@ pub(crate) fn balanced_try_fold<T>(
 /// combiner, or [`None`] for an empty iterator.
 ///
 /// [`balanced_try_fold`] with every input accepted and the closing
-/// drain folded in: `Version::join_all` restores its identity (the
-/// empty version) over the `None`; the meet has none, so
-/// `Version::meet_all` returns the `Option` as is.
+/// drain folded in: the receiver-seeded version folds
+/// (`Version::join_all`, `Version::meet_all`, `Version::span_all`)
+/// never see the `None`, and the seedless `Sum`/`FromIterator` doors
+/// restore the join's identity (the empty version) over it.
 pub(crate) fn balanced_reduce<T>(
     iter: impl IntoIterator<Item = T>,
     mut combine: impl FnMut(T, T) -> T,

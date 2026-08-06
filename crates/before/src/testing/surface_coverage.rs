@@ -193,6 +193,21 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
         type_overrides: &[("Query", "causally::Query")],
     },
     SourceSpec {
+        path: "src/span/own.rs",
+        module_prefix: None,
+        type_overrides: &[],
+    },
+    SourceSpec {
+        path: "src/span/algebra.rs",
+        module_prefix: None,
+        type_overrides: &[],
+    },
+    SourceSpec {
+        path: "src/span/wire.rs",
+        module_prefix: None,
+        type_overrides: &[],
+    },
+    SourceSpec {
         path: "src/span.rs",
         module_prefix: None,
         type_overrides: &[],

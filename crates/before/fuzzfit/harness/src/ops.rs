@@ -101,9 +101,11 @@ pub enum Op {
     VersionLag { dst: Reg, a: Reg, b: Reg },
     /// `Version::min_ticks`.
     VersionMinTicks { src: Reg },
-    /// `Version::join_all` over `src..src + n` (consumes the range).
+    /// `Version::join_all` over `src..src + n` (consumes the range; the
+    /// first register is the receiver).
     VersionJoinAll { dst: Reg, src: Reg, n: u32 },
-    /// `Version::meet_all` over `src..src + n` (consumes the range).
+    /// `Version::meet_all` over `src..src + n` (consumes the range; the
+    /// first register is the receiver).
     VersionMeetAll { dst: Reg, src: Reg, n: u32 },
     /// `Version::encode` into the stage.
     VersionEncode { src: Reg },
@@ -710,8 +712,14 @@ impl Mirror {
                     denom += v.encoded_bits() as u64;
                     operands.push(v);
                 }
-                self.put(dst, NVal::V(Version::join_all(operands)));
-                done(denom, OK)
+                let mut operands = operands.into_iter();
+                match operands.next() {
+                    Some(first) => {
+                        self.put(dst, NVal::V(first.join_all(operands)));
+                        done(denom, OK)
+                    }
+                    None => done(denom, ERR_OP),
+                }
             }
             Op::VersionMeetAll { dst, src, n } => {
                 let mut denom = 0u64;
@@ -724,9 +732,10 @@ impl Mirror {
                     denom += v.encoded_bits() as u64;
                     operands.push(v);
                 }
-                match Version::meet_all(operands) {
-                    Some(met) => {
-                        self.put(dst, NVal::V(met));
+                let mut operands = operands.into_iter();
+                match operands.next() {
+                    Some(first) => {
+                        self.put(dst, NVal::V(first.meet_all(operands)));
                         done(denom, OK)
                     }
                     None => done(denom, ERR_OP),

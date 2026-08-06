@@ -5,7 +5,7 @@
 //! minimal-depth (`⌈log₂ k⌉`) id tree, emitting one share per step. This is the
 //! cure for the [`fork`](Party::fork) footgun: forking one party `n` times
 //! deepens a single spine into a linear tree, whereas a balanced split keeps
-//! every share shallow — and it does so without ever materializing the whole
+//! every share shallow, and it does so without ever materializing the whole
 //! list of shares, so a consumer collects them into its own structure with a
 //! single allocation.
 
@@ -50,8 +50,8 @@ impl Iterator for Split {
         // Descend the left spine, forking off and stacking each right sibling,
         // until the kept region owes a single share — that region is the leaf.
         // `⌈count/2⌉` shares stay left (preorder: emitted before the right
-        // child), `⌊count/2⌋` go right. The recursion of `Split` made iterative,
-        // so a huge `count` cannot overflow the call stack.
+        // child), `⌊count/2⌋` go right. The recursion of `Split` made
+        // iterative, so a huge `count` cannot overflow the call stack.
         while count > 1 {
             let right = region.fork();
             let left_count = count.div_ceil(2);
@@ -63,9 +63,9 @@ impl Iterator for Split {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // The count is u64 and `usize` may be narrower: past its range
-        // the hint is `(usize::MAX, None)`, the standard spelling for
-        // an iterator of more than `usize::MAX` items.
+        // The count is u64 and `usize` may be narrower: past its range the hint
+        // is `(usize::MAX, None)`, the standard spelling for an iterator of
+        // more than `usize::MAX` items.
         (
             usize::try_from(self.remaining).unwrap_or(usize::MAX),
             usize::try_from(self.remaining).ok(),
@@ -77,25 +77,17 @@ impl ExactSizeIterator for Split {}
 
 /// A lazy iterator of balanced [`Party`] shares, returned by [`Party::forks`].
 ///
-/// Yields exactly `n` disjoint shares produced one at a time (at the one
-/// saturating input `n == u64::MAX`, one fewer — see [`Party::forks`]).
-/// The party it borrows keeps the remaining share and is never left empty;
-/// any share not taken before the iterator drops is
-/// [`join`](Party::join)ed back into that party, so a partial read leaves
-/// the original [`Party`] holding everything it did not hand out.
-///
-/// On platforms whose `usize` is narrower than the share count,
-/// [`size_hint`](Iterator::size_hint) reports `(usize::MAX, None)` — the
-/// standard spelling for an iterator of more than `usize::MAX` items —
-/// and [`len`](ExactSizeIterator::len) is meaningful only within `usize`.
+/// Yields exactly `n` disjoint shares produced one at a time. The party it
+/// borrows keeps the remaining share and is never left empty; any share not
+/// taken before the iterator drops is [`join`](Party::join)ed back into that
+/// party, so a partial read leaves the original [`Party`] holding everything it
+/// did not hand out.
 ///
 /// # Complexity
 ///
-/// A full drain `O(|p| + n (d + log n))`, `|p|` the borrowed party's
-/// size in bytes and `d` its id tree's depth (as [`Party::forks`]); each
-/// `next` costs only its own share's path. An early drop rejoins the
-/// unclaimed remainder in `O(log n)` joins — at most one coarse region
-/// per remaining level of the split, never a re-split.
+/// A full drain costs `O(|p| + n (|p| + log n))`, with `|p|` the borrowed
+/// party's size in bytes. Each `next` costs proportionate to its share of this
+/// cost. An early drop rejoins the unclaimed remainder in `O(|p| log n)`.
 pub struct Forks<'a> {
     /// The borrowed party: keeps the residual share and reabsorbs unconsumed
     /// shares on drop.
@@ -165,8 +157,7 @@ impl Drop for Forks<'_> {
 ///
 /// # Complexity
 ///
-/// `O(|party| + N (d + log N))`, `d` the consumed party's id-tree depth
-/// (`d ≤ |party|`), as [`Party::forks`].
+/// `O(|party| + N (|party| + log N))`.
 ///
 /// # Example
 ///

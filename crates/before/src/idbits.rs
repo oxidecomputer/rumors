@@ -14,17 +14,18 @@
 //! The one canonicity rule left to enforce is "no node with two terminal
 //! children" (that is `(1, 1)`); see [`crate::codec`]'s `parse_id`.
 //!
-//! The bit stream is wrapped in [`IdReader`] — a consuming cursor that parallels
-//! the event side's payload streams — so the operations
-//! read as the paper's `match` over [`IdNode`].
+//! The bit stream is wrapped in [`IdReader`] — a consuming cursor that
+//! parallels the event side's payload streams — so the operations read as the
+//! paper's `match` over [`IdNode`].
 //!
 //! **Normal-form precondition.** Every `Party` is in canonical normal form
 //! (`decode` rejects anything else; every op produces normal form), and so is
 //! every subtree of one. Because `0` is structural absence and `(1, 1)` cannot
 //! appear, an empty region is *exactly* an absent child ([`IdNode::Empty`],
-//! only ever synthesized, never stored) and a full region is *exactly* a terminal
-//! ([`IdNode::Full`]), so emptiness/fullness are `O(1)` checks on a decoded node
-//! rather than subtree scans. Callers must only pass normal-form id bits.
+//! only ever synthesized, never stored) and a full region is *exactly* a
+//! terminal ([`IdNode::Full`]), so emptiness/fullness are `O(1)` checks on a
+//! decoded node rather than subtree scans. Callers must only pass normal-form
+//! id bits.
 
 use crate::codec::BitsSlice;
 
@@ -34,11 +35,11 @@ use crate::codec::BitsSlice;
 /// The id-side analogue of the event side's `EvNode` — the clean shape the
 /// operations match on (the paper's id grammar `i ::= 0 | 1 | (i1, i2)`).
 ///
-/// `Empty` is never decoded from the stream — a `0` occupies no bits — so it
-/// is only ever synthesized for an absent child: by the
-/// [`IdReader::Empty`] reader, or directly by a walk threading presence
-/// bits. `Internal` always has at least one present child (a node with neither
-/// would be `(0, 0)`, which collapses to `0`).
+/// `Empty` is never decoded from the stream — a `0` occupies no bits — so it is
+/// only ever synthesized for an absent child: by the [`IdReader::Empty`]
+/// reader, or directly by a walk threading presence bits. `Internal` always has
+/// at least one present child (a node with neither would be `(0, 0)`, which
+/// collapses to `0`).
 #[derive(Clone, Copy)]
 pub(crate) enum IdNode {
     /// The `0` leaf: an unowned region. Only ever synthesized, never stored.
@@ -52,9 +53,9 @@ pub(crate) enum IdNode {
 
 /// A cursor into a packed id tree, or a synthetic leaf.
 ///
-/// A consuming cursor: [`read`](IdReader::read) decodes the node at the
-/// cursor and advances it in place, so operations thread `&mut` readers
-/// and read as the paper's `match`.
+/// A consuming cursor: [`read`](IdReader::read) decodes the node at the cursor
+/// and advances it in place, so operations thread `&mut` readers and read as
+/// the paper's `match`.
 ///
 /// - `At`: a bit offset into the packed id stream.
 /// - `Empty`: a synthetic `0` leaf that consumes nothing. Because a `0` is
@@ -107,8 +108,8 @@ impl<'a> IdReader<'a> {
         }
     }
 
-    /// Decode the node at this cursor, advancing it just past the 2-bit tag — to
-    /// the first present child, for an internal node. `Full`/`Empty` read as
+    /// Decode the node at this cursor, advancing it just past the 2-bit tag —
+    /// to the first present child, for an internal node. `Full`/`Empty` read as
     /// their synthetic nodes and never advance.
     pub(crate) fn read(&mut self) -> IdNode {
         match self {
@@ -126,8 +127,8 @@ impl<'a> IdReader<'a> {
     /// current node.
     ///
     /// `fill` uses it to test whether a child is fully owned before deciding to
-    /// collapse it (a shortcut) or recurse into it. (Not a duplication: it reads
-    /// the node in place, leaving the single cursor where it was.)
+    /// collapse it (a shortcut) or recurse into it. (Not a duplication: it
+    /// reads the node in place, leaving the single cursor where it was.)
     pub(crate) fn peek(&self) -> IdNode {
         match self {
             IdReader::Empty => IdNode::Empty,
@@ -156,8 +157,7 @@ impl<'a> IdReader<'a> {
 
     /// Advance this cursor past the present children of `node`, its
     /// already-read node, resyncing it past the whole subtree. A terminal
-    /// (`Full`) has none; an internal node has the children its tag
-    /// declared.
+    /// (`Full`) has none; an internal node has the children its tag declared.
     pub(crate) fn skip_present_children(&mut self, node: IdNode) {
         if let IdNode::Internal { left, right } = node {
             if left {
@@ -172,8 +172,8 @@ impl<'a> IdReader<'a> {
     /// The underlying packed bit stream, or the empty slice for a synthetic
     /// reader (which addresses no bits).
     ///
-    /// Used for `sum`/`diff` capacity hints, where an anonymous (`0`) operand is
-    /// a synthetic [`Empty`](IdReader::Empty) contributing zero bits.
+    /// Used for `sum`/`diff` capacity hints, where an anonymous (`0`) operand
+    /// is a synthetic [`Empty`](IdReader::Empty) contributing zero bits.
     pub(crate) fn bits(&self) -> &'a BitsSlice {
         match self {
             IdReader::At { bits, .. } => bits,
@@ -197,12 +197,12 @@ impl<'a> IdReader<'a> {
 /// encoding, driven by a caller-supplied header probe.
 ///
 /// Iterative: a pending-children counter, never the call stack — deep inputs
-/// cannot overflow. `header(at)` reports `(child_count, next)`: how many children
-/// the node at `at` has (so they follow) and the position just past its header.
-/// The counter starts with one subtree outstanding and, per node, spends one
-/// (the node itself) and adds its children; the subtree ends when nothing is
-/// outstanding. This admits unary nodes (one child, net zero), which the id
-/// encoding uses; a full binary encoding only ever reports `0` or `2`.
+/// cannot overflow. `header(at)` reports `(child_count, next)`: how many
+/// children the node at `at` has (so they follow) and the position just past
+/// its header. The counter starts with one subtree outstanding and, per node,
+/// spends one (the node itself) and adds its children; the subtree ends when
+/// nothing is outstanding. This admits unary nodes (one child, net zero), which
+/// the id encoding uses; a full binary encoding only ever reports `0` or `2`.
 ///
 /// The single shared spelling of this scan: [`IdReader::skip`] runs it on the
 /// packed id encoding, and the skyline `grow` walks run it to skip event

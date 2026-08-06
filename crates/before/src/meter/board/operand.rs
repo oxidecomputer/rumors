@@ -1,25 +1,24 @@
-//! Deterministic operand-content walks: the quantities the liveness floors
-//! and denominators are stated in, derived from packed operands entirely
-//! outside any measurement.
+//! Deterministic operand-content walks: the quantities the liveness floors and
+//! denominators are stated in, derived from packed operands entirely outside
+//! any measurement.
 
 use crate::codec::{self, Base};
 use crate::{Clock, Party, Version};
 
 use super::ceilings::MACHINE_WORD_MAGNITUDE_BITS;
 
-/// The *nonzero* stored delta codes of a version's packed stream: every
-/// leaf payload code after the first (the absolute root height) whose
-/// delta is nonzero.
+/// The *nonzero* stored delta codes of a version's packed stream: every leaf
+/// payload code after the first (the absolute root height) whose delta is
+/// nonzero.
 ///
-/// The delta-folding kernels — single-operand (validate, the query
-/// folds, the tick walk, the text parse) and the pair walks alike —
-/// land each of these in a running accumulator, so the count is the
-/// touch column's deterministic-liveness floor (the pair walks take the
-/// max over their two operands: a shared boundary lands both codes in
-/// one fold). A zero delta is decoded but folds nothing — an
-/// accumulator add of zero is a no-op — so a floor that counted every
-/// delta would demand touch work no conforming fold does (a
-/// plateau-heavy stream legitimately reads near zero). Iterative over
+/// The delta-folding kernels — single-operand (validate, the query folds, the
+/// tick walk, the text parse) and the pair walks alike — land each of these in
+/// a running accumulator, so the count is the touch column's
+/// deterministic-liveness floor (the pair walks take the max over their two
+/// operands: a shared boundary lands both codes in one fold). A zero delta is
+/// decoded but folds nothing — an accumulator add of zero is a no-op — so a
+/// floor that counted every delta would demand touch work no conforming fold
+/// does (a plateau-heavy stream legitimately reads near zero). Iterative over
 /// the packed form, outside any measurement.
 pub(super) fn stored_nonzero_deltas(v: &Version) -> u64 {
     let all = codec::bytes_as_bits(v.as_bytes());
@@ -46,17 +45,16 @@ pub(super) fn stored_nonzero_deltas(v: &Version) -> u64 {
     nonzero
 }
 
-/// The mandatory limb count of a version's stored stream: one limb per
-/// 64 bits of every payload code wider than
-/// [`MACHINE_WORD_MAGNITUDE_BITS`].
+/// The mandatory limb count of a version's stored stream: one limb per 64 bits
+/// of every payload code wider than [`MACHINE_WORD_MAGNITUDE_BITS`].
 ///
-/// A walk over the stream must decode each stored code to fold it, and
-/// decoding a wide code cannot touch fewer limbs than the code has;
-/// narrower codes may legitimately live in machine words and count
-/// zero. Unlike [`mandatory_limbs_version`], this counts the stream's
-/// own delta codes, never the decoded tree's absolute values: it is
-/// the honest floor for operations that read the stored form as-is.
-/// Iterative over the packed form, outside any measurement.
+/// A walk over the stream must decode each stored code to fold it, and decoding
+/// a wide code cannot touch fewer limbs than the code has; narrower codes may
+/// legitimately live in machine words and count zero. Unlike
+/// [`mandatory_limbs_version`], this counts the stream's own delta codes, never
+/// the decoded tree's absolute values: it is the honest floor for operations
+/// that read the stored form as-is. Iterative over the packed form, outside any
+/// measurement.
 pub(super) fn mandatory_limbs_stream(v: &Version) -> u64 {
     let all = codec::bytes_as_bits(v.as_bytes());
     let bits = &all[..v.encoded_bits()];
@@ -81,16 +79,15 @@ pub(super) fn mandatory_limbs_stream(v: &Version) -> u64 {
     limbs
 }
 
-/// A version's value content in bytes: the summed bit widths of its
-/// absolute leaf heights (one bit minimum per leaf), rounded to bytes.
+/// A version's value content in bytes: the summed bit widths of its absolute
+/// leaf heights (one bit minimum per leaf), rounded to bytes.
 ///
-/// This is the content that delta coding lets ride behind
-/// asymptotically fewer wire bits, and the scaling denominator of
-/// the flat-denominator shape's exponent fits: the boundary comb at fixed
-/// tooth magnitude doubles its value content (and every operation's honest
-/// per-tooth work) per level while its packed bytes grow only by the unit
-/// delta codes over a fixed wide intercept. Iterative over the packed
-/// form, outside any measurement.
+/// This is the content that delta coding lets ride behind asymptotically fewer
+/// wire bits, and the scaling denominator of the flat-denominator shape's
+/// exponent fits: the boundary comb at fixed tooth magnitude doubles its value
+/// content (and every operation's honest per-tooth work) per level while its
+/// packed bytes grow only by the unit delta codes over a fixed wide intercept.
+/// Iterative over the packed form, outside any measurement.
 pub(super) fn value_content_bytes(v: &Version) -> usize {
     let all = codec::bytes_as_bits(v.as_bytes());
     let bits = &all[..v.encoded_bits()];
@@ -130,17 +127,17 @@ pub(super) fn value_content_bytes(v: &Version) -> usize {
     (content.div_ceil(8)) as usize
 }
 
-/// The mandatory limb count of a version's stored magnitudes: one limb per
-/// 64 bits of every base wider than [`MACHINE_WORD_MAGNITUDE_BITS`].
+/// The mandatory limb count of a version's stored magnitudes: one limb per 64
+/// bits of every base wider than [`MACHINE_WORD_MAGNITUDE_BITS`].
 ///
 /// Materializing or folding such a value cannot touch fewer limbs than the
 /// value has, whatever the representation; narrower values may legitimately
 /// live in machine words and count zero. This is the floor for the
 /// value-materializing parse rows alone (`FromStr` converts every spelled
 /// base); rows that read the stored form as-is floor at
-/// [`mandatory_limbs_stream`], whose derivation explains the split. The
-/// walk mirrors [`radix_units_version`]: iterative over the packed form,
-/// outside any measurement.
+/// [`mandatory_limbs_stream`], whose derivation explains the split. The walk
+/// mirrors [`radix_units_version`]: iterative over the packed form, outside any
+/// measurement.
 pub(super) fn mandatory_limbs_version(v: &Version) -> u64 {
     let mut limbs = 0u64;
     for base in stored_bases(v) {
@@ -157,8 +154,8 @@ pub(super) fn mandatory_limbs_version(v: &Version) -> u64 {
 /// representation must hold.
 ///
 /// Reconstructed from the stored skyline stream in three linear passes
-/// (absolute leaf heights, bottom-up subtree floors, per-node relative
-/// bases), entirely outside any measurement.
+/// (absolute leaf heights, bottom-up subtree floors, per-node relative bases),
+/// entirely outside any measurement.
 pub(super) fn stored_bases(v: &Version) -> Vec<Base> {
     let all = codec::bytes_as_bits(v.as_bytes());
     let bits = &all[..v.encoded_bits()];
@@ -196,8 +193,8 @@ pub(super) fn stored_bases(v: &Version) -> Vec<Base> {
         };
         heights.push(value);
     }
-    // Pass 2: per-node floors (minimum leaf height in the subtree),
-    // bottom-up over the preorder topology.
+    // Pass 2: per-node floors (minimum leaf height in the subtree), bottom-up
+    // over the preorder topology.
     let nodes = topology.len();
     let mut floors: Vec<Base> = vec![Base::ZERO; nodes];
     let mut open: Vec<(usize, Option<Base>)> = Vec::new();
@@ -245,11 +242,11 @@ pub(super) fn stored_bases(v: &Version) -> Vec<Base> {
 /// every node's stored base, exactly what `Display` renders and `FromStr`
 /// parses.
 ///
-/// `digits` is the value's exact decimal length; `limbs` its 64-bit limb
-/// count (at least 1, so single-digit zeros still cost a unit). The walk is
-/// iterative over the packed form; only the per-value `digits × limbs`
-/// products enter the denominator, so the term prices schoolbook conversion
-/// work without assuming any converter.
+/// `digits` is the value's exact decimal length; `limbs` its 64-bit limb count
+/// (at least 1, so single-digit zeros still cost a unit). The walk is iterative
+/// over the packed form; only the per-value `digits × limbs` products enter the
+/// denominator, so the term prices schoolbook conversion work without assuming
+/// any converter.
 pub(super) fn radix_units_version(v: &Version) -> u64 {
     let mut units = 0u64;
     for base in stored_bases(v) {
@@ -261,8 +258,8 @@ pub(super) fn radix_units_version(v: &Version) -> u64 {
 }
 
 /// `Σ digits × limbs` over an id tree's text: one unit per rendered `0`/`1`
-/// token (terminals and absent children), each a single digit of a
-/// single-limb value.
+/// token (terminals and absent children), each a single digit of a single-limb
+/// value.
 pub(super) fn radix_units_party(p: &Party) -> u64 {
     let bits = p.as_bits();
     if bits.is_empty() {

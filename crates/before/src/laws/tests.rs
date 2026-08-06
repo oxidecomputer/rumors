@@ -1,6 +1,6 @@
-//! Guards on the law collection itself (the laws are *asserted* by the
-//! drivers in [`crate::testing`]'s algebraic-laws suite and by the fuzz
-//! workspace; here we pin the collection's own invariants).
+//! Guards on the law collection itself (the laws are *asserted* by the drivers
+//! in [`crate::testing`]'s algebraic-laws suite and by the fuzz workspace; here
+//! we pin the collection's own invariants).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -21,19 +21,17 @@ fn law_names_are_unique_across_groups() {
 }
 
 /// Every `pub static` law group in `laws.rs` is carried by the roster
-/// (`for_each_law_group!`) — no group can compile, ship, and never
-/// execute.
+/// (`for_each_law_group!`) — no group can compile, ship, and never execute.
 ///
-/// Every consumer — the name chain the name-facing checks resolve
-/// against, both algebraic-laws drivers, and the fuzz target's drive
-/// loop — derives from the roster by macro expansion, so a rostered
-/// group is executed by construction and needs no per-consumer pin.
-/// The one door that machinery leaves open is a group static missing
-/// from the roster, which nothing would ever execute; this pin closes
-/// it by comparing the roster's own group list against a source scan of
-/// the `pub static` declarations in this module (its only `pub static`s
-/// are law groups). The surface-totality gate cannot carry this: its
-/// extractor walks function-like items only, so statics never reach it.
+/// Every consumer — the name chain the name-facing checks resolve against, both
+/// algebraic-laws drivers, and the fuzz target's drive loop — derives from the
+/// roster by macro expansion, so a rostered group is executed by construction
+/// and needs no per-consumer pin. The one door that machinery leaves open is a
+/// group static missing from the roster, which nothing would ever execute; this
+/// pin closes it by comparing the roster's own group list against a source scan
+/// of the `pub static` declarations in this module (its only `pub static`s are
+/// law groups). The surface-totality gate cannot carry this: its extractor
+/// walks function-like items only, so statics never reach it.
 #[test]
 fn every_law_group_is_registered() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/laws.rs");

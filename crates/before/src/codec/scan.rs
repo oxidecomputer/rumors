@@ -1,10 +1,10 @@
 //! Process-global counter of packed-stream bits scanned and written.
 //!
-//! Traversal work over the packed bit streams is invisible to every other
-//! meter when it allocates nothing (no heap delta), recurses through an
-//! iterative loop (no grown segments), and touches no `Base` arithmetic (no
-//! limb operations) — the id-side walks and folds are exactly that shape.
-//! The proxy counted here is **bits**, at the packed-stream primitives:
+//! Traversal work over the packed bit streams is invisible to every other meter
+//! when it allocates nothing (no heap delta), recurses through an iterative
+//! loop (no grown segments), and touches no `Base` arithmetic (no limb
+//! operations) — the id-side walks and folds are exactly that shape. The proxy
+//! counted here is **bits**, at the packed-stream primitives:
 //!
 //! - id tag reads and skip steps (`idbits::IdReader`), 2 bits per node;
 //! - id-builder bit writes and verbatim splice lengths
@@ -16,16 +16,10 @@
 //!   and `codec::DsiCursor`, which carry `decode`, the gamma decoder,
 //!   and the skyline validator/decoder cursors).
 //!
-//! The wire-side `ReaderCursor` (`borsh_impls`) is deliberately unmetered:
-//! no board row prices the borsh path today, so recording there would count
-//! work nothing judges. Instrumenting it is a conscious future change that
-//! carries its own envelope recalibration.
-//!
 //! An amortized-linear walk therefore counts O(1) bits per packed input or
-//! output bit, and a fold that re-scans its accumulator counts
-//! quadratically. Relaxed ordering suffices: the metering binaries run one
-//! scenario per process and read the counter only after the metered call
-//! returns.
+//! output bit, and a fold that re-scans its accumulator counts quadratically.
+//! Relaxed ordering suffices: the metering binaries run one scenario per
+//! process and read the counter only after the metered call returns.
 
 #[cfg(feature = "scan-meter")]
 mod counter {

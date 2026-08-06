@@ -40,7 +40,7 @@ use crate::{
 /// A concurrent ceiling is beyond the known-at range and is *not* known:
 /// it carries history the counterparty has never seen.
 pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Version) -> bool {
-    causally::before(version).contains(node.span().join())
+    causally::before(version).contains(node.span().hi())
 }
 
 /// Classify a subtree from its memoized version bounds without

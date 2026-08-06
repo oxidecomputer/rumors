@@ -16,16 +16,15 @@
 //! worst cases.)
 //!
 //! The generators themselves are private: every instrument mints its shapes
-//! through the family registry ([`registry`]), whose
-//! roster is the single source of truth for adversarial families — the registry
-//! module doc states the invariant and the compiler ties that hold it. A shape
-//! lands in one of two enforcement homes, and most take only one: every shape
-//! gets its envelope rows in `tests/meter.rs` — the enforced per-operation
-//! record — and a shape additionally earns a column on the amplification board
-//! ([`board`]) only when it is a whole-surface adversary
-//! rather than a kernel-seam probe (the criterion, each family's coverage
-//! answer, and the luck-proof touch list sit on the registry's
-//! [`FamilyId`](crate::meter::registry::FamilyId)).
+//! through the family registry ([`registry`]), whose roster is the single
+//! source of truth for adversarial families — the registry module doc states
+//! the invariant and the compiler ties that hold it. A shape lands in one of
+//! two enforcement homes, and most take only one: every shape gets its envelope
+//! rows in `tests/meter.rs` — the enforced per-operation record — and a shape
+//! additionally earns a column on the amplification board ([`board`]) only when
+//! it is a whole-surface adversary rather than a kernel-seam probe (the
+//! criterion, each family's coverage answer, and the luck-proof touch list sit
+//! on the registry's [`FamilyId`](crate::meter::registry::FamilyId)).
 //!
 //! Every generator output is strict normal form: it round-trips through
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
@@ -40,10 +39,9 @@
 //! are built in the generators' construction language — per node, a flag bit
 //! (`1` internal, `0` leaf, this language's own convention) plus the
 //! Elias-gamma code of its base (`gamma(n)` codes `m = n + 1`) — which the
-//! skyline transcoder (the [`skyline`] module's
-//! `encode_bits`) turns into the stored wire coding. Id shapes are the crate
-//! codec directly: a 2-bit child-presence tag per node, absent children
-//! occupying no bits.
+//! skyline transcoder (the [`skyline`] module's `encode_bits`) turns into the
+//! stored wire coding. Id shapes are the crate codec directly: a 2-bit
+//! child-presence tag per node, absent children occupying no bits.
 //!
 //! Designing a new shape, two decided axes are worth finding before any bits:
 //! whether the input pays the adversarial width once or per site — the funding
@@ -70,8 +68,8 @@ pub mod board;
 pub mod registry;
 pub mod tier2;
 
-/// The skyline transcoding codec, re-exported so the resource-envelope
-/// suite can pin its validator's transient state and limb behavior.
+/// The skyline transcoding codec, re-exported so the resource-envelope suite
+/// can pin its validator's transient state and limb behavior.
 pub use crate::version::skyline;
 
 /// The pair-hull rung snapshot, re-exported beside its readers
@@ -82,9 +80,9 @@ use crate::codec::{self, Base, BitsMut};
 
 /// A generator's output: canonical packed bytes plus the exact bit length.
 ///
-/// `bytes` is what `decode` accepts and `encode` reproduces (final partial
-/// byte zero-padded); `bits` is the live bit length before that padding, so
-/// tests can pin the closed-form size of each shape.
+/// `bytes` is what `decode` accepts and `encode` reproduces (final partial byte
+/// zero-padded); `bits` is the live bit length before that padding, so tests
+/// can pin the closed-form size of each shape.
 #[derive(Debug, Clone)]
 pub struct Packed {
     /// The canonical packed bytes, zero-padded to a byte boundary.
@@ -134,12 +132,12 @@ fn ev_leaf_wide(bits: &mut BitsMut, base: &Base) {
 /// left, each with a 0-leaf right sibling, bottoming out in `(0, 0, 1)`.
 ///
 /// Layout: `"11" × d` (internal flag + `gamma(0)`), `"01"` (bottom-left leaf
-/// 0), `"0010"` (bottom-right leaf 1), `"01" × (d − 1)` (each ancestor's
-/// right sibling). Exactly `4d + 4` bits for `2d + 1` nodes at depth `d` —
-/// the densest shape normal form admits (~2 bits per node, depth ~n/4 for
-/// `n` bits), maximizing node count and recursion depth simultaneously.
-/// Normal form holds everywhere: each internal node's spine child has base
-/// 0, and the only leaf pair is `(0, 1)`.
+/// 0), `"0010"` (bottom-right leaf 1), `"01" × (d − 1)` (each ancestor's right
+/// sibling). Exactly `4d + 4` bits for `2d + 1` nodes at depth `d` — the
+/// densest shape normal form admits (~2 bits per node, depth ~n/4 for `n`
+/// bits), maximizing node count and recursion depth simultaneously. Normal form
+/// holds everywhere: each internal node's spine child has base 0, and the only
+/// leaf pair is `(0, 1)`.
 fn ev_spine(bits: &mut BitsMut, d: usize) {
     for _ in 0..d {
         bits.push(true); // internal-node flag
@@ -170,10 +168,10 @@ fn dense(d: usize) -> Packed {
 
 /// A root with base `2^b − 1` over `S(d)` and a 0-leaf: `2b + 4d + 8` bits.
 ///
-/// Layout: `"1" · gamma(2^b − 1) · S(d) · "01"`, where
-/// `gamma(2^b − 1) = 0^b · 1 · 0^b` (`2b + 1` bits). Puts a `b`-bit magnitude
-/// on every root-to-node path sum while keeping paths long — the shape that
-/// makes owned per-frame path sums quadratic in the input.
+/// Layout: `"1" · gamma(2^b − 1) · S(d) · "01"`, where `gamma(2^b − 1) = 0^b ·
+/// 1 · 0^b` (`2b + 1` bits). Puts a `b`-bit magnitude on every root-to-node
+/// path sum while keeping paths long — the shape that makes owned per-frame
+/// path sums quadratic in the input.
 ///
 /// # Panics
 ///
@@ -209,25 +207,23 @@ fn hugeleaf(b: usize) -> Packed {
 /// The boundary comb `C(k, n)`: `n` cliff teeth, `n(2k + 10) + 2` bits.
 ///
 /// A zero-base spine leaning right, each spine node's left child a *tooth*
-/// `(2^k − 1, 0, 1)` — an internal node with base `2^k − 1` over leaves 0
-/// and 1 — terminated by a leaf 0. Its preorder leaf values oscillate
-/// `2^k − 1 ↔ 2^k`: every consecutive-leaf difference is `±1` sitting
-/// exactly on the `2^k` carry boundary, so any sweep that maintains a
-/// running leaf value (or a running difference of leaf values) pays a full
-/// `k`-bit carry or borrow per crossing. In this coding each tooth stores
-/// its own `gamma(2^k − 1)` — `2k + 1` bits — so every crossing is paid for
-/// by a comparably-wide input code and operations stay linear per input
-/// bit; a delta coding of the same tree stores 3-bit `±1` codes per
-/// crossing instead, which is what makes this the separating family for the
-/// leaf-delta representation question.
+/// `(2^k − 1, 0, 1)` — an internal node with base `2^k − 1` over leaves 0 and 1
+/// — terminated by a leaf 0. Its preorder leaf values oscillate `2^k − 1 ↔
+/// 2^k`: every consecutive-leaf difference is `±1` sitting exactly on the `2^k`
+/// carry boundary, so any sweep that maintains a running leaf value (or a
+/// running difference of leaf values) pays a full `k`-bit carry or borrow per
+/// crossing. In this coding each tooth stores its own `gamma(2^k − 1)` — `2k +
+/// 1` bits — so every crossing is paid for by a comparably-wide input code and
+/// operations stay linear per input bit; a delta coding of the same tree stores
+/// 3-bit `±1` codes per crossing instead, which is what makes this the
+/// separating family for the leaf-delta representation question.
 ///
-/// Layout per tooth: `"11"` (spine node, `gamma(0)`),
-/// `"1" · gamma(2^k − 1)` (tooth node), `"01"` (leaf 0),
-/// `"0011"` (leaf 1); after all `n` teeth, `"01"` (the terminal leaf 0).
-/// `2k + 10` bits per tooth plus 2, over `4n + 1` nodes of which `2n + 1`
-/// are leaves. Normal form holds everywhere: each spine node's right child
-/// has base 0, each tooth's left leaf has base 0, and the only leaf pairs
-/// are `(0, 1)`.
+/// Layout per tooth: `"11"` (spine node, `gamma(0)`), `"1" · gamma(2^k − 1)`
+/// (tooth node), `"01"` (leaf 0), `"0011"` (leaf 1); after all `n` teeth,
+/// `"01"` (the terminal leaf 0). `2k + 10` bits per tooth plus 2, over `4n + 1`
+/// nodes of which `2n + 1` are leaves. Normal form holds everywhere: each spine
+/// node's right child has base 0, each tooth's left leaf has base 0, and the
+/// only leaf pairs are `(0, 1)`.
 ///
 /// # Panics
 ///
@@ -249,31 +245,30 @@ fn cliff_comb(k: usize, n: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The jump comb `J(k, n)`: one low tooth, then `n − 1` cliff teeth,
-/// `(n − 1)(2k + 10) + 14` bits.
+/// The jump comb `J(k, n)`: one low tooth, then `n − 1` cliff teeth, `(n −
+/// 1)(2k + 10) + 14` bits.
 ///
-/// The boundary comb with its first tooth lowered to `(1, 0, 1)`: preorder
-/// leaf values run `1, 2`, jump to `2^k − 1`, then oscillate
-/// `2^k − 1 ↔ 2^k`. In a delta coding the jump is the one wide
-/// leaf-to-leaf code, arriving mid-stream with only 3-bit codes behind
-/// it — the stale-drift shape: a sweep that keeps running height state
-/// must move the jump out of its cheap-delta path exactly once, paid by
-/// the jump's own code, or pay the jump's width again on every 3-bit
-/// delta that follows. The wide-tooth comb prices bounded wide
-/// oscillation (state that must *stay* live); this family prices the
-/// eviction (state that must *leave*), so together they pin a height
-/// split from both sides.
+/// The boundary comb with its first tooth lowered to `(1, 0, 1)`: preorder leaf
+/// values run `1, 2`, jump to `2^k − 1`, then oscillate `2^k − 1 ↔ 2^k`. In a
+/// delta coding the jump is the one wide leaf-to-leaf code, arriving mid-stream
+/// with only 3-bit codes behind it — the stale-drift shape: a sweep that keeps
+/// running height state must move the jump out of its cheap-delta path exactly
+/// once, paid by the jump's own code, or pay the jump's width again on every
+/// 3-bit delta that follows. The wide-tooth comb prices bounded wide
+/// oscillation (state that must *stay* live); this family prices the eviction
+/// (state that must *leave*), so together they pin a height split from both
+/// sides.
 ///
-/// Layout: one tooth `"11" · "1" · gamma(1) · "01" · "0010"` (12 bits),
-/// then `n − 1` [`cliff_comb`] teeth at `2k + 10` bits, then the terminal
-/// `"01"`. Normal form holds everywhere by the comb's own argument: every
-/// spine node's right child has base 0, every tooth's left leaf has base
-/// 0, and the only leaf pairs are `(0, 1)`.
+/// Layout: one tooth `"11" · "1" · gamma(1) · "01" · "0010"` (12 bits), then `n
+/// − 1` [`cliff_comb`] teeth at `2k + 10` bits, then the terminal `"01"`.
+/// Normal form holds everywhere by the comb's own argument: every spine node's
+/// right child has base 0, every tooth's left leaf has base 0, and the only
+/// leaf pairs are `(0, 1)`.
 ///
 /// # Panics
 ///
-/// Panics if `k == 0` or `n < 2`: the jump needs a low tooth and at
-/// least one cliff tooth to jump between.
+/// Panics if `k == 0` or `n < 2`: the jump needs a low tooth and at least one
+/// cliff tooth to jump between.
 fn jump_comb(k: usize, n: usize) -> Packed {
     assert!(k >= 1, "jump comb needs a nonzero cliff magnitude");
     assert!(n >= 2, "jump comb needs a low tooth and a cliff tooth");
@@ -295,25 +290,24 @@ fn jump_comb(k: usize, n: usize) -> Packed {
 /// The wide-tooth comb `W(k, w, n)`: `n` teeth of width `2^w` oscillating
 /// across the `2^k` cliff, `n(2k + 2w + 6) + 2` bits.
 ///
-/// The boundary comb's wide-delta sibling: the same zero-base spine, each
-/// tooth `(2^k − 2^w, 0, 2^w)` — an internal node with base `2^k − 2^w` over
-/// leaves 0 and `2^w` — terminated by a leaf 0. Its preorder leaf values
-/// oscillate `2^k − 2^w ↔ 2^k`: every consecutive-leaf difference is
-/// `±2^w`, and applying it carries or borrows across the `k − w` bits up to
-/// the `2^k` boundary. Machine-word deltas are what a fixed-width lazy
-/// window absorbs, so this family prices the deltas *wider than any such
-/// window*: a two-zone accumulator (normalized prefix plus fixed-width
-/// buffer) is forced through its normalized prefix on every tooth, while a
-/// representation with no normalized region pays O(delta limbs). Each tooth
-/// stores `gamma(2^k − 2^w)` — `2k − 1` bits — so under today's coding every
-/// crossing is paid for by a comparably-wide input code.
+/// The boundary comb's wide-delta sibling: the same zero-base spine, each tooth
+/// `(2^k − 2^w, 0, 2^w)` — an internal node with base `2^k − 2^w` over leaves 0
+/// and `2^w` — terminated by a leaf 0. Its preorder leaf values oscillate `2^k
+/// − 2^w ↔ 2^k`: every consecutive-leaf difference is `±2^w`, and applying it
+/// carries or borrows across the `k − w` bits up to the `2^k` boundary.
+/// Machine-word deltas are what a fixed-width lazy window absorbs, so this
+/// family prices the deltas *wider than any such window*: a two-zone
+/// accumulator (normalized prefix plus fixed-width buffer) is forced through
+/// its normalized prefix on every tooth, while a representation with no
+/// normalized region pays O(delta limbs). Each tooth stores `gamma(2^k − 2^w)`
+/// — `2k − 1` bits — so under today's coding every crossing is paid for by a
+/// comparably-wide input code.
 ///
-/// Layout per tooth: `"11"` (spine node, `gamma(0)`),
-/// `"1" · gamma(2^k − 2^w)` (tooth node), `"01"` (leaf 0),
-/// `"0" · gamma(2^w)` (leaf `2^w`); after all `n` teeth, `"01"` (the
-/// terminal leaf 0). `2k + 2w + 6` bits per tooth plus 2. Normal form holds
-/// everywhere: each spine node's right child has base 0, each tooth's left
-/// leaf has base 0, and the only leaf pairs are `(0, 2^w)`.
+/// Layout per tooth: `"11"` (spine node, `gamma(0)`), `"1" · gamma(2^k − 2^w)`
+/// (tooth node), `"01"` (leaf 0), `"0" · gamma(2^w)` (leaf `2^w`); after all
+/// `n` teeth, `"01"` (the terminal leaf 0). `2k + 2w + 6` bits per tooth plus
+/// 2. Normal form holds everywhere: each spine node's right child has base 0,
+/// each tooth's left leaf has base 0, and the only leaf pairs are `(0, 2^w)`.
 ///
 /// # Panics
 ///
@@ -343,26 +337,24 @@ fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Packed {
 /// The unpaid-crossing fan `F(k, n)`: `n` cheap teeth under one stored
 /// magnitude, `12n + 2k + 6` bits.
 ///
-/// A root with base `2^k − 1` whose left child is a zero-base fan spine of
-/// `n` teeth `(1, 0, 1)` — an internal node with base 1 over leaves 0 and
-/// 1 — terminated by a leaf 0, with the root's required 0-leaf on the
-/// right. The root-to-node path sum sits at `2^k − 1` across the whole fan,
-/// so a walk that maintains a running path sum (enter: add the stored base;
-/// leave: subtract it) crosses the `2^k` carry boundary *twice per tooth* —
-/// and each tooth costs only 12 stored bits. One comparably-coded magnitude
-/// (the root's, paid once) funds `n` crossings: the excursions are
-/// siblings, not nested, so no Dyck-structure argument bounds them, and any
-/// accumulator that materializes each crossing as a full-width carry does
-/// Θ(nk) limb work in a Θ(n + k)-bit input. Consecutive-leaf *values* stay
-/// cliff-free (`2^k ↔ 2^k + 1`): the fan prices entry/exit accumulation,
-/// the boundary comb prices leaf deltas.
+/// A root with base `2^k − 1` whose left child is a zero-base fan spine of `n`
+/// teeth `(1, 0, 1)` — an internal node with base 1 over leaves 0 and 1 —
+/// terminated by a leaf 0, with the root's required 0-leaf on the right. The
+/// root-to-node path sum sits at `2^k − 1` across the whole fan, so a walk that
+/// maintains a running path sum (enter: add the stored base; leave: subtract
+/// it) crosses the `2^k` carry boundary *twice per tooth* — and each tooth
+/// costs only 12 stored bits. One comparably-coded magnitude (the root's, paid
+/// once) funds `n` crossings: the excursions are siblings, not nested, so no
+/// Dyck-structure argument bounds them, and any accumulator that materializes
+/// each crossing as a full-width carry does Θ(nk) limb work in a Θ(n + k)-bit
+/// input. Consecutive-leaf *values* stay cliff-free (`2^k ↔ 2^k + 1`): the fan
+/// prices entry/exit accumulation, the boundary comb prices leaf deltas.
 ///
-/// Layout: `"1" · gamma(2^k − 1)` (root), then per tooth `"11"` (spine
-/// node), `"1" · gamma(1)` (tooth node), `"01"` (leaf 0), `"0010"`
-/// (leaf 1); after all `n` teeth, `"01"` (terminal fan leaf), `"01"` (the
-/// root's right leaf). Normal form holds everywhere: the root's right leaf
-/// and each spine node's non-tooth child have base 0, and the only leaf
-/// pairs are `(0, 1)`.
+/// Layout: `"1" · gamma(2^k − 1)` (root), then per tooth `"11"` (spine node),
+/// `"1" · gamma(1)` (tooth node), `"01"` (leaf 0), `"0010"` (leaf 1); after all
+/// `n` teeth, `"01"` (terminal fan leaf), `"01"` (the root's right leaf).
+/// Normal form holds everywhere: the root's right leaf and each spine node's
+/// non-tooth child have base 0, and the only leaf pairs are `(0, 1)`.
 ///
 /// # Panics
 ///
@@ -387,23 +379,22 @@ fn cliff_fan(k: usize, n: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The cancelling-prefix chain `P(k, n)`: `n` peak-to-1 drops,
-/// `n(2k + 10) + 2` bits.
+/// The cancelling-prefix chain `P(k, n)`: `n` peak-to-1 drops, `n(2k + 10) + 2`
+/// bits.
 ///
 /// The boundary comb's shape with the wide magnitude moved onto the *left*
-/// leaf: teeth `(1, 2^k − 1, 0)` off a zero-base spine, terminated by a
-/// leaf 0, so preorder leaf values oscillate `2^k ↔ 1`. Each drop from the
-/// peak leaves a running-value accumulator holding a tiny value spelled
-/// with wide digits — a high positive digit cancelled by a trail of
-/// negative ones — so the next sign check cannot decide at the top digit
-/// and must scan (and collapse) the whole cancelling prefix. Every drop is
-/// paid by its own `gamma(2^k − 1)` input code, so the family prices deep
-/// sign scans against the wide writes that immediately precede them. It
-/// does not exercise the collapse: a scan funded by an adjacent write is
-/// linear whether or not the fold rewrites what it scanned. The
-/// collapse-is-load-bearing case — a cancelling prefix built once, then
-/// read many times — is a delta-stream shape, not a packed input, and is
-/// pinned by the accumulator envelope suite's static-prefix stream.
+/// leaf: teeth `(1, 2^k − 1, 0)` off a zero-base spine, terminated by a leaf 0,
+/// so preorder leaf values oscillate `2^k ↔ 1`. Each drop from the peak leaves
+/// a running-value accumulator holding a tiny value spelled with wide digits —
+/// a high positive digit cancelled by a trail of negative ones — so the next
+/// sign check cannot decide at the top digit and must scan (and collapse) the
+/// whole cancelling prefix. Every drop is paid by its own `gamma(2^k − 1)`
+/// input code, so the family prices deep sign scans against the wide writes
+/// that immediately precede them. It does not exercise the collapse: a scan
+/// funded by an adjacent write is linear whether or not the fold rewrites what
+/// it scanned. The collapse-is-load-bearing case — a cancelling prefix built
+/// once, then read many times — is a delta-stream shape, not a packed input,
+/// and is pinned by the accumulator envelope suite's static-prefix stream.
 ///
 /// Layout per tooth: `"11"` (spine node, `gamma(0)`), `"1" · gamma(1)`
 /// (tooth node), `"0" · gamma(2^k − 1)` (leaf `2^k − 1`), `"01"` (leaf 0);
@@ -436,22 +427,22 @@ fn cancelling_chain(k: usize, n: usize) -> Packed {
 /// The harmonic spine `H(d)`: a 1-leaf at every depth, `6d + 2` bits, rank
 /// `(2^d − 1)/2^d`.
 ///
-/// `d` zero-base internal nodes leaning left, each with a 1-leaf right
-/// sibling, bottoming out in a 0-leaf: level `i`'s leaf contributes area
-/// `1/2^i`, so the whole tree's rank telescopes to `(2^d − 1)/2^d` — the
-/// closed form this module's tests pin. The numerator is the all-ones
-/// `d`-bit odd integer, so the rank fold's running numerator is as wide as
-/// the depth already walked at *every* level: any fold that re-shifts its
-/// accumulated numerator per level does `Θ(d²)` limb work against `Θ(d)`
-/// input bits, which is what makes this the separating family for the
-/// rank/distance/lag delta algebra. [`dense`] is the control: same density,
-/// but its single 1-leaf keeps the fold's numerator one bit wide.
+/// `d` zero-base internal nodes leaning left, each with a 1-leaf right sibling,
+/// bottoming out in a 0-leaf: level `i`'s leaf contributes area `1/2^i`, so the
+/// whole tree's rank telescopes to `(2^d − 1)/2^d` — the closed form this
+/// module's tests pin. The numerator is the all-ones `d`-bit odd integer, so
+/// the rank fold's running numerator is as wide as the depth already walked at
+/// *every* level: any fold that re-shifts its accumulated numerator per level
+/// does `Θ(d²)` limb work against `Θ(d)` input bits, which is what makes this
+/// the separating family for the rank/distance/lag delta algebra. [`dense`] is
+/// the control: same density, but its single 1-leaf keeps the fold's numerator
+/// one bit wide.
 ///
-/// Layout: `"11" × d` (internal flag + `gamma(0)`), `"01"` (the bottom
-/// 0-leaf), then `"0010" × d` (each level's 1-leaf right sibling,
-/// innermost first). Exactly `6d + 2` bits for `2d + 1` nodes at depth `d`.
-/// Normal form holds everywhere: each internal node's left child stores
-/// base 0, and the only sibling leaf pair is the bottom `(0, 1)`.
+/// Layout: `"11" × d` (internal flag + `gamma(0)`), `"01"` (the bottom 0-leaf),
+/// then `"0010" × d` (each level's 1-leaf right sibling, innermost first).
+/// Exactly `6d + 2` bits for `2d + 1` nodes at depth `d`. Normal form holds
+/// everywhere: each internal node's left child stores base 0, and the only
+/// sibling leaf pair is the bottom `(0, 1)`.
 ///
 /// # Panics
 ///
@@ -474,22 +465,21 @@ fn harmonic(d: usize) -> Packed {
 /// bits.
 ///
 /// The dense spine's direction-alternating sibling: `d` zero-base internal
-/// nodes whose single internal child sits *left at even depths and right at
-/// odd depths*, each with a 0-leaf sibling, bottoming out in `(0, 0, 1)`.
-/// Same density as [`dense`] (~2 bits per node, depth ~n/4 for `n` bits),
-/// but the root-to-bottom route changes direction every level, so any
-/// per-level saved state — walk frames, route bits, resume records — is
-/// maximally non-uniform: nothing about a frame can be inferred from its
-/// neighbors, which makes this the frame-count adversary for iterative
-/// walks that keep per-level records (a fixed 16-byte frame per level costs
-/// ~32 bytes per input byte here).
+/// nodes whose single internal child sits *left at even depths and right at odd
+/// depths*, each with a 0-leaf sibling, bottoming out in `(0, 0, 1)`. Same
+/// density as [`dense`] (~2 bits per node, depth ~n/4 for `n` bits), but the
+/// root-to-bottom route changes direction every level, so any per-level saved
+/// state — walk frames, route bits, resume records — is maximally non-uniform:
+/// nothing about a frame can be inferred from its neighbors, which makes this
+/// the frame-count adversary for iterative walks that keep per-level records (a
+/// fixed 16-byte frame per level costs ~32 bytes per input byte here).
 ///
 /// Layout: at each level, `"11"` (internal node, `gamma(0)`), preceded by
-/// `"01"` when the internal child sits right (the leaf sibling is emitted
-/// first in preorder); the bottom node is `"01" · "0010"` (leaves 0, 1);
-/// unwinding, each level whose internal child sat left emits its trailing
-/// `"01"` sibling. Normal form holds everywhere: every internal node has a
-/// base-0 child, and the only leaf pair is `(0, 1)`.
+/// `"01"` when the internal child sits right (the leaf sibling is emitted first
+/// in preorder); the bottom node is `"01" · "0010"` (leaves 0, 1); unwinding,
+/// each level whose internal child sat left emits its trailing `"01"` sibling.
+/// Normal form holds everywhere: every internal node has a base-0 child, and
+/// the only leaf pair is `(0, 1)`.
 ///
 /// # Panics
 ///
@@ -516,22 +506,22 @@ fn alt_spine(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The scattered id `Z(e)`: `e` owned left subtrees at alternating depths of
-/// a right-leaning spine, `6e + 2` bits.
+/// The scattered id `Z(e)`: `e` owned left subtrees at alternating depths of a
+/// right-leaning spine, `6e + 2` bits.
 ///
-/// The operand cross's id side for output-dominated projection: the party
-/// owns the whole left child at every other level of a right-leaning spine —
-/// the positions where [`cliff_comb`]'s teeth hang — so projecting a comb
-/// through it keeps every second tooth. `e` disjoint owned fragments scatter
-/// across the id tree at `Θ(1)` stored bits each, so the *input* is linear
-/// in `e` while every kept fragment boundary forces a fresh wide magnitude
-/// into the projected *output*.
+/// The operand cross's id side for output-dominated projection: the party owns
+/// the whole left child at every other level of a right-leaning spine — the
+/// positions where [`cliff_comb`]'s teeth hang — so projecting a comb through
+/// it keeps every second tooth. `e` disjoint owned fragments scatter across the
+/// id tree at `Θ(1)` stored bits each, so the *input* is linear in `e` while
+/// every kept fragment boundary forces a fresh wide magnitude into the
+/// projected *output*.
 ///
 /// Layout, repeated `e` times: `11` (both children present), `00` (the owned
 /// left leaf), `01` (a right-only gap level); terminated by `00` (the owned
-/// tip). 6 bits per fragment plus 2. Normal form: no node has two
-/// fully-owned children (each `11` node's right child is a gap node) and no
-/// node has two absent children.
+/// tip). 6 bits per fragment plus 2. Normal form: no node has two fully-owned
+/// children (each `11` node's right child is a gap node) and no node has two
+/// absent children.
 ///
 /// # Panics
 ///
@@ -555,10 +545,10 @@ fn scattered_id(e: usize) -> Packed {
 /// The id spine `I(d, divert)`: a unary chain of depth `d`, `2d + 2` bits.
 ///
 /// Layout: `d` left-only tags (`10`) ending in a terminal (`00`). With
-/// `divert`, the last unary node is right-only (`01`) instead, so
-/// `I(d, false)` and `I(d, true)` share their first `d − 1` levels and own
-/// disjoint regions — the pair shape that drives two-operand id walks to
-/// full lockstep depth. Normal form: no `(1, 1)` node anywhere.
+/// `divert`, the last unary node is right-only (`01`) instead, so `I(d, false)`
+/// and `I(d, true)` share their first `d − 1` levels and own disjoint regions —
+/// the pair shape that drives two-operand id walks to full lockstep depth.
+/// Normal form: no `(1, 1)` node anywhere.
 ///
 /// # Panics
 ///
@@ -578,16 +568,15 @@ fn id_spine(d: usize, divert: bool) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The nested-full-sibling id `N(d)`: `(x, 1)` repeated down a left
-/// spine, `4d + 4` bits.
+/// The nested-full-sibling id `N(d)`: `(x, 1)` repeated down a left spine, `4d
+/// + 4` bits.
 ///
-/// Layout: `d` both-children tags (`11`) descending left, then the
-/// left-only terminus `(1, 0)` (`10 · 00`; a `(1, 1)` terminus would
-/// break normal form), then the `d` right-child terminals (`00`),
-/// innermost first — preorder closes the spine's right children in
-/// reverse. Every level is a right-full shortcut site over a matching
-/// event spine: the deepest stacking of the fill walk's deferred
-/// right-full decisions and per-level raise bookkeeping per input bit.
+/// Layout: `d` both-children tags (`11`) descending left, then the left-only
+/// terminus `(1, 0)` (`10 · 00`; a `(1, 1)` terminus would break normal form),
+/// then the `d` right-child terminals (`00`), innermost first — preorder closes
+/// the spine's right children in reverse. Every level is a right-full shortcut
+/// site over a matching event spine: the deepest stacking of the fill walk's
+/// deferred right-full decisions and per-level raise bookkeeping per input bit.
 ///
 /// # Panics
 ///
@@ -610,18 +599,17 @@ fn nested_full_id(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The mirror nested-full id `M(d)`: `(1, x)` repeated down a right
-/// spine, `4d + 4` bits.
+/// The mirror nested-full id `M(d)`: `(1, x)` repeated down a right spine, `4d
+/// + 4` bits.
 ///
 /// Layout: `d` both-children tags (`11`) descending right, each followed
-/// immediately by its full left terminal (`00` — preorder visits the left
-/// child first, so the terminals interleave with the spine tags instead
-/// of trailing them), then the right-only terminus `(0, 1)` (`01 · 00`;
-/// a `(1, 1)` terminus would break normal form). Every level is a
-/// left-full shortcut site over a right-leaning event spine: the raised
-/// leaf precedes the range its minimum comes from at every level, so the
-/// walk's memoized pre-scan (and the pre-scan's own per-level
-/// bookkeeping) runs at maximal nesting per input bit.
+/// immediately by its full left terminal (`00` — preorder visits the left child
+/// first, so the terminals interleave with the spine tags instead of trailing
+/// them), then the right-only terminus `(0, 1)` (`01 · 00`; a `(1, 1)` terminus
+/// would break normal form). Every level is a left-full shortcut site over a
+/// right-leaning event spine: the raised leaf precedes the range its minimum
+/// comes from at every level, so the walk's memoized pre-scan (and the
+/// pre-scan's own per-level bookkeeping) runs at maximal nesting per input bit.
 ///
 /// # Panics
 ///
@@ -645,17 +633,16 @@ fn nested_left_full_id(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// A right-leaning spine of zero leaves with one `2^b − 1` tail leaf:
-/// depth `d`, `4d + 2b + 3` bits.
+/// A right-leaning spine of zero leaves with one `2^b − 1` tail leaf: depth
+/// `d`, `4d + 2b + 3` bits.
 ///
-/// Layout: `d` × (`1 · gamma(0) · 0 · gamma(0)`) — each spine node's
-/// zero-base flag and its zero left leaf — then the bottom node's wide
-/// right leaf `0 · gamma(2^b − 1)`. Preorder leaf heights are
-/// `0, 0, …, 0, 2^b − 1`: every proper subtree of the spine nets
-/// `+(2^b − 1)` from entry to exit while all minima stay at zero, so any
-/// per-level bookkeeping that materializes subtree nets (rather than
-/// carrying them relative to a shared anchor) re-touches the tail's
-/// width once per level. Crossed with [`nested_left_full_id`], every
+/// Layout: `d` × (`1 · gamma(0) · 0 · gamma(0)`) — each spine node's zero-base
+/// flag and its zero left leaf — then the bottom node's wide right leaf `0 ·
+/// gamma(2^b − 1)`. Preorder leaf heights are `0, 0, …, 0, 2^b − 1`: every
+/// proper subtree of the spine nets `+(2^b − 1)` from entry to exit while all
+/// minima stay at zero, so any per-level bookkeeping that materializes subtree
+/// nets (rather than carrying them relative to a shared anchor) re-touches the
+/// tail's width once per level. Crossed with [`nested_left_full_id`], every
 /// level is additionally a left-full pre-scan site.
 ///
 /// # Panics
@@ -674,19 +661,18 @@ fn wide_tail(b: usize, d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The descending staircase `D(d)`: the dense left spine whose preorder
-/// leaf heights descend `d, d − 1, …, 0` by unit deltas; `~5d` bits.
+/// The descending staircase `D(d)`: the dense left spine whose preorder leaf
+/// heights descend `d, d − 1, …, 0` by unit deltas; `~5d` bits.
 ///
-/// Layout: the root `1 · gamma(0)`, then `d − 1` × (`1 · gamma(1)`)
-/// (each deeper spine node lifts its subtree's minimum by one), the
-/// bottom pair `0 · gamma(1) · 0 · gamma(0)`, then `d − 1` right-sibling
-/// zero leaves (`0 · gamma(0)`), innermost first. Min-lifted normal form
-/// holds at every node (each node's right leaf sits exactly at its
-/// subtree's minimum), and no leaf pair is equal. Every preorder leaf
-/// undercuts every leaf before it, so under an id that pairs internal
-/// down the whole spine (`id_spine`), every consumed leaf is a
-/// full-penetration minimum update through all open ranges — the shape
-/// that separates per-level minimum bookkeeping (quadratic) from
+/// Layout: the root `1 · gamma(0)`, then `d − 1` × (`1 · gamma(1)`) (each
+/// deeper spine node lifts its subtree's minimum by one), the bottom pair `0 ·
+/// gamma(1) · 0 · gamma(0)`, then `d − 1` right-sibling zero leaves (`0 ·
+/// gamma(0)`), innermost first. Min-lifted normal form holds at every node
+/// (each node's right leaf sits exactly at its subtree's minimum), and no leaf
+/// pair is equal. Every preorder leaf undercuts every leaf before it, so under
+/// an id that pairs internal down the whole spine (`id_spine`), every consumed
+/// leaf is a full-penetration minimum update through all open ranges — the
+/// shape that separates per-level minimum bookkeeping (quadratic) from
 /// run-compressed propagation (linear), independent of value width.
 ///
 /// # Panics
@@ -710,22 +696,21 @@ fn staircase(d: usize) -> Packed {
 }
 
 /// The memo-chain event `Q(k, distinct)`: a right-leaning spine of `k`
-/// single-leaf left-full sites, `~(14k + 9)` bits distinct (γ(j) codes),
-/// `13k + 9` shared.
+/// single-leaf left-full sites, `~(14k + 9)` bits distinct (γ(j) codes), `13k +
+/// 9` shared.
 ///
-/// Layout: the root `1 · γ(0)` with left leaf `0 · γ(0)`, then per level
-/// `j = 1..=k` the spine node `1 · γ(0)` over the site node
-/// `1 · γ(0) · 0 · γ(0) · 0 · γ(v_j)` (leaves 0 and `v_j`), terminated by
-/// `0 · γ(0)`. With `distinct`, `v_j = j`; else every `v_j = 1`. Crossed
-/// with [`memo_chain_id`], the root is one covering left-full site and
-/// every `(0, 0, v_j)` node an interior left-full site whose range is the
-/// single leaf `v_j` — `k` consumption-sibling memo records in one fresh
-/// scan, minima `v_j`. Distinct minima make every recorded difference
-/// nonzero; the shared twin's differences are all zero (the unstored
-/// case), so the pair separates per-record bookkeeping from work that
-/// scales with the differences the records carry. Normal form holds
-/// everywhere: every node's subtree minimum is its left leaf's 0, and the
-/// only leaf pairs are `(0, v_j)` with `v_j ≥ 1`.
+/// Layout: the root `1 · γ(0)` with left leaf `0 · γ(0)`, then per level `j =
+/// 1..=k` the spine node `1 · γ(0)` over the site node `1 · γ(0) · 0 · γ(0) · 0
+/// · γ(v_j)` (leaves 0 and `v_j`), terminated by `0 · γ(0)`. With `distinct`,
+/// `v_j = j`; else every `v_j = 1`. Crossed with [`memo_chain_id`], the root is
+/// one covering left-full site and every `(0, 0, v_j)` node an interior
+/// left-full site whose range is the single leaf `v_j` — `k`
+/// consumption-sibling memo records in one fresh scan, minima `v_j`. Distinct
+/// minima make every recorded difference nonzero; the shared twin's differences
+/// are all zero (the unstored case), so the pair separates per-record
+/// bookkeeping from work that scales with the differences the records carry.
+/// Normal form holds everywhere: every node's subtree minimum is its left
+/// leaf's 0, and the only leaf pairs are `(0, v_j)` with `v_j ≥ 1`.
 ///
 /// # Panics
 ///
@@ -748,13 +733,13 @@ fn memo_chain(k: usize, distinct: bool) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The memo-chain id over [`memo_chain`]: `(1, ·)` at the root and at
-/// every interior site, `10k + 8` bits.
+/// The memo-chain id over [`memo_chain`]: `(1, ·)` at the root and at every
+/// interior site, `10k + 8` bits.
 ///
-/// Layout: the root tag `11` with full left terminal `00`, then per level
-/// the spine tag `11`, the site id `(1, (1, 0))` (`11 · 00 · 10 · 00`),
-/// terminated by `(1, 0)` (`10 · 00`). Normal form: no `(1, 1)` node —
-/// every full child's sibling is internal or absent.
+/// Layout: the root tag `11` with full left terminal `00`, then per level the
+/// spine tag `11`, the site id `(1, (1, 0))` (`11 · 00 · 10 · 00`), terminated
+/// by `(1, 0)` (`10 · 00`). Normal form: no `(1, 1)` node — every full child's
+/// sibling is internal or absent.
 ///
 /// # Panics
 ///
@@ -785,26 +770,24 @@ fn memo_chain_id(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The memo-comb event `B(d)`: `d` alternating levels of a single-leaf
-/// site and a covering site, `~(18d + 2·γlen(d))` bits.
+/// The memo-comb event `B(d)`: `d` alternating levels of a single-leaf site and
+/// a covering site, `~(18d + 2·γlen(d))` bits.
 ///
-/// Layout: the root `1 · γ(0)` with left leaf `0 · γ(0)`, then per level
-/// `i = 1..=d`: `1 · γ(0)` (the covering site `X_{i+1}`'s range root)
-/// over `1 · γ(0) · 0 · γ(0) · 0 · γ(i)` (the single-leaf site `A_i`,
-/// minimum `i`) and `1 · γ(0) · 0 · γ(0)` (the next covering site's
-/// node), terminated by the leaf `0 · γ(d + 1)`. Crossed with
-/// [`memo_comb_id`], one fresh scan records `2d + 1` sites whose ranges
-/// interleave shallow (`A_i`, closing early) with covering (`X_i`,
-/// closing late): recording order runs `A_1..A_d` then `X_{d+1}..X_1`
+/// Layout: the root `1 · γ(0)` with left leaf `0 · γ(0)`, then per level `i =
+/// 1..=d`: `1 · γ(0)` (the covering site `X_{i+1}`'s range root) over `1 · γ(0)
+/// · 0 · γ(0) · 0 · γ(i)` (the single-leaf site `A_i`, minimum `i`) and `1 ·
+/// γ(0) · 0 · γ(0)` (the next covering site's node), terminated by the leaf `0
+/// · γ(d + 1)`. Crossed with [`memo_comb_id`], one fresh scan records `2d + 1`
+/// sites whose ranges interleave shallow (`A_i`, closing early) with covering
+/// (`X_i`, closing late): recording order runs `A_1..A_d` then `X_{d+1}..X_1`
 /// while the walk consumes `X_1, A_1, X_2, A_2, …` — every consecutive
-/// consumption is Θ(d) apart in recording order, with ascending site
-/// minima (`m(A_i) = m(X_i) = i`, the tail `d + 1`) keeping ~2d recorded
-/// differences nonzero. Any resolution that walks recorded differences
-/// between consecutively consumed sites — against the enclosing site or
-/// the previously consumed one alike — re-reads Θ(d) of them per site;
-/// per-site records anchored to the walk's own live state read O(1).
-/// Normal form: every node's subtree minimum is 0 via its zero leaves,
-/// and no equal leaf pair exists.
+/// consumption is Θ(d) apart in recording order, with ascending site minima
+/// (`m(A_i) = m(X_i) = i`, the tail `d + 1`) keeping ~2d recorded differences
+/// nonzero. Any resolution that walks recorded differences between
+/// consecutively consumed sites — against the enclosing site or the previously
+/// consumed one alike — re-reads Θ(d) of them per site; per-site records
+/// anchored to the walk's own live state read O(1). Normal form: every node's
+/// subtree minimum is 0 via its zero leaves, and no equal leaf pair exists.
 ///
 /// # Panics
 ///
@@ -830,14 +813,12 @@ fn memo_comb(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The memo-comb id over [`memo_comb`]: a covering `(1, ·)` site per
-/// level interleaved with the single-leaf sites' `(1, (1, 0))`,
-/// `14d + 12` bits.
+/// The memo-comb id over [`memo_comb`]: a covering `(1, ·)` site per level
+/// interleaved with the single-leaf sites' `(1, (1, 0))`, `14d + 12` bits.
 ///
-/// Layout: the root tag `11 · 00`, then per level `11` (the covering
-/// range's node) · `11 · 00 · 10 · 00` (the single-leaf site) ·
-/// `11 · 00` (the next covering site), terminated by `10 · 00`. Normal
-/// form: no `(1, 1)` node.
+/// Layout: the root tag `11 · 00`, then per level `11` (the covering range's
+/// node) · `11 · 00 · 10 · 00` (the single-leaf site) · `11 · 00` (the next
+/// covering site), terminated by `10 · 00`. Normal form: no `(1, 1)` node.
 ///
 /// # Panics
 ///
@@ -872,24 +853,23 @@ fn memo_comb_id(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The memo fan-out event `F(k, b)`: the memo-chain skeleton with one
-/// `2^b − 1` minimum shared by all `k` sites over the covering site's
-/// zero floor, `~(13k + 2kb + 9)` bits.
+/// The memo fan-out event `F(k, b)`: the memo-chain skeleton with one `2^b − 1`
+/// minimum shared by all `k` sites over the covering site's zero floor, `~(13k
+/// + 2kb + 9)` bits.
 ///
-/// Layout: [`memo_chain`]'s skeleton with every site's range leaf at
-/// `2^b − 1` and its collapsed left leaf at `2^b − 2` — the stream
-/// climbs to the wide plateau once and steps by units across all `k`
-/// sites, so the input pays the width exactly once (unlike
-/// [`memo_oscillating`], whose input re-pays it per site). Crossed
-/// with [`memo_chain_id`], the sites all share the wide minimum while
-/// the covering site's own minimum is the zero terminal: the sibling
-/// links are all zero (unstored) and exactly one ledger quantity (the
-/// first site's deferred link against the covering minimum) carries
-/// the width — paid once, independent of `k`. A recording discipline
-/// that anchors each site to the covering floor instead materializes
-/// `k` wide records; the pinned absolute touch ceiling is what such a
-/// fan-out blows. Normal form: leaf pairs `(2^b − 2, 2^b − 1)`, every
-/// subtree minimum 0 via the zero terminal under the root.
+/// Layout: [`memo_chain`]'s skeleton with every site's range leaf at `2^b − 1`
+/// and its collapsed left leaf at `2^b − 2` — the stream climbs to the wide
+/// plateau once and steps by units across all `k` sites, so the input pays the
+/// width exactly once (unlike [`memo_oscillating`], whose input re-pays it per
+/// site). Crossed with [`memo_chain_id`], the sites all share the wide minimum
+/// while the covering site's own minimum is the zero terminal: the sibling
+/// links are all zero (unstored) and exactly one ledger quantity (the first
+/// site's deferred link against the covering minimum) carries the width — paid
+/// once, independent of `k`. A recording discipline that anchors each site to
+/// the covering floor instead materializes `k` wide records; the pinned
+/// absolute touch ceiling is what such a fan-out blows. Normal form: leaf pairs
+/// `(2^b − 2, 2^b − 1)`, every subtree minimum 0 via the zero terminal under
+/// the root.
 ///
 /// # Panics
 ///
@@ -915,18 +895,15 @@ fn memo_fanout(k: usize, b: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The oscillating-siblings event `O(k, b)`: the memo-chain skeleton
-/// with site minima alternating `1` and `2^b − 1`, `~(13k + kb + 9)`
-/// bits.
+/// The oscillating-siblings event `O(k, b)`: the memo-chain skeleton with site
+/// minima alternating `1` and `2^b − 1`, `~(13k + kb + 9)` bits.
 ///
-/// Layout: [`memo_chain`]'s exactly, with `v_j = 2^b − 1` for odd `j`
-/// and `1` for even. Crossed with [`memo_chain_id`], every sibling
-/// ledger link is wide — but each site's range leaf codes the same
-/// width in the input, so the links are funded one-for-one by the
-/// oscillation the input already paid for: the control for the
-/// funding argument (flat touches per input byte, unlike the fan-out,
-/// whose input pays its width once). Normal form: as
-/// [`memo_chain`]'s.
+/// Layout: [`memo_chain`]'s exactly, with `v_j = 2^b − 1` for odd `j` and `1`
+/// for even. Crossed with [`memo_chain_id`], every sibling ledger link is wide
+/// — but each site's range leaf codes the same width in the input, so the links
+/// are funded one-for-one by the oscillation the input already paid for: the
+/// control for the funding argument (flat touches per input byte, unlike the
+/// fan-out, whose input pays its width once). Normal form: as [`memo_chain`]'s.
 ///
 /// # Panics
 ///
@@ -955,22 +932,19 @@ fn memo_oscillating(k: usize, b: usize) -> Packed {
 }
 
 /// The memo-churn event `U(d)`: `d` sibling single-leaf sites, then a
-/// descending run undercutting every open range minimum, `~(18d + 13)`
-/// bits.
+/// descending run undercutting every open range minimum, `~(18d + 13)` bits.
 ///
-/// Layout: the root `1 · γ(0)` (the covering site) with left leaf
-/// `0 · γ(0)`, then per level `i = 1..=d` the nested carrier
-/// `1 · γ(0)` over the site `1 · γ(0) · 0 · γ(0) · 0 · γ(i + 1)`
-/// (minimum `i + 1`), bottoming in [`staircase`]`(2d)`'s subtree
-/// (preorder heights `2d, 2d − 1, …, 0`). Crossed with
-/// [`memo_churn_id`], each site's record is live on the ledger head
-/// while the run's every leaf undercuts every open range — `~2d`
-/// full-penetration minimum drops with `d` recorded minima in flight.
-/// One live head follows them at one fold per drop; a discipline that
-/// keeps one live record per open level folds all `d` per drop
-/// (quadratic), the refuted live-anchored followers' tombstone.
-/// Normal form: leaf pairs `(0, i + 1)`, the run's unit-step descent,
-/// and every subtree minimum 0 via the run's bottom.
+/// Layout: the root `1 · γ(0)` (the covering site) with left leaf `0 · γ(0)`,
+/// then per level `i = 1..=d` the nested carrier `1 · γ(0)` over the site `1 ·
+/// γ(0) · 0 · γ(0) · 0 · γ(i + 1)` (minimum `i + 1`), bottoming in
+/// [`staircase`]`(2d)`'s subtree (preorder heights `2d, 2d − 1, …, 0`). Crossed
+/// with [`memo_churn_id`], each site's record is live on the ledger head while
+/// the run's every leaf undercuts every open range — `~2d` full-penetration
+/// minimum drops with `d` recorded minima in flight. One live head follows them
+/// at one fold per drop; a discipline that keeps one live record per open level
+/// folds all `d` per drop (quadratic), the refuted live-anchored followers'
+/// tombstone. Normal form: leaf pairs `(0, i + 1)`, the run's unit-step
+/// descent, and every subtree minimum 0 via the run's bottom.
 ///
 /// # Panics
 ///
@@ -1006,16 +980,14 @@ fn memo_churn(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The memo-churn id over [`memo_churn`]: a covering `(1, ·)` root,
-/// per level the site's `(1, (1, 0))` under a carrier whose right arm
-/// continues, and an absent id over the descending run, `14d + 6`
-/// bits.
+/// The memo-churn id over [`memo_churn`]: a covering `(1, ·)` root, per level
+/// the site's `(1, (1, 0))` under a carrier whose right arm continues, and an
+/// absent id over the descending run, `14d + 6` bits.
 ///
-/// Layout: the root tag `11 · 00`, then per level `11` (the carrier)
-/// · `11 · 00 · 10 · 00` (the site), with the last carrier's tag `10`
-/// (right absent: the run is walked as `fill(0, e) = e`, its
-/// emissions undercutting through every open frame). Normal form: no
-/// `(1, 1)` node.
+/// Layout: the root tag `11 · 00`, then per level `11` (the carrier) · `11 · 00
+/// · 10 · 00` (the site), with the last carrier's tag `10` (right absent: the
+/// run is walked as `fill(0, e) = e`, its emissions undercutting through every
+/// open frame). Normal form: no `(1, 1)` node.
 ///
 /// # Panics
 ///
@@ -1042,21 +1014,19 @@ fn memo_churn_id(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The descending-raises event `W(d)`: a floor realized high, then
-/// `d` sibling sites whose minima step down from it, `~(13d + 26)`
-/// bits.
+/// The descending-raises event `W(d)`: a floor realized high, then `d` sibling
+/// sites whose minima step down from it, `~(13d + 26)` bits.
 ///
-/// Layout: the root `1 · γ(0)` (the covering site) with left leaf
-/// `0 · γ(0)`, then `1 · γ(0)` whose left leaf `0 · γ(d + 2)` arms
-/// the frame high before any site, over the [`memo_chain`]-style
-/// spine with `v_j = d + 2 − j` — so every site's raise lands BELOW
-/// the frame's minimum at its own consume, and each consume's arm
-/// moves the tracked minimum the ledger relation must survive.
-/// The one family whose raises exercise the decide-then-emit
-/// ordering: a relation read after the raise emission is stale by
-/// exactly the arm's delta, and the oracle differential catches the
-/// wrong values. Normal form: leaf pairs `(0, d + 2 − j)` with
-/// `j ≤ d`, every subtree minimum 0 via the zero terminal.
+/// Layout: the root `1 · γ(0)` (the covering site) with left leaf `0 · γ(0)`,
+/// then `1 · γ(0)` whose left leaf `0 · γ(d + 2)` arms the frame high before
+/// any site, over the [`memo_chain`]-style spine with `v_j = d + 2 − j` — so
+/// every site's raise lands BELOW the frame's minimum at its own consume, and
+/// each consume's arm moves the tracked minimum the ledger relation must
+/// survive. The one family whose raises exercise the decide-then-emit ordering:
+/// a relation read after the raise emission is stale by exactly the arm's
+/// delta, and the oracle differential catches the wrong values. Normal form:
+/// leaf pairs `(0, d + 2 − j)` with `j ≤ d`, every subtree minimum 0 via the
+/// zero terminal.
 ///
 /// # Panics
 ///
@@ -1082,14 +1052,13 @@ fn descending_raises(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The descending-raises id over [`descending_raises`]: the covering
-/// `(1, ·)` root, an absent left over the floor leaf, then the
-/// memo-chain site ids, `10d + 10` bits.
+/// The descending-raises id over [`descending_raises`]: the covering `(1, ·)`
+/// root, an absent left over the floor leaf, then the memo-chain site ids, `10d
+/// + 10` bits.
 ///
-/// Layout: the root tag `11 · 00`, the floor carrier's `01` (left
-/// absent: the floor leaf stays), then per site `11` (spine) ·
-/// `11 · 00 · 10 · 00`, terminated by `(1, 0)`. Normal form: no
-/// `(1, 1)` node.
+/// Layout: the root tag `11 · 00`, the floor carrier's `01` (left absent: the
+/// floor leaf stays), then per site `11` (spine) · `11 · 00 · 10 · 00`,
+/// terminated by `(1, 0)`. Normal form: no `(1, 1)` node.
 ///
 /// # Panics
 ///
@@ -1122,27 +1091,25 @@ fn descending_raises_id(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The reveal-comb event `R(k, b)`: one covering site over a
-/// left-leaning comb of `k` sibling sites sharing one wide minimum
-/// `2^b` above a zero floor, `~(k(4b + 8) + 6)` bits.
+/// The reveal-comb event `R(k, b)`: one covering site over a left-leaning comb
+/// of `k` sibling sites sharing one wide minimum `2^b` above a zero floor,
+/// `~(k(4b + 8) + 6)` bits.
 ///
-/// Layout: the root `1 · γ(0)` (the covering site) with left leaf
-/// `0 · γ(0)`, then `k` comb nodes `1 · γ(0)` leaning left
-/// (`a_i = node(0, a_{i−1}, site_i)`), the floor `0 · γ(0)` at the
-/// deepest left, then per site `1 · γ(0) · 0 · γ(2^b − 1) · 0 · γ(2^b)`
-/// (leaves one apart at the shared wide plateau). The input pays the
-/// width once — the stream climbs to the plateau at the first site and
-/// steps by units after — and every site's fill collapses to the equal
-/// pair's leaf, so the output is unit deltas too. Crossed with
-/// [`reveal_comb_id`], each site is a left-full pre-scan site whose
-/// consume arms the tracked minimum `2^b` above the floor, and the
-/// left-leaning spine closes the site's node frame back into the
-/// 0-floor frame between consecutive consumes: the width-`b` boundary
-/// difference is minted at every consume and popped at every close —
-/// per-object-legal moves circulating one width with no input delta,
-/// no output code, and no undercut descent funding any hop. Normal
-/// form: no equal leaf pair exists (site pairs are `(2^b − 1, 2^b)`),
-/// and every comb node's subtree minimum is 0 via the floor.
+/// Layout: the root `1 · γ(0)` (the covering site) with left leaf `0 · γ(0)`,
+/// then `k` comb nodes `1 · γ(0)` leaning left (`a_i = node(0, a_{i−1},
+/// site_i)`), the floor `0 · γ(0)` at the deepest left, then per site `1 · γ(0)
+/// · 0 · γ(2^b − 1) · 0 · γ(2^b)` (leaves one apart at the shared wide
+/// plateau). The input pays the width once — the stream climbs to the plateau
+/// at the first site and steps by units after — and every site's fill collapses
+/// to the equal pair's leaf, so the output is unit deltas too. Crossed with
+/// [`reveal_comb_id`], each site is a left-full pre-scan site whose consume
+/// arms the tracked minimum `2^b` above the floor, and the left-leaning spine
+/// closes the site's node frame back into the 0-floor frame between consecutive
+/// consumes: the width-`b` boundary difference is minted at every consume and
+/// popped at every close — per-object-legal moves circulating one width with no
+/// input delta, no output code, and no undercut descent funding any hop. Normal
+/// form: no equal leaf pair exists (site pairs are `(2^b − 1, 2^b)`), and every
+/// comb node's subtree minimum is 0 via the floor.
 ///
 /// # Panics
 ///
@@ -1170,17 +1137,16 @@ fn reveal_comb(k: usize, b: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// [`reveal_comb`] with the floor raised to `2^b − 2`: identical site
-/// forest, identical close-reveal cycle, consume-time gap 2,
-/// `~(k(4b + 8) + 2b + 4)` bits.
+/// [`reveal_comb`] with the floor raised to `2^b − 2`: identical site forest,
+/// identical close-reveal cycle, consume-time gap 2, `~(k(4b + 8) + 2b + 4)`
+/// bits.
 ///
-/// Layout: [`reveal_comb`]'s exactly, with the floor leaf at
-/// `0 · γ(2^b − 2)`. The tracked minimum at every site consume sits 2
-/// below the site's minimum instead of `2^b` below, so the boundary
-/// difference the cycle circulates is O(1) wide: the control that
-/// separates the wide *gap* (the cost driver) from the forest shape
-/// and the deferral cycle (shared with the red family). Normal form:
-/// as [`reveal_comb`]'s, the floor now one below the site pairs.
+/// Layout: [`reveal_comb`]'s exactly, with the floor leaf at `0 · γ(2^b − 2)`.
+/// The tracked minimum at every site consume sits 2 below the site's minimum
+/// instead of `2^b` below, so the boundary difference the cycle circulates is
+/// O(1) wide: the control that separates the wide *gap* (the cost driver) from
+/// the forest shape and the deferral cycle (shared with the red family). Normal
+/// form: as [`reveal_comb`]'s, the floor now one below the site pairs.
 ///
 /// # Panics
 ///
@@ -1209,16 +1175,15 @@ fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The reveal-comb id over [`reveal_comb`]: the covering `(1, ·)`
-/// root over per-comb-level `(b_{i−1}, site)` tags with the site ids
-/// `(1, (1, 0))`, `10k + 4` bits.
+/// The reveal-comb id over [`reveal_comb`]: the covering `(1, ·)` root over
+/// per-comb-level `(b_{i−1}, site)` tags with the site ids `(1, (1, 0))`, `10k
+/// + 4` bits.
 ///
-/// Layout: the root tag `11 · 00`, then `k − 1` comb tags `11`
-/// (deeper comb left, site right), the deepest comb tag `01` (left
-/// absent: the floor stays), then per site `11 · 00 · 10 · 00` — the
-/// site blocks trail the comb tags because each site is its comb
-/// node's *right* child and the comb leans left. Normal form: no
-/// `(1, 1)` node.
+/// Layout: the root tag `11 · 00`, then `k − 1` comb tags `11` (deeper comb
+/// left, site right), the deepest comb tag `01` (left absent: the floor stays),
+/// then per site `11 · 00 · 10 · 00` — the site blocks trail the comb tags
+/// because each site is its comb node's *right* child and the comb leans left.
+/// Normal form: no `(1, 1)` node.
 ///
 /// # Panics
 ///
@@ -1249,21 +1214,19 @@ fn reveal_comb_id(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The pure-comb event `L(k, b)`: [`reveal_comb`]'s left-leaning comb
-/// with a bare `2^b` leaf per level and NO covering site,
-/// `~(k(2b + 4) + 2)` bits.
+/// The pure-comb event `L(k, b)`: [`reveal_comb`]'s left-leaning comb with a
+/// bare `2^b` leaf per level and NO covering site, `~(k(2b + 4) + 2)` bits.
 ///
-/// Layout: `k` comb nodes `1 · γ(0)` leaning left, the floor
-/// `0 · γ(0)`, then `k` leaves `0 · γ(2^b)` (each comb node's right
-/// child). Crossed with [`pure_comb_id`], no left-full site exists
-/// anywhere — no memo, no pre-scan, no site consume: each wide leaf is
-/// walked in its own leaf-under-internal-id frame, whose first
-/// emission arms it `2^b` above the floor and whose close pops the
-/// width-`b` boundary difference back — the base watermark stack's own
-/// arm-move + close-pop cycle, isolated from the pre-scan's frame
-/// ledger. Normal form: every comb node's subtree minimum is 0 via
-/// the floor, and no two sibling leaves are equal (`2^b` pairs with an
-/// internal node or the floor).
+/// Layout: `k` comb nodes `1 · γ(0)` leaning left, the floor `0 · γ(0)`, then
+/// `k` leaves `0 · γ(2^b)` (each comb node's right child). Crossed with
+/// [`pure_comb_id`], no left-full site exists anywhere — no memo, no pre-scan,
+/// no site consume: each wide leaf is walked in its own leaf-under-internal-id
+/// frame, whose first emission arms it `2^b` above the floor and whose close
+/// pops the width-`b` boundary difference back — the base watermark stack's own
+/// arm-move + close-pop cycle, isolated from the pre-scan's frame ledger.
+/// Normal form: every comb node's subtree minimum is 0 via the floor, and no
+/// two sibling leaves are equal (`2^b` pairs with an internal node or the
+/// floor).
 ///
 /// # Panics
 ///
@@ -1284,14 +1247,13 @@ fn pure_comb(k: usize, b: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The pure-comb id over [`pure_comb`]: per-comb-level
-/// `(b_{i−1}, (1, 0))` tags, `6k` bits.
+/// The pure-comb id over [`pure_comb`]: per-comb-level `(b_{i−1}, (1, 0))`
+/// tags, `6k` bits.
 ///
-/// Layout: `k − 1` comb tags `11` (deeper comb left, the leaf's id
-/// right), the deepest comb tag `01` (left absent: the floor stays),
-/// then `k` × `10 · 00` — each level's `(1, 0)` node id over its wide
-/// leaf, the leaf-under-internal-id frame shape. Normal form: no
-/// `(1, 1)` node.
+/// Layout: `k − 1` comb tags `11` (deeper comb left, the leaf's id right), the
+/// deepest comb tag `01` (left absent: the floor stays), then `k` × `10 · 00` —
+/// each level's `(1, 0)` node id over its wide leaf, the leaf-under-internal-id
+/// frame shape. Normal form: no `(1, 1)` node.
 ///
 /// # Panics
 ///
@@ -1314,26 +1276,24 @@ fn pure_comb_id(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The ascending cliff `A(k, b)`: a right spine of `k` ascending wide
-/// left leaves `2^b + i` over a terminal 0-cliff, `k(2b + 4) + 2` bits.
+/// The ascending cliff `A(k, b)`: a right spine of `k` ascending wide left
+/// leaves `2^b + i` over a terminal 0-cliff, `k(2b + 4) + 2` bits.
 ///
-/// Layout: `k` spine nodes `1 · γ(0)`, each with left leaf
-/// `0 · γ(2^b + i)` (`i = 1..=k`, ascending inward), the deepest
-/// node's right child the cliff `0 · γ(0)`. Crossed with
-/// [`ascend_cliff_id`], each ascending unit step arms its own node's
-/// frame one above the enclosing frame's minimum — `k − 1` nonzero
-/// unit boundary differences with no zero runs anywhere — and the
-/// cliff's single wide undercut (residue `2^b + k`) then propagates
-/// through all of them: the family whose cascade prices the fold
-/// *direction* of every hop, one wide residue against `k − 1` narrow
-/// dying differences. The version's stored skyline stream pays the
-/// width in O(1) codes (the first climb and the terminal drop) and
-/// unit deltas between, so the input is Θ(k + b) and the tick's
-/// output is the input with the cliff grown to `(0, 1, 0)` — Θ(k + b)
-/// too, so a residue-width fold per hop survives the input+output
-/// denominator. Normal form: every spine node's subtree minimum is 0
-/// via the cliff, and no two sibling leaves exist (each wide leaf
-/// pairs with an internal node; the deepest pair is `(2^b + k, 0)`).
+/// Layout: `k` spine nodes `1 · γ(0)`, each with left leaf `0 · γ(2^b + i)` (`i
+/// = 1..=k`, ascending inward), the deepest node's right child the cliff `0 ·
+/// γ(0)`. Crossed with [`ascend_cliff_id`], each ascending unit step arms its
+/// own node's frame one above the enclosing frame's minimum — `k − 1` nonzero
+/// unit boundary differences with no zero runs anywhere — and the cliff's
+/// single wide undercut (residue `2^b + k`) then propagates through all of
+/// them: the family whose cascade prices the fold *direction* of every hop, one
+/// wide residue against `k − 1` narrow dying differences. The version's stored
+/// skyline stream pays the width in O(1) codes (the first climb and the
+/// terminal drop) and unit deltas between, so the input is Θ(k + b) and the
+/// tick's output is the input with the cliff grown to `(0, 1, 0)` — Θ(k + b)
+/// too, so a residue-width fold per hop survives the input+output denominator.
+/// Normal form: every spine node's subtree minimum is 0 via the cliff, and no
+/// two sibling leaves exist (each wide leaf pairs with an internal node; the
+/// deepest pair is `(2^b + k, 0)`).
 ///
 /// # Panics
 ///
@@ -1343,19 +1303,17 @@ fn ascend_cliff(k: usize, b: usize) -> Packed {
     ascend_spine(k, b, true)
 }
 
-/// [`ascend_cliff`] with every wide leaf leveled at `2^b + 1`:
-/// identical spine, identical cliff undercut, all boundary
-/// differences zero, `k(2b + 4) + 2` bits.
+/// [`ascend_cliff`] with every wide leaf leveled at `2^b + 1`: identical spine,
+/// identical cliff undercut, all boundary differences zero, `k(2b + 4) + 2`
+/// bits.
 ///
-/// Layout: [`ascend_cliff`]'s exactly, `i` pinned to 1. Every frame
-/// arms at the shared minimum, so the difference stack is one
-/// compressed zero run and the cliff's wide undercut passes it whole
-/// in O(1): the control separating the cascade's *hop count* (the
-/// cost driver under a per-hop width fold) from the spine shape, the
-/// arming schedule, and the undercut itself, all shared with the
-/// ascending family. Normal form: as [`ascend_cliff`]'s (each wide
-/// leaf pairs with an internal node; the deepest pair is
-/// `(2^b + 1, 0)`).
+/// Layout: [`ascend_cliff`]'s exactly, `i` pinned to 1. Every frame arms at the
+/// shared minimum, so the difference stack is one compressed zero run and the
+/// cliff's wide undercut passes it whole in O(1): the control separating the
+/// cascade's *hop count* (the cost driver under a per-hop width fold) from the
+/// spine shape, the arming schedule, and the undercut itself, all shared with
+/// the ascending family. Normal form: as [`ascend_cliff`]'s (each wide leaf
+/// pairs with an internal node; the deepest pair is `(2^b + 1, 0)`).
 ///
 /// # Panics
 ///
@@ -1387,37 +1345,35 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The exponent of the wide drop in [`freeze_position`] and of the
-/// in-pair drop in [`freeze_parade`].
+/// The exponent of the wide drop in [`freeze_position`] and of the in-pair drop
+/// in [`freeze_parade`].
 ///
-/// `2^288` is a ten-base-2^32-digit value, so a block's drift exceeds
-/// the following unit code's one digit by more than the query folds'
-/// eight-digit freeze allowance, and every block fires one freeze.
+/// `2^288` is a ten-base-2^32-digit value, so a block's drift exceeds the
+/// following unit code's one digit by more than the query folds' eight-digit
+/// freeze allowance, and every block fires one freeze.
 const FREEZE_POSITION_DROP_BITS: usize = 288;
 
-/// The freeze-position spine `FP(k)`: a right spine of `2k` descending
-/// wide left leaves whose consecutive drops alternate `2^288` and one,
-/// over a terminal 0 leaf.
+/// The freeze-position spine `FP(k)`: a right spine of `2k` descending wide
+/// left leaves whose consecutive drops alternate `2^288` and one, over a
+/// terminal 0 leaf.
 ///
-/// Exactly `4k(L + 2) + 2` bits for the one shared leaf-width band
-/// `L = 289 + bitlen(k)`.
+/// Exactly `4k(L + 2) + 2` bits for the one shared leaf-width band `L = 289 +
+/// bitlen(k)`.
 ///
-/// Layout: `2k` spine nodes `1 · γ(0)` leaning right, node `j`'s left
-/// leaf the `j`-th value of the descent from `2^L + k(2^288 + 1)`
-/// (alternately dropping `2^288` and `1`), the deepest node's right
-/// child the terminal `0 · γ(0)`. Each block's wide drop re-arms live
-/// drift over the query folds' freeze allowance and the following unit
-/// code fires the freeze, so a query fold freezes `Θ(k)` times, at
-/// stream positions whose written span grows with every block — the
-/// many-freezes genre: an accounting that reads an absolute position
-/// (or re-reads any whole-history state) per freeze goes quadratic
-/// here, while every committed comb fires O(1) freezes. The descent
-/// consumes `k(2^288 + 1) < 2^L`, so every leaf shares the one
-/// `(L + 1)`-bit width and the size formula is exact.
-/// `min_ticks(FP(k))` is the leaf sum `2k·2^L + k(k−1)(2^288 + 1) + k`
-/// (every node minimum is 0 via the terminal leaf). Normal form:
-/// values strictly descend (no equal siblings), every base is 0, and
-/// every subtree minimum is 0.
+/// Layout: `2k` spine nodes `1 · γ(0)` leaning right, node `j`'s left leaf the
+/// `j`-th value of the descent from `2^L + k(2^288 + 1)` (alternately dropping
+/// `2^288` and `1`), the deepest node's right child the terminal `0 · γ(0)`.
+/// Each block's wide drop re-arms live drift over the query folds' freeze
+/// allowance and the following unit code fires the freeze, so a query fold
+/// freezes `Θ(k)` times, at stream positions whose written span grows with
+/// every block — the many-freezes genre: an accounting that reads an absolute
+/// position (or re-reads any whole-history state) per freeze goes quadratic
+/// here, while every committed comb fires O(1) freezes. The descent consumes
+/// `k(2^288 + 1) < 2^L`, so every leaf shares the one `(L + 1)`-bit width and
+/// the size formula is exact. `min_ticks(FP(k))` is the leaf sum `2k·2^L +
+/// k(k−1)(2^288 + 1) + k` (every node minimum is 0 via the terminal leaf).
+/// Normal form: values strictly descend (no equal siblings), every base is 0,
+/// and every subtree minimum is 0.
 ///
 /// # Panics
 ///
@@ -1450,53 +1406,48 @@ fn bitlen(k: usize) -> usize {
 
 /// The promotion re-arm arming exponent in [`promotion_rearm`].
 ///
-/// `2^608` spans 20 base-2^32 digits: more than the query folds'
-/// eight-digit freeze allowance above the settling drop's ten
-/// ([`PROMOTION_REARM_SETTLE_BITS`]), so every block's second freeze
-/// finds the parked component over-wide and promotes it.
+/// `2^608` spans 20 base-2^32 digits: more than the query folds' eight-digit
+/// freeze allowance above the settling drop's ten
+/// ([`PROMOTION_REARM_SETTLE_BITS`]), so every block's second freeze finds the
+/// parked component over-wide and promotes it.
 const PROMOTION_REARM_ARM_BITS: usize = 608;
 
 /// The promotion re-arm settling exponent in [`promotion_rearm`].
 ///
-/// `2^288` spans 10 digits: wide enough that the following unit code
-/// trips the freeze trigger (10 > 1 + 8), narrow enough that the parked
-/// arming drift exceeds it by more than the allowance (20 > 10 + 8).
+/// `2^288` spans 10 digits: wide enough that the following unit code trips the
+/// freeze trigger (10 > 1 + 8), narrow enough that the parked arming drift
+/// exceeds it by more than the allowance (20 > 10 + 8).
 const PROMOTION_REARM_SETTLE_BITS: usize = 288;
 
-/// Span-building spine levels per block in [`promotion_rearm`]: the
-/// phase-1 run of `32p` levels puts a `Θ(p)`-digit floor under the
-/// consumed-mass span the blocks then re-arm across, at ~5 stored bits
-/// per level.
+/// Span-building spine levels per block in [`promotion_rearm`]: the phase-1 run
+/// of `32p` levels puts a `Θ(p)`-digit floor under the consumed-mass span the
+/// blocks then re-arm across, at ~5 stored bits per level.
 const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 
-/// The promotion re-arm spine `PR(p)`: `32p` span-building levels down
-/// a right spine, then `p` four-node re-arm blocks, over a terminal 1
-/// leaf.
+/// The promotion re-arm spine `PR(p)`: `32p` span-building levels down a right
+/// spine, then `p` four-node re-arm blocks, over a terminal 1 leaf.
 ///
-/// Exactly `1972p + 4` bits. Layout: `32p` spine nodes `(0, 1, ·)` /
-/// `(0, 0, ·)` alternating (base 0, leaf heights 1, 0, 1, 0, … — 10
-/// bits per pair), then per block the node bases `2^608, 1, 2^288, 1`
-/// on the 0-leaf shape (1,220 + 6 + 580 + 6 bits), closing in the
-/// leaf `1` (4 bits). The prefix's ±1 oscillation never freezes while
-/// its interval masses' depths grow the consumed span one digit per 32
-/// levels, and its running range minima are all zero, so the min-ticks
-/// web rides the whole prefix as one compressed zero run (an ascending
-/// prefix would instead arm `Θ(p)` distinct nested minima — the
-/// ascend-cliff heap genre, deliberately avoided: this family's
-/// adversarial payload is the promotion schedule, not the web). Each
-/// block's `2^608` climb re-arms parked drift over the query folds'
-/// freeze allowance (the following unit fires the freeze that parks
-/// it), and its `2^288` climb re-freezes at a drift the parked
-/// component exceeds by more than the allowance — one promotion per
-/// block, `Θ(p)` promotions at O(1) stored codes each, so any
-/// promotion accounting that re-reads whole-history state per arming
-/// goes quadratic here while the family's suffix masses compact to
-/// O(1) balanced terms. Every stored code is a delta the fold must
-/// consume, and `min_ticks(PR(p)) = Σ bases = 16p + p(2^608 + 2^288 +
-/// 2) + 1` is the closed-form semantic leg. Normal form: every prefix
-/// node reaches its subtree minimum 0 through a later prefix 0 leaf,
-/// every block node's minimum is its own 0 leaf, and no sibling leaf
-/// pair is equal.
+/// Exactly `1972p + 4` bits. Layout: `32p` spine nodes `(0, 1, ·)` / `(0, 0,
+/// ·)` alternating (base 0, leaf heights 1, 0, 1, 0, … — 10 bits per pair),
+/// then per block the node bases `2^608, 1, 2^288, 1` on the 0-leaf shape
+/// (1,220 + 6 + 580 + 6 bits), closing in the leaf `1` (4 bits). The prefix's
+/// ±1 oscillation never freezes while its interval masses' depths grow the
+/// consumed span one digit per 32 levels, and its running range minima are all
+/// zero, so the min-ticks web rides the whole prefix as one compressed zero run
+/// (an ascending prefix would instead arm `Θ(p)` distinct nested minima — the
+/// ascend-cliff heap genre, deliberately avoided: this family's adversarial
+/// payload is the promotion schedule, not the web). Each block's `2^608` climb
+/// re-arms parked drift over the query folds' freeze allowance (the following
+/// unit fires the freeze that parks it), and its `2^288` climb re-freezes at a
+/// drift the parked component exceeds by more than the allowance — one
+/// promotion per block, `Θ(p)` promotions at O(1) stored codes each, so any
+/// promotion accounting that re-reads whole-history state per arming goes
+/// quadratic here while the family's suffix masses compact to O(1) balanced
+/// terms. Every stored code is a delta the fold must consume, and
+/// `min_ticks(PR(p)) = Σ bases = 16p + p(2^608 + 2^288 + 2) + 1` is the
+/// closed-form semantic leg. Normal form: every prefix node reaches its subtree
+/// minimum 0 through a later prefix 0 leaf, every block node's minimum is its
+/// own 0 leaf, and no sibling leaf pair is equal.
 ///
 /// # Panics
 ///
@@ -1527,22 +1478,21 @@ fn promotion_rearm(p: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The promotion re-arm mate `PRM(p)`: the small twin of
-/// [`promotion_rearm`] — the same `36p`-node right-spine topology with
-/// the 1, 0, 1, 0, … leaf alternation running the whole spine.
+/// The promotion re-arm mate `PRM(p)`: the small twin of [`promotion_rearm`] —
+/// the same `36p`-node right-spine topology with the 1, 0, 1, 0, … leaf
+/// alternation running the whole spine.
 ///
-/// Exactly `180p + 4` bits, and `min_ticks(PRM(p)) = 18p + 1`.
-/// Overlaid against `PR(p)` it is the two-operand re-arm genre: the
-/// heights agree leaf for leaf along the whole span-building prefix
-/// (the difference folds to zero, boundary by boundary), and every
-/// block boundary folds a unit from this operand against the other's
-/// wide climb — so the co-sweep's freezes and promotions fire at
-/// boundaries where this operand's cheap codes set the funded width,
+/// Exactly `180p + 4` bits, and `min_ticks(PRM(p)) = 18p + 1`. Overlaid against
+/// `PR(p)` it is the two-operand re-arm genre: the heights agree leaf for leaf
+/// along the whole span-building prefix (the difference folds to zero, boundary
+/// by boundary), and every block boundary folds a unit from this operand
+/// against the other's wide climb — so the co-sweep's freezes and promotions
+/// fire at boundaries where this operand's cheap codes set the funded width,
 /// moving drift only the other operand's wide codes deposited. `PR(p)`
-/// dominates it pointwise (equal on the prefix, `≥ 2^608` against
-/// `≤ 1` in the blocks), so the pair measures collapse to exact rank
-/// identities. Normal form: as [`promotion_rearm`]'s prefix, closing
-/// in the unequal leaf pair `(0, 1)`.
+/// dominates it pointwise (equal on the prefix, `≥ 2^608` against `≤ 1` in the
+/// blocks), so the pair measures collapse to exact rank identities. Normal
+/// form: as [`promotion_rearm`]'s prefix, closing in the unequal leaf pair `(0,
+/// 1)`.
 ///
 /// # Panics
 ///
@@ -1563,42 +1513,36 @@ fn promotion_rearm_mate(p: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// Spine levels per suffix digit in [`dense_suffix`] and
-/// [`wide_arming`].
+/// Spine levels per suffix digit in [`dense_suffix`] and [`wide_arming`].
 ///
-/// Each right-descent turn removes one isolated interval from the
-/// trailing run, and a 33-level stride keeps successive gaps more than
-/// a full base-2^32 digit apart, so the balanced signed-digit
-/// compaction (which cancels only ones-runs) can never merge two of
-/// them into one term: the trailing interval mass carries `d`
-/// incompressible digits.
+/// Each right-descent turn removes one isolated interval from the trailing run,
+/// and a 33-level stride keeps successive gaps more than a full base-2^32 digit
+/// apart, so the balanced signed-digit compaction (which cancels only
+/// ones-runs) can never merge two of them into one term: the trailing interval
+/// mass carries `d` incompressible digits.
 const DENSE_SUFFIX_DIGIT_STRIDE: usize = 33;
 
-/// The dense-suffix re-arm family `DS(p, d)`: a gap spine of `33d`
-/// levels, then `p` four-node re-arm blocks at its bottom, over a
-/// terminal 1 leaf.
+/// The dense-suffix re-arm family `DS(p, d)`: a gap spine of `33d` levels, then
+/// `p` four-node re-arm blocks at its bottom, over a terminal 1 leaf.
 ///
-/// Exactly `134d + 1812p + 4` bits. The spine turns right every 33rd
-/// level — the turn's 1-leaf is swept *before* the blocks, so its
-/// interval is absent from the trailing mass — and left elsewhere,
-/// those right-sibling 0-leaves swept *after* the blocks. The trailing
-/// mass is an all-ones run punctured by `d` isolated gaps a full digit
-/// apart (the 33-level stride constant's derivation): the interval mass behind
-/// every block, `Θ(d)` balanced digits however it is assembled. Each
-/// block is [`promotion_rearm`]'s verbatim — a `2^608` climb, a unit
-/// (the freeze that parks the wide drift), a `2^288` climb, and a unit
-/// (the freeze whose promotion arms the query folds' ledger) — one
-/// promotion per block at O(1) stored codes, so `Θ(p)` armings all owe
-/// their debt across the same `Θ(d)`-dense trailing mass: a ledger
-/// settle that walks the suffix once per arming (or re-reads a
-/// promoted prefix once per window) goes quadratic here, and the
-/// balanced product-tree settle reads flat.
-/// `min_ticks(DS(p, d)) = Σ bases = d + p(2^608 + 2^288 + 2) + 1` is
-/// the closed-form semantic leg (the `d` term is the turn leaves, so a
-/// spine-less generator fails it). Normal form: every spine node
-/// reaches its subtree minimum 0 through a trailing 0-leaf, every
-/// block node's minimum is its own 0-leaf, and no sibling leaf pair is
-/// equal.
+/// Exactly `134d + 1812p + 4` bits. The spine turns right every 33rd level —
+/// the turn's 1-leaf is swept *before* the blocks, so its interval is absent
+/// from the trailing mass — and left elsewhere, those right-sibling 0-leaves
+/// swept *after* the blocks. The trailing mass is an all-ones run punctured by
+/// `d` isolated gaps a full digit apart (the 33-level stride constant's
+/// derivation): the interval mass behind every block, `Θ(d)` balanced digits
+/// however it is assembled. Each block is [`promotion_rearm`]'s verbatim — a
+/// `2^608` climb, a unit (the freeze that parks the wide drift), a `2^288`
+/// climb, and a unit (the freeze whose promotion arms the query folds' ledger)
+/// — one promotion per block at O(1) stored codes, so `Θ(p)` armings all owe
+/// their debt across the same `Θ(d)`-dense trailing mass: a ledger settle that
+/// walks the suffix once per arming (or re-reads a promoted prefix once per
+/// window) goes quadratic here, and the balanced product-tree settle reads
+/// flat. `min_ticks(DS(p, d)) = Σ bases = d + p(2^608 + 2^288 + 2) + 1` is the
+/// closed-form semantic leg (the `d` term is the turn leaves, so a spine-less
+/// generator fails it). Normal form: every spine node reaches its subtree
+/// minimum 0 through a trailing 0-leaf, every block node's minimum is its own
+/// 0-leaf, and no sibling leaf pair is equal.
 ///
 /// # Panics
 ///
@@ -1625,20 +1569,18 @@ fn dense_suffix(p: usize, d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The dense-suffix mate `DSM(p, d)`: the small twin of
-/// [`dense_suffix`] — the same topology with every block node's base 1.
+/// The dense-suffix mate `DSM(p, d)`: the small twin of [`dense_suffix`] — the
+/// same topology with every block node's base 1.
 ///
-/// Exactly `134d + 24p + 4` bits, and
-/// `min_ticks(DSM(p, d)) = d + 4p + 1`. Overlaid against `DS(p, d)`,
-/// heights agree leaf for leaf along the spine and the trailing run
-/// (the difference folds to zero) and every block boundary folds this
-/// operand's unit codes against the other's wide climbs, so the
-/// co-sweep's freezes and promotions fire on drift only the wide
-/// operand deposited — and the ledger's every arming owes its debt
-/// across the same dense trailing mass. `DS(p, d)` dominates it
-/// pointwise (equal outside the blocks, `≥ 2^608` against `≤ 4p`
-/// inside), so the pair measures collapse to exact rank identities.
-/// Normal form: as [`dense_suffix`]'s.
+/// Exactly `134d + 24p + 4` bits, and `min_ticks(DSM(p, d)) = d + 4p + 1`.
+/// Overlaid against `DS(p, d)`, heights agree leaf for leaf along the spine and
+/// the trailing run (the difference folds to zero) and every block boundary
+/// folds this operand's unit codes against the other's wide climbs, so the
+/// co-sweep's freezes and promotions fire on drift only the wide operand
+/// deposited — and the ledger's every arming owes its debt across the same
+/// dense trailing mass. `DS(p, d)` dominates it pointwise (equal outside the
+/// blocks, `≥ 2^608` against `≤ 4p` inside), so the pair measures collapse to
+/// exact rank identities. Normal form: as [`dense_suffix`]'s.
 ///
 /// # Panics
 ///
@@ -1661,35 +1603,31 @@ fn dense_suffix_mate(p: usize, d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The wide-arming family `WA(w, d)`: the gap spine of
-/// [`dense_suffix`] over a *single* re-arm block whose arming climb
-/// is `2^(32w)`.
+/// The wide-arming family `WA(w, d)`: the gap spine of [`dense_suffix`] over a
+/// *single* re-arm block whose arming climb is `2^(32w)`.
 ///
-/// One promotion whose parked mass is as wide as the input, owing its
-/// debt across a trailing mass as dense as the input. Exactly
-/// `134d + 64w + 600` bits. The one block climbs `2^(32w)`
-/// (parked at its unit), climbs `2^288` (whose unit's freeze finds the
-/// parked component over-wide and promotes it — the one ledger
-/// arming), and the sweep then consumes the `Θ(d)`-dense trailing mass
-/// and descends, cancelling the plateau only after the ledger entry is
-/// sealed. The exact debt embeds one `Θ(w)`-digit × `Θ(d)`-digit
-/// product whose factors the input funds separately (`w` digits of
-/// arming code, `d` spine turns), and the cancelling descent lands
-/// outside the ledger, so no seam cancellation can dodge it: the
-/// settle's one aggregate product is the ledger's wide × dense
-/// multiplication genre at its purest, priced at the multiplication
-/// bound by the query module doc's settle bound — where a per-digit
-/// schoolbook charge pays `Θ(w · d)` digit work against a
-/// `Θ(w + d)`-bit operand, quadratic at `w = d`, the reading the
-/// committed schoolbook kernel keeps failing beside the
-/// `ledger_wide_arming` flatness band.
-/// `min_ticks(WA(w, d)) = d + 2^(32w) + 2^288 + 2 + 1` is the
-/// closed-form semantic leg. Normal form: as [`dense_suffix`]'s.
+/// One promotion whose parked mass is as wide as the input, owing its debt
+/// across a trailing mass as dense as the input. Exactly `134d + 64w + 600`
+/// bits. The one block climbs `2^(32w)` (parked at its unit), climbs `2^288`
+/// (whose unit's freeze finds the parked component over-wide and promotes it —
+/// the one ledger arming), and the sweep then consumes the `Θ(d)`-dense
+/// trailing mass and descends, cancelling the plateau only after the ledger
+/// entry is sealed. The exact debt embeds one `Θ(w)`-digit × `Θ(d)`-digit
+/// product whose factors the input funds separately (`w` digits of arming code,
+/// `d` spine turns), and the cancelling descent lands outside the ledger, so no
+/// seam cancellation can dodge it: the settle's one aggregate product is the
+/// ledger's wide × dense multiplication genre at its purest, priced at the
+/// multiplication bound by the query module doc's settle bound — where a
+/// per-digit schoolbook charge pays `Θ(w · d)` digit work against a `Θ(w +
+/// d)`-bit operand, quadratic at `w = d`, the reading the committed schoolbook
+/// kernel keeps failing beside the `ledger_wide_arming` flatness band.
+/// `min_ticks(WA(w, d)) = d + 2^(32w) + 2^288 + 2 + 1` is the closed-form
+/// semantic leg. Normal form: as [`dense_suffix`]'s.
 ///
 /// # Panics
 ///
-/// Panics if `w < 10` (the parked component must clear the settling
-/// drift's ten digits by more than the freeze allowance) or `d == 0`.
+/// Panics if `w < 10` (the parked component must clear the settling drift's ten
+/// digits by more than the freeze allowance) or `d == 0`.
 fn wide_arming(w: usize, d: usize) -> Packed {
     assert!(
         w >= 10,
@@ -1713,12 +1651,12 @@ fn wide_arming(w: usize, d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// Append the dense-suffix gap spine: `33d` zero-base levels turning
-/// right every 33rd and left elsewhere.
+/// Append the dense-suffix gap spine: `33d` zero-base levels turning right
+/// every 33rd and left elsewhere.
 ///
-/// A turn's 1-leaf is emitted before the descent; the return value is
-/// the count of trailing 0-leaf siblings the caller must emit
-/// innermost-first after the spine's terminal content.
+/// A turn's 1-leaf is emitted before the descent; the return value is the count
+/// of trailing 0-leaf siblings the caller must emit innermost-first after the
+/// spine's terminal content.
 fn gap_spine(bits: &mut BitsMut, d: usize) -> usize {
     let mut trailing = 0usize;
     for level in 0..DENSE_SUFFIX_DIGIT_STRIDE * d {
@@ -1734,16 +1672,16 @@ fn gap_spine(bits: &mut BitsMut, d: usize) -> usize {
 }
 
 /// Append the parked-unit spine shared by [`weight_comb`] and
-/// [`freeze_parade`]: `s` zero-base levels leaning left, with the
-/// *root's* right child left to the caller.
+/// [`freeze_parade`]: `s` zero-base levels leaning left, with the *root's*
+/// right child left to the caller.
 ///
-/// The innermost node is `(0, 1, 0)` and every other level's right
-/// sibling is a unit leaf. The spine's sole job is depth: the caller's block hangs as the
-/// root's right child at position weight `2^(s − 1)`, bought once with
-/// `Θ(s)` one-time topology bits, and the innermost right leaf's 0
-/// drop parks one digit-0 unit under everything that follows, so no
-/// value-emptiness or write-watermark shortcut can stand in for the
-/// gap the block's events must cross. Exactly `6s − 2` bits.
+/// The innermost node is `(0, 1, 0)` and every other level's right sibling is a
+/// unit leaf. The spine's sole job is depth: the caller's block hangs as the
+/// root's right child at position weight `2^(s − 1)`, bought once with `Θ(s)`
+/// one-time topology bits, and the innermost right leaf's 0 drop parks one
+/// digit-0 unit under everything that follows, so no value-emptiness or
+/// write-watermark shortcut can stand in for the gap the block's events must
+/// cross. Exactly `6s − 2` bits.
 ///
 /// # Panics
 ///
@@ -1761,34 +1699,30 @@ fn parked_unit_spine(bits: &mut BitsMut, s: usize) {
     }
 }
 
-/// The weight-comb family `WC(n)`: the parked-unit spine at depth
-/// `32n`, then one complete subtree of `2n` leaves alternating heights
-/// 0 and 2 as the root's right child.
+/// The weight-comb family `WC(n)`: the parked-unit spine at depth `32n`, then
+/// one complete subtree of `2n` leaves alternating heights 0 and 2 as the
+/// root's right child.
 ///
-/// Exactly `202n − 4` bits. The rank integral deposits each leaf's
-/// live component at its position weight `2^(S − depth)`, so the
-/// shallow block's ±1 oscillation lands alternating signs at one digit
-/// position `Θ(n)` digits above the spine's parked unit — for O(1)
-/// stored bits per leaf, the position weight being topology, not code.
-/// Every even-numbered block leaf cancels the digit and the
-/// accumulator's top must settle back across the never-written gap;
-/// every odd-numbered leaf re-raises it in one write — the many-jumps
-/// genre: a settlement scan that steps the gap digit by digit pays
-/// `Θ(n)` unfunded touches per event (`Θ(n²)` on linear input), and
-/// the parked digit-0 unit forecloses value-emptiness and
-/// write-watermark shortcuts, so consuming one zero-run certificate
-/// per jumped run is what holds the cost flat (the
-/// `skyline_flatness` weight-comb band in `tests/meter.rs` carries
-/// both readings).
-/// `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's
-/// `32n − 1` unit leaves plus the block's `n` twos). Normal form: the
-/// innermost leaf pair is `(1, 0)`, every block pair is `(0, 2)`, and
-/// every subtree minimum is 0.
+/// Exactly `202n − 4` bits. The rank integral deposits each leaf's live
+/// component at its position weight `2^(S − depth)`, so the shallow block's ±1
+/// oscillation lands alternating signs at one digit position `Θ(n)` digits
+/// above the spine's parked unit — for O(1) stored bits per leaf, the position
+/// weight being topology, not code. Every even-numbered block leaf cancels the
+/// digit and the accumulator's top must settle back across the never-written
+/// gap; every odd-numbered leaf re-raises it in one write — the many-jumps
+/// genre: a settlement scan that steps the gap digit by digit pays `Θ(n)`
+/// unfunded touches per event (`Θ(n²)` on linear input), and the parked digit-0
+/// unit forecloses value-emptiness and write-watermark shortcuts, so consuming
+/// one zero-run certificate per jumped run is what holds the cost flat (the
+/// `skyline_flatness` weight-comb band in `tests/meter.rs` carries both
+/// readings). `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's
+/// `32n − 1` unit leaves plus the block's `n` twos). Normal form: the innermost
+/// leaf pair is `(1, 0)`, every block pair is `(0, 2)`, and every subtree
+/// minimum is 0.
 ///
 /// # Panics
 ///
-/// Panics if `n` is not a power of two (the block is one complete
-/// subtree).
+/// Panics if `n` is not a power of two (the block is one complete subtree).
 fn weight_comb(n: usize) -> Packed {
     assert!(
         n.is_power_of_two(),
@@ -1813,32 +1747,28 @@ fn weight_comb(n: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The freeze-parade family `FZ(k)`: the parked-unit spine at depth
-/// `64k`, then one complete subtree of `k` freeze blocks — wide leaf
-/// pairs dropping `2^288` inside each pair and one across pairs — as
-/// the root's right child.
+/// The freeze-parade family `FZ(k)`: the parked-unit spine at depth `64k`, then
+/// one complete subtree of `k` freeze blocks — wide leaf pairs dropping `2^288`
+/// inside each pair and one across pairs — as the root's right child.
 ///
-/// Exactly `1546k − 2` bits. Each pair's wide in-pair drop re-arms
-/// live drift over the query folds' eight-digit freeze allowance
-/// (`2^288` spans ten base-2^32 digits, the same width argument as
-/// [`freeze_position`]'s drop) and the
-/// cheap cross-pair code fires the freeze, so a query fold freezes
-/// `Θ(k)` times, every freeze settling its segment through the
-/// accumulator's scaled read — and the segment's interval masses sit
-/// at the block's position weight, `Θ(k)` digits above digit 0
-/// (the blocks are shallow; the deep spine only sets the scale). The
-/// write watermark is what lets each scaled read start at the written
-/// span; a read that starts at digit 0 walks the `Θ(k)`-digit
-/// never-written prefix per freeze — `Θ(k²)` touches on linear input,
-/// the zero-padded magnitudes dragging the limb column with it (the
-/// `skyline_flatness` freeze-parade band in `tests/meter.rs` carries
-/// both readings). The block is min-lifted over a strictly descending
-/// run, every node's minimum its last leaf, so right children code
-/// base 0 and left children the difference of the halves' minima;
-/// `min_ticks(FZ(k))` is the printed-base sum, re-derived in closed
-/// form by this module's tests and the band. Normal form: values
-/// strictly descend (no equal siblings) and every subtree minimum is
-/// 0 through the spine's parked unit.
+/// Exactly `1546k − 2` bits. Each pair's wide in-pair drop re-arms live drift
+/// over the query folds' eight-digit freeze allowance (`2^288` spans ten
+/// base-2^32 digits, the same width argument as [`freeze_position`]'s drop) and
+/// the cheap cross-pair code fires the freeze, so a query fold freezes `Θ(k)`
+/// times, every freeze settling its segment through the accumulator's scaled
+/// read — and the segment's interval masses sit at the block's position weight,
+/// `Θ(k)` digits above digit 0 (the blocks are shallow; the deep spine only
+/// sets the scale). The write watermark is what lets each scaled read start at
+/// the written span; a read that starts at digit 0 walks the `Θ(k)`-digit
+/// never-written prefix per freeze — `Θ(k²)` touches on linear input, the
+/// zero-padded magnitudes dragging the limb column with it (the
+/// `skyline_flatness` freeze-parade band in `tests/meter.rs` carries both
+/// readings). The block is min-lifted over a strictly descending run, every
+/// node's minimum its last leaf, so right children code base 0 and left
+/// children the difference of the halves' minima; `min_ticks(FZ(k))` is the
+/// printed-base sum, re-derived in closed form by this module's tests and the
+/// band. Normal form: values strictly descend (no equal siblings) and every
+/// subtree minimum is 0 through the spine's parked unit.
 ///
 /// # Panics
 ///
@@ -1850,9 +1780,9 @@ fn freeze_parade(k: usize) -> Packed {
         "the freeze parade is one complete subtree"
     );
     let wide = suanpan::UBig::ONE << FREEZE_POSITION_DROP_BITS;
-    // One shared width band for the 2k descending values: the descent
-    // consumes k(2^288 + 1) < 2^(289 + bitlen(k)), so the top value's
-    // width bounds them all.
+    // One shared width band for the 2k descending values: the descent consumes
+    // k(2^288 + 1) < 2^(289 + bitlen(k)), so the top value's width bounds them
+    // all.
     let band = FREEZE_POSITION_DROP_BITS + 2 + bitlen(k);
     let mut values = Vec::with_capacity(2 * k);
     let mut v = suanpan::UBig::ONE << band;
@@ -1881,30 +1811,28 @@ fn freeze_parade(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The height of the lone-freeze plateau: one freeze-allowance-clearing
-/// drop above the low tail, so the family's single mid-stream drop is
-/// the sweep's one freeze.
+/// The height of the lone-freeze plateau: one freeze-allowance-clearing drop
+/// above the low tail, so the family's single mid-stream drop is the sweep's
+/// one freeze.
 ///
-/// `2^288 + 2` (ten base-2^32 digits): the drop from the plateau to the
-/// low block exceeds the query folds' eight-digit freeze allowance over
-/// the following unit code, the same width argument as
-/// [`freeze_position`]'s drop.
+/// `2^288 + 2` (ten base-2^32 digits): the drop from the plateau to the low
+/// block exceeds the query folds' eight-digit freeze allowance over the
+/// following unit code, the same width argument as [`freeze_position`]'s drop.
 const LONE_FREEZE_PLATEAU_BITS: usize = 288;
 
-/// The lone-freeze spine `LF(pre, post)`: `pre` unit-oscillation levels
-/// on a wide plateau, one freeze-firing drop, then `post`
-/// unit-oscillation levels near the floor, over a terminal 0 leaf.
+/// The lone-freeze spine `LF(pre, post)`: `pre` unit-oscillation levels on a
+/// wide plateau, one freeze-firing drop, then `post` unit-oscillation levels
+/// near the floor, over a terminal 0 leaf.
 ///
-/// Exactly `580·pre + 6·post + 14` bits. Layout: a right spine of
-/// `pre + post + 2` nodes `1 · γ(0)`, left leaves in preorder at
-/// heights `H, H + 1, H, H + 1, …` (`pre` leaves, `H = 2^288 + 2`),
-/// then `2` (the drop: one ten-digit delta, within the freeze allowance
-/// of its own code), then `1` (the unit whose fold fires the sweep's
-/// one freeze), then `2, 1, 2, 1, …` (`post` leaves), closing in the
-/// terminal `0 · γ(0)`.
+/// Exactly `580·pre + 6·post + 14` bits. Layout: a right spine of `pre + post +
+/// 2` nodes `1 · γ(0)`, left leaves in preorder at heights `H, H + 1, H, H + 1,
+/// …` (`pre` leaves, `H = 2^288 + 2`), then `2` (the drop: one ten-digit delta,
+/// within the freeze allowance of its own code), then `1` (the unit whose fold
+/// fires the sweep's one freeze), then `2, 1, 2, 1, …` (`post` leaves), closing
+/// in the terminal `0 · γ(0)`.
 ///
-/// The family straddles the query folds' first-freeze gate from both
-/// sides, one dial per axis:
+/// The family straddles the query folds' first-freeze gate from both sides, one
+/// dial per axis:
 ///
 /// - **`pre` (the late-freeze axis)**: the whole prefix runs strictly
 ///   before the sweep's first freeze — unit drift, no eviction — so
@@ -1918,15 +1846,14 @@ const LONE_FREEZE_PLATEAU_BITS: usize = 288;
 ///   read that is not amortized O(1) per interval scales with `post`
 ///   against O(1) funded wide codes.
 ///
-/// Exactly one freeze fires (the tail's oscillation never re-trips the
-/// trigger) and no promotion ever does (nothing is parked before the
-/// one freeze), so the family also pins the settle's smallest
-/// nonempty configuration: one parked drift against one final
-/// segment. `min_ticks(LF(pre, post))` is the leaf sum
-/// `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3` (every node minimum is 0
-/// via the terminal leaf). Normal form: every base is 0, every
-/// subtree reaches the terminal 0, and the only sibling leaf pair is
-/// the deepest `(1, 0)` or `(2, 0)`.
+/// Exactly one freeze fires (the tail's oscillation never re-trips the trigger)
+/// and no promotion ever does (nothing is parked before the one freeze), so the
+/// family also pins the settle's smallest nonempty configuration: one parked
+/// drift against one final segment. `min_ticks(LF(pre, post))` is the leaf sum
+/// `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3` (every node minimum is 0 via the
+/// terminal leaf). Normal form: every base is 0, every subtree reaches the
+/// terminal 0, and the only sibling leaf pair is the deepest `(1, 0)` or `(2,
+/// 0)`.
 ///
 /// # Panics
 ///
@@ -1960,26 +1887,23 @@ fn lone_freeze(pre: usize, post: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The tooth-tail pair `TT(g, m)`: two same-shape right spines of `m`
-/// flat unit leaves over a terminal 0, whose second leaves spike by
-/// `2^(32g)` in both operands.
+/// The tooth-tail pair `TT(g, m)`: two same-shape right spines of `m` flat unit
+/// leaves over a terminal 0, whose second leaves spike by `2^(32g)` in both
+/// operands.
 ///
-/// `b` runs one tick above `a` everywhere except the shared terminal.
-/// Exactly `6m + 64g` bits per operand. The comparison sweep folds
-/// both spikes into one difference at the same boundary — the spike
-/// cancels exactly, leaving the difference at −1 spelled in one digit
-/// under a buffer `g` digits tall — and then reads `sign(D)` once per
-/// boundary for the remaining `Θ(m)` boundaries with no intervening
-/// write. Exact-`top` maintenance prices each read at the value's own
-/// width; a high-water bound re-walks the spike's `g` dead digits per
-/// read — `Θ(m·g)` on `Θ(m + g)` input, the cost the spike's own code
-/// paid once (the `skyline_flatness` tooth-tail band in
-/// `tests/meter.rs` carries both readings).
-/// `min_ticks` is the stored-base sum `m·h + 2^(32g)` per operand
-/// (`h` the operand's unit height, 1 for `a` and 2 for `b`), and `a`
-/// precedes `b` in the causal order. Normal form: every chain node's
-/// subtree minimum is 0 through the terminal, and no sibling leaf
-/// pair is equal.
+/// `b` runs one tick above `a` everywhere except the shared terminal. Exactly
+/// `6m + 64g` bits per operand. The comparison sweep folds both spikes into one
+/// difference at the same boundary — the spike cancels exactly, leaving the
+/// difference at −1 spelled in one digit under a buffer `g` digits tall — and
+/// then reads `sign(D)` once per boundary for the remaining `Θ(m)` boundaries
+/// with no intervening write. Exact-`top` maintenance prices each read at the
+/// value's own width; a high-water bound re-walks the spike's `g` dead digits
+/// per read — `Θ(m·g)` on `Θ(m + g)` input, the cost the spike's own code paid
+/// once (the `skyline_flatness` tooth-tail band in `tests/meter.rs` carries
+/// both readings). `min_ticks` is the stored-base sum `m·h + 2^(32g)` per
+/// operand (`h` the operand's unit height, 1 for `a` and 2 for `b`), and `a`
+/// precedes `b` in the causal order. Normal form: every chain node's subtree
+/// minimum is 0 through the terminal, and no sibling leaf pair is equal.
 ///
 /// # Panics
 ///
@@ -2006,32 +1930,30 @@ fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
     (build(1), build(2))
 }
 
-/// The puncture-product embedding `V(x, y)`: a gap spine whose turn
-/// leaves all sit on the plateau `x` and whose turn positions spell
-/// the mass `2y`, over a bottom 1 leaf and the trailing 0-leaves.
+/// The puncture-product embedding `V(x, y)`: a gap spine whose turn leaves all
+/// sit on the plateau `x` and whose turn positions spell the mass `2y`, over a
+/// bottom 1 leaf and the trailing 0-leaves.
 ///
-/// The arbitrary-product reduction behind the `Ω(M(·))` floor: the
-/// exact rank of `V(x, y)` is `(2·x·y + 1) / 2^L` with
-/// `L = bits(2y)`, for *any* positive integers `x` and `y` — one
-/// spine level per bit of `2y`, turning (its plateau leaf leads the
-/// descent, at interval mass `2^(L − 1 − ℓ)` for level `ℓ`) exactly
-/// where the mass bit is set and leaning (a trailing 0-leaf)
-/// elsewhere, so the turns' interval masses sum to exactly `2y` and
-/// the rank integral is `x · 2y` plus the bottom leaf's unit. The
-/// stored version is `Θ(bits(x) + bits(y))` bits — the deltas
-/// collapse to one climb and one plunge, and each mass bit rides one
-/// or two topology bits — so a fold that answers its rank exactly
-/// computes the arbitrary product `x · y` (one subtraction and one
-/// shift recover it from the numerator) at linear overhead: no exact
-/// fold beats one integer multiplication of input-funded factors.
-/// Doubling the mass keeps the last level a lean, which roots every
-/// subtree's minimum at 0 whatever `y`'s low bit is. Normal form:
-/// every node's base is 0 and every subtree reaches a trailing
-/// 0-leaf, and the only sibling leaf pair is the bottom `(1, 0)`.
+/// The arbitrary-product reduction behind the `Ω(M(·))` floor: the exact rank
+/// of `V(x, y)` is `(2·x·y + 1) / 2^L` with `L = bits(2y)`, for *any* positive
+/// integers `x` and `y` — one spine level per bit of `2y`, turning (its plateau
+/// leaf leads the descent, at interval mass `2^(L − 1 − ℓ)` for level `ℓ`)
+/// exactly where the mass bit is set and leaning (a trailing 0-leaf) elsewhere,
+/// so the turns' interval masses sum to exactly `2y` and the rank integral is
+/// `x · 2y` plus the bottom leaf's unit. The stored version is `Θ(bits(x) +
+/// bits(y))` bits — the deltas collapse to one climb and one plunge, and each
+/// mass bit rides one or two topology bits — so a fold that answers its rank
+/// exactly computes the arbitrary product `x · y` (one subtraction and one
+/// shift recover it from the numerator) at linear overhead: no exact fold beats
+/// one integer multiplication of input-funded factors. Doubling the mass keeps
+/// the last level a lean, which roots every subtree's minimum at 0 whatever
+/// `y`'s low bit is. Normal form: every node's base is 0 and every subtree
+/// reaches a trailing 0-leaf, and the only sibling leaf pair is the bottom `(1,
+/// 0)`.
 ///
-/// The packed construction spells the plateau once per turn, so the
-/// *packed* size is `Θ(popcount(y) · bits(x) + bits(y))` even though
-/// the stored version is `Θ(bits(x) + bits(y))`.
+/// The packed construction spells the plateau once per turn, so the *packed*
+/// size is `Θ(popcount(y) · bits(x) + bits(y))` even though the stored version
+/// is `Θ(bits(x) + bits(y))`.
 ///
 /// # Panics
 ///
@@ -2068,14 +1990,14 @@ fn puncture_product(x: &suanpan::UBig, y: &suanpan::UBig) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// Digit `i` of the deterministic pseudorandom content stream `seed`:
-/// the SplitMix64 finalizer over `seed ⊕ i`, truncated to one
-/// base-2^32 digit, zero remapped so every digit is live.
+/// Digit `i` of the deterministic pseudorandom content stream `seed`: the
+/// SplitMix64 finalizer over `seed ⊕ i`, truncated to one base-2^32 digit, zero
+/// remapped so every digit is live.
 ///
-/// The committed incompressible-factor families draw their content
-/// here, so the digits are reproducible, structureless (no runs, no
-/// arithmetic progression for the balanced signed-digit compaction or
-/// a closed-form shortcut to grip), and independent across seeds.
+/// The committed incompressible-factor families draw their content here, so the
+/// digits are reproducible, structureless (no runs, no arithmetic progression
+/// for the balanced signed-digit compaction or a closed-form shortcut to grip),
+/// and independent across seeds.
 pub fn factor_digit(seed: u64, i: u64) -> u32 {
     let mut z = seed ^ i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -2088,13 +2010,12 @@ pub fn factor_digit(seed: u64, i: u64) -> u32 {
     }
 }
 
-/// A dense pseudorandom magnitude of exactly `32·digits` bits: every
-/// base-2^32 digit nonzero from [`factor_digit`]'s stream `seed`.
+/// A dense pseudorandom magnitude of exactly `32·digits` bits: every base-2^32
+/// digit nonzero from [`factor_digit`]'s stream `seed`.
 ///
-/// The top bit is forced set (exact width), the top digit's bit 30
-/// forced clear (never an all-ones digit), and bit 0 forced clear (so
-/// `+ 1` never carries past digit 0 — the gamma code of the value
-/// stays at its closed-form width).
+/// The top bit is forced set (exact width), the top digit's bit 30 forced clear
+/// (never an all-ones digit), and bit 0 forced clear (so `+ 1` never carries
+/// past digit 0 — the gamma code of the value stays at its closed-form width).
 ///
 /// # Panics
 ///
@@ -2121,9 +2042,9 @@ const PLATEAU_PUNCTURE_X_SEED: u64 = 0x5054_5058; // "PTPX"
 /// Content-stream seed for the plateau-puncture turn-position jitter.
 const PLATEAU_PUNCTURE_J_SEED: u64 = 0x5054_504A; // "PTPJ"
 
-/// The committed factors of the plateau-puncture family `PP(w, d)`:
-/// the incompressible plateau `x` and the jittered punctured mass `y`
-/// whose product the family's exact rank embeds.
+/// The committed factors of the plateau-puncture family `PP(w, d)`: the
+/// incompressible plateau `x` and the jittered punctured mass `y` whose product
+/// the family's exact rank embeds.
 ///
 /// - `x = dense_factor(w)`: exactly `32w` bits of pseudorandom digit
 ///   content, so neither `x` nor the plunge the fold parks (`x − 1`,
@@ -2162,31 +2083,27 @@ pub fn plateau_puncture_factors(w: usize, d: usize) -> (suanpan::UBig, suanpan::
     (x, y)
 }
 
-/// The plateau-puncture family `PP(w, d)`: the committed
-/// incompressible instance of [`puncture_product`] — `V(x, y)` at the
+/// The plateau-puncture family `PP(w, d)`: the committed incompressible
+/// instance of [`puncture_product`] — `V(x, y)` at the
 /// [`plateau_puncture_factors`] content.
 ///
-/// The answer-embedded-product family: the exact rank is
-/// `(2·x·y + 1) / 2^(66d)` — a `Θ(w)`-digit × `Θ(d)`-term integer
-/// product whose factors the input funds separately (`64w` bits of
-/// plateau code, `Θ(d)` topology bits), with both factors'
-/// *content* incompressible under the settle's own balanced
-/// signed-digit compaction (the factors' doc carries the two
-/// arguments). No settle can telescope it — the complement sits at
-/// height 0, reached by one funded plunge, so the product is the
-/// answer, not an accounting artifact; [`puncture_product`] is the
-/// same embedding over arbitrary factors, which is what makes the
-/// floor a reduction from arbitrary integer multiplication rather
-/// than a bet on one shape. The stored skyline operand is
-/// `Θ(w + d)` bits (the packed construction spells the plateau per
-/// turn, but the deltas the version stores collapse to one climb
-/// and one plunge). The fold's cost on this family is the
-/// close-time settle `P · segment` — parked `−(x − 1)` against the
-/// punctured trailing mass — with no promotion ever firing: the
-/// arming-free instance of the width × density residual.
-/// `min_ticks(PP(w, d)) = d · x + 1` is the closed-form semantic
-/// leg. Exactly `d(64w + 262) + 4` bits. Normal form:
-/// [`puncture_product`]'s.
+/// The answer-embedded-product family: the exact rank is `(2·x·y + 1) /
+/// 2^(66d)` — a `Θ(w)`-digit × `Θ(d)`-term integer product whose factors the
+/// input funds separately (`64w` bits of plateau code, `Θ(d)` topology bits),
+/// with both factors' *content* incompressible under the settle's own balanced
+/// signed-digit compaction (the factors' doc carries the two arguments). No
+/// settle can telescope it — the complement sits at height 0, reached by one
+/// funded plunge, so the product is the answer, not an accounting artifact;
+/// [`puncture_product`] is the same embedding over arbitrary factors, which is
+/// what makes the floor a reduction from arbitrary integer multiplication
+/// rather than a bet on one shape. The stored skyline operand is `Θ(w + d)`
+/// bits (the packed construction spells the plateau per turn, but the deltas
+/// the version stores collapse to one climb and one plunge). The fold's cost on
+/// this family is the close-time settle `P · segment` — parked `−(x − 1)`
+/// against the punctured trailing mass — with no promotion ever firing: the
+/// arming-free instance of the width × density residual. `min_ticks(PP(w, d)) =
+/// d · x + 1` is the closed-form semantic leg. Exactly `d(64w + 262) + 4` bits.
+/// Normal form: [`puncture_product`]'s.
 ///
 /// # Panics
 ///
@@ -2201,34 +2118,30 @@ fn plateau_puncture(w: usize, d: usize) -> Packed {
     puncture_product(&x, &y)
 }
 
-/// The arming-train family `AT(n, w, g, alternate)`: `n` re-arm blocks
-/// with `2^(32w)` armings, each preceded by its own `33g`-level
-/// gap-spine window.
+/// The arming-train family `AT(n, w, g, alternate)`: `n` re-arm blocks with
+/// `2^(32w)` armings, each preceded by its own `33g`-level gap-spine window.
 ///
-/// The armings alternate sign when `alternate` and all climb
-/// otherwise; the blocks ride one plateau band over the trailing
-/// 0-leaves.
+/// The armings alternate sign when `alternate` and all climb otherwise; the
+/// blocks ride one plateau band over the trailing 0-leaves.
 ///
-/// The multi-arming ledger family the single-block shapes cannot
-/// reach: `n` promotions whose parked masses are `Θ(w)` digits wide,
-/// with a `Θ(g)`-digit incompressible interval mass banked *between*
-/// every consecutive pair of armings (each gap's turn leaves sit at
-/// the running plateau, zero deltas, so the windows are bought with
-/// topology alone). Every block spells `±2^(32w), +1, +2^288, +1` in
-/// leaf absolutes: the wide swing parks at its unit, the kicker's unit
-/// fires the freeze whose promotion arms the ledger — one entry per
-/// block, sign following the swing — and the sweep closes with one
-/// funded plunge whose parked width settles against the trailing run.
-/// With `alternate`, consecutive entries cancel digit-wise inside the
-/// product tree's parked sums; without it, every aggregate keeps the
-/// full arming width against every dense window to its right. All
-/// wide leaves live in one gamma band (`band = 32w + ⌈log₂ n⌉ + 2`
-/// headroom bits over the swings and kickers), so the packed size is
-/// the closed form `n(g(2·band + 132) + 8·band + 16) + 2` bits; the
-/// tests mirror the leaf recurrence for the `min_ticks` leg. Normal
-/// form: all bases 0 — every subtree reaches a 0-leaf (the gap leans'
-/// trailing siblings; the bottom 0 under the last block's wide leaf)
-/// and no sibling leaf pair is equal.
+/// The multi-arming ledger family the single-block shapes cannot reach: `n`
+/// promotions whose parked masses are `Θ(w)` digits wide, with a `Θ(g)`-digit
+/// incompressible interval mass banked *between* every consecutive pair of
+/// armings (each gap's turn leaves sit at the running plateau, zero deltas, so
+/// the windows are bought with topology alone). Every block spells `±2^(32w),
+/// +1, +2^288, +1` in leaf absolutes: the wide swing parks at its unit, the
+/// kicker's unit fires the freeze whose promotion arms the ledger — one entry
+/// per block, sign following the swing — and the sweep closes with one funded
+/// plunge whose parked width settles against the trailing run. With
+/// `alternate`, consecutive entries cancel digit-wise inside the product tree's
+/// parked sums; without it, every aggregate keeps the full arming width against
+/// every dense window to its right. All wide leaves live in one gamma band
+/// (`band = 32w + ⌈log₂ n⌉ + 2` headroom bits over the swings and kickers), so
+/// the packed size is the closed form `n(g(2·band + 132) + 8·band + 16) + 2`
+/// bits; the tests mirror the leaf recurrence for the `min_ticks` leg. Normal
+/// form: all bases 0 — every subtree reaches a 0-leaf (the gap leans' trailing
+/// siblings; the bottom 0 under the last block's wide leaf) and no sibling leaf
+/// pair is equal.
 ///
 /// # Panics
 ///
@@ -2245,8 +2158,8 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
     let band = 32 * w + bitlen(n) + 2;
     let arm = suanpan::UBig::ONE << (32 * w);
     let kicker = suanpan::UBig::ONE << PROMOTION_REARM_SETTLE_BITS;
-    // The plateau band's floor plus double-swing headroom: every wide
-    // leaf below stays inside [2^band, 2^(band+1)), one gamma width.
+    // The plateau band's floor plus double-swing headroom: every wide leaf
+    // below stays inside [2^band, 2^(band+1)), one gamma width.
     let mut plateau = (suanpan::UBig::ONE << band) + (&arm << 1);
     let mut bits = BitsMut::with_capacity(n * (g * (2 * band + 132) + 8 * band + 16) + 2);
     let mut trailing = 0usize;
@@ -2279,9 +2192,9 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
             ev_leaf_wide(&mut bits, &Base::from(plateau.clone()));
         }
     }
-    // The bottom 0: the last block node's right child, unequal to its
-    // wide left sibling, and the zero that keeps every block subtree's
-    // minimum at the all-bases-0 spelling.
+    // The bottom 0: the last block node's right child, unequal to its wide left
+    // sibling, and the zero that keeps every block subtree's minimum at the
+    // all-bases-0 spelling.
     ev_leaf(&mut bits, 0);
     for _ in 0..trailing {
         ev_leaf(&mut bits, 0);
@@ -2289,13 +2202,12 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The ascending-cliff id over [`ascend_cliff`]: a right-descent
-/// `(0, ·)` chain bottoming in `(1, 0)` over the cliff, `2k + 4` bits.
+/// The ascending-cliff id over [`ascend_cliff`]: a right-descent `(0, ·)` chain
+/// bottoming in `(1, 0)` over the cliff, `2k + 4` bits.
 ///
-/// Layout: `k` tags `01` (left absent — the wide leaves stay), then
-/// `10 · 00` — the `(1, 0)` node over the cliff, whose owned left
-/// half makes the cliff the tick's one grow site. Normal form: no
-/// `(1, 1)` node.
+/// Layout: `k` tags `01` (left absent — the wide leaves stay), then `10 · 00` —
+/// the `(1, 0)` node over the cliff, whose owned left half makes the cliff the
+/// tick's one grow site. Normal form: no `(1, 1)` node.
 ///
 /// # Panics
 ///
@@ -2319,29 +2231,26 @@ fn ascend_cliff_id(k: usize) -> Packed {
 
 /// Shared-spine levels per isolated position digit in [`jump_pair`].
 ///
-/// Each right-descent turn sets one isolated bit of every absolute
-/// position below it, and a 33-level stride keeps successive bits more
-/// than a full base-2^32 digit apart, so the balanced signed-digit
-/// compaction (which cancels only ones-runs) can never merge two of
-/// them into one term: every absolute position inside the comb carries
-/// `d` incompressible digits.
+/// Each right-descent turn sets one isolated bit of every absolute position
+/// below it, and a 33-level stride keeps successive bits more than a full
+/// base-2^32 digit apart, so the balanced signed-digit compaction (which
+/// cancels only ones-runs) can never merge two of them into one term: every
+/// absolute position inside the comb carries `d` incompressible digits.
 const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 
-/// The two-operand jump comb `JP(k, m, d)`: a version pair whose
-/// height difference crests `k` bits wide at every one of `m` comb
-/// levels, deep under a spine that makes every absolute position
-/// `d` digits dense.
+/// The two-operand jump comb `JP(k, m, d)`: a version pair whose height
+/// difference crests `k` bits wide at every one of `m` comb levels, deep under
+/// a spine that makes every absolute position `d` digits dense.
 ///
-/// Each operand is certified-linear alone; the shape exists only in
-/// the two-operand composition.
+/// Each operand is certified-linear alone; the shape exists only in the
+/// two-operand composition.
 ///
-/// Both operands share a descent spine of `33d` zero-base levels that
-/// turns right every 33rd level (one 0-leaf consumed *before* the comb
-/// per turn — the `d` isolated position bits the stride constant
-/// derives) and left elsewhere (those 0-leaf siblings trail after), then
-/// diverge in an `m`-level right-leaning comb at the spine's bottom.
-/// Per comb level, over a quarter-interval *tooth* and a quarter-interval
-/// *gap*:
+/// Both operands share a descent spine of `33d` zero-base levels that turns
+/// right every 33rd level (one 0-leaf consumed *before* the comb per turn — the
+/// `d` isolated position bits the stride constant derives) and left elsewhere
+/// (those 0-leaf siblings trail after), then diverge in an `m`-level
+/// right-leaning comb at the spine's bottom. Per comb level, over a
+/// quarter-interval *tooth* and a quarter-interval *gap*:
 ///
 /// - the **teeth operand** `A` stores a bare wide tooth leaf `2^k + 3`
 ///   and a gap pair `(1, 0)` — its skyline oscillates `0 ↔ 2^k + 3`, so
@@ -2352,47 +2261,42 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 ///   with the width hoisted once into the comb root's stored base — one
 ///   wide code in `B`'s whole stream, unit deltas after.
 ///
-/// Their overlay interleaves them: `|h_a − h_b|` sits at 1–2 inside
-/// every tooth and `~2^k` across every gap, so per level a wide crest
-/// funded by `A`'s tooth code rides over cheap codes from the *other*
-/// operand (`k ≥ 320` bits clears the freeze allowance, so the drift is
-/// parked at `B`'s first cheap boundary — `2m` freezes per distance,
-/// each fired by the operand that did not pay for the drift). The spine
-/// makes every absolute position `d` incompressible digits while the
-/// per-crest *segment* masses compact to O(1) digits: an accounting
-/// that multiplies parked drift by absolute positions pays
-/// `Θ(m · d · k)` limb work against a `Θ(m·k + d)`-bit input, and the
-/// anchored-segment co-sweep (`version/skyline/query.rs`'s
-/// pair-co-sweep section) settles each crest against its own segment
-/// and stays linear — the separation the `skyline_flatness` band test
-/// and the board cell hold. The **join** (the band shades every gap)
-/// collapses to
-/// unit steps around one climb, and either operand's own rank is flat:
-/// both inputs are individually innocuous, and the shape exists only in
-/// the two-operand composition.
+/// Their overlay interleaves them: `|h_a − h_b|` sits at 1–2 inside every tooth
+/// and `~2^k` across every gap, so per level a wide crest funded by `A`'s tooth
+/// code rides over cheap codes from the *other* operand (`k ≥ 320` bits clears
+/// the freeze allowance, so the drift is parked at `B`'s first cheap boundary —
+/// `2m` freezes per distance, each fired by the operand that did not pay for
+/// the drift). The spine makes every absolute position `d` incompressible
+/// digits while the per-crest *segment* masses compact to O(1) digits: an
+/// accounting that multiplies parked drift by absolute positions pays `Θ(m · d
+/// · k)` limb work against a `Θ(m·k + d)`-bit input, and the anchored-segment
+/// co-sweep (`version/skyline/query.rs`'s pair-co-sweep section) settles each
+/// crest against its own segment and stays linear — the separation the
+/// `skyline_flatness` band test and the board cell hold. The **join** (the band
+/// shades every gap) collapses to unit steps around one climb, and either
+/// operand's own rank is flat: both inputs are individually innocuous, and the
+/// shape exists only in the two-operand composition.
 ///
-/// Layout, shared spine (level `ℓ = 0..33d`): `1 · γ(0)`, with the
-/// 0-leaf `0 · γ(0)` emitted before the descent at right turns
-/// (`ℓ ≡ 32 mod 33`) and queued after it otherwise — 4 bits per level.
-/// Comb level `i = 1..=m`, teeth operand: `1 · γ(0)` (spine `c_i`),
-/// `1 · γ(0)` (the tooth/gap pair node), `0 · γ(2^k + 3)` (the tooth),
-/// `1 · γ(0) · 0 · γ(1) · 0 · γ(0)` (the gap pair) — `2k + 14` bits.
-/// Band operand: `1 · γ(2^k + 1)` at `c_1` (the hoisted plateau base,
-/// `2k + 2` bits) and `1 · γ(0)` below, `1 · γ(0)` (the pair node),
-/// `1 · γ(0) · 0 · γ(1) · 0 · γ(0)` (the band pair, relative), `0 · γ(0)`
-/// (the gap leaf) — 14 bits per level plus the one wide root code. Both
-/// end in the comb terminal `0 · γ(0)` and the trailing left-turn
-/// siblings. Totals: `132d + m(2k + 14) + 2` bits (teeth) and
-/// `132d + 14m + 2k + 2` bits (band). Normal form holds everywhere:
-/// every spine and pair node has a 0-leaf or 0-min child in reach, the
-/// band comb's plateau lift sits on `c_1`'s own base, and no two sibling
-/// leaves are equal (`(1, 0)` pairs; every wide leaf pairs with an
+/// Layout, shared spine (level `ℓ = 0..33d`): `1 · γ(0)`, with the 0-leaf `0 ·
+/// γ(0)` emitted before the descent at right turns (`ℓ ≡ 32 mod 33`) and queued
+/// after it otherwise — 4 bits per level. Comb level `i = 1..=m`, teeth
+/// operand: `1 · γ(0)` (spine `c_i`), `1 · γ(0)` (the tooth/gap pair node), `0
+/// · γ(2^k + 3)` (the tooth), `1 · γ(0) · 0 · γ(1) · 0 · γ(0)` (the gap pair) —
+/// `2k + 14` bits. Band operand: `1 · γ(2^k + 1)` at `c_1` (the hoisted plateau
+/// base, `2k + 2` bits) and `1 · γ(0)` below, `1 · γ(0)` (the pair node), `1 ·
+/// γ(0) · 0 · γ(1) · 0 · γ(0)` (the band pair, relative), `0 · γ(0)` (the gap
+/// leaf) — 14 bits per level plus the one wide root code. Both end in the comb
+/// terminal `0 · γ(0)` and the trailing left-turn siblings. Totals: `132d +
+/// m(2k + 14) + 2` bits (teeth) and `132d + 14m + 2k + 2` bits (band). Normal
+/// form holds everywhere: every spine and pair node has a 0-leaf or 0-min child
+/// in reach, the band comb's plateau lift sits on `c_1`'s own base, and no two
+/// sibling leaves are equal (`(1, 0)` pairs; every wide leaf pairs with an
 /// internal node).
 ///
 /// # Panics
 ///
-/// Panics if `k < 3` (the closed form needs `γ(2^k + 3)` at `2k + 1`
-/// bits), `m == 0`, or `d == 0`.
+/// Panics if `k < 3` (the closed form needs `γ(2^k + 3)` at `2k + 1` bits), `m
+/// == 0`, or `d == 0`.
 fn jump_pair(k: usize, m: usize, d: usize) -> (Packed, Packed) {
     (
         jump_pair_operand(k, m, d, false),
@@ -2457,34 +2361,32 @@ fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Packed {
 }
 
 /// The concurrent pair `CP(n)`: two organically built versions over one
-/// balanced fork of `n` parties, ticked so every adjacent region flips
-/// which operand dominates — the emit side-switch population.
+/// balanced fork of `n` parties, ticked so every adjacent region flips which
+/// operand dominates — the emit side-switch population.
 ///
-/// The seed party forks balanced to `n` single-leaf owners (leaf `i` of
-/// the depth-`log2 n` fork tree). Each version joins `n` independent
-/// per-party histories — party `i`'s empty version ticked to its target
-/// alone, then all `n` merged through `join_all`'s balanced fold, so
-/// construction is `O(n log n)` and every tick lands exactly one height
-/// unit (an isolated history has no higher neighbor for the tick's fill
-/// leg to lift toward). The targets make the winner alternate by leaf
-/// parity with no two adjacent plateaus ever equal: leaf `i` reaches
-/// `3 + (i mod 3)` ticks on the dominant side and `1 + (i mod 3)` on
-/// the other, the dominant side even-`i` for the first version and
-/// odd-`i` for the second. The join's plateau sequence is `3 + (i mod 3)` and
-/// the meet's `1 + (i mod 3)` — each adjacent-distinct, so neither
-/// emission ever collapses a boundary and **every one of the `n − 1`
-/// overlay boundaries is a side switch, in the join and the meet
-/// alike** (the corpus pairing `w = v + one seed tick` reaches at most
-/// one). All heights are word-scale: the family prices the switch
-/// machinery's density, not width. Every leaf's dominant and dominated
-/// heights differ by exactly 2, so `distance = Σᵢ 2/n` — the integer
-/// rank 2 at every `n`, which the generator's test pins as the semantic
-/// witness that the schedule realized the heights it claims.
+/// The seed party forks balanced to `n` single-leaf owners (leaf `i` of the
+/// depth-`log2 n` fork tree). Each version joins `n` independent per-party
+/// histories — party `i`'s empty version ticked to its target alone, then all
+/// `n` merged through `join_all`'s balanced fold, so construction is `O(n log
+/// n)` and every tick lands exactly one height unit (an isolated history has no
+/// higher neighbor for the tick's fill leg to lift toward). The targets make
+/// the winner alternate by leaf parity with no two adjacent plateaus ever
+/// equal: leaf `i` reaches `3 + (i mod 3)` ticks on the dominant side and `1 +
+/// (i mod 3)` on the other, the dominant side even-`i` for the first version
+/// and odd-`i` for the second. The join's plateau sequence is `3 + (i mod 3)`
+/// and the meet's `1 + (i mod 3)` — each adjacent-distinct, so neither emission
+/// ever collapses a boundary and **every one of the `n − 1` overlay boundaries
+/// is a side switch, in the join and the meet alike** (the corpus pairing `w =
+/// v + one seed tick` reaches at most one). All heights are word-scale: the
+/// family prices the switch machinery's density, not width. Every leaf's
+/// dominant and dominated heights differ by exactly 2, so `distance = Σᵢ 2/n` —
+/// the integer rank 2 at every `n`, which the generator's test pins as the
+/// semantic witness that the schedule realized the heights it claims.
 ///
 /// # Panics
 ///
-/// Panics if `n` is not a power of two at least 2 (the balanced fork
-/// and the parity schedule both need it).
+/// Panics if `n` is not a power of two at least 2 (the balanced fork and the
+/// parity schedule both need it).
 fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
     assert!(
         n >= 2 && n.is_power_of_two(),
@@ -2522,39 +2424,34 @@ fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
         v_parts.push(history(p, v_ticks));
         w_parts.push(history(p, w_ticks));
     }
-    (
-        crate::Version::join_all(v_parts),
-        crate::Version::join_all(w_parts),
-    )
+    (v_parts.into_iter().collect(), w_parts.into_iter().collect())
 }
 
-/// The staggered-comb fold operand `SG(n, m, i)`: operand `i` of an
-/// `n`-operand fold population whose `m` unit teeth land in the gaps of
-/// every other operand's, `m(4L + 6) − 2` bits for `L = log2 n`.
+/// The staggered-comb fold operand `SG(n, m, i)`: operand `i` of an `n`-operand
+/// fold population whose `m` unit teeth land in the gaps of every other
+/// operand's, `m(4L + 6) − 2` bits for `L = log2 n`.
 ///
-/// The population's shared domain is `n·m` dyadic slots: a complete
-/// depth-`log2 m` top tree over `m` blocks of `n` slots each. Operand
-/// `i` owns slot `i` of every block — a height-1 tooth at the end of a
-/// depth-`L` path whose direction at level `t` is bit `L − 1 − t` of
-/// `i` (most significant first), every path sibling a 0-leaf. Distinct
-/// operands' teeth never share a slot and, because every slot's
-/// neighbors inside a partial union are zero gaps or teeth of *other*
-/// heights' paths, no merge of a proper operand subset ever collapses
-/// a boundary: each internal merge of the balanced reduction emits a
-/// result near the sum of its inputs' sizes — the intermediate-swell
-/// loading the fold's `O(D log k)` model prices, held until the last
-/// level (the full union is the constant-1 skyline, so only the final
-/// merges collapse). [`stagger_population`] carries the feed order
-/// that realizes the swell at every reduction level.
+/// The population's shared domain is `n·m` dyadic slots: a complete depth-`log2
+/// m` top tree over `m` blocks of `n` slots each. Operand `i` owns slot `i` of
+/// every block — a height-1 tooth at the end of a depth-`L` path whose
+/// direction at level `t` is bit `L − 1 − t` of `i` (most significant first),
+/// every path sibling a 0-leaf. Distinct operands' teeth never share a slot
+/// and, because every slot's neighbors inside a partial union are zero gaps or
+/// teeth of *other* heights' paths, no merge of a proper operand subset ever
+/// collapses a boundary: each internal merge of the balanced reduction emits a
+/// result near the sum of its inputs' sizes — the intermediate-swell loading
+/// the fold's `O(D log k)` model prices, held until the last level (the full
+/// union is the constant-1 skyline, so only the final merges collapse).
+/// [`stagger_population`] carries the feed order that realizes the swell at
+/// every reduction level.
 ///
-/// Layout: `m − 1` top nodes `1 · γ(0)` in preorder, then per block
-/// `L` path nodes `1 · γ(0)` (the 0-leaf sibling `0 · γ(0)` emitted
-/// before the deeper child when the path turns right, after it when
-/// left), the tooth `0 · γ(1)` at the bottom. `2(m − 1) + m(4L + 4)`
-/// bits. Normal form holds everywhere: every internal node's subtree
-/// minimum is 0 (each path node has a 0-leaf child; top nodes reach 0
-/// through them), and the only sibling leaf pair is the deepest
-/// node's `(1, 0)`.
+/// Layout: `m − 1` top nodes `1 · γ(0)` in preorder, then per block `L` path
+/// nodes `1 · γ(0)` (the 0-leaf sibling `0 · γ(0)` emitted before the deeper
+/// child when the path turns right, after it when left), the tooth `0 · γ(1)`
+/// at the bottom. `2(m − 1) + m(4L + 4)` bits. Normal form holds everywhere:
+/// every internal node's subtree minimum is 0 (each path node has a 0-leaf
+/// child; top nodes reach 0 through them), and the only sibling leaf pair is
+/// the deepest node's `(1, 0)`.
 ///
 /// # Panics
 ///
@@ -2571,10 +2468,10 @@ fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
     );
     assert!(i < n, "the operand index addresses one of the n slots");
     let levels = n.trailing_zeros();
-    // The per-block path: L internal nodes toward slot i, a 0-leaf
-    // sibling per level, the unit tooth at the bottom. Depth L + log2(m)
-    // is word-scale for any buildable population, so plain recursion is
-    // safe here (the generators are test-only construction code).
+    // The per-block path: L internal nodes toward slot i, a 0-leaf sibling per
+    // level, the unit tooth at the bottom. Depth L + log2(m) is word-scale for
+    // any buildable population, so plain recursion is safe here (the generators
+    // are test-only construction code).
     fn path(bits: &mut BitsMut, levels: u32, i: usize, t: u32) {
         bits.push(true); // path node flag
         codec::encode_int(bits, &Base::ZERO);
@@ -2608,25 +2505,23 @@ fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The staggered id `SI(n, m, i)`: [`stagger_comb`]'s party twin —
-/// operand `i` owns slot `i` of every block, `m(2L + 4) − 2` bits.
+/// The staggered id `SI(n, m, i)`: [`stagger_comb`]'s party twin — operand `i`
+/// owns slot `i` of every block, `m(2L + 4) − 2` bits.
 ///
 /// The same slot domain as the comb: a complete depth-`log2 m` top of
-/// both-present tags over per-block paths of `L` single-child tags to
-/// the owned slot, the path siblings absent. The `n` operands are
-/// pairwise disjoint by construction (distinct slots), their union is
-/// the whole seed region, and every operand pair is both-present at
-/// the entire shared top — the correlated-population loading of the
-/// party fold's up-front overlap test (each input pays its
-/// both-present nodes times a search of the accumulator's table) and
-/// of the reduction's merges (interleaved region sets that coalesce
+/// both-present tags over per-block paths of `L` single-child tags to the owned
+/// slot, the path siblings absent. The `n` operands are pairwise disjoint by
+/// construction (distinct slots), their union is the whole seed region, and
+/// every operand pair is both-present at the entire shared top — the
+/// correlated-population loading of the party fold's up-front overlap test
+/// (each input pays its both-present nodes times a search of the accumulator's
+/// table) and of the reduction's merges (interleaved region sets that coalesce
 /// only at the last level).
 ///
-/// Layout: `m − 1` top tags `11` in preorder, then per block `L` path
-/// tags (`10` toward a left slot, `01` toward a right one) and the
-/// owned tip `00`. Normal form: no node has two fully-owned children
-/// (every `00` sits under a single-child tag) and none has two absent
-/// children.
+/// Layout: `m − 1` top tags `11` in preorder, then per block `L` path tags
+/// (`10` toward a left slot, `01` toward a right one) and the owned tip `00`.
+/// Normal form: no node has two fully-owned children (every `00` sits under a
+/// single-child tag) and none has two absent children.
 ///
 /// # Panics
 ///
@@ -2672,15 +2567,14 @@ fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
 /// The staggered fold population `(versions, ids)`: all `n`
 /// [`stagger_comb`]/[`stagger_id`] operands in bit-reversed feed order.
 ///
-/// The feed order is the population's second load-bearing axis: the
-/// balanced binary-counter reduction merges arrival-adjacent inputs
-/// first, and bit-reversing the operand indices makes every merged
-/// pair's slot indices diverge at their *most* significant bit — so
-/// every internal merge, at every level, joins region sets that
-/// interleave maximally and swell to near the sum of their sizes.
-/// Index order instead hands the counter pairs that diverge at the
-/// last bit (near-adjacent slots, maximal path sharing), the
-/// coalescing luck the wedge exists to foreclose.
+/// The feed order is the population's second load-bearing axis: the balanced
+/// binary-counter reduction merges arrival-adjacent inputs first, and
+/// bit-reversing the operand indices makes every merged pair's slot indices
+/// diverge at their *most* significant bit — so every internal merge, at every
+/// level, joins region sets that interleave maximally and swell to near the sum
+/// of their sizes. Index order instead hands the counter pairs that diverge at
+/// the last bit (near-adjacent slots, maximal path sharing), the coalescing
+/// luck the wedge exists to foreclose.
 ///
 /// # Panics
 ///
@@ -2697,43 +2591,40 @@ fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
         .unzip()
 }
 
-/// The meet-shade population `MS(d, k)`: one deep carrier, then
-/// `k − 1` byte-equal plateau shades that dominate it — the meet
-/// fold's non-shrinking-accumulator adversary.
+/// The meet-shade population `MS(d, k)`: one deep carrier, then `k − 1`
+/// byte-equal plateau shades that dominate it — the meet fold's
+/// non-shrinking-accumulator adversary.
 ///
-/// The dual of the join wedges, derived from the meet's actual walk:
-/// a join fold's hazard is an accumulator that *grows* without
-/// coalescing, a meet fold's is one that never *shrinks*. The carrier
-/// is [`dense`]`(d)` (heights 0 and 1, the node-density maximizer);
-/// each shade is [`hugeleaf`]`(2)` — the constant-3 skyline, one leaf,
-/// 6 packed bits — sitting strictly above the carrier everywhere. The
-/// running meet is therefore the carrier, byte-identical, at every
-/// step: `acc ∧ shade` re-walks the whole carrier (the emission sweep
-/// visits every boundary of the overlay and the carrier supplies
+/// The dual of the join wedges, derived from the meet's actual walk: a join
+/// fold's hazard is an accumulator that *grows* without coalescing, a meet
+/// fold's is one that never *shrinks*. The carrier is [`dense`]`(d)` (heights 0
+/// and 1, the node-density maximizer); each shade is [`hugeleaf`]`(2)` — the
+/// constant-3 skyline, one leaf, 6 packed bits — sitting strictly above the
+/// carrier everywhere. The running meet is therefore the carrier,
+/// byte-identical, at every step: `acc ∧ shade` re-walks the whole carrier (the
+/// emission sweep visits every boundary of the overlay and the carrier supplies
 /// `Θ(d)` of them), and no short-circuit applies — the shade is never
-/// byte-equal to the accumulator, never empty, and the accumulator
-/// never empties. A sequential reduce therefore pays `Θ(k · d)` on a
-/// `Θ(d + k)`-byte population, while the balanced reduction re-walks
-/// the carrier once per counter level, `O(d log k + k)`. Neither
-/// operand shape is adversarial alone — both are committed linear
-/// families. The committed flatness band and the sequential-reduce
-/// adequacy tripwire (`meet_all_shade_is_flat_per_unit` and
-/// `sequential_meet_reduce_reads_superlinear_on_shade` in
-/// `tests/meter.rs`) carry both measured readings; the population's
-/// semantic leg is exactness — the fold returns the carrier.
+/// byte-equal to the accumulator, never empty, and the accumulator never
+/// empties. A sequential reduce therefore pays `Θ(k · d)` on a `Θ(d + k)`-byte
+/// population, while the balanced reduction re-walks the carrier once per
+/// counter level, `O(d log k + k)`. Neither operand shape is adversarial alone
+/// — both are committed linear families. The committed flatness band and the
+/// sequential-reduce adequacy tripwire (`meet_all_shade_is_flat_per_unit` and
+/// `sequential_meet_reduce_reads_superlinear_on_shade` in `tests/meter.rs`)
+/// carry both measured readings; the population's semantic leg is exactness —
+/// the fold returns the carrier.
 ///
-/// Each shade is built independently: byte-equal streams in *distinct*
-/// buffers, so the equal-shade combines are answered by the byte
-/// compare the band describes — never by the folds' clone-identity
-/// collapse, which would drop the shades before the fold reads them
-/// and turn the flatness band into a measurement of the collapse
-/// instead. The collapse has its own liveness pin
+/// Each shade is built independently: byte-equal streams in *distinct* buffers,
+/// so the equal-shade combines are answered by the byte compare the band
+/// describes — never by the folds' clone-identity collapse, which would drop
+/// the shades before the fold reads them and turn the flatness band into a
+/// measurement of the collapse instead. The collapse has its own liveness pin
 /// (`identity_fast_paths` in `tests/meter.rs`).
 ///
 /// # Panics
 ///
-/// Panics if `d == 0` or `k < 2` (the fold needs the carrier and at
-/// least one shade).
+/// Panics if `d == 0` or `k < 2` (the fold needs the carrier and at least one
+/// shade).
 fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
     assert!(d >= 1, "the meet shade needs a nonzero carrier depth");
     assert!(k >= 2, "the meet shade needs at least one shade");
@@ -2746,29 +2637,27 @@ fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
     population
 }
 
-/// The masked-comparison correlated triple `MT(k, n)`: a boundary comb, a
-/// mask owning every other tooth, and a wide plateau — the three-stream
-/// fused comparison's adversary, each operand benign alone.
+/// The masked-comparison correlated triple `MT(k, n)`: a boundary comb, a mask
+/// owning every other tooth, and a wide plateau — the three-stream fused
+/// comparison's adversary, each operand benign alone.
 ///
-/// Returns `(event, id, event)`: [`cliff_comb`]`(k, n)` (the masked
-/// operand), [`scattered_id`]`(n / 2)` (the mask, whose owned fragments
-/// sit exactly at the comb's even tooth positions), and a single-leaf
-/// plateau at `2^k` (the unmasked right operand, `2k + 2` bits). The
-/// correlation is the point — every operand is a certified-linear genre
-/// by itself (the comb, the scattered id, a hugeleaf-class plateau), and
-/// the heat exists only in the composition: comparing
-/// `(comb / mask) ⋚ plateau` toggles ownership at every tooth boundary,
-/// so the walk alternates between reading the difference `D = h_comb −
-/// 2^k` inside owned teeth — a near-zero value spelled by cancelling
-/// wide digits, oscillating across the `2^k` carry boundary behind 3-bit
-/// stored deltas — and the zero-check `sign(h_plateau)` on unowned
-/// intervals. An integrator that materializes either read pays `Θ(k)`
-/// limb work per 3-bit code; the balanced signed-digit accumulator
-/// answers both in amortized O(1) touches (the envelope rows and the
-/// flatness band in `tests/meter.rs` hold it there). The verdict is
-/// `Less` — the projected comb sits under the plateau everywhere and
-/// strictly under it outside the mask — so the walk never exits early
-/// and the measurement prices the whole overlay.
+/// Returns `(event, id, event)`: [`cliff_comb`]`(k, n)` (the masked operand),
+/// [`scattered_id`]`(n / 2)` (the mask, whose owned fragments sit exactly at
+/// the comb's even tooth positions), and a single-leaf plateau at `2^k` (the
+/// unmasked right operand, `2k + 2` bits). The correlation is the point — every
+/// operand is a certified-linear genre by itself (the comb, the scattered id, a
+/// hugeleaf-class plateau), and the heat exists only in the composition:
+/// comparing `(comb / mask) ⋚ plateau` toggles ownership at every tooth
+/// boundary, so the walk alternates between reading the difference `D = h_comb
+/// − 2^k` inside owned teeth — a near-zero value spelled by cancelling wide
+/// digits, oscillating across the `2^k` carry boundary behind 3-bit stored
+/// deltas — and the zero-check `sign(h_plateau)` on unowned intervals. An
+/// integrator that materializes either read pays `Θ(k)` limb work per 3-bit
+/// code; the balanced signed-digit accumulator answers both in amortized O(1)
+/// touches (the envelope rows and the flatness band in `tests/meter.rs` hold it
+/// there). The verdict is `Less` — the projected comb sits under the plateau
+/// everywhere and strictly under it outside the mask — so the walk never exits
+/// early and the measurement prices the whole overlay.
 ///
 /// # Panics
 ///
@@ -2789,26 +2678,24 @@ fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
     )
 }
 
-/// The masked-comparison correlated quadruple `MQ(k, n)`: two comb/mask
-/// pairs whose ownership parities interleave — the four-stream fused
-/// comparison's adversary, each operand benign alone.
+/// The masked-comparison correlated quadruple `MQ(k, n)`: two comb/mask pairs
+/// whose ownership parities interleave — the four-stream fused comparison's
+/// adversary, each operand benign alone.
 ///
-/// Returns `((event₁, id₁), (event₂, id₂))`: the sparse comb (teeth at
-/// odd levels only, plain zero leaves at even levels,
-/// `(n/2)(2k + 14) + 2` bits) under [`scattered_id`]`(n / 2)` (owning
-/// the even levels — exactly where its event is zero), against the full
-/// [`cliff_comb`]`(k, n)` under the offset mask (owning the odd levels —
-/// exactly where its event's teeth stand). Every tooth boundary is a
-/// double mask toggle with the parities out of phase, so the walk
-/// rotates through its ownership cases: even-level teeth read
+/// Returns `((event₁, id₁), (event₂, id₂))`: the sparse comb (teeth at odd
+/// levels only, plain zero leaves at even levels, `(n/2)(2k + 14) + 2` bits)
+/// under [`scattered_id`]`(n / 2)` (owning the even levels — exactly where its
+/// event is zero), against the full [`cliff_comb`]`(k, n)` under the offset
+/// mask (owning the odd levels — exactly where its event's teeth stand). Every
+/// tooth boundary is a double mask toggle with the parities out of phase, so
+/// the walk rotates through its ownership cases: even-level teeth read
 /// `sign(h₁)` — the trichotomy's zero-check on a height that is zero
-/// *semantically* but spelled by cancelling `2^k`-wide digits, each
-/// odd tooth's climb and drop funded by its own wide codes — and
-/// odd-level teeth read `sign(h₂)` mid-oscillation across the carry
-/// boundary. The projected verdict is `Less` (view₁ is semantically
-/// empty; view₂ keeps its teeth), so the walk never exits early. The
-/// envelope rows and the flatness band in `tests/meter.rs` hold the
-/// composition linear.
+/// *semantically* but spelled by cancelling `2^k`-wide digits, each odd tooth's
+/// climb and drop funded by its own wide codes — and odd-level teeth read
+/// `sign(h₂)` mid-oscillation across the carry boundary. The projected verdict
+/// is `Less` (view₁ is semantically empty; view₂ keeps its teeth), so the walk
+/// never exits early. The envelope rows and the flatness band in
+/// `tests/meter.rs` hold the composition linear.
 ///
 /// # Panics
 ///
@@ -2825,16 +2712,15 @@ fn mask_drift_quadruple(k: usize, n: usize) -> ((Packed, Packed), (Packed, Packe
     )
 }
 
-/// The sparse boundary comb: [`cliff_comb`]'s spine with teeth at odd
-/// levels only and a plain zero leaf at each even level,
-/// `(n/2)(2k + 14) + 2` bits.
+/// The sparse boundary comb: [`cliff_comb`]'s spine with teeth at odd levels
+/// only and a plain zero leaf at each even level, `(n/2)(2k + 14) + 2` bits.
 ///
-/// Layout per level pair: `"11" · "01"` (even level: spine node,
-/// zero left leaf), then `"11" · "1" · gamma(2^k − 1) · "01" · "0010"`
-/// (odd level: spine node and the comb's tooth), after all `n` levels
-/// `"01"` (the terminal spine leaf). Normal form holds as the comb's:
-/// every spine node's zero-base leaf child carries its subtree minimum,
-/// and the only sibling leaf pairs are the teeth's `(0, 1)`.
+/// Layout per level pair: `"11" · "01"` (even level: spine node, zero left
+/// leaf), then `"11" · "1" · gamma(2^k − 1) · "01" · "0010"` (odd level: spine
+/// node and the comb's tooth), after all `n` levels `"01"` (the terminal spine
+/// leaf). Normal form holds as the comb's: every spine node's zero-base leaf
+/// child carries its subtree minimum, and the only sibling leaf pairs are the
+/// teeth's `(0, 1)`.
 fn sparse_cliff_comb(k: usize, n: usize) -> Packed {
     debug_assert!(k >= 1 && n >= 2 && n.is_multiple_of(2));
     let mut bits = BitsMut::with_capacity((n / 2) * (2 * k + 14) + 2);
@@ -2855,18 +2741,16 @@ fn sparse_cliff_comb(k: usize, n: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The offset scattered id: [`scattered_id`]'s alternation shifted one
-/// level down — a gap level, then an owned left subtree, repeated —
-/// `6e + 4` bits.
+/// The offset scattered id: [`scattered_id`]'s alternation shifted one level
+/// down — a gap level, then an owned left subtree, repeated — `6e + 4` bits.
 ///
 /// Layout, repeated `e` times: `01` (a right-only gap level), `11` (both
-/// children present), `00` (the owned left leaf); terminated by `01 · 00`
-/// (a final gap level whose right child is the owned tip). Owns exactly
-/// the *odd* levels' left subtrees of a right-leaning spine — the
-/// complement, tooth for tooth, of [`scattered_id`]'s even-level
-/// fragments. Normal form: no node has two fully-owned children (each
-/// `11` node's right child is a gap node or the final gap level) and no
-/// node has two absent children.
+/// children present), `00` (the owned left leaf); terminated by `01 · 00` (a
+/// final gap level whose right child is the owned tip). Owns exactly the *odd*
+/// levels' left subtrees of a right-leaning spine — the complement, tooth for
+/// tooth, of [`scattered_id`]'s even-level fragments. Normal form: no node has
+/// two fully-owned children (each `11` node's right child is a gap node or the
+/// final gap level) and no node has two absent children.
 fn scattered_id_offset(e: usize) -> Packed {
     debug_assert!(e >= 1);
     let mut bits = BitsMut::with_capacity(6 * e + 4);
@@ -2900,11 +2784,11 @@ fn pow2(b: usize) -> Base {
 /// last [`reset_stack_segments`].
 ///
 /// The deterministic stand-in for recursion-driven stack consumption: the
-/// segments the stack guard allocates never pass through the global
-/// allocator, so no heap meter can see them; this reads the counter bumped at
-/// the one place a segment is created. Process-global — meaningful per
-/// scenario only under one-scenario-per-process isolation (nextest's model)
-/// or a single-threaded caller.
+/// segments the stack guard allocates never pass through the global allocator,
+/// so no heap meter can see them; this reads the counter bumped at the one
+/// place a segment is created. Process-global — meaningful per scenario only
+/// under one-scenario-per-process isolation (nextest's model) or a
+/// single-threaded caller.
 pub fn stack_segments() -> u64 {
     crate::recurse::segments_grown()
 }
@@ -2917,17 +2801,16 @@ pub fn reset_stack_segments() {
 /// The big-integer limb operations counted since the last [`reset_limb_ops`].
 ///
 /// The deterministic stand-in for arithmetic-width cost, which no other meter
-/// can see: a magnitude blowup allocates little and visits no extra nodes —
-/// the work is wider, not more frequent. The count is the operands' 64-bit
-/// limb counts per `Base` operation (arithmetic, comparison, equality, and
-/// hashing; a widening left shift records its output width, operand plus
-/// shifted-in limbs, so a shift-and-discard loop cannot read near-zero)
-/// plus one value-width record
-/// per wide-gamma decode, so an amortized-linear algorithm counts
-/// linearly in packed input bits and a magnitude-quadratic one counts
+/// can see: a magnitude blowup allocates little and visits no extra nodes — the
+/// work is wider, not more frequent. The count is the operands' 64-bit limb
+/// counts per `Base` operation (arithmetic, comparison, equality, and hashing;
+/// a widening left shift records its output width, operand plus shifted-in
+/// limbs, so a shift-and-discard loop cannot read near-zero) plus one
+/// value-width record per wide-gamma decode, so an amortized-linear algorithm
+/// counts linearly in packed input bits and a magnitude-quadratic one counts
 /// quadratically. Process-global, same isolation requirement as
-/// [`stack_segments`]; only compiled under the `limb-meter` feature, which
-/// adds the counting to the arithmetic itself.
+/// [`stack_segments`]; only compiled under the `limb-meter` feature, which adds
+/// the counting to the arithmetic itself.
 #[cfg(feature = "limb-meter")]
 pub fn limb_ops() -> u64 {
     crate::codec::limb_meter::limb_ops()
@@ -2941,14 +2824,13 @@ pub fn reset_limb_ops() {
 
 /// The accumulator digit touches since the last [`reset_touch_ops`].
 ///
-/// The deterministic stand-in for accumulator *fold* work, which the
-/// limb counter no longer sees on narrow values: a word-scale fold
-/// rides the accumulator's quick register (one touch, no `Base`
-/// arithmetic, no digit traffic), so an algorithm that folds per leaf
-/// where another folds per block separates here even when both read
-/// zero limb operations. Delegates to `suanpan`'s own counter
-/// (`suanpan::touch_meter`), which the `limb-meter` feature compiles
-/// in. Process-global, same isolation requirement as
+/// The deterministic stand-in for accumulator *fold* work, which the limb
+/// counter no longer sees on narrow values: a word-scale fold rides the
+/// accumulator's quick register (one touch, no `Base` arithmetic, no digit
+/// traffic), so an algorithm that folds per leaf where another folds per block
+/// separates here even when both read zero limb operations. Delegates to
+/// `suanpan`'s own counter (`suanpan::touch_meter`), which the `limb-meter`
+/// feature compiles in. Process-global, same isolation requirement as
 /// [`stack_segments`].
 #[cfg(feature = "limb-meter")]
 pub fn touch_ops() -> u64 {
@@ -2962,21 +2844,19 @@ pub fn reset_touch_ops() {
 }
 
 /// The pair-hull ladder's rung counters since the last
-/// [`reset_span_traffic`]: how many span constructions each fast path
-/// answered, and how many reached the emitting walk.
+/// [`reset_span_traffic`]: how many span constructions each fast path answered,
+/// and how many reached the emitting walk.
 ///
 /// The deterministic stand-in for a *consumer's* traffic mix, which no
-/// per-operation envelope can see: whether a workload's pair hulls are
-/// mostly comparable (hand-back at one comparison sweep) or mostly
-/// concurrent (the emitting walk) is a property of the caller's pairs,
-/// and it decides which kernel regime the consumer actually pays.
-/// Counts every pair-hull construction: every
-/// [`Version::span`](crate::Version::span), every leaf combine of
-/// `span_all`, and every point-combine of the span union doors
-/// (`Span | Span` and [`Span::union_all`](crate::Span::union_all) on
-/// coincident operands), which derive their hull through the same
-/// kernel. Process-global, same isolation requirement as
-/// [`stack_segments`].
+/// per-operation envelope can see: whether a workload's pair hulls are mostly
+/// comparable (hand-back at one comparison sweep) or mostly concurrent (the
+/// emitting walk) is a property of the caller's pairs, and it decides which
+/// kernel regime the consumer actually pays. Counts every pair-hull
+/// construction: every [`Version::span`](crate::Version::span), every leaf
+/// combine of `span_all`, and every point-combine of the span union doors
+/// (`Span | Span` and [`Span::union_all`](crate::Span::union_all) on coincident
+/// operands), which derive their hull through the same kernel. Process-global,
+/// same isolation requirement as [`stack_segments`].
 pub fn span_traffic() -> SpanTraffic {
     crate::version::hull_traffic::snapshot()
 }
@@ -2989,17 +2869,16 @@ pub fn reset_span_traffic() {
 /// The packed-stream bits scanned and written since the last
 /// [`reset_scan_bits`].
 ///
-/// The deterministic stand-in for traversal work over the packed forms,
-/// which every other meter can miss at once: an id-tree fold allocates
-/// little (no heap delta), loops rather than recurses (no segments), and
-/// does no `Base` arithmetic (no limb operations) — the work is *reading
-/// and writing stream bits*, and this counter records exactly those, at
-/// the packed-stream primitives (id tag reads and skip steps, id-builder
-/// bit writes and splice lengths, event topology cursor advances and gamma
-/// code-skips, every sequential decoder/validator bit read). Unit: bits.
-/// Process-global, same isolation requirement as [`stack_segments`]; only
-/// compiled under the `scan-meter` feature, which adds the counting to the
-/// primitives themselves.
+/// The deterministic stand-in for traversal work over the packed forms, which
+/// every other meter can miss at once: an id-tree fold allocates little (no
+/// heap delta), loops rather than recurses (no segments), and does no `Base`
+/// arithmetic (no limb operations) — the work is *reading and writing stream
+/// bits*, and this counter records exactly those, at the packed-stream
+/// primitives (id tag reads and skip steps, id-builder bit writes and splice
+/// lengths, event topology cursor advances and gamma code-skips, every
+/// sequential decoder/validator bit read). Unit: bits. Process-global, same
+/// isolation requirement as [`stack_segments`]; only compiled under the
+/// `scan-meter` feature, which adds the counting to the primitives themselves.
 #[cfg(feature = "scan-meter")]
 pub fn scan_bits() -> u64 {
     crate::codec::scan::scan_bits()

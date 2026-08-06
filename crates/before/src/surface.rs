@@ -5,25 +5,23 @@
 //! roster.
 //!
 //! This module is the machine-readable roster the surface-coverage suite (the
-//! crate's test-only differential architecture) enforces totality over:
-//! its tests hold
-//! [`METHOD_SURFACE`] equal, name for
-//! name, to the inherent `pub fn`
-//! surface extracted from the public-API source files, and hold every
-//! cited test name resolvable to an executable binding. The rows live
-//! here, outside the test-only tree, so external instrument crates can
-//! bind their own coverage to the same roster — a coverage table keyed by
-//! these row names is total over the public surface exactly as far as the
-//! coverage suite's totality pins reach, with no second hand-maintained
-//! enumeration to drift. Public under the `meter` feature (the instrument
-//! crates' feature) and never part of a production build.
+//! crate's test-only differential architecture) enforces totality over: its
+//! tests hold [`METHOD_SURFACE`] equal, name for name, to the inherent `pub fn`
+//! surface extracted from the public-API source files, and hold every cited
+//! test name resolvable to an executable binding. The rows live here, outside
+//! the test-only tree, so external instrument crates can bind their own
+//! coverage to the same roster — a coverage table keyed by these row names is
+//! total over the public surface exactly as far as the coverage suite's
+//! totality pins reach, with no second hand-maintained enumeration to drift.
+//! Public under the `meter` feature (the instrument crates' feature) and never
+//! part of a production build.
 //!
 //! Leg vocabulary, exclusion families, and the adequacy tripwires are the
-//! coverage suite's business and are documented there; a row's
-//! dispositions are carried here verbatim as the suite's committed record.
+//! coverage suite's business and are documented there; a row's dispositions are
+//! carried here verbatim as the suite's committed record.
 
-/// One leg's disposition: how (or whether) two of the three
-/// implementations are compared for one operation.
+/// One leg's disposition: how (or whether) two of the three implementations are
+/// compared for one operation.
 #[derive(Debug)]
 pub enum Leg {
     /// A direct differential on this leg, by test name.
@@ -643,8 +641,10 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     span_row("Span::place"),
     span_row("Span::dominance"),
+    span_row("Span::precedence"),
+    span_row("Span::contains"),
     SurfaceRow {
-        op: "Span::meet",
+        op: "Span::lo",
         prod_tree: Leg::Law("span_is_the_pair_hull"),
         prod_fs: Leg::Excluded(
             "accessor over a stored endpoint; the hull laws pin the accessor \
@@ -653,7 +653,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("accessor over a stored endpoint; law-pinned"),
     },
     SurfaceRow {
-        op: "Span::join",
+        op: "Span::hi",
         prod_tree: Leg::Law("span_is_the_pair_hull"),
         prod_fs: Leg::Excluded(
             "accessor over a stored endpoint; the hull laws pin the accessor \
@@ -678,6 +678,22 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
              reborrowed endpoints byte-equal to the source's",
         ),
         tree_fs: Leg::Excluded("borrow-lending mechanics of the Rust API"),
+    },
+    SurfaceRow {
+        op: "Span::union",
+        prod_tree: Leg::Law("span_union_is_the_containment_join"),
+        prod_fs: Leg::Excluded(
+            "the method spelling of the `|` operator; the law pins it to the operator across every operand cell",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the spelling"),
+    },
+    SurfaceRow {
+        op: "Span::intersection",
+        prod_tree: Leg::Law("span_intersect_is_the_shared_segment"),
+        prod_fs: Leg::Excluded(
+            "the method spelling of the `&` operator; the law pins it to the operator across every operand cell",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the spelling"),
     },
     SurfaceRow {
         op: "Span::union_all",
@@ -712,7 +728,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the fold"),
     },
     SurfaceRow {
-        op: "OwnSpan::meet",
+        op: "OwnSpan::lo",
         prod_tree: Leg::Law("own_span_matches_the_projected_span"),
         prod_fs: Leg::Excluded(
             "accessor handing out the bound OwnVersion view; the law pins it equal to the eagerly projected endpoint",
@@ -720,7 +736,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("accessor over the bound projection; law-pinned"),
     },
     SurfaceRow {
-        op: "OwnSpan::join",
+        op: "OwnSpan::hi",
         prod_tree: Leg::Law("own_span_matches_the_projected_span"),
         prod_fs: Leg::Excluded(
             "accessor handing out the bound OwnVersion view; the law pins it equal to the eagerly projected endpoint",
@@ -740,6 +756,22 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Law("own_span_matches_the_projected_span"),
         prod_fs: Leg::Excluded(
             "the dominance coarsening over the bound masked comparisons; the law pins every verdict to the eagerly projected span's",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the verdicts"),
+    },
+    SurfaceRow {
+        op: "OwnSpan::precedence",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "the precedence coarsening over the bound masked comparisons; the law pins every verdict to the eagerly projected span's",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the verdicts"),
+    },
+    SurfaceRow {
+        op: "OwnSpan::contains",
+        prod_tree: Leg::Law("own_span_matches_the_projected_span"),
+        prod_fs: Leg::Excluded(
+            "the membership coarsening over the bound masked comparisons; the law pins every verdict to the eagerly projected span's",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the verdicts"),
     },

@@ -1,14 +1,13 @@
-//! One prepared cell: the measured body, the operand bytes it charges
-//! against, its denomination rule, and its committed liveness
-//! declarations.
+//! One prepared cell: the measured body, the operand bytes it charges against,
+//! its denomination rule, and its committed liveness declarations.
 //!
 //! # Denomination
 //!
-//! Most cells charge cost against packed input bytes alone; the board
-//! module doc's Denomination section states the default and the rule
-//! that a mandatory-output cell is judged against total I/O bytes
-//! `n_io`, its output side read back from the actual result. The
-//! re-denominated classes and their derivations:
+//! Most cells charge cost against packed input bytes alone; the board module
+//! doc's Denomination section states the default and the rule that a
+//! mandatory-output cell is judged against total I/O bytes `n_io`, its output
+//! side read back from the actual result. The re-denominated classes and their
+//! derivations:
 //!
 //! - **Text rows** (`Display` and `FromStr` for all three types): `n_io` is
 //!   packed input + text output (`Display`) or text input + packed output
@@ -59,43 +58,40 @@
 //!   O(`n_io`)-tight on every one (exponents ≈ 1.0 against `n_io`, scan
 //!   at the walk's usual 8 bits per `n_io` byte).
 //!
-//! The **output-honesty assertion** closes the pad-the-output door on the
-//! text side: any text stream entering a denominator must satisfy
-//! `text_bytes ≤` [`TEXT_BYTES_PER_RADIX_UNIT`] `× radix units` of the
-//! values it spells, checked against the actual bytes.
+//! The **output-honesty assertion** closes the pad-the-output door on the text
+//! side: any text stream entering a denominator must satisfy `text_bytes ≤`
+//! [`TEXT_BYTES_PER_RADIX_UNIT`] `× radix units` of the values it spells,
+//! checked against the actual bytes.
 //!
-//! **Do not re-denominate** (these stay input-denominated): both binary
-//! codec directions (the coding is canonical 1:1, so input bytes are the
-//! honest bound); every scalar, comparison, and query row (word-sized or
-//! borrowed results); and the packed-output mutator rows (`join`, `meet`,
-//! `tick`, `fork`, `recv`, `sync`, `without`, and every
-//! projection cell outside the output-domination cross) — their input denomination rests on output
-//! coding ≤ inputs + O(1) per overlay boundary, which is pinned for
-//! join/meet as the 1-Lipschitz proptest in
-//! [`tier2`](crate::meter::tier2)'s test suite rather than assumed.
+//! **Do not re-denominate** (these stay input-denominated): both binary codec
+//! directions (the coding is canonical 1:1, so input bytes are the honest
+//! bound); every scalar, comparison, and query row (word-sized or borrowed
+//! results); and the packed-output mutator rows (`join`, `meet`, `tick`,
+//! `fork`, `recv`, `sync`, `without`, and every projection cell outside the
+//! output-domination cross) — their input denomination rests on output coding ≤
+//! inputs + O(1) per overlay boundary, which is pinned for join/meet as the
+//! 1-Lipschitz proptest in [`tier2`](crate::meter::tier2)'s test suite rather
+//! than assumed.
 //!
-//! **Rank operands** (`rank_pair_ops`, `rank_sum`, and `rank_encode`'s
-//! input side) are in-memory values with no packed operand form; their
-//! denominator of record is the operands' **value content**
-//! `bits(num) + exp` in bytes. That content is wire-bounded: every
-//! public construction path (the `rank`/`distance`/`lag` folds) emits a
-//! rank whose numerator width and exponent are each linear in the
-//! packed bits the fold read, so a ceiling per content byte is a
-//! ceiling per wire byte up to the fold's own constant. `rank_encode`
-//! is I/O-denominated (content in plus the actual canonical bytes out,
-//! read back from the result), with the emission's honesty asserted at
-//! prepare — the canonical form is at most `9⁄8 · ‖r‖ + O(log ‖r‖)`
-//! bits, so a padded
-//! output cannot inflate the denominator; `rank_decode`'s operand *is*
-//! the canonical bytes, input-denominated like every codec row; and
-//! the ranked rows stay input-denominated: `ranked_encode_rank`'s
-//! output is provenance-bounded within the packed input and
-//! `ranked_encode`'s composite adds exactly the packed bytes as its
-//! version tail (both asserted at prepare), so input bytes are the
-//! honest, harder denominator and the flat-denominator shape's content
-//! exponent governs them exactly as it governs `version_rank`;
-//! `ranked_decode`'s operand *is* the composite key, the codec rows'
-//! rule again.
+//! **Rank operands** (`rank_pair_ops`, `rank_sum`, and `rank_encode`'s input
+//! side) are in-memory values with no packed operand form; their denominator of
+//! record is the operands' **value content** `bits(num) + exp` in bytes. That
+//! content is wire-bounded: every public construction path (the
+//! `rank`/`distance`/`lag` folds) emits a rank whose numerator width and
+//! exponent are each linear in the packed bits the fold read, so a ceiling per
+//! content byte is a ceiling per wire byte up to the fold's own constant.
+//! `rank_encode` is I/O-denominated (content in plus the actual canonical bytes
+//! out, read back from the result), with the emission's honesty asserted at
+//! prepare — the canonical form is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits, so a
+//! padded output cannot inflate the denominator; `rank_decode`'s operand *is*
+//! the canonical bytes, input-denominated like every codec row; and the ranked
+//! rows stay input-denominated: `ranked_encode_rank`'s output is
+//! provenance-bounded within the packed input and `ranked_encode`'s composite
+//! adds exactly the packed bytes as its version tail (both asserted at
+//! prepare), so input bytes are the honest, harder denominator and the
+//! flat-denominator shape's content exponent governs them exactly as it governs
+//! `version_rank`; `ranked_decode`'s operand *is* the composite key, the codec
+//! rows' rule again.
 
 use std::any::Any;
 
@@ -115,43 +111,45 @@ pub(super) struct Cell {
     pub(super) denom: Denom,
     /// The cell's liveness declarations, one per floored column.
     pub(super) floors: Floors,
-    /// The fold rows' operand count at this scale: `Some` on the two
-    /// n-ary fold rows only, where it drives the declared fold scan
-    /// model (the `ceilings` module's declared-models section).
+    /// The fold rows' operand count at this scale: `Some` on the two n-ary fold
+    /// rows only, where it drives the declared fold scan model (the `ceilings`
+    /// module's declared-models section).
     pub(super) fold_arity: Option<u64>,
-    /// The party fold's declared search allowance at this scale, in
-    /// scan bits ([`INDEX_PROBE_SCAN_BITS`](super::ceilings::INDEX_PROBE_SCAN_BITS)'s derivation).
+    /// The party fold's declared search allowance at this scale, in scan bits
+    /// ([`INDEX_PROBE_SCAN_BITS`](super::ceilings::INDEX_PROBE_SCAN_BITS)'s
+    /// derivation).
     ///
-    /// Added to the declared scan ceiling; zero on the version fold (no
-    /// overlap test) and wherever the operands carry no both-present
-    /// structure.
+    /// Added to the declared scan ceiling; zero on the version fold (no overlap
+    /// test) and wherever the operands carry no both-present structure.
     pub(super) fold_search_bits: u64,
-    /// Whether the heap column is judged against the ratified
-    /// capacity-chain model instead of the flat ceiling.
+    /// Whether the heap column is judged against the ratified capacity-chain
+    /// model instead of the flat ceiling.
     ///
     /// The output-dominated projection on the comb-scatter cross only;
-    /// [`capacity_chain_peak`](super::ceilings::capacity_chain_peak)
-    /// carries the model.
+    /// [`capacity_chain_peak`](super::ceilings::capacity_chain_peak) carries
+    /// the model.
     pub(super) capacity_model: bool,
-    /// A family-stated flat heap ceiling in bytes per denominator byte,
-    /// judged in place of [`MAX_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::MAX_HEAP_BYTES_PER_INPUT_BYTE)'s.
+    /// A family-stated flat heap ceiling in bytes per denominator byte, judged
+    /// in place of
+    /// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::MAX_HEAP_BYTES_PER_INPUT_BYTE)'s.
     ///
-    /// The declared-models mechanism at a flat constant, for the cell
-    /// classes whose honest constant a ratified derivation puts over
-    /// the global allowance (each declaring constant —
+    /// The declared-models mechanism at a flat constant, for the cell classes
+    /// whose honest constant a ratified derivation puts over the global
+    /// allowance (each declaring constant —
     /// [`ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE),
-    /// [`ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE) — carries
-    /// its derivation). The exponent leg is untouched: the declaration
-    /// buys a constant, never growth.
+    /// [`ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE)
+    /// — carries its derivation). The exponent leg is untouched: the
+    /// declaration buys a constant, never growth.
     pub(super) declared_heap: Option<f64>,
-    /// A family-stated limb model `(exponent ceiling, per-radix-unit
-    /// constant ceiling)`, judged in place of the global limb legs.
+    /// A family-stated limb model `(exponent ceiling, per-radix-unit constant
+    /// ceiling)`, judged in place of the global limb legs.
     ///
-    /// The declared-models mechanism for a documented superlinear time
-    /// class: the display pair's mirror-wide cells only
-    /// ([`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`](super::ceilings::MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING) and
-    /// [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`](super::ceilings::MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT) carry the
-    /// derivation). Meaningful only on text rows, whose limb constant
+    /// The declared-models mechanism for a documented superlinear time class:
+    /// the display pair's mirror-wide cells only
+    /// ([`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`](super::ceilings::MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING)
+    /// and
+    /// [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`](super::ceilings::MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT)
+    /// carry the derivation). Meaningful only on text rows, whose limb constant
     /// is denominated per `R` unit.
     pub(super) declared_limb: Option<(f64, f64)>,
     /// The measured body; its result stays alive until the meters are read.
@@ -187,14 +185,15 @@ pub(super) struct TextSpec {
     /// loosen it).
     pub(super) radix_units: u64,
     /// The spelled event values, each granting
-    /// [`TEXT_PIPELINE_LIMB_OPS_PER_VALUE`](super::ceilings::TEXT_PIPELINE_LIMB_OPS_PER_VALUE) radix units in `R`.
+    /// [`TEXT_PIPELINE_LIMB_OPS_PER_VALUE`](super::ceilings::TEXT_PIPELINE_LIMB_OPS_PER_VALUE)
+    /// radix units in `R`.
     ///
-    /// Zero on id-only text (boolean tokens force no arithmetic), and
-    /// the version side's node count on clock rows for the same reason.
+    /// Zero on id-only text (boolean tokens force no arithmetic), and the
+    /// version side's node count on clock rows for the same reason.
     pub(super) spelled_values: u64,
-    /// Whether the measured *output* is the text side (`Display`); the
-    /// honesty assertion then runs against the actual output bytes.
-    /// `FromStr`'s text is input and is asserted at prepare.
+    /// Whether the measured *output* is the text side (`Display`); the honesty
+    /// assertion then runs against the actual output bytes. `FromStr`'s text is
+    /// input and is asserted at prepare.
     pub(super) output_is_text: bool,
 }
 
@@ -219,49 +218,47 @@ impl Cell {
         }
     }
 
-    /// Declare this cell's readings judged under the fold rows' fold
-    /// scan model at operand count `arity` (the `ceilings` module's
-    /// declared-models section).
+    /// Declare this cell's readings judged under the fold rows' fold scan model
+    /// at operand count `arity` (the `ceilings` module's declared-models
+    /// section).
     pub(super) fn with_fold_arity(mut self, arity: u64) -> Cell {
         self.fold_arity = Some(arity);
         self
     }
 
     /// Declare the party fold's search allowance in scan bits
-    /// ([`INDEX_PROBE_SCAN_BITS`](super::ceilings::INDEX_PROBE_SCAN_BITS)'s derivation).
+    /// ([`INDEX_PROBE_SCAN_BITS`](super::ceilings::INDEX_PROBE_SCAN_BITS)'s
+    /// derivation).
     pub(super) fn with_fold_search(mut self, bits: u64) -> Cell {
         self.fold_search_bits = bits;
         self
     }
 
-    /// Declare this cell's heap judged against the ratified
-    /// capacity-chain model (the `ceilings` module's declared-models
-    /// section).
+    /// Declare this cell's heap judged against the ratified capacity-chain
+    /// model (the `ceilings` module's declared-models section).
     pub(super) fn with_capacity_model(mut self) -> Cell {
         self.capacity_model = true;
         self
     }
 
-    /// Declare this cell's heap constant judged against a family-stated
-    /// flat ceiling (the `ceilings` module's declared-models section); the
-    /// exponent leg
-    /// stays at the global bound.
+    /// Declare this cell's heap constant judged against a family-stated flat
+    /// ceiling (the `ceilings` module's declared-models section); the exponent
+    /// leg stays at the global bound.
     pub(super) fn with_declared_heap(mut self, bytes_per_denom_byte: f64) -> Cell {
         self.declared_heap = Some(bytes_per_denom_byte);
         self
     }
 
-    /// Declare this cell's limb column judged against a family-stated
-    /// model (the `ceilings` module's declared-models section):
-    /// `exponent` replaces the
-    /// global exponent bound, `per_radix_unit` the text ceiling κ.
+    /// Declare this cell's limb column judged against a family-stated model
+    /// (the `ceilings` module's declared-models section): `exponent` replaces
+    /// the global exponent bound, `per_radix_unit` the text ceiling κ.
     pub(super) fn with_declared_limb(mut self, exponent: f64, per_radix_unit: f64) -> Cell {
         self.declared_limb = Some((exponent, per_radix_unit));
         self
     }
 
-    /// Package an I/O-denominated packed-output body: the output side of
-    /// `n_io` is read back from the actual result.
+    /// Package an I/O-denominated packed-output body: the output side of `n_io`
+    /// is read back from the actual result.
     pub(super) fn io<R: Any>(
         input_bytes: usize,
         floors: Floors,
@@ -312,10 +309,10 @@ impl Cell {
 
 /// Assert the output-honesty ceiling on one text stream.
 ///
-/// Every text stream entering a denominator passes through here: text bytes
-/// at most [`TEXT_BYTES_PER_RADIX_UNIT`] per radix unit of the values the
-/// text spells, so padding the text side of `n_io` trips the run instead
-/// of greening a cell.
+/// Every text stream entering a denominator passes through here: text bytes at
+/// most [`TEXT_BYTES_PER_RADIX_UNIT`] per radix unit of the values the text
+/// spells, so padding the text side of `n_io` trips the run instead of greening
+/// a cell.
 pub(super) fn assert_honest_text(what: &'static str, text_bytes: usize, radix_units: u64) {
     assert!(
         text_bytes as f64 <= TEXT_BYTES_PER_RADIX_UNIT * radix_units as f64,

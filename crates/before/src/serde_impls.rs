@@ -7,9 +7,9 @@
 //! canonical normal form.
 //!
 //! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
-//! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes
-//! to their source, so their linearity notes apply verbatim at this door
-//! ([Safety rules](crate#safety-rules)).
+//! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes to
+//! their source, so their linearity notes apply verbatim at this door ([Safety
+//! rules](crate#safety-rules)).
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -59,8 +59,8 @@ impl<'de> Deserialize<'de> for Clock {
 /// The canonical lexicographic bytes of [`Rank::encode`].
 ///
 /// Byte-wise order on the payload is still [`Ord`] on ranks, and the
-/// numerator–exponent pair stays off the wire (the decompression-bomb
-/// hazard [`Rank::encode`] documents).
+/// numerator–exponent pair stays off the wire (the decompression-bomb hazard
+/// [`Rank::encode`] documents).
 impl Serialize for Rank {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_bytes(&self.encode())
@@ -75,17 +75,17 @@ impl<'de> Deserialize<'de> for Rank {
 }
 
 /// The canonical composite key of [`Ranked::encode`]: the rank's
-/// self-delimiting stream, then the version's canonical bytes, so
-/// byte-wise order on the payload is still [`Ord`] on the views.
+/// self-delimiting stream, then the version's canonical bytes, so byte-wise
+/// order on the payload is still [`Ord`] on the views.
 impl Serialize for Ranked<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_bytes(&self.encode())
     }
 }
 
-/// Deserializes through [`Ranked::decode`]: the parsed rank is
-/// verified against the version's own rank fold, so a mismatched pair
-/// is rejected as non-canonical.
+/// Deserializes through [`Ranked::decode`]: the parsed rank is verified against
+/// the version's own rank fold, so a mismatched pair is rejected as
+/// non-canonical.
 impl<'de> Deserialize<'de> for Ranked<'static> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(d)?;
@@ -93,8 +93,8 @@ impl<'de> Deserialize<'de> for Ranked<'static> {
     }
 }
 
-/// The canonical composite of [`Span::encode`]: the meet's canonical
-/// bytes, then the join's.
+/// The canonical composite of [`Span::encode`]: the meet's canonical bytes,
+/// then the join's.
 impl Serialize for Span<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_bytes(&self.encode())
@@ -103,10 +103,9 @@ impl Serialize for Span<'_> {
 
 /// Deserializes through [`Span::decode`].
 ///
-/// The second component is parsed while its dominance over the first
-/// is validated in the same fused pass, so crossed and concurrent
-/// pairs are rejected and a deserialized span is valid by
-/// construction.
+/// The second component is parsed while its dominance over the first is
+/// validated in the same fused pass, so crossed and concurrent pairs are
+/// rejected and a deserialized span is valid by construction.
 impl<'de> Deserialize<'de> for Span<'static> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(d)?;

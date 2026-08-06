@@ -175,7 +175,7 @@ pub trait Node<T: Send + Sync + 'static> {
     /// [`Between`](causally::Dominance::Between) otherwise (mixed, so
     /// the filter descends). Single-endpoint consumers — bound pricing,
     /// containment checks, leaf-version reads — take
-    /// [`meet`](causally::Span::meet) or [`join`](causally::Span::join)
+    /// [`lo`](causally::Span::lo) or [`hi`](causally::Span::hi)
     /// off the same span.
     ///
     /// The span's ordering — `floor <= ceiling`, which every honest

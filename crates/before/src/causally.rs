@@ -121,7 +121,7 @@ mod query;
 mod tests;
 
 pub use crate::error::Crossed;
-pub use crate::span::{Dominance, Endpoint, OwnSpan, Placement, Span};
+pub use crate::span::{Dominance, Endpoint, OwnSpan, Placement, Precedence, Span};
 
 pub use forms::{
     after, all, before, delta, since, strictly_after, strictly_before, toward, until, Ceiling,

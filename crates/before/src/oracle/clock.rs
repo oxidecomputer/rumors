@@ -7,11 +7,8 @@ use crate::codec::Base;
 use super::{OverlapError, Party, Version};
 
 /// The reference [`Clock`](crate::Clock): the paper's recursive trees,
-/// mirroring the optimized type's API one-to-one so the differential tests
-/// can drive both with the same script.
-///
-/// Contracts live on the real type; this one is deliberately naive (and
-/// `Clone`, so tests can branch histories the linear type forbids).
+/// mirroring the optimized type's API one-to-one so the differential tests can
+/// drive both with the same script.
 #[derive(Clone, Debug)]
 pub struct Clock {
     party: Party,
@@ -39,13 +36,6 @@ impl Clock {
         self.version.clone()
     }
 
-    /// `version() / party()`: this clock's own contribution to its
-    /// version (the history within the region it owns), materialized
-    /// eagerly.
-    ///
-    /// The reference for
-    /// [`Clock::own_version`](crate::Clock::own_version)'s view, through
-    /// its materialization.
     pub fn own_version(&self) -> Version {
         self.version() / self.party()
     }
@@ -73,18 +63,6 @@ impl Clock {
         }
     }
 
-    /// Fold every disjoint [`Clock`] in `inputs` into `self` — the reference
-    /// for [`Clock::join_all`](crate::Clock::join_all), hand-back vector
-    /// (contents *and* order) and final accumulator (party and version both)
-    /// included.
-    ///
-    /// The identical discipline as the [`Party`] reference
-    /// ([`Party::join_all`](Party::join_all)), carrying versions through the
-    /// same decisions: each input's party is tested up front against the
-    /// **fixed** `self`'s (never the running union), accepted inputs
-    /// coalesce in binary-counter groups, a collision at a merge hands back
-    /// a lone input and leaves a coalesced group unmerged, and the
-    /// surviving groups join into `self` at the end.
     pub fn join_all(&mut self, inputs: impl IntoIterator<Item = Clock>) -> Result<(), Vec<Clock>> {
         let mut overlapping = Vec::new();
         let mut stack: Vec<(Clock, u32)> = Vec::new();

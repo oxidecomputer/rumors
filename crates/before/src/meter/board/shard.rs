@@ -1,68 +1,62 @@
-//! Process sharding: the operation × family grid split across child
-//! processes, so the board parallelizes without changing what any cell
-//! measures.
+//! Process sharding: the operation × family grid split across child processes,
+//! so the board parallelizes without changing what any cell measures.
 //!
 //! The board's sweep is single-threaded within a process by design: the
 //! peak-heap column reads the process-global counting allocator, so cells
 //! measured on concurrent threads would blend live sets and destroy the
-//! reading's meaning. Parallelism therefore comes from *processes*: the
-//! runner spawns copies of itself, each child owns its own global
-//! allocator and measures one slice of the operation × family grid one
-//! cell at a time, reset-peak per cell ([`measure_cell`]), and the parent
-//! merges the measured samples back into board row order and judges and
-//! renders them itself.
+//! reading's meaning. Parallelism therefore comes from *processes*: the runner
+//! spawns copies of itself, each child owns its own global allocator and
+//! measures one slice of the operation × family grid one cell at a time,
+//! reset-peak per cell ([`measure_cell`]), and the parent merges the measured
+//! samples back into board row order and judges and renders them itself.
 //!
 //! # The seam
 //!
-//! A child emits raw [`Sample`]s, never verdicts: judgment
-//! ([`evaluate`]) and rendering stay in the parent, over the one merged
-//! result list, so the matrix, the worst-case fold, and the ranking pin
-//! all consume one sweep through the same code.
+//! A child emits raw [`Sample`]s, never verdicts: judgment ([`evaluate`]) and
+//! rendering stay in the parent, over the one merged result list, so the
+//! matrix, the worst-case fold, and the ranking pin all consume one sweep
+//! through the same code.
 //!
-//! A cell's reading is a function of the cell alone: every judged
-//! quantity is a deterministic counter read from state a child owns
-//! privately (its own global allocator, its own process globals), so
-//! neither the shard count nor which cells share a process with it can
-//! move a reading. The smoke suite exercises the round trip — emit,
-//! parse, reorder, re-judge — across two shard counts, so a break in the
-//! protocol or in the merge's board-order reconstruction is caught
-//! before any board of record is rendered.
+//! A cell's reading is a function of the cell alone: every judged quantity is a
+//! deterministic counter read from state a child owns privately (its own global
+//! allocator, its own process globals), so neither the shard count nor which
+//! cells share a process with it can move a reading. The smoke suite exercises
+//! the round trip — emit, parse, reorder, re-judge — across two shard counts,
+//! so a break in the protocol or in the merge's board-order reconstruction is
+//! caught before any board of record is rendered.
 //!
 //! # The wire form
 //!
-//! One stamped header line (protocol version, shard index and count,
-//! the scale's IEEE-754 bit pattern), one tab-separated `cell` line per
-//! measured cell carrying both samples' counters, denominators, and
-//! declarations (floats as bit patterns, so nothing rounds), and one
-//! trailing `end` count line guarding truncation. The parent refuses any
-//! mismatch — a header that is not byte-for-byte the one it commissioned,
-//! an unknown operation or family name, a cell outside the child's
-//! slice, a duplicate cell, or a count that disagrees with the lines
-//! received. The protocol is internal to the runner (parent and children
-//! are the same binary), not a stable format.
+//! One stamped header line (protocol version, shard index and count, the
+//! scale's IEEE-754 bit pattern), one tab-separated `cell` line per measured
+//! cell carrying both samples' counters, denominators, and declarations (floats
+//! as bit patterns, so nothing rounds), and one trailing `end` count line
+//! guarding truncation. The parent refuses any mismatch — a header that is not
+//! byte-for-byte the one it commissioned, an unknown operation or family name,
+//! a cell outside the child's slice, a duplicate cell, or a count that
+//! disagrees with the lines received. The protocol is internal to the runner
+//! (parent and children are the same binary), not a stable format.
 //!
 //! # Slicing
 //!
-//! The shard unit is one cell of the operation × family grid: the
-//! grid's family-outer linearization — the registry's board roster
-//! ([`FamilyId::board`]) against the operation table — is dealt
-//! round-robin over the shards ([`owns`]), so the shards partition the
-//! grid by construction (coverage cannot drift with the shard count)
-//! and, family cost being operand-size cost, the axis that dominates a
-//! cell's price can never concentrate: one family's cells sit at
-//! consecutive deal positions, so they spread evenly across the shards
-//! whatever the tables' lengths share with the shard count. The
-//! orientation is load-bearing — an op-outer deal aliases whenever the
-//! family count and the shard count share a factor (at a roster length
-//! the shard count divides, every cell of a family lands in one shard
-//! and the deal degenerates to a family deal). The residual alias runs
-//! the other way — a shard count dividing the operation count parks an
-//! operation's column on few shards — and is accepted: operation
-//! columns do not own operand size. The price of the per-cell deal is
-//! that every child rebuilds each family it touches — cheap beside the
-//! cells themselves, which run every body once at each of the pair's two
-//! levels — and a child builds one family at a time, in roster order, so
-//! its live set stays one operand-bundle pair wide.
+//! The shard unit is one cell of the operation × family grid: the grid's
+//! family-outer linearization — the registry's board roster
+//! ([`FamilyId::board`]) against the operation table — is dealt round-robin
+//! over the shards ([`owns`]), so the shards partition the grid by construction
+//! (coverage cannot drift with the shard count) and, family cost being
+//! operand-size cost, the axis that dominates a cell's price can never
+//! concentrate: one family's cells sit at consecutive deal positions, so they
+//! spread evenly across the shards whatever the tables' lengths share with the
+//! shard count. The orientation is load-bearing — an op-outer deal aliases
+//! whenever the family count and the shard count share a factor (at a roster
+//! length the shard count divides, every cell of a family lands in one shard
+//! and the deal degenerates to a family deal). The residual alias runs the
+//! other way — a shard count dividing the operation count parks an operation's
+//! column on few shards — and is accepted: operation columns do not own operand
+//! size. The price of the per-cell deal is that every child rebuilds each
+//! family it touches — cheap beside the cells themselves, which run every body
+//! once at each of the pair's two levels — and a child builds one family at a
+//! time, in roster order, so its live set stays one operand-bundle pair wide.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
@@ -76,29 +70,27 @@ use super::render::{assert_scale, build_pair, measure_cell, render_results, Summ
 use super::worst::{check_with, render_map};
 use crate::meter::registry::FamilyId;
 
-/// The wire header's protocol tag; bumped with any change to the cell
-/// line's field order or encoding, or to the slice deal the ownership
-/// check enforces, so a stale child binary can never be merged as
-/// current.
+/// The wire header's protocol tag; bumped with any change to the cell line's
+/// field order or encoding, or to the slice deal the ownership check enforces,
+/// so a stale child binary can never be merged as current.
 const PROTOCOL: &str = "amp-board-shard v2";
 
-/// Runs every shard child at one scale and returns their raw stdout
-/// captures in shard-index order.
+/// Runs every shard child at one scale and returns their raw stdout captures in
+/// shard-index order.
 ///
-/// Supplied by the runner binary (spawning `current_exe` is per-binary
-/// state the library cannot own, exactly like the [`HeapMeter`]); the
-/// captures feed the merge, which validates each child's stamps.
+/// Supplied by the runner binary (spawning `current_exe` is per-binary state
+/// the library cannot own, exactly like the [`HeapMeter`]); the captures feed
+/// the merge, which validates each child's stamps.
 pub type ShardSpawner<'a> = &'a dyn Fn(f64) -> io::Result<Vec<Vec<u8>>>;
 
-/// Whether shard `index` of `count` owns the grid cell at
-/// (`op_position`, `family_position`): the family-outer linearization
-/// of the operation × family grid, dealt round-robin.
+/// Whether shard `index` of `count` owns the grid cell at (`op_position`,
+/// `family_position`): the family-outer linearization of the operation × family
+/// grid, dealt round-robin.
 ///
 /// The one deal, shared by the emitter and the merge's ownership check
-/// (`op_count` is the operation table's length, so both sides derive
-/// the deal from the same tables). Family-outer keeps one family's
-/// cells at consecutive deal positions — the module doc's aliasing
-/// argument.
+/// (`op_count` is the operation table's length, so both sides derive the deal
+/// from the same tables). Family-outer keeps one family's cells at consecutive
+/// deal positions — the module doc's aliasing argument.
 ///
 /// # Panics
 ///
@@ -118,20 +110,19 @@ fn owns(
 }
 
 /// The largest shard count that can still receive work: the size of the
-/// operation × family grid (a larger count would only spawn children
-/// with empty slices).
+/// operation × family grid (a larger count would only spawn children with empty
+/// slices).
 pub fn max_useful_shards() -> usize {
     ops().len() * FamilyId::board().count()
 }
 
-/// Child mode: measure shard `index` of `count`'s slice of the
-/// operation × family grid at `scale` under the single-threaded
-/// measurement discipline and emit the measured samples to `out` in the
-/// shard wire form.
+/// Child mode: measure shard `index` of `count`'s slice of the operation ×
+/// family grid at `scale` under the single-threaded measurement discipline and
+/// emit the measured samples to `out` in the shard wire form.
 ///
-/// Cells are grouped family-outer so each owned family's operand
-/// bundles are built once and dropped before the next family's; the
-/// parent restores board row order.
+/// Cells are grouped family-outer so each owned family's operand bundles are
+/// built once and dropped before the next family's; the parent restores board
+/// row order.
 ///
 /// # Panics
 ///
@@ -146,11 +137,11 @@ pub fn emit_shard(
     assert_scale(scale);
     let table = ops();
     let families: Vec<FamilyId> = FamilyId::board().collect();
-    // The emission is staged in memory and written only after the last
-    // cell is measured: `out` is typically a pipe the parent drains in
-    // shard order, and a child that writes between measurements stalls
-    // mid-sweep the moment the pipe's buffer fills, serializing the
-    // shards against the parent's drain order.
+    // The emission is staged in memory and written only after the last cell is
+    // measured: `out` is typically a pipe the parent drains in shard order, and
+    // a child that writes between measurements stalls mid-sweep the moment the
+    // pipe's buffer fills, serializing the shards against the parent's drain
+    // order.
     let mut staged = Vec::new();
     let mut emitted = 0usize;
     for (family_position, &family) in families.iter().enumerate() {
@@ -181,8 +172,8 @@ pub fn emit_shard(
     writeln!(out, "end {emitted}")
 }
 
-/// An `f64` as its IEEE-754 bit pattern, so the parent reconstructs the
-/// child's value exactly (decimal round-trips are where identity dies).
+/// An `f64` as its IEEE-754 bit pattern, so the parent reconstructs the child's
+/// value exactly (decimal round-trips are where identity dies).
 fn bits(value: f64) -> String {
     format!("{:016x}", value.to_bits())
 }
@@ -200,8 +191,8 @@ fn assert_unframed(text: &str) {
     );
 }
 
-/// Emit one sample's fields, tab-prefixed, in the fixed wire order the
-/// parser mirrors ([`parse_sample`]).
+/// Emit one sample's fields, tab-prefixed, in the fixed wire order the parser
+/// mirrors ([`parse_sample`]).
 fn emit_sample(out: &mut dyn Write, s: &Sample) -> io::Result<()> {
     write!(
         out,
@@ -242,10 +233,10 @@ fn emit_sample(out: &mut dyn Write, s: &Sample) -> io::Result<()> {
 
 /// Intern one child-reported rationale string as `&'static str`.
 ///
-/// A reconstructed [`Sample`] carries its floor rationales as
-/// `&'static str` exactly like a locally measured one; each distinct
-/// string is leaked once per process, and the set of distinct rationales
-/// is bounded by the board's own legend.
+/// A reconstructed [`Sample`] carries its floor rationales as `&'static str`
+/// exactly like a locally measured one; each distinct string is leaked once per
+/// process, and the set of distinct rationales is bounded by the board's own
+/// legend.
 fn intern(text: &str) -> &'static str {
     static CACHE: OnceLock<Mutex<BTreeSet<&'static str>>> = OnceLock::new();
     let mut cache = CACHE
@@ -367,18 +358,17 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
     }
 }
 
-/// Merge `count` children's captures into one whole board's judged cells
-/// in board row order.
+/// Merge `count` children's captures into one whole board's judged cells in
+/// board row order.
 ///
-/// Validates every stamp, parses the samples, reorders by the parent's
-/// own operation table and family roster, and judges each cell
-/// ([`evaluate`]).
+/// Validates every stamp, parses the samples, reorders by the parent's own
+/// operation table and family roster, and judges each cell ([`evaluate`]).
 ///
 /// # Panics
 ///
-/// Panics on any protocol violation — the module doc's refusal list —
-/// and unless `scale` is strictly positive, checked before any child
-/// capture is trusted.
+/// Panics on any protocol violation — the module doc's refusal list — and
+/// unless `scale` is strictly positive, checked before any child capture is
+/// trusted.
 fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
     assert!(
         scale > 0.0 && scale.is_finite(),
@@ -478,18 +468,18 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
         .collect()
 }
 
-/// Sweep the whole board across `shards` child processes at `scale` and
-/// render the matrix to `out`.
+/// Sweep the whole board across `shards` child processes at `scale` and render
+/// the matrix to `out`.
 ///
 /// `scale` multiplies every family's base size (1.0 is the seconds-scale
-/// default; the smoke suite passes a small fraction). Cells run at the
-/// scaled size and its double. Red rows print first. `spawn` is invoked
-/// once, at `scale`.
+/// default; the smoke suite passes a small fraction). Cells run at the scaled
+/// size and its double. Red rows print first. `spawn` is invoked once, at
+/// `scale`.
 ///
 /// # Panics
 ///
-/// Panics unless `scale` is strictly positive, and on any protocol
-/// violation in a child capture (the module doc's refusal list).
+/// Panics unless `scale` is strictly positive, and on any protocol violation in
+/// a child capture (the module doc's refusal list).
 pub fn run(
     scale: f64,
     shards: usize,
@@ -499,8 +489,8 @@ pub fn run(
     render_results(&merge(scale, shards, &spawn(scale)?), out)
 }
 
-/// Sweep the whole board across `shards` child processes at `scale` and
-/// render the worst-case map table to `out`.
+/// Sweep the whole board across `shards` child processes at `scale` and render
+/// the worst-case map table to `out`.
 ///
 /// `spawn` is invoked once, at `scale`.
 ///
@@ -517,19 +507,18 @@ pub fn worst_map(
     render_map(label, scale, &merge(scale, shards, &spawn(scale)?), out)
 }
 
-/// Entry-compare the live worst-case fold against the committed ranking
-/// pin, from sweeps run across `shards` child processes at each scale of
-/// record.
+/// Entry-compare the live worst-case fold against the committed ranking pin,
+/// from sweeps run across `shards` child processes at each scale of record.
 ///
 /// `spawn` is invoked once per scale of record.
 ///
 /// # Panics
 ///
-/// Panics if a mapped counter is not compiled into this run (the pin is
-/// stated over all four currencies, so the check requires the
-/// `limb-meter` and `scan-meter` features), if the pin table itself is
-/// malformed (duplicate or unknown scale/operation keys), or on any
-/// protocol violation in a child capture.
+/// Panics if a mapped counter is not compiled into this run (the pin is stated
+/// over all four currencies, so the check requires the `limb-meter` and
+/// `scan-meter` features), if the pin table itself is malformed (duplicate or
+/// unknown scale/operation keys), or on any protocol violation in a child
+/// capture.
 pub fn check_worst_map(
     shards: usize,
     spawn: ShardSpawner<'_>,

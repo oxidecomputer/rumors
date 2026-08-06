@@ -220,7 +220,7 @@ where
                         // endpoint (the leaf's version) outlives both reads
                         // below.
                         let bounds = leaf.span();
-                        let version = bounds.join();
+                        let version = bounds.hi();
                         let message = leaf.message();
                         if !run.is_empty()
                             && !budget

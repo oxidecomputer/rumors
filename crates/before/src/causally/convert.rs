@@ -53,7 +53,7 @@ impl<'a> From<Span<'a>> for Query<'a, Neutral> {
 /// A borrowed [`Span`]'s segment as a query, lending its endpoints.
 impl<'a> From<&'a Span<'_>> for Query<'a, Neutral> {
     fn from(span: &'a Span<'_>) -> Query<'a, Neutral> {
-        after(span.meet()) & before(span.join())
+        after(span.lo()) & before(span.hi())
     }
 }
 

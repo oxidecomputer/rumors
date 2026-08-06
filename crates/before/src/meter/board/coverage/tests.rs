@@ -7,8 +7,8 @@ use super::{BOARD_EXPECTED_REDS, BOARD_NOT_APPLICABLE, BOARD_PRICED};
 use crate::meter::board::{bench_cells, BenchMode};
 use crate::testing::surface_coverage;
 
-/// Every board operation name, from the board's own axis declarations at
-/// a tiny build-only scale.
+/// Every board operation name, from the board's own axis declarations at a tiny
+/// build-only scale.
 fn board_ops() -> BTreeSet<String> {
     bench_cells(0.02, BenchMode::Full)
         .into_iter()
@@ -16,8 +16,8 @@ fn board_ops() -> BTreeSet<String> {
         .collect()
 }
 
-/// The full public surface: every mechanically extracted `pub fn` plus
-/// every coverage family row.
+/// The full public surface: every mechanically extracted `pub fn` plus every
+/// coverage family row.
 fn public_surface() -> BTreeSet<String> {
     let mut surface: BTreeSet<String> = surface_coverage::extract_public_fns();
     surface.extend(
@@ -28,15 +28,14 @@ fn public_surface() -> BTreeSet<String> {
     surface
 }
 
-/// The board tiling: every public-surface row is priced by live board
-/// rows ([`BOARD_PRICED`]) or excused in [`BOARD_NOT_APPLICABLE`] with
-/// a mechanism, never both, never neither.
+/// The board tiling: every public-surface row is priced by live board rows
+/// ([`BOARD_PRICED`]) or excused in [`BOARD_NOT_APPLICABLE`] with a mechanism,
+/// never both, never neither.
 ///
-/// Both tables name only real surface rows, carry no duplicates, and
-/// every cited board row exists on the board's operation axis, so a
-/// renamed or retired row orphans the entries that leaned on it by
-/// name, and a new public operation fails here until it is priced or
-/// excused.
+/// Both tables name only real surface rows, carry no duplicates, and every
+/// cited board row exists on the board's operation axis, so a renamed or
+/// retired row orphans the entries that leaned on it by name, and a new public
+/// operation fails here until it is priced or excused.
 #[test]
 fn board_coverage_tiles_the_public_surface() {
     let surface = public_surface();
@@ -107,16 +106,15 @@ fn board_coverage_tiles_the_public_surface() {
     );
 }
 
-/// The red-triage buffer is empty at acceptance, and any in-flight
-/// entry names a live board cell, exactly once, with a mechanism tag
-/// and a live-task reference.
+/// The red-triage buffer is empty at acceptance, and any in-flight entry names
+/// a live board cell, exactly once, with a mechanism tag and a live-task
+/// reference.
 ///
-/// Red means untriaged, nothing else: every dashboard contradiction
-/// resolves to a cure or an owner-declared model at the cell, so
-/// [`BOARD_EXPECTED_REDS`] may hold an entry only while its triage is
-/// in flight (the `task` field names the work), and this assertion is
-/// the acceptance teeth — a red that persists across commits is a
-/// process failure, not a status.
+/// Red means untriaged, nothing else: every dashboard contradiction resolves to
+/// a cure or an owner-declared model at the cell, so [`BOARD_EXPECTED_REDS`]
+/// may hold an entry only while its triage is in flight (the `task` field names
+/// the work), and this assertion is the acceptance teeth — a red that persists
+/// across commits is a process failure, not a status.
 #[test]
 fn expected_red_buffer_is_an_empty_triage_buffer() {
     let cells: BTreeSet<(String, String)> = bench_cells(0.02, BenchMode::Full)

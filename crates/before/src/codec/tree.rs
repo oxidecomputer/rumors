@@ -4,10 +4,10 @@ use super::{BitCursor, BitsSlice, SliceCursor};
 
 /// While building a node bottom-up, what we still need from the stream.
 ///
-/// The parsers keep one frame per unfinished ancestor on an explicit
-/// heap `Vec` — as deep as the tree, never the call stack. A terminal
-/// parse pushes nothing and allocates nothing; deeper trees pay plain
-/// amortized growth, a rounding error against the per-node tag reads.
+/// The parsers keep one frame per unfinished ancestor on an explicit heap `Vec`
+/// — as deep as the tree, never the call stack. A terminal parse pushes nothing
+/// and allocates nothing; deeper trees pay plain amortized growth, a rounding
+/// error against the per-node tag reads.
 enum IdFrame {
     /// A both-present node: the next subtree is its left child.
     BothNeedLeft,
@@ -89,10 +89,10 @@ where
 ///
 /// The empty stream is accepted here, unlike at [`parse_id`]: it is the
 /// in-memory normal form of the anonymous `0` id, which the builders and the
-/// text grammar legitimately construct (the literal `0`). Whether an
-/// anonymous id is *allowed* is the caller's question, answered at the
-/// standalone-value gates (`Parse::Anonymous`); the wire grammar never asks
-/// it, because no encoder spells the anonymous id on the wire.
+/// text grammar legitimately construct (the literal `0`). Whether an anonymous
+/// id is *allowed* is the caller's question, answered at the standalone-value
+/// gates (`Parse::Anonymous`); the wire grammar never asks it, because no
+/// encoder spells the anonymous id on the wire.
 pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), Parse> {
     if bits.is_empty() {
         return Ok(());

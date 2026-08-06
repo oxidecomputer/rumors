@@ -1,15 +1,14 @@
-//! A decoded payload integer as a value: a machine word for the values
-//! that dominate every organic stream, the arbitrary-precision [`Base`]
-//! past that.
+//! A decoded payload integer as a value: a machine word for the values that
+//! dominate every organic stream, the arbitrary-precision [`Base`] past that.
 //!
-//! The write-side twin is [`Code`](super::Code): together they keep a
-//! narrow payload in machine words end to end — decoded from the stream
-//! as a word, folded into an accumulator through the word entry points,
-//! re-coded by shift arithmetic — with the wide forms carrying every
-//! value past the word range unchanged. Every reader
-//! ([`BitCursor::read_int`](super::BitCursor::read_int)) hands values
-//! out in this form; a consumer with genuinely wide arithmetic converts
-//! through [`into_base`](Int::into_base) at its own seam.
+//! The write-side twin is [`Code`](super::Code): together they keep a narrow
+//! payload in machine words end to end — decoded from the stream as a word,
+//! folded into an accumulator through the word entry points, re-coded by shift
+//! arithmetic — with the wide forms carrying every value past the word range
+//! unchanged. Every reader (for example,
+//! [`BitCursor::read_int`](super::BitCursor::read_int)) hands values out in
+//! this form; a consumer with genuinely wide arithmetic converts through
+//! [`into_base`](Int::into_base) at its own seam.
 
 use core::cmp::Ordering;
 
@@ -20,9 +19,9 @@ use super::Base;
 pub(crate) enum Int {
     /// A value within the machine-word range.
     Small(u64),
-    /// A value past the word range (decode constructs this only for
-    /// such values; arithmetic may park smaller values here, which
-    /// costs the word fast path but never correctness).
+    /// A value past the word range (decode constructs this only for such
+    /// values; arithmetic may park smaller values here, which costs the word
+    /// fast path but never correctness).
     Wide(Base),
 }
 
@@ -63,8 +62,8 @@ impl Int {
     }
 
     /// Magnitude order across widths (a [`Wide`](Int::Wide) parking a
-    /// word-scale value compares by value, exactly as its
-    /// [`Small`](Int::Small) spelling would).
+    /// word-scale value compares by value, exactly as its [`Small`](Int::Small)
+    /// spelling would).
     pub(crate) fn cmp_magnitude(&self, other: &Int) -> Ordering {
         match (self, other) {
             (Int::Small(a), Int::Small(b)) => a.cmp(b),

@@ -5,8 +5,8 @@ use super::{validate_id, Base, BitsMut};
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure
 /// ASCII (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
 ///
-/// Shared with the skyline text kernel (`version::skyline::text`), whose
-/// parser must make byte-identical grammar decisions to this module's.
+/// Shared with the skyline text kernel (`version::skyline::text`), whose parser
+/// must make byte-identical grammar decisions to this module's.
 pub(crate) struct Cur<'a> {
     bytes: &'a [u8],
     pos: usize,
@@ -50,8 +50,8 @@ impl<'a> Cur<'a> {
 /// The cursor slices the whole digit run and hands it to
 /// [`Base::parse_decimal`], which delegates the radix conversion to the
 /// backend's subquadratic divide-and-conquer parser; leading zeros are
-/// value-preserving (`"007"` is 7), exactly as digit-at-a-time
-/// accumulation would read them.
+/// value-preserving (`"007"` is 7), exactly as digit-at-a-time accumulation
+/// would read them.
 pub(crate) fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
     cur.skip_ws();
     let start = cur.pos;
@@ -95,26 +95,26 @@ enum IdKind {
     Node,
 }
 
-/// While building a node bottom-up, what its subtree still needs from the
-/// text: the node's reserved 2-bit tag slot rides in the frame so the
-/// children's presence patches in at the close paren.
+/// While building a node bottom-up, what its subtree still needs from the text:
+/// the node's reserved 2-bit tag slot rides in the frame so the children's
+/// presence patches in at the close paren.
 ///
-/// One frame per unfinished ancestor, on an explicit heap `Vec` — as
-/// deep as the nesting, never the call stack, exactly the packed
-/// parsers' discipline ([`super::tree`]).
+/// One frame per unfinished ancestor, on an explicit heap `Vec` — as deep as
+/// the nesting, never the call stack, exactly the packed parsers' discipline
+/// ([`super::tree`]).
 enum IdFrame {
     /// The next subtree is the node's left child.
     NeedLeft {
         /// The node's tag position in the output bits.
         tag: usize,
     },
-    /// The left child is parsed and its `,` consumed; the next subtree is
-    /// the node's right child.
+    /// The left child is parsed and its `,` consumed; the next subtree is the
+    /// node's right child.
     NeedRight {
         /// The node's tag position in the output bits.
         tag: usize,
-        /// What the left child was (the presence patch and the
-        /// collapsible-node check both need it).
+        /// What the left child was (the presence patch and the collapsible-node
+        /// check both need it).
         left: IdKind,
     },
 }
@@ -124,8 +124,8 @@ enum IdFrame {
 /// A `0` emits nothing (absence); a node reserves a 2-bit tag, parses its
 /// children, then patches the tag to their presence — rejecting a collapsible
 /// `(0, 0)` / `(1, 1)` once its `)` has parsed (a structural defect outranks
-/// the canonicality check, exactly the token order of the grammar). One
-/// frame per unfinished ancestor.
+/// the canonicality check, exactly the token order of the grammar). One frame
+/// per unfinished ancestor.
 fn parse_id_tree(cur: &mut Cur, bits: &mut BitsMut) -> Result<(), Parse> {
     let mut stack: Vec<IdFrame> = Vec::new();
     loop {
@@ -146,8 +146,8 @@ fn parse_id_tree(cur: &mut Cur, bits: &mut BitsMut) -> Result<(), Parse> {
             }
             _ => return Err(Parse::Syntax),
         };
-        // Attach the completed subtree to its parent, possibly completing
-        // the parent too.
+        // Attach the completed subtree to its parent, possibly completing the
+        // parent too.
         loop {
             match stack.pop() {
                 None => return Ok(()), // the root is complete

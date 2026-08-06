@@ -1,5 +1,5 @@
-//! The measurement engine: run one prepared cell under every meter and
-//! capture its counter readings and settled denominators as a [`Sample`].
+//! The measurement engine: run one prepared cell under every meter and capture
+//! its counter readings and settled denominators as a [`Sample`].
 
 use crate::meter;
 
@@ -9,11 +9,11 @@ use super::currency::{ByCurrency, Floors};
 
 /// The peak-heap meter the board reads, supplied by the binary that runs it.
 ///
-/// A counting global allocator is per-binary state the library cannot own,
-/// so the runner (the `amp_board` example, the smoke test) installs one and
-/// passes readers in. All three read the runner's allocator: `reset_peak`
-/// clears the peak high-water mark, `peak` reads it, `current` reads live
-/// bytes (the baseline subtracted from the peak).
+/// A counting global allocator is per-binary state the library cannot own, so
+/// the runner (the `amp_board` example, the smoke test) installs one and passes
+/// readers in. All three read the runner's allocator: `reset_peak` clears the
+/// peak high-water mark, `peak` reads it, `current` reads live bytes (the
+/// baseline subtracted from the peak).
 pub struct HeapMeter {
     /// Clear the peak high-water mark down to current usage.
     pub reset_peak: fn(),
@@ -25,17 +25,17 @@ pub struct HeapMeter {
 
 /// One measured run of a cell body: every meter and its denominators.
 pub(super) struct Sample {
-    /// The denominator of the heap and segment constants (and, on most
-    /// cells, of every exponent): packed input bytes, or `n_io` for the
+    /// The denominator of the heap and segment constants (and, on most cells,
+    /// of every exponent): packed input bytes, or `n_io` for the
     /// I/O-denominated cells.
     pub(super) denom_bytes: usize,
     /// The exponent legs' denominator.
     ///
     /// `denom_bytes` everywhere except the flat-denominator shape's
-    /// input-denominated cells, where it is the bundle's value content:
-    /// the packed denominator is intercept-dominated there, and a
-    /// two-point power-law fit against an intercept-dominated denominator
-    /// manufactures exponents out of exactly linear marginal work.
+    /// input-denominated cells, where it is the bundle's value content: the
+    /// packed denominator is intercept-dominated there, and a two-point
+    /// power-law fit against an intercept-dominated denominator manufactures
+    /// exponents out of exactly linear marginal work.
     pub(super) exp_denom_bytes: usize,
     /// The limb *constant*'s denominator: `denom_bytes`, or `R` for the
     /// text rows (the limb exponent is judged against `denom_bytes` on
@@ -53,28 +53,28 @@ pub(super) struct Sample {
     /// scale, in scan bits.
     pub(super) fold_search_bits: u64,
     /// The capacity-chain model's predicted peak heap for this sample
-    /// ([`capacity_chain_peak`] over the actual input and output bytes),
-    /// on the cells that declare it.
+    /// ([`capacity_chain_peak`] over the actual input and output bytes), on the
+    /// cells that declare it.
     pub(super) heap_model: Option<f64>,
-    /// The family-stated flat heap ceiling, on the cells that declare
-    /// one (the `ceilings` module's declared-models section).
-    pub(super) declared_heap: Option<f64>,
-    /// The family-stated limb model `(exponent ceiling, per-radix-unit
-    /// constant ceiling)`, on the cells that declare one (the
+    /// The family-stated flat heap ceiling, on the cells that declare one (the
     /// `ceilings` module's declared-models section).
+    pub(super) declared_heap: Option<f64>,
+    /// The family-stated limb model `(exponent ceiling, per-radix-unit constant
+    /// ceiling)`, on the cells that declare one (the `ceilings` module's
+    /// declared-models section).
     pub(super) declared_limb: Option<(f64, f64)>,
-    /// Every currency's counter reading over the body; `None` where the
-    /// counter is not compiled in (the feature-gated limb, scan, and
-    /// touch columns render `off` and are exempt from judgment).
+    /// Every currency's counter reading over the body; `None` where the counter
+    /// is not compiled in (the feature-gated limb, scan, and touch columns
+    /// render `off` and are exempt from judgment).
     pub(super) readings: ByCurrency<Option<u64>>,
 }
 
 /// Run one prepared cell under all meters.
 ///
-/// The denominators are settled after the meters are read and before the
-/// result is dropped: an I/O-denominated cell's output side comes from the
-/// actual result (never from a prediction), and a text output is checked
-/// against the honesty ceiling right here.
+/// The denominators are settled after the meters are read and before the result
+/// is dropped: an I/O-denominated cell's output side comes from the actual
+/// result (never from a prediction), and a text output is checked against the
+/// honesty ceiling right here.
 pub(super) fn measure(
     heap: &HeapMeter,
     op: &'static str,
@@ -95,9 +95,9 @@ pub(super) fn measure(
     let touch = read_touch();
     let mut heap_model = None;
     let (denom_bytes, exp_denom_bytes, limb_denom, text_row) = match cell.denom {
-        // The flat-denominator shape's content denominator carries the
-        // exponent legs of its input-denominated cells alone: an
-        // I/O-denominated cell's output side already scales.
+        // The flat-denominator shape's content denominator carries the exponent
+        // legs of its input-denominated cells alone: an I/O-denominated cell's
+        // output side already scales.
         Denom::Input => {
             let exp = content.unwrap_or(cell.input_bytes);
             (cell.input_bytes, exp, cell.input_bytes as u64, false)

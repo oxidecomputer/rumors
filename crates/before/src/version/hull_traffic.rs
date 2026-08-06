@@ -1,5 +1,5 @@
-//! Process-global counters classifying pair-hull traffic by the ladder
-//! rung that answered it.
+//! Process-global counters classifying pair-hull traffic by the ladder rung
+//! that answered it.
 //!
 //! Every pair-hull construction ([`Version::span`](crate::Version::span),
 //! `span_all`'s leaf combines, and the span union's point-combines, which
@@ -24,24 +24,24 @@
 /// answered it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Rung {
-    /// Byte-equal operands: the coincident hull, two clones of one
-    /// stream, no walk.
+    /// Byte-equal operands: the coincident hull, two clones of one stream, no
+    /// walk.
     Equal,
-    /// An empty operand: the hull is the operands themselves (the
-    /// empty version is the lattice bottom), no walk.
+    /// An empty operand: the hull is the operands themselves (the empty version
+    /// is the lattice bottom), no walk.
     Empty,
-    /// A comparable pair: the hull is the pair reordered, handed back
-    /// as clones at the cost of one comparison sweep, zero emission.
+    /// A comparable pair: the hull is the pair reordered, handed back as clones
+    /// at the cost of one comparison sweep, zero emission.
     Comparable,
-    /// A concurrent pair: the one emitting case — the classifying
-    /// sweep's early-exiting prefix, then the fused emission walk.
+    /// A concurrent pair: the one emitting case — the classifying sweep's
+    /// early-exiting prefix, then the fused emission walk.
     Concurrent,
 }
 
 /// A snapshot of the four rung counters, in calls.
 ///
-/// Read through `meter::span_traffic`; the fields sum to the pair-hull
-/// call count since the last reset.
+/// Read through `meter::span_traffic`; the fields sum to the pair-hull call
+/// count since the last reset.
 #[cfg(feature = "meter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpanTraffic {
@@ -107,8 +107,8 @@ pub(crate) use counter::{reset, snapshot};
 
 /// Count one pair-hull call answered by `rung`.
 ///
-/// Compiles to nothing without the `meter` feature, so the ladder can
-/// call it unconditionally.
+/// Compiles to nothing without the `meter` feature, so the ladder can call it
+/// unconditionally.
 #[inline(always)]
 pub(crate) fn record(rung: Rung) {
     #[cfg(feature = "meter")]

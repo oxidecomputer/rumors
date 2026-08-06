@@ -1721,8 +1721,8 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "Version Sum / FromIterator (owned and borrowed)",
-        "delegates to the join_all fold; the version_join_all panel prices the \
-         mechanism",
+        "the balanced join fold entered without a receiver; the version_join_all \
+         panel prices the mechanism",
     ),
     (
         "Clock | Version and Version | Clock (heterogeneous joins, |=)",
@@ -1768,12 +1768,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          prices the emission",
     ),
     (
-        "OwnSpan::meet",
+        "OwnSpan::lo",
         "O(1) construction of the endpoint's OwnVersion view (stored endpoint \
          over the span's party); no walk, no comparison",
     ),
     (
-        "OwnSpan::join",
+        "OwnSpan::hi",
         "O(1) construction of the endpoint's OwnVersion view (stored endpoint \
          over the span's party); no walk, no comparison",
     ),
@@ -1878,11 +1878,11 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          walk, no comparison",
     ),
     (
-        "Span::meet",
+        "Span::lo",
         "O(1) borrow of a stored endpoint: no walk, no comparison",
     ),
     (
-        "Span::join",
+        "Span::hi",
         "O(1) borrow of a stored endpoint: no walk, no comparison",
     ),
     (
