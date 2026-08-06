@@ -336,7 +336,7 @@ fn draw_inputs(
 
 /// [`run_op_with_progress`] without a listener.
 pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas {
-    run_op_with_progress(plan, samplers, op, || {})
+    run_op_with_progress(plan, samplers, op, |_| {})
 }
 
 /// Run one operation's whole atlas: every cell in parallel, then the
@@ -344,7 +344,10 @@ pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas 
 ///
 /// Each sample instantiates a fresh guest, so no state leaks between
 /// measurements. `progress` is called once per completed bulk sample,
-/// from the sampling workers.
+/// from the sampling workers, with the sample's column size in bytes —
+/// the caller's unit of predicted work (per-sample cost is ~linear in
+/// column bytes across the roster, so byte-weighted progress moves at
+/// a roughly stationary rate where sample counts do not).
 ///
 /// The cell list is flattened before the parallel iteration so rayon
 /// splits across every (column, sample) pair, not merely across columns:
@@ -355,7 +358,7 @@ pub fn run_op_with_progress(
     plan: &Plan,
     samplers: &Samplers,
     op: &'static OpSpec,
-    progress: impl Fn() + Sync,
+    progress: impl Fn(usize) + Sync,
 ) -> OpAtlas {
     let min_bytes = op.inputs.min_bytes();
     let cells: Vec<(usize, usize)> = plan
@@ -376,7 +379,7 @@ pub fn run_op_with_progress(
                 op.name,
                 measured.ret
             );
-            progress();
+            progress(size);
             CellSample {
                 size,
                 arity,

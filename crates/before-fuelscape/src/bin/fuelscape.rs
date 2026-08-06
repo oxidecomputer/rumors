@@ -174,25 +174,32 @@ fn main() {
     // over every bulk sample in the run; completion lines print above
     // the bars in completion order (the gallery keeps roster order).
     // On a non-tty the bars draw nothing and the lines remain.
-    let cell_counts: Vec<usize> = ROSTER
+    // Progress is denominated in predicted work — column bytes per
+    // sample, summed — not sample counts: per-sample cost is ~linear
+    // in column bytes across the roster, so a byte-weighted bar moves
+    // at a roughly stationary rate and its ETA holds steady, where a
+    // sample-counting bar reads optimistic through every panel's small
+    // columns and re-learns the ramp on the large ones.
+    let work_units: Vec<u64> = ROSTER
         .iter()
         .map(|op| {
             let min = op.inputs.min_bytes();
             plan.columns(min)
                 .into_iter()
-                .map(|size| plan.samples_for(size, min))
+                .map(|size| (plan.samples_for(size, min) * size) as u64)
                 .sum()
         })
         .collect();
-    let total = bars.add(ProgressBar::new(cell_counts.iter().sum::<usize>() as u64));
+    let total = bars.add(ProgressBar::new(work_units.iter().sum()));
     total.set_style(
         ProgressStyle::with_template(
-            "{msg:24} {wide_bar} {pos}/{len} samples  {elapsed_precise} (eta {eta})",
+            "{msg:24} {wide_bar} {percent}%  {elapsed_precise} (eta {eta})",
         )
         .expect("the progress template is well-formed"),
     );
     total.set_message(format!("total ({} panels)", ROSTER.len()));
-    let panel_style = bar_style;
+    let panel_style = ProgressStyle::with_template("{msg:24} {wide_bar} {percent}%")
+        .expect("the progress template is well-formed");
 
     let writer = std::sync::Mutex::new(writer);
     let rendered = std::sync::Mutex::new(vec![None; ROSTER.len()]);
@@ -204,13 +211,13 @@ fn main() {
                 let Some(op) = ROSTER.get(i) else {
                     break;
                 };
-                let bar = bars.insert_before(&total, ProgressBar::new(cell_counts[i] as u64));
+                let bar = bars.insert_before(&total, ProgressBar::new(work_units[i]));
                 bar.set_style(panel_style.clone());
                 bar.set_message(op.name);
                 let t0 = Instant::now();
-                let atlas = run_op_with_progress(&plan, &samplers, op, || {
-                    bar.inc(1);
-                    total.inc(1);
+                let atlas = run_op_with_progress(&plan, &samplers, op, |size| {
+                    bar.inc(size as u64);
+                    total.inc(size as u64);
                 });
                 let measured = t0.elapsed();
                 let rejected: u64 = atlas.samples.iter().map(|s| s.rejected).sum();
