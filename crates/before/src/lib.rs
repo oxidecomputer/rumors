@@ -284,6 +284,14 @@
 //! in the original paper, in addition to a host of useful operations not
 //! described therein.
 //!
+//! ## Complexity
+//!
+//! Every operation in the crate is documented with its
+//! [Big-O](https://en.wikipedia.org/wiki/Big_O_notation) time complexity,
+//! noting space complexity where this is non-trivial. Unless otherwise
+//! documented, the *size* of an argument `|x|` means that argument's *size in
+//! encoded bytes*.
+//!
 //! ## Crate features
 //!
 //! Every feature is off by default.

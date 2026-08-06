@@ -2,9 +2,10 @@
 
 use core::borrow::Borrow;
 use core::cmp::Ordering;
-use core::fmt::Display;
+use core::fmt::{Debug, Display};
 use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Div};
+use std::io::{self, Read, Write};
 
 use crate::causally;
 use crate::codec;
@@ -1075,8 +1076,50 @@ impl Version {
     /// Version::new().encode_to(&mut buf).unwrap();
     /// assert_eq!(buf, Version::new().encode());
     /// ```
-    pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+    pub fn encode_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(self.as_bytes())
+    }
+
+    /// Encodes this [`Version`]'s [`Rank`] to bytes.
+    ///
+    /// Equivalent to `self.rank().encode()`, but more efficient. Exactly
+    /// equivalent to `self.ranked().encode_rank()`, but more succinct.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|self|)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Version;
+    /// let v = Version::new();
+    /// assert_eq!(Rank::decode(&v.encode_rank()[..]).unwrap(), v.rank());
+    /// ```
+    pub fn encode_rank(&self) -> Vec<u8> {
+        self.ranked().encode_rank()
+    }
+
+    /// Encodes this [`Version`]'s [`Rank`] to an arbitrary writer.
+    ///
+    /// Equivalent to `self.rank().encode_to(writer)`, but more efficient.
+    /// Exactly equivalent to `self.ranked().encode_rank_to(writer)`, but more
+    /// succinct.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|self|)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Version;
+    /// let mut buf = Vec::new();
+    /// Version::new().encode_rank_to(&mut buf).unwrap();
+    /// assert_eq!(buf, Version::new().rank().encode());
+    /// ```
+    pub fn encode_rank_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.ranked().encode_rank_to(writer)
     }
 
     /// Decodes a [`Version`] from a reader of canonical bytes.
@@ -1093,7 +1136,7 @@ impl Version {
     /// let bytes = Version::new().encode();
     /// assert_eq!(Version::decode(&bytes[..]).unwrap(), Version::new());
     /// ```
-    pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
+    pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
         let end = {
@@ -1403,7 +1446,7 @@ impl<'a> FromIterator<&'a Version> for Version {
 /// let v: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
 /// assert_eq!(v.to_string(), "(1, 2, (0, (1, 0, 2), 0))");
 /// ```
-impl core::fmt::Display for Version {
+impl Display for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(&skyline::text::render(&self.0))
     }
@@ -1416,7 +1459,7 @@ impl core::fmt::Display for Version {
 /// ```
 /// assert_eq!(format!("{:?}", before::Version::new()), "0");
 /// ```
-impl core::fmt::Debug for Version {
+impl Debug for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         <Self as Display>::fmt(self, f)
     }

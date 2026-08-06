@@ -252,12 +252,8 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// A full drain `O(|self| + n (d + log n))`, `d` the id tree's depth
-    /// (`d ≤ |self|`): each share spells the path to its region — at most
-    /// `d` plus the split's `⌈log₂(n + 1)⌉` levels — plus its slice of
-    /// `self`'s leaves. Tight when `self` owns a single leaf at depth
-    /// `d`; the seed splits in `Θ(n log n)`. Shares are built on demand
-    /// (see [`Forks`] for the per-step and early-drop costs).
+    /// A full drain costs `O(|self| + n (|self| + log n))` at worst. Shares are
+    /// built on demand (see [`Forks`] for the per-step and early-drop costs).
     ///
     /// # Example
     ///
