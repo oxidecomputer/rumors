@@ -5,12 +5,18 @@
 //! sequence, payloads). A fresh [`Guest`] per program makes every replay
 //! start from identical allocator and register-file state, so a proptest
 //! shrink re-executes bit-identically. The engine and compiled module are
-//! process-wide (compilation is the expensive part); stores are per-case.
+//! process-wide (compilation is the expensive part); stores are per-case,
+//! drawn from a pooled instance allocator that resets each slot to the
+//! module's initial image on reuse — the identical-initial-state
+//! guarantee, without per-case address-space mappings.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use wasmtime::{Config, Engine, Instance, Memory, Module, Store, TypedFunc, Val};
+use wasmtime::{
+    Config, Engine, Instance, InstanceAllocationStrategy, Memory, Module, PoolingAllocationConfig,
+    Store, TypedFunc, Val,
+};
 
 use crate::strategies::{BUDGET, ESCALATION_BUDGET};
 
@@ -39,6 +45,38 @@ const _: () = {
             >= 2 * ESCALATION_BUDGET.max_ops + ESCALATION_BUDGET.max_forks as usize
     );
 };
+
+/// Pooled instance slots: the ceiling on concurrently live [`Guest`]s.
+///
+/// Instantiation must never fall back to fresh mappings (the pool is
+/// the point: per-sample `mmap`/`munmap` serializes every worker on
+/// the process's address-space lock in the kernel), so the pool is
+/// sized above any driver's concurrency — the samplers hold at most
+/// one guest per rayon worker (one per hardware thread; 192 on the
+/// largest host in use) plus the harness's own transient guests.
+const POOL_SLOTS: u32 = 512;
+
+/// Per-slot linear-memory ceiling, in bytes.
+///
+/// A pooled slot must declare its maximum (the on-demand allocator
+/// grew unboundedly); the reservation is virtual, so the value buys
+/// address space, not memory. The guest's appetite is the register
+/// file plus packed value buffers — tens of megabytes at the deepest
+/// committed plans — so a 256 MiB ceiling is slack, and exhaustion is
+/// loud (`memory.grow` fails and the kernel call traps) rather than a
+/// silent cap.
+const POOL_MAX_MEMORY: usize = 256 * 1024 * 1024;
+
+/// Linear-memory bytes kept resident (and merely re-zeroed) when a
+/// slot is reused, instead of being returned to the kernel.
+///
+/// Slot reuse below this watermark touches no kernel memory call at
+/// all — the address-space traffic the pool exists to remove; above
+/// it, the excess is decommitted. Sized to cover a typical sample's
+/// touched pages with room (worst plans reach tens of megabytes;
+/// resident cost is per-slot, 512 × 16 MiB = 8 GiB on hosts with
+/// hundreds of gigabytes).
+const POOL_KEEP_RESIDENT: usize = 16 * 1024 * 1024;
 
 /// The wasm stack ceiling handed to wasmtime.
 ///
@@ -76,6 +114,21 @@ fn engine_and_module() -> &'static (Engine, Module) {
         let mut config = Config::new();
         config.consume_fuel(true);
         config.max_wasm_stack(MAX_WASM_STACK);
+        // Pooled instance allocation: every `Guest::new` reuses a
+        // pre-mapped slot (reset to the module's initial image, so
+        // per-case hygiene is preserved by construction) instead of
+        // mapping fresh linear memory. Fresh mappings cost two
+        // address-space kernel calls per sample, and that lock is
+        // process-global: at a couple hundred sampling workers it is
+        // the serializer once user-space allocation scales.
+        let mut pool = PoolingAllocationConfig::new();
+        pool.total_core_instances(POOL_SLOTS);
+        pool.total_memories(POOL_SLOTS);
+        pool.total_tables(POOL_SLOTS);
+        pool.max_memory_size(POOL_MAX_MEMORY);
+        pool.linear_memory_keep_resident(POOL_KEEP_RESIDENT);
+        pool.table_keep_resident(POOL_KEEP_RESIDENT);
+        config.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
         // Never used (no async calls are made), but wasmtime validates
         // async_stack_size >= max_wasm_stack even so.
         config.async_stack_size(MAX_WASM_STACK + 512 * 1024);

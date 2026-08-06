@@ -16,6 +16,10 @@ before = { path = "../.." }
 wasmtime = { version = "47", default-features = false, features = [
     "cranelift",
     "runtime",
+    # Pooled instance slots: samplers instantiate one guest per sample,
+    # and on-demand allocation pays two address-space kernel calls each
+    # time — a process-global lock that serializes wide sampling runs.
+    "pooling-allocator",
 ] }
 # The enforcement leg's engine; a regular dependency (not dev) because the
 # calibration binary draws from the same strategies the tests do.

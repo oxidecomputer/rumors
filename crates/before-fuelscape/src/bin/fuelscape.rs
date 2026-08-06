@@ -28,9 +28,8 @@
 //! scale), so a replay from a dump is byte-identical to the measuring
 //! run's own renders at the same font scale. Wall times printed per
 //! operation are information for the operator, never an input to
-//! anything. So are the count-table build's progress lines: each table's
-//! entry counts are deterministic, but the two tables build
-//! concurrently, so their lines interleave in scheduler order.
+//! anything. The count tables build concurrently, one progress bar
+//! each; their entry counts are deterministic.
 //!
 //! Panels sample [`CONCURRENT_PANELS`] at a time, each with a progress
 //! sub-bar under a run-total bar (tty only; a redirected run keeps the
@@ -127,24 +126,39 @@ fn main() {
     let writer = dump_measurements
         .then(|| DumpWriter::new(&out, meta.clone()).expect("dump index must be writable"));
 
+    let bars = MultiProgress::new();
+    let bar_style = ProgressStyle::with_template("{msg:24} {wide_bar} {pos}/{len}")
+        .expect("the progress template is well-formed");
+
+    // The two count tables build concurrently, one bar each; lengths
+    // arrive with the first callback. Entry counts are deterministic;
+    // elapsed is operator information.
     let t0 = Instant::now();
-    // One progress line per sixteenth of each table: legible over a
-    // multi-minute large-span build, bounded noise at the default span.
-    // Entry counts are deterministic; elapsed is operator information.
-    let step = (8 * plan.max_bytes + 1).div_ceil(16);
+    let table_bar = |name: &str| {
+        let bar = bars.add(ProgressBar::new(0));
+        bar.set_style(bar_style.clone());
+        bar.set_message(format!("{name} table"));
+        bar
+    };
+    let version_table = table_bar("version");
+    let party_table = table_bar("party");
     let samplers = Samplers::build_with_progress(&plan, |table, done, total| {
-        if done % step == 0 && done < total {
-            println!(
-                "  {table} table: {done}/{total} entries, {:.1?}",
-                t0.elapsed()
-            );
-        }
+        let bar = match table {
+            "version" => &version_table,
+            _ => &party_table,
+        };
+        bar.set_length(total as u64);
+        bar.set_position(done as u64);
     });
-    println!(
-        "count tables to {} bytes: {:.1?}",
-        plan.max_bytes,
-        t0.elapsed()
-    );
+    version_table.finish_and_clear();
+    party_table.finish_and_clear();
+    bars.suspend(|| {
+        println!(
+            "count tables to {} bytes: {:.1?}",
+            plan.max_bytes,
+            t0.elapsed()
+        )
+    });
 
     // Compile the guest module now (a process-wide, one-time cost inside
     // the first guest construction) rather than lazily under the first
@@ -152,7 +166,7 @@ fn main() {
     // sampling number.
     let t0 = Instant::now();
     drop(Guest::new());
-    println!("guest module compiled: {:.1?}", t0.elapsed());
+    bars.suspend(|| println!("guest module compiled: {:.1?}", t0.elapsed()));
 
     // The panel pool: CONCURRENT_PANELS workers pull roster rows off a
     // shared cursor; each panel's samples fan out on the global rayon
@@ -170,7 +184,6 @@ fn main() {
                 .sum()
         })
         .collect();
-    let bars = MultiProgress::new();
     let total = bars.add(ProgressBar::new(cell_counts.iter().sum::<usize>() as u64));
     total.set_style(
         ProgressStyle::with_template(
@@ -179,8 +192,7 @@ fn main() {
         .expect("the progress template is well-formed"),
     );
     total.set_message(format!("total ({} panels)", ROSTER.len()));
-    let panel_style = ProgressStyle::with_template("{msg:24} {wide_bar} {pos}/{len}")
-        .expect("the progress template is well-formed");
+    let panel_style = bar_style;
 
     let writer = std::sync::Mutex::new(writer);
     let rendered = std::sync::Mutex::new(vec![None; ROSTER.len()]);
