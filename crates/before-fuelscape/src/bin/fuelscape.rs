@@ -68,7 +68,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 /// so this bounds only how many panels' serial phases (overlay points,
 /// render, dump append) overlap — and how many sub-bars the progress
 /// display carries at once.
-const CONCURRENT_PANELS: usize = 4;
+const CONCURRENT_PANELS: usize = 1;
 
 fn main() {
     let mut plan = Plan {
