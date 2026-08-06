@@ -75,8 +75,8 @@
 //!
 //! Atoms and named constructors are `O(1)`.
 //!
-//! Each pass and walk is `O(n)` in its operands' packed sizes and stops as soon
-//! as its verdict is decided.
+//! Each pass and walk is linear in its operands' sizes in bytes and
+//! stops as soon as its verdict is decided.
 //!
 //! # Examples
 //!

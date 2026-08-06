@@ -125,13 +125,11 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// Operators `O(a + b)` in the operands' packed sizes; constructors and
-/// accessors `O(1)`, plus `new`'s one validating comparison.
-/// Endpoints are borrows or buffer-sharing clones, and
-/// [`new`](Self::new) pays its one validating comparison. Each binary
-/// operator (`|`, `&`, `+`, `*`) runs its legs once over the operands'
-/// packed endpoints, and a point-like operand pair fuses to a single
-/// walk.
+/// Operators `O(|a| + |b|)` in the operands' sizes in bytes;
+/// constructors and accessors `O(1)`, plus `new`'s one validating
+/// comparison.
+///
+/// # Example
 ///
 /// ```
 /// use before::{Clock, causally::{Dominance, Endpoint, Span, Placement}};
@@ -511,8 +509,10 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
+    /// `O(|self|)`.
     /// One copy of each endpoint's stored bytes.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{causally::Span, Clock};
@@ -541,9 +541,11 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// One write of each endpoint's stored bytes, plus whatever the
-    /// writer itself costs.
+    /// `O(|self|)`.
+    /// One write of each endpoint's stored bytes, plus whatever `writer`
+    /// itself costs.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{causally::Span, Clock};
@@ -593,10 +595,11 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// `n` is the bytes read, accepted or rejected: one strict parse of the
-    /// first component, then one fused parse-and-compare pass over the
+    /// `O(n)`, `n` the bytes read, accepted or rejected: one strict parse
+    /// of the first component, then one parse-and-compare pass over the
     /// second against the first.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{causally::Span, error::Decode, Clock};
@@ -699,6 +702,8 @@ impl From<Version> for Cow<'_, Version> {
 /// One refcount-bump clone of the version's stored buffer; no walk,
 /// no comparison.
 ///
+/// # Example
+///
 /// ```
 /// use before::{Clock, Span};
 /// let mut alice = Clock::seed();
@@ -718,6 +723,8 @@ impl From<Version> for Span<'static> {
 ///
 /// `O(1)`.
 /// Stores two copies of the one borrow; no clone at all.
+///
+/// # Example
 ///
 /// ```
 /// use before::{Clock, Span};
@@ -906,17 +913,10 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time, `O(D)` space.
-    /// One balanced fold, the accumulator carrying both endpoints
-    /// through a single pass — the iterator is never buffered, and
-    /// adjacent clone-identical inputs collapse before the fold reads
-    /// them (union is idempotent). A combine of two point-like sides
-    /// (coincident endpoints, certified by clone identity) derives
-    /// its pair hull in one fused walk — [`Version::span`]'s ladder,
-    /// fast paths and traffic accounting included; every other
-    /// combine folds per endpoint, because its two legs read
-    /// *different* operand pairs, so no shared decode exists to fuse.
-    /// `D` is the inputs' total packed size and `k` their number.
+    /// `O(D log k)` time, `O(D)` space; `D` is the total size in bytes
+    /// of `{self} ∪ others` and `k` its count.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -966,11 +966,11 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time, `O(D)` space.
-    /// One balanced fold as [`union_all`](Self::union_all) (with the
-    /// legs swapped: joins of meets, meets of joins), plus one final
-    /// validating comparison. `D` is the inputs' total packed size
-    /// and `k` their number.
+    /// `O(D log k)` time, `O(D)` space, plus one final validating
+    /// comparison; `D` is the total size in bytes of `{self} ∪ others`
+    /// and `k` its count.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1017,11 +1017,10 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time, `O(D)` space.
-    /// One balanced fold as [`union_all`](Self::union_all), with a
-    /// point-combine that pays one walk for both legs (the legs read
-    /// the same operand pair, and the shared result is stored twice).
-    /// `D` is the inputs' total packed size and `k` their number.
+    /// `O(D log k)` time, `O(D)` space; `D` is the total size in bytes
+    /// of `{self} ∪ others` and `k` its count.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1062,9 +1061,10 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time, `O(D)` space.
-    /// One balanced fold as [`sum_all`](Self::sum_all), dual legs.
-    /// `D` is the inputs' total packed size and `k` their number.
+    /// `O(D log k)` time, `O(D)` space; `D` is the total size in bytes
+    /// of `{self} ∪ others` and `k` its count.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1456,7 +1456,9 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)` in the operands' packed sizes.
+    /// `O(|a| + |b|)` in the operands' sizes in bytes.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1494,7 +1496,9 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)` in the operands' packed sizes.
+    /// `O(|a| + |b|)` in the operands' sizes in bytes.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1534,7 +1538,9 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)` in the operands' packed sizes.
+    /// `O(|a| + |b|)` in the operands' sizes in bytes.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1568,7 +1574,9 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)` in the operands' packed sizes.
+    /// `O(|a| + |b|)` in the operands' sizes in bytes.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
@@ -1621,12 +1629,17 @@ span_binop_matrix! {
 ///
 /// # Complexity
 ///
-/// Construction `O(1)`; placement `O(|lo| + |hi| + |p| + |probe|)`;
-/// materialization as [`OwnVersion::to_version`], per endpoint.
+/// Construction `O(1)`; placement `O(|lo| + |hi| + |p| + |probe|)`,
+/// with `lo`/`hi` the viewed span's endpoints and `p` the projecting
+/// party; materialization `O(|lo| + |hi| + |p| + |r|)` with
+/// `|r| = O((|lo| + |hi|) · |p|)` ([`OwnVersion::to_version`]'s
+/// product growth, per endpoint).
 /// [`Clone`] and [`Copy`] cost as construction does. Placement verdicts
 /// are two masked co-walks (the [`OwnVersion`] comparison kernel);
 /// [`dominance`](Self::dominance) stops after one when the first
 /// relation already decides.
+///
+/// # Example
 ///
 /// ```
 /// use before::{causally::Dominance, Clock};
@@ -1697,7 +1710,8 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// Two masked co-walks, `O(|lo| + |hi| + |p| + |probe|)`.
+    /// Two masked co-walks, `O(|lo| + |hi| + |p| + |probe|)`: `lo`/`hi`
+    /// the viewed span's endpoints, `p` the projecting party.
     pub fn place(&self, probe: &Version) -> Placement {
         let (lo, hi) = (self.meet(), self.join());
         match probe.partial_cmp(&lo) {
@@ -1731,7 +1745,9 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// At most two masked co-walks, one when the start refutes.
+    /// `O(|lo| + |hi| + |p| + |probe|)`: at most two masked co-walks
+    /// (`lo`/`hi` the viewed span's endpoints, `p` the projecting
+    /// party), one when the start refutes.
     pub fn dominance(&self, probe: &Version) -> Dominance {
         if !matches!(
             probe.partial_cmp(&self.meet()),
@@ -1759,8 +1775,12 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// As [`OwnVersion::to_version`], per endpoint — the results' packed
-    /// sizes are not bounded by a constant factor of the operands.
+    /// `O(|lo| + |hi| + |p| + |r|)` — `lo`/`hi` the viewed span's
+    /// endpoints, `p` the projecting party, `r` the results — with
+    /// `|r| = O((|lo| + |hi|) · |p|)`
+    /// ([`OwnVersion::to_version`]'s product growth, per endpoint).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -1785,6 +1805,8 @@ impl<'a> OwnSpan<'a> {
 /// The view borrows its operands; every cost lives on the view's
 /// operations ([`OwnSpan`]'s doc carries them).
 ///
+/// # Example
+///
 /// ```
 /// use before::{causally::Placement, Clock};
 /// let mut alice = Clock::seed();
@@ -1806,7 +1828,10 @@ impl<'a> Div<&'a Party> for &'a Span<'a> {
 ///
 /// # Complexity
 ///
-/// As [`OwnSpan::to_span`].
+/// `O(|lo| + |hi| + |p| + |r|)` with `|r| = O((|lo| + |hi|) · |p|)`,
+/// as [`OwnSpan::to_span`].
+///
+/// # Example
 ///
 /// ```
 /// use before::{Clock, Span};

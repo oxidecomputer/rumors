@@ -52,14 +52,16 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// `==` and hashing `O(n)`; every other cost is on its operation.
-/// A party's *packed size* `|p|` is the length of
-/// [`encode`](Party::encode)'s bytes (borrowable without copying as
-/// [`as_bytes`](Party::as_bytes); exact to the bit as
-/// [`encoded_bits`](Party::encoded_bits)); every `# Complexity` section on
-/// this type's operations is denominated in packed sizes. `==` and
-/// hashing read the stored bytes once, with no allocation; each
-/// remaining cost is on its operation.
+/// A party's *size* `|p|` is its length in bytes: the in-memory representation
+/// is the serialized representation, so `|p|` is exactly the length of
+/// [`encode`](Party::encode)'s bytes ([`as_bytes`](Party::as_bytes) borrows
+/// them without copying; [`encoded_bits`](Party::encoded_bits) is exact to the
+/// bit). Every `# Complexity` section on this type's operations is denominated
+/// in these byte sizes. `a == b` costs `O(|a| + |b|)` and hashing `O(|p|)` —
+/// one read of the stored bytes, no allocation; every other cost is on its
+/// operation.
+///
+/// # Example
 ///
 /// ```
 /// use before::Party;
@@ -104,6 +106,8 @@ impl Party {
     ///
     /// `O(1)`.
     ///
+    /// # Example
+    ///
     /// ```
     /// assert_eq!(before::Party::seed().to_string(), "1");
     /// ```
@@ -133,6 +137,8 @@ impl Party {
     ///
     /// `O(1)`.
     ///
+    /// # Example
+    ///
     /// ```
     /// use before::Party;
     /// let mut p = Party::seed();
@@ -156,8 +162,10 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
+    /// `O(|self| + |version|)`.
     /// As [`Version::tick`] (see its per-call note on wide values).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Party, Version};
@@ -176,8 +184,10 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(a + b + log m)`, `m` the tick count.
+    /// `O(|self| + |version| + log n)`.
     /// As [`Version::ticks`].
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Party, Version};
@@ -200,8 +210,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// Both halves are built fresh.
+    /// `O(|self|)`.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -241,10 +252,14 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(S)`, `S` the shares' total packed size.
-    /// For a full drain, `S` is the total packed size of the shares
-    /// produced; shares are built on demand (see [`Forks`] for the per-step
-    /// and early-drop costs).
+    /// A full drain `O(|self| + n (d + log n))`, `d` the id tree's depth
+    /// (`d ≤ |self|`): each share spells the path to its region — at most
+    /// `d` plus the split's `⌈log₂(n + 1)⌉` levels — plus its slice of
+    /// `self`'s leaves. Tight when `self` owns a single leaf at depth
+    /// `d`; the seed splits in `Θ(n log n)`. Shares are built on demand
+    /// (see [`Forks`] for the per-step and early-drop costs).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -271,9 +286,10 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
-    /// The bound holds accepted or rejected, and the united party is `O(|a|
-    /// + |b|)` bytes itself.
+    /// `O(|self| + |other|)`, accepted or rejected; the united party is
+    /// itself `O(|self| + |other|)` bytes.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -320,15 +336,12 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(D log k + B log n)` time, `O(D)` space.
-    /// `D` is the total packed size of `self` and the inputs, `k` the
-    /// number of inputs, and `B` the inputs' both-present node count (`B ≤
-    /// D`): each input is overlap-tested against `self` in `O(input)` node
-    /// visits through a table of `self` built once per call, plus one
-    /// `O(log |p|)` table search per node both sides own, then passes
-    /// through `O(log k)` joins of similarly sized operands in a balanced
-    /// reduction. On populations whose regions interleave deeply the search
-    /// term dominates the tests.
+    /// `O(D log k + B log |self|)` time, `O(D)` space; `D` is the total
+    /// size in bytes of `self` and `iter`'s parties, `k` their count, and
+    /// `B` their both-present node count (`B ≤ D`). On populations whose
+    /// regions interleave deeply the search term dominates.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -390,9 +403,11 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
+    /// `O(|self| + |other|)`.
     /// Nothing is allocated, and a negative answer may return at the first
     /// shared region.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -434,9 +449,11 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
+    /// `O(|self| + |other|)`.
     /// Nothing is allocated, and a negative answer may return at the first
     /// uncovered region.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -470,8 +487,10 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`.
-    /// The remainder is `O(|a| + |b|)` bytes itself.
+    /// `O(|self| + |other|)`; the remainder is itself `O(|self| + |other|)`
+    /// bytes.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -521,6 +540,8 @@ impl Party {
     /// stream in place — the linearity hazard above is about causal
     /// identity, not bytes.
     ///
+    /// # Example
+    ///
     /// ```
     /// use before::Party;
     /// let p = Party::seed();
@@ -539,9 +560,11 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
+    /// `O(|self|)`.
     /// One copy of the stored bytes ([`as_bytes`](Self::as_bytes) borrows
     /// the same bytes without copying).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -556,9 +579,11 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// One write of the stored bytes, plus whatever the writer itself
+    /// `O(|self|)`.
+    /// One write of the stored bytes, plus whatever `writer` itself
     /// costs.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -576,6 +601,8 @@ impl Party {
     /// # Complexity
     ///
     /// `O(1)`.
+    ///
+    /// # Example
     ///
     /// ```
     /// // The seed is a single terminal: a 2-bit presence tag (`00`).
@@ -597,9 +624,10 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// `n` is the bytes read, accepted or rejected: strict validation is
+    /// `O(n)`, `n` the bytes read, accepted or rejected: strict validation is
     /// one pass over the stream, and the result reuses the read buffer.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -654,9 +682,9 @@ impl Party {
     /// `sum_split` differentials pin it), without building the joined
     /// party. Neither operand is moved, accepted or refused.
     ///
-    /// `O(|a| + |b|)` worst case, and sublinear where the regions do not
-    /// interleave — a subtree owned by one side alone is spliced into its
-    /// half without a walk.
+    /// `O(|self| + |other|)` worst case, and sublinear where the regions
+    /// do not interleave — a subtree owned by one side alone is spliced
+    /// into its half without a walk.
     pub(crate) fn sum_split(&self, other: &Party) -> Option<(Party, Party)> {
         let (keep, give) = self.view().sum_split(other.view())?;
         Some((Party::from_bits(keep), Party::from_bits(give)))
@@ -679,6 +707,8 @@ impl Party {
     /// # Complexity
     ///
     /// `O(1)`.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Party;
@@ -726,8 +756,11 @@ impl Party {
 ///
 /// # Complexity
 ///
-/// `O(n + t)`.
-/// An id spells no numbers, so rendering has no conversion cost.
+/// `O(|self|)` time and space: the text spells `O(1)` bytes per id-tree
+/// node, so it is itself `O(|self|)` bytes, and an id spells no numbers,
+/// so rendering has no conversion cost.
+///
+/// # Example
 ///
 /// ```
 /// use before::Party;
@@ -758,8 +791,10 @@ impl core::fmt::Debug for Party {
 ///
 /// # Complexity
 ///
-/// `O(t + n)`.
-/// The bound holds accepted or rejected.
+/// `O(|s|)` time and space, accepted or rejected; the parsed party is
+/// itself `O(|s|)` bytes.
+///
+/// # Example
 ///
 /// ```
 /// use before::Party;
@@ -841,6 +876,8 @@ impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
 ///
 /// `O(1)`.
 ///
+/// # Example
+///
 /// ```
 /// use before::Party;
 /// assert_eq!(Party::try_from(1).unwrap().to_string(), "1");
@@ -862,6 +899,8 @@ impl TryFrom<u8> for Party {
 ///
 /// `O(1)`.
 ///
+/// # Example
+///
 /// ```
 /// use before::Party;
 /// assert_eq!(Party::try_from(true).unwrap().to_string(), "1");
@@ -882,8 +921,9 @@ impl TryFrom<bool> for Party {
 ///
 /// # Complexity
 ///
-/// `O(n)`.
-/// `n` is the packed party built.
+/// `O(n)`, `n` the built party's size in bytes.
+///
+/// # Example
 ///
 /// ```
 /// use before::Party;

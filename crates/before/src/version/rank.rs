@@ -191,7 +191,7 @@ use crate::error::Decode;
 /// numerator's bit width plus the exponent — which every
 /// producing fold ([`Version::rank`](crate::Version::rank),
 /// [`distance`](crate::Version::distance), [`lag`](crate::Version::lag))
-/// keeps linear in the packed bits it read, and which
+/// keeps linear in the bytes it read, and which
 /// [`encode`](Rank::encode) makes tangible: the canonical byte form is
 /// at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits. Comparison (`==`, [`Ord`])
 /// answers in `O(1)` when the two magnitudes differ in scale and
@@ -199,9 +199,12 @@ use crate::error::Decode;
 /// An n-ary [`Sum`]'s `N` is the summands' total numeric size: the fold
 /// carries one running accumulator, and each summand pays its own width
 /// rather than the accumulator's. Rendering (`Display`) is `O(d)` space
-/// in the `d` decimal digits printed, but its time additionally pays
+/// in the `d` decimal digits printed (`d = Θ(‖r‖)`), but its time
+/// additionally pays
 /// binary-to-decimal conversion of the numerator, superlinear (though
 /// subquadratic) in its width past a machine word.
+///
+/// # Example
 ///
 /// ```
 /// use before::Version;
@@ -225,6 +228,8 @@ impl Rank {
     /// The zero rank: the area under the empty [`Version`](crate::Version),
     /// and the identity for [`Rank`] addition. Equal to
     /// [`Version::new().rank()`](crate::Version::rank).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Rank, Version};
@@ -250,10 +255,11 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖a‖ + ‖b‖)`, the operands' numeric sizes.
-    /// The denomination is the operands' numeric size (see [the type's
-    /// note](Rank#complexity)); a [`None`] or zero result costs only the
-    /// comparison, which allocates nothing.
+    /// `O(‖self‖ + ‖rhs‖)`, the operands' numeric sizes (see [the
+    /// type's note](Rank#complexity)); a [`None`] or zero result costs
+    /// only the comparison, which allocates nothing.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Version;
@@ -345,9 +351,11 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
-    /// The denomination is the rank's numeric size (see [the type's
-    /// note](Rank#complexity)).
+    /// `O(‖self‖)` time and space; the output is at most
+    /// `9⁄8 · ‖self‖ + O(log ‖self‖)` bits (see [the type's
+    /// note](Rank#complexity) for the numeric-size denomination).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Rank, Version};
@@ -376,9 +384,11 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖r‖)` time and space; the output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits.
-    /// The denomination is the rank's numeric size (see [the type's
-    /// note](Rank#complexity)).
+    /// `O(‖self‖)` time and space; the output is at most
+    /// `9⁄8 · ‖self‖ + O(log ‖self‖)` bits (see [the type's
+    /// note](Rank#complexity) for the numeric-size denomination).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Version;
@@ -419,9 +429,10 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// `n` is the bytes read, accepted or rejected: one pass over the
+    /// `O(n)`, `n` the bytes read, accepted or rejected: one pass over the
     /// stream, and a result linear in it.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{error::Decode, Rank, Version};
@@ -864,6 +875,8 @@ impl Default for Rank {
 
 /// Renders as the exact rational: the numerator alone when integral,
 /// `num/2^exp` otherwise.
+///
+/// # Example
 ///
 /// ```
 /// use before::Version;

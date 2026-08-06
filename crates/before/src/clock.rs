@@ -37,14 +37,15 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// A clock's *packed size* `|c|` is the length of [`encode`](Clock::encode)'s
-/// bytes (its [`Party`]'s and [`Version`]'s packed forms concatenated). Every
-/// _Complexity_ section on this type's operations is denominated in packed
-/// sizes.
+/// A clock's *size* `|c|` is its length in bytes: the in-memory
+/// representation is the serialized representation, so `|c|` is exactly
+/// the length of [`encode`](Clock::encode)'s bytes (its [`Party`]'s and
+/// [`Version`]'s bytes concatenated). Every _Complexity_ section on this
+/// type's operations is denominated in these byte sizes.
 ///
-/// Joining a [`Version`] into a clock (`|`, `|=`, either operand order) costs
-/// the two operands' packed sizes; `==` and hashing read the packed clock once;
-/// each remaining cost is on its operation.
+/// Joining a [`Version`] `v` into a clock (`|`, `|=`, either operand
+/// order) is `O(|c| + |v|)`; `==` and hashing read the clock's bytes
+/// once, `O(|c|)`; each remaining cost is on its operation.
 ///
 /// # Example
 ///
@@ -137,8 +138,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`. The party splits in linear time and the version is
-    /// `O(1)`-cloned into the child.
+    /// `O(|self|)`: the party split, plus one `O(1)` version clone.
     ///
     /// # Example
     ///
@@ -174,10 +174,10 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(S + n)`: the party split plus one `O(1)` version clone per child. For
-    /// a full drain, `S` is the total packed size of the party shares and each
-    /// of the `n` children clones the version by sharing its stored buffer;
-    /// children are built on demand (see [`Forks`]).
+    /// A full drain `O(|self| + n (d + log n))`, `d` the party's id-tree
+    /// depth (as [`Party::forks`]), plus one `O(1)` version clone per
+    /// child; children are built on demand (see [`Forks`] for the
+    /// per-step and early-drop costs).
     ///
     /// # Example
     ///
@@ -205,7 +205,8 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`, regardless of whether or not an error is returned.
+    /// `O(|self| + |other|)`, regardless of whether or not an error is
+    /// returned.
     ///
     /// # Example
     ///
@@ -251,8 +252,11 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O((|c| + |i|) log n)` time, `O(|c| + |i|)` auxiliary space, where `|i|`
-    /// is the total packed size of the inputs, and `n` the number of inputs.
+    /// `O(D log k + B log |self|)` time, `O(D)` auxiliary space; `D` is
+    /// the total size in bytes of `self` and `iter`'s clocks, `k` their
+    /// count, and `B` their parties' both-present node count (`B ≤ D`,
+    /// the party fold's per-node overlap search, as
+    /// [`Party::join_all`]).
     ///
     /// # Example
     ///
@@ -321,7 +325,8 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|c| + |d|)`, regardless of whether or not an error is returned.
+    /// `O(|self| + |other|)`, regardless of whether or not an error is
+    /// returned.
     ///
     /// # Example
     ///
@@ -372,10 +377,13 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time, `O(D)` space, plus the re-share's `O(S + k)`.
-    /// `D` is the participants' total packed size and `k` their count;
-    /// the re-share is the balanced split, `S` its shares' total packed
-    /// size.
+    /// `O(D log k + B log |self|)` time, `O(D)` space, plus the
+    /// re-share's `O(D + k (d + log k))`; `D` is the total size in bytes
+    /// of `self` and `others`' clocks, `k` their count, `B` their
+    /// parties' both-present node count (the party fold's per-node
+    /// overlap search, as [`Party::join_all`]), and `d` the reunited
+    /// party's id-tree depth (the re-share is [`Party::forks`]'s split
+    /// plus one `O(1)` version clone per participant).
     ///
     /// # Example
     ///
@@ -456,7 +464,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(n)`, exacctly as [`tick`](Clock::tick).
+    /// `O(|self|)`, exactly as [`tick`](Clock::tick).
     ///
     /// # Example
     ///
@@ -478,7 +486,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(a + b)`. One join, then one tick.
+    /// `O(|self| + |version|)`. One join, then one tick.
     ///
     /// # Example
     ///
@@ -519,10 +527,10 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(n + D log k)` time, `O(n + D)` space. `n` is the clock's packed
-    /// size, `D` the messages' total packed size, and `k` their number:
-    /// the messages ride the balanced [`Version::join_all`] fold, then one
-    /// join and one tick land the result.
+    /// `O(|self| + D log k)` time, `O(|self| + D)` space; `D` is the
+    /// total size in bytes of `versions`' messages and `k` their count
+    /// (the messages' fold is [`Version::join_all`]'s, plus one join and
+    /// one tick).
     ///
     /// # Example
     ///
@@ -556,6 +564,8 @@ impl Clock {
     ///
     /// `O(1)`.
     ///
+    /// # Example
+    ///
     /// ```
     /// use before::{Clock, Party, Version};
     /// let clock = Clock::from_parts(Party::seed(), Version::new());
@@ -570,6 +580,8 @@ impl Clock {
     /// # Complexity
     ///
     /// `O(1)`.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -587,6 +599,8 @@ impl Clock {
     ///
     /// `O(1)`.
     ///
+    /// # Example
+    ///
     /// ```
     /// assert_eq!(before::Clock::seed().party().to_string(), "1");
     /// ```
@@ -599,6 +613,8 @@ impl Clock {
     /// # Complexity
     ///
     /// `O(1)`.
+    ///
+    /// # Example
     ///
     /// ```
     /// assert_eq!(before::Clock::seed().version().to_string(), "0");
@@ -620,6 +636,8 @@ impl Clock {
     /// `O(1)`.
     /// The view borrows the clock's parts. Every cost lives on the view's
     /// operations ([`OwnVersion`]'s doc carries them).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -648,8 +666,10 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
+    /// `O(|self|)`.
     /// One copy of each part's stored bytes.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -670,9 +690,11 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// One write of each part's stored bytes, plus whatever the writer
+    /// `O(|self|)`.
+    /// One write of each part's stored bytes, plus whatever `writer`
     /// itself costs.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -703,9 +725,10 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(n)`.
-    /// `n` is the bytes read, accepted or rejected: strict validation is
+    /// `O(n)`, `n` the bytes read, accepted or rejected: strict validation is
     /// one pass over each part's stream.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::Clock;
@@ -754,6 +777,8 @@ impl Clock {
     ///
     /// `O(1)`.
     ///
+    /// # Example
+    ///
     /// ```
     /// use before::Clock;
     /// let clock = Clock::seed();
@@ -789,6 +814,8 @@ impl Clock {
     /// mutates a stored stream in place — the linearity hazard above is
     /// about causal identity, not bytes.
     ///
+    /// # Example
+    ///
     /// ```
     /// use before::Clock;
     /// let c = Clock::seed();
@@ -807,10 +834,13 @@ impl Clock {
 ///
 /// # Complexity
 ///
-/// `O(n + t)` space; time superlinear on the version side (as `Version`'s
+/// `O(|self|)` space — the rendered text is itself `O(|self|)` bytes —
+/// and time superlinear on the version side (as `Version`'s
 /// `Display`).
 /// The version side costs as [`Version`]'s `Display` (value conversion plus
 /// the renderer's summary merge); the party side is linear.
+///
+/// # Example
 ///
 /// ```
 /// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
@@ -843,11 +873,14 @@ impl core::fmt::Debug for Clock {
 ///
 /// # Complexity
 ///
-/// `O(t + n)` space; time superlinear in the spelled value widths
-/// (decimal-to-binary conversion).
+/// `O(|s|)` space — the parsed clock is itself `O(|s|)` bytes — and
+/// time superlinear in the spelled value widths (decimal-to-binary
+/// conversion).
 /// The bound holds accepted or rejected, except that each spelled value
 /// wider than a machine word pays decimal-to-binary conversion, superlinear
 /// (though subquadratic) in that value's width.
+///
+/// # Example
 ///
 /// ```
 /// use before::Clock;
@@ -875,8 +908,9 @@ impl core::str::FromStr for Clock {
 ///
 /// # Complexity
 ///
-/// `O(n)`.
-/// `n` is the packed clock built.
+/// `O(n)`, `n` the built clock's size in bytes.
+///
+/// # Example
 ///
 /// ```
 /// use before::Clock;

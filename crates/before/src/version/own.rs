@@ -21,7 +21,7 @@ mod tests;
 /// Materialization is the one projection operation whose output can outgrow its
 /// operands (its result is not bounded by a constant factor of the inputs),
 /// which is why it does not happen implicitly: every lazy comparison costs the
-/// operands' packed sizes, never the projection's.
+/// operands' sizes, never the projection's.
 ///
 /// Equality is semantic — the projected histories agree — not representational:
 /// `view == w` holds only if `w` is zero outside the party's region. There is
@@ -32,13 +32,14 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// Construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs view
-/// `O(|v₁| + |p₁| + |v₂| + |p₂|)`.
-/// Comparing a view against a [`Version`] `w`
-/// (either direction, `==` or [`PartialOrd`]) or two views against each other
-/// is one fused co-walk over the operand streams — the packed operand sizes, in
-/// time and space — allocation-free but for the walk's transient cursors.
+/// Construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs
+/// view `O(|v₁| + |p₁| + |v₂| + |p₂|)` — `v`/`p` the viewed version and
+/// projecting party, `w` the [`Version`] operand, all sizes in bytes.
+/// Every comparison (either direction, `==` or [`PartialOrd`]) is one
+/// pass in time and space, allocation-free but for transient cursors.
 /// [`Clone`] and [`Copy`] cost as construction does.
+///
+/// # Example
 ///
 /// ```
 /// use before::Clock;
@@ -69,16 +70,19 @@ impl OwnVersion<'_> {
     ///
     /// This is the one path to the projection as an object, and the one
     /// projection cost not bounded by the operands: the result re-codes the
-    /// version's heights once per owned fragment, so its packed size can grow
+    /// version's heights once per owned fragment, so its size can grow
     /// as the operands' product ([`encoded_bits`](Version::encoded_bits) on the
     /// result is the honest measure). Prefer the view's own comparisons
     /// wherever the projection is only being compared.
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p| + |r|)`, `|r|` the result's packed size.
-    /// The result's packed size `|r|` is not bounded by a constant
-    /// factor of the operands.
+    /// `O(|v| + |p| + |r|)` — `v`/`p` the viewed version and projecting
+    /// party, `r` the result — with `|r| = O(|v| · |p|)`: the result
+    /// re-codes a height once per owned fragment, so one wide value
+    /// spanning every fragment makes the product tight.
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -104,9 +108,10 @@ impl OwnVersion<'_> {
 ///
 /// # Complexity
 ///
-/// `O(|v| + |p| + |r|)`, `|r|` the result's packed size.
-/// As [`to_version`](OwnVersion::to_version) — `|r|` the result's
-/// packed size, not bounded by a constant factor of the operands.
+/// `O(|v| + |p| + |r|)` with `|r| = O(|v| · |p|)`, as
+/// [`to_version`](OwnVersion::to_version).
+///
+/// # Example
 ///
 /// ```
 /// use before::{Clock, Version};

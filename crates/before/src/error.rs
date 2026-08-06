@@ -2,6 +2,8 @@
 
 /// Two parties were not disjoint during [`Clock::sync`](crate::Clock::sync).
 ///
+/// # Example
+///
 /// ```
 /// use before::Clock;
 /// let mut a = Clock::seed();
@@ -15,6 +17,8 @@ pub struct Overlap;
 /// A span's endpoints crossed during construction: the pair is
 /// reversed or incomparable, so no chain segment lies between them
 /// (see [`Span::new`](crate::Span::new)).
+///
+/// # Example
 ///
 /// ```
 /// use before::{Clock, causally::Span};
@@ -31,6 +35,8 @@ pub struct Crossed;
 /// [`Version`](crate::Version), [`Clock`](crate::Clock),
 /// [`Rank`](crate::Rank), [`Ranked`](crate::Ranked), or
 /// [`Span`](crate::causally::Span).
+///
+/// # Example
 ///
 /// ```
 /// use before::Clock;
@@ -65,6 +71,8 @@ pub enum Decode {
 /// [`Version`](crate::Version), or [`Clock`](crate::Clock).
 ///
 /// Parsing uses the paper's notation and strictly rejects non-canonical input.
+///
+/// # Example
 ///
 /// ```
 /// use before::{error::Parse, Clock};

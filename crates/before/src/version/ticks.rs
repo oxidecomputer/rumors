@@ -47,9 +47,11 @@ use crate::error::Parse;
 /// comparison and hashing do, and an n-ary [`Sum`]'s `N` is the
 /// summands' total numeric size.
 /// Parsing ([`FromStr`]) and rendering ([`Display`](fmt::Display)) are
-/// `O(d)` space in the `d` decimal digits, but their time additionally
-/// pays decimal↔binary conversion, superlinear (though subquadratic) in
-/// the count's width past a machine word.
+/// `O(d)` space in the `d` decimal digits (`d = Θ(‖n‖)`), but their
+/// time additionally pays decimal↔binary conversion, superlinear
+/// (though subquadratic) in the count's width past a machine word.
+///
+/// # Example
 ///
 /// ```
 /// use before::{Clock, Ticks};
@@ -65,6 +67,8 @@ pub struct Ticks(pub(crate) Base);
 
 /// The zero count (same as [`Ticks::ZERO`]).
 ///
+/// # Example
+///
 /// ```
 /// assert_eq!(before::Ticks::default(), before::Ticks::ZERO);
 /// ```
@@ -78,6 +82,8 @@ impl Ticks {
     /// The zero count: the empty run of ticks, and the identity for
     /// [`Ticks`] addition. Equal to
     /// [`Version::new().min_ticks()`](crate::Version::min_ticks).
+    ///
+    /// # Example
     ///
     /// ```
     /// use before::{Ticks, Version};
@@ -126,6 +132,8 @@ impl FromStr for Ticks {
 }
 
 /// The count in decimal, the notation [`FromStr`] parses.
+///
+/// # Example
 ///
 /// ```
 /// assert_eq!(before::Ticks::from(42u64).to_string(), "42");

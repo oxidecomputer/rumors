@@ -91,12 +91,11 @@ impl ExactSizeIterator for Split {}
 ///
 /// # Complexity
 ///
-/// A full drain `O(S)`, `S` the shares' total packed size; an early drop
-/// rejoins in `O(log n)` joins.
-/// Each `next` builds only the forks on the path to its share. Dropping
-/// the iterator early rejoins the unclaimed remainder as at most one
-/// coarse region per remaining level of the split: joins on the pending
-/// regions only, never a re-split.
+/// A full drain `O(|p| + n (d + log n))`, `|p|` the borrowed party's
+/// size in bytes and `d` its id tree's depth (as [`Party::forks`]); each
+/// `next` costs only its own share's path. An early drop rejoins the
+/// unclaimed remainder in `O(log n)` joins — at most one coarse region
+/// per remaining level of the split, never a re-split.
 pub struct Forks<'a> {
     /// The borrowed party: keeps the residual share and reabsorbs unconsumed
     /// shares on drop.
@@ -166,8 +165,10 @@ impl Drop for Forks<'_> {
 ///
 /// # Complexity
 ///
-/// `O(S)`, `S` the shares' total packed size.
-/// `S` is the total packed size of the `N` shares.
+/// `O(|party| + N (d + log N))`, `d` the consumed party's id-tree depth
+/// (`d ≤ |party|`), as [`Party::forks`].
+///
+/// # Example
 ///
 /// ```
 /// use before::Party;

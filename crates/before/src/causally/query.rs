@@ -91,8 +91,8 @@ impl<'a, P: Polarity> Query<'a, P> {
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |q|)`: one fused traversal of the version and the internal
-    /// bounds of the [`Query`].
+    /// `O(|version| + |self|)`, `|self|` the stored bounds' total size
+    /// in bytes: one traversal of `version` and the bounds.
     pub fn contains(&self, version: &Version) -> bool {
         filter::admits(version.view(), self.demands())
     }
@@ -104,8 +104,9 @@ impl<'a, P: Polarity> Query<'a, P> {
     ///
     /// # Complexity
     ///
-    /// `O(|s| + |q|)`: at most two fused traversals of the version and the
-    /// internal bounds of the [`Query`].
+    /// `O(|span| + |self|)`, `|self|` the stored bounds' total size in
+    /// bytes: at most two traversals of the span's endpoints and the
+    /// bounds.
     pub fn coverage<'s>(&self, span: impl Into<Span<'s>>) -> Coverage {
         let span = span.into();
         let (lo, hi) = (span.meet(), span.join());
