@@ -37,7 +37,8 @@ mod tests;
 pub struct Plan {
     /// The base seed every cell RNG derives from (stamped on renders).
     pub base_seed: u64,
-    /// Samples per size column.
+    /// Samples per size column, on average: [`samples_for`](Plan::samples_for)
+    /// splits each row's budget across its columns by expected spread.
     pub samples_per_column: usize,
     /// The top of the geometric size grid, in packed bytes.
     pub max_bytes: usize,
@@ -55,6 +56,30 @@ impl Plan {
             n *= 2;
         }
         out
+    }
+
+    /// The sample count for one size column: the row's whole budget
+    /// split proportionally to each column's expected fuel spread.
+    ///
+    /// The budget is [`samples_per_column`](Plan::samples_per_column)
+    /// × column count, so the flag stays the per-column average and a
+    /// plan's total cost is what it says.
+    ///
+    /// On the log-log canvas the bulk grows roughly linearly, so the
+    /// fuel range a column's samples must fill grows linearly in its
+    /// position on the geometric grid — in `log₂ size`. A uniform
+    /// per-column count leaves the right-hand columns patchy at
+    /// exactly the sizes where the spread is widest; splitting the
+    /// budget by weight `log₂(size) + 1` fills buckets at a roughly
+    /// even density across the grid instead.
+    pub fn samples_for(&self, size: usize, min_bytes: usize) -> usize {
+        let weight = |s: usize| s.max(1).ilog2() as usize + 1;
+        let columns = self.columns(min_bytes);
+        let budget = self.samples_per_column * columns.len();
+        let total_weight = columns.iter().map(|&s| weight(s)).sum::<usize>().max(1);
+        // Rounded, not truncated: the per-column counts should sum to
+        // the budget up to ±1 per column, so the flag's average holds.
+        ((budget * weight(size) + total_weight / 2) / total_weight).max(1)
     }
 }
 
@@ -319,10 +344,11 @@ fn draw_inputs(
 /// the others combined, so column-granular scheduling would idle every
 /// worker but one for half of each operation's run.
 pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas {
+    let min_bytes = op.inputs.min_bytes();
     let cells: Vec<(usize, usize)> = plan
-        .columns(op.inputs.min_bytes())
+        .columns(min_bytes)
         .into_iter()
-        .flat_map(|size| (0..plan.samples_per_column).map(move |index| (size, index)))
+        .flat_map(|size| (0..plan.samples_for(size, min_bytes)).map(move |index| (size, index)))
         .collect();
     let samples: Vec<CellSample> = cells
         .into_par_iter()

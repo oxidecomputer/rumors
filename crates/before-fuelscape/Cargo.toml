@@ -29,6 +29,14 @@ suanpan = { path = "../suanpan", features = ["touch-meter"] }
 # fuel. Reused whole rather than duplicated, so the atlas and the band
 # enforcement read the same currency from the same guest.
 fuzzfit-harness = { path = "../before/fuzzfit/harness" }
+# The sampler is an allocation storm — a fresh wasmtime store per sample
+# for measurement hygiene, big-integer temporaries per rejection draw —
+# and the system allocator's global lock convoys the worker pool
+# (measured on illumos at 192 workers: ~45% USR, the rest lock-blocked,
+# ~30 cores effective). mimalloc's per-thread heaps remove the convoy;
+# fuel readings are unaffected (the meter counts guest instructions,
+# not host time).
+mimalloc = "0.1"
 # Exact-integer counting tables and proportional choice: uniform sampling
 # is arithmetic over exact counts, never floats.
 num-bigint = { version = "0.4", features = ["rand"] }

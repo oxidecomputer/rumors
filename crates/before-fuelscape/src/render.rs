@@ -45,7 +45,9 @@ pub struct RenderMeta {
     pub commit: String,
     /// The base seed every cell derived from.
     pub base_seed: u64,
-    /// Samples per size column.
+    /// Samples per size column, on average: the plan splits each row's
+    /// budget across columns by expected fuel spread
+    /// (`Plan::samples_for`).
     pub samples_per_column: usize,
 }
 
@@ -533,7 +535,7 @@ pub fn render_op(
     };
     let key = "▮ bulk density (per-column normalized)   ✕ committed adversarial families   ┄ reference slopes";
     let stamp = format!(
-        "commit {} · seed {:#x} · {} samples/column · measure: {}{} · fuel: wasmtime instruction metering",
+        "commit {} · seed {:#x} · {} samples/column (avg; spread-weighted) · measure: {}{} · fuel: wasmtime instruction metering",
         meta.commit, meta.base_seed, meta.samples_per_column, data.size_measure, acceptance,
     );
     caption_area
@@ -595,7 +597,7 @@ pub fn render_gallery(
          spaces (bulk, blue density), committed adversarial families (orange crosses), reference\n\
          slopes (dashed). Audit view only — enforcement lives in the envelope suite and the\n\
          fuzz-fit bands.</p>\n\
-         <p class=\"stamp\">commit {} · seed {:#x} · {} samples/column · fuel: wasmtime instruction metering</p>\n\
+         <p class=\"stamp\">commit {} · seed {:#x} · {} samples/column (avg; spread-weighted) · fuel: wasmtime instruction metering</p>\n\
          <div class=\"grid\">\n{figures}</div>\n</body>\n</html>\n",
         meta.commit, meta.base_seed, meta.samples_per_column,
     );

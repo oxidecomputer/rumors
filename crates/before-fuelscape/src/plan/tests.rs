@@ -69,14 +69,54 @@ fn run_op_is_deterministic_and_ordered() {
         );
 
         // The collected order is the plan's declared order: columns in
-        // grid order, sample indices in sequence within each column.
+        // grid order, sample indices in sequence within each column,
+        // each column at its spread-weighted count.
+        let min_bytes = op.inputs.min_bytes();
         let expected: Vec<usize> = plan
-            .columns(op.inputs.min_bytes())
+            .columns(min_bytes)
             .into_iter()
-            .flat_map(|size| std::iter::repeat_n(size, plan.samples_per_column))
+            .flat_map(|size| std::iter::repeat_n(size, plan.samples_for(size, min_bytes)))
             .collect();
         let got: Vec<usize> = a.samples.iter().map(|s| s.size).collect();
         assert_eq!(got, expected, "{name}: samples must land in plan order");
+    }
+}
+
+/// The spread-weighted column split conserves the flag's budget and
+/// never decreases toward the larger columns it exists to fill.
+///
+/// Conservation: the per-column counts sum to `samples_per_column ×
+/// columns` within one sample per column of rounding.
+#[test]
+fn spread_weighted_split_conserves_budget_and_is_monotone() {
+    for samples in [1usize, 4, 37, 300] {
+        for max_bytes in [1usize, 8, 256, 4096] {
+            for min_bytes in [1usize, 2, 4] {
+                if min_bytes > max_bytes {
+                    continue;
+                }
+                let plan = Plan {
+                    base_seed: 0,
+                    samples_per_column: samples,
+                    max_bytes,
+                };
+                let columns = plan.columns(min_bytes);
+                let counts: Vec<usize> = columns
+                    .iter()
+                    .map(|&s| plan.samples_for(s, min_bytes))
+                    .collect();
+                let budget = samples * columns.len();
+                let total: usize = counts.iter().sum();
+                assert!(
+                    total.abs_diff(budget) <= columns.len(),
+                    "split of {budget} over {columns:?} drifted to {total} ({counts:?})"
+                );
+                assert!(
+                    counts.windows(2).all(|w| w[0] <= w[1]),
+                    "per-column counts must not decrease toward larger columns: {counts:?}"
+                );
+            }
+        }
     }
 }
 

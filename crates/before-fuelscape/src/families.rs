@@ -379,15 +379,18 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
     out
 }
 
-/// The clock-fold row's committed families (one party, then the version
-/// riders the row composes into disjoint clocks).
+/// The clock-fold rows' committed families (one party, then the version
+/// riders each row composes into disjoint clocks, reconciles, or
+/// receives).
 ///
 /// The committed stagger population adapted to the fold's version
-/// halves — each family at a fixed, labeled clock count, feed order
-/// preserved through the operand order — plus the composed clock
-/// families' cross as the non-stagger shape. The drawn-arity axis
-/// belongs to the bulk cloud; these committed points keep fixed
-/// arities so their readings compare across commits.
+/// halves, ramped along both committed band axes as the version folds'
+/// families are: operand size at a fixed labeled arity, and arity at a
+/// fixed block count — every ramp point a fixed, labeled shape whose
+/// reading compares across commits. The arity ramp is what lets the
+/// marked frontier trace the fold's log-k factor; the size-only ramps
+/// trace `D` at their fixed count. The composed clock families' cross
+/// rides as the non-stagger shape.
 fn clock_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
     let mut out = Vec::new();
     out.extend(ramp("scattered_id × stagger (n=4)", max_bytes, |t| {
@@ -395,6 +398,15 @@ fn clock_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
         inputs.extend(stagger_versions(4, t));
         Some(inputs)
     }));
+    out.extend(ramp(
+        "scattered_id × stagger arity (m=4)",
+        max_bytes,
+        |t| {
+            let mut inputs = vec![party_bytes(&Shape::ScatteredId.packed1(4))];
+            inputs.extend(stagger_versions(2 * t, 4));
+            Some(inputs)
+        },
+    ));
     out.extend(ramp("id_spine × hugeleaf⁴", max_bytes, |t| {
         let mut inputs = vec![party_bytes(&Shape::IdSpine.packed_flagged(t, false))];
         inputs.extend(

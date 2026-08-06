@@ -482,7 +482,8 @@ fuelscape-test: fuzzfit-build
 # adversarial families overlaid as marked points, wasmtime instruction
 # fuel as the work currency. Deterministic per (seed, plan): re-running
 # the same plan on the same guest reproduces every reading. Defaults:
-# 300 samples/column to 256 bytes; override e.g.
+# 300 samples/column on average (each row's budget is spread-weighted
+# toward its larger columns) to 256 bytes; override e.g.
 # `just fuelscape --samples 500 --max-bytes 512`.
 
 # Render the full population atlas into target/fuelscape (audit view; not enforcement).

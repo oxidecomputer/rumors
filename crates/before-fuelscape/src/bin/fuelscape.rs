@@ -36,6 +36,17 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use before_fuelscape::dump::{self, DumpWriter};
+
+/// The sampler is allocator-bound under the system allocator;
+/// mimalloc's per-thread heaps keep the workers on the cores.
+///
+/// The storm is a fresh wasmtime store per sample and big-integer
+/// temporaries per rejection draw, across every worker, against one
+/// global malloc mutex. Fuel readings are indifferent: the meter
+/// counts guest instructions.
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use before_fuelscape::ops::ROSTER;
 use before_fuelscape::plan::{run_op, Plan, Samplers};
 use before_fuelscape::render::{render_gallery, render_op, AtlasData, RenderMeta};
