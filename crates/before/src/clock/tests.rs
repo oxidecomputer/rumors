@@ -585,21 +585,24 @@ proptest! {
 // ───────────────────────── encoded_bits ↔ encode ─────────────────────────
 
 proptest! {
-    /// `encoded_bits` is the pre-final-pad bit length of `encode`: for every
+    /// `encoded_bits` is the pre-padding bit length of `encode`: for every
     /// live clock (and its party and version), `encode().len()` is
-    /// `encoded_bits()` rounded up to whole bytes.
+    /// `encoded_bits()` plus the final marker bit, rounded up to whole
+    /// bytes.
     ///
-    /// A `Clock` byte-concatenates its party and version (each byte-aligned),
-    /// so its bit length is the *byte-aligned* party length plus the version's
-    /// own bit length — the party's padding lies between the two parts.
+    /// A `Clock` byte-concatenates its party and version (each
+    /// marker-padded and byte-aligned), so its bit length is the
+    /// *byte-aligned* party length plus the version's own bit length —
+    /// the party's padding lies between the two parts, and only the
+    /// version's final marker is left uncounted.
     #[test]
     fn encoded_bits_matches_encode_len(ops in world_strategy()) {
         for oc in &run(&ops) {
             let c = from_oracle_clock(oc);
             let (p, v) = (c.party(), c.version());
-            prop_assert_eq!(c.encode().len(), c.encoded_bits().div_ceil(8));
-            prop_assert_eq!(p.encode().len(), p.encoded_bits().div_ceil(8));
-            prop_assert_eq!(v.encode().len(), v.encoded_bits().div_ceil(8));
+            prop_assert_eq!(c.encode().len(), (c.encoded_bits() + 1).div_ceil(8));
+            prop_assert_eq!(p.encode().len(), (p.encoded_bits() + 1).div_ceil(8));
+            prop_assert_eq!(v.encode().len(), (v.encoded_bits() + 1).div_ceil(8));
             prop_assert_eq!(c.encode().len(), p.encode().len() + v.encode().len());
         }
     }

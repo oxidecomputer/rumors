@@ -118,11 +118,13 @@ fn parallel_build_matches_sequential_reference() {
 /// over rayon.
 const CENSUS_BYTES: usize = 3;
 
-/// The largest exact bit length the decoder census covers: a byte length
-/// `L` carries live bit lengths in `(8(L-1), 8L]` (the decode padding
-/// rule), so lengths `1..=CENSUS_BYTES` partition `1..=8 * CENSUS_BYTES`
+/// The largest exact bit length the decoder census covers.
+///
+/// A byte length `L` carries live bit lengths in `[8(L-1), 8L-1]` (the
+/// decode padding rule — the marker claims one bit of the final byte),
+/// so lengths `1..=CENSUS_BYTES` partition `0..=8 * CENSUS_BYTES - 1`
 /// exactly.
-const CENSUS_BITS: usize = 8 * CENSUS_BYTES;
+const CENSUS_BITS: usize = 8 * CENSUS_BYTES - 1;
 
 /// Accepted-input counts per exact live bit length, from a real decoder.
 ///
@@ -145,7 +147,7 @@ fn decoder_census(accept: impl Fn(&[u8]) -> Option<usize> + Sync) -> Vec<u64> {
                 }
                 if let Some(bits) = accept(&buf[..len]) {
                     assert!(
-                        bits <= 8 * len,
+                        bits < 8 * len,
                         "decoder reported {bits} live bits from a {len}-byte input"
                     );
                     hist[bits] += 1;
@@ -226,12 +228,12 @@ fn party_decoder_census_matches_count_table() {
 }
 
 /// A packed encoding of exactly `n` bytes carries a live bit length in
-/// `(8(n-1), 8n]` — decode rejects 8 or more pad bits — floored at the
-/// grammar's minimum subtree size.
+/// `[8(n-1), 8n-1]` — the marker claims one bit, and decode bounds the
+/// padding to one byte — floored at the grammar's minimum subtree size.
 #[test]
 fn bit_window_matches_decode_padding_rule() {
-    assert_eq!(bit_window(1, MIN_VERSION_BITS), 2..=8);
-    assert_eq!(bit_window(1, MIN_PARTY_BITS), 2..=8);
-    assert_eq!(bit_window(2, MIN_VERSION_BITS), 9..=16);
-    assert_eq!(bit_window(3, MIN_PARTY_BITS), 17..=24);
+    assert_eq!(bit_window(1, MIN_VERSION_BITS), 2..=7);
+    assert_eq!(bit_window(1, MIN_PARTY_BITS), 2..=7);
+    assert_eq!(bit_window(2, MIN_VERSION_BITS), 8..=15);
+    assert_eq!(bit_window(3, MIN_PARTY_BITS), 16..=23);
 }

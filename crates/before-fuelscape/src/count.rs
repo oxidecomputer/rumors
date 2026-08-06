@@ -277,11 +277,14 @@ impl PartyCounts {
     }
 }
 
-/// The exact bit lengths a packed encoding of exactly `bytes` bytes can
-/// carry: `decode` requires fewer than 8 zero pad bits, so the window is
-/// `(8 (bytes - 1), 8 bytes]`, floored at the grammar's minimum.
+/// The exact live bit lengths a packed encoding of exactly `bytes` bytes
+/// can carry.
+///
+/// The padding marker claims one bit, and `decode` bounds the whole
+/// padding to one byte, so the window is `[8 (bytes - 1), 8 bytes - 1]`,
+/// floored at the grammar's minimum.
 pub fn bit_window(bytes: usize, min_bits: usize) -> std::ops::RangeInclusive<usize> {
-    let hi = 8 * bytes;
-    let lo = (8 * (bytes - 1) + 1).max(min_bits);
+    let hi = 8 * bytes - 1;
+    let lo = (8 * (bytes - 1)).max(min_bits);
     lo..=hi
 }

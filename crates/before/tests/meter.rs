@@ -5356,15 +5356,16 @@ fn right_spine_tags(d: usize) -> Vec<bool> {
     tags
 }
 
-/// Pack a most-significant-bit-first bit stream into zero-padded bytes, the
-/// generators' packing convention.
+/// Pack a most-significant-bit-first bit stream into its marker-padded
+/// wire bytes, the generators' packing convention.
 fn pack_bits(bits: &[bool]) -> Vec<u8> {
-    let mut bytes = vec![0u8; bits.len().div_ceil(8)];
+    let mut bytes = vec![0u8; (bits.len() + 1).div_ceil(8)];
     for (i, &bit) in bits.iter().enumerate() {
         if bit {
             bytes[i / 8] |= 0x80 >> (i % 8);
         }
     }
+    bytes[bits.len() / 8] |= 0x80 >> (bits.len() % 8); // the padding marker
     bytes
 }
 

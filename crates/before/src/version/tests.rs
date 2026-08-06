@@ -2322,32 +2322,32 @@ fn div_can_fragment_and_raise_min_ticks() {
     assert_eq!(frag.min_ticks(), Ticks::from(2u64)); // but now two concurrent peaks
 }
 
-/// The at-rest form is the wire bytes in a length-carrying container.
+/// The at-rest form is exactly the wire bytes' refcounted handle.
 ///
-/// A [`Version`] is exactly one `codec::Bits` (the refcounted buffer
-/// handle — pointer, byte length, shared-state pointer, vtable — plus
-/// the live bit length: 40 bytes on 64-bit), and a
-/// [`Clock`](crate::Clock) is a `Party` plus a `Version` (80). A
-/// regression here means the storage grew a field beside the container —
-/// the cached live length must ride inside it, since the wire
-/// legitimately omits it.
-// The Bytes-backed at-rest form: the refcounted handle carries one
-// more word than an owning bit-vector would, plus the live bit length
-// beside it — the handle growth that buys the O(1) clone.
+/// A [`Version`] is exactly one `codec::Bits` — the refcounted buffer
+/// handle alone: pointer, byte length, shared-state pointer, vtable —
+/// 32 bytes on 64-bit, and a [`Clock`](crate::Clock) is a `Party` plus
+/// a `Version` (64). A regression here means the storage grew a field
+/// beside the container: the live bit length must stay recoverable from
+/// the padding marker inside the bytes, never cached beside them.
 #[test]
 fn at_rest_size_is_one_container_per_stream() {
-    assert_eq!(core::mem::size_of::<Version>(), 40);
-    assert_eq!(core::mem::size_of::<crate::Clock>(), 80);
+    assert_eq!(
+        core::mem::size_of::<Version>(),
+        core::mem::size_of::<bytes::Bytes>()
+    );
+    assert_eq!(core::mem::size_of::<Version>(), 32);
+    assert_eq!(core::mem::size_of::<crate::Clock>(), 64);
 }
 
 proptest! {
     /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
     /// bit-level compare of the live streams, in both operand orders.
     ///
-    /// The cross-check that the canonical-raw-slice invariant (dead bits
-    /// zeroed at every storage seam) really licenses the byte shortcut
-    /// over raw bytes plus live length. Equal values must also hash
-    /// equally (`Eq`/`Hash` consistency).
+    /// The cross-check that the canonical-padding invariant (the marker
+    /// sealed at every storage seam) really makes the raw bytes
+    /// injective, licensing the byte-compare shortcut. Equal values must
+    /// also hash equally (`Eq`/`Hash` consistency).
     #[test]
     fn byte_equality_matches_bit_equality(
         oa in arb_oracle_version(),

@@ -85,14 +85,14 @@ fn one_sided_transfer() {
 
 /// Values whose two messages, batch-sent in this order into the seeded
 /// universe of [`batched_supply_run`], produce keys sharing their first two
-/// bytes (`b4 51`; found by search over the second value).
+/// bytes (`71 06`; found by search over the second value).
 ///
 /// The populated
 /// responder ships its root children as whole height-31 supplies, so the
 /// shared leading byte places both leaves inside one supplied subtree (the
 /// two-byte collision is stronger than that supply needs, and keeps the
 /// pair inside one subtree at height 30 as well).
-const COLLIDING_VALUES: (u64, u64) = (1, 106899);
+const COLLIDING_VALUES: (u64, u64) = (1, 27730);
 
 /// One supplied subtree holding two leaves pins a batched run on the wire.
 ///
@@ -177,18 +177,18 @@ fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
 
 /// Values whose two messages, batch-sent in this order into the seeded
 /// universe of [`bulk_initiator_ships_opening_supplies`], produce keys
-/// `b4 51` and `b4 85` (found by search over the second value).
+/// `71 06` and `71 67` (found by search over the second value).
 ///
 /// A shared
 /// first byte and distinct second bytes, so the initiator's one exclusive
 /// root child holds a two-leaf subtree whose leaves split one level down.
-const INITIATOR_SUBTREE_VALUES: (u64, u64) = (1, 148);
+const INITIATOR_SUBTREE_VALUES: (u64, u64) = (1, 287);
 
 /// First of three consecutive ballast values for the responder of
 /// [`bulk_initiator_ships_opening_supplies`].
 ///
 /// Their keys' first bytes
-/// (`9f`, `e3`, `e5`) avoid the initiator's exclusive radix (`b4`), and the
+/// (`1e`, `6a`, `f6`) avoid the initiator's exclusive radix (`71`), and the
 /// extra message makes the responder the larger set, so the subtree holder
 /// wins the initiator election.
 const RESPONDER_BALLAST_FROM: u64 = 100;
@@ -264,12 +264,12 @@ fn bulk_initiator_ships_opening_supplies() {
 
 /// Values for [`early_supplies_honor_redactions`]: the second, sent after
 /// the responder forks, lands its key under the same root radix as the
-/// first's (keys `8a 44` and `8a fd`), found by search.
-const REDACTION_SUBTREE_VALUE: u64 = 33;
+/// first's (keys `09 a7` and `09 5a`), found by search.
+const REDACTION_SUBTREE_VALUE: u64 = 165;
 
 /// First of three consecutive ballast values for the responder of
-/// [`early_supplies_honor_redactions`]: their keys' first bytes (`70`,
-/// `c8`, `eb`) avoid the shared radix (`8a`), and they make the responder
+/// [`early_supplies_honor_redactions`]: their keys' first bytes (`94`,
+/// `cf`, `e9`) avoid the shared radix (`09`), and they make the responder
 /// the larger set.
 const REDACTION_BALLAST_FROM: u64 = 100;
 

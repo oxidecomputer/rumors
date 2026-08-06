@@ -111,20 +111,43 @@ fn gamma_truncated() {
 /// `Bits::freeze` canonicalizes storage.
 ///
 /// A build buffer whose `truncate` left stale bits in the final partial
-/// byte freezes to a raw slice with the dead bits zero, covering
-/// exactly the live bits' bytes, with the live length and bit content
-/// preserved.
+/// byte freezes to the canonical marker-padded raw slice — live bits,
+/// one `1`, zeros to the byte boundary — with the live length and bit
+/// content preserved behind the deref view.
 #[test]
 fn freeze_canonicalizes_storage() {
     // Write a byte of ones, then truncate to 3 live bits: the shed ones
-    // linger in the buffer's final byte until the freeze zeroes them.
+    // linger in the buffer's final byte until the freeze seals over them.
     let mut buf: BitsMut = bitvec![u8, Msb0; 1; 8];
     buf.truncate(3);
     let frozen = super::Bits::freeze(buf.clone());
     assert_eq!(frozen.len(), 3);
-    assert_eq!(frozen.as_raw_slice(), &[0b1110_0000]);
-    assert!(super::dead_bits_are_zero(&frozen));
+    assert_eq!(frozen.as_raw_slice(), &[0b1111_0000]);
+    assert!(super::padding_is_canonical(&frozen));
     assert_eq!(&*frozen, &buf[..]);
+}
+
+/// The marker padding makes stored bytes injective on streams: a stream
+/// and its zero-extension — bit-identical up to length — freeze to
+/// distinct raw slices, so the byte compare alone decides equality.
+#[test]
+fn marker_padding_separates_length_collisions() {
+    let a = super::Bits::freeze(bitvec![u8, Msb0; 0, 1]);
+    let b = super::Bits::freeze(bitvec![u8, Msb0; 0, 1, 0]);
+    assert_eq!(a.as_raw_slice(), &[0b0110_0000]);
+    assert_eq!(b.as_raw_slice(), &[0b0101_0000]);
+    assert!(!super::canonical_eq(&a, &b));
+}
+
+/// A stream whose live bits fill its final byte exactly still owes a
+/// marker: the padding becomes a whole trailing `1000_0000` byte, and
+/// the live length reads back through it.
+#[test]
+fn flush_stream_carries_a_whole_marker_byte() {
+    let frozen = super::Bits::freeze(bitvec![u8, Msb0; 1; 8]);
+    assert_eq!(frozen.len(), 8);
+    assert_eq!(frozen.as_raw_slice(), &[0xFF, 0b1000_0000]);
+    assert!(super::padding_is_canonical(&frozen));
 }
 
 /// `Bits::ptr_eq` implies value equality, and clones are its nonempty
@@ -166,10 +189,7 @@ fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
 #[test]
 fn from_canonical_matches_freeze() {
     let frozen = super::Bits::freeze(bitvec![u8, Msb0; 1, 0, 1]);
-    let adopted = super::Bits::from_canonical(
-        bytes::Bytes::copy_from_slice(frozen.as_raw_slice()),
-        frozen.len(),
-    );
+    let adopted = super::Bits::from_canonical(bytes::Bytes::copy_from_slice(frozen.as_raw_slice()));
     assert!(super::canonical_eq(&frozen, &adopted));
     assert!(!frozen.ptr_eq(&adopted)); // distinct buffers, equal content
 
@@ -754,29 +774,37 @@ fn reject_deep_nested_denormal_id() {
     ));
 }
 
-/// Padding rejection is bit-granular, not byte-granular: a complete tree that
-/// ends mid-byte must have *every* remaining bit of that final byte be zero.
+/// Padding rejection is bit-granular, not byte-granular: a complete tree
+/// that ends mid-byte must be followed by *exactly* the marker and zeros
+/// within that final byte.
 ///
-/// A non-zero bit inside the same byte as the tree (intra-byte padding) is
-/// `TrailingBits`, just as a whole spurious trailing byte is. The id leaf `1`
-/// encodes to the two-bit terminal tag (`0, 0`) packed as `0000_0000`; setting
-/// any padding bit within that byte must be rejected.
+/// A perturbed bit inside the same byte as the tree — a cleared marker or
+/// a set bit after it — is `TrailingBits`, just as a whole spurious
+/// trailing byte is. The id leaf `1` encodes to the two-bit terminal tag
+/// (`0, 0`), marker-padded as `0010_0000`; perturbing any padding bit
+/// within that byte must be rejected.
 #[test]
 fn reject_intra_byte_padding() {
-    // `Leaf(true)` = the terminal tag bits [0, 0] → one byte 0b0000_0000; bits
-    // 2..8 are zero padding.
+    // `Leaf(true)` = the terminal tag bits [0, 0], then the marker at
+    // bit 2 → one byte 0b0010_0000; bits 3..8 are zero padding.
     let clean = from_oracle_party(&oracle::Party::Leaf(true)).encode();
-    assert_eq!(clean.len(), 1, "an id leaf fits in a single byte");
+    assert_eq!(clean, vec![0b0010_0000], "an id leaf fits in a single byte");
     assert!(Party::decode(&clean[..]).is_ok(), "clean padding decodes");
 
-    // Flip each intra-byte padding bit (positions 2..8) in turn; each is
+    // Clearing the marker (bit 2) leaves the padding un-delimited.
+    assert!(
+        matches!(Party::decode(&[0u8][..]), Err(Decode::TrailingBits)),
+        "a cleared padding marker must be rejected",
+    );
+
+    // Set each zero padding bit (positions 3..8) in turn; each is
     // `TrailingBits`.
-    for bit in 2u8..8 {
+    for bit in 3u8..8 {
         let mut bytes = clean.clone();
         bytes[0] |= 0b1000_0000u8 >> bit;
         assert!(
             matches!(Party::decode(&bytes[..]), Err(Decode::TrailingBits)),
-            "non-zero intra-byte padding at bit {bit} must be rejected",
+            "a set intra-byte padding bit at position {bit} must be rejected",
         );
     }
 }
@@ -788,23 +816,22 @@ fn reject_intra_byte_padding() {
 /// pins that at its own byte ([`reject_intra_byte_padding`]); these are
 /// the per-door witnesses for the two doors whose other committed
 /// rejection tests perturb only whole spurious bytes — which the
-/// validator's *length* arm rejects on its own. A set bit within the
-/// final byte's padding is the one defect only the bit arm sees, and
-/// the buffer-adopting representation makes round-trip checks blind to
-/// it (an accepted dirty buffer re-encodes to itself, and byte equality
-/// is what `Eq`/`Hash` rest on), so the rejection must be asserted
-/// directly at each door. The clock gets the defect in both components:
-/// the party's byte-aligned padding mid-stream and the version's final
-/// byte — and at the party leg the length arm is vacuous (the id's byte
-/// count is exactly its bit length rounded up), so the bit arm is the
-/// entire check there.
+/// validator's *length* arm rejects on its own. A perturbed bit within
+/// the final byte's padding is the one defect only the bit arm sees,
+/// and the buffer-adopting representation makes round-trip checks blind
+/// to it (an accepted dirty buffer re-encodes to itself, and byte
+/// equality is what `Eq`/`Hash` rest on), so the rejection must be
+/// asserted directly at each door. The clock gets the defect in both
+/// components: the party's byte-aligned padding mid-stream and the
+/// version's final byte.
 #[test]
 fn version_and_clock_doors_reject_intra_byte_padding_functionally() {
-    // The empty version is the 2-bit stream `11` in one byte: bits 2..8
-    // are padding. Set each in turn; every one must reject.
+    // The empty version is the 2-bit stream `11`, marker-padded in one
+    // byte: the marker at bit 2, zeros at 3..8. Set each zero in turn;
+    // every one must reject.
     let clean = Version::new().encode();
-    assert_eq!(clean, vec![0b1100_0000]);
-    for bit in 2u8..8 {
+    assert_eq!(clean, vec![0b1110_0000]);
+    for bit in 3u8..8 {
         let mut bytes = clean.clone();
         bytes[0] |= 0b1000_0000u8 >> bit;
         assert!(
@@ -813,17 +840,26 @@ fn version_and_clock_doors_reject_intra_byte_padding_functionally() {
         );
     }
 
-    // The seed clock is the party byte `0x00` (2 live bits) then the
-    // version byte `0xC0` (2 live bits): four defect sites, two per
-    // component's padding.
+    // The seed clock is the party byte `0x20` (2 live bits, marker at
+    // bit 2) then the version byte `0xE0` (likewise): four set-bit
+    // defect sites, two per component's zero padding, plus each
+    // component's cleared marker.
     let clock = Clock::seed().encode();
-    assert_eq!(clock, vec![0x00, 0b1100_0000]);
-    for (byte, bit) in [(0usize, 2u8), (0, 7), (1, 2), (1, 7)] {
+    assert_eq!(clock, vec![0b0010_0000, 0b1110_0000]);
+    for (byte, bit) in [(0usize, 3u8), (0, 7), (1, 3), (1, 7)] {
         let mut bytes = clock.clone();
         bytes[byte] |= 0b1000_0000u8 >> bit;
         assert!(
             matches!(Clock::decode(&bytes[..]), Err(Decode::TrailingBits)),
             "clock: set padding bit {bit} of byte {byte} must be rejected",
+        );
+    }
+    for byte in [0usize, 1] {
+        let mut bytes = clock.clone();
+        bytes[byte] &= !(0b1000_0000u8 >> 2);
+        assert!(
+            matches!(Clock::decode(&bytes[..]), Err(Decode::TrailingBits)),
+            "clock: cleared marker of byte {byte} must be rejected",
         );
     }
 }
@@ -1035,7 +1071,7 @@ fn reject_truncated() {
 #[test]
 fn reject_trailing_bits() {
     let mut bytes = from_oracle_party(&oracle::Party::Leaf(true)).encode();
-    bytes.push(0x01); // a set bit beyond the (complete) tree and its zero padding
+    bytes.push(0x01); // a set bit beyond the (complete) tree and its padding
     assert!(matches!(
         Party::decode(&bytes[..]),
         Err(Decode::TrailingBits)
@@ -1130,11 +1166,11 @@ proptest! {
     /// step from the accepted language, where a validator that under-checks
     /// would leak a non-canonical accept.
     ///
-    /// Regression guard for the trailing-zero-byte defect (fixed in
-    /// `require_zero_padding`): a flip can shift the tree to end on a byte
-    /// boundary one byte before the input's end, leaving a spurious all-zero
-    /// trailing byte; `decode` now rejects that (a run of `>= 8` trailing bits
-    /// is non-canonical even when zero), keeping `decode` injective on bytes.
+    /// Regression guard for the spurious-trailing-byte genre: a flip can
+    /// shift the tree to end early enough that a whole trailing byte
+    /// follows the padding; `decode` must reject any remainder past one
+    /// padded byte (`require_marker_padding`'s length bound), keeping
+    /// `decode` injective on bytes.
     #[test]
     fn bit_flip_rejects_or_decodes_canonically(
         pa in arb_oracle_party_nonempty(),
@@ -1165,11 +1201,11 @@ proptest! {
     /// leaf of a clock) — which must then decode canonically, never to a
     /// malformed value.
     ///
-    /// Regression guard for the trailing-zero-byte defect (fixed in
-    /// `require_zero_padding`): a truncation can cut a valid stream just
-    /// *after* a complete tree but still inside one or more trailing zero
-    /// bytes; `decode` now rejects that rather than accepting a value that
-    /// re-encodes to fewer bytes than its own input.
+    /// Regression guard for the spurious-trailing-byte genre: a truncation
+    /// can cut a valid stream just *after* a complete tree and its padding
+    /// but inside later bytes; `decode` must reject any remainder past one
+    /// padded byte rather than accept a value that re-encodes to fewer
+    /// bytes than its own input.
     #[test]
     fn truncation_rejects_or_decodes_canonically(
         pa in arb_oracle_party_nonempty(),
@@ -1183,35 +1219,32 @@ proptest! {
     }
 }
 
-/// WITNESS — the minimal reproduction of the trailing-zero-byte defect that the
-/// two mutation proptests above (bit-flip and truncation) surface.
+/// WITNESS — the padding boundary cases the two mutation proptests above
+/// (bit-flip and truncation) sweep, pinned by hand at their smallest
+/// shapes.
 ///
-/// A canonical encoding zero-pads only to the next byte boundary (the stored
-/// raw slice covers exactly the live bits' bytes), so it has **at most 7
-/// trailing zero bits**. The original
-/// [`require_zero_padding`] (`codec.rs`) only checked that the bits after the
-/// tree are all zero — it never bounded how *many* there are, so appending one
-/// or more whole `0x00` bytes (≥8 zero bits) was wrongly accepted, making
-/// `decode` **non-injective on byte strings** (the accepted value re-encoded to
-/// a *shorter* stream than its own input), violating `decode`'s contract
-/// ("strictly rejects ... non-canonical input") and the keystone
-/// byte-canonicity property. The fix bounds the trailing run: `bits.len() -
-/// pos` must be `< 8`. This test is the permanent regression guard.
-///
-/// `(2, 0, 1)` is the smallest witness: its canonical encoding is the 2 bytes
-/// `[180, 128]` (16 bits exactly — no intra-byte padding), so a third `0x00`
-/// byte is unambiguously a spurious trailing byte, not padding. A bare party
-/// `(1, (0, 1))` = `[196]` exhibits the same with one appended `0x00`.
+/// A canonical encoding pads with exactly one `1` marker and then zeros
+/// to the byte boundary, all within one byte, which is what makes
+/// `decode` **injective on byte strings**: every stream has one padded
+/// spelling, and no accepted input re-encodes to different bytes than
+/// its own. Each clause below rejects one way of breaking that — a
+/// spurious whole zero byte after the padding, a missing marker byte on
+/// a stream that ends flush against a byte boundary, and a zeroed
+/// marker byte — as [`Decode::TrailingBits`], never a silent accept.
 #[test]
-fn trailing_zero_byte_rejected_witness() {
-    // Canonical encoding of the event `(2, 0, 1)` is exactly two bytes.
+fn malformed_padding_rejected_witness() {
+    // Canonical encoding of the event `(2, 0, 1)`: the 9-bit stream
+    // `0 1 011 1 011` — internal root (flag 0), leaf flag 1 + gamma(2),
+    // leaf flag 1 + zigzag(+1) = gamma(2) — then the marker and pad.
     let canonical = Version::try_from((2u64, 0u64, 1u64)).unwrap().encode();
-    // Stream `0 1 011 1 011`: internal root (flag 0), leaf flag 1 +
-    // gamma(2), leaf flag 1 + zigzag(+1) = gamma(2).
-    assert_eq!(canonical, vec![93, 128], "witness canonical encoding");
+    assert_eq!(
+        canonical,
+        vec![93, 0b1100_0000],
+        "witness canonical encoding"
+    );
 
-    // Appending a whole zero byte must be rejected as TrailingBits — it is NOT
-    // padding, because the canonical stream already ended on a byte boundary.
+    // Appending a whole zero byte must be rejected: the padding already
+    // ended within the second byte, so more bytes are spurious.
     let mut with_zero = canonical.clone();
     with_zero.push(0);
     assert!(
@@ -1219,42 +1252,77 @@ fn trailing_zero_byte_rejected_witness() {
         "a whole trailing zero byte is non-canonical and must be rejected",
     );
 
-    // The same for an id (party): `(1, (0, 1))` packs to one byte; a second
-    // zero byte is spurious.
+    // An id whose 8 live bits fill its first byte exactly: `(1, (0, 1))`
+    // owes its marker in a whole second byte.
     let party = "(1, (0, 1))".parse::<Party>().unwrap().encode();
-    assert_eq!(party, vec![196], "witness party canonical encoding");
-    let mut party_zero = party.clone();
-    party_zero.push(0);
+    assert_eq!(
+        party,
+        vec![196, 0b1000_0000],
+        "witness party canonical encoding"
+    );
+
+    // Truncating the marker byte leaves a parseable tree with no padding
+    // at all: rejected, so the flush stream has exactly one spelling.
     assert!(
-        matches!(Party::decode(&party_zero[..]), Err(Decode::TrailingBits)),
-        "a whole trailing zero byte on an id must be rejected",
+        matches!(Party::decode(&party[..1]), Err(Decode::TrailingBits)),
+        "a flush stream without its marker byte must be rejected",
+    );
+
+    // Zeroing the marker byte is the same defect spelled longer.
+    assert!(
+        matches!(Party::decode(&[196, 0][..]), Err(Decode::TrailingBits)),
+        "an all-zero padding byte has no marker and must be rejected",
+    );
+
+    // A zero byte after the marker byte is spurious.
+    assert!(
+        matches!(
+            Party::decode(&[196, 0b1000_0000, 0][..]),
+            Err(Decode::TrailingBits)
+        ),
+        "a whole trailing zero byte after the padding must be rejected",
     );
 }
 
 proptest! {
-    /// The trailing bits of the final byte are zero padding, and setting any
-    /// one of them must be rejected (`TrailingBits`), never silently accepted.
+    /// The padding after the live bits is exactly one `1` marker then
+    /// zeros, and perturbing any of it — clearing the marker, or setting
+    /// any zero bit after it — must be rejected (`TrailingBits`), never
+    /// silently accepted.
     ///
-    /// A non-zero padding bit makes the stream non-canonical, which would break
-    /// the byte-equality `Eq`/`Hash` contract. The whole-byte and intra-byte
-    /// cases are pinned by hand in the canonical-rejection suite; this sweeps
-    /// every padding position over arbitrary trees.
+    /// A perturbed padding makes the stream non-canonical, which would
+    /// break the byte-equality `Eq`/`Hash` contract. The whole-byte and
+    /// intra-byte cases are pinned by hand in the canonical-rejection
+    /// suite; this sweeps every padding position over arbitrary trees.
     #[test]
     fn padding_perturbation_rejects(pa in arb_oracle_party_nonempty()) {
         let party = from_oracle_party(&pa);
         let valid = party.encode();
 
-        // Number of meaningful bits = bit length of the packed id with no
-        // trailing padding.
+        // The marker sits at the live bit length; zeros fill the rest of
+        // the final byte.
         let used = party.as_bits().len();
         let total = valid.len() * 8;
-        for pad in used..total {
+
+        // Clearing the marker leaves the padding without its delimiter.
+        {
+            let (byte, bit) = (used / 8, (used % 8) as u8);
+            let mut m = valid.clone();
+            m[byte] &= !(0b1000_0000u8 >> bit);
+            prop_assert!(
+                matches!(Party::decode(&m[..]), Err(Decode::TrailingBits)),
+                "a cleared padding marker must be rejected",
+            );
+        }
+
+        // Setting any zero bit after the marker breaks the `1 0*` form.
+        for pad in used + 1..total {
             let (byte, bit) = (pad / 8, (pad % 8) as u8);
             let mut m = valid.clone();
             m[byte] |= 0b1000_0000u8 >> bit;
             prop_assert!(
                 matches!(Party::decode(&m[..]), Err(Decode::TrailingBits)),
-                "non-zero padding bit at position {pad} must be rejected",
+                "a set bit at padding position {pad} must be rejected",
             );
         }
     }

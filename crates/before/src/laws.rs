@@ -364,10 +364,10 @@ fn version_as_bytes_matches_encode(a: &Version) -> bool {
     a.as_bytes() == &a.encode()[..]
 }
 
-/// `encoded_bits` is the pre-pad bit length of `encode`: the byte length is
-/// the bit length rounded up to whole bytes.
+/// `encoded_bits` is the pre-padding bit length of `encode`: the byte length
+/// is the bit length plus the marker, rounded up to whole bytes.
 fn version_encoded_bits_matches_encode_len(a: &Version) -> bool {
-    a.encode().len() == a.encoded_bits().div_ceil(8)
+    a.encode().len() == (a.encoded_bits() + 1).div_ceil(8)
 }
 
 // ───────────────────────────── Version: pairs ─────────────────────────────
@@ -1774,9 +1774,9 @@ fn party_as_bytes_matches_encode(p: &Party) -> bool {
     p.as_bytes() == &p.encode()[..]
 }
 
-/// `encoded_bits` is the pre-pad bit length of `encode`.
+/// `encoded_bits` is the pre-padding bit length of `encode`.
 fn party_encoded_bits_matches_encode_len(p: &Party) -> bool {
-    p.encode().len() == p.encoded_bits().div_ceil(8)
+    p.encode().len() == (p.encoded_bits() + 1).div_ceil(8)
 }
 
 // ───────────────────────────── Party: pairs ─────────────────────────────
@@ -2692,10 +2692,10 @@ fn encode_frames_party_then_version(c: &Clock) -> bool {
     c.encode() == [c.party().encode(), c.version().encode()].concat()
 }
 
-/// `encoded_bits` is the pre-pad bit length of `encode`, at the clock level
-/// too.
+/// `encoded_bits` is the pre-padding bit length of `encode`, at the clock
+/// level too.
 fn clock_encoded_bits_matches_encode_len(c: &Clock) -> bool {
-    c.encode().len() == c.encoded_bits().div_ceil(8)
+    c.encode().len() == (c.encoded_bits() + 1).div_ceil(8)
 }
 
 // ───────────────────────────── Clock × Version ─────────────────────────────

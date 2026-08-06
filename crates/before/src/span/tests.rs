@@ -481,13 +481,13 @@ fn span_decode_structural_genres_outrank_the_pair_verdict() {
     let empty = Version::new();
 
     // The empty version's canonical byte: leaf flag `1`, gamma(0) `1`,
-    // six zero padding bits.
-    assert_eq!(empty.encode(), vec![0xC0]);
+    // the padding marker, five zero padding bits.
+    assert_eq!(empty.encode(), vec![0xE0]);
     // A negative-height stream: root internal `0`, left leaf `1` with
     // absolute height gamma(0) `1`, right leaf `1` with delta
-    // zigzag(-1) `010`, one zero padding bit — 0b0111_0100. Its running
-    // height dips to -1, which only canonicality rejects.
-    let neg = vec![0x74];
+    // zigzag(-1) `010`, then the padding marker — 0b0111_0101. Its
+    // running height dips to -1, which only canonicality rejects.
+    let neg = vec![0x75];
     assert!(matches!(
         Version::decode(&neg[..]),
         Err(Decode::NotCanonical)
@@ -512,20 +512,20 @@ fn span_decode_structural_genres_outrank_the_pair_verdict() {
     );
 
     // A crossed pair (join strictly below the meet) with a set padding
-    // bit in the join's final byte: the padding defect wins.
-    let crossed_padding = [one.encode(), vec![0xC4]].concat();
+    // bit after the join's marker: the padding defect wins.
+    let crossed_padding = [one.encode(), vec![0xE4]].concat();
     assert!(
         matches!(
             Span::decode(&crossed_padding[..]),
             Err(Decode::TrailingBits)
         ),
-        "nonzero padding outranks the refuted pair verdict"
+        "malformed padding outranks the refuted pair verdict"
     );
 
     // A crossed pair with a spurious all-zero byte after the join: the
     // composite re-encoding shorter than its input is the same
     // trailing-bits genre.
-    let crossed_trailing = [one.encode(), vec![0xC0, 0x00]].concat();
+    let crossed_trailing = [one.encode(), vec![0xE0, 0x00]].concat();
     assert!(
         matches!(
             Span::decode(&crossed_trailing[..]),
@@ -596,7 +596,7 @@ fn span_decode_structural_genres_outrank_the_coincident_verdict() {
     *padded.last_mut().expect("nonempty") |= 0x01;
     assert!(
         matches!(Span::decode(&padded[..]), Err(Decode::TrailingBits)),
-        "nonzero padding outranks the coincident verdict"
+        "malformed padding outranks the coincident verdict"
     );
 
     // A spurious all-zero byte after the byte-equal join: the same

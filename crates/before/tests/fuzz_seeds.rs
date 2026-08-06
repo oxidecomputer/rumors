@@ -204,7 +204,7 @@ fn differential_seeds_exercise_their_genre_seams() {
             "span_crossed_padding" => {
                 assert!(
                     matches!(Span::decode(&bytes[..]), Err(Decode::TrailingBits)),
-                    "nonzero padding outranks the refuted pair verdict"
+                    "malformed padding outranks the refuted pair verdict"
                 );
             }
             "span_negative_join" => {

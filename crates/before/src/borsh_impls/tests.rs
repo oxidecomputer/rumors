@@ -93,11 +93,12 @@ fn non_canonical_borsh_bytes_report_invalid_data() {
 /// wire round-trip.
 ///
 /// `fork; fork; join` reunites two quarter-regions into `(0, 1)`, normalizing
-/// the build buffer's tree to a smaller one. The buffer once kept the bits it
-/// shed, so [`as_bytes`](Party::as_bytes) — which borsh serializes — carried
-/// trailing garbage that the peer's [`Party::decode`] rejected as
-/// `TrailingBits`. On the wire that silently dropped a donated identity; here
-/// it is a one-shot witness that the dead bits are now zeroed.
+/// the build buffer's tree to a smaller one. The collapse sheds bits into the
+/// buffer's final byte, where an unsealed freeze would leave them for
+/// [`as_bytes`](Party::as_bytes) — which borsh serializes — to carry as
+/// garbage the peer's [`Party::decode`] rejects as `TrailingBits`, silently
+/// dropping a donated identity on the wire. This is the one-shot witness that
+/// the freeze seals the shed bits behind the canonical padding.
 #[test]
 fn joined_party_roundtrips_through_borsh() {
     let mut left = Party::seed();
@@ -193,10 +194,28 @@ impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
     }
 }
 
+/// Consume a tree's padding through per-bit reads: one `1` marker, then
+/// zeros to the byte boundary — reading the whole-byte marker when the
+/// live bits end flush against a boundary, exactly as the wire cursor's
+/// `finish` does.
+fn reference_consume_padding<R: Read>(
+    cursor: &mut BitwiseReaderCursor<'_, R>,
+) -> Result<(), Decode> {
+    if !cursor.read_bit()? {
+        return Err(Decode::TrailingBits);
+    }
+    while !cursor.position.is_multiple_of(8) {
+        if cursor.read_bit()? {
+            return Err(Decode::TrailingBits);
+        }
+    }
+    Ok(())
+}
+
 /// Decode one event tree per-bit through [`BitwiseReaderCursor`].
 ///
-/// Replicates the wire pipeline stage for stage: parse, padding check,
-/// truncate to the consumed bits.
+/// Replicates the wire pipeline stage for stage: parse, padding
+/// consumption, truncate to the consumed live bits.
 fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
     let mut cursor = BitwiseReaderCursor {
         reader,
@@ -204,8 +223,8 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
         position: 0,
     };
     crate::version::skyline::validate_from(&mut cursor)?;
-    codec::require_zero_padding(&cursor.bits, cursor.position)?;
     let position = cursor.position;
+    reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
     bits.truncate(position);
     Ok(Version::from_bits(bits))
@@ -213,9 +232,9 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
 
 /// Decode one id tree per-bit through [`BitwiseReaderCursor`].
 ///
-/// Replicates the wire pipeline stage for stage: parse, padding check,
-/// truncate to the consumed bits. The id grammar has no empty production,
-/// so the parsed id is a nonzero share — exactly as
+/// Replicates the wire pipeline stage for stage: parse, padding
+/// consumption, truncate to the consumed live bits. The id grammar has no
+/// empty production, so the parsed id is a nonzero share — exactly as
 /// `Party::deserialize_reader` relies on.
 fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let mut cursor = BitwiseReaderCursor {
@@ -224,8 +243,8 @@ fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
         position: 0,
     };
     codec::parse_id_from(&mut cursor)?;
-    codec::require_zero_padding(&cursor.bits, cursor.position)?;
     let position = cursor.position;
+    reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
     bits.truncate(position);
     Ok(Party::from_bits(bits))

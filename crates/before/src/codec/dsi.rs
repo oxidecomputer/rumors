@@ -103,9 +103,10 @@ impl<'a> DsiCursor<'a> {
     /// terminating `1`.
     ///
     /// `Truncated` when the live bits end before a `1`: the phantom
-    /// zeros past the live length (dead bits are zeroed at every storage
-    /// seam and the word source zero-fills) can only lengthen an
-    /// apparent prefix past `len`, never terminate one early.
+    /// zeros past the live length (the word source masks the tail
+    /// byte's dead bits and zero-fills past the stream) can only
+    /// lengthen an apparent prefix past `len`, never terminate one
+    /// early.
     fn unary_raw(&mut self) -> Result<usize, Truncated> {
         match self.reader.read_unary() {
             Err(_) => Err(self.truncated()),

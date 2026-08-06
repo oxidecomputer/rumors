@@ -679,30 +679,36 @@ impl Clock {
         // exhausted input. Both parts then adopt slices of the ONE read buffer
         // as their storage: no per-component copy, and the id is parsed once
         // where handing byte ranges to the component decoders re-parsed it.
-        let (id_end, id_bytes, v_end) = {
+        let id_bytes = {
             let bits = codec::bytes_as_bits(&buf);
             let id_end = codec::parse_id(bits, 0)?;
-            let id_bytes = id_end.div_ceil(8);
-            codec::require_zero_padding(&bits[..8 * id_bytes], id_end)?;
+            // The party's padding marker rides in its final byte — which
+            // an input truncated right after a flush id tree lacks.
+            let id_bytes = (id_end + 1).div_ceil(8);
+            if 8 * id_bytes > bits.len() {
+                return Err(Decode::TrailingBits);
+            }
+            codec::require_marker_padding(&bits[..8 * id_bytes], id_end)?;
             let tail = &bits[8 * id_bytes..];
             let v_end = crate::version::skyline::validate_prefix(tail)?;
-            codec::require_zero_padding(tail, v_end)?;
-            (id_end, id_bytes, v_end)
+            codec::require_marker_padding(tail, v_end)?;
+            id_bytes
         };
         let buf = bytes::Bytes::from(buf);
-        let party = Party::from_frozen(codec::Bits::from_canonical(buf.slice(..id_bytes), id_end));
-        let version =
-            Version::from_frozen(codec::Bits::from_canonical(buf.slice(id_bytes..), v_end));
+        let party = Party::from_frozen(codec::Bits::from_canonical(buf.slice(..id_bytes)));
+        let version = Version::from_frozen(codec::Bits::from_canonical(buf.slice(id_bytes..)));
         Ok(Clock::from_parts(party, version))
     }
 
-    /// The exact length in bits of [`encode`](Self::encode), not counting the
-    /// final byte's zero-pad.
+    /// The exact length in bits of [`encode`](Self::encode) before the final
+    /// byte's padding — the marker bit and zero-pad to the byte boundary, so
+    /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
     /// The encoding byte-concatenates the [`Party`] and [`Version`] (see
-    /// [`encode`](Self::encode)), so the party occupies whole bytes and only
-    /// the version's last byte is padded: this is the byte-aligned party length
-    /// plus the version's own bit length.
+    /// [`encode`](Self::encode)), so the party occupies whole bytes — its own
+    /// padding included — and only the version's final byte is left to pad:
+    /// this is the byte-aligned party length plus the version's own bit
+    /// length.
     ///
     /// # Complexity
     ///
@@ -713,10 +719,10 @@ impl Clock {
     /// ```
     /// use before::Clock;
     /// let clock = Clock::seed();
-    /// assert_eq!(clock.encode().len(), clock.encoded_bits().div_ceil(8));
+    /// assert_eq!(clock.encode().len(), (clock.encoded_bits() + 1).div_ceil(8));
     /// ```
     pub fn encoded_bits(&self) -> usize {
-        8 * self.party().encoded_bits().div_ceil(8) + self.version().encoded_bits()
+        8 * (self.party().encoded_bits() + 1).div_ceil(8) + self.version().encoded_bits()
     }
 
     /// Duplicates this clock, producing a second handle to the same clock: an

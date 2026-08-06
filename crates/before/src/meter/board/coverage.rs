@@ -39,7 +39,7 @@
 //! `Version::meet_all`'s `None` is the empty iterator;
 //! `Rank::checked_sub`'s `None` is measured on the `rank_pair_ops`
 //! row, which attempts both directions; other decode non-canonicality
-//! genres (a negative running height, nonzero padding) ride the same
+//! genres (a negative running height, malformed padding) ride the same
 //! single validator pass at the same full-parse cost as the committed
 //! maximally-deferred tails; serde/borsh deserialize errors are the
 //! strict decoder through the wrappers (the decode rejection rows).

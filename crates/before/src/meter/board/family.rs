@@ -1267,7 +1267,7 @@ fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
         bits.push(left);
         bits.push(!left);
         bits.extend_from_bitslice(shape.as_bits());
-        codec::zero_dead_bits(&mut bits);
+        codec::seal_padding(&mut bits);
         bits.into_vec()
     };
     let (a, b) = (mount(true), mount(false));
@@ -1318,12 +1318,12 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     }
     a.push(false); // the marker's terminal, at the shape's last owned position
     a.push(false);
-    codec::zero_dead_bits(&mut a);
+    codec::seal_padding(&mut a);
     let mut b = codec::BitsMut::with_capacity(bits.len() + 2);
     b.push(false); // root: right child only
     b.push(true);
     b.extend_from_bitslice(bits); // right: the shape
-    codec::zero_dead_bits(&mut b);
+    codec::seal_padding(&mut b);
     let (a, b) = (a.into_vec(), b.into_vec());
     assert!(
         !decode_party(&a).is_disjoint(&decode_party(&b)),
@@ -1380,7 +1380,7 @@ pub(super) fn overlap_fold_probe() -> Vec<u8> {
     probe.push(true);
     probe.push(false); // the right child: a full leaf
     probe.push(false);
-    codec::zero_dead_bits(&mut probe);
+    codec::seal_padding(&mut probe);
     probe.into_vec()
 }
 
