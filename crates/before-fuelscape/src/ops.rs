@@ -67,17 +67,21 @@ pub enum Inputs {
     /// committed fold-cure families mark the adversarial arity ramps on
     /// top of this bulk measure.
     VersionSlice,
-    /// One packed party followed by a version slice, composed into
-    /// disjoint clocks in the guest: the clock-fold row's input space.
+    /// One packed party followed by a version slice: the n-ary clock
+    /// rows' input space, composed in each row's own preparation.
     ///
-    /// The clock count is drawn uniformly from every count the column's
+    /// The fold and reconcile rows build disjoint clocks; the
+    /// batch-receive row builds one clock and keeps the rest as
+    /// messages.
+    ///
+    /// The slice count is drawn uniformly from every count the column's
     /// budget can feed (`1..=size − 1`: one byte for the party, one per
     /// version), then the total splits uniformly over the compositions
-    /// into one exact size per operand, party first. The party is
-    /// fork-split in preparation so each drawn version rides its own
-    /// disjoint party — independent uniform parties are almost never
-    /// pairwise disjoint, so the fold's domain is reached by splitting
-    /// one.
+    /// into one exact size per operand, party first. Where a row
+    /// composes clocks, the party is fork-split in preparation so each
+    /// drawn version rides its own disjoint party — independent uniform
+    /// parties are almost never pairwise disjoint, so the fold's domain
+    /// is reached by splitting one.
     ///
     /// The clock count is stratified for the same reason as
     /// [`VersionSlice`](Inputs::VersionSlice)'s arity: a panel can read
@@ -414,6 +418,32 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
+        name: "version_eq",
+        inputs: Inputs::Packed(&[Operand::Version]),
+        covers: &["Version Eq / Hash (canonical byte compare)"],
+        size_measure: "packed bytes of one sampled version, decoded twice into \
+             distinct buffers and compared equal: the byte compare \
+             short-circuits at the first differing byte, so the equal pair is \
+             the linear worst case (random distinct pairs would measure the \
+             O(1) prefix exit)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[0]);
+            g.call("ff_version_eq", &[0, 1])
+        },
+    },
+    OpSpec {
+        name: "version_hash",
+        inputs: Inputs::Packed(&[Operand::Version]),
+        covers: &["Version Eq / Hash (canonical byte compare)"],
+        size_measure: "packed bytes of the hashed version (std's DefaultHasher \
+             over the canonical bytes)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            g.call_i64("ff_version_hash", &[0])
+        },
+    },
+    OpSpec {
         name: "version_join",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &[
@@ -653,6 +683,18 @@ pub const ROSTER: &[OpSpec] = &[
             }
         },
     },
+    OpSpec {
+        name: "party_hash",
+        inputs: Inputs::Packed(&[Operand::Party]),
+        covers: &["Party Eq / Hash (canonical byte compare)"],
+        size_measure: "packed bytes of the hashed party (std's DefaultHasher \
+             over the canonical bytes; equality is the same canonical byte \
+             compare the version_eq panel prices on its equal pair)",
+        measure: |g, inputs, _| {
+            load_party(g, 0, &inputs[0]);
+            g.call_i64("ff_party_hash", &[0])
+        },
+    },
     // ───────────────────────────── Clock ─────────────────────────────
     OpSpec {
         name: "clock_decode",
@@ -678,6 +720,33 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
+        name: "clock_display",
+        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        covers: &["Clock Display / FromStr / TryFrom"],
+        size_measure: "total packed bytes of the clock's party and version \
+             parts, split uniform (fuel includes writing the text output)",
+        measure: |g, inputs, _| {
+            compose_clock(g, &inputs[0], &inputs[1]);
+            g.call("ff_clock_display", &[0])
+        },
+    },
+    OpSpec {
+        name: "clock_fromstr",
+        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        covers: &["Clock Display / FromStr / TryFrom"],
+        size_measure: "packed bytes of the sampled clock parts, rendered to \
+             text by Display (the value measure pushed through rendering — \
+             not uniform over text; the adversarial text families keep the \
+             corner coverage); the measured parse runs the stamp's delimiter \
+             scan over the same per-part literal doors the TryFrom literal \
+             composes",
+        measure: |g, inputs, _| {
+            compose_clock(g, &inputs[0], &inputs[1]);
+            prep(g, "ff_clock_display", &[0]);
+            g.call("ff_clock_fromstr", &[1])
+        },
+    },
+    OpSpec {
         name: "clock_tick",
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::tick"],
@@ -695,6 +764,19 @@ pub const ROSTER: &[OpSpec] = &[
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_fork", &[3, 0])
+        },
+    },
+    OpSpec {
+        name: "clock_forks",
+        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        covers: &["Clock::forks"],
+        size_measure: "total packed bytes of the clock's party and version \
+             parts, split uniform (share count a declared constant, 8; the \
+             measured full drain pays the balanced party split plus one \
+             refcount-bump version clone per child)",
+        measure: |g, inputs, _| {
+            compose_clock(g, &inputs[0], &inputs[1]);
+            g.call("ff_clock_forks", &[3, 0, FORKS_SHARES])
         },
     },
     OpSpec {
@@ -765,6 +847,51 @@ pub const ROSTER: &[OpSpec] = &[
         measure: |g, inputs, _| {
             compose_clock_pair(g, inputs);
             g.call("ff_clock_sync", &[4, 5])
+        },
+    },
+    OpSpec {
+        name: "clock_sync_all",
+        inputs: Inputs::ClockSlice,
+        covers: &["Clock::sync_all"],
+        size_measure: "total packed bytes of one party and the drawn versions, split \
+             uniform over the compositions; clock count uniform over 1..=size−1 \
+             (every count the budget can feed), the party fork-split in preparation \
+             so the parties partition one region, and the measured reconcile folds \
+             the drawn clocks into the first and re-shares the region across every \
+             participant",
+        measure: |g, inputs, _| {
+            // The drawn clock count rides in-band, composed exactly as
+            // the clock_join_all row's.
+            let clocks = (inputs.len() - 1) as u32;
+            load_party(g, 0, &inputs[0]);
+            prep(g, "ff_party_forks", &[1, 0, clocks - 1]);
+            for (i, version) in inputs[1..].iter().enumerate() {
+                load_version(g, clocks + i as u32, version);
+            }
+            for i in 0..clocks {
+                prep(g, "ff_clock_from_parts", &[2 * clocks + i, i, clocks + i]);
+            }
+            g.call("ff_clock_sync_all", &[2 * clocks, 2 * clocks + 1, clocks - 1])
+        },
+    },
+    OpSpec {
+        name: "clock_recv_all",
+        inputs: Inputs::ClockSlice,
+        covers: &["Clock::recv_all"],
+        size_measure: "total packed bytes of one party and the drawn versions, split \
+             uniform over the compositions; version count uniform over 1..=size−1, \
+             the first version paired with the party as the receiving clock and the \
+             rest received as the message batch (a one-version draw receives the \
+             empty batch: the bare batch tick)",
+        measure: |g, inputs, _| {
+            let msgs = (inputs.len() - 2) as u32;
+            load_party(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            prep(g, "ff_clock_from_parts", &[2, 0, 1]);
+            for (i, version) in inputs[2..].iter().enumerate() {
+                load_version(g, 3 + i as u32, version);
+            }
+            g.call("ff_clock_recv_all", &[2, 3, msgs])
         },
     },
     OpSpec {
@@ -862,6 +989,87 @@ pub const ROSTER: &[OpSpec] = &[
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_version_rank", &[1, 0]);
             g.call("ff_rank_display", &[1])
+        },
+    },
+    OpSpec {
+        name: "rank_encode",
+        inputs: Inputs::Packed(&[Operand::Version]),
+        covers: &["Rank::encode"],
+        size_measure: "packed bytes of the version whose rank is encoded (rank \
+             derived by Version::rank in preparation; the measured emission is \
+             linear in the rank's numeric size, which the fold keeps linear in \
+             the packed input)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            prep(g, "ff_version_rank", &[1, 0]);
+            g.call("ff_rank_encode", &[1])
+        },
+    },
+    OpSpec {
+        name: "rank_decode",
+        inputs: Inputs::Packed(&[Operand::Version]),
+        covers: &["Rank::decode"],
+        size_measure: "packed bytes of the version whose rank's canonical \
+             stream is parsed (rank derived and encoded in unmeasured \
+             preparation; the measured strict parse is linear in the stream)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            prep(g, "ff_version_rank", &[1, 0]);
+            prep(g, "ff_rank_encode", &[1]);
+            g.call("ff_rank_decode", &[2])
+        },
+    },
+    OpSpec {
+        name: "ranked_encode",
+        inputs: Inputs::Packed(&[Operand::Version]),
+        covers: &["Ranked::encode"],
+        size_measure: "packed bytes of the viewed version (the composite key: \
+             one rank fold, the rank stream emission, and one copy of the \
+             version's canonical bytes; view construction is O(1))",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            g.call("ff_ranked_encode", &[0])
+        },
+    },
+    OpSpec {
+        name: "ranked_encode_rank",
+        inputs: Inputs::Packed(&[Operand::Version]),
+        covers: &["Ranked::encode_rank"],
+        size_measure: "packed bytes of the viewed version (the composite key's \
+             rank component alone: one fused rank fold and emission; view \
+             construction is O(1))",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            g.call("ff_ranked_encode_rank", &[0])
+        },
+    },
+    OpSpec {
+        name: "ranked_decode",
+        inputs: Inputs::Packed(&[Operand::Version]),
+        covers: &["Ranked::decode"],
+        size_measure: "packed bytes of the version whose composite key is \
+             parsed (key produced in unmeasured preparation; the measured \
+             decode runs the strict parse plus the verifying rank fold)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            prep(g, "ff_ranked_encode", &[0]);
+            g.call("ff_ranked_decode", &[1])
+        },
+    },
+    OpSpec {
+        name: "ranked_cmp",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["Ranked comparisons and the Ranked / Rank From conversions (the total order)"],
+        size_measure: "total packed bytes of the two viewed versions, split \
+             uniform (the fused signed rank co-sweep, one byte compare on \
+             rank ties; equal operands exit at the canonical-equality probe, \
+             so the co-sweep's axis reads from the distinct pairs; view \
+             construction is O(1), and the From conversions are the O(1) \
+             views plus the rank fold the version_rank panel prices)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            g.call("ff_ranked_cmp", &[0, 1])
         },
     },
     // ───────────────────────────────── Span ─────────────────────────────────
@@ -1112,6 +1320,306 @@ pub const ROSTER: &[OpSpec] = &[
             g.call("ff_own_span_dominance", &[4, 2, 3])
         },
     },
+    // ─────────────────────────── Causal queries ───────────────────────────
+    //
+    // One contains and one coverage panel per stored-bound shape a public
+    // constructor can produce with at most one hole. The query is composed
+    // in unmeasured preparation by the guest's shape constructors (each
+    // pins its shape by construction — no operand draw can prune it), so
+    // every panel prices one observation of one shape.
+    OpSpec {
+        name: "floor_contains",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally::Floor::contains"],
+        size_measure: "total packed bytes of the atom's bound and the probe, \
+             split uniform (one pair sweep under an O(1) verdict fold; the \
+             atom view is O(1) construction)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            g.call("ff_floor_contains", &[0, 1])
+        },
+    },
+    OpSpec {
+        name: "ceiling_contains",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally::Ceiling::contains"],
+        size_measure: "total packed bytes of the atom's bound and the probe, \
+             split uniform (the order dual of floor_contains: one pair sweep \
+             under an O(1) verdict fold; the atom view is O(1) construction)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            g.call("ff_ceiling_contains", &[0, 1])
+        },
+    },
+    OpSpec {
+        name: "query_contains_floor",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally::Query::contains"],
+        size_measure: "total packed bytes of the floor bound and the probe, \
+             split uniform (query composed in unmeasured preparation as \
+             after(f) & all(); the measured verdict is the fused membership \
+             walk over the probe and the one bound)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            prep(g, "ff_query_floor", &[2, 0]);
+            g.call("ff_query_contains", &[2, 1])
+        },
+    },
+    OpSpec {
+        name: "query_contains_ceiling",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally::Query::contains"],
+        size_measure: "total packed bytes of the ceiling bound and the probe, \
+             split uniform (query composed in unmeasured preparation as \
+             before(c) & all(); the measured verdict is the fused membership \
+             walk over the probe and the one bound)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            prep(g, "ff_query_ceiling", &[2, 0]);
+            g.call("ff_query_contains", &[2, 1])
+        },
+    },
+    OpSpec {
+        name: "query_contains_floor_ceiling",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Query::contains"],
+        size_measure: "total packed bytes of the floor, the ceiling, and the \
+             probe, split uniform three ways (query composed in unmeasured \
+             preparation as after(f) & before(c); the measured verdict is the \
+             fused membership walk over the probe and both bounds)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_query_floor_ceiling", &[3, 0, 1]);
+            g.call("ff_query_contains", &[3, 2])
+        },
+    },
+    OpSpec {
+        name: "query_contains_hole",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally::Query::contains"],
+        size_measure: "total packed bytes of the hole bound and the probe, \
+             split uniform (query composed in unmeasured preparation as \
+             since(s) — the lone-hole shape; the measured verdict is the \
+             fused membership walk over the probe and the one hole stream)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            prep(g, "ff_query_hole", &[2, 0]);
+            g.call("ff_query_contains", &[2, 1])
+        },
+    },
+    OpSpec {
+        name: "query_contains_floor_hole",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Query::contains"],
+        size_measure: "total packed bytes of the floor, the hole bound, and \
+             the probe, split uniform three ways (query composed in unmeasured \
+             preparation as toward(s, t) — floor plus one hole; the measured \
+             verdict is the fused membership walk over the probe and both \
+             bound streams)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_query_floor_hole", &[3, 0, 1]);
+            g.call("ff_query_contains", &[3, 2])
+        },
+    },
+    OpSpec {
+        name: "query_contains_ceiling_hole",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Query::contains"],
+        size_measure: "total packed bytes of the hole bound, the ceiling, and \
+             the probe, split uniform three ways (query composed in unmeasured \
+             preparation as delta(s, e) — ceiling plus one hole; the measured \
+             verdict is the fused membership walk over the probe and both \
+             bound streams)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_query_ceiling_hole", &[3, 0, 1]);
+            g.call("ff_query_contains", &[3, 2])
+        },
+    },
+    OpSpec {
+        name: "query_contains_floor_ceiling_hole",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Query::contains"],
+        size_measure: "total packed bytes of the strict-lower bound, the \
+             ceiling, and the probe, split uniform three ways (query composed \
+             in unmeasured preparation as strictly_after(a) & before(c) — \
+             floor, ceiling, and the hole at the floor, the fullest one-hole \
+             shape; the measured verdict is the fused membership walk over \
+             the probe and all three bound streams)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_query_floor_ceiling_hole", &[3, 0, 1]);
+            g.call("ff_query_contains", &[3, 2])
+        },
+    },
+    OpSpec {
+        name: "query_coverage_floor",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Query::coverage"],
+        size_measure: "total packed bytes of the floor bound and the two hull \
+             operands, split uniform three ways (query composed in unmeasured \
+             preparation as after(f) & all(), the span probe as the hull \
+             operands' pair hull; the measured verdict runs the fused \
+             two-probe co-walk plus the clamp legs it demands)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_query_floor", &[3, 0]);
+            prep(g, "ff_version_span", &[4, 1, 2]);
+            g.call("ff_query_coverage", &[3, 4])
+        },
+    },
+    OpSpec {
+        name: "query_coverage_ceiling",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Query::coverage"],
+        size_measure: "total packed bytes of the ceiling bound and the two \
+             hull operands, split uniform three ways (query composed in \
+             unmeasured preparation as before(c) & all(), the span probe as \
+             the hull operands' pair hull; the measured verdict runs the \
+             fused two-probe co-walk plus the clamp legs it demands)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_query_ceiling", &[3, 0]);
+            prep(g, "ff_version_span", &[4, 1, 2]);
+            g.call("ff_query_coverage", &[3, 4])
+        },
+    },
+    OpSpec {
+        name: "query_coverage_floor_ceiling",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["causally::Query::coverage"],
+        size_measure: "total packed bytes of the floor, the ceiling, and the \
+             two hull operands, split uniform four ways (query composed in \
+             unmeasured preparation as after(f) & before(c), the span probe \
+             as the hull operands' pair hull; the measured verdict runs the \
+             fused two-probe co-walk plus the clamp legs it demands)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_query_floor_ceiling", &[4, 0, 1]);
+            prep(g, "ff_version_span", &[5, 2, 3]);
+            g.call("ff_query_coverage", &[4, 5])
+        },
+    },
+    OpSpec {
+        name: "query_coverage_hole",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["causally::Query::coverage"],
+        size_measure: "total packed bytes of the hole bound and the two hull \
+             operands, split uniform three ways (query composed in unmeasured \
+             preparation as since(s) — the lone-hole shape — and the span \
+             probe as the hull operands' pair hull; the measured verdict runs \
+             the fused two-probe co-walk plus the clamp legs it demands)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_query_hole", &[3, 0]);
+            prep(g, "ff_version_span", &[4, 1, 2]);
+            g.call("ff_query_coverage", &[3, 4])
+        },
+    },
+    OpSpec {
+        name: "query_coverage_floor_hole",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["causally::Query::coverage"],
+        size_measure: "total packed bytes of the floor, the hole bound, and \
+             the two hull operands, split uniform four ways (query composed \
+             in unmeasured preparation as toward(s, t) — floor plus one hole \
+             — and the span probe as the hull operands' pair hull; the \
+             measured verdict runs the fused two-probe co-walk plus the clamp \
+             legs it demands)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_query_floor_hole", &[4, 0, 1]);
+            prep(g, "ff_version_span", &[5, 2, 3]);
+            g.call("ff_query_coverage", &[4, 5])
+        },
+    },
+    OpSpec {
+        name: "query_coverage_ceiling_hole",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["causally::Query::coverage"],
+        size_measure: "total packed bytes of the hole bound, the ceiling, and \
+             the two hull operands, split uniform four ways (query composed \
+             in unmeasured preparation as delta(s, e) — ceiling plus one hole \
+             — and the span probe as the hull operands' pair hull; the \
+             measured verdict runs the fused two-probe co-walk plus the clamp \
+             legs it demands)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_query_ceiling_hole", &[4, 0, 1]);
+            prep(g, "ff_version_span", &[5, 2, 3]);
+            g.call("ff_query_coverage", &[4, 5])
+        },
+    },
+    OpSpec {
+        name: "query_coverage_floor_ceiling_hole",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["causally::Query::coverage"],
+        size_measure: "total packed bytes of the strict-lower bound, the \
+             ceiling, and the two hull operands, split uniform four ways \
+             (query composed in unmeasured preparation as strictly_after(a) & \
+             before(c) — floor, ceiling, and the hole at the floor, the \
+             fullest one-hole shape — and the span probe as the hull \
+             operands' pair hull; the measured verdict runs the fused \
+             two-probe co-walk plus the clamp legs it demands)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_query_floor_ceiling_hole", &[4, 0, 1]);
+            prep(g, "ff_version_span", &[5, 2, 3]);
+            g.call("ff_query_coverage", &[4, 5])
+        },
+    },
 ];
 
 /// The coverage roster rows deliberately without a panel, each with its
@@ -1121,11 +1629,12 @@ pub const ROSTER: &[OpSpec] = &[
 /// `tests.rs` enforces membership both ways, so these reasons are for
 /// the owner's eyes.
 ///
-/// Three recurring genres: constant-input constructors have no size axis
-/// to plot; O(1)-scale accessors and delegating wrappers are priced at
-/// the operation they wrap; and operations without a guest kernel cannot
-/// be measured in the atlas's fuel currency (adding kernels is a
-/// `crates/before` change outside this crate).
+/// Two recurring genres: constant-input constructors and other O(1)
+/// forms have no honest size axis to plot, and delegating wrappers are
+/// priced at the panel of the mechanism they enter. An exemption stands
+/// on a missing size axis or on mechanism identity — never on a missing
+/// kernel (the guest grows a kernel whenever an operation deserves its
+/// own panel).
 pub const EXEMPTIONS: &[(&str, &str)] = &[
     // ── constructors without a size axis ──
     (
@@ -1174,8 +1683,8 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "Version::ranked",
-        "O(1) borrowing view construction (the version_rank panel prices the walk \
-         its comparisons run)",
+        "O(1) borrowing view construction (the ranked_cmp panel prices the \
+         comparisons the view defers to, the version_rank panel the rank fold)",
     ),
     ("Ranked::version", "O(1) borrow of the viewed version"),
     (
@@ -1199,17 +1708,6 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          clock's own parts (the version_ticks panel prices it)",
     ),
     (
-        "Clock::forks",
-        "composition of the balanced party split (the party_forks panel prices the \
-         walk) with one version refcount-bump clone per share; no distinct walk",
-    ),
-    (
-        "Clock Display / FromStr / TryFrom",
-        "composition of the party and version text walks (the party and version \
-         text panels price them) plus a top-level delimiter scan over the same \
-         text; no distinct walk",
-    ),
-    (
         "Party::encode_to",
         "the encode walk with a writer sink; the party_encode panel prices the walk",
     ),
@@ -1229,7 +1727,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     (
         "Clock | Version and Version | Clock (heterogeneous joins, |=)",
         "the version-join walk entered through the clock's version; the version_join \
-         panel prices the walk (no guest kernel for the heterogeneous entry)",
+         panel prices the walk, and the entry adds no size-dependent work of its own",
     ),
     (
         "From<Party> for [Party; N] (consuming balanced split)",
@@ -1237,19 +1735,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     (
         "From<Clock> for [Clock; N] (consuming balanced split)",
-        "consuming form of the Clock::forks composition: the balanced party split \
-         (party_forks panel) plus one version refcount-bump clone per share",
+        "consuming form of the balanced drain the clock_forks panel prices",
     ),
     (
         "iter::Party / iter::Clock (Forks iterators, drop folds back)",
-        "hand-out mechanics over the balanced split the party_forks panel prices",
-    ),
-    (
-        "Ranked comparisons and the Ranked / Rank From conversions (the total order)",
-        "the fused signed instance of the pair co-sweep the version_rank panel's \
-         integrator runs (plus one byte compare on rank ties); no guest kernel \
-         exports the rank view (adding kernels is a crates/before change outside \
-         this crate)",
+        "hand-out mechanics over the balanced splits the party_forks and \
+         clock_forks panels price",
     ),
     (
         "Ranked::to_rank",
@@ -1257,40 +1748,19 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          version_rank panel prices it)",
     ),
     (
-        "Ranked::encode",
-        "the rank walk plus a linear emission and one version byte copy; no guest \
-         kernel exports the composite key",
-    ),
-    (
-        "Ranked::encode_rank",
-        "the rank walk plus a linear emission; no guest kernel exports the encoding",
-    ),
-    (
-        "Rank::encode",
-        "a linear emission over an in-memory rank; no guest kernel exports the encoding",
-    ),
-    (
         "Rank::encode_to",
-        "the identical emission with a writer sink; priced as Rank::encode",
+        "the identical emission with a writer sink; the rank_encode panel prices \
+         the emission",
     ),
     (
         "Ranked::encode_to",
-        "the composite key emission with a writer sink; priced as Ranked::encode",
+        "the identical composite key emission with a writer sink; the \
+         ranked_encode panel prices the emission",
     ),
     (
         "Ranked::encode_rank_to",
-        "the fused rank walk and emission with a writer sink; priced as \
-         Ranked::encode_rank",
-    ),
-    (
-        "Rank::decode",
-        "a linear strict parse into an in-memory rank; no guest kernel exports the \
-         decoding",
-    ),
-    (
-        "Ranked::decode",
-        "a linear strict parse plus the verifying rank walk the version_rank panel \
-         prices; no guest kernel exports the composite key",
+        "the identical fused rank walk and emission with a writer sink; the \
+         ranked_encode_rank panel prices it",
     ),
     (
         "Span::encode_to",
@@ -1309,16 +1779,6 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     // ── representation mechanics ──
     (
-        "Version Eq / Hash (canonical byte compare)",
-        "byte compare/hash of the canonical form; representation mechanics, not a \
-         tree walk",
-    ),
-    (
-        "Party Eq / Hash (canonical byte compare)",
-        "byte compare/hash of the canonical form; representation mechanics, not a \
-         tree walk",
-    ),
-    (
         "Ticks ZERO / From / FromStr / Display / Add / Sum / Ord / Eq / Hash",
         "the opaque count carrier's own arithmetic and text, not a tree walk; its \
          semantics are priced at the min_ticks panel",
@@ -1326,20 +1786,22 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     // ── linearity escape hatches ──
     (
         "Party::dangerously_alias",
-        "deliberate linearity escape hatch: a refcount-bump clone of the shared stored buffer, no guest kernel",
+        "deliberate linearity escape hatch: an O(1) refcount-bump clone of the \
+         shared stored buffer — no size axis",
     ),
     (
         "Clock::dangerously_alias",
-        "deliberate linearity escape hatch: a two-field refcount-bump clone of the \
-         shared stored buffers, no guest kernel",
+        "deliberate linearity escape hatch: an O(1) two-field refcount-bump clone \
+         of the shared stored buffers — no size axis",
     ),
-    // ── no guest kernel exports the operation ──
+    // ── codec shims ──
     (
         "serde / borsh impls (feature-gated, strict-decode pinned)",
-        "feature-gated shims over the packed codecs; the decode/encode panels price \
-         the walks, and no guest kernel exports the shims (the guest builds the \
-         crate at default features)",
+        "feature-gated shims over the packed codecs: a panel would re-measure the \
+         identical encode/decode walks the codec panels price, under framing that \
+         adds no size-dependent work",
     ),
+    // ── causal query constructors and O(1) forms ──
     (
         "causally::all",
         "O(1) unbounded-query constructor: no stored bounds, no comparison, \
@@ -1382,35 +1844,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          comparison; the membership panels price the walks it feeds",
     ),
     (
-        "causally::Floor::contains",
-        "one pair sweep: the version_cmp panel's measured operation under an \
-         O(1) verdict fold",
-    ),
-    (
         "causally::Floor::or_concurrent",
         "O(1) re-spelling of the atom as a one-hole query: no comparison, no walk",
     ),
     (
-        "causally::Ceiling::contains",
-        "one pair sweep: the version_cmp panel's measured operation under an \
-         O(1) verdict fold",
-    ),
-    (
         "causally::Ceiling::or_concurrent",
         "O(1) re-spelling of the atom as a one-hole query: no comparison, no walk",
-    ),
-    (
-        "causally::Query::contains",
-        "the fused membership co-walk with demand hooks (branch-only, no stream \
-         or accumulator work of their own): the span_place panel prices the \
-         multi-bound walk, and the one-bound form degenerates to the \
-         version_cmp panel's pair sweep — both identities meter-pinned",
-    ),
-    (
-        "causally::Query::coverage",
-        "the fused two-probe co-walk plus, on verdicts the walk alone cannot \
-         close, at most two clamp walks: the span_place panel prices the walk \
-         class and the version_join/version_meet panels the clamp legs",
     ),
     (
         "causally::Query::into_owned",

@@ -13,7 +13,8 @@
 //! Contract with the harness (which is the only caller):
 //!
 //! - Registers are dense indices into a growable file; a slot holds a
-//!   `Version`, `Party`, `Clock`, `Rank`, or `Span`. Ops that consume an operand
+//!   `Version`, `Party`, `Clock`, `Rank`, `Span`, or an owned causal
+//!   query. Ops that consume an operand
 //!   (`join`, `without`, fold drains) take it out of its slot — the register
 //!   file is linear exactly where the API is linear, so a generator that
 //!   replays a valid program here cannot alias a `Party`.
@@ -29,9 +30,12 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt::Write as _;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
-use before::causally::{Dominance, Endpoint, Placement, Span};
-use before::{Clock, Party, Rank, Version};
+use before::causally::{
+    self, Coverage, Dominance, Down, Endpoint, Neutral, Placement, Query, Span, Up,
+};
+use before::{Clock, Party, Rank, Ranked, Version};
 
 /// One register-file slot: any value the public surface produces.
 enum Val {
@@ -40,6 +44,40 @@ enum Val {
     C(Clock),
     R(Rank),
     S(Span<'static>),
+    Q(StoredQuery),
+}
+
+/// An owned causal query, its polarity settled at construction.
+///
+/// `Query`'s polarity is a type parameter, so one register slot holds
+/// the three owned instantiations behind one dispatch; both public
+/// observations are polarity-uniform, so each dispatch arm is the same
+/// call.
+enum StoredQuery {
+    N(Query<'static, Neutral>),
+    D(Query<'static, Down>),
+    U(Query<'static, Up>),
+}
+
+impl StoredQuery {
+    /// `Query::contains`, dispatched over the stored polarity.
+    fn contains(&self, version: &Version) -> bool {
+        match self {
+            StoredQuery::N(q) => q.contains(version),
+            StoredQuery::D(q) => q.contains(version),
+            StoredQuery::U(q) => q.contains(version),
+        }
+    }
+
+    /// `Query::coverage`, dispatched over the stored polarity (the probe
+    /// rides as a reborrow, so the span stays in its register).
+    fn coverage(&self, span: &Span<'static>) -> Coverage {
+        match self {
+            StoredQuery::N(q) => q.coverage(span.reborrow()),
+            StoredQuery::D(q) => q.coverage(span.reborrow()),
+            StoredQuery::U(q) => q.coverage(span.reborrow()),
+        }
+    }
 }
 
 // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
@@ -165,6 +203,20 @@ fn with_s<T>(reg: u32, f: impl FnOnce(&Span<'static>) -> T) -> Option<T> {
         Some(Some(Val::S(s))) => Some(f(s)),
         _ => None,
     })
+}
+
+/// Run `f` with a borrowed stored query in `reg`.
+fn with_q<T>(reg: u32, f: impl FnOnce(&StoredQuery) -> T) -> Option<T> {
+    REGS.with_borrow(|regs| match regs.get(reg as usize) {
+        Some(Some(Val::Q(q))) => Some(f(q)),
+        _ => None,
+    })
+}
+
+/// Clone the `Version` in `reg` (a refcount-bump buffer share: the
+/// query construction kernels' unmeasured operand fetch).
+fn clone_v(reg: u32) -> Option<Version> {
+    with_v(reg, Version::clone)
 }
 
 /// Run `f` with a mutable `Party` in `reg`.
@@ -374,6 +426,41 @@ pub extern "C" fn ff_party_fromstr(dst: u32) -> i32 {
     })
 }
 
+/// Render the `Clock` in `src` to text in the staging buffer.
+#[no_mangle]
+pub extern "C" fn ff_clock_display(src: u32) -> i32 {
+    REGS.with_borrow(|regs| match regs.get(src as usize) {
+        Some(Some(Val::C(c))) => {
+            let mut s = String::new();
+            write!(s, "{c}").expect("Display into String cannot fail");
+            STAGE.with_borrow_mut(|stage| *stage = s.into_bytes());
+            OK
+        }
+        _ => ERR_REG,
+    })
+}
+
+/// Parse the staged text as a `Clock` into `dst`.
+///
+/// The text door mints the clock's party from the literal; the atlas
+/// only replays text a staged clock rendered, so no minted party ever
+/// meets a live handle.
+#[no_mangle]
+pub extern "C" fn ff_clock_fromstr(dst: u32) -> i32 {
+    STAGE.with_borrow(|stage| {
+        let Ok(text) = std::str::from_utf8(stage) else {
+            return ERR_CODEC;
+        };
+        match text.parse::<Clock>() {
+            Ok(c) => {
+                put(dst, Val::C(c));
+                OK
+            }
+            Err(_) => ERR_CODEC,
+        }
+    })
+}
+
 // ─── Version operations (measured) ───────────────────────────────────────────
 
 /// `Version::tick`: tick the version in `ver` with the party in `party`.
@@ -500,6 +587,33 @@ pub extern "C" fn ff_version_concurrent(a: u32, b: u32) -> i32 {
         Some(Some(c)) => i32::from(c),
         _ => ERR_REG,
     }
+}
+
+/// `Version` equality (`==` on the canonical forms): 0 or 1.
+///
+/// The byte compare short-circuits at the first differing byte, so its
+/// size-proportional worst case is the equal pair; the atlas's eq panel
+/// decodes one sampled encoding into both operand registers so the
+/// measured compare runs the whole length.
+#[no_mangle]
+pub extern "C" fn ff_version_eq(a: u32, b: u32) -> i32 {
+    match with_v(a, |va| with_v(b, |vb| va == vb)) {
+        Some(Some(eq)) => i32::from(eq),
+        _ => ERR_REG,
+    }
+}
+
+/// `Version`'s `Hash` through std's `DefaultHasher`; returns the
+/// finished hash masked nonnegative, with `-1` reserved for a bad
+/// register (the `i64` channel, as `ff_version_min_ticks`).
+#[no_mangle]
+pub extern "C" fn ff_version_hash(src: u32) -> i64 {
+    with_v(src, |v| {
+        let mut hasher = DefaultHasher::new();
+        v.hash(&mut hasher);
+        (hasher.finish() & 0x7fff_ffff_ffff_ffff) as i64
+    })
+    .unwrap_or(-1)
 }
 
 /// `Version::rank` into a `Rank` register.
@@ -800,6 +914,19 @@ pub extern "C" fn ff_party_without(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
+/// `Party`'s `Hash` through std's `DefaultHasher`; returns the finished
+/// hash masked nonnegative, with `-1` reserved for a bad register (the
+/// `i64` channel, as `ff_version_hash`).
+#[no_mangle]
+pub extern "C" fn ff_party_hash(src: u32) -> i64 {
+    with_p(src, |p| {
+        let mut hasher = DefaultHasher::new();
+        p.hash(&mut hasher);
+        (hasher.finish() & 0x7fff_ffff_ffff_ffff) as i64
+    })
+    .unwrap_or(-1)
+}
+
 // ─── Clock operations (measured) ─────────────────────────────────────────────
 
 /// `Clock::seed` into `dst`.
@@ -825,6 +952,25 @@ pub extern "C" fn ff_clock_fork(dst: u32, src: u32) -> i32 {
     match forked {
         Some(c) => {
             put(dst, Val::C(c));
+            OK
+        }
+        None => ERR_REG,
+    }
+}
+
+/// `Clock::forks(n)`: balanced child clocks into `dst..dst + n`, fully
+/// drained (the source keeps the remainder share, as `ff_party_forks`).
+///
+/// The drain pays the balanced party split plus one refcount-bump
+/// version clone per child.
+#[no_mangle]
+pub extern "C" fn ff_clock_forks(dst: u32, src: u32, n: u32) -> i32 {
+    let children = with_c_mut(src, |c| c.forks(u64::from(n)).collect::<Vec<_>>());
+    match children {
+        Some(children) => {
+            for (i, child) in children.into_iter().enumerate() {
+                put(dst + i as u32, Val::C(child));
+            }
             OK
         }
         None => ERR_REG,
@@ -868,6 +1014,52 @@ pub extern "C" fn ff_clock_join_all(a: u32, src: u32, n: u32) -> i32 {
         Some(Err(_)) => ERR_OP,
         None => ERR_REG,
     }
+}
+
+/// `Clock::sync_all`: reconcile the clocks in `src..src + n` with `a`,
+/// every participant re-shared in place.
+///
+/// On an overlap rejection the participants are dropped rather than
+/// restored, as in `ff_clock_join_all`: the error path is a roster
+/// bug, never a measurement.
+#[no_mangle]
+pub extern "C" fn ff_clock_sync_all(a: u32, src: u32, n: u32) -> i32 {
+    let mut ops = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        match take_c(src + i) {
+            Some(c) => ops.push(c),
+            None => return ERR_REG,
+        }
+    }
+    let synced = with_c_mut(a, |ca| ca.sync_all(ops.iter_mut()).map(|_| ()));
+    match synced {
+        Some(Ok(())) => {
+            for (i, c) in ops.into_iter().enumerate() {
+                put(src + i as u32, Val::C(c));
+            }
+            OK
+        }
+        Some(Err(_)) => ERR_OP,
+        None => ERR_REG,
+    }
+}
+
+/// `Clock::recv_all`: receive the versions in `src..src + n` into the
+/// clock in `c` (consumes the range; the batch is absorbed whole and
+/// recorded as one tick).
+#[no_mangle]
+pub extern "C" fn ff_clock_recv_all(c: u32, src: u32, n: u32) -> i32 {
+    let mut msgs = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        match take_v(src + i) {
+            Some(v) => msgs.push(v),
+            None => return ERR_REG,
+        }
+    }
+    code(with_c_mut(c, |clock| {
+        clock.recv_all(&msgs);
+        OK
+    }))
 }
 
 /// `Clock::send`.
@@ -1044,6 +1236,87 @@ pub extern "C" fn ff_rank_checked_sub(dst: u32, a: u32, b: u32) -> i32 {
             OK
         }
         Some(Some(None)) => ERR_OP,
+        _ => ERR_REG,
+    }
+}
+
+/// Encode the `Rank` in `src` into the staging buffer (the canonical
+/// self-delimiting order-preserving stream).
+#[no_mangle]
+pub extern "C" fn ff_rank_encode(src: u32) -> i32 {
+    code(with_r(src, |r| {
+        let bytes = r.encode();
+        STAGE.with_borrow_mut(|stage| *stage = bytes);
+        OK
+    }))
+}
+
+/// Decode the staged bytes as a canonical `Rank` into `dst`.
+#[no_mangle]
+pub extern "C" fn ff_rank_decode(dst: u32) -> i32 {
+    STAGE.with_borrow(|stage| match Rank::decode(stage.as_slice()) {
+        Ok(r) => {
+            put(dst, Val::R(r));
+            OK
+        }
+        Err(_) => ERR_CODEC,
+    })
+}
+
+/// `Ranked::encode`: the composite causal-ordering key of the version
+/// in `src`, into the staging buffer.
+///
+/// View construction is O(1) inside the window; the priced work is the
+/// rank fold, the rank stream emission, and the version byte copy.
+#[no_mangle]
+pub extern "C" fn ff_ranked_encode(src: u32) -> i32 {
+    code(with_v(src, |v| {
+        let bytes = Ranked::from(v).encode();
+        STAGE.with_borrow_mut(|stage| *stage = bytes);
+        OK
+    }))
+}
+
+/// `Ranked::encode_rank`: the composite key's rank component alone,
+/// into the staging buffer (one fused rank fold and emission).
+#[no_mangle]
+pub extern "C" fn ff_ranked_encode_rank(src: u32) -> i32 {
+    code(with_v(src, |v| {
+        let bytes = Ranked::from(v).encode_rank();
+        STAGE.with_borrow_mut(|stage| *stage = bytes);
+        OK
+    }))
+}
+
+/// `Ranked::decode`: parse the staged composite key — the strict parse
+/// plus the verifying rank fold — storing the recovered version in
+/// `dst`.
+#[no_mangle]
+pub extern "C" fn ff_ranked_decode(dst: u32) -> i32 {
+    STAGE.with_borrow(|stage| match Ranked::decode(stage.as_slice()) {
+        Ok(ranked) => {
+            put(dst, Val::V(ranked.version().clone()));
+            OK
+        }
+        Err(_) => ERR_CODEC,
+    })
+}
+
+/// The `Ranked` total order between the versions in `a` and `b`:
+/// 0 `Less`, 1 `Equal`, 2 `Greater`.
+///
+/// View construction is O(1) inside the window (the masked-comparison
+/// kernels' discipline); the priced work is the fused signed rank
+/// co-sweep, plus the version byte tiebreak on rank ties.
+#[no_mangle]
+pub extern "C" fn ff_ranked_cmp(a: u32, b: u32) -> i32 {
+    let verdict = with_v(a, |va| {
+        with_v(b, |vb| Ranked::from(va).cmp(&Ranked::from(vb)))
+    });
+    match verdict {
+        Some(Some(Ordering::Less)) => 0,
+        Some(Some(Ordering::Equal)) => 1,
+        Some(Some(Ordering::Greater)) => 2,
         _ => ERR_REG,
     }
 }
@@ -1320,6 +1593,150 @@ pub extern "C" fn ff_own_span_dominance(s: u32, p: u32, probe: u32) -> i32 {
             Dominance::Between => 1,
             Dominance::After => 2,
         },
+        _ => ERR_REG,
+    }
+}
+
+// ─── causal queries ──────────────────────────────────────────────────────────
+//
+// The construction kernels are unmeasured preparation: every public
+// query constructor is O(1) (or a comparison-free merge), so the atlas
+// prices only the two observations. Each constructor pins one
+// stored-bound shape by construction — the conjunction algebra prunes
+// holes against same-side bounds, and these spellings are chosen so no
+// operand draw can prune the shape away.
+
+/// Build `after(f) & all()` — the floor-only query — into `dst`
+/// (unmeasured preparation).
+#[no_mangle]
+pub extern "C" fn ff_query_floor(dst: u32, f: u32) -> i32 {
+    let Some(floor) = clone_v(f) else {
+        return ERR_REG;
+    };
+    let query = causally::after(floor) & causally::all();
+    put(dst, Val::Q(StoredQuery::N(query)));
+    OK
+}
+
+/// Build `before(c) & all()` — the ceiling-only query — into `dst`
+/// (unmeasured preparation).
+#[no_mangle]
+pub extern "C" fn ff_query_ceiling(dst: u32, c: u32) -> i32 {
+    let Some(ceiling) = clone_v(c) else {
+        return ERR_REG;
+    };
+    let query = causally::before(ceiling) & causally::all();
+    put(dst, Val::Q(StoredQuery::N(query)));
+    OK
+}
+
+/// Build `after(f) & before(c)` — floor and ceiling, no hole — into
+/// `dst` (unmeasured preparation).
+#[no_mangle]
+pub extern "C" fn ff_query_floor_ceiling(dst: u32, f: u32, c: u32) -> i32 {
+    let (Some(floor), Some(ceiling)) = (clone_v(f), clone_v(c)) else {
+        return ERR_REG;
+    };
+    let query = causally::after(floor) & causally::before(ceiling);
+    put(dst, Val::Q(StoredQuery::N(query)));
+    OK
+}
+
+/// Build `since(s)` — the lone-hole query — into `dst` (unmeasured
+/// preparation).
+#[no_mangle]
+pub extern "C" fn ff_query_hole(dst: u32, s: u32) -> i32 {
+    let Some(s) = clone_v(s) else {
+        return ERR_REG;
+    };
+    put(dst, Val::Q(StoredQuery::D(causally::since(s))));
+    OK
+}
+
+/// Build `toward(s, t)` — floor plus one hole — into `dst` (unmeasured
+/// preparation; no ceiling bounds the hole, so it survives whatever the
+/// operands' causal relation).
+#[no_mangle]
+pub extern "C" fn ff_query_floor_hole(dst: u32, s: u32, t: u32) -> i32 {
+    let (Some(s), Some(t)) = (clone_v(s), clone_v(t)) else {
+        return ERR_REG;
+    };
+    put(dst, Val::Q(StoredQuery::U(causally::toward(s, t))));
+    OK
+}
+
+/// Build `delta(s, e)` — ceiling plus one hole — into `dst` (unmeasured
+/// preparation; no floor bounds the hole, so it survives whatever the
+/// operands' causal relation).
+#[no_mangle]
+pub extern "C" fn ff_query_ceiling_hole(dst: u32, s: u32, e: u32) -> i32 {
+    let (Some(s), Some(e)) = (clone_v(s), clone_v(e)) else {
+        return ERR_REG;
+    };
+    put(dst, Val::Q(StoredQuery::D(causally::delta(s, e))));
+    OK
+}
+
+/// Build `strictly_after(a) & before(c)` — floor, ceiling, and one hole
+/// — into `dst` (unmeasured preparation; the hole sits at the floor
+/// itself, so the merge's pruning keeps it whatever the operands).
+#[no_mangle]
+pub extern "C" fn ff_query_floor_ceiling_hole(dst: u32, a: u32, c: u32) -> i32 {
+    let (Some(a), Some(c)) = (clone_v(a), clone_v(c)) else {
+        return ERR_REG;
+    };
+    let query = causally::strictly_after(a) & causally::before(c);
+    put(dst, Val::Q(StoredQuery::D(query)));
+    OK
+}
+
+/// `Query::contains`: whether the query in `q` admits the version in
+/// `probe` (0 or 1) — the fused membership co-walk over the probe and
+/// every stored bound.
+#[no_mangle]
+pub extern "C" fn ff_query_contains(q: u32, probe: u32) -> i32 {
+    match with_q(q, |query| with_v(probe, |v| query.contains(v))) {
+        Some(Some(admitted)) => i32::from(admitted),
+        _ => ERR_REG,
+    }
+}
+
+/// `Query::coverage` of the span in `s` against the query in `q`:
+/// 0 `Empty`, 1 `Partial`, 2 `Full` — the fused two-probe co-walk plus,
+/// on verdicts the walk alone cannot close, the clamp legs.
+#[no_mangle]
+pub extern "C" fn ff_query_coverage(q: u32, s: u32) -> i32 {
+    match with_q(q, |query| with_s(s, |span| query.coverage(span))) {
+        Some(Some(Coverage::Empty)) => 0,
+        Some(Some(Coverage::Partial)) => 1,
+        Some(Some(Coverage::Full)) => 2,
+        _ => ERR_REG,
+    }
+}
+
+/// `Floor::contains` (the `after` atom's own membership): 0 or 1.
+///
+/// The atom is constructed in the measured window from the borrowed
+/// bound — an O(1) view; the priced work is one pair sweep under its
+/// O(1) verdict fold.
+#[no_mangle]
+pub extern "C" fn ff_floor_contains(bound: u32, probe: u32) -> i32 {
+    let verdict = with_v(bound, |b| with_v(probe, |v| causally::after(b).contains(v)));
+    match verdict {
+        Some(Some(admitted)) => i32::from(admitted),
+        _ => ERR_REG,
+    }
+}
+
+/// `Ceiling::contains` (the `before` atom's own membership): 0 or 1,
+/// the dual of `ff_floor_contains`.
+#[no_mangle]
+pub extern "C" fn ff_ceiling_contains(bound: u32, probe: u32) -> i32 {
+    let verdict = with_v(bound, |b| {
+        with_v(probe, |v| causally::before(b).contains(v))
+    });
+    match verdict {
+        Some(Some(admitted)) => i32::from(admitted),
         _ => ERR_REG,
     }
 }
