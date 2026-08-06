@@ -128,6 +128,11 @@ fn engine_and_module() -> &'static (Engine, Module) {
         pool.max_memory_size(POOL_MAX_MEMORY);
         pool.linear_memory_keep_resident(POOL_KEEP_RESIDENT);
         pool.table_keep_resident(POOL_KEEP_RESIDENT);
+        // Every slot stays warm: the default warm cap (100) is below a
+        // wide host's worker count, so half of every cycle's returns
+        // were decommitted (an address-space call again) and re-faulted
+        // on reuse — measured as double-digit DFL% mid-run.
+        pool.max_unused_warm_slots(POOL_SLOTS);
         config.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
         // Never used (no async calls are made), but wasmtime validates
         // async_stack_size >= max_wasm_stack even so.
