@@ -334,16 +334,29 @@ fn draw_inputs(
     }
 }
 
-/// Run one operation's whole atlas: every cell in parallel (each sample
-/// instantiates a fresh guest, so no state leaks between measurements),
-/// then the overlay points.
+/// [`run_op_with_progress`] without a listener.
+pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas {
+    run_op_with_progress(plan, samplers, op, || {})
+}
+
+/// Run one operation's whole atlas: every cell in parallel, then the
+/// overlay points.
+///
+/// Each sample instantiates a fresh guest, so no state leaks between
+/// measurements. `progress` is called once per completed bulk sample,
+/// from the sampling workers.
 ///
 /// The cell list is flattened before the parallel iteration so rayon
 /// splits across every (column, sample) pair, not merely across columns:
 /// the geometric grid makes the largest column cost about as much as all
 /// the others combined, so column-granular scheduling would idle every
 /// worker but one for half of each operation's run.
-pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas {
+pub fn run_op_with_progress(
+    plan: &Plan,
+    samplers: &Samplers,
+    op: &'static OpSpec,
+    progress: impl Fn() + Sync,
+) -> OpAtlas {
     let min_bytes = op.inputs.min_bytes();
     let cells: Vec<(usize, usize)> = plan
         .columns(min_bytes)
@@ -363,6 +376,7 @@ pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas 
                 op.name,
                 measured.ret
             );
+            progress();
             CellSample {
                 size,
                 arity,

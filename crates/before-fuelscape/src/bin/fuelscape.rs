@@ -31,6 +31,12 @@
 //! anything. So are the count-table build's progress lines: each table's
 //! entry counts are deterministic, but the two tables build
 //! concurrently, so their lines interleave in scheduler order.
+//!
+//! Panels sample [`CONCURRENT_PANELS`] at a time, each with a progress
+//! sub-bar under a run-total bar (tty only; a redirected run keeps the
+//! plain lines). Completion lines print in completion order — panel
+//! wall times overlap — while the gallery and the dump index keep
+//! roster order, and the measurements themselves stay order-free.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -43,14 +49,26 @@ use before_fuelscape::dump::{self, DumpWriter};
 /// The storm is a fresh wasmtime store per sample and big-integer
 /// temporaries per rejection draw, across every worker, against one
 /// global malloc mutex. Fuel readings are indifferent: the meter
-/// counts guest instructions.
+/// counts guest instructions. mimalloc's C runtime faults on illumos
+/// (startup segfault), so the gate matches the manifest's: an illumos
+/// launcher preloads libumem for the same relief.
+#[cfg(not(target_os = "illumos"))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use before_fuelscape::ops::ROSTER;
-use before_fuelscape::plan::{run_op, Plan, Samplers};
+use before_fuelscape::plan::{run_op_with_progress, Plan, Samplers};
 use before_fuelscape::render::{render_gallery, render_op, AtlasData, RenderMeta};
 use fuzzfit_harness::wasm::Guest;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+
+/// Panels sampled concurrently.
+///
+/// Each panel's own samples already fan out on the shared rayon pool,
+/// so this bounds only how many panels' serial phases (overlay points,
+/// render, dump append) overlap — and how many sub-bars the progress
+/// display carries at once.
+const CONCURRENT_PANELS: usize = 4;
 
 fn main() {
     let mut plan = Plan {
@@ -106,7 +124,7 @@ fn main() {
         samples_per_column: plan.samples_per_column,
     };
     std::fs::create_dir_all(&out).expect("output directory must be creatable");
-    let mut writer = dump_measurements
+    let writer = dump_measurements
         .then(|| DumpWriter::new(&out, meta.clone()).expect("dump index must be writable"));
 
     let t0 = Instant::now();
@@ -136,30 +154,89 @@ fn main() {
     drop(Guest::new());
     println!("guest module compiled: {:.1?}", t0.elapsed());
 
-    let mut rendered = Vec::new();
-    for op in ROSTER {
-        let t0 = Instant::now();
-        let atlas = run_op(&plan, &samplers, op);
-        let measured = t0.elapsed();
-        let rejected: u64 = atlas.samples.iter().map(|s| s.rejected).sum();
-        let accepted = atlas.samples.len() as u64;
-        let data = AtlasData::from_atlas(&atlas);
-        let path = render_op(&data, &meta, &out, font_scale).expect("render must succeed");
-        if let Some(writer) = writer.as_mut() {
-            writer.append(&data).expect("dump must be writable");
+    // The panel pool: CONCURRENT_PANELS workers pull roster rows off a
+    // shared cursor; each panel's samples fan out on the global rayon
+    // pool underneath. One sub-bar per in-flight panel, one total bar
+    // over every bulk sample in the run; completion lines print above
+    // the bars in completion order (the gallery keeps roster order).
+    // On a non-tty the bars draw nothing and the lines remain.
+    let cell_counts: Vec<usize> = ROSTER
+        .iter()
+        .map(|op| {
+            let min = op.inputs.min_bytes();
+            plan.columns(min)
+                .into_iter()
+                .map(|size| plan.samples_for(size, min))
+                .sum()
+        })
+        .collect();
+    let bars = MultiProgress::new();
+    let total = bars.add(ProgressBar::new(cell_counts.iter().sum::<usize>() as u64));
+    total.set_style(
+        ProgressStyle::with_template(
+            "{msg:24} {wide_bar} {pos}/{len} samples  {elapsed_precise} (eta {eta})",
+        )
+        .expect("the progress template is well-formed"),
+    );
+    total.set_message(format!("total ({} panels)", ROSTER.len()));
+    let panel_style = ProgressStyle::with_template("{msg:24} {wide_bar} {pos}/{len}")
+        .expect("the progress template is well-formed");
+
+    let writer = std::sync::Mutex::new(writer);
+    let rendered = std::sync::Mutex::new(vec![None; ROSTER.len()]);
+    let cursor = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..CONCURRENT_PANELS.min(ROSTER.len()) {
+            scope.spawn(|| loop {
+                let i = cursor.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(op) = ROSTER.get(i) else {
+                    break;
+                };
+                let bar = bars.insert_before(&total, ProgressBar::new(cell_counts[i] as u64));
+                bar.set_style(panel_style.clone());
+                bar.set_message(op.name);
+                let t0 = Instant::now();
+                let atlas = run_op_with_progress(&plan, &samplers, op, || {
+                    bar.inc(1);
+                    total.inc(1);
+                });
+                let measured = t0.elapsed();
+                let rejected: u64 = atlas.samples.iter().map(|s| s.rejected).sum();
+                let accepted = atlas.samples.len() as u64;
+                let data = AtlasData::from_atlas(&atlas);
+                let path =
+                    render_op(&data, &meta, &out, font_scale).expect("render must succeed");
+                if let Some(writer) = writer.lock().expect("no panicked holder").as_mut() {
+                    writer.append(&data).expect("dump must be writable");
+                }
+                // suspend, not MultiProgress::println: println writes
+                // to the draw target, which a redirected run hides —
+                // the lines must survive in a nohup log.
+                bars.suspend(|| {
+                    println!(
+                        "{}: {} samples / {} columns, {} overlay points, acceptance {:.1}%, {:.1?} → {}",
+                        op.name,
+                        atlas.samples.len(),
+                        plan.columns(op.inputs.min_bytes()).len(),
+                        atlas.overlay.len(),
+                        100.0 * accepted as f64 / (accepted + rejected) as f64,
+                        measured,
+                        path.display()
+                    )
+                });
+                bar.finish_and_clear();
+                rendered.lock().expect("no panicked holder")[i] =
+                    Some((op.name.to_string(), path));
+            });
         }
-        println!(
-            "{}: {} samples / {} columns, {} overlay points, acceptance {:.1}%, {:.1?} → {}",
-            op.name,
-            atlas.samples.len(),
-            plan.columns(op.inputs.min_bytes()).len(),
-            atlas.overlay.len(),
-            100.0 * accepted as f64 / (accepted + rejected) as f64,
-            measured,
-            path.display()
-        );
-        rendered.push((op.name.to_string(), path));
-    }
+    });
+    total.finish_and_clear();
+    let rendered: Vec<(String, PathBuf)> = rendered
+        .into_inner()
+        .expect("no panicked holder")
+        .into_iter()
+        .map(|slot| slot.expect("every roster row ran"))
+        .collect();
     let gallery = render_gallery(&rendered, &meta, &out).expect("gallery must render");
     println!("gallery → {}", gallery.display());
 }
