@@ -80,7 +80,8 @@
 //!
 //! The arity is one: min_ticks is a single-stream fold, so no charge can draw
 //! on a ledger its own operand did not fund — the two-operand co-sweep's
-//! per-operand split (the module doc's pair section) is not needed here.
+//! per-operand split (the funding section of [`integral`](super::integral)) is
+//! not needed here.
 
 use core::cmp::Ordering;
 
@@ -89,7 +90,66 @@ use suanpan::{Accumulator, UBig};
 use crate::codec::{Base, Int};
 
 use super::super::signed::fold_signed_int;
-use super::mul_into;
+use super::integral::u32_digits;
+
+/// Add (or, with `subtract`, remove) `factor · digits · 2^shift` in the total:
+/// one `factor`-wide product per nonzero signed digit of the compacted `digits`
+/// operand.
+///
+/// The `digits` operand's base-2^32 digits are compacted greedily into balanced
+/// signed digits, so an all-ones run — the usual shape of a dyadic mass — costs
+/// one subtract at its floor and one carry past its top instead of a product
+/// per digit. The `shift` carries a `digits` operand read out at a scale (a
+/// segment mass parked deep in the stream) without ever materializing the
+/// scaled value.
+///
+/// The cost is the factor's width times the operand's compacted density, so
+/// this is the settle move for products whose `digits` side stays word-scale —
+/// this module's ledgers' reference counts, where the density is O(1) by
+/// construction. A product whose both sides the input can widen goes through
+/// [`charge_digits`](super::integral::charge_digits) instead, which delegates
+/// each dense cluster to the backend's sub-quadratic multiplication.
+pub(super) fn mul_into(
+    total: &mut Accumulator,
+    factor: &Base,
+    digits: &Base,
+    shift: u64,
+    subtract: bool,
+) {
+    if *factor == Base::ZERO || *digits == Base::ZERO {
+        return;
+    }
+    let mut carry = 0u64;
+    let mut add_term = |digit: u64, negative: bool, shift: u64| {
+        if digit == 0 {
+            return;
+        }
+        let mut product = factor.clone();
+        product *= u32::try_from(digit).expect("a compacted signed digit fits 32 bits");
+        if negative == subtract {
+            total.add_magnitude_shl(&product, shift);
+        } else {
+            total.sub_magnitude_shl(&product, shift);
+        }
+    };
+    let mut shift = shift;
+    for digit in u32_digits(digits) {
+        let digit_sum = u64::from(digit) + carry;
+        if digit_sum > 1 << 31 {
+            // Balanced arm: `digit_sum − 2^32` with a carry, so ones-runs
+            // cancel.
+            add_term((1u64 << 32) - digit_sum, true, shift);
+            carry = 1;
+        } else {
+            add_term(digit_sum, false, shift);
+            carry = 0;
+        }
+        shift += 32;
+    }
+    if carry == 1 {
+        add_term(1, false, shift);
+    }
+}
 
 /// The value the innermost minimum currently holds, as the sweep folds it: a
 /// frozen-relative offset, its epoch, and the closes counted at it since the

@@ -525,7 +525,7 @@ fn clusters_split_exactly_at_the_gap_limit() {
     let digits: &[(u64, i64)] = &[(0, 1), (3, -2), (4, 5), (8, 1), (20, -7)];
     // gap(0→3) = 2, gap(4→8) = 3, gap(8→20) = 11.
     let split = |limit: u64| -> Vec<Vec<u64>> {
-        super::clusters(digits, limit)
+        super::integral::clusters(digits, limit)
             .map(|c| c.iter().map(|&(i, _)| i).collect())
             .collect()
     };
@@ -577,7 +577,7 @@ proptest! {
         }
         let factor = Base::from(UBig::from_le_bytes(&factor_bytes));
         let mut clustered = Accumulator::new();
-        super::charge_digits(&mut clustered, neg, &factor, &digits);
+        super::integral::charge_digits(&mut clustered, neg, &factor, &digits);
         // The oracle: one whole-span product per sign side, no
         // clustering anywhere on the path.
         let mut positive = UBig::ZERO;
@@ -629,7 +629,7 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
     /// products (positive and negative sides separately), exact to the digit.
     fn assert_matches(factor: &Base, digits: &[(u64, i64)], neg: bool, label: &str) {
         let mut clustered = Accumulator::new();
-        super::charge_digits(&mut clustered, neg, factor, digits);
+        super::integral::charge_digits(&mut clustered, neg, factor, digits);
         let mut positive = UBig::ZERO;
         let mut negative = UBig::ZERO;
         for &(i, d) in digits {
@@ -669,7 +669,7 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
         // A patterned full-width factor (no digit zero, top digit set).
         let factor_bytes: Vec<u8> = (0..width * 4).map(|i| (i % 251) as u8 + 1).collect();
         let factor = Base::from(UBig::from_le_bytes(&factor_bytes));
-        let gap_limit = super::base_digits(&factor) as u64;
+        let gap_limit = super::integral::base_digits(&factor) as u64;
         // A dense run wider than the factor: the product's smaller side is the
         // factor, so the backend engages this width's own tier.
         let dense: Vec<(u64, i64)> = (0..width as u64 + 64)
@@ -816,7 +816,8 @@ fn dense_factor_tier_legs() {
 /// masses: the product tree's depth is `n − 1` there, linear in the entry
 /// count, while uniform masses keep it at `⌈log₂ n⌉`.
 ///
-/// The committed witness behind the module doc's depth denomination: the split
+/// The committed witness behind the `integral` module doc's depth
+/// denomination: the split
 /// arithmetic below replicates `Integrator::settle_armings`' inline rule
 /// verbatim (prefix sums, `div_ceil` midpoint, `partition_point`, the
 /// both-halves-nonempty clamp) — keep them in lockstep. What it demonstrates: a
@@ -825,10 +826,10 @@ fn dense_factor_tier_legs() {
 /// alone — with `n` entries of masses `2^1..2^n` the deepest entry is re-read
 /// `n − 1` times, not `O(log n)`. Every aggregate cost bound absorbs this
 /// (heavy leaves sit shallow, so mass-weighted traffic stays entropy-bounded at
-/// the total mass times the entry-count logarithm), which is why the module doc
-/// denominates the tree's depth in settle mass — at most `log |v|`, the mass
-/// being input-funded — and why its `O((n + D) log n)` claim is conditioned on
-/// `O(1)`-wide parked masses.
+/// the total mass times the entry-count logarithm), which is why the `integral`
+/// module doc denominates the tree's depth in settle mass — at most `log |v|`,
+/// the mass being input-funded — and why its `O((n + D) log n)` claim is
+/// conditioned on `O(1)`-wide parked masses.
 #[test]
 fn mass_midpoint_split_runs_linear_depth_on_exponential_masses() {
     /// Depth of the deepest leaf under the settle's split rule.
@@ -872,7 +873,8 @@ fn mass_midpoint_split_runs_linear_depth_on_exponential_masses() {
 /// adequacy tripwire.
 ///
 /// The anchored-segment integral exists because a freeze must not settle
-/// evicted drift against its absolute position (the module doc's discipline).
+/// evicted drift against its absolute position (the `integral` module doc's
+/// discipline).
 /// This module keeps the refuted accounting — the frozen/live split whose every
 /// freeze correction multiplies the drift by the whole position accumulator,
 /// read across its full written span — committed and *failing*: the tripwire
@@ -894,7 +896,9 @@ mod adequacy {
 
     use crate::version::skyline::signed::fold_signed_int;
 
-    use super::super::{int_digits, max_depth, mul_into, FREEZE_ALLOWANCE_DIGITS};
+    use super::super::integral::{int_digits, FREEZE_ALLOWANCE_DIGITS};
+    use super::super::max_depth;
+    use super::super::web::mul_into;
 
     /// The absolute-position rank fold: heights on a frozen/live split whose
     /// freeze correction is `drift × position` with the position accumulator
@@ -998,7 +1002,8 @@ mod adequacy {
     // ── the span-reading promotion accounting ──────────────────────────
     //
     // The promotion ledger exists because a promotion must not re-read
-    // whole-history position state (the module doc's promotion-ledger bullet).
+    // whole-history position state (the `integral` module doc's
+    // promotion-ledger section).
     // This kernel keeps the refuted accounting — the full anchored-segment
     // integrator whose promotion debits `P × position` by reading an absolute
     // position accumulator across its written span, re-anchoring the parked
@@ -1021,7 +1026,7 @@ mod adequacy {
         total: Accumulator,
         live: Accumulator,
         parked: Accumulator,
-        seg: Accumulator,
+        segment_mass: Accumulator,
         base: Accumulator,
         /// The absolute interval mass consumed through the last settled
         /// segment: the whole-history state the promotion re-reads.
@@ -1035,7 +1040,7 @@ mod adequacy {
                 total: Accumulator::new(),
                 live: Accumulator::new(),
                 parked: Accumulator::new(),
-                seg: Accumulator::new(),
+                segment_mass: Accumulator::new(),
                 base: Accumulator::new(),
                 position: Accumulator::new(),
                 one: Base::from(1u8),
@@ -1050,7 +1055,7 @@ mod adequacy {
             if !self.live.is_literally_zero() {
                 self.total.add_accum_shl(&self.live, weight_shift);
             }
-            self.seg.add_magnitude_shl(&self.one, weight_shift);
+            self.segment_mass.add_magnitude_shl(&self.one, weight_shift);
         }
 
         fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
@@ -1083,7 +1088,7 @@ mod adequacy {
             let drift = Base::from(drift);
             self.settle_segment();
             if self.parked.digit_count()
-                > super::super::base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS
+                > super::super::integral::base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS
             {
                 self.promote();
             }
@@ -1092,29 +1097,29 @@ mod adequacy {
                 _ => self.parked.add_magnitude(&drift),
             }
             self.live.reset();
-            self.seg = Accumulator::new();
+            self.segment_mass = Accumulator::new();
         }
 
         fn settle_segment(&mut self) {
-            let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
-            if seg_mag == suanpan::UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
+            if segment_magnitude == suanpan::UBig::ZERO {
                 return;
             }
-            let seg = Base::from(seg_mag);
-            self.position.add_magnitude_shl(&seg, seg_shift);
+            let segment = Base::from(segment_magnitude);
+            self.position.add_magnitude_shl(&segment, segment_shift);
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (p_sign, p_mag) = self.parked.sign_magnitude();
-            if p_mag == suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
+            if parked_magnitude == suanpan::UBig::ZERO {
                 return;
             }
             mul_into(
                 &mut self.total,
-                &Base::from(p_mag),
-                &seg,
-                seg_shift,
-                p_sign == Ordering::Less,
+                &Base::from(parked_magnitude),
+                &segment,
+                segment_shift,
+                parked_sign == Ordering::Less,
             );
         }
 
@@ -1122,32 +1127,32 @@ mod adequacy {
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (p_sign, p_mag) = self.parked.sign_magnitude();
-            if p_mag == suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
+            if parked_magnitude == suanpan::UBig::ZERO {
                 return;
             }
-            let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
             mul_into(
                 &mut self.total,
-                &Base::from(p_mag),
-                &Base::from(seg_mag),
-                seg_shift,
-                p_sign == Ordering::Less,
+                &Base::from(parked_magnitude),
+                &Base::from(segment_magnitude),
+                segment_shift,
+                parked_sign == Ordering::Less,
             );
         }
 
         /// The refuted move: `P × position` with the position read whole, then
         /// `P` re-anchored into the base.
         fn promote(&mut self) {
-            let (p_sign, p_mag) = self.parked.sign_magnitude();
-            if p_mag != suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
+            if parked_magnitude != suanpan::UBig::ZERO {
                 let (_, pos_mag, pos_shift) = self.position.sign_magnitude_shl();
                 mul_into(
                     &mut self.total,
-                    &Base::from(p_mag),
+                    &Base::from(parked_magnitude),
                     &Base::from(pos_mag),
                     pos_shift,
-                    p_sign == Ordering::Greater,
+                    parked_sign == Ordering::Greater,
                 );
                 self.base.add_accum(&self.parked);
             }
@@ -1181,7 +1186,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-            integral.boundary(super::super::int_digits(&step.magnitude));
+            integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
         integral.finish(max_depth as u64)
     }
@@ -1231,7 +1236,7 @@ mod adequacy {
             let funded = da
                 .iter()
                 .chain(db.iter())
-                .map(|step| super::super::int_digits(&step.magnitude))
+                .map(|step| super::super::integral::int_digits(&step.magnitude))
                 .max()
                 .unwrap_or(1);
             integral.boundary(funded);
@@ -1336,7 +1341,8 @@ mod adequacy {
     //
     // The mass-balanced product-tree settle exists because the ledger's debt
     // must not be charged by walking a shared suffix once per arming (the
-    // module doc's settle bound). This kernel keeps the refuted accounting —
+    // `integral` module doc's settle bound). This kernel keeps the refuted
+    // accounting —
     // the ledger assembled newest-first into one running suffix mass, each
     // arming's charge re-reading that suffix's whole density — committed and
     // failing on the dense-suffix family, through both the single-stream and
@@ -1345,7 +1351,7 @@ mod adequacy {
     // against the shipped folds: the suffix walk computes the same cross-term
     // sum, term by term; only its cost class is not the tree's.
 
-    use crate::version::skyline::query::{Arming, WindowMass};
+    use crate::version::skyline::query::integral::{Arming, WindowMass};
 
     /// The anchored-segment integral with the per-arming suffix-walk settle.
     ///
@@ -1356,9 +1362,9 @@ mod adequacy {
         total: Accumulator,
         live: Accumulator,
         parked: Accumulator,
-        seg: Accumulator,
+        segment_mass: Accumulator,
         base: Accumulator,
-        pos_local: Accumulator,
+        banked_window: Accumulator,
         promotions: Vec<Arming>,
         one: Base,
     }
@@ -1369,9 +1375,9 @@ mod adequacy {
                 total: Accumulator::new(),
                 live: Accumulator::new(),
                 parked: Accumulator::new(),
-                seg: Accumulator::new(),
+                segment_mass: Accumulator::new(),
                 base: Accumulator::new(),
-                pos_local: Accumulator::new(),
+                banked_window: Accumulator::new(),
                 promotions: Vec::new(),
                 one: Base::from(1u8),
             }
@@ -1385,7 +1391,7 @@ mod adequacy {
             if !self.live.is_literally_zero() {
                 self.total.add_accum_shl(&self.live, weight_shift);
             }
-            self.seg.add_magnitude_shl(&self.one, weight_shift);
+            self.segment_mass.add_magnitude_shl(&self.one, weight_shift);
         }
 
         fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
@@ -1418,7 +1424,7 @@ mod adequacy {
             let drift = Base::from(drift);
             self.settle_segment();
             if self.parked.digit_count()
-                > super::super::base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS
+                > super::super::integral::base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS
             {
                 self.promote();
             }
@@ -1427,29 +1433,30 @@ mod adequacy {
                 _ => self.parked.add_magnitude(&drift),
             }
             self.live.reset();
-            self.seg = Accumulator::new();
+            self.segment_mass = Accumulator::new();
         }
 
         fn settle_segment(&mut self) {
-            let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
-            if seg_mag == suanpan::UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
+            if segment_magnitude == suanpan::UBig::ZERO {
                 return;
             }
-            let seg = Base::from(seg_mag);
-            self.pos_local.add_magnitude_shl(&seg, seg_shift);
+            let segment = Base::from(segment_magnitude);
+            self.banked_window
+                .add_magnitude_shl(&segment, segment_shift);
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (p_sign, p_mag) = self.parked.sign_magnitude();
-            if p_mag == suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
+            if parked_magnitude == suanpan::UBig::ZERO {
                 return;
             }
             mul_into(
                 &mut self.total,
-                &Base::from(p_mag),
-                &seg,
-                seg_shift,
-                p_sign == Ordering::Less,
+                &Base::from(parked_magnitude),
+                &segment,
+                segment_shift,
+                parked_sign == Ordering::Less,
             );
         }
 
@@ -1457,31 +1464,31 @@ mod adequacy {
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (p_sign, p_mag) = self.parked.sign_magnitude();
-            if p_mag == suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
+            if parked_magnitude == suanpan::UBig::ZERO {
                 return;
             }
-            let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
             mul_into(
                 &mut self.total,
-                &Base::from(p_mag),
-                &Base::from(seg_mag),
-                seg_shift,
-                p_sign == Ordering::Less,
+                &Base::from(parked_magnitude),
+                &Base::from(segment_magnitude),
+                segment_shift,
+                parked_sign == Ordering::Less,
             );
         }
 
         fn promote(&mut self) {
-            let (p_sign, p_mag) = self.parked.sign_magnitude();
-            if p_mag != suanpan::UBig::ZERO {
-                let (_, w_mag, w_shift) = self.pos_local.sign_magnitude_shl();
+            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
+            if parked_magnitude != suanpan::UBig::ZERO {
+                let (_, window_magnitude, window_shift) = self.banked_window.sign_magnitude_shl();
                 self.promotions.push(Arming {
-                    neg: p_sign == Ordering::Less,
-                    parked: Base::from(p_mag),
-                    window: w_mag,
-                    shift: w_shift,
+                    negative: parked_sign == Ordering::Less,
+                    parked: Base::from(parked_magnitude),
+                    window: window_magnitude,
+                    shift: window_shift,
                 });
-                self.pos_local = Accumulator::new();
+                self.banked_window = Accumulator::new();
             }
             self.parked.reset();
         }
@@ -1492,14 +1499,15 @@ mod adequacy {
             if self.promotions.is_empty() {
                 return;
             }
-            let (_, t_mag, t_shift) = self.pos_local.sign_magnitude_shl();
+            let (_, final_window_magnitude, final_window_shift) =
+                self.banked_window.sign_magnitude_shl();
             let mut suffix = WindowMass::new();
-            if t_mag != suanpan::UBig::ZERO {
-                suffix.merge(&t_mag, t_shift);
+            if final_window_magnitude != suanpan::UBig::ZERO {
+                suffix.merge(&final_window_magnitude, final_window_shift);
             }
             let armings = core::mem::take(&mut self.promotions);
             for (i, arming) in armings.iter().enumerate().rev() {
-                suffix.charge(&mut self.total, arming.neg, &arming.parked);
+                suffix.charge(&mut self.total, arming.negative, &arming.parked);
                 if i > 0 {
                     suffix.merge(&arming.window, arming.shift);
                 }
@@ -1509,10 +1517,10 @@ mod adequacy {
         fn finish(mut self, closing_shift: u64) -> Rank {
             self.settle();
             if !self.promotions.is_empty() {
-                let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
-                if seg_mag != suanpan::UBig::ZERO {
-                    self.pos_local
-                        .add_magnitude_shl(&Base::from(seg_mag), seg_shift);
+                let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
+                if segment_magnitude != suanpan::UBig::ZERO {
+                    self.banked_window
+                        .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
                 }
                 self.settle_armings();
             }
@@ -1541,7 +1549,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-            integral.boundary(super::super::int_digits(&step.magnitude));
+            integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
         integral.finish(max_depth as u64)
     }
@@ -1591,7 +1599,7 @@ mod adequacy {
             let funded = da
                 .iter()
                 .chain(db.iter())
-                .map(|step| super::super::int_digits(&step.magnitude))
+                .map(|step| super::super::integral::int_digits(&step.magnitude))
                 .max()
                 .unwrap_or(1);
             integral.boundary(funded);
@@ -1713,7 +1721,7 @@ mod adequacy {
     // agree with the shipped fold exactly.
 
     use crate::meter::{limb_ops, reset_limb_ops};
-    use crate::version::skyline::query::{Aggregate, Integrator};
+    use crate::version::skyline::query::integral::{Aggregate, Integrator};
     use suanpan::UBig;
 
     /// Fold `other` into `dst` one digit at a time: each single-digit
@@ -1729,11 +1737,13 @@ mod adequacy {
     /// parked sum exactly as [`Aggregate::merge`], the window merge
     /// swapped for [`per_digit_absorb`].
     fn merge_per_digit(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
-        let (p_sign, p_mag) = left.parked.sign_magnitude();
-        if p_mag != UBig::ZERO {
-            right
-                .windows
-                .charge(total, p_sign == Ordering::Less, &Base::from(p_mag));
+        let (parked_sign, parked_magnitude) = left.parked.sign_magnitude();
+        if parked_magnitude != UBig::ZERO {
+            right.windows.charge(
+                total,
+                parked_sign == Ordering::Less,
+                &Base::from(parked_magnitude),
+            );
         }
         left.parked.add_accum(&right.parked);
         per_digit_absorb(&mut left.windows, right.windows);
@@ -1747,45 +1757,54 @@ mod adequacy {
             return;
         }
         let armings = core::mem::take(&mut integ.promotions);
-        let (_, t_mag, t_shift) = integ.pos_local.sign_magnitude_shl();
-        let mut leaves: Vec<Option<Aggregate>> = Vec::with_capacity(armings.len() + 1);
+        let (_, final_window_magnitude, final_window_shift) =
+            integ.banked_window.sign_magnitude_shl();
+        let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
         for arming in armings {
             let mut parked = Accumulator::new();
-            if arming.neg {
+            if arming.negative {
                 parked.sub_magnitude(&arming.parked);
             } else {
                 parked.add_magnitude(&arming.parked);
             }
             let mut windows = WindowMass::new();
             windows.merge(&arming.window, arming.shift);
-            leaves.push(Some(Aggregate { parked, windows }));
+            leaves.push(Aggregate { parked, windows });
         }
         let mut windows = WindowMass::new();
-        if t_mag != UBig::ZERO {
-            windows.merge(&t_mag, t_shift);
+        if final_window_magnitude != UBig::ZERO {
+            windows.merge(&final_window_magnitude, final_window_shift);
         }
-        leaves.push(Some(Aggregate {
+        leaves.push(Aggregate {
             parked: Accumulator::new(),
             windows,
-        }));
+        });
         let mut prefix: Vec<u64> = Vec::with_capacity(leaves.len() + 1);
+        let mut running = 0u64;
         prefix.push(0);
         for leaf in &leaves {
-            let leaf = leaf.as_ref().expect("leaves are consumed only below");
-            let mass = (leaf.parked.digit_count() + leaf.windows.digits.len()).max(1) as u64;
-            prefix.push(prefix.last().expect("seeded nonempty") + mass);
+            running += (leaf.parked.digit_count() + leaf.windows.digits.len()).max(1) as u64;
+            prefix.push(running);
         }
         enum Step {
             Open(usize, usize),
             Merge,
         }
-        let mut control = vec![Step::Open(0, leaves.len())];
+        let leaf_count = leaves.len();
+        let mut leaves = leaves.into_iter();
+        let mut next_leaf = 0;
+        let mut control = vec![Step::Open(0, leaf_count)];
         let mut reduced: Vec<Aggregate> = Vec::new();
         while let Some(step) = control.pop() {
             match step {
                 Step::Open(lo, hi) => {
                     if hi - lo == 1 {
-                        reduced.push(leaves[lo].take().expect("each leaf reduces once"));
+                        debug_assert_eq!(
+                            next_leaf, lo,
+                            "the left-first reduction reaches unit ranges in ascending order"
+                        );
+                        next_leaf += 1;
+                        reduced.push(leaves.next().expect("one aggregate per unit range"));
                     } else {
                         let target = (prefix[lo] + prefix[hi]).div_ceil(2);
                         let mid = (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target))
@@ -1810,11 +1829,11 @@ mod adequacy {
     fn per_digit_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
         integ.settle();
         if !integ.promotions.is_empty() {
-            let (_, seg_mag, seg_shift) = integ.seg.sign_magnitude_shl();
-            if seg_mag != UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_magnitude_shl();
+            if segment_magnitude != UBig::ZERO {
                 integ
-                    .pos_local
-                    .add_magnitude_shl(&Base::from(seg_mag), seg_shift);
+                    .banked_window
+                    .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
             }
             per_digit_settle_armings(&mut integ);
         }
@@ -1843,7 +1862,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-            integral.boundary(super::super::int_digits(&step.magnitude));
+            integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
         per_digit_finish(integral, max_depth as u64)
     }
@@ -1905,8 +1924,9 @@ mod adequacy {
     //
     // The settle's products are delegated cluster-wise to the backend's
     // sub-quadratic multiplication because a per-digit charge pays the factor's
-    // width once per multiplicand digit — the schoolbook product (the module
-    // doc's settle bound). This kernel keeps the retired charge — every settle
+    // width once per multiplicand digit — the schoolbook product (the
+    // `integral` module doc's settle bound). This kernel keeps the retired
+    // charge — every settle
     // product formed one factor-wide product per balanced digit — committed and
     // failing on both wide × dense families: the wide-arming family (the
     // ledger's one aggregate product) and the plateau-puncture family (the
@@ -1936,12 +1956,12 @@ mod adequacy {
     /// absorb exactly as [`Aggregate::merge`], the product routed through
     /// [`schoolbook_charge`].
     fn merge_schoolbook(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
-        let (p_sign, p_mag) = left.parked.sign_magnitude();
-        if p_mag != UBig::ZERO {
+        let (parked_sign, parked_magnitude) = left.parked.sign_magnitude();
+        if parked_magnitude != UBig::ZERO {
             schoolbook_charge(
                 total,
-                p_sign == Ordering::Less,
-                &Base::from(p_mag),
+                parked_sign == Ordering::Less,
+                &Base::from(parked_magnitude),
                 &right.windows.digits,
             );
         }
@@ -1957,45 +1977,54 @@ mod adequacy {
             return;
         }
         let armings = core::mem::take(&mut integ.promotions);
-        let (_, t_mag, t_shift) = integ.pos_local.sign_magnitude_shl();
-        let mut leaves: Vec<Option<Aggregate>> = Vec::with_capacity(armings.len() + 1);
+        let (_, final_window_magnitude, final_window_shift) =
+            integ.banked_window.sign_magnitude_shl();
+        let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
         for arming in armings {
             let mut parked = Accumulator::new();
-            if arming.neg {
+            if arming.negative {
                 parked.sub_magnitude(&arming.parked);
             } else {
                 parked.add_magnitude(&arming.parked);
             }
             let mut windows = WindowMass::new();
             windows.merge(&arming.window, arming.shift);
-            leaves.push(Some(Aggregate { parked, windows }));
+            leaves.push(Aggregate { parked, windows });
         }
         let mut windows = WindowMass::new();
-        if t_mag != UBig::ZERO {
-            windows.merge(&t_mag, t_shift);
+        if final_window_magnitude != UBig::ZERO {
+            windows.merge(&final_window_magnitude, final_window_shift);
         }
-        leaves.push(Some(Aggregate {
+        leaves.push(Aggregate {
             parked: Accumulator::new(),
             windows,
-        }));
+        });
         let mut prefix: Vec<u64> = Vec::with_capacity(leaves.len() + 1);
+        let mut running = 0u64;
         prefix.push(0);
         for leaf in &leaves {
-            let leaf = leaf.as_ref().expect("leaves are consumed only below");
-            let mass = (leaf.parked.digit_count() + leaf.windows.digits.len()).max(1) as u64;
-            prefix.push(prefix.last().expect("seeded nonempty") + mass);
+            running += (leaf.parked.digit_count() + leaf.windows.digits.len()).max(1) as u64;
+            prefix.push(running);
         }
         enum Step {
             Open(usize, usize),
             Merge,
         }
-        let mut control = vec![Step::Open(0, leaves.len())];
+        let leaf_count = leaves.len();
+        let mut leaves = leaves.into_iter();
+        let mut next_leaf = 0;
+        let mut control = vec![Step::Open(0, leaf_count)];
         let mut reduced: Vec<Aggregate> = Vec::new();
         while let Some(step) = control.pop() {
             match step {
                 Step::Open(lo, hi) => {
                     if hi - lo == 1 {
-                        reduced.push(leaves[lo].take().expect("each leaf reduces once"));
+                        debug_assert_eq!(
+                            next_leaf, lo,
+                            "the left-first reduction reaches unit ranges in ascending order"
+                        );
+                        next_leaf += 1;
+                        reduced.push(leaves.next().expect("one aggregate per unit range"));
                     } else {
                         let target = (prefix[lo] + prefix[hi]).div_ceil(2);
                         let mid = (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target))
@@ -2021,24 +2050,24 @@ mod adequacy {
     /// [`schoolbook_settle_armings`].
     fn schoolbook_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
         if !integ.parked.is_literally_zero() {
-            let (p_sign, p_mag) = integ.parked.sign_magnitude();
-            if p_mag != UBig::ZERO {
-                let (_, seg_mag, seg_shift) = integ.seg.sign_magnitude_shl();
+            let (parked_sign, parked_magnitude) = integ.parked.sign_magnitude();
+            if parked_magnitude != UBig::ZERO {
+                let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_magnitude_shl();
                 mul_into(
                     &mut integ.total,
-                    &Base::from(p_mag),
-                    &Base::from(seg_mag),
-                    seg_shift,
-                    p_sign == Ordering::Less,
+                    &Base::from(parked_magnitude),
+                    &Base::from(segment_magnitude),
+                    segment_shift,
+                    parked_sign == Ordering::Less,
                 );
             }
         }
         if !integ.promotions.is_empty() {
-            let (_, seg_mag, seg_shift) = integ.seg.sign_magnitude_shl();
-            if seg_mag != UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_magnitude_shl();
+            if segment_magnitude != UBig::ZERO {
                 integ
-                    .pos_local
-                    .add_magnitude_shl(&Base::from(seg_mag), seg_shift);
+                    .banked_window
+                    .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
             }
             schoolbook_settle_armings(&mut integ);
         }
@@ -2067,7 +2096,7 @@ mod adequacy {
             }
             let (_, step) = cursor.step();
             fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
-            integral.boundary(super::super::int_digits(&step.magnitude));
+            integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
         schoolbook_finish(integral, max_depth as u64)
     }

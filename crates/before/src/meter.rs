@@ -1618,7 +1618,8 @@ fn dense_suffix_mate(p: usize, d: usize) -> Packed {
 /// `d` spine turns), and the cancelling descent lands outside the ledger, so no
 /// seam cancellation can dodge it: the settle's one aggregate product is the
 /// ledger's wide × dense multiplication genre at its purest, priced at the
-/// multiplication bound by the query module doc's settle bound — where a
+/// multiplication bound by the query fold's `integral` module doc's settle
+/// bound — where a
 /// per-digit schoolbook charge pays `Θ(w · d)` digit work against a `Θ(w +
 /// d)`-bit operand, quadratic at `w = d`, the reading the committed schoolbook
 /// kernel keeps failing beside the `ledger_wide_arming` flatness band.
@@ -2271,7 +2272,7 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 /// digits while the per-crest *segment* masses compact to O(1) digits: an
 /// accounting that multiplies parked drift by absolute positions pays `Θ(m · d
 /// · k)` limb work against a `Θ(m·k + d)`-bit input, and the anchored-segment
-/// co-sweep (`version/skyline/query.rs`'s pair-co-sweep section) settles each
+/// co-sweep (`version/skyline/query/integral.rs`'s module doc) settles each
 /// crest against its own segment and stays linear — the separation the
 /// `skyline_flatness` band test and the board cell hold. The **join** (the band
 /// shades every gap) collapses to unit steps around one climb, and either
