@@ -3,12 +3,12 @@
 //!
 //! Join is pointwise `max` and meet pointwise `min` over the unit id interval,
 //! so both ride the comparison sweep's merge walk unchanged (the
-//! [`overlay`](super::overlay) module doc carries the boundary bookkeeping): two
-//! leaf cursors over the overlay partition, one running signed difference `D =
-//! height_a − height_b` on the cliff-immune [`Accumulator`]. What emission adds
-//! is an output leaf per elementary interval — depth `max` of the two cursor
-//! depths: overlapping dyadic intervals nest, so the elementary interval *is*
-//! the deeper side's leaf. The walk therefore emits a left-to-right dyadic
+//! [`overlay`](super::overlay) module doc carries the boundary bookkeeping):
+//! two leaf cursors over the overlay partition, one running signed difference
+//! `D = height_a − height_b` on the cliff-immune [`Accumulator`]. What emission
+//! adds is an output leaf per elementary interval — depth `max` of the two
+//! cursor depths: overlapping dyadic intervals nest, so the elementary interval
+//! *is* the deeper side's leaf. The walk therefore emits a left-to-right dyadic
 //! tiling of the unit interval, which is exactly the preorder leaf sequence the
 //! collapsing output builder (the crate-private `build` sibling module)
 //! demands; the builder derives the common refinement's topology from the depth
@@ -292,9 +292,9 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
     // pathological switch-heavy pair could outgrow it — costing one
     // reallocation, never correctness. The envelope rows (`tests/meter.rs`,
     // `skyline_join_*`/`skyline_meet_*`) pin the measured peak heap,
-    // switch-heavy families included.
-    // The sticky-tie seed `Side::A` is arbitrary: at a tie the two first
-    // heights are equal, so either side opens the output identically.
+    // switch-heavy families included. The sticky-tie seed `Side::A` is
+    // arbitrary: at a tie the two first heights are equal, so either side opens
+    // the output identically.
     let mut side = pick(diff.sign(), Side::A);
     let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
     let first = match side {

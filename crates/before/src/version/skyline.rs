@@ -4,9 +4,9 @@
 //! A [`Version`] is a step function over the unit id interval — a *skyline* —
 //! and each maximal constant run of it is a plateau: one leaf of the tree,
 //! spanning a dyadic interval of width `2^-depth` (the `overlay` machinery
-//! module's cursor vocabulary mints the term). Topology plus absolute
-//! leaf heights determine the function completely. This module codes exactly
-//! that, as two interleaved streams in one bit string:
+//! module's cursor vocabulary mints the term). Topology plus absolute leaf
+//! heights determine the function completely. This module codes exactly that,
+//! as two interleaved streams in one bit string:
 //!
 //! - **Topology**: one preorder flag bit per node (`0` internal, `1` leaf).
 //!   Internal nodes carry no numbers, and a root-to-leaf descent is a
@@ -55,11 +55,11 @@
 //! Machinery layers sit under the operations, each with its own essay:
 //! `overlay` (the tiling cursors and the advance law every merge steps by),
 //! `walk` (the leaf-walk driver the single-stream scanning passes share),
-//! `watermark` (the anchored-minimum web the fill walk and the
-//! min-ticks fold share), and `signed` (the sign-magnitude
-//! currency: the zigzag maps, the signed folds and sums, the gamma codes).
-//! A submodule is public exactly where the meter integration suite
-//! path-names it; the machinery stays crate-private.
+//! `watermark` (the anchored-minimum web the fill walk and the min-ticks fold
+//! share), and `signed` (the sign-magnitude currency: the zigzag maps, the
+//! signed folds and sums, the gamma codes). A submodule is public exactly where
+//! the meter integration suite path-names it; the machinery stays
+//! crate-private.
 //!
 //! Every kernel is differentially pinned against the recursive oracle
 //! (`crate::oracle`), and the meter surface re-exports the module
@@ -98,21 +98,20 @@
 //! [`validate`](fn@validate) runs one forward pass holding, per open ancestor,
 //! two bits — "is my left child complete" and "was that child a leaf" — on a
 //! packed bit stack, plus one [`Accumulator`](suanpan::Accumulator) carrying
-//! the running leaf height for the nonnegativity check. The bit stack costs ~2 bits per level where
-//! machine-word parse frames would cost tens of bytes; the resource-envelope
-//! suite (`tests/meter.rs`) pins both that transient and the validator's limb
-//! behavior.
+//! the running leaf height for the nonnegativity check. The bit stack costs ~2
+//! bits per level where machine-word parse frames would cost tens of bytes; the
+//! resource-envelope suite (`tests/meter.rs`) pins both that transient and the
+//! validator's limb behavior.
 //!
 //! The accumulator choice is load-bearing, not an optimization: on the boundary
 //! comb (`meter::cliff_comb`) the payload stream is 3-bit `±1` codes sitting
 //! exactly on a `2^k` carry boundary, so a plain big-integer running height
 //! pays a full `k`-bit carry per 3-bit delta — `Θ(W²)` limb work in skyline
 //! wire bits `W` (`meter::tier2`'s plain-sweep pin measures it). The balanced
-//! signed-digit [`Accumulator`](suanpan::Accumulator) applies a small delta
-//! and answers the sign
-//! check in amortized O(1) digit touches on every input sequence, so validation
-//! stays linear per wire bit; the envelope suite pins the per-delta touch cost
-//! flat across size doublings on the comb.
+//! signed-digit [`Accumulator`](suanpan::Accumulator) applies a small delta and
+//! answers the sign check in amortized O(1) digit touches on every input
+//! sequence, so validation stays linear per wire bit; the envelope suite pins
+//! the per-delta touch cost flat across size doublings on the comb.
 //!
 //! # Cost of encode and decode
 //!

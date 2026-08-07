@@ -5,8 +5,8 @@
 //! function, so each rides the same machinery as the comparison sweep — one
 //! forward pass of its leaf cursors with the running height state on the
 //! carry-cliff-immune [`Accumulator`] (amortized O(1) digit touches where a
-//! plain big integer pays each full carry) — plus the piece its own
-//! question needs:
+//! plain big integer pays each full carry) — plus the piece its own question
+//! needs:
 //!
 //! - [`rank`](fn@rank) integrates the step function: `Σ heightᵢ · 2^(−depthᵢ)`
 //!   over the leaves, telescoped through height *deltas* so no absolute
@@ -46,17 +46,16 @@
 //! # The height split
 //!
 //! The rank integral must add `height · 2^(S − depth)` per leaf (`S` the
-//! stream's maximum depth, found by one topology-only pre-scan), but a
-//! per-leaf read of the full height re-imports the quadratic the delta coding
-//! invites: on the boundary comb the height is a `2^k`-scale value behind
-//! 3-bit stored deltas. Every fold here therefore splits its running quantity
-//! into anchored components folded narrow, with a relative freeze trigger
-//! that evicts stale wide drift at the first cheaper code. The rank fold and
-//! the pair co-sweep run the anchored-segment split, `h* = B + P + L` —
-//! base, parked, live — whose components the [`integral`] submodule mints
-//! and derives along with the discipline and its funding; the min_ticks
-//! fold runs the epoch-ledger form, `h = F + L`, frozen plus live (the
-//! `web` submodule).
+//! stream's maximum depth, found by one topology-only pre-scan), but a per-leaf
+//! read of the full height re-imports the quadratic the delta coding invites:
+//! on the boundary comb the height is a `2^k`-scale value behind 3-bit stored
+//! deltas. Every fold here therefore splits its running quantity into anchored
+//! components folded narrow, with a relative freeze trigger that evicts stale
+//! wide drift at the first cheaper code. The rank fold and the pair co-sweep
+//! run the anchored-segment split, `h* = B + P + L` — base, parked, live —
+//! whose components the [`integral`] submodule mints and derives along with the
+//! discipline and its funding; the min_ticks fold runs the epoch-ledger form,
+//! `h = F + L`, frozen plus live (the `web` submodule).
 //!
 //! # The pair co-sweep: distance, lag, and the rank order
 //!
@@ -81,23 +80,23 @@
 //! | `∫ D` (rank order)   | `+1`    | `+1`    | `+1`    |
 //!
 //! The directed measures' integrand is nonnegative by construction (their
-//! nonzero σ is `D`'s own sign); the signed one's carries `D`'s sign, and
-//! every accumulator is signed. The rank order's constant `+1` means its walk
-//! never sees an orientation change at all — the funding certificate covers
-//! it as the two-ledger instance of the single-stream rank fold's
-//! constant-orientation walk. The per-boundary algebra, the anchored-segment
-//! discipline, and the funding certificate live with the machinery, in the
-//! [`integral`] submodule's doc.
+//! nonzero σ is `D`'s own sign); the signed one's carries `D`'s sign, and every
+//! accumulator is signed. The rank order's constant `+1` means its walk never
+//! sees an orientation change at all — the funding certificate covers it as the
+//! two-ledger instance of the single-stream rank fold's constant-orientation
+//! walk. The per-boundary algebra, the anchored-segment discipline, and the
+//! funding certificate live with the machinery, in the [`integral`] submodule's
+//! doc.
 //!
 //! # Cost
 //!
 //! Derived, with the constants pinned by the `skyline_rank_*`,
-//! `skyline_min_ticks_*`, and `skyline_project_*` rows of the
-//! resource-envelope suite (`tests/meter.rs`): the cursor scan, decode, and
-//! fold bounds are the comparison sweep's. The freeze machinery beneath the
-//! rank and pair charges is four structures — the live component, the
-//! segment mass, the promotion ledger, and the settle tree — the same map
-//! the [`integral`] submodule's doc opens with.
+//! `skyline_min_ticks_*`, and `skyline_project_*` rows of the resource-envelope
+//! suite (`tests/meter.rs`): the cursor scan, decode, and fold bounds are the
+//! comparison sweep's. The freeze machinery beneath the rank and pair charges
+//! is four structures — the live component, the segment mass, the promotion
+//! ledger, and the settle tree — the same map the [`integral`] submodule's doc
+//! opens with.
 //!
 //! Rank's charges, per the height split:
 //!
@@ -119,31 +118,31 @@
 //!   machinery.
 //!
 //! The `skyline_flatness` module's freeze-position, promotion re-arm, and
-//! dense-suffix bands hold the many-freezes and many-armings genres flat,
-//! and the `ledger_wide_arming` and `answer_embedded_product` bands hold
-//! the wide × dense genres flat per byte in the fold's own traffic.
+//! dense-suffix bands hold the many-freezes and many-armings genres flat, and
+//! the `ledger_wide_arming` and `answer_embedded_product` bands hold the wide ×
+//! dense genres flat per byte in the fold's own traffic.
 //!
-//! Distance and lag (the `DISTANCE_*`/`LAG_*` rows, plus the
-//! `skyline_flatness` module's jump-pair and pair re-arm bands) add, per
-//! boundary, work bounded by the boundary's own folded codes — the difference
-//! and integrand folds and the orientation-change read — plus the same
-//! certified freeze work, and two topology-only pre-scans for the overlay
-//! scale; transiently they hold the two cursor paths, the integrator's
-//! accumulators, and the promotion ledger (one parked value and one window
-//! per arming, dropped at the close), never an emitted stream.
+//! Distance and lag (the `DISTANCE_*`/`LAG_*` rows, plus the `skyline_flatness`
+//! module's jump-pair and pair re-arm bands) add, per boundary, work bounded by
+//! the boundary's own folded codes — the difference and integrand folds and the
+//! orientation-change read — plus the same certified freeze work, and two
+//! topology-only pre-scans for the overlay scale; transiently they hold the two
+//! cursor paths, the integrator's accumulators, and the promotion ledger (one
+//! parked value and one window per arming, dropped at the close), never an
+//! emitted stream.
 //!
-//! min_ticks adds one fold into the range-minimum web's gap per delta, O(1)
-//! web bookkeeping per node (a count bump at each close, a boundary move at
-//! each pop), one settle per reign record at the record's own funded width,
-//! and the epoch ledger's one product per freeze at the evicted drift's width
-//! — the `web` submodule certifies every charge (the `skyline_flatness`
-//! module's pure-comb and reveal-comb bands hold the close-reveal genre flat
-//! in both the touch and limb counters).
+//! min_ticks adds one fold into the range-minimum web's gap per delta, O(1) web
+//! bookkeeping per node (a count bump at each close, a boundary move at each
+//! pop), one settle per reign record at the record's own funded width, and the
+//! epoch ledger's one product per freeze at the evicted drift's width — the
+//! `web` submodule certifies every charge (the `skyline_flatness` module's
+//! pure-comb and reveal-comb bands hold the close-reveal genre flat in both the
+//! touch and limb counters).
 //!
-//! Projection adds one height materialization per ownership transition,
-//! priced by the code it emits. Transient state is the cursor paths, the
-//! accumulators, min_ticks' compressed difference stack, and — for projection
-//! — the output builder's per-level bit stacks.
+//! Projection adds one height materialization per ownership transition, priced
+//! by the code it emits. Transient state is the cursor paths, the accumulators,
+//! min_ticks' compressed difference stack, and — for projection — the output
+//! builder's per-level bit stacks.
 //!
 //! # Testing
 //!

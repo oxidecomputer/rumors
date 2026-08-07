@@ -23,23 +23,22 @@
 //! The walk pairs the packed id (`IdReader`) against the skyline topology and
 //! streams one `(depth, payload code)` plateau per output leaf to the
 //! collapsing builder, which derives the union topology and performs the
-//! equal-sibling normalization. A child is *full* when the id owns it
-//! entirely (`IdNode::Full`); the shortcut arms fire at an id node with one
-//! full child, collapsing that child to a single raised leaf, and the two
-//! directions differ only in whether the raised leaf precedes or follows the
-//! range whose minimum it needs. A shortcut raise needs no builder repair:
-//! the
-//! raised value is known before its leaf is emitted. The right-full arm gets it
-//! by deferral — the raised leaf is the *right* child's output, so the walk
-//! fills the left child first, and the id cursor then sits exactly at the right
-//! child's tag: one `O(1)` peek decides the arm, and the raise's minimum
-//! argument is the walk's own watermark for the enclosing range. A *left-full
-//! site* — an id node whose left child is full — is the other direction: its
-//! raised leaf precedes the range its minimum comes from, so it alone
-//! pre-scans (the `prescan` submodule) — memoized: one fresh scan records every
-//! interior left-full site's minimum as a frame-ledger link, so no stream
-//! position is ever pre-scanned twice and no minimum is materialized (the
-//! `memo` submodule carries the ledger's discipline).
+//! equal-sibling normalization. A child is *full* when the id owns it entirely
+//! (`IdNode::Full`); the shortcut arms fire at an id node with one full child,
+//! collapsing that child to a single raised leaf, and the two directions differ
+//! only in whether the raised leaf precedes or follows the range whose minimum
+//! it needs. A shortcut raise needs no builder repair: the raised value is
+//! known before its leaf is emitted. The right-full arm gets it by deferral —
+//! the raised leaf is the *right* child's output, so the walk fills the left
+//! child first, and the id cursor then sits exactly at the right child's tag:
+//! one `O(1)` peek decides the arm, and the raise's minimum argument is the
+//! walk's own watermark for the enclosing range. A *left-full site* — an id
+//! node whose left child is full — is the other direction: its raised leaf
+//! precedes the range its minimum comes from, so it alone pre-scans (the
+//! `prescan` submodule) — memoized: one fresh scan records every interior
+//! left-full site's minimum as a frame-ledger link, so no stream position is
+//! ever pre-scanned twice and no minimum is materialized (the `memo` submodule
+//! carries the ledger's discipline).
 //!
 //! # Heights stay relative
 //!

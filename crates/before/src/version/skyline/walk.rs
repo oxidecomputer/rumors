@@ -1,16 +1,15 @@
 //! The leaf-walk driver: the iterative descend-to-leaf/backtrack skeleton
 //! of the *single-stream* leaf passes.
 //!
-//! Its clients are the scanning walks that visit one skyline subtree's
-//! leaves through a caller-owned cursor — the fill walk's block scans and
-//! sibling walks, the pre-scan's replays.
+//! Its clients are the scanning walks that visit one skyline subtree's leaves
+//! through a caller-owned cursor — the fill walk's block scans and sibling
+//! walks, the pre-scan's replays.
 //!
 //! The overlay layer's [`LeafCursor`](super::overlay::LeafCursor) carries its
-//! own copy of the same skeleton for the other client family: the
-//! multi-stream merges, which need an owned cursor, exhaustion by position,
-//! and flip levels rather than depths. The split is by client family —
-//! single-stream scans drive [`LeafWalk`] here, overlay-law merges drive the
-//! overlay's cursors.
+//! own copy of the same skeleton for the other client family: the multi-stream
+//! merges, which need an owned cursor, exhaustion by position, and flip levels
+//! rather than depths. The split is by client family — single-stream scans
+//! drive [`LeafWalk`] here, overlay-law merges drive the overlay's cursors.
 //!
 //! A skyline subtree's leaves are visited by alternating one word-parallel
 //! unary read (the descent: a run of internal flags ended by the leaf's `1`)
@@ -123,12 +122,12 @@ enum Direction {
 ///
 /// The two constructors' reset policies differ because their buffers'
 /// provenance differs, and the provenance is part of each constructor's
-/// contract. A pooled buffer is cleared in place when the pool retires it,
-/// so [`max`](Self::max)'s in-place re-zero pays a scan the pool discipline
-/// pays anyway and keeps the pool warm; an owned buffer drops in O(1), so
-/// [`min`](Self::min) replaces it whole rather than scan (and meter) every
-/// dead digit a wide swing left. Hand each constructor the provenance its
-/// doc names, or the stated costs invert.
+/// contract. A pooled buffer is cleared in place when the pool retires it, so
+/// [`max`](Self::max)'s in-place re-zero pays a scan the pool discipline pays
+/// anyway and keeps the pool warm; an owned buffer drops in O(1), so
+/// [`min`](Self::min) replaces it whole rather than scan (and meter) every dead
+/// digit a wide swing left. Hand each constructor the provenance its doc names,
+/// or the stated costs invert.
 pub(super) struct Extremum {
     /// `extremum − h`, the running register.
     register: Accumulator,

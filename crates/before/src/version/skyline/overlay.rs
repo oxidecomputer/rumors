@@ -9,20 +9,20 @@
 //!
 //! The machinery is crate-private, in three layers. [`PlateauCursor`] is the
 //! cursor vocabulary: one dyadic tiling, yielded plateau by plateau, each
-//! boundary carrying the cursor's own crossing payload. The overlay-advance
-//! law is stated (and debug-asserted) in exactly two generic faces — the
-//! binary [`advance`], which hands each crossing to the caller's fold, and the
-//! N-ary [`advance_set`] over a walk's whole [`CursorSet`], which folds
-//! crossings inside each slot's step; the boundary bookkeeping below is their
-//! shared correctness argument. Above them sit the two cursor instances.
+//! boundary carrying the cursor's own crossing payload. The overlay-advance law
+//! is stated (and debug-asserted) in exactly two generic faces — the binary
+//! [`advance`], which hands each crossing to the caller's fold, and the N-ary
+//! [`advance_set`] over a walk's whole [`CursorSet`], which folds crossings
+//! inside each slot's step; the boundary bookkeeping below is their shared
+//! correctness argument. Above them sit the two cursor instances.
 //! [`LeafCursor`] walks a skyline stream, its crossings the signed height
 //! deltas ([`Step`]). [`IdLeafCursor`] walks a packed id stream, whose
-//! ownership is per-region state read between boundaries. Beside them sits
-//! the pair-difference algebra every two-skyline walk shares: [`OpenedPair`]
-//! seeds `D = height_a − height_b` from the two absolute opening heights,
-//! and [`Side`], [`fold`], and [`advance_diff`] orient every later crossing
-//! into it. The traversal folds nothing itself; each client module names
-//! what it consumes and the algebra it folds.
+//! ownership is per-region state read between boundaries. Beside them sits the
+//! pair-difference algebra every two-skyline walk shares: [`OpenedPair`] seeds
+//! `D = height_a − height_b` from the two absolute opening heights, and
+//! [`Side`], [`fold`], and [`advance_diff`] orient every later crossing into
+//! it. The traversal folds nothing itself; each client module names what it
+//! consumes and the algebra it folds.
 //!
 //! # The boundary bookkeeping: which cursor advances
 //!
@@ -72,18 +72,18 @@
 //! read at most once, every path bit is pushed and popped at most once, and
 //! every leaf payload is decoded exactly once — scan, decode, and stack work
 //! are linear in the streams' bits. Transient state is one path bit per open
-//! ancestor per cursor plus the client's accumulators: a deep operand costs
-//! its *bits*, never stack frames. The pair algebra's arithmetic rides the
+//! ancestor per cursor plus the client's accumulators: a deep operand costs its
+//! *bits*, never stack frames. The pair algebra's arithmetic rides the
 //! cliff-immune [`Accumulator`]: a machine-word delta costs amortized O(1)
 //! digit touches, a wide delta O(its own limbs) — *priced by* the code the
-//! input spent to express it. That phrase is the cost convention every
-//! skyline walk's claims are stated in: work is *priced by* (paid by) a
-//! quantity when it is charged against bits already read or written at that
-//! width, so a wide fold always has a wide spelling funding it and linearity
-//! in wire bits is preserved ([`suanpan`]'s crate docs carry the
-//! accumulator's half of the argument). The
-//! comparison sweeps pin these constants for the pair walk (the Cost section
-//! of [`sweep`](super::sweep)); each other client's meter rows pin its own.
+//! input spent to express it. That phrase is the cost convention every skyline
+//! walk's claims are stated in: work is *priced by* (paid by) a quantity when
+//! it is charged against bits already read or written at that width, so a wide
+//! fold always has a wide spelling funding it and linearity in wire bits is
+//! preserved ([`suanpan`]'s crate docs carry the accumulator's half of the
+//! argument). The comparison sweeps pin these constants for the pair walk (the
+//! Cost section of [`sweep`](super::sweep)); each other client's meter rows pin
+//! its own.
 
 use core::cmp::Ordering;
 
@@ -151,10 +151,9 @@ pub(crate) enum Crossed<A, B> {
 /// accumulator commits digit writes whose amortized carry work — and with it
 /// the committed touch-meter readings — depends on the write order. The same
 /// crossings come back positionally (`None` for a side that did not step) for
-/// clients that re-code or re-fold them after the boundary. Both channels
-/// exist because the positional return cannot encode step order: the
-/// callback delivers the order, the returned pair delivers the crossings for
-/// re-use.
+/// clients that re-code or re-fold them after the boundary. Both channels exist
+/// because the positional return cannot encode step order: the callback
+/// delivers the order, the returned pair delivers the crossings for re-use.
 pub(crate) fn advance<A: PlateauCursor, B: PlateauCursor>(
     a: &mut A,
     b: &mut B,
@@ -212,27 +211,25 @@ pub(crate) fn advance<A: PlateauCursor, B: PlateauCursor>(
 /// [`step`](Self::step) both moves the slot's cursor and applies its crossing
 /// to the walk's own accumulators, so the driver never sees a crossing type.
 ///
-/// An absent or dropped slot reads depth zero and is never stepped: a
-/// depth-0 plateau tiles the whole interval and is final, so a live,
-/// unexhausted cursor sits strictly deeper — a done slot is always strictly
-/// shallower than any not-done one. The pick therefore always lands on a
-/// live slot, and a tied step requires depth at or above a flip level, which
-/// is at least one.
+/// An absent or dropped slot reads depth zero and is never stepped: a depth-0
+/// plateau tiles the whole interval and is final, so a live, unexhausted cursor
+/// sits strictly deeper — a done slot is always strictly shallower than any
+/// not-done one. The pick therefore always lands on a live slot, and a tied
+/// step requires depth at or above a flip level, which is at least one.
 pub(crate) trait CursorSet {
     /// Every slot, in priority order — the one sequence serving both of the
     /// law's tie-breaks: the pick takes the *first* slot in priority order
     /// achieving the maximum depth, and tied slots step in priority order.
     ///
-    /// Semantically the choice is free only because every client algebra
-    /// folds commutative sums — any order yields the same fold values; a
-    /// client with a non-commutative fold would make the tie-break part of
-    /// its answer, which no current client does.
-    /// The order is contract, not convenience: a walk whose slots share an
-    /// accumulator commits its digit writes in step order, so the committed
-    /// touch-meter readings pin each walk's sequence (each impl documents
-    /// which identities pin its own). The iterator is owned (`'static`) — a
-    /// const-shaped array or index range, never allocated per round — so the
-    /// driver can hold it across the mutable steps.
+    /// Semantically the choice is free only because every client algebra folds
+    /// commutative sums — any order yields the same fold values; a client with
+    /// a non-commutative fold would make the tie-break part of its answer,
+    /// which no current client does. The order is contract, not convenience: a
+    /// walk whose slots share an accumulator commits its digit writes in step
+    /// order, so the committed touch-meter readings pin each walk's sequence
+    /// (each impl documents which identities pin its own). The iterator is
+    /// owned (`'static`) — a const-shaped array or index range, never allocated
+    /// per round — so the driver can hold it across the mutable steps.
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static;
 
     /// The slot's current plateau depth: its interval has width `2^-depth`.
@@ -245,17 +242,17 @@ pub(crate) trait CursorSet {
 }
 
 /// Advance an overlay walk of N cursors one boundary — the overlay-advance law
-/// at arity N: the deepest slot steps, and every other slot whose depth
-/// reaches the flip level steps in the same round.
+/// at arity N: the deepest slot steps, and every other slot whose depth reaches
+/// the flip level steps in the same round.
 ///
-/// The module doc's boundary bookkeeping is the correctness argument,
-/// unchanged at higher arity: every current leaf or region contains the sweep
-/// point, so all the intervals nest by depth — the deepest slot's plateau ends
-/// first, and a shallower slot's end ties exactly when the flip level rises to
-/// or above its depth. Tied sides close to one shared flip level,
-/// debug-asserted here at every tie. The set's single
-/// [`priority`](CursorSet::priority) sequence fixes both tie-breaks: which of
-/// several equally-deep slots is picked, and the order tied slots step in.
+/// The module doc's boundary bookkeeping is the correctness argument, unchanged
+/// at higher arity: every current leaf or region contains the sweep point, so
+/// all the intervals nest by depth — the deepest slot's plateau ends first, and
+/// a shallower slot's end ties exactly when the flip level rises to or above
+/// its depth. Tied sides close to one shared flip level, debug-asserted here at
+/// every tie. The set's single [`priority`](CursorSet::priority) sequence fixes
+/// both tie-breaks: which of several equally-deep slots is picked, and the
+/// order tied slots step in.
 ///
 /// This is the law's arity-N, fold-internal face: each crossing is folded
 /// inside [`CursorSet::step`], and nothing is returned. [`advance`] beside it
@@ -286,9 +283,9 @@ pub(crate) fn advance_set(set: &mut impl CursorSet) {
 /// consumed ([`LeafCursor`]'s [`Crossing`](PlateauCursor::Crossing)).
 ///
 /// The same sign-magnitude shape as [`signed::Signed`](super::signed::Signed),
-/// kept distinct: a `Step` is a crossing *event* a cursor yields, a `Signed`
-/// is the walks' exchange *quantity* — the clients' algebras convert at
-/// their folds.
+/// kept distinct: a `Step` is a crossing *event* a cursor yields, a `Signed` is
+/// the walks' exchange *quantity* — the clients' algebras convert at their
+/// folds.
 pub(super) struct Step {
     /// Whether the delta lowers this stream's height.
     pub(super) negative: bool,
@@ -328,8 +325,8 @@ impl<'a> LeafCursor<'a> {
     /// # Panics
     ///
     /// The stream must be canonical. The violations this walk structurally
-    /// notices — truncation, malformation — panic; the rest walk silently
-    /// with an unspecified result (the contract of
+    /// notices — truncation, malformation — panic; the rest walk silently with
+    /// an unspecified result (the contract of
     /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
     pub(super) fn open(bits: &'a BitsSlice) -> (Self, Int) {
         let mut this = LeafCursor {
@@ -368,8 +365,8 @@ impl<'a> LeafCursor<'a> {
     /// # Panics
     ///
     /// The stream must be canonical. The violations this walk structurally
-    /// notices — truncation, malformation — panic; the rest walk silently
-    /// with an unspecified result (the contract of
+    /// notices — truncation, malformation — panic; the rest walk silently with
+    /// an unspecified result (the contract of
     /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
     pub(super) fn skip_deeper(&mut self, bound: usize, net: &mut Accumulator) {
         while self.peek_flip() > bound {
@@ -430,12 +427,12 @@ impl PlateauCursor for LeafCursor<'_> {
     /// # Panics
     ///
     /// The stream must be canonical. The violations this walk structurally
-    /// notices — truncation, malformation — panic; the rest walk silently
-    /// with an unspecified result (the contract of
-    /// [`causal_cmp`](super::sweep::causal_cmp), stated once there). Never called
-    /// on a final leaf: a sweep stops when both cursors are done, and the
-    /// module doc's bookkeeping shows a final leaf is never the advanced side
-    /// before then.
+    /// notices — truncation, malformation — panic; the rest walk silently with
+    /// an unspecified result (the contract of
+    /// [`causal_cmp`](super::sweep::causal_cmp), stated once there). Never
+    /// called on a final leaf: a sweep stops when both cursors are done, and
+    /// the module doc's bookkeeping shows a final leaf is never the advanced
+    /// side before then.
     fn step(&mut self) -> (usize, Step) {
         loop {
             match self.path.pop() {
@@ -466,8 +463,8 @@ impl PlateauCursor for LeafCursor<'_> {
 /// bits and the same flip bookkeeping, entering every overlay through
 /// [`PlateauCursor`] with a state payload (owned or not, read between
 /// boundaries) instead of a height delta. Absent children in the packed form
-/// (the 2-bit presence-tag coding [`crate::idbits`]'s module doc specifies)
-/// are unowned regions, so the cursor synthesizes an empty leaf wherever a
+/// (the 2-bit presence-tag coding [`crate::idbits`]'s module doc specifies) are
+/// unowned regions, so the cursor synthesizes an empty leaf wherever a
 /// present-child flag is clear without consuming stream bits; exhaustion is
 /// therefore tracked by the path's left-branch count (zero means the current
 /// leaf is the preorder last), not by stream position.

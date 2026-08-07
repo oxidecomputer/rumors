@@ -29,13 +29,13 @@
 //! collapse would need the grown leaf to rise into equality with a sibling leaf
 //! it was strictly below, which fill-fixedness forbids: fill raises an owned
 //! leaf sitting strictly below its sibling's filled minimum, so on the
-//! unchanged branch no such leaf remains), so `k` sequential
-//! grows re-derive the identical route and compound `+k` at one leaf. After an
-//! expansion, the chain's terminal is the unique zero-expansion site — the
-//! chain was chosen cheapest, so no zero-expansion site existed before it — and
-//! the remaining `k − 1` events free-increment it: the terminal fresh leaf
-//! simply carries `k`. The `ticks` differentials ([`fill`](super::fill)'s test
-//! suite) hold this to the iterated public tick byte for byte.
+//! unchanged branch no such leaf remains), so `k` sequential grows re-derive
+//! the identical route and compound `+k` at one leaf. After an expansion, the
+//! chain's terminal is the unique zero-expansion site — the chain was chosen
+//! cheapest, so no zero-expansion site existed before it — and the remaining `k
+//! − 1` events free-increment it: the terminal fresh leaf simply carries `k`.
+//! The `ticks` differentials ([`fill`](super::fill)'s test suite) hold this to
+//! the iterated public tick byte for byte.
 //!
 //! # The route's shape
 //!

@@ -14,19 +14,18 @@
 //!
 //! The standalone validator ([`validate_from`](super::validate::validate_from))
 //! carries a running leaf height for its nonnegativity condition. Here the
-//! dominance verdict subsumes it: on every elementary
-//! interval an accepted walk holds `height_hi >= height_lo >= 0` — the left
-//! inequality is the verdict itself, the right is `lo`'s own canonicality,
-//! and the chain binds pointwise because this walk reads a sign on *every*
-//! elementary interval (nothing here block-skips) — so
-//! a stream whose height dips negative is always also non-dominating, and both
-//! facts reject as the same [`Decode::NotCanonical`] genre (a composite no
-//! encode produces). The fusion's saving is therefore structural, not
-//! bookkeeping: the walk runs one accumulator where parse-then-compare runs
-//! two, and the touch-meter pins in `tests/meter.rs` hold the admission decode
-//! to exactly the standalone-`lo`-parse-plus-comparison traffic, which a
-//! parse-then-compare spelling cannot read (it pays the second validation's
-//! folds on top).
+//! dominance verdict subsumes it: on every elementary interval an accepted walk
+//! holds `height_hi >= height_lo >= 0` — the left inequality is the verdict
+//! itself, the right is `lo`'s own canonicality, and the chain binds pointwise
+//! because this walk reads a sign on *every* elementary interval (nothing here
+//! block-skips) — so a stream whose height dips negative is always also
+//! non-dominating, and both facts reject as the same [`Decode::NotCanonical`]
+//! genre (a composite no encode produces). The fusion's saving is therefore
+//! structural, not bookkeeping: the walk runs one accumulator where
+//! parse-then-compare runs two, and the touch-meter pins in `tests/meter.rs`
+//! hold the admission decode to exactly the
+//! standalone-`lo`-parse-plus-comparison traffic, which a parse-then-compare
+//! spelling cannot read (it pays the second validation's folds on top).
 //!
 //! # The walk
 //!
@@ -34,8 +33,8 @@
 //! [`CheckedCursor`] walks the untrusted stream, enforcing the validator's
 //! remaining obligations on the same reads — truncation as the cursor's own
 //! read errors, minimal topology as each internal node closes. The
-//! overlay-advance law is restated at this cursor pair — restated rather
-//! than reused, because the generic law is infallible and the checked side's
+//! overlay-advance law is restated at this cursor pair — restated rather than
+//! reused, because the generic law is infallible and the checked side's
 //! crossings are `Result`s — with the same step and fold order as
 //! [`advance_diff`](super::overlay::advance_diff), so the accumulator's write
 //! sequence — and with it the committed touch-meter readings — is the pair

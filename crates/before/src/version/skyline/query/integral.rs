@@ -1,57 +1,55 @@
-//! The anchored-segment integral: the machinery every rank-family fold runs
-//! on — the height split, the freeze discipline, the promotion ledger, and
-//! the settle tree — with the funding certificate for every charge.
+//! The anchored-segment integral: the machinery every rank-family fold runs on
+//! — the height split, the freeze discipline, the promotion ledger, and the
+//! settle tree — with the funding certificate for every charge.
 //!
-//! [`rank`](super::rank) runs this integral on one stream: its integrand is
-//! the height itself. [`distance`](super::distance), [`lag`](super::lag), and
-//! [`rank_cmp`](super::rank_cmp) run it on the pair co-sweep's integrand
-//! `h* = σ·D`, for the measure's orientation `σ` (the σ table in the
-//! [`query`](super) module doc). This doc derives the per-boundary algebra,
-//! the split, and the funding argument the public cost claims rest on.
+//! [`rank`](super::rank) runs this integral on one stream: its integrand is the
+//! height itself. [`distance`](super::distance), [`lag`](super::lag), and
+//! [`rank_cmp`](super::rank_cmp) run it on the pair co-sweep's integrand `h* =
+//! σ·D`, for the measure's orientation `σ` (the σ table in the [`query`](super)
+//! module doc). This doc derives the per-boundary algebra, the split, and the
+//! funding argument the public cost claims rest on.
 //!
 //! # The per-boundary algebra
 //!
-//! The co-sweep maintains the running difference `D = h_a − h_b` exactly as
-//! the comparison sweep does, and integrates `h* = σ·D` with
-//! `σ ∈ {−1, 0, +1}` constant on every interval of constant `D`-sign. Per
-//! boundary, with `σ → σ′` and net folded difference `dD`, the integrand
-//! moves by
+//! The co-sweep maintains the running difference `D = h_a − h_b` exactly as the
+//! comparison sweep does, and integrates `h* = σ·D` with `σ ∈ {−1, 0, +1}`
+//! constant on every interval of constant `D`-sign. Per boundary, with `σ → σ′`
+//! and net folded difference `dD`, the integrand moves by
 //!
 //! `dh* = (σ′ − σ) · D′ + σ · dD`
 //!
 //! Two terms, two prices. The `σ·dD` term re-folds the boundary's own codes:
-//! each consumed delta enters `D` once and `h*` at most once, orientation
-//! being a side swap. The `(σ′ − σ)·D′` term materializes the difference
-//! itself, but only at orientation changes — and in every row of the σ table
-//! an orientation change requires `D` to have crossed, left, or entered zero
-//! at this very boundary (the rank order's constant σ never changes at all).
-//! So `|D′| ≤ |dD|`, and the read — after the sign fold's collapse — is
-//! priced by the codes just folded, the same argument the emission sweep's
-//! side switch rests on.
+//! each consumed delta enters `D` once and `h*` at most once, orientation being
+//! a side swap. The `(σ′ − σ)·D′` term materializes the difference itself, but
+//! only at orientation changes — and in every row of the σ table an orientation
+//! change requires `D` to have crossed, left, or entered zero at this very
+//! boundary (the rank order's constant σ never changes at all). So `|D′| ≤
+//! |dD|`, and the read — after the sign fold's collapse — is priced by the
+//! codes just folded, the same argument the emission sweep's side switch rests
+//! on.
 //!
 //! # The height split
 //!
 //! Each elementary interval must add `h* · 2^(S − depth)` (`S` the overlay's
-//! maximum depth), but a per-interval read of the full integrand re-imports
-//! the quadratic the delta coding invites: on the boundary comb the height is
-//! a `2^k`-scale value behind 3-bit stored deltas. The integral therefore
-//! splits its running quantity into anchored components folded narrow.
+//! maximum depth), but a per-interval read of the full integrand re-imports the
+//! quadratic the delta coding invites: on the boundary comb the height is a
+//! `2^k`-scale value behind 3-bit stored deltas. The integral therefore splits
+//! its running quantity into anchored components folded narrow.
 //!
 //! The anchoring is the point. A freeze must not settle evicted drift against
-//! its *absolute* position: positions grow arbitrarily dense while the codes
-//! at hand stay cheap. A single stream can alternate isolated wide drops with
-//! unit drops down a spine (the freeze-position board family), firing a
-//! freeze per block at ever-growing written position spans. The overlay is
-//! worse: one operand's cheap boundaries fire freezes of drift the other
-//! operand's wide codes deposited, at positions whose compacted density
-//! neither operand's codes funded. (On the two-operand jump comb — the
-//! jump-pair board family's shape: a shared descent spine planting isolated
-//! position bits, then an `m`-level comb
-//! where one operand's wide teeth cross the other's near-flat band — every
-//! crest of `|D|` would pay a drift-width × position-density product,
-//! superlinear in the packed pair while each operand alone stays flat.) The
-//! integral therefore works in *anchored segments*: no correction, at any
-//! point of the sweep or its close, multiplies by an absolute position.
+//! its *absolute* position: positions grow arbitrarily dense while the codes at
+//! hand stay cheap. A single stream can alternate isolated wide drops with unit
+//! drops down a spine (the freeze-position board family), firing a freeze per
+//! block at ever-growing written position spans. The overlay is worse: one
+//! operand's cheap boundaries fire freezes of drift the other operand's wide
+//! codes deposited, at positions whose compacted density neither operand's
+//! codes funded. (On the two-operand jump comb — the jump-pair board family's
+//! shape: a shared descent spine planting isolated position bits, then an
+//! `m`-level comb where one operand's wide teeth cross the other's near-flat
+//! band — every crest of `|D|` would pay a drift-width × position-density
+//! product, superlinear in the packed pair while each operand alone stays
+//! flat.) The integral therefore works in *anchored segments*: no correction,
+//! at any point of the sweep or its close, multiplies by an absolute position.
 //!
 //! The integrand splits `h* = B + P + L` (for rank, `h* = h` itself):
 //!
@@ -88,8 +86,8 @@
 //! it once — charged to the codes that built the drift, which the freeze
 //! consumes and resets — and the cheap codes continue on an emptied live
 //! component. Bounded oscillation at *any* width keeps the live component
-//! within its own codes' width and never freezes: every wide-tooth fold is
-//! paid by the tooth's own code, on either side of any fixed width.
+//! within its own codes' width and never freezes: every wide-tooth fold is paid
+//! by the tooth's own code, on either side of any fixed width.
 //!
 //! The pair co-sweep denominates the same trigger once per boundary, against
 //! the *boundary's* widest folded code, not per folded delta. The behavior it
@@ -98,39 +96,39 @@
 //!
 //! # The promotion ledger
 //!
-//! `P` is *promoted* out of the per-freeze settle when incoming drift runs
-//! more than the allowance narrower than `P`. Without promotion a wide `P`
-//! would re-settle its full width at every later narrow-drift freeze; with
-//! it, every settle's `P` is within the allowance of the drift the settling
-//! freeze itself parks.
+//! `P` is *promoted* out of the per-freeze settle when incoming drift runs more
+//! than the allowance narrower than `P`. Without promotion a wide `P` would
+//! re-settle its full width at every later narrow-drift freeze; with it, every
+//! settle's `P` is within the allowance of the drift the settling freeze itself
+//! parks.
 //!
 //! A promotion performs two funded-width reads and no product: the parked
 //! component, at the width its arming deposited, and the *position window* —
-//! the interval mass banked since the previous promotion, one compacted
-//! segment mass per freeze, read at its watermark span. The two are recorded
-//! together as one ledger entry. Nothing is ever re-based against an absolute
-//! position: the entry owes `P · (2^S − position)`, and the ledger settles
-//! once, at the sweep's close.
+//! the interval mass banked since the previous promotion, one compacted segment
+//! mass per freeze, read at its watermark span. The two are recorded together
+//! as one ledger entry. Nothing is ever re-based against an absolute position:
+//! the entry owes `P · (2^S − position)`, and the ledger settles once, at the
+//! sweep's close.
 //!
 //! # The settle tree
 //!
 //! The ledger settles as one mass-balanced product tree over the entry
-//! sequence. Each tree node contributes exactly one aggregate product: the
-//! left half's summed parked masses times the right half's summed position
-//! windows. Parked sums fold digit-wise, so opposing armings cancel inside
-//! the sum before any product reads a width. Window sums are held as sparse
-//! balanced signed digits, so an all-ones run — a long climb's consumed
-//! mass — compacts to O(1) terms. Each node's product is delegated
-//! cluster-wise to the backend's sub-quadratic integer multiplication.
+//! sequence. Each tree node contributes exactly one aggregate product: the left
+//! half's summed parked masses times the right half's summed position windows.
+//! Parked sums fold digit-wise, so opposing armings cancel inside the sum
+//! before any product reads a width. Window sums are held as sparse balanced
+//! signed digits, so an all-ones run — a long climb's consumed mass — compacts
+//! to O(1) terms. Each node's product is delegated cluster-wise to the
+//! backend's sub-quadratic integer multiplication.
 //!
 //! Every arming-window cross term of the debt rides exactly one aggregate
 //! product, and no entry is re-read more times than its tree depth. The mass
 //! balance keeps that depth logarithmic in the ledger's total settle mass
 //! (parked digits plus window density) — not in the entry count alone:
 //! exponentially spread masses chain one isolating split per level (the
-//! committed split-depth witness in the [`query`](super) module's tests),
-//! still under the total-mass logarithm. Every unit of settle mass is a digit
-//! the input funded, so the depth is at most `log |v|`.
+//! committed split-depth witness in the [`query`](super) module's tests), still
+//! under the total-mass logarithm. Every unit of settle mass is a digit the
+//! input funded, so the depth is at most `log |v|`.
 //!
 //! # Funding: the potential function and its arity
 //!
@@ -184,74 +182,72 @@
 //! The product tree charges every arming-window cross term of the exact debt
 //! `Σ_{i<j} P_i · w_j` inside exactly one aggregate product, so no accounting
 //! direction exists for an input to load — the two one-sided settle orders'
-//! defects are both closed: a shared dense suffix cannot be re-walked once
-//! per arming, a promoted prefix cannot be re-read once per window, and no
-//! width or density is re-read more times than its node's depth.
+//! defects are both closed: a shared dense suffix cannot be re-walked once per
+//! arming, a promoted prefix cannot be re-read once per window, and no width or
+//! density is re-read more times than its node's depth.
 //!
-//! Streams whose parked masses stay `O(1)` digits wide — every committed
-//! board family, and the dense-suffix adversaries of the `skyline_flatness`
+//! Streams whose parked masses stay `O(1)` digits wide — every committed board
+//! family, and the dense-suffix adversaries of the `skyline_flatness`
 //! dense-suffix bands (a gap spine whose turns puncture the trailing mass a
-//! full digit apart, over `Θ(p)` re-arm blocks) — therefore settle in
-//! `O((n + D) log n)` digit work over `n` armings, `D` the total window
-//! density, and measure flat per byte. The `log n` is conditioned on exactly
-//! that `O(1)`-wide premise, and it holds through the entropy bound, not
-//! through any per-entry depth cap: a leaf of mass `m` sits at depth
-//! `O(log(total/m))`, so heavy windows sit shallow and the mass-weighted
-//! traffic stays under the total mass times the entry-count logarithm however
-//! unevenly the window masses spread.
+//! full digit apart, over `Θ(p)` re-arm blocks) — therefore settle in `O((n +
+//! D) log n)` digit work over `n` armings, `D` the total window density, and
+//! measure flat per byte. The `log n` is conditioned on exactly that
+//! `O(1)`-wide premise, and it holds through the entropy bound, not through any
+//! per-entry depth cap: a leaf of mass `m` sits at depth `O(log(total/m))`, so
+//! heavy windows sit shallow and the mass-weighted traffic stays under the
+//! total mass times the entry-count logarithm however unevenly the window
+//! masses spread.
 //!
-//! The wide × dense settle products themselves ride one backend
-//! multiplication per cluster, so each costs the multiplication bound `M`
-//! over its funded factors instead of their schoolbook product. Two shapes
-//! reach them: one arming as wide as the input ahead of a trailing mass as
-//! dense (the wide-arming family), and the close-time `P · segment` settle
-//! the same shape reaches with the ledger never armed (the plateau-puncture
-//! family, whose exact rank numerator *is* the plateau times the punctured
-//! turn mass).
+//! The wide × dense settle products themselves ride one backend multiplication
+//! per cluster, so each costs the multiplication bound `M` over its funded
+//! factors instead of their schoolbook product. Two shapes reach them: one
+//! arming as wide as the input ahead of a trailing mass as dense (the
+//! wide-arming family), and the close-time `P · segment` settle the same shape
+//! reaches with the ledger never armed (the plateau-puncture family, whose
+//! exact rank numerator *is* the plateau times the punctured turn mass).
 //!
 //! Two facts make the whole settle `O(M(|v|))` under every power-law tier of
 //! the backend's multiplication. Cluster splitting keeps every densified span
 //! funded: gaps wider than the factor split, so separated products total
-//! `O(span)` traffic, and bridged gaps cost less than the product a split
-//! would add. And the mass balance makes node products shrink geometrically
-//! down the tree, telescoping their costs into the root's.
+//! `O(span)` traffic, and bridged gaps cost less than the product a split would
+//! add. And the mass balance makes node products shrink geometrically down the
+//! tree, telescoping their costs into the root's.
 //!
 //! The shipped backend dispatches power-law tiers up to 4,000-word operand
 //! sides (~32 KiB parked sums per side). Past that its quasilinear tier's
 //! per-level costs stop telescoping, and the settle pays at most one extra
-//! tree-depth factor, `O(M(|v|) · log |v|)` — and the log factor is tight
-//! there [derived; a committed witness at this scale would need 65 KiB+
-//! packed operands]: `Θ(log |v|)` armings whose parked widths grow as
-//! `4,000 · 2^i` words, each banked ahead of a trailing window span
-//! `Θ(|v|)`, keep `Θ(log |v|)` tree levels' products in the quasilinear tier
-//! at `Θ(M(|v|))` each, fully funded — the public worst case cannot tighten
-//! without a deeper mechanism change.
+//! tree-depth factor, `O(M(|v|) · log |v|)` — and the log factor is tight there
+//! [derived; a committed witness at this scale would need 65 KiB+ packed
+//! operands]: `Θ(log |v|)` armings whose parked widths grow as `4,000 · 2^i`
+//! words, each banked ahead of a trailing window span `Θ(|v|)`, keep `Θ(log
+//! |v|)` tree levels' products in the quasilinear tier at `Θ(M(|v|))` each,
+//! fully funded — the public worst case cannot tighten without a deeper
+//! mechanism change.
 //!
 //! ## The multiplication floor
 //!
-//! The floor is matched by a reduction from arbitrary integer
-//! multiplication: the same answer-embedding shape carries *arbitrary*
-//! factors. The puncture-product construction stores `Θ(bits(x) + bits(y))`
-//! bits and its exact rank numerator is `2·x·y + 1` (the committed proptest
-//! constructs it for arbitrary positive factors and pins the stored size
-//! linear in their widths, so the floor's denominator cannot drift). A fold
-//! that answers exactly therefore multiplies two input-funded integers at
-//! linear overhead, and `Ω(M(|v|))` digit work is mandatory for any fold
-//! that answers exactly: no settle goes below the multiplication bound.
+//! The floor is matched by a reduction from arbitrary integer multiplication:
+//! the same answer-embedding shape carries *arbitrary* factors. The
+//! puncture-product construction stores `Θ(bits(x) + bits(y))` bits and its
+//! exact rank numerator is `2·x·y + 1` (the committed proptest constructs it
+//! for arbitrary positive factors and pins the stored size linear in their
+//! widths, so the floor's denominator cannot drift). A fold that answers
+//! exactly therefore multiplies two input-funded integers at linear overhead,
+//! and `Ω(M(|v|))` digit work is mandatory for any fold that answers exactly:
+//! no settle goes below the multiplication bound.
 //!
 //! The public API's `# Complexity` sections
 //! ([`Version::rank`](crate::Version::rank),
 //! [`Version::distance`](crate::Version::distance),
 //! [`Version::lag`](crate::Version::lag) — one shared integrator) state the
-//! resulting three-part claim. The
-//! `ledger_wide_arming` and `answer_embedded_product` bands
-//! (`tests/meter.rs`) hold both wide × dense families flat per byte in the
-//! deterministic counters (which price the fold's own traffic; the
-//! multiplication runs inside the backend, below the limb shim), and the
-//! committed schoolbook kernel beside the [`query`](super) module's tests
-//! (`schoolbook_settle_reads_superlinear_on_wide_arming` and its
-//! plateau-puncture twin) keeps the per-digit charge failing on both
-//! families, so the bands are never decoration.
+//! resulting three-part claim. The `ledger_wide_arming` and
+//! `answer_embedded_product` bands (`tests/meter.rs`) hold both wide × dense
+//! families flat per byte in the deterministic counters (which price the fold's
+//! own traffic; the multiplication runs inside the backend, below the limb
+//! shim), and the committed schoolbook kernel beside the [`query`](super)
+//! module's tests (`schoolbook_settle_reads_superlinear_on_wide_arming` and its
+//! plateau-puncture twin) keeps the per-digit charge failing on both families,
+//! so the bands are never decoration.
 
 use core::cmp::Ordering;
 

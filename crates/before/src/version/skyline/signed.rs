@@ -1,17 +1,17 @@
-//! The sign-magnitude currency: the zigzag maps, the signed folds and sums,
-//! and the gamma codes of signed deltas — one home for the vocabulary every
-//! skyline walk exchanges heights in.
+//! The sign-magnitude currency: the zigzag maps, the signed folds and sums, and
+//! the gamma codes of signed deltas — one home for the vocabulary every skyline
+//! walk exchanges heights in.
 //!
 //! # The zigzag bijection
 //!
 //! Payload deltas are signed, but every stored integer is a gamma-coded
-//! natural, so a delta passes through the zigzag map first: `k >= 0 -> 2k`,
-//! `k < 0 -> 2|k| − 1`. The map is a bijection between the integers and the
+//! natural, so a delta passes through the zigzag map first: `k >= 0 -> 2k`, `k
+//! < 0 -> 2|k| − 1`. The map is a bijection between the integers and the
 //! naturals with no negative-zero form — an odd code decodes to magnitude at
 //! least 1 — so every delta has exactly one spelling, and a non-canonical
 //! spelling cannot be written at all. The root module doc's canonical-form
-//! argument leans on exactly this; the tests pin the bijection exhaustively
-//! at small scope.
+//! argument leans on exactly this; the tests pin the bijection exhaustively at
+//! small scope.
 //!
 //! # The fused gamma fast path
 //!
@@ -19,10 +19,10 @@
 //! leading zeros. For a signed delta, `zigzag + 1` is one machine expression:
 //! `2·magnitude + !negative` — a negative delta's `2m − 1` and a nonnegative
 //! one's `2m` both absorb the `+ 1` into the low bit. That mantissa under its
-//! own leading zeros is therefore the *whole* code: a word-scale delta
-//! zigzags and codes in machine arithmetic with no intermediate value built
-//! ([`gamma_code_signed`] and its [`Int`] twin), and only wider deltas take
-//! the arbitrary-precision pair.
+//! own leading zeros is therefore the *whole* code: a word-scale delta zigzags
+//! and codes in machine arithmetic with no intermediate value built
+//! ([`gamma_code_signed`] and its [`Int`] twin), and only wider deltas take the
+//! arbitrary-precision pair.
 //!
 //! # Signed conventions
 //!

@@ -1,10 +1,10 @@
-//! The memoized pre-scan: one non-consuming pass over a left-full site's
-//! right sibling, ahead of the walk.
+//! The memoized pre-scan: one non-consuming pass over a left-full site's right
+//! sibling, ahead of the walk.
 //!
-//! [`PreScan`] computes every interior left-full site's `min(fill(ir, er))`
-//! on its own watermark web and records each as a frame-ledger link (the
-//! `memo` module carries the ledger's discipline), so the walk arrives with
-//! every raise argument resolved and no position is pre-scanned twice.
+//! [`PreScan`] computes every interior left-full site's `min(fill(ir, er))` on
+//! its own watermark web and records each as a frame-ledger link (the `memo`
+//! module carries the ledger's discipline), so the walk arrives with every
+//! raise argument resolved and no position is pre-scanned twice.
 //!
 //! The scan is the image of the fill equations restricted to the minimum,
 //! each arm derived from the oracle's:
@@ -75,11 +75,11 @@ pub(super) struct PreScan<'a, 'm> {
     /// Suspended outer levels, innermost last, LIFO by the site forest's
     /// nesting.
     ///
-    /// Recorder invariants, jointly over the four fields above: `head_level
-    /// == 0` iff `first_slot.is_none()` (only the outermost level never
-    /// defers a first-child link), and `suspend.len() == head_level` (one
-    /// suspended record per outer level; the terminal case is asserted where
-    /// the walk drains the scan).
+    /// Recorder invariants, jointly over the four fields above: `head_level ==
+    /// 0` iff `first_slot.is_none()` (only the outermost level never defers a
+    /// first-child link), and `suspend.len() == head_level` (one suspended
+    /// record per outer level; the terminal case is asserted where the walk
+    /// drains the scan).
     pub(super) suspend: Vec<SuspendedLevel>,
 }
 

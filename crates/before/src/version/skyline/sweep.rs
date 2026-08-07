@@ -1,11 +1,10 @@
-//! The comparison sweeps over two skyline streams: order, equality,
-//! domination, concurrency.
+//! The comparison sweeps over two skyline streams: order, equality, domination,
+//! concurrency.
 //!
 //! The walk machinery — the plateau cursors and the overlay-advance law, with
-//! its boundary bookkeeping — lives in [`overlay`](super::overlay). This
-//! module owns the comparison algebra folded over that walk and the entry
-//! points asking each question: [`causal_cmp`], [`eq`], [`le`],
-//! [`concurrent`].
+//! its boundary bookkeeping — lives in [`overlay`](super::overlay). This module
+//! owns the comparison algebra folded over that walk and the entry points
+//! asking each question: [`causal_cmp`], [`eq`], [`le`], [`concurrent`].
 //!
 //! Two versions overlay into a common refinement — the *elementary intervals*,
 //! the maximal spans crossing no leaf boundary of either partition — and every
@@ -27,9 +26,9 @@
 //! The cursor and fold work is [`overlay`](super::overlay)'s cost argument:
 //! scan, decode, and stack work linear in the two streams' bits, arithmetic
 //! priced by the codes that express the deltas. The comparison adds one
-//! per-interval `sign(D)` read, amortized O(1) against the writes that
-//! preceded it ([`suanpan`]'s crate docs carry both arguments). The constants
-//! are pinned by the `skyline_cmp_*` rows of the resource-envelope suite
+//! per-interval `sign(D)` read, amortized O(1) against the writes that preceded
+//! it ([`suanpan`]'s crate docs carry both arguments). The constants are pinned
+//! by the `skyline_cmp_*` rows of the resource-envelope suite
 //! (`tests/meter.rs`): the flatness rows pin the per-delta cost flat across a
 //! boundary-comb size doubling, and every scenario pins at zero grown stack
 //! segments — comparing a deep operand against a shallow one costs the deep

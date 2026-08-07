@@ -1,17 +1,16 @@
 //! The frame ledger: the channel between the fill walk and its memoized
 //! pre-scan.
 //!
-//! A left-full site (minted in [`fill`](super)'s module doc: an id node
-//! whose left child is full, the shortcut direction whose raised leaf
-//! precedes the range its minimum argument comes from)
-//! collapses that child to `max(max(el), min(fill(ir, er)))`, and the right
-//! sibling's filled minimum is unknown until the sibling range — which the
-//! walk has not reached — has been walked. The walk therefore sends one
-//! pre-scan ahead (the `prescan` module) the first time it meets such a site
-//! uncovered, and that scan evaluates every interior left-full site inside its
-//! span in the same pass, recording each site's minimum here — so no stream
-//! position is ever pre-scanned twice, and the walk arrives at every covered
-//! site with its raise argument resolved.
+//! A left-full site (minted in [`fill`](super)'s module doc: an id node whose
+//! left child is full, the shortcut direction whose raised leaf precedes the
+//! range its minimum argument comes from) collapses that child to `max(max(el),
+//! min(fill(ir, er)))`, and the right sibling's filled minimum is unknown until
+//! the sibling range — which the walk has not reached — has been walked. The
+//! walk therefore sends one pre-scan ahead (the `prescan` module) the first
+//! time it meets such a site uncovered, and that scan evaluates every interior
+//! left-full site inside its span in the same pass, recording each site's
+//! minimum here — so no stream position is ever pre-scanned twice, and the walk
+//! arrives at every covered site with its raise argument resolved.
 //!
 //! # Ledger links: references the walk already holds
 //!
@@ -30,9 +29,9 @@
 //! The walk's arrival-order relation is exactly that reference at every
 //! consume: the site consumed before a first child is its parent (the live
 //! relation), and the site consumed before a later sibling is the previous
-//! sibling (the walk re-anchors its relation from its own watermark web at
-//! that sibling's range close). A zero link is not stored at all — the queue
-//! cell answers `None` — so sibling or nested sites sharing one minimum cost
+//! sibling (the walk re-anchors its relation from its own watermark web at that
+//! sibling's range close). A zero link is not stored at all — the queue cell
+//! answers `None` — so sibling or nested sites sharing one minimum cost
 //! nothing: one wide shared minimum is never materialized per covering site.
 //!
 //! # Write order vs consumption order
@@ -47,15 +46,15 @@
 //!
 //! Each stored link is created once at a close (the recording head moves into
 //! the queue, or a deferred first-child link is cloned once at its own width),
-//! read once at its site's consume, and dies into the raise decision it
-//! serves. The scan's keeper and suspend folds each read a dying operand or a
-//! link's own priced width; the one live follower — the recording head
-//! scan-side, the ledger relation walk-side — receives the per-event fold the
-//! watermark discipline already prices (closes excepted, where it rides the
-//! latent tag untouched); and the recorder adds one amortized sign read per
-//! site (the zero-link test). [`position_check`] pairs the two sides in debug
-//! builds: an order-sensitive checksum of recorded and of consumed site
-//! positions, matched when each scan's ledger drains.
+//! read once at its site's consume, and dies into the raise decision it serves.
+//! The scan's keeper and suspend folds each read a dying operand or a link's
+//! own priced width; the one live follower — the recording head scan-side, the
+//! ledger relation walk-side — receives the per-event fold the watermark
+//! discipline already prices (closes excepted, where it rides the latent tag
+//! untouched); and the recorder adds one amortized sign read per site (the
+//! zero-link test). [`position_check`] pairs the two sides in debug builds: an
+//! order-sensitive checksum of recorded and of consumed site positions, matched
+//! when each scan's ledger drains.
 
 use core::num::NonZeroU32;
 

@@ -22,14 +22,13 @@
 //! Per bound, the walk maintains the running difference `D = height_probe −
 //! height_bound` on the cliff-immune [`Accumulator`] and folds its sign once
 //! per elementary interval into the bound's two surviving-direction flags — the
-//! same `(probe <= bound, bound <= probe)` pair the comparison sweep folds,
-//! in that orientation everywhere: the probe is every pair's `a` operand. A
-//! probe crossing folds into both differences; a bound crossing folds into its
-//! own. Each accumulator therefore sees exactly the write sequence the
-//! corresponding pair sweep would commit, which is what keeps the one-bound
-//! degenerate walk's meter readings identical to
-//! [`causal_cmp`](super::sweep::causal_cmp)'s (the resource pins in
-//! `tests/meter.rs`'s placement rows hold the identity).
+//! same `(probe <= bound, bound <= probe)` pair the comparison sweep folds, in
+//! that orientation everywhere: the probe is every pair's `a` operand. A probe
+//! crossing folds into both differences; a bound crossing folds into its own.
+//! Each accumulator therefore sees exactly the write sequence the corresponding
+//! pair sweep would commit, which is what keeps the one-bound degenerate walk's
+//! meter readings identical to [`causal_cmp`](super::sweep::causal_cmp)'s (the
+//! resource pins in `tests/meter.rs`'s placement rows hold the identity).
 //!
 //! # Verdict closures
 //!
@@ -211,12 +210,11 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
         Some(hi),
         on_side,
         on_side,
-        // A dropped side is a decided concurrency (the walk is always
-        // given both endpoint streams), and so is the total
-        // non-canonical `Some(None)` corner — `flatten` folds the two,
-        // soundly per `walk`'s obligation: `on_side` drops only at a
-        // both-directions refutation, exactly the relation the
-        // `Concurrent` arms below read a `None` as.
+        // A dropped side is a decided concurrency (the walk is always given
+        // both endpoint streams), and so is the total non-canonical
+        // `Some(None)` corner — `flatten` folds the two, soundly per `walk`'s
+        // obligation: `on_side` drops only at a both-directions refutation,
+        // exactly the relation the `Concurrent` arms below read a `None` as.
         |lo, hi| match (lo.flatten(), hi.flatten()) {
             (Some(Ordering::Less), _) => Placement::Before,
             (Some(Ordering::Equal), Some(Ordering::Equal)) => Placement::At(Endpoint::Both),
@@ -327,10 +325,10 @@ pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> P
         // span; otherwise `probe <= hi` surviving is the end.
         // `Precedence::After` is unreachable here on canonical validated inputs
         // (a refuted end direction returned from the loop) but keeps the map
-        // total. The `flatten` merge is sound (`walk`'s obligation): the
-        // start side drops only when `probe <= lo` is refuted, so a dropped
-        // start flattens to the same not-`Equal`/`Less` answer its decided
-        // relation could ever have given.
+        // total. The `flatten` merge is sound (`walk`'s obligation): the start
+        // side drops only when `probe <= lo` is refuted, so a dropped start
+        // flattens to the same not-`Equal`/`Less` answer its decided relation
+        // could ever have given.
         |lo, hi| {
             if matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Less)) {
                 Precedence::Before
@@ -403,10 +401,10 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
 ///
 /// Obligation on every caller: a `finish` arm that reads a side through
 /// `flatten` merges "dropped" with "swept to concurrent", so the side's drop
-/// condition must agree with that arm's reading — the hook may drop a side
-/// only when the direction the finish arm tests is already refuted, making
-/// the flattened `None` and the decided relation give the same answer. Each
-/// entry point carries the per-verdict argument at its closures.
+/// condition must agree with that arm's reading — the hook may drop a side only
+/// when the direction the finish arm tests is already refuted, making the
+/// flattened `None` and the decided relation give the same answer. Each entry
+/// point carries the per-verdict argument at its closures.
 fn walk<V>(
     probe: &BitsSlice,
     start: Option<&BitsSlice>,
@@ -429,9 +427,8 @@ fn walk<V>(
         // One read per live bound per elementary interval, end first — a fixed
         // order, so every question's accumulator traffic is identical (the
         // committed meter rows pin the write sequences). End-first is
-        // arbitrary; only fixedness matters — each side's directions fold
-        // only its own difference's sign, so read order cannot move a
-        // verdict.
+        // arbitrary; only fixedness matters — each side's directions fold only
+        // its own difference's sign, so read order cannot move a verdict.
         if let Some(side) = &mut set.end {
             side.read();
             match on_end(side.directions, set.start.is_some()) {
@@ -497,8 +494,8 @@ impl Cursors<'_> {
 ///
 /// Priority `[PROBE, START, END]`: the probe steps first on every tie — it is
 /// every pair's first operand, and the binary law's equal-depth arm steps its
-/// first operand first — keeping each accumulator's write sequence, and with
-/// it the committed touch-meter readings of the one-bound degenerate walk,
+/// first operand first — keeping each accumulator's write sequence, and with it
+/// the committed touch-meter readings of the one-bound degenerate walk,
 /// identical to the pair sweep's (the placement identity rows in
 /// `tests/meter.rs` pin the identity). The start/end order among themselves
 /// moves no committed reading: the two bounds share no accumulator.

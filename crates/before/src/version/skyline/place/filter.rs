@@ -8,8 +8,8 @@
 //! (probe, bound) pair, in the placement walk's idiom ([`place`](super)): each
 //! walk advances by the overlay-advance law ([`advance_set`]), contributing
 //! only its slot roster and what each slot's step folds; each pair's
-//! accumulator sees exactly the write sequence its pair sweep would commit,
-//! and the verdict hooks are branch-only.
+//! accumulator sees exactly the write sequence its pair sweep would commit, and
+//! the verdict hooks are branch-only.
 //!
 //! # Early exit
 //!
@@ -43,9 +43,9 @@
 //! and the per-interval sign reads ride the accumulator's amortized-O(1)
 //! collapse. The coverage walk additionally recomputes its endpoint-liveness
 //! flags and sweeps the settled flags once per interval — O(#bounds)
-//! bookkeeping absorbed by the same per-interval read loop. `O(|v| +
-//! Σ|bound|)` for membership, `O(|lo| + |hi| + Σ|bound|)`
-//! for coverage, against the composed sweeps' one probe decode per bound.
+//! bookkeeping absorbed by the same per-interval read loop. `O(|v| + Σ|bound|)`
+//! for membership, `O(|lo| + |hi| + Σ|bound|)` for coverage, against the
+//! composed sweeps' one probe decode per bound.
 
 use core::cmp::Ordering;
 
@@ -453,9 +453,9 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
             return Coverage::Empty;
         }
         // Fullness: the bound must admit everything the segment covers
-        // (required demands inclusively: `After` admits equality). A
-        // settled pair already recorded its refutation in `full_possible`; a
-        // pair alive at exhaustion answers by its decided relation.
+        // (required demands inclusively: `After` admits equality). A settled
+        // pair already recorded its refutation in `full_possible`; a pair alive
+        // at exhaustion answers by its decided relation.
         let admits_all = match side.demand {
             Demand::After => {
                 !side.lo.live || matches!(lo, Some(Ordering::Greater | Ordering::Equal))
@@ -479,12 +479,12 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
     }
 }
 
-/// The coverage walk's owned cursor set: both probe endpoints' cursors,
-/// their live flags, and every bound side — the walk state itself, as in
-/// the placement walk's `Cursors`.
+/// The coverage walk's owned cursor set: both probe endpoints' cursors, their
+/// live flags, and every bound side — the walk state itself, as in the
+/// placement walk's `Cursors`.
 ///
-/// The read loop reaches the sides through the fields between advances, and
-/// the whole set steps by the overlay-advance law ([`advance_set`]).
+/// The read loop reaches the sides through the fields between advances, and the
+/// whole set steps by the overlay-advance law ([`advance_set`]).
 struct SpanCursors<'a> {
     lo: LeafCursor<'a>,
     /// Whether any pair still reads the `lo` endpoint; a settled endpoint's
@@ -508,9 +508,9 @@ impl SpanCursors<'_> {
 /// Priority `[HI, LO, bound 0, bound 1, …]`: probe endpoints step first on
 /// every tie (each is its pairs' first operand, and the binary law's
 /// equal-depth arm steps its first operand first), which is what keeps each
-/// pair's accumulator write sequence identical to its pair sweep's. `hi`
-/// before `lo` and the bounds' order among themselves move no committed
-/// reading: no two of those cursors share an accumulator.
+/// pair's accumulator write sequence identical to its pair sweep's. `hi` before
+/// `lo` and the bounds' order among themselves move no committed reading: no
+/// two of those cursors share an accumulator.
 impl CursorSet for SpanCursors<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         0..self.sides.len() + 2

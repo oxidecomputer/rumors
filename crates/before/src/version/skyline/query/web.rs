@@ -13,25 +13,24 @@
 //!
 //! Subtree spans nest LIFO along the sweep, so "the closing node's subtree
 //! minimum" is always *the innermost open range's minimum* at the close — the
-//! range-minimum problem the anchored-minimum web solves. The web itself —
-//! the one `gap` register against a shared anchor, the latent boundary a
-//! close parks by move, the compressed difference stack, and the propagation
-//! each undercut funds — is
-//! [`watermark`](crate::version::skyline::watermark)'s, held once for both
-//! its clients; this module drives it through [`ReignWeb`] at payload
-//! [`Reign`] and contributes only the fold's own semantics.
+//! range-minimum problem the anchored-minimum web solves. The web itself — the
+//! one `gap` register against a shared anchor, the latent boundary a close
+//! parks by move, the compressed difference stack, and the propagation each
+//! undercut funds — is [`watermark`](crate::version::skyline::watermark)'s,
+//! held once for both its clients; this module drives it through [`ReignWeb`]
+//! at payload [`Reign`] and contributes only the fold's own semantics.
 //!
 //! What the closes *fold into the total* rides the web as value identity: a
-//! [`Reign`]. The innermost minimum's value is a leaf height the sweep
-//! already paid for — recorded once, at the boundary that made it the
-//! minimum, as a narrow frozen-relative offset (below) — and every close
-//! while that value reigns just counts. The record settles into the total
-//! exactly once, at its death (a lower leaf dethrones it, a propagating drop
-//! annihilates its difference, or the stream ends), as one compacted
-//! `offset × count` product priced by the offset's width. A record whose
-//! reign is interrupted — an inner range arms above it — rides the
-//! interrupting boundary as its payload and returns at the pop with its
-//! count intact, so an interruption never re-reads the offset.
+//! [`Reign`]. The innermost minimum's value is a leaf height the sweep already
+//! paid for — recorded once, at the boundary that made it the minimum, as a
+//! narrow frozen-relative offset (below) — and every close while that value
+//! reigns just counts. The record settles into the total exactly once, at its
+//! death (a lower leaf dethrones it, a propagating drop annihilates its
+//! difference, or the stream ends), as one compacted `offset × count` product
+//! priced by the offset's width. A record whose reign is interrupted — an inner
+//! range arms above it — rides the interrupting boundary as its payload and
+//! returns at the pop with its count intact, so an interruption never re-reads
+//! the offset.
 //!
 //! # The heights side: the epoch ledger
 //!
@@ -232,14 +231,14 @@ impl ReignWeb {
         self.web.fold_height(negative, magnitude);
     }
 
-    /// Close the innermost range: fold its minimum into the total (one count
-    /// on the reigning record) and merge it into its parent.
+    /// Close the innermost range: fold its minimum into the total (one count on
+    /// the reigning record) and merge it into its parent.
     ///
-    /// The web's close is O(1) — a zero-run decrement, or a boundary move
-    /// into the latent register — and its outcome carries the reign
-    /// bookkeeping: a parked boundary's record resumes reigning with its
-    /// count intact while the inner record dies by its one settle, and the
-    /// last close settles the final record as the web retires.
+    /// The web's close is O(1) — a zero-run decrement, or a boundary move into
+    /// the latent register — and its outcome carries the reign bookkeeping: a
+    /// parked boundary's record resumes reigning with its count intact while
+    /// the inner record dies by its one settle, and the last close settles the
+    /// final record as the web retires.
     pub(super) fn close(&mut self, total: &mut Accumulator, ledger: &mut EpochLedger) {
         // The reigning record counts this close on every live outcome — the
         // increment rides each arm, after the dispatch, so the impossible
