@@ -86,10 +86,12 @@ pub(crate) enum Demand {
 struct Pair {
     diff: Accumulator,
     directions: Directions,
-    /// Whether the pair still feeds a verdict. A pair is *settled* — `live ==
-    /// false` — when a refutation fixed everything the verdict will ever need
-    /// from it: a settled pair stops folding and reading (its stream may
-    /// still advance for the other pair riding the same cursor).
+    /// Whether the pair still feeds a verdict.
+    ///
+    /// A pair is *settled* — `live == false` — when a refutation fixed
+    /// everything the verdict will ever need from it: a settled pair stops
+    /// folding and reading (its stream may still advance for the other pair
+    /// riding the same cursor).
     live: bool,
 }
 
@@ -210,10 +212,11 @@ pub(crate) fn admits<'a>(
     })
 }
 
-/// The membership walk's owned cursor set — the walk state itself, as in the
-/// placement walk's `Cursors`: the probe's cursor and every bound side. The
-/// read loop reaches the sides through the fields between advances, and the
-/// whole set steps by the overlay-advance law ([`advance_set`]).
+/// The membership walk's owned cursor set: the probe's cursor and every
+/// bound side — the walk state itself, as in the placement walk's `Cursors`.
+///
+/// The read loop reaches the sides through the fields between advances, and
+/// the whole set steps by the overlay-advance law ([`advance_set`]).
 struct MemberCursors<'a> {
     probe: LeafCursor<'a>,
     sides: Vec<Option<BoundSide<'a>>>,
@@ -476,11 +479,12 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
     }
 }
 
-/// The coverage walk's owned cursor set — the walk state itself, as in the
-/// placement walk's `Cursors`: both probe endpoints' cursors, their live
-/// flags, and every bound side. The read loop reaches the sides through the
-/// fields between advances, and the whole set steps by the overlay-advance
-/// law ([`advance_set`]).
+/// The coverage walk's owned cursor set: both probe endpoints' cursors,
+/// their live flags, and every bound side — the walk state itself, as in
+/// the placement walk's `Cursors`.
+///
+/// The read loop reaches the sides through the fields between advances, and
+/// the whole set steps by the overlay-advance law ([`advance_set`]).
 struct SpanCursors<'a> {
     lo: LeafCursor<'a>,
     /// Whether any pair still reads the `lo` endpoint; a settled endpoint's

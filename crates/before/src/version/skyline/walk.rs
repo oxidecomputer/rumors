@@ -1,7 +1,9 @@
-//! The leaf-walk driver: the iterative descend-to-leaf/backtrack skeleton of
-//! the *single-stream* leaf passes — the scanning walks that visit one
-//! skyline subtree's leaves through a caller-owned cursor (the fill walk's
-//! block scans and sibling walks, the pre-scan's replays).
+//! The leaf-walk driver: the iterative descend-to-leaf/backtrack skeleton
+//! of the *single-stream* leaf passes.
+//!
+//! Its clients are the scanning walks that visit one skyline subtree's
+//! leaves through a caller-owned cursor — the fill walk's block scans and
+//! sibling walks, the pre-scan's replays.
 //!
 //! The overlay layer's [`LeafCursor`](super::overlay::LeafCursor) carries its
 //! own copy of the same skeleton for the other client family: the
@@ -281,8 +283,9 @@ pub(super) fn fold_region(
     last
 }
 
-/// Block-scan the whole subtree at the cursor into a [`RegionSkip`] — every
-/// bit is still read and folded; only the per-leaf client handling is
+/// Block-scan the whole subtree at the cursor into a [`RegionSkip`].
+///
+/// Every bit is still read and folded; only the per-leaf client handling is
 /// skipped: [`skip_leaves`] over a fresh walk, with the net movement and the
 /// streaming minimum materialized.
 ///

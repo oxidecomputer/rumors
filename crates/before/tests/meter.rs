@@ -180,11 +180,12 @@ struct Envelope {
     /// Big-integer limb operations counted during the scenario body.
     #[cfg(feature = "limb-meter")]
     limb_ops: u64,
-    /// Improvement tripwire under the limb column: a reading below it is
-    /// a drop of more than 25% from the pinned reading — attribute it,
-    /// re-pinning an
-    /// honest improvement or curing a dead meter (zero where the measured
-    /// count is zero, under which the bound asserts nothing).
+    /// Improvement tripwire under the limb column.
+    ///
+    /// A reading below it is a drop of more than 25% from the pinned
+    /// reading — attribute it, re-pinning an honest improvement or curing a
+    /// dead meter (zero where the measured count is zero, under which the
+    /// bound asserts nothing).
     #[cfg(feature = "limb-meter")]
     limb_floor: u64,
 }
@@ -7804,9 +7805,11 @@ mod width_circulation_cost {
     }
 
     /// Improvement tripwire on the reveal comb's larger run: the
-    /// measured reading ×0.75, rounded down (the module comment's
-    /// tripwire genre — a trip means the reading improved past the
-    /// band, not that the meter died: attribute and re-pin).
+    /// measured reading ×0.75, rounded down.
+    ///
+    /// The module comment's tripwire genre: a trip means the reading
+    /// improved past the band, not that the meter died — attribute and
+    /// re-pin.
     const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 56_772;
 
     /// Touch liveness floor on the pure comb's larger run, derived from
@@ -7914,9 +7917,11 @@ mod width_circulation_cost {
     const HIFLOOR_TOUCH_CEILING: u64 = 51_042;
 
     /// Improvement tripwire paired with [`HIFLOOR_TOUCH_CEILING`]: the
-    /// measured reading ×0.75, rounded down (the module comment's
-    /// tripwire genre — a trip means the reading improved past the
-    /// band, not that the meter died: attribute and re-pin).
+    /// measured reading ×0.75, rounded down.
+    ///
+    /// The module comment's tripwire genre: a trip means the reading
+    /// improved past the band, not that the meter died — attribute and
+    /// re-pin.
     const HIFLOOR_TOUCH_TRIPWIRE: u64 = 30_624;
 
     /// GREEN PIN: the high-floor control is flat and width-independent

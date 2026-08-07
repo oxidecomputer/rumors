@@ -245,10 +245,12 @@ pub(super) struct RouteProbe {
     /// [`take_route`](Self::take_route)'s never-recorded fallback can still
     /// build a well-formed (empty, never-read) route.
     id_span: usize,
-    /// False once the walk diverges: every fold degenerates to the plain
-    /// skip, no direction is recorded, and the dead folds return
-    /// [`Cost::MAX`] as a don't-care (the documented infeasible-region
-    /// constant, safe because a dead probe's costs are never read either).
+    /// False once the walk diverges.
+    ///
+    /// Dead, every fold degenerates to the plain skip and no direction is
+    /// recorded; the dead folds return [`Cost::MAX`] as a don't-care (the
+    /// documented infeasible-region constant, safe because a dead probe's
+    /// costs are never read either).
     live: bool,
 }
 
