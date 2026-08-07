@@ -23,8 +23,8 @@ fn pack_limb(chunk: &[Word]) -> u64 {
     // One face of this cast is a no-op: `Word` is `u64` on 64-bit targets
     // and `u32` on 32-bit ones, and the cast is what compiles on both.
     #[allow(clippy::unnecessary_cast)]
-    chunk.iter().enumerate().fold(0u64, |limb, (i, &word)| {
-        limb | ((word as u64) << (i as u32 * Word::BITS))
+    chunk.iter().enumerate().fold(0u64, |limb, (index, &word)| {
+        limb | ((word as u64) << (index as u32 * Word::BITS))
     })
 }
 

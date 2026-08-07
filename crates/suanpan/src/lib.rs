@@ -71,8 +71,8 @@
 //! Every deposit a write makes lands in one digit (a machine-word delta
 //! is one deposit; a wide delta makes one per limb), forming the sum `t`
 //! in wider (128-bit) intermediate arithmetic so nothing overflows. If
-//! `t` is in
-//! the zone, it becomes the digit and that is the whole write. If not,
+//! `t` is in the zone, it becomes the digit and that is the whole write.
+//! If not,
 //! the digit *recenters*: it carries `c = (t + 2^31) >> 32` upward (an
 //! arithmetic shift) and keeps the remainder `t − c·2^32`, which lands in
 //! `[−2^31, 2^31)`. Two facts make this cheap \[derived\]: a freshly
@@ -282,9 +282,20 @@
 //! a top-settlement scan steps or skips past — a certificate skip is one
 //! touch however wide the certified run, because the run's digits are
 //! neither read nor written) into the [`touch_meter`] module's
-//! process-global counter. Digit-touch cost is invisible to heap meters
+//! process-global counter. The quick register holds no digits, yet its
+//! work is metered too: a delta, sign query, negation, or shift the
+//! register absorbs counts exactly one touch, a register read-out
+//! ([`sign_magnitude`](Accumulator::sign_magnitude) and its scaled twin)
+//! counts the value's [`digit_count`](Accumulator::digit_count), and the
+//! spill prices only the deposit of the register's few digits — so
+//! touch-count floors derived from the digit engine's shapes survive
+//! the register fast path. The counts are **exact**: for a fixed
+//! operation sequence the reading is a deterministic function of that
+//! sequence, and this exactness is a public contract — a change to any
+//! operation's count is a breaking change of this crate, never
+//! measurement noise. Digit-touch cost is invisible to heap meters
 //! and step counters — the work is wider, not more frequent — so this
-//! counter is what a consumer's resource envelopes should pin; the
+//! counter is what a caller's resource envelopes should pin; the
 //! zero-run ledger's own upkeep is machine-word bookkeeping outside the
 //! digit denomination (its bound is stated in the ledger section). Off
 //! by default, and without the feature the module is absent and the
@@ -304,10 +315,10 @@
 //! [`digit_count`](Accumulator::digit_count), the O(held digits)
 //! [`sign_magnitude`](Accumulator::sign_magnitude) (and its scaled twin
 //! [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl)), and a
-//! [`clone`](Clone::clone) — wrap in a lock for shared sign reads. It is deliberately not `PartialEq`: two
-//! spellings of one value would compare unequal, so compare by
-//! subtracting and reading the difference's sign. `touch-meter` is the
-//! crate's only feature.
+//! [`clone`](Clone::clone) — wrap in a lock for shared sign reads. It
+//! is deliberately not `PartialEq`: two spellings of one value would
+//! compare unequal, so compare by subtracting and reading the
+//! difference's sign. `touch-meter` is the crate's only feature.
 //!
 //! # Testing
 //!

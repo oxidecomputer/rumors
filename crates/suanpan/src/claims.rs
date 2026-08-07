@@ -14,9 +14,9 @@
 //!   like any other committed data.
 //! - **Claim ↔ evidence**: every claim either names committed `#[test]`
 //!   witnesses (checked to exist, by name, in their files — suanpan's own
-//!   touch-metered pins, plus the `accum_streams` digit-touch bands that
-//!   live beside the consumer in `before/tests/meter.rs`) or carries a
-//!   mechanism-based exclusion reason.
+//!   touch-metered pins, plus the `accum_streams` digit-touch bands
+//!   committed in the sibling meter suite the [`BANDS`] path names) or
+//!   carries a mechanism-based exclusion reason.
 //! - **Totality**: the extracted `pub fn` surface plus the family rows
 //!   ([`FAMILY_SURFACE`]) equals the roster's op set exactly, both
 //!   directions, so a new public operation fails here until its cost
@@ -91,9 +91,11 @@ pub(crate) const FAMILY_SURFACE: &[&str] = &[
 ];
 
 /// Suanpan's own touch-metered pins.
-const OWN: &str = "src/accumulator/tests.rs";
+const OWN: &str = "src/accumulator/tests/metered.rs";
 
-/// The digit-touch stream bands committed beside the consumer.
+/// The digit-touch stream bands committed in the sibling meter suite —
+/// the one workspace-relative path in the roster; the binding tests
+/// resolve it from the manifest directory.
 const BANDS: &str = "../before/tests/meter.rs";
 
 /// Shorthand for a word-scale operation with no table row, excluded
@@ -398,15 +400,16 @@ pub(crate) const CLAIMS: &[Claim] = &[
 /// takes the contiguous table rows after its separator line.
 pub(crate) fn cost_table() -> Vec<(String, String)> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs");
-    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    let text =
+        std::fs::read_to_string(path).unwrap_or_else(|error| panic!("reading {path}: {error}"));
     let doc_lines: Vec<&str> = text
         .lines()
-        .filter_map(|l| l.strip_prefix("//!"))
-        .map(|l| l.strip_prefix(' ').unwrap_or(l).trim_end())
+        .filter_map(|line| line.strip_prefix("//!"))
+        .map(|line| line.strip_prefix(' ').unwrap_or(line).trim_end())
         .collect();
     let header = doc_lines
         .iter()
-        .position(|l| *l == "| Operation | Cost |")
+        .position(|line| *line == "| Operation | Cost |")
         .expect("the crate page carries the operations table header");
     assert_eq!(
         doc_lines.get(header + 1),
@@ -423,7 +426,7 @@ pub(crate) fn cost_table() -> Vec<(String, String)> {
         let masked = line.replace("\\|", "\u{0}");
         let cells: Vec<String> = masked
             .split('|')
-            .map(|c| c.replace('\u{0}', "\\|"))
+            .map(|cell| cell.replace('\u{0}', "\\|"))
             .collect();
         assert_eq!(cells.len(), 4, "a table row is `| ops | cost |`: {line:?}");
         rows.push((cells[1].trim().to_owned(), cells[2].trim().to_owned()));
