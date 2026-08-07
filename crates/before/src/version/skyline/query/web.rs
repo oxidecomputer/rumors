@@ -1,66 +1,64 @@
-//! The min-ticks fold's bookkeeping: subtree minima as a range-minimum
-//! anchor web, and the frozen component as an epoch ledger settled once.
+//! The min-ticks fold's bookkeeping: subtree minima as a range-minimum anchor
+//! web, and the frozen component as an epoch ledger settled once.
 //!
 //! [`min_ticks`](super::min_ticks) folds `Σ leaf heights − Σ internal-node
 //! subtree minima` over one leaf sweep. Both sums are event streams over
-//! evolving wide quantities — each leaf folds the running height, each
-//! closing node folds the minimum of its completed span — and this module
-//! is the accounting that keeps every event narrow: no event ever reads a
-//! width its own boundary's codes did not pay for.
+//! evolving wide quantities — each leaf folds the running height, each closing
+//! node folds the minimum of its completed span — and this module is the
+//! accounting that keeps every event narrow: no event ever reads a width its
+//! own boundary's codes did not pay for.
 //!
 //! # The minima side: reigns over a range-minimum web
 //!
-//! Subtree spans nest LIFO along the sweep, so "the closing node's
-//! subtree minimum" is always *the innermost open range's minimum* at the
-//! close — the range-minimum problem the fill walk's watermark stack
-//! already solves, re-derived here for the fold's needs. [`MinWeb`]
-//! keeps one signed accumulator `gap = h − A` (`h` the running height,
-//! `A` an anchor at or above the innermost minimum `m`), one optional
-//! latent boundary `Λ = A − m` (strictly positive when present), and a
-//! stack of nonnegative differences `min(inner) − min(outer)` between
-//! adjacent open ranges, zero runs compressed. Each consumed delta folds
-//! into `gap` once; a leaf's undercut test is an amortized sign read; a
-//! close never folds a difference — a popped nonzero boundary MOVES into
-//! the latent register — and an undercut's residue drives outward through
-//! dying differences, each hop funded by the operand it kills.
+//! Subtree spans nest LIFO along the sweep, so "the closing node's subtree
+//! minimum" is always *the innermost open range's minimum* at the close — the
+//! range-minimum problem the fill walk's watermark stack already solves,
+//! re-derived here for the fold's needs. [`MinWeb`] keeps one signed
+//! accumulator `gap = h − A` (`h` the running height, `A` an anchor at or above
+//! the innermost minimum `m`), one optional latent boundary `Λ = A − m`
+//! (strictly positive when present), and a stack of nonnegative differences
+//! `min(inner) − min(outer)` between adjacent open ranges, zero runs
+//! compressed. Each consumed delta folds into `gap` once; a leaf's undercut
+//! test is an amortized sign read; a close never folds a difference — a popped
+//! nonzero boundary MOVES into the latent register — and an undercut's residue
+//! drives outward through dying differences, each hop funded by the operand it
+//! kills.
 //!
-//! What the closes *fold into the total* rides the same web as value
-//! identity: a [`Reign`]. The innermost minimum's value is a leaf height
-//! the sweep already paid for — recorded once, at the boundary that made
-//! it the minimum, as a narrow frozen-relative offset (below) — and every
-//! close while that value reigns just counts. The record settles into the
-//! total exactly once, at its death (a lower leaf dethrones it, a
-//! propagating drop annihilates its difference, or the stream ends), as
-//! one compacted `offset × count` product priced by the offset's width.
-//! A record whose reign is interrupted — an inner range arms above it —
-//! moves into the difference record and returns at the pop with its count
-//! intact, so an interruption never re-reads the offset.
+//! What the closes *fold into the total* rides the same web as value identity:
+//! a [`Reign`]. The innermost minimum's value is a leaf height the sweep
+//! already paid for — recorded once, at the boundary that made it the minimum,
+//! as a narrow frozen-relative offset (below) — and every close while that
+//! value reigns just counts. The record settles into the total exactly once, at
+//! its death (a lower leaf dethrones it, a propagating drop annihilates its
+//! difference, or the stream ends), as one compacted `offset × count` product
+//! priced by the offset's width. A record whose reign is interrupted — an inner
+//! range arms above it — moves into the difference record and returns at the
+//! pop with its count intact, so an interruption never re-reads the offset.
 //!
 //! # The heights side: the epoch ledger
 //!
-//! The sweep splits the running height `h = F + L`: `L` (*live*) the
-//! drift since the last freeze on one accumulator, `F` (*frozen*) the
-//! rest — never materialized anywhere. [`EpochLedger`] holds one signed
-//! drift per freeze (epoch 0's "drift" is the first leaf's absolute) and
-//! one signed reference count per epoch: a leaf event folds its narrow
-//! `L`-offset into the total directly and counts `+1` against its epoch;
-//! a settling reign counts `−count` against the epoch its offset was
-//! recorded under. The frozen component reaches the total once, at the
-//! end, by summation by parts:
+//! The sweep splits the running height `h = F + L`: `L` (*live*) the drift
+//! since the last freeze on one accumulator, `F` (*frozen*) the rest — never
+//! materialized anywhere. [`EpochLedger`] holds one signed drift per freeze
+//! (epoch 0's "drift" is the first leaf's absolute) and one signed reference
+//! count per epoch: a leaf event folds its narrow `L`-offset into the total
+//! directly and counts `+1` against its epoch; a settling reign counts `−count`
+//! against the epoch its offset was recorded under. The frozen component
+//! reaches the total once, at the end, by summation by parts:
 //!
 //! `Σ_e refs_e · F_e = Σ_f drift_f · Σ_{e ≥ f} refs_e`
 //!
-//! — one compacted `drift × suffix-count` product per freeze, priced by
-//! the drift's own width (which the codes that built the drift funded)
-//! times the count's O(1) compacted digits. No event is ever re-based
-//! across a freeze: an offset recorded under epoch `e` keeps its epoch,
-//! and the ledger's settle carries the frozen difference for it.
+//! — one compacted `drift × suffix-count` product per freeze, priced by the
+//! drift's own width (which the codes that built the drift funded) times the
+//! count's O(1) compacted digits. No event is ever re-based across a freeze: an
+//! offset recorded under epoch `e` keeps its epoch, and the ledger's settle
+//! carries the frozen difference for it.
 //!
 //! # Funding: the potential function and its arity
 //!
 //! The certificate is a **one-ledger potential over the single operand**:
-//! folding a code of `w` digits deposits `Θ(w)` into `Φ`, and each
-//! topology bit deposits O(1). Every charge names its deposit:
+//! folding a code of `w` digits deposits `Θ(w)` into `Φ`, and each topology bit
+//! deposits O(1). Every charge names its deposit:
 //!
 //! - folds into `L` and `gap`, and each leaf's offset fold and undercut
 //!   sign read: the boundary's own code (the freeze trigger keeps `L`
@@ -80,10 +78,9 @@
 //! - the ledger settle: one product per freeze at the evicted drift's
 //!   own width.
 //!
-//! The arity is one: min_ticks is a single-stream fold, so no charge can
-//! draw on a ledger its own operand did not fund — the two-operand
-//! co-sweep's per-operand split (the module doc's pair section) is not
-//! needed here.
+//! The arity is one: min_ticks is a single-stream fold, so no charge can draw
+//! on a ledger its own operand did not fund — the two-operand co-sweep's
+//! per-operand split (the module doc's pair section) is not needed here.
 
 use core::cmp::Ordering;
 
@@ -93,9 +90,9 @@ use crate::codec::{Base, Int};
 
 use super::{fold_signed_int, mul_into};
 
-/// The value the innermost minimum currently holds, as the sweep folds
-/// it: a frozen-relative offset, its epoch, and the closes counted at it
-/// since the record's mint (module doc: the minima side).
+/// The value the innermost minimum currently holds, as the sweep folds it: a
+/// frozen-relative offset, its epoch, and the closes counted at it since the
+/// record's mint (module doc: the minima side).
 struct Reign {
     /// Whether the offset is negative.
     neg: bool,
@@ -107,13 +104,13 @@ struct Reign {
     count: u64,
 }
 
-/// A stacked boundary `min(inner) − min(outer)`, held at machine width
-/// whenever the value fits.
+/// A stacked boundary `min(inner) − min(outer)`, held at machine width whenever
+/// the value fits.
 ///
-/// Most boundaries on the deep committed shapes are unit-scale (an
-/// ascending staircase arms one small difference per level), so the
-/// inline arm keeps the web's transient at one machine word per open
-/// range instead of one heap buffer.
+/// Most boundaries on the deep committed shapes are unit-scale (an ascending
+/// staircase arms one small difference per level), so the inline arm keeps the
+/// web's transient at one machine word per open range instead of one heap
+/// buffer.
 enum Boundary {
     /// A machine-word difference (strictly positive).
     Word(u64),
@@ -123,24 +120,23 @@ enum Boundary {
 
 /// One record of the difference stack.
 enum Frame {
-    /// `count` consecutive ranges whose minima equal the next-inner
-    /// range's.
+    /// `count` consecutive ranges whose minima equal the next-inner range's.
     ZeroRun(usize),
-    /// A range whose minimum sits `boundary` below the next-inner one,
-    /// with the record realizing that minimum.
+    /// A range whose minimum sits `boundary` below the next-inner one, with the
+    /// record realizing that minimum.
     Diff { boundary: Boundary, rec: Reign },
 }
 
 /// The LIFO web of range minima with reign records (module doc).
 pub(super) struct MinWeb {
-    /// `h − A` for the anchor `A` of the innermost armed range
-    /// (`A = m + Λ` for the latent `Λ`); zero-valued while `armed == 0`.
+    /// `h − A` for the anchor `A` of the innermost armed range (`A = m + Λ` for
+    /// the latent `Λ`); zero-valued while `armed == 0`.
     gap: Accumulator,
-    /// The latent boundary `Λ = A − m`: the anchor's stale excess over
-    /// the innermost minimum. Strictly positive when present.
+    /// The latent boundary `Λ = A − m`: the anchor's stale excess over the
+    /// innermost minimum. Strictly positive when present.
     latent: Option<Accumulator>,
-    /// Adjacent-range differences outward from the innermost armed
-    /// range, zero runs compressed; last entry = nearest the innermost.
+    /// Adjacent-range differences outward from the innermost armed range, zero
+    /// runs compressed; last entry = nearest the innermost.
     frames: Vec<Frame>,
     /// The innermost minimum's record; `Some` exactly while `armed > 0`.
     winner: Option<Reign>,
@@ -172,22 +168,21 @@ impl MinWeb {
 
     /// Fold one consumed delta into the height side of `gap`.
     ///
-    /// `h` moved while every minimum stayed: exactly the innermost
-    /// range's `gap` shifts; the differences are height-free.
+    /// `h` moved while every minimum stayed: exactly the innermost range's
+    /// `gap` shifts; the differences are height-free.
     pub(super) fn fold_height(&mut self, negative: bool, magnitude: &Int) {
         if self.armed > 0 {
             fold_signed_int(&mut self.gap, negative, magnitude);
         }
     }
 
-    /// Close the innermost range: fold its minimum into the total (one
-    /// count on the reigning record) and merge it into its parent.
+    /// Close the innermost range: fold its minimum into the total (one count on
+    /// the reigning record) and merge it into its parent.
     ///
-    /// The merge is free — nesting keeps the parent's minimum current —
-    /// and O(1): a popped zero run decrements; a popped nonzero boundary
-    /// MOVES into the latent register, the interrupted outer record
-    /// resuming with its count intact while the inner record dies by its
-    /// one settle.
+    /// The merge is free — nesting keeps the parent's minimum current — and
+    /// O(1): a popped zero run decrements; a popped nonzero boundary MOVES into
+    /// the latent register, the interrupted outer record resuming with its
+    /// count intact while the inner record dies by its one settle.
     pub(super) fn close(&mut self, total: &mut Accumulator, ledger: &mut EpochLedger) {
         debug_assert_eq!(self.pending, 0, "a closing range's leaves have all arrived");
         debug_assert!(self.armed > 0, "closing an armed range");
@@ -218,9 +213,9 @@ impl MinWeb {
                 }
             }
             Frame::Diff { boundary, rec } => {
-                // The minimum widens to the parent's: the anchor stays
-                // and the boundary parks in the latent; the inner record
-                // will never be folded again, so it settles here.
+                // The minimum widens to the parent's: the anchor stays and the
+                // boundary parks in the latent; the inner record will never be
+                // folded again, so it settles here.
                 let dead = self
                     .winner
                     .replace(rec)
@@ -231,13 +226,13 @@ impl MinWeb {
         }
     }
 
-    /// Record one leaf at the running height, with its narrow
-    /// frozen-relative offset (`neg`, `off`) and epoch.
+    /// Record one leaf at the running height, with its narrow frozen-relative
+    /// offset (`neg`, `off`) and epoch.
     ///
-    /// Arms any pending ranges at the leaf; otherwise an amortized sign
-    /// read decides whether the leaf undercuts the innermost minimum,
-    /// and only a true undercut does more than O(1) work — funded by the
-    /// differences it consumes.
+    /// Arms any pending ranges at the leaf; otherwise an amortized sign read
+    /// decides whether the leaf undercuts the innermost minimum, and only a
+    /// true undercut does more than O(1) work — funded by the differences it
+    /// consumes.
     pub(super) fn leaf(
         &mut self,
         neg: bool,
@@ -303,8 +298,8 @@ impl MinWeb {
             self.push_zeros(pending - 1);
             return;
         }
-        // The anchor-relative offset d = v − A_old: the gap's buffer
-        // moves out whole and a fresh zero seats the new anchor A = v.
+        // The anchor-relative offset d = v − A_old: the gap's buffer moves out
+        // whole and a fresh zero seats the new anchor A = v.
         let fresh = self.lease();
         let mut d = core::mem::replace(&mut self.gap, fresh);
         self.armed += pending;
@@ -315,9 +310,9 @@ impl MinWeb {
         }
         match d.sign() {
             Ordering::Greater => {
-                // The new minima sit above the old: the interrupted
-                // record moves into the difference, count intact, and a
-                // fresh record reigns at the arming leaf.
+                // The new minima sit above the old: the interrupted record
+                // moves into the difference, count intact, and a fresh record
+                // reigns at the arming leaf.
                 let rec = self
                     .winner
                     .replace(Reign {
@@ -356,11 +351,11 @@ impl MinWeb {
         }
     }
 
-    /// Drop the innermost minimum to the current leaf `v` (`gap < 0`,
-    /// the true-undercut decision already made).
+    /// Drop the innermost minimum to the current leaf `v` (`gap < 0`, the
+    /// true-undercut decision already made).
     ///
-    /// The old record dies by its settle, `gap` dies into the residue, a
-    /// live latent annihilates into it, and the drop propagates outward.
+    /// The old record dies by its settle, `gap` dies into the residue, a live
+    /// latent annihilates into it, and the drop propagates outward.
     fn undercut(
         &mut self,
         neg: bool,
@@ -390,17 +385,16 @@ impl MinWeb {
         self.propagate(residue, total, ledger);
     }
 
-    /// Decide a drop below the anchor (`gap < 0` holding `v − A`)
-    /// against the true minimum `m = A − Λ` while a latent lives.
+    /// Decide a drop below the anchor (`gap < 0` holding `v − A`) against the
+    /// true minimum `m = A − Λ` while a latent lives.
     ///
-    /// Top-index domination answers scale-disparate cases in O(1): a
-    /// dominating latent means `m < v < A` — return false, nothing
-    /// changes; a dominated one means a true undercut — return true with
-    /// the latent left live for [`undercut`](Self::undercut)'s residue
-    /// to annihilate. Comparable tops retire the latent (the
-    /// near-cancellation funds the merge, and re-widening it costs the
-    /// input a fresh climb) and return true for the caller's plain
-    /// re-test against the re-based anchor.
+    /// Top-index domination answers scale-disparate cases in O(1): a dominating
+    /// latent means `m < v < A` — return false, nothing changes; a dominated
+    /// one means a true undercut — return true with the latent left live for
+    /// [`undercut`](Self::undercut)'s residue to annihilate. Comparable tops
+    /// retire the latent (the near-cancellation funds the merge, and
+    /// re-widening it costs the input a fresh climb) and return true for the
+    /// caller's plain re-test against the re-based anchor.
     fn decide_undercut_through_latent(&mut self) -> bool {
         let gap_floor = self.gap.digit_count() - 1;
         let latent = self.latent.as_mut().expect("the caller saw a live latent");
@@ -420,17 +414,16 @@ impl MinWeb {
         true
     }
 
-    /// Drive an undercut's residue (`residue > 0`, the drop below the
-    /// old innermost minimum) outward through the difference stack.
+    /// Drive an undercut's residue (`residue > 0`, the drop below the old
+    /// innermost minimum) outward through the difference stack.
     ///
-    /// Zero runs pass whole in O(1); each nonzero difference the drop
-    /// exceeds dies by one fold *into the residue* at the difference's
-    /// own width — its record dying by its settle, the range's minimum
-    /// now the new leaf's — and the stopping range absorbs the one
-    /// surviving fold. Top-index domination decides each wide hop's
-    /// direction before any fold, so the dying side always funds the
-    /// fold that consumes it; word-scale boundaries fold in O(1)
-    /// outright.
+    /// Zero runs pass whole in O(1); each nonzero difference the drop exceeds
+    /// dies by one fold *into the residue* at the difference's own width — its
+    /// record dying by its settle, the range's minimum now the new leaf's — and
+    /// the stopping range absorbs the one surviving fold. Top-index domination
+    /// decides each wide hop's direction before any fold, so the dying side
+    /// always funds the fold that consumes it; word-scale boundaries fold in
+    /// O(1) outright.
     fn propagate(
         &mut self,
         residue: Accumulator,
@@ -452,8 +445,8 @@ impl MinWeb {
                     boundary: Boundary::Word(w),
                     rec,
                 }) => {
-                    // A word-scale boundary folds outright: O(1) against
-                    // any residue.
+                    // A word-scale boundary folds outright: O(1) against any
+                    // residue.
                     residue.sub_u64(w);
                     match residue.sign() {
                         Ordering::Greater => {
@@ -483,12 +476,11 @@ impl MinWeb {
                     boundary: Boundary::Wide(mut d),
                     rec,
                 }) => {
-                    // The width guards skip domination reads a top index
-                    // could never decide; tops are honest (a pushed
-                    // difference had its sign read at push, and the
-                    // residue collapses under its own reads here). Both
-                    // sides are strictly positive, so a decided
-                    // domination is always `Greater`.
+                    // The width guards skip domination reads a top index could
+                    // never decide; tops are honest (a pushed difference had
+                    // its sign read at push, and the residue collapses under
+                    // its own reads here). Both sides are strictly positive, so
+                    // a decided domination is always `Greater`.
                     if residue.digit_count() >= d.digit_count() + 2 {
                         let (sign, decided) = residue.sign_dominates_at(d.digit_count() - 1);
                         debug_assert!(
@@ -512,9 +504,9 @@ impl MinWeb {
                             "stacked differences are strictly positive"
                         );
                         if decided && sign == Ordering::Greater {
-                            // The difference dwarfs the residue: the drop
-                            // stops here, the dying residue's terminal
-                            // fold shrinking the survivor.
+                            // The difference dwarfs the residue: the drop stops
+                            // here, the dying residue's terminal fold shrinking
+                            // the survivor.
                             d.sub_accum(&residue);
                             self.retire(residue);
                             self.frames.push(Frame::Diff {
@@ -524,9 +516,9 @@ impl MinWeb {
                             break;
                         }
                     }
-                    // Comparable scales: the near-cancellation prices the
-                    // fold — the dying side's digits within a constant,
-                    // whichever side dies.
+                    // Comparable scales: the near-cancellation prices the fold
+                    // — the dying side's digits within a constant, whichever
+                    // side dies.
                     d.sub_accum(&residue);
                     self.retire(residue);
                     match d.sign() {
@@ -557,8 +549,8 @@ impl MinWeb {
         self.push_zeros(zeros);
     }
 
-    /// Park a popped boundary in the latent register: a move, never a
-    /// fold of the wide side.
+    /// Park a popped boundary in the latent register: a move, never a fold of
+    /// the wide side.
     fn park(&mut self, boundary: Boundary) {
         match (self.latent.take(), boundary) {
             (None, Boundary::Word(w)) => {
@@ -579,11 +571,11 @@ impl MinWeb {
         }
     }
 
-    /// Store a strictly positive difference at machine width when it
-    /// fits, retiring its buffer; keep the accumulator when it does not.
+    /// Store a strictly positive difference at machine width when it fits,
+    /// retiring its buffer; keep the accumulator when it does not.
     ///
-    /// The width test reads the digit count alone, so a wide difference
-    /// is never normalized just to learn it would not fit.
+    /// The width test reads the digit count alone, so a wide difference is
+    /// never normalized just to learn it would not fit.
     fn compact(&mut self, acc: Accumulator) -> Boundary {
         if acc.digit_count() <= 2 {
             let (sign, magnitude) = acc.sign_magnitude();
@@ -596,8 +588,8 @@ impl MinWeb {
         Boundary::Wide(acc)
     }
 
-    /// Settle a dying record: one compacted `offset × count` product
-    /// into the narrow total, and the count against the record's epoch.
+    /// Settle a dying record: one compacted `offset × count` product into the
+    /// narrow total, and the count against the record's epoch.
     fn settle(&mut self, rec: Reign, total: &mut Accumulator, ledger: &mut EpochLedger) {
         if rec.count == 0 {
             return;
@@ -631,21 +623,20 @@ impl MinWeb {
     }
 }
 
-/// The frozen component as per-epoch drifts and reference counts,
-/// settled by summation by parts once, at the end (module doc: the
-/// heights side).
+/// The frozen component as per-epoch drifts and reference counts, settled by
+/// summation by parts once, at the end (module doc: the heights side).
 pub(super) struct EpochLedger {
-    /// One signed drift per epoch: entry 0 is the first leaf's absolute
-    /// height, every later entry one freeze's evicted live drift.
+    /// One signed drift per epoch: entry 0 is the first leaf's absolute height,
+    /// every later entry one freeze's evicted live drift.
     drifts: Vec<(bool, Base)>,
-    /// Per epoch, the signed count of events denominated in that epoch's
-    /// frozen component: `+1` per leaf, `−count` per settled reign.
+    /// Per epoch, the signed count of events denominated in that epoch's frozen
+    /// component: `+1` per leaf, `−count` per settled reign.
     refs: Vec<i128>,
 }
 
 impl EpochLedger {
-    /// Open the ledger at epoch 0: the first leaf's absolute height is
-    /// the opening frozen component.
+    /// Open the ledger at epoch 0: the first leaf's absolute height is the
+    /// opening frozen component.
     pub(super) fn new(first: Base) -> EpochLedger {
         EpochLedger {
             drifts: vec![(false, first)],
@@ -668,8 +659,8 @@ impl EpochLedger {
         self.refs[epoch as usize] -= i128::from(count);
     }
 
-    /// Evict the live drift into a new epoch (or discard a redundantly
-    /// spelled zero, keeping the epoch), resetting the live component.
+    /// Evict the live drift into a new epoch (or discard a redundantly spelled
+    /// zero, keeping the epoch), resetting the live component.
     pub(super) fn freeze(&mut self, live: &mut Accumulator) {
         let (sign, drift) = live.sign_magnitude();
         if drift != UBig::ZERO {
@@ -680,9 +671,9 @@ impl EpochLedger {
         live.reset();
     }
 
-    /// Settle the frozen component: `Σ_e refs_e · F_e` by summation by
-    /// parts — one `drift × suffix-count` product per epoch, each priced
-    /// by the drift's own width.
+    /// Settle the frozen component: `Σ_e refs_e · F_e` by summation by parts —
+    /// one `drift × suffix-count` product per epoch, each priced by the drift's
+    /// own width.
     pub(super) fn settle(self, total: &mut Accumulator) {
         let mut suffix: i128 = 0;
         for ((neg, drift), refs) in self.drifts.iter().zip(&self.refs).rev() {

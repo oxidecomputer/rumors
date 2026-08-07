@@ -1,13 +1,13 @@
 //! Skyline literal constructors: the `TryFrom` surface's leaf and node
 //! composers, building canonical streams from paper-notation structure.
 //!
-//! The node composer enforces *event-tree* normal form on the literal —
-//! every node must have a zero-base child, and `(n, m, m)` collapses — so
-//! the `TryFrom` impls reject exactly the non-normal-form literals the
-//! paper notation can spell. This is stricter than skyline canonicality:
-//! a literal like `(0, (0, 1, 2), 3)` denotes a perfectly canonical step
-//! function, but its inner node hoards a liftable minimum, so it is not
-//! the normal spelling and is refused.
+//! The node composer enforces *event-tree* normal form on the literal — every
+//! node must have a zero-base child, and `(n, m, m)` collapses — so the
+//! `TryFrom` impls reject exactly the non-normal-form literals the paper
+//! notation can spell. This is stricter than skyline canonicality: a literal
+//! like `(0, (0, 1, 2), 3)` denotes a perfectly canonical step function, but
+//! its inner node hoards a liftable minimum, so it is not the normal spelling
+//! and is refused.
 
 use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Parse;
@@ -26,9 +26,9 @@ pub(crate) fn leaf(n: u64) -> BitsMut {
 /// streams, enforcing normal form.
 ///
 /// Rejects [`Parse::NotCanonical`] when the node hoards a liftable minimum
-/// (neither child's minimum leaf height is zero — normal form stores the
-/// shared minimum at the parent) or when the node is collapsible (two leaf
-/// children of equal height, which is just the leaf itself).
+/// (neither child's minimum leaf height is zero — normal form stores the shared
+/// minimum at the parent) or when the node is collapsible (two leaf children of
+/// equal height, which is just the leaf itself).
 pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<BitsMut, Parse> {
     let (l_topo, l_heights) = scan(l);
     let (r_topo, r_heights) = scan(r);
@@ -70,22 +70,22 @@ pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<BitsMut, Pars
         }
         prev = Some(height);
     }
-    // Canonicalizing the storage is `Version::from_bits`'s job, the
-    // single gate a stream passes through when it becomes a stored value.
+    // Canonicalizing the storage is `Version::from_bits`'s job, the single gate
+    // a stream passes through when it becomes a stored value.
     Ok(out)
 }
 
-/// Split a canonical stream into its topology flags (wire convention:
-/// `0` internal, `1` leaf) and absolute leaf heights.
+/// Split a canonical stream into its topology flags (wire convention: `0`
+/// internal, `1` leaf) and absolute leaf heights.
 fn scan(bits: &BitsSlice) -> (BitsMut, Vec<Base>) {
     let mut cursor = DsiCursor::new(bits);
     let mut topology = BitsMut::new();
     let mut heights: Vec<Base> = Vec::new();
     let mut pending = 1usize;
     while pending > 0 {
-        // One whole descent per unary read: `k` internal nodes, then the
-        // leaf whose flag terminates the run. Each internal node opens
-        // two children and closes itself; the leaf closes itself.
+        // One whole descent per unary read: `k` internal nodes, then the leaf
+        // whose flag terminates the run. Each internal node opens two children
+        // and closes itself; the leaf closes itself.
         let k = cursor
             .read_unary()
             .expect("a canonical stream holds a complete tree");

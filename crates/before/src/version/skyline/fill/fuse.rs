@@ -1,10 +1,9 @@
-//! The fused tick's walk-side state: the changed flag and the grow
-//! route, riding the fill walk so `tick` is one pass plus one splice.
+//! The fused tick's walk-side state: the changed flag and the grow route,
+//! riding the fill walk so `tick` is one pass plus one splice.
 //!
-//! The paper's `event` runs `fill` and keeps its output iff it moved
-//! the tree, else registers the event by the cheapest inflation. Fused,
-//! the one walk carries two extra pieces of state, each in its own
-//! struct here:
+//! The paper's `event` runs `fill` and keeps its output iff it moved the tree,
+//! else registers the event by the cheapest inflation. Fused, the one walk
+//! carries two extra pieces of state, each in its own struct here:
 //!
 //! - [`Out`], the **changed flag as an output mode**. Until an emitted
 //!   plateau differs from the input plateau it replaces, the output *is*
@@ -36,15 +35,14 @@
 //!   where no route is ever read — so the fill branch pays the route
 //!   tax only over its matched prefix.
 //!
-//! The changed flag is a **first-divergence detector**, aligned by
-//! plateau `(depth, code)`, never by "an arm fired": a raise that
-//! reproduces the existing leaf value exactly must not trip it. While
-//! every emitted plateau equals its input counterpart, output position
-//! ≡ input position exactly — in particular the first emitted leaf
-//! compares its absolute code against the input's absolute code, never
-//! a delta against an absolute — and a collapse that shifts which leaf
-//! is first trips on topology (the replaced range was not a single
-//! leaf) before any code comparison is reached.
+//! The changed flag is a **first-divergence detector**, aligned by plateau
+//! `(depth, code)`, never by "an arm fired": a raise that reproduces the
+//! existing leaf value exactly must not trip it. While every emitted plateau
+//! equals its input counterpart, output position ≡ input position exactly — in
+//! particular the first emitted leaf compares its absolute code against the
+//! input's absolute code, never a delta against an absolute — and a collapse
+//! that shifts which leaf is first trips on topology (the replaced range was
+//! not a single leaf) before any code comparison is reached.
 
 use crate::codec::{BitCursor, BitStack, BitsMut, BitsSlice, Code, PopStack};
 use crate::idbits::{IdNode, IdReader};
@@ -57,9 +55,9 @@ use super::super::walk::LeafWalk;
 /// (`grow(1, n) = (n + 1, 0)`).
 pub(super) const COST_FREE: Cost = (0, 0);
 
-/// The [`PopStack`] encoding of one deferred route-DP quantity (a
-/// [`Cost`] component, or an expansion chain's distance): 0 =
-/// infeasible (a `u32::MAX` component), else the value + 1.
+/// The [`PopStack`] encoding of one deferred route-DP quantity (a [`Cost`]
+/// component, or an expansion chain's distance): 0 = infeasible (a `u32::MAX`
+/// component), else the value + 1.
 pub(super) fn encode_cost_component(v: u32) -> u64 {
     if v == u32::MAX {
         0
@@ -77,24 +75,24 @@ pub(super) fn decode_cost_component(v: u64) -> u32 {
     }
 }
 
-/// The fill walk's output, as the changed flag's realization
-/// (module doc): a verbatim reference over the matched input prefix, or
-/// a materialized builder after the first divergence.
+/// The fill walk's output, as the changed flag's realization (module doc): a
+/// verbatim reference over the matched input prefix, or a materialized builder
+/// after the first divergence.
 // One `Out` lives per fill walk — never a collection element — so the
 // variant-size gap prices nothing; boxing the builder would put a heap
 // indirection on every emitted leaf instead.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum Out {
-    /// Every emitted plateau so far equals the input plateau it
-    /// replaces, so the output so far is byte-identical to the input
-    /// prefix ending at `matched_end` — nothing is built.
+    /// Every emitted plateau so far equals the input plateau it replaces, so
+    /// the output so far is byte-identical to the input prefix ending at
+    /// `matched_end` — nothing is built.
     Verbatim {
-        /// The input position just past the last matched plateau's
-        /// code: the prefix a divergence materializes.
+        /// The input position just past the last matched plateau's code: the
+        /// prefix a divergence materializes.
         matched_end: usize,
     },
-    /// A plateau diverged (or the walk replayed the prefix): the
-    /// canonical builder holds the real output.
+    /// A plateau diverged (or the walk replayed the prefix): the canonical
+    /// builder holds the real output.
     Built(SkylineBuilder),
 }
 
@@ -112,10 +110,10 @@ impl Out {
     /// Record that the emission in flight matches its input plateau,
     /// whose code ends at `end`.
     ///
-    /// Returns whether the caller may skip
-    /// the emission body outright (a matched verbatim emission does no
-    /// output work at all); on a built output this is a no-op
-    /// answering false — emission bodies always run post-divergence.
+    /// Returns whether the caller may skip the emission body outright (a
+    /// matched verbatim emission does no output work at all); on a built output
+    /// this is a no-op answering false — emission bodies always run
+    /// post-divergence.
     pub(super) fn note_match(&mut self, end: usize) -> bool {
         match self {
             Out::Verbatim { matched_end } => {
@@ -128,8 +126,8 @@ impl Out {
 
     /// Append the next output plateau (the emission bodies' one sink).
     ///
-    /// Unreachable in a verbatim walk: matched emissions return before
-    /// their bodies, and diverging ones materialize first.
+    /// Unreachable in a verbatim walk: matched emissions return before their
+    /// bodies, and diverging ones materialize first.
     pub(super) fn leaf(&mut self, depth: usize, code: Code) {
         match self {
             Out::Built(builder) => builder.leaf(depth, code),
@@ -139,13 +137,12 @@ impl Out {
         }
     }
 
-    /// Whether the built output holds its most recent leaf at exactly
-    /// `depth` — no absorb or cascade merged it upward.
+    /// Whether the built output holds its most recent leaf at exactly `depth` —
+    /// no absorb or cascade merged it upward.
     ///
     /// The region splice's gate: [`continue_verbatim`](Self::continue_verbatim)
-    /// extends exactly the leaf the caller just fed, so a first leaf
-    /// that collapsed into the held output instead disqualifies the
-    /// splice.
+    /// extends exactly the leaf the caller just fed, so a first leaf that
+    /// collapsed into the held output instead disqualifies the splice.
     ///
     /// # Panics
     ///
@@ -183,15 +180,14 @@ impl Out {
 
     /// Materialize the matched prefix at the first divergence.
     ///
-    /// Decodes
-    /// `ev[..matched_end]` — byte-identical to the output so far by the
-    /// verbatim invariant — and feeds its plateaus through a fresh
-    /// builder, leaving `self` built; a no-op once built.
+    /// Decodes `ev[..matched_end]` — byte-identical to the output so far by the
+    /// verbatim invariant — and feeds its plateaus through a fresh builder,
+    /// leaving `self` built; a no-op once built.
     ///
-    /// One wholesale prefix copy, priced by the divergence that ends
-    /// the verbatim run; the walk from here on is a direct fill
-    /// emission. Iterative (a path bit stack, no recursion), so prefix
-    /// depth cannot overflow the native stack.
+    /// One wholesale prefix copy, priced by the divergence that ends the
+    /// verbatim run; the walk from here on is a direct fill emission. Iterative
+    /// (a path bit stack, no recursion), so prefix depth cannot overflow the
+    /// native stack.
     pub(super) fn materialize(&mut self, ev: &BitsSlice) {
         let Out::Verbatim { matched_end, .. } = self else {
             return;
@@ -201,12 +197,12 @@ impl Out {
         let mut cursor = crate::codec::DsiCursor::new(ev);
         let mut walk = LeafWalk::new();
         while cursor.position() < matched_end {
-            // A descent never straddles `matched_end` (a matched prefix
-            // ends on a plateau boundary), and a divergence always
-            // leaves its own consumed range beyond the matched prefix,
-            // so the prefix is a proper prefix of the tiling and some
-            // ancestor is still open at its end — the walk cannot
-            // exhaust before the position bound stops this loop.
+            // A descent never straddles `matched_end` (a matched prefix ends on
+            // a plateau boundary), and a divergence always leaves its own
+            // consumed range beyond the matched prefix, so the prefix is a
+            // proper prefix of the tiling and some ancestor is still open at
+            // its end — the walk cannot exhaust before the position bound stops
+            // this loop.
             let depth = walk
                 .descend(&mut cursor)
                 .expect("a matched prefix is a proper prefix of the tiling");
@@ -222,9 +218,9 @@ impl Out {
         *self = Out::Built(builder);
     }
 
-    /// Finish the walk's output: the built stream when a plateau
-    /// diverged, or `None` for an unchanged walk (every plateau
-    /// matched; `fill(i, e) = e`, byte-exact by canonical uniqueness).
+    /// Finish the walk's output: the built stream when a plateau diverged, or
+    /// `None` for an unchanged walk (every plateau matched; `fill(i, e) = e`,
+    /// byte-exact by canonical uniqueness).
     pub(super) fn finish(self, ev: &BitsSlice) -> Option<BitsMut> {
         match self {
             Out::Built(builder) => Some(builder.finish()),
@@ -240,17 +236,16 @@ impl Out {
     }
 }
 
-/// Grow's route DP riding the fill walk (module doc): the per-branch
-/// direction records the splice emit replays, dead from the first
-/// divergence on.
+/// Grow's route DP riding the fill walk (module doc): the per-branch direction
+/// records the splice emit replays, dead from the first divergence on.
 pub(super) struct RouteProbe {
-    /// The recorded directions; allocated at the first record so a walk
-    /// that diverges before any post-order fold pays nothing.
+    /// The recorded directions; allocated at the first record so a walk that
+    /// diverges before any post-order fold pays nothing.
     route: Option<Route>,
     /// The id stream's bit length (the route's key space).
     id_span: usize,
-    /// False once the walk diverges: every fold degenerates to the
-    /// plain skip and no direction is recorded.
+    /// False once the walk diverges: every fold degenerates to the plain skip
+    /// and no direction is recorded.
     live: bool,
 }
 
@@ -263,17 +258,15 @@ impl RouteProbe {
         }
     }
 
-    /// Stop probing: the changed flag tripped, so the route will never
-    /// be read.
+    /// Stop probing: the changed flag tripped, so the route will never be read.
     pub(super) fn kill(&mut self) {
         self.live = false;
         self.route = None;
     }
 
-    /// Fold a branch node whose children's costs the walk computed
-    /// (`grow((il, ir), (n, el, er))`: the cheaper child, ties right,
-    /// cost + 1), recording the chosen direction at the branch's id
-    /// key.
+    /// Fold a branch node whose children's costs the walk computed (`grow((il,
+    /// ir), (n, el, er))`: the cheaper child, ties right, cost + 1), recording
+    /// the chosen direction at the branch's id key.
     pub(super) fn join(&mut self, key: usize, left: Cost, right: Cost) -> Cost {
         if !self.live {
             return COST_MAX;
@@ -284,15 +277,14 @@ impl RouteProbe {
         (m.0, m.1.saturating_add(1))
     }
 
-    /// Fold the leaf-under-internal-id arm (`grow(i, n) = grow(i,
-    /// (n, 0, 0)) + N`).
+    /// Fold the leaf-under-internal-id arm (`grow(i, n) = grow(i, (n, 0, 0)) +
+    /// N`).
     ///
-    /// The whole id subtree below prices one
-    /// expansion per level, so the fold reads the skipped id per tag —
-    /// the same 2-bit reads `IdReader::skip` pays — computing each
-    /// node's distance to its nearest owned terminal and recording the
-    /// direction toward it (ties right); it advances `id` past both
-    /// children, exactly as the plain skips would.
+    /// The whole id subtree below prices one expansion per level, so the fold
+    /// reads the skipped id per tag — the same 2-bit reads `IdReader::skip`
+    /// pays — computing each node's distance to its nearest owned terminal and
+    /// recording the direction toward it (ties right); it advances `id` past
+    /// both children, exactly as the plain skips would.
     pub(super) fn expand(
         &mut self,
         key: usize,
@@ -325,10 +317,10 @@ impl RouteProbe {
         (m.0.saturating_add(1), m.1.saturating_add(1))
     }
 
-    /// Take the finished route for the splice emit (the unchanged
-    /// branch's epilogue). A walk that recorded nothing (the whole
-    /// tree was one pass-through or one owned leaf) hands the splice an
-    /// empty route, which it never reads.
+    /// Take the finished route for the splice emit (the unchanged branch's
+    /// epilogue). A walk that recorded nothing (the whole tree was one
+    /// pass-through or one owned leaf) hands the splice an empty route, which
+    /// it never reads.
     pub(super) fn take_route(&mut self) -> Route {
         debug_assert!(self.live, "the unchanged branch's probe survived the walk");
         self.route
@@ -342,29 +334,27 @@ impl RouteProbe {
 
     /// The expansion DP over one skipped id subtree.
     ///
-    /// Every internal
-    /// node costs one expansion and one depth whichever child it
-    /// descends, so its cost is `(k, k)` for `k` the distance to its
-    /// nearest owned terminal (`COST_MAX` where no child is present —
-    /// unreachable in normal form, kept total); the fold records the
-    /// direction at every internal node's id key and leaves `id` just
-    /// past the subtree.
+    /// Every internal node costs one expansion and one depth whichever child it
+    /// descends, so its cost is `(k, k)` for `k` the distance to its nearest
+    /// owned terminal (`COST_MAX` where no child is present — unreachable in
+    /// normal form, kept total); the fold records the direction at every
+    /// internal node's id key and leaves `id` just past the subtree.
     ///
-    /// Iterative, with the suspended ancestors held as bits — one phase
-    /// bit and one right-presence bit per frame, key deltas and the
-    /// deferred left distance on the pop-able value stack — so a deep
-    /// id spine costs bits of transient per level, not a machine-word
-    /// frame (the same discipline as the walk's other bit stacks); the
-    /// depth-recursion guard is unneeded because nothing recurses.
+    /// Iterative, with the suspended ancestors held as bits — one phase bit and
+    /// one right-presence bit per frame, key deltas and the deferred left
+    /// distance on the pop-able value stack — so a deep id spine costs bits of
+    /// transient per level, not a machine-word frame (the same discipline as
+    /// the walk's other bit stacks); the depth-recursion guard is unneeded
+    /// because nothing recurses.
     fn expand_subtree(&mut self, id: &mut IdReader) -> Cost {
-        // Phase per frame: false = the left child's distance is
-        // outstanding, true = the right child's.
+        // Phase per frame: false = the left child's distance is outstanding,
+        // true = the right child's.
         let mut phase = BitStack::new();
         let mut right_present = BitStack::new();
         let mut vals = PopStack::new();
         let mut reg = 0usize;
-        // `None`: enter the subtree at the cursor; `Some(d)`: rise with
-        // a computed distance (`u32::MAX` infeasible).
+        // `None`: enter the subtree at the cursor; `Some(d)`: rise with a
+        // computed distance (`u32::MAX` infeasible).
         let mut rise: Option<u32> = None;
         loop {
             let mut d = match rise.take() {
@@ -382,8 +372,8 @@ impl RouteProbe {
                             if left {
                                 continue;
                             }
-                            // Left absent: rise its infeasibility into
-                            // the frame just pushed.
+                            // Left absent: rise its infeasibility into the
+                            // frame just pushed.
                             u32::MAX
                         }
                         IdNode::Empty => unreachable!("a present id child is a real node"),
@@ -397,8 +387,8 @@ impl RouteProbe {
                         return if d == u32::MAX { COST_MAX } else { (d, d) };
                     }
                     Some(false) => {
-                        // The left distance arrived: defer it, descend
-                        // right (or rise its absence straight back).
+                        // The left distance arrived: defer it, descend right
+                        // (or rise its absence straight back).
                         phase.set_last(true);
                         vals.push(encode_cost_component(d));
                         if right_present.last().expect("one presence bit per frame") {

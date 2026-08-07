@@ -6,8 +6,8 @@ use crate::error::Parse;
 
 use super::Ticks;
 
-/// Every unsigned machine width converts in and agrees on the value:
-/// one count per numeral, whatever type spelled it.
+/// Every unsigned machine width converts in and agrees on the value: one count
+/// per numeral, whatever type spelled it.
 #[test]
 fn from_impls_agree_across_widths() {
     let want = Ticks::from(200u8);
@@ -27,9 +27,9 @@ fn zero_forms_agree() {
     assert_eq!(Ticks::ZERO.to_string(), "0");
 }
 
-/// `FromStr` accepts exactly nonempty ASCII digit runs: signs,
-/// whitespace, radix prefixes, embedded junk, and the empty string are
-/// all `Parse::Syntax`; leading zeros are value-preserving.
+/// `FromStr` accepts exactly nonempty ASCII digit runs: signs, whitespace,
+/// radix prefixes, embedded junk, and the empty string are all `Parse::Syntax`;
+/// leading zeros are value-preserving.
 #[test]
 fn from_str_is_strict_about_shape() {
     for bad in ["", "-1", "+1", " 1", "1 ", "0x10", "1_000", "12a", "①"] {
@@ -63,9 +63,8 @@ proptest! {
         prop_assert_eq!(parsed, n);
     }
 
-    /// Addition is commutative and monotone, `ZERO` is the identity,
-    /// and `Sum` equals the pairwise fold — the naturals' laws on the
-    /// opaque carrier.
+    /// Addition is commutative and monotone, `ZERO` is the identity, and `Sum`
+    /// equals the pairwise fold — the naturals' laws on the opaque carrier.
     #[test]
     fn addition_behaves_like_the_naturals(a in any::<u128>(), b in any::<u128>(), c in any::<u128>()) {
         let (ta, tb, tc) = (Ticks::from(a), Ticks::from(b), Ticks::from(c));

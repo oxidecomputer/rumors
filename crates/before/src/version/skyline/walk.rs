@@ -1,19 +1,16 @@
-//! The leaf-walk driver: one home for the iterative
-//! descend-to-leaf/backtrack skeleton every in-order leaf pass over a
-//! skyline subtree runs.
+//! The leaf-walk driver: one home for the iterative descend-to-leaf/backtrack
+//! skeleton every in-order leaf pass over a skyline subtree runs.
 //!
-//! A skyline subtree's leaves are visited by alternating one
-//! word-parallel unary read (the descent: a run of internal flags ended
-//! by the leaf's `1`) with a pop-flip backtrack over the root-to-leaf
-//! path bits (closing the ancestors the consumed leaf completed). The
-//! driver owns exactly that skeleton; everything a pass *does* at a
-//! leaf — decode the payload, skip it by width, fold an extremum, emit
-//! — stays at the call site, on the caller's own state. Two leaf
-//! actions are shared widely enough to live here too: [`Extremum`],
-//! the armed, reset-on-overtake streaming max/min the scanning walks
-//! fold, and [`skip_region`], the ownership-gated walks' block scan
-//! over a subtree none of whose leaves the consumer will touch
-//! individually.
+//! A skyline subtree's leaves are visited by alternating one word-parallel
+//! unary read (the descent: a run of internal flags ended by the leaf's `1`)
+//! with a pop-flip backtrack over the root-to-leaf path bits (closing the
+//! ancestors the consumed leaf completed). The driver owns exactly that
+//! skeleton; everything a pass *does* at a leaf — decode the payload, skip it
+//! by width, fold an extremum, emit — stays at the call site, on the caller's
+//! own state. Two leaf actions are shared widely enough to live here too:
+//! [`Extremum`], the armed, reset-on-overtake streaming max/min the scanning
+//! walks fold, and [`skip_region`], the ownership-gated walks' block scan over
+//! a subtree none of whose leaves the consumer will touch individually.
 
 use core::cmp::Ordering;
 
@@ -25,20 +22,19 @@ use super::{fold_signed_int, unzigzag};
 
 /// The topology walk over one skyline subtree's leaves, in preorder.
 ///
-/// The driver reads only topology bits; the payload code at each
-/// yielded leaf is the caller's. The cursor is a per-call argument
-/// rather than owned state so the caller keeps it between calls — the
-/// consuming walks read their payloads through the same cursor the
-/// driver descends with, and their surrounding state (watermark webs,
-/// output builders, height accumulators) borrows freely alongside.
+/// The driver reads only topology bits; the payload code at each yielded leaf
+/// is the caller's. The cursor is a per-call argument rather than owned state
+/// so the caller keeps it between calls — the consuming walks read their
+/// payloads through the same cursor the driver descends with, and their
+/// surrounding state (watermark webs, output builders, height accumulators)
+/// borrows freely alongside.
 pub(super) struct LeafWalk {
-    /// Root-to-leaf branch directions for the current leaf, root
-    /// first: `false` inside an ancestor's left child (its right
-    /// subtree is still pending in the stream), `true` inside its
-    /// right.
+    /// Root-to-leaf branch directions for the current leaf, root first: `false`
+    /// inside an ancestor's left child (its right subtree is still pending in
+    /// the stream), `true` inside its right.
     path: BitStack,
-    /// Whether a leaf has been yielded: the first descent has no
-    /// finished leaf to backtrack from.
+    /// Whether a leaf has been yielded: the first descent has no finished leaf
+    /// to backtrack from.
     started: bool,
 }
 
@@ -51,20 +47,18 @@ impl LeafWalk {
         }
     }
 
-    /// Advance to the next leaf, returning its depth below the walked
-    /// subtree's root — or `None` when the previous leaf was the
-    /// subtree's last.
+    /// Advance to the next leaf, returning its depth below the walked subtree's
+    /// root — or `None` when the previous leaf was the subtree's last.
     ///
-    /// Each call closes the ancestors the previous leaf completed
-    /// (the pop-flip backtrack), then descends to the leaf at the
-    /// cursor.
+    /// Each call closes the ancestors the previous leaf completed (the pop-flip
+    /// backtrack), then descends to the leaf at the cursor.
     ///
-    /// Between calls the caller must advance the cursor past exactly
-    /// the yielded leaf's payload code (`read_int` or `skip_int`): the
-    /// driver reads topology only, and the next descent starts at the
-    /// following node's flag. The backtrack is pure path bookkeeping —
-    /// it reads no bits — so a caller that stops mid-subtree (a
-    /// position-bounded prefix pass) simply stops calling.
+    /// Between calls the caller must advance the cursor past exactly the
+    /// yielded leaf's payload code (`read_int` or `skip_int`): the driver reads
+    /// topology only, and the next descent starts at the following node's flag.
+    /// The backtrack is pure path bookkeeping — it reads no bits — so a caller
+    /// that stops mid-subtree (a position-bounded prefix pass) simply stops
+    /// calling.
     ///
     /// # Panics
     ///
@@ -101,17 +95,16 @@ enum Direction {
     Min,
 }
 
-/// A streaming extremum of the leaf heights a walk consumes, carried
-/// relative to the walk's own running height.
+/// A streaming extremum of the leaf heights a walk consumes, carried relative
+/// to the walk's own running height.
 ///
 /// The register holds `extremum − h`: each leaf-to-leaf step folds in
-/// *reversed* (the height moved, the extremum did not), and when the
-/// register's sign shows the height just crossed the tracked extreme,
-/// the register resets to zero — the extremum is the current height
-/// again. The first leaf *arms* the fold and is never folded: its
-/// payload is the range's entry height, not a leaf-to-leaf movement,
-/// so the register starts at zero on it (extremum = h) whatever its
-/// coding. The finished offset's width is bounded by the scanned
+/// *reversed* (the height moved, the extremum did not), and when the register's
+/// sign shows the height just crossed the tracked extreme, the register resets
+/// to zero — the extremum is the current height again. The first leaf *arms*
+/// the fold and is never folded: its payload is the range's entry height, not a
+/// leaf-to-leaf movement, so the register starts at zero on it (extremum = h)
+/// whatever its coding. The finished offset's width is bounded by the scanned
 /// range's own content, which prices every later fold of it.
 pub(super) struct Extremum {
     /// `extremum − h`, the running register.
@@ -125,9 +118,9 @@ pub(super) struct Extremum {
 impl Extremum {
     /// Track the maximum, resetting when the height rises past it.
     ///
-    /// `acc` is a leased watermark-pool buffer (zero, returned to its
-    /// pool by the caller's materialize), so resets re-zero it in
-    /// place and the pool stays warm.
+    /// `acc` is a leased watermark-pool buffer (zero, returned to its pool by
+    /// the caller's materialize), so resets re-zero it in place and the pool
+    /// stays warm.
     pub(super) fn max(acc: Accumulator) -> Self {
         Extremum {
             acc,
@@ -138,9 +131,9 @@ impl Extremum {
 
     /// Track the minimum, resetting when the height drops past it.
     ///
-    /// `acc` is an owned buffer: resets replace it whole, because an
-    /// in-place clear scans (and meters) every dead digit a wide swing
-    /// left behind where dropping the buffer is O(1).
+    /// `acc` is an owned buffer: resets replace it whole, because an in-place
+    /// clear scans (and meters) every dead digit a wide swing left behind where
+    /// dropping the buffer is O(1).
     pub(super) fn min(acc: Accumulator) -> Self {
         Extremum {
             acc,
@@ -159,9 +152,9 @@ impl Extremum {
         self.fold_armed(neg, mag);
     }
 
-    /// Fold one undecoded zigzag payload code; the arming first call
-    /// folds nothing and leaves its code undecoded (an armed leaf's
-    /// absolute-vs-delta coding is irrelevant — it is never folded).
+    /// Fold one undecoded zigzag payload code; the arming first call folds
+    /// nothing and leaves its code undecoded (an armed leaf's absolute-vs-delta
+    /// coding is irrelevant — it is never folded).
     pub(super) fn fold_zigzag(&mut self, code: Int) {
         if !self.armed {
             self.armed = true;
@@ -191,17 +184,15 @@ impl Extremum {
     }
 }
 
-/// The block summary of one skipped leaf range: the re-entry state a
-/// consumer folds to continue exactly as if it had visited the leaves
-/// one by one.
+/// The block summary of one skipped leaf range: the re-entry state a consumer
+/// folds to continue exactly as if it had visited the leaves one by one.
 ///
-/// A range the consumer's party has no stake in contributes only two
-/// quantities to any ownership-gated pass: where the height ends up,
-/// and how low it got on the way. Both arrive as signed magnitudes in
-/// the walks' exchange currency, ready to fold into height-carried
-/// accumulators and to record as one watermark emission. The last
-/// leaf's coordinates ride along for the emitters that splice the
-/// range's bits verbatim.
+/// A range the consumer's party has no stake in contributes only two quantities
+/// to any ownership-gated pass: where the height ends up, and how low it got on
+/// the way. Both arrive as signed magnitudes in the walks' exchange currency,
+/// ready to fold into height-carried accumulators and to record as one
+/// watermark emission. The last leaf's coordinates ride along for the emitters
+/// that splice the range's bits verbatim.
 pub(super) struct RegionSkip {
     /// The range's net signed height movement: `h(exit) − h(entry)`.
     pub(super) net: (bool, Int),
@@ -215,21 +206,19 @@ pub(super) struct RegionSkip {
     pub(super) last_code_len: usize,
 }
 
-/// Drive `walk` over the remaining leaves of the subtree at the
-/// cursor, folding every payload into `net` and `extremum` — the block
-/// scans' shared read loop.
+/// Drive `walk` over the remaining leaves of the subtree at the cursor, folding
+/// every payload into `net` and `extremum` — the block scans' shared read loop.
 ///
-/// One unary topology read and one payload decode per leaf, no other
-/// work. Returns the last consumed leaf's depth below the walked root
-/// and its code length, or `None` when no leaf remained. `first` says
-/// whether the next payload is the stream's absolute first (coded as
-/// a height, not a delta); `pending` hands in a leaf the caller has
-/// already descended to (its payload still unread at the cursor),
-/// which lets a caller route on the first descent's depth without
-/// re-reading any bit.
+/// One unary topology read and one payload decode per leaf, no other work.
+/// Returns the last consumed leaf's depth below the walked root and its code
+/// length, or `None` when no leaf remained. `first` says whether the next
+/// payload is the stream's absolute first (coded as a height, not a delta);
+/// `pending` hands in a leaf the caller has already descended to (its payload
+/// still unread at the cursor), which lets a caller route on the first
+/// descent's depth without re-reading any bit.
 ///
-/// Every folded bit is still read and recorded: the scan meter's
-/// reading is identical to the leaf-by-leaf pass this batches.
+/// Every folded bit is still read and recorded: the scan meter's reading is
+/// identical to the leaf-by-leaf pass this batches.
 ///
 /// # Panics
 ///
@@ -269,8 +258,8 @@ pub(super) fn fold_region(
 }
 
 /// Skip-scan the whole subtree at the cursor into a [`RegionSkip`]:
-/// [`skip_leaves`] over a fresh walk, with the net movement and the
-/// streaming minimum materialized.
+/// [`skip_leaves`] over a fresh walk, with the net movement and the streaming
+/// minimum materialized.
 ///
 /// # Panics
 ///
@@ -280,13 +269,12 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip
     skip_leaves(&mut walk, cursor, first, None).expect("a subtree has at least one leaf")
 }
 
-/// Skip-scan the remaining leaves of a subtree whose walk is already
-/// open, or `None` when none remain (`pending` as in
-/// [`fold_region`]).
+/// Skip-scan the remaining leaves of a subtree whose walk is already open, or
+/// `None` when none remain (`pending` as in [`fold_region`]).
 ///
-/// The minimum is over the folded leaves alone: the first of them
-/// arms the fold, so its height — not the caller's last consumed one
-/// — is the range's entry extremum.
+/// The minimum is over the folded leaves alone: the first of them arms the
+/// fold, so its height — not the caller's last consumed one — is the range's
+/// entry extremum.
 ///
 /// # Panics
 ///

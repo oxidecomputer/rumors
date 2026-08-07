@@ -1,56 +1,53 @@
-//! The admission walk: strictly parse one skyline stream while proving,
-//! in the same pass, that its version dominates a given canonical
-//! stream.
+//! The admission walk: strictly parse one skyline stream while proving, in the
+//! same pass, that its version dominates a given canonical stream.
 //!
-//! The span wire form is two concatenated version streams whose pair
-//! must satisfy `lo <= hi`. Composed from the standalone pieces, loading
-//! one costs a strict parse per component plus a comparison sweep — the
-//! second stream scanned twice, its payloads decoded twice, and two
-//! accumulators run over it (the validator's running height, then the
-//! comparison's running difference). This module fuses the second
-//! component's parse with the pair validation: one walk over the
-//! untrusted stream, co-swept against the already-validated `lo`,
+//! The span wire form is two concatenated version streams whose pair must
+//! satisfy `lo <= hi`. Composed from the standalone pieces, loading one costs a
+//! strict parse per component plus a comparison sweep — the second stream
+//! scanned twice, its payloads decoded twice, and two accumulators run over it
+//! (the validator's running height, then the comparison's running difference).
+//! This module fuses the second component's parse with the pair validation: one
+//! walk over the untrusted stream, co-swept against the already-validated `lo`,
 //! maintaining only the comparison's difference.
 //!
 //! # Why the validator's height accumulator disappears
 //!
-//! The standalone validator carries a running leaf height for its
-//! nonnegativity condition. Here the dominance verdict subsumes it: on
-//! every elementary interval an accepted walk holds
-//! `height_hi >= height_lo >= 0` — the left inequality is the verdict
-//! itself, the right is `lo`'s own canonicality — so a stream whose
-//! height dips negative is always also non-dominating, and both facts
-//! reject as the same [`Decode::NotCanonical`] genre (a composite no
+//! The standalone validator carries a running leaf height for its nonnegativity
+//! condition. Here the dominance verdict subsumes it: on every elementary
+//! interval an accepted walk holds `height_hi >= height_lo >= 0` — the left
+//! inequality is the verdict itself, the right is `lo`'s own canonicality — so
+//! a stream whose height dips negative is always also non-dominating, and both
+//! facts reject as the same [`Decode::NotCanonical`] genre (a composite no
 //! encode produces). The fusion's saving is therefore structural, not
-//! bookkeeping: the walk runs one accumulator where parse-then-compare
-//! runs two, and the touch-meter pins in `tests/meter.rs` hold the
-//! admission decode to exactly the standalone-`lo`-parse-plus-comparison
-//! traffic, which a parse-then-compare spelling cannot read (it pays the
-//! second validation's folds on top).
+//! bookkeeping: the walk runs one accumulator where parse-then-compare runs
+//! two, and the touch-meter pins in `tests/meter.rs` hold the admission decode
+//! to exactly the standalone-`lo`-parse-plus-comparison traffic, which a
+//! parse-then-compare spelling cannot read (it pays the second validation's
+//! folds on top).
 //!
 //! # The walk
 //!
 //! [`LeafCursor`] walks `lo` (canonical by the caller's contract);
-//! [`CheckedCursor`] walks the untrusted stream, enforcing the
-//! validator's remaining obligations on the same reads — truncation as
-//! the cursor's own read errors, minimal topology as each internal node
-//! closes. The overlay-advance law is restated at this cursor pair (the
-//! placement walk's idiom — the generic law is infallible, the checked
-//! side's crossings are `Result`s), with the same step and fold order
-//! as [`advance_diff`](super::sweep::advance_diff), so the accumulator's
-//! write sequence — and with it the committed touch-meter readings — is
-//! the pair sweep's exactly. Once dominance is refuted the verdict is
-//! fixed, so `lo`'s cursor and the difference are dropped and the walk
-//! completes the strict parse alone: a structural defect later in the
-//! stream still reports its own genre.
+//! [`CheckedCursor`] walks the untrusted stream, enforcing the validator's
+//! remaining obligations on the same reads — truncation as the cursor's own
+//! read errors, minimal topology as each internal node closes. The
+//! overlay-advance law is restated at this cursor pair (the placement walk's
+//! idiom — the generic law is infallible, the checked side's crossings are
+//! `Result`s), with the same step and fold order as
+//! [`advance_diff`](super::sweep::advance_diff), so the accumulator's write
+//! sequence — and with it the committed touch-meter readings — is the pair
+//! sweep's exactly. Once dominance is refuted the verdict is fixed, so `lo`'s
+//! cursor and the difference are dropped and the walk completes the strict
+//! parse alone: a structural defect later in the stream still reports its own
+//! genre.
 //!
-//! Nothing recurses: the transient state is the two cursors' bit
-//! stacks and the one accumulator, exactly the sweep's shape.
+//! Nothing recurses: the transient state is the two cursors' bit stacks and the
+//! one accumulator, exactly the sweep's shape.
 
-// The module doc names crate-private machinery by intra-doc link so a
-// rename cannot rot the prose (the internal doc build resolves every
-// link); on the public build those links render as plain code spans —
-// the items are private — which this allow accepts.
+// The module doc names crate-private machinery by intra-doc link so a rename
+// cannot rot the prose (the internal doc build resolves every link); on the
+// public build those links render as plain code spans — the items are private —
+// which this allow accepts.
 #![allow(rustdoc::private_intra_doc_links)]
 
 use core::cmp::Ordering;
@@ -65,35 +62,34 @@ use super::unzigzag;
 
 /// A validating leaf cursor over one untrusted skyline stream.
 ///
-/// [`LeafCursor`]'s plateau vocabulary — depth, done, step — with the
-/// strict validator's obligations folded into the same reads:
-/// truncation surfaces as the cursor's own errors, and minimal topology
-/// (no collapsible sibling pair) is checked as each internal node
-/// closes. Height nonnegativity is deliberately *not* checked here; the
-/// admission verdict subsumes it (the module doc's argument).
+/// [`LeafCursor`]'s plateau vocabulary — depth, done, step — with the strict
+/// validator's obligations folded into the same reads: truncation surfaces as
+/// the cursor's own errors, and minimal topology (no collapsible sibling pair)
+/// is checked as each internal node closes. Height nonnegativity is
+/// deliberately *not* checked here; the admission verdict subsumes it (the
+/// module doc's argument).
 ///
-/// Two parallel per-ancestor bit stacks ride the walk: the branch path
-/// (the advance law's tie test, as [`LeafCursor`]'s), and the
-/// validator's left-was-leaf bits (what the sibling-collapse check
-/// reads at each close). `open_lefts` counts the path's left branches,
-/// so exhaustion — the tree's root completing — is an O(1) question
-/// where the path itself would need a full scan.
+/// Two parallel per-ancestor bit stacks ride the walk: the branch path (the
+/// advance law's tie test, as [`LeafCursor`]'s), and the validator's
+/// left-was-leaf bits (what the sibling-collapse check reads at each close).
+/// `open_lefts` counts the path's left branches, so exhaustion — the tree's
+/// root completing — is an O(1) question where the path itself would need a
+/// full scan.
 struct CheckedCursor<'a, C> {
     cursor: &'a mut C,
-    /// Root-to-leaf branch directions, root first (`false`: inside the
-    /// left child, its right sibling still pending in the stream).
+    /// Root-to-leaf branch directions, root first (`false`: inside the left
+    /// child, its right sibling still pending in the stream).
     path: BitsMut,
-    /// Per open ancestor: whether its completed left child was a leaf
-    /// (a placeholder `false` until that child completes).
+    /// Per open ancestor: whether its completed left child was a leaf (a
+    /// placeholder `false` until that child completes).
     left_was_leaf: BitsMut,
-    /// The count of `false` bits in `path`: zero exactly when the
-    /// current leaf's plateau ends at the unit interval's right edge —
-    /// the tree is whole and the stream's bits end here.
+    /// The count of `false` bits in `path`: zero exactly when the current
+    /// leaf's plateau ends at the unit interval's right edge — the tree is
+    /// whole and the stream's bits end here.
     open_lefts: usize,
-    /// Whether the current leaf's payload code was zero — the
-    /// collapsible-pair check's right-child half. Never read for the
-    /// first leaf (preorder puts it leftmost, so it is no ancestor's
-    /// right child).
+    /// Whether the current leaf's payload code was zero — the collapsible-pair
+    /// check's right-child half. Never read for the first leaf (preorder puts
+    /// it leftmost, so it is no ancestor's right child).
     last_delta_zero: bool,
 }
 
@@ -101,8 +97,8 @@ impl<'a, C: BitCursor> CheckedCursor<'a, C>
 where
     Decode: From<C::Error>,
 {
-    /// Open the stream at its first leaf: the descent to it, and the
-    /// leaf's absolute height code.
+    /// Open the stream at its first leaf: the descent to it, and the leaf's
+    /// absolute height code.
     fn open(cursor: &'a mut C) -> Result<(Self, Int), Decode> {
         let mut this = CheckedCursor {
             cursor,
@@ -115,9 +111,9 @@ where
         Ok((this, first))
     }
 
-    /// Descend to the next leaf in preorder, opening `k` internal
-    /// nodes: [`LeafCursor`]'s descent with the reads fallible and the
-    /// validator's placeholder bits pushed alongside the path.
+    /// Descend to the next leaf in preorder, opening `k` internal nodes:
+    /// [`LeafCursor`]'s descent with the reads fallible and the validator's
+    /// placeholder bits pushed alongside the path.
     fn descend(&mut self) -> Result<Int, Decode> {
         let k = self.cursor.read_unary()?;
         for _ in 0..k {
@@ -138,27 +134,26 @@ where
         self.open_lefts == 0
     }
 
-    /// Advance past the current leaf: the flip level for the advance
-    /// law's tie test, and the crossed boundary's delta.
+    /// Advance past the current leaf: the flip level for the advance law's tie
+    /// test, and the crossed boundary's delta.
     ///
-    /// Every ancestor the consumed leaf completes closes here, each
-    /// close running the validator's collapsible-pair check: an
-    /// internal node whose two children are leaves with a zero right
-    /// delta is the shape minimal topology forbids.
+    /// Every ancestor the consumed leaf completes closes here, each close
+    /// running the validator's collapsible-pair check: an internal node whose
+    /// two children are leaves with a zero right delta is the shape minimal
+    /// topology forbids.
     ///
     /// Never called on a done cursor; the walk asks first.
     fn step(&mut self) -> Result<(usize, Step), Decode> {
-        // The consumed leaf completes one subtree per popped right
-        // branch; `is_leaf`/`zero_delta` describe the completed subtree
-        // (the leaf itself on the first iteration).
+        // The consumed leaf completes one subtree per popped right branch;
+        // `is_leaf`/`zero_delta` describe the completed subtree (the leaf
+        // itself on the first iteration).
         let mut is_leaf = true;
         let mut zero_delta = self.last_delta_zero;
         loop {
             match self.path.pop() {
                 Some(true) => {
-                    // This ancestor closes: the completed subtree was
-                    // its right child; its left child's kind is on the
-                    // parallel stack.
+                    // This ancestor closes: the completed subtree was its right
+                    // child; its left child's kind is on the parallel stack.
                     let left_was_leaf = self
                         .left_was_leaf
                         .pop()
@@ -170,9 +165,8 @@ where
                     zero_delta = false;
                 }
                 Some(false) => {
-                    // The flip level: the completed subtree was this
-                    // ancestor's left child, and its right subtree is
-                    // next in the stream.
+                    // The flip level: the completed subtree was this ancestor's
+                    // left child, and its right subtree is next in the stream.
                     self.left_was_leaf
                         .pop()
                         .expect("the parallel stacks hold one bit each per open ancestor");
@@ -201,10 +195,10 @@ where
 
     /// Close out the whole tree at exhaustion.
     ///
-    /// The final leaf's trailing ancestors close only here — the walk
-    /// never steps past it — so their collapsible-pair checks run at
-    /// this seam or not at all: a stream whose *last* two leaves are a
-    /// collapsible pair is rejected by this close-out.
+    /// The final leaf's trailing ancestors close only here — the walk never
+    /// steps past it — so their collapsible-pair checks run at this seam or not
+    /// at all: a stream whose *last* two leaves are a collapsible pair is
+    /// rejected by this close-out.
     fn finish(mut self) -> Result<(), Decode> {
         debug_assert!(self.done(), "finish closes out a completed tree");
         let mut is_leaf = true;
@@ -225,42 +219,39 @@ where
     }
 }
 
-/// The admission walk's pair verdict: how the parsed stream relates to
-/// the canonical `lo` it was co-swept against.
+/// The admission walk's pair verdict: how the parsed stream relates to the
+/// canonical `lo` it was co-swept against.
 ///
-/// Three-valued rather than the bare dominance bool because the same
-/// single sign read per elementary interval that proves `lo <= hi` also
-/// distinguishes equality (no interval read a strict `Less`), and the
-/// coincident span's storage dedup dispatches on exactly that: on
-/// [`Equal`](Admission::Equal) the caller materializes one buffer and
-/// clones it into both endpoints.
+/// Three-valued rather than the bare dominance bool because the same single
+/// sign read per elementary interval that proves `lo <= hi` also distinguishes
+/// equality (no interval read a strict `Less`), and the coincident span's
+/// storage dedup dispatches on exactly that: on [`Equal`](Admission::Equal) the
+/// caller materializes one buffer and clones it into both endpoints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Admission {
     /// The parsed stream equals `lo`: dominance with no strict interval.
     /// Canonical uniqueness makes this exactly byte equality of the two
     /// streams.
     Equal,
-    /// The parsed stream strictly dominates `lo`: at least one
-    /// elementary interval sits strictly above.
+    /// The parsed stream strictly dominates `lo`: at least one elementary
+    /// interval sits strictly above.
     Dominates,
-    /// Dominance refuted: some elementary interval has `lo` strictly
-    /// above the parsed stream. The pair is crossed or concurrent — no
-    /// span encodes it.
+    /// Dominance refuted: some elementary interval has `lo` strictly above the
+    /// parsed stream. The pair is crossed or concurrent — no span encodes it.
     Refuted,
 }
 
-/// Strictly parse one skyline tree from `cursor`, deciding in the same
-/// pass whether its version dominates — or equals — the canonical
-/// stream `lo` (`lo <= hi` pointwise over the unit id interval).
+/// Strictly parse one skyline tree from `cursor`, deciding in the same pass
+/// whether its version dominates — or equals — the canonical stream `lo` (`lo
+/// <= hi` pointwise over the unit id interval).
 ///
-/// Returns with the cursor just past the tree, carrying the
-/// [`Admission`] verdict. The walk never pronounces the pair rejection
-/// itself — the caller checks its own tail obligations first (the
-/// byte-slice decode its zero padding, the wire-side cursor its final
-/// byte's dead bits) and mints [`Decode::NotCanonical`] from a
-/// [`Refuted`](Admission::Refuted) verdict only after they pass, so
-/// every structural genre of the composite stays ahead of the pair
-/// rejection.
+/// Returns with the cursor just past the tree, carrying the [`Admission`]
+/// verdict. The walk never pronounces the pair rejection itself — the caller
+/// checks its own tail obligations first (the byte-slice decode its zero
+/// padding, the wire-side cursor its final byte's dead bits) and mints
+/// [`Decode::NotCanonical`] from a [`Refuted`](Admission::Refuted) verdict only
+/// after they pass, so every structural genre of the composite stays ahead of
+/// the pair rejection.
 ///
 /// # Errors
 ///
@@ -274,16 +265,15 @@ pub(crate) enum Admission {
 /// - [`Decode::Io`]: the cursor's own reads fail (the wire-side
 ///   cursor's genre; a slice cursor reports truncation instead).
 ///
-/// On an input defective several ways at once, the structural genres
-/// win: the walk always parses the whole tree — a refuted verdict
-/// never cuts the parse short — and the errors above outrank the
-/// verdict at every caller.
+/// On an input defective several ways at once, the structural genres win: the
+/// walk always parses the whole tree — a refuted verdict never cuts the parse
+/// short — and the errors above outrank the verdict at every caller.
 ///
 /// # Panics
 ///
-/// `lo` must be a canonical skyline stream — its cursor is the pair
-/// sweep's and shares [`causal_cmp`](super::sweep::causal_cmp)'s
-/// contract. The parsed stream needs no such trust; that is the point.
+/// `lo` must be a canonical skyline stream — its cursor is the pair sweep's and
+/// shares [`causal_cmp`](super::sweep::causal_cmp)'s contract. The parsed
+/// stream needs no such trust; that is the point.
 pub(crate) fn validate_dominating_from<C: BitCursor>(
     lo: &BitsSlice,
     cursor: &mut C,
@@ -294,27 +284,27 @@ where
     let (mut lo_cur, lo_first) = LeafCursor::open(lo);
     let (mut hi_cur, hi_first) = CheckedCursor::open(cursor)?;
     // D = height_lo − height_hi: dominance survives while no elementary
-    // interval reads D > 0 (the pair sweep's `lo <= hi` direction, `lo`
-    // as the `a` operand, seeded and folded in the sweep's own order so
-    // the accumulator traffic is identical).
+    // interval reads D > 0 (the pair sweep's `lo <= hi` direction, `lo` as the
+    // `a` operand, seeded and folded in the sweep's own order so the
+    // accumulator traffic is identical).
     let mut diff = Accumulator::new();
     super::fold_signed_int(&mut diff, false, &lo_first);
     super::fold_signed_int(&mut diff, true, &hi_first);
-    // Equality rides the same sign reads: the pair is equal exactly
-    // when no elementary interval reads a strict `Less` (and none reads
-    // `Greater`, which refutes outright) — canonical uniqueness then
-    // makes the verdict byte equality of the two streams.
+    // Equality rides the same sign reads: the pair is equal exactly when no
+    // elementary interval reads a strict `Less` (and none reads `Greater`,
+    // which refutes outright) — canonical uniqueness then makes the verdict
+    // byte equality of the two streams.
     let mut equal = true;
     loop {
-        // One sign read per elementary interval, exactly as the sweep
-        // folds it; the three-way match keeps that single read while
-        // deciding both the dominance and the equality questions.
+        // One sign read per elementary interval, exactly as the sweep folds it;
+        // the three-way match keeps that single read while deciding both the
+        // dominance and the equality questions.
         match diff.sign() {
             Ordering::Greater => {
-                // Dominance refuted, permanently: the verdict is fixed.
-                // Drop `lo`'s cursor and the difference, and complete
-                // the strict parse alone so a structural defect later
-                // in the stream still reports its own genre.
+                // Dominance refuted, permanently: the verdict is fixed. Drop
+                // `lo`'s cursor and the difference, and complete the strict
+                // parse alone so a structural defect later in the stream still
+                // reports its own genre.
                 while !hi_cur.done() {
                     hi_cur.step()?;
                 }
@@ -337,23 +327,23 @@ where
     })
 }
 
-/// Advance the overlay one boundary: the deeper cursor steps, and the
-/// other steps in the same round exactly when the flip level rises to
-/// or above its depth.
+/// Advance the overlay one boundary: the deeper cursor steps, and the other
+/// steps in the same round exactly when the flip level rises to or above its
+/// depth.
 ///
-/// The overlay-advance law ([`super::sweep::advance`]) restated at this
-/// cursor pair, the placement walk's idiom: the generic law is
-/// infallible and the checked side's crossings are `Result`s. Step and
-/// fold order are [`advance_diff`](super::sweep::advance_diff)'s — the
-/// deeper side first, `lo` (the `a` operand) first on ties — which
-/// keeps the difference's write sequence, and with it the committed
-/// touch-meter readings, identical to the pair sweep's.
+/// The overlay-advance law ([`super::sweep::advance`]) restated at this cursor
+/// pair, the placement walk's idiom: the generic law is infallible and the
+/// checked side's crossings are `Result`s. Step and fold order are
+/// [`advance_diff`](super::sweep::advance_diff)'s — the deeper side first, `lo`
+/// (the `a` operand) first on ties — which keeps the difference's write
+/// sequence, and with it the committed touch-meter readings, identical to the
+/// pair sweep's.
 ///
-/// The law never steps a done cursor: a not-done side is strictly
-/// deeper than a done one (overlapping dyadic intervals nest, and only
-/// an all-right path ends at the unit interval's right edge), and a
-/// crossed boundary short of the right edge never ties a done side's
-/// depth. The sweep module doc carries the bookkeeping argument.
+/// The law never steps a done cursor: a not-done side is strictly deeper than a
+/// done one (overlapping dyadic intervals nest, and only an all-right path ends
+/// at the unit interval's right edge), and a crossed boundary short of the
+/// right edge never ties a done side's depth. The sweep module doc carries the
+/// bookkeeping argument.
 fn advance<C: BitCursor>(
     lo: &mut LeafCursor<'_>,
     hi: &mut CheckedCursor<'_, C>,

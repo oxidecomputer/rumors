@@ -1,21 +1,19 @@
-//! The query filter co-walks: one or two probe streams against any
-//! number of bound streams, in a single fused merge, each stream
-//! decoded once.
+//! The query filter co-walks: one or two probe streams against any number of
+//! bound streams, in a single fused merge, each stream decoded once.
 //!
-//! `causally`'s queries hold a floor, a ceiling, and holes — each one
-//! bound version with a [`Demand`] on its relation to a probe. Composed
-//! from the pair sweep, evaluating a query would decode the probe once
-//! per bound; these walks decode every stream exactly once, maintaining
-//! one running difference per (probe, bound) pair, in the placement
-//! walk's idiom ([`place`](super)): the overlay advance restates the
-//! generic binary law at this arity, each pair's accumulator sees
-//! exactly the write sequence its pair sweep would commit, and the
-//! verdict hooks are branch-only.
+//! `causally`'s queries hold a floor, a ceiling, and holes — each one bound
+//! version with a [`Demand`] on its relation to a probe. Composed from the pair
+//! sweep, evaluating a query would decode the probe once per bound; these walks
+//! decode every stream exactly once, maintaining one running difference per
+//! (probe, bound) pair, in the placement walk's idiom ([`place`](super)): the
+//! overlay advance restates the generic binary law at this arity, each pair's
+//! accumulator sees exactly the write sequence its pair sweep would commit, and
+//! the verdict hooks are branch-only.
 //!
 //! # Early exit
 //!
-//! A refuted direction is permanent, so every verdict acts at the
-//! earliest interval its lattice allows:
+//! A refuted direction is permanent, so every verdict acts at the earliest
+//! interval its lattice allows:
 //!
 //! - [`admits`]: a floor or ceiling *requires* its direction — the
 //!   first interval refuting it returns `false`, the membership walk's
@@ -37,14 +35,13 @@
 //!
 //! # Cost
 //!
-//! Derived, by the placement walk's argument stream by stream: every
-//! topology bit of every stream read at most once, every leaf payload
-//! decoded once and folded into at most one accumulator per pair it
-//! participates in — the probe's deltas into each live bound's pair,
-//! a bound's deltas into its own — and the per-interval sign reads ride
-//! the accumulator's amortized-O(1) collapse. `O(|v| + Σ|bound|)` for
-//! membership, `O(|lo| + |hi| + Σ|bound|)` for coverage, against the
-//! composed sweeps' one probe decode per bound.
+//! Derived, by the placement walk's argument stream by stream: every topology
+//! bit of every stream read at most once, every leaf payload decoded once and
+//! folded into at most one accumulator per pair it participates in — the
+//! probe's deltas into each live bound's pair, a bound's deltas into its own —
+//! and the per-interval sign reads ride the accumulator's amortized-O(1)
+//! collapse. `O(|v| + Σ|bound|)` for membership, `O(|lo| + |hi| + Σ|bound|)`
+//! for coverage, against the composed sweeps' one probe decode per bound.
 
 use core::cmp::Ordering;
 
@@ -55,42 +52,38 @@ use crate::codec::{BitsSlice, Int};
 
 use super::super::sweep::{fold, Directions, LeafCursor, PlateauCursor, Side, Step};
 
-/// What a query demands of the relation between the probe and one
-/// bound stream, in the probe-first orientation (`le` is
-/// `probe <= bound`).
+/// What a query demands of the relation between the probe and one bound stream,
+/// in the probe-first orientation (`le` is `probe <= bound`).
 ///
-/// The first two are *required* relations (a floor and a ceiling —
-/// both inclusive, `causally`'s normal form): refuting them refutes
-/// membership. The rest are *excluded* relations, the four hole kinds:
-/// membership survives exactly when the named relation fails.
+/// The first two are *required* relations (a floor and a ceiling — both
+/// inclusive, `causally`'s normal form): refuting them refutes membership. The
+/// rest are *excluded* relations, the four hole kinds: membership survives
+/// exactly when the named relation fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Demand {
     /// `bound <= probe` must hold: a floor.
     After,
     /// `probe <= bound` must hold: a ceiling.
     Before,
-    /// `probe <= bound` must fail: a hole subtracting an inclusive
-    /// down-set.
+    /// `probe <= bound` must fail: a hole subtracting an inclusive down-set.
     NotBefore,
-    /// `probe < bound` must fail: a hole subtracting a strict
-    /// down-set.
+    /// `probe < bound` must fail: a hole subtracting a strict down-set.
     NotStrictlyBefore,
-    /// `bound <= probe` must fail: a hole subtracting an inclusive
-    /// up-set.
+    /// `bound <= probe` must fail: a hole subtracting an inclusive up-set.
     NotAfter,
     /// `bound < probe` must fail: a hole subtracting a strict up-set.
     NotStrictlyAfter,
 }
 
-/// One (probe, bound) pair's running comparison: the difference
-/// `height_probe − height_bound` on the cliff-immune accumulator, and
-/// the pair's surviving directions.
+/// One (probe, bound) pair's running comparison: the difference `height_probe −
+/// height_bound` on the cliff-immune accumulator, and the pair's surviving
+/// directions.
 struct Pair {
     diff: Accumulator,
     dirs: Directions,
-    /// Whether the pair still feeds a verdict: a settled pair stops
-    /// folding and reading (its stream may still advance for the
-    /// other pair riding the same cursor).
+    /// Whether the pair still feeds a verdict: a settled pair stops folding and
+    /// reading (its stream may still advance for the other pair riding the same
+    /// cursor).
     live: bool,
 }
 
@@ -127,20 +120,18 @@ struct BoundSide<'a> {
     demand: Demand,
 }
 
-/// Whether the probe stream's version satisfies every demand, each
-/// stream decoded once — `causally`'s membership predicate at the
-/// stream layer.
+/// Whether the probe stream's version satisfies every demand, each stream
+/// decoded once — `causally`'s membership predicate at the stream layer.
 ///
-/// An empty demand list is vacuously `true` at zero cost. The demand
-/// list's order is the read order per elementary interval, which fixes
-/// the accumulator write sequence; callers supply a deterministic
-/// order.
+/// An empty demand list is vacuously `true` at zero cost. The demand list's
+/// order is the read order per elementary interval, which fixes the accumulator
+/// write sequence; callers supply a deterministic order.
 ///
 /// # Panics
 ///
-/// Operands must be canonical skyline streams — the placement walk's
-/// contract exactly: the violations the walk structurally notices
-/// panic, the rest sweep silently with an unspecified verdict.
+/// Operands must be canonical skyline streams — the placement walk's contract
+/// exactly: the violations the walk structurally notices panic, the rest sweep
+/// silently with an unspecified verdict.
 pub(crate) fn admits<'a>(
     probe: &'a BitsSlice,
     bounds: impl IntoIterator<Item = (&'a BitsSlice, Demand)>,
@@ -163,20 +154,18 @@ pub(crate) fn admits<'a>(
     let mut live = sides.len();
 
     loop {
-        // One read per live bound per elementary interval, in demand
-        // order.
+        // One read per live bound per elementary interval, in demand order.
         for slot in &mut sides {
             let Some(side) = slot else { continue };
             side.pair.read();
             let dirs = side.pair.dirs;
             match side.demand {
-                // A required direction refuted refutes membership: the
-                // walk's earliest bail.
+                // A required direction refuted refutes membership: the walk's
+                // earliest bail.
                 Demand::After if !dirs.ge => return false,
                 Demand::Before if !dirs.le => return false,
-                // A hole's subtracting direction refuted satisfies the
-                // hole: drop its cursor, its stream is never scanned
-                // further.
+                // A hole's subtracting direction refuted satisfies the hole:
+                // drop its cursor, its stream is never scanned further.
                 Demand::NotBefore | Demand::NotStrictlyBefore if !dirs.le => {
                     *slot = None;
                     live -= 1;
@@ -200,11 +189,10 @@ pub(crate) fn admits<'a>(
         advance(&mut probe, &mut sides);
     }
 
-    // Exhaustion: dominations confirm. A required side reaching here
-    // kept its direction alive, so it holds; a live inclusive hole
-    // means its subtraction held (`le` surviving is `Less` or `Equal`,
-    // both subtracted); a strict hole subtracts only the strict
-    // relation.
+    // Exhaustion: dominations confirm. A required side reaching here kept its
+    // direction alive, so it holds; a live inclusive hole means its subtraction
+    // held (`le` surviving is `Less` or `Equal`, both subtracted); a strict
+    // hole subtracts only the strict relation.
     sides.iter().flatten().all(|side| match side.demand {
         Demand::After | Demand::Before => true,
         Demand::NotBefore | Demand::NotAfter => false,
@@ -215,10 +203,10 @@ pub(crate) fn admits<'a>(
 
 /// Advance the membership overlay one boundary.
 ///
-/// The deepest cursor steps, and every other cursor whose depth
-/// reaches the flip level steps in the same round — the placement
-/// walk's advance restated at this arity, the probe winning depth
-/// ties (it is every pair's first operand, so it steps first).
+/// The deepest cursor steps, and every other cursor whose depth reaches the
+/// flip level steps in the same round — the placement walk's advance restated
+/// at this arity, the probe winning depth ties (it is every pair's first
+/// operand, so it steps first).
 fn advance<'a>(probe: &mut LeafCursor<'a>, sides: &mut [Option<BoundSide<'a>>]) {
     fn step_bound(side: &mut BoundSide<'_>) -> usize {
         let (flip, step) = side.cursor.step();
@@ -283,15 +271,13 @@ struct SpanSide<'a> {
     hi: Pair,
 }
 
-/// How much of the segment `[lo, hi]` a query's demands admit, every
-/// stream decoded once — `causally`'s [`Coverage`] verdict at the
-/// stream layer.
+/// How much of the segment `[lo, hi]` a query's demands admit, every stream
+/// decoded once — `causally`'s [`Coverage`] verdict at the stream layer.
 ///
-/// `lo` and `hi` must satisfy `lo <= hi` (`causally::Span`'s
-/// construction contract); the verdict is unspecified otherwise. An
-/// empty demand list is [`Coverage::Full`] at zero cost. The demand
-/// list's order is the read order per elementary interval; callers
-/// supply a deterministic order.
+/// `lo` and `hi` must satisfy `lo <= hi` (`causally::Span`'s construction
+/// contract); the verdict is unspecified otherwise. An empty demand list is
+/// [`Coverage::Full`] at zero cost. The demand list's order is the read order
+/// per elementary interval; callers supply a deterministic order.
 ///
 /// # Panics
 ///
@@ -319,9 +305,9 @@ pub(crate) fn coverage<'a>(
         })
         .collect();
     let mut live = sides.len();
-    // Refuted the moment any bound provably misses part of the
-    // segment; `Full` needs every bound to survive to exhaustion with
-    // its admit-everything relation intact.
+    // Refuted the moment any bound provably misses part of the segment; `Full`
+    // needs every bound to survive to exhaustion with its admit-everything
+    // relation intact.
     let mut full_possible = true;
 
     let (mut lo_live, mut hi_live) = (true, true);
@@ -335,24 +321,23 @@ pub(crate) fn coverage<'a>(
                 side.hi.read();
             }
             match side.demand {
-                // The floor admitting nothing — not even the segment's
-                // maximum — is a refutation: the earliest bail, the
-                // verdict a pruning walk wants fastest.
+                // The floor admitting nothing — not even the segment's maximum
+                // — is a refutation: the earliest bail, the verdict a pruning
+                // walk wants fastest.
                 Demand::After => {
                     if !side.hi.dirs.ge {
                         return Coverage::Empty;
                     }
-                    // Admitting everything needs `floor <= lo`; its
-                    // refutation settles the lo pair (not Full, not
-                    // this bound's emptiness — that reads the hi
-                    // pair).
+                    // Admitting everything needs `floor <= lo`; its refutation
+                    // settles the lo pair (not Full, not this bound's emptiness
+                    // — that reads the hi pair).
                     if side.lo.live && !side.lo.dirs.ge {
                         full_possible = false;
                         side.lo.live = false;
                     }
                 }
-                // The ceiling dually: admitting nothing is a
-                // refutation on the segment's minimum.
+                // The ceiling dually: admitting nothing is a refutation on the
+                // segment's minimum.
                 Demand::Before => {
                     if !side.lo.dirs.le {
                         return Coverage::Empty;
@@ -362,11 +347,10 @@ pub(crate) fn coverage<'a>(
                         side.hi.live = false;
                     }
                 }
-                // A hole subtracts all of the segment only by covering
-                // its maximum (confirmed at exhaustion), and none of
-                // it once it provably misses the minimum — both pairs
-                // settle by refutation, and a hole settled both ways
-                // drops its stream.
+                // A hole subtracts all of the segment only by covering its
+                // maximum (confirmed at exhaustion), and none of it once it
+                // provably misses the minimum — both pairs settle by
+                // refutation, and a hole settled both ways drops its stream.
                 Demand::NotBefore | Demand::NotStrictlyBefore => {
                     if side.hi.live && !side.hi.dirs.le {
                         side.hi.live = false;
@@ -389,14 +373,13 @@ pub(crate) fn coverage<'a>(
                 live -= 1;
             }
         }
-        // A walk left holding only settled holes is decided: every
-        // hole was refuted both ways, so nothing subtracts from the
-        // segment and nothing more can change the verdict.
+        // A walk left holding only settled holes is decided: every hole was
+        // refuted both ways, so nothing subtracts from the segment and nothing
+        // more can change the verdict.
         if live == 0 {
             break;
         }
-        // A probe endpoint whose every pair is settled stops being
-        // scanned.
+        // A probe endpoint whose every pair is settled stops being scanned.
         lo_live = lo_live && sides.iter().flatten().any(|side| side.lo.live);
         hi_live = hi_live && sides.iter().flatten().any(|side| side.hi.live);
         let exhausted = (!lo_live || lo.done())
@@ -414,9 +397,9 @@ pub(crate) fn coverage<'a>(
 /// Map the exhausted coverage walk's decided relations to the verdict.
 fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
     for side in sides.iter().flatten() {
-        // Emptiness first: any bound whose subtraction covers the
-        // whole segment (or whose requirement admits none of it —
-        // returned inline during the walk) empties the verdict.
+        // Emptiness first: any bound whose subtraction covers the whole segment
+        // (or whose requirement admits none of it — returned inline during the
+        // walk) empties the verdict.
         let (lo, hi) = (side.lo.relation(), side.hi.relation());
         let empty = match side.demand {
             // Their emptying refutations returned inline.
@@ -431,10 +414,9 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
         if empty {
             return Coverage::Empty;
         }
-        // Fullness: the bound must admit everything the segment
-        // covers. A settled pair already recorded its refutation in
-        // `full_possible`; a pair alive at exhaustion answers by its
-        // decided relation.
+        // Fullness: the bound must admit everything the segment covers. A
+        // settled pair already recorded its refutation in `full_possible`; a
+        // pair alive at exhaustion answers by its decided relation.
         let admits_all = match side.demand {
             Demand::After => {
                 !side.lo.live || matches!(lo, Some(Ordering::Greater | Ordering::Equal))
@@ -458,14 +440,13 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
     }
 }
 
-/// Advance the coverage overlay one boundary: [`advance`]'s law with
-/// two probe endpoints.
+/// Advance the coverage overlay one boundary: [`advance`]'s law with two probe
+/// endpoints.
 ///
-/// The deepest cursor steps, tied cursors step in the same round,
-/// probe endpoints win depth ties over bounds (each is its pairs'
-/// first operand), and `hi` wins a tie with `lo` (deterministically;
-/// the two never share a pair, so the order moves no accumulator
-/// reading).
+/// The deepest cursor steps, tied cursors step in the same round, probe
+/// endpoints win depth ties over bounds (each is its pairs' first operand), and
+/// `hi` wins a tie with `lo` (deterministically; the two never share a pair, so
+/// the order moves no accumulator reading).
 fn advance_span<'a>(
     (lo, lo_live): (&mut LeafCursor<'a>, bool),
     (hi, hi_live): (&mut LeafCursor<'a>, bool),

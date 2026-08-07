@@ -1,24 +1,23 @@
-//! Differential pins for the query folds against the recursive oracle
-//! and the composed forms.
+//! Differential pins for the query folds against the recursive oracle and the
+//! composed forms.
 //!
-//! The recursive tree oracle (through the bridge) is the behavioral
-//! witness over the adversarial families, arbitrary trees, organic
-//! histories, and the exhaustive small scope: rank and min_ticks by its
-//! own folds, projection by its mask, distance and lag re-derived from
-//! its join, meet, and rank through the valuation identities the rustdoc
-//! states. Distance and lag are additionally pinned against the composed
-//! forms — the same identities assembled from this crate's own emission
-//! and rank kernels — and the pair sweeps include the two version-pair
-//! families (the two-operand jump comb, the concurrent pair), both as
-//! deterministic dimension sweeps and as proptests over their generator
-//! dimensions. Rank is additionally pinned against the semantic
-//! Riemann-sum oracle, which shares no structure with either
+//! The recursive tree oracle (through the bridge) is the behavioral witness
+//! over the adversarial families, arbitrary trees, organic histories, and the
+//! exhaustive small scope: rank and min_ticks by its own folds, projection by
+//! its mask, distance and lag re-derived from its join, meet, and rank through
+//! the valuation identities the rustdoc states. Distance and lag are
+//! additionally pinned against the composed forms — the same identities
+//! assembled from this crate's own emission and rank kernels — and the pair
+//! sweeps include the two version-pair families (the two-operand jump comb, the
+//! concurrent pair), both as deterministic dimension sweeps and as proptests
+//! over their generator dimensions. Rank is additionally pinned against the
+//! semantic Riemann-sum oracle, which shares no structure with either
 //! implementation.
 //!
 //! Every equality here is exact — `Rank` equality is structural on the
 //! normalized form, projection agreement is byte identity of the emitted
-//! canonical streams — so a fold that drifts by any amount anywhere has
-//! no rounding to hide behind.
+//! canonical streams — so a fold that drifts by any amount anywhere has no
+//! rounding to hide behind.
 
 use proptest::prelude::*;
 
@@ -38,8 +37,8 @@ fn version_of(p: &Packed) -> Version {
     p.version()
 }
 
-/// Assert the single-operand folds against the recursive tree oracle's
-/// own folds.
+/// Assert the single-operand folds against the recursive tree oracle's own
+/// folds.
 fn assert_single(v: &Version) {
     let enc = encode(v);
     let tree = to_oracle_version(v);
@@ -55,9 +54,8 @@ fn assert_single(v: &Version) {
     );
 }
 
-/// Assert the projection kernel against the recursive oracle's mask for
-/// one `(version, party)` operand pair: byte identity of the canonical
-/// streams.
+/// Assert the projection kernel against the recursive oracle's mask for one
+/// `(version, party)` operand pair: byte identity of the canonical streams.
 fn assert_projection(v: &Version, p: &Party) {
     let enc = encode(v);
     let masked = from_oracle_version(&to_oracle_version(v).project(&to_oracle_party(p)));
@@ -68,8 +66,7 @@ fn assert_projection(v: &Version, p: &Party) {
     );
 }
 
-/// Assert the pair folds against the recursive oracle *and* the composed
-/// forms.
+/// Assert the pair folds against the recursive oracle *and* the composed forms.
 ///
 /// Two independent witnesses per measure, both exact:
 ///
@@ -167,16 +164,14 @@ fn party_pool() -> Vec<Party> {
     ]
 }
 
-/// Every adversarial family shape agrees with the tree-fold oracle's
-/// rank and min_ticks; crosses and pairs agree on projection, distance,
-/// and lag.
+/// Every adversarial family shape agrees with the tree-fold oracle's rank and
+/// min_ticks; crosses and pairs agree on projection, distance, and lag.
 ///
-/// The id-pool cross checks the oracle's projection mask; the ordered
-/// pairs check distance and lag as re-derived from the oracle's
-/// lattice folds.
+/// The id-pool cross checks the oracle's projection mask; the ordered pairs
+/// check distance and lag as re-derived from the oracle's lattice folds.
 ///
-/// The families are exactly the shapes whose costs the meter rows pin —
-/// carry cliffs, wide teeth, cancelling chains, harmonic spines — so a
+/// The families are exactly the shapes whose costs the meter rows pin — carry
+/// cliffs, wide teeth, cancelling chains, harmonic spines — so a
 /// height-tracking or freeze bookkeeping error surfaces here before any
 /// envelope moves.
 #[test]
@@ -196,16 +191,15 @@ fn families_agree_with_the_packed_forms() {
     }
 }
 
-/// The promoting family pool: every shape whose sweep parks, promotes,
-/// or settles wide drift, at hand-checkable sizes.
+/// The promoting family pool: every shape whose sweep parks, promotes, or
+/// settles wide drift, at hand-checkable sizes.
 ///
-/// The other pools stay under the freeze allowance almost everywhere:
-/// a unit-funded fold freezes only past 9 digits (288 bits) of live
-/// drift, and `arb_base` tops out near 2^128, under half of that — so
-/// the promotion ledger and its product-tree settle would run
-/// differentially unwitnessed without this pool: these shapes are the
-/// only ones that arm it, and the arming trains are the only ones that
-/// arm it more than once per sweep or with mixed signs.
+/// The other pools stay under the freeze allowance almost everywhere: a
+/// unit-funded fold freezes only past 9 digits (288 bits) of live drift, and
+/// `arb_base` tops out near 2^128, under half of that — so the promotion ledger
+/// and its product-tree settle would run differentially unwitnessed without
+/// this pool: these shapes are the only ones that arm it, and the arming trains
+/// are the only ones that arm it more than once per sweep or with mixed signs.
 fn promoting_pool() -> Vec<Version> {
     vec![
         version_of(&Shape::PromotionRearm.packed1(1)),
@@ -220,16 +214,16 @@ fn promoting_pool() -> Vec<Version> {
         version_of(&Shape::PlateauPuncture.packed2(10, 3)),
         version_of(&Shape::PlateauPuncture.packed2(12, 1)),
         // The first-freeze-gate straddles: the sweep's one freeze fired
-        // arbitrarily late (a long never-freezing plateau prefix) and
-        // fired early ahead of a long never-freezing tail — the settle's
-        // smallest nonempty configuration, one parked drift against one
-        // final segment, from both sides of the gate.
+        // arbitrarily late (a long never-freezing plateau prefix) and fired
+        // early ahead of a long never-freezing tail — the settle's smallest
+        // nonempty configuration, one parked drift against one final segment,
+        // from both sides of the gate.
         version_of(&Shape::LoneFreeze.packed2(2, 2)),
         version_of(&Shape::LoneFreeze.packed2(6, 2)),
         version_of(&Shape::LoneFreeze.packed2(2, 6)),
-        // The multi-arming trains: same-sign and alternating, so the
-        // settle's parked sums are exercised both accumulating and
-        // cancelling across aggregate seams.
+        // The multi-arming trains: same-sign and alternating, so the settle's
+        // parked sums are exercised both accumulating and cancelling across
+        // aggregate seams.
         version_of(&Shape::ArmingTrain.packed_train(1, 19, 1, false)),
         version_of(&Shape::ArmingTrain.packed_train(3, 19, 1, false)),
         version_of(&Shape::ArmingTrain.packed_train(4, 19, 2, true)),
@@ -237,18 +231,17 @@ fn promoting_pool() -> Vec<Version> {
     ]
 }
 
-/// Every promoting family shape agrees with the tree-fold oracle on
-/// rank and min_ticks, and every ordered pair agrees on distance and
-/// lag against both the oracle and the composed forms.
+/// Every promoting family shape agrees with the tree-fold oracle on rank and
+/// min_ticks, and every ordered pair agrees on distance and lag against both
+/// the oracle and the composed forms.
 ///
-/// The settle's value witness at the shapes the flatness bands and red
-/// pins price: single and repeated armings, mixed-sign armings whose
-/// parked sums cancel digit-wise inside the product tree's aggregates,
-/// dense windows between armings, and the arming-free close-time
-/// settle (the plateau-puncture family). The pair sweep crosses wide
-/// operands with wide operands — both sides promoting, orientation
-/// flips inside wide plateaus — which the meter bands' unit-twin mates
-/// never reach.
+/// The settle's value witness at the shapes the flatness bands and red pins
+/// price: single and repeated armings, mixed-sign armings whose parked sums
+/// cancel digit-wise inside the product tree's aggregates, dense windows
+/// between armings, and the arming-free close-time settle (the plateau-puncture
+/// family). The pair sweep crosses wide operands with wide operands — both
+/// sides promoting, orientation flips inside wide plateaus — which the meter
+/// bands' unit-twin mates never reach.
 #[test]
 fn promoting_families_agree_with_the_oracle() {
     let pool = promoting_pool();
@@ -262,16 +255,15 @@ fn promoting_families_agree_with_the_oracle() {
     }
 }
 
-/// The two version-pair families agree with the oracle and the composed
-/// forms on distance and lag, at their own constructed pairings.
+/// The two version-pair families agree with the oracle and the composed forms
+/// on distance and lag, at their own constructed pairings.
 ///
-/// The jump-pair dimensions straddle the freeze allowance (`k = 3` up to
-/// `k = 512`, past the 256-bit digit bound), so the pair measures are
-/// pinned on shapes where the difference's live component rides wide
-/// drift across the other operand's cheap boundaries — the interleaving
-/// the family exists to reach; the concurrent pair pins the side-switch
-/// density population, where the difference's sign flips at every one of
-/// the `n − 1` overlay boundaries.
+/// The jump-pair dimensions straddle the freeze allowance (`k = 3` up to `k =
+/// 512`, past the 256-bit digit bound), so the pair measures are pinned on
+/// shapes where the difference's live component rides wide drift across the
+/// other operand's cheap boundaries — the interleaving the family exists to
+/// reach; the concurrent pair pins the side-switch density population, where
+/// the difference's sign flips at every one of the `n − 1` overlay boundaries.
 #[test]
 fn pair_families_agree() {
     for (k, m, d) in [(3, 1, 1), (16, 4, 2), (320, 6, 3), (512, 8, 2)] {
@@ -284,10 +276,9 @@ fn pair_families_agree() {
     }
 }
 
-/// The exhaustive small scope: every normal-form event tree to the small
-/// depth agrees on rank and min_ticks, and every tree × normal-form id
-/// agrees on projection — every boundary genre by brute force rather
-/// than sampling.
+/// The exhaustive small scope: every normal-form event tree to the small depth
+/// agrees on rank and min_ticks, and every tree × normal-form id agrees on
+/// projection — every boundary genre by brute force rather than sampling.
 #[test]
 fn exhaustive_small_scope_agrees() {
     let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
@@ -306,19 +297,18 @@ fn exhaustive_small_scope_agrees() {
     }
 }
 
-/// Every *ordered pair* of normal-form event trees to the small depth
-/// agrees between the pair co-sweep and the composed forms: distance
-/// equals `rank(join) − rank(meet)` and lag equals `rank(join) −
-/// rank(a)`, digit-exact.
+/// Every *ordered pair* of normal-form event trees to the small depth agrees
+/// between the pair co-sweep and the composed forms: distance equals
+/// `rank(join) − rank(meet)` and lag equals `rank(join) − rank(a)`,
+/// digit-exact.
 ///
-/// The total check over the pair space: every boundary genre the
-/// comparison sweep's exhaustive suite reaches (aligned ties,
-/// flush-right ties at unequal depths, plateau consumption, zero deltas
-/// across subtree boundaries) crossed with every orientation schedule
-/// reachable at this scope, by brute force rather than sampling. The
-/// oracle leg over the same identities rides the family and proptest
-/// sweeps; here the composed kernels are the witness so the quadratic
-/// pair product stays fast.
+/// The total check over the pair space: every boundary genre the comparison
+/// sweep's exhaustive suite reaches (aligned ties, flush-right ties at unequal
+/// depths, plateau consumption, zero deltas across subtree boundaries) crossed
+/// with every orientation schedule reachable at this scope, by brute force
+/// rather than sampling. The oracle leg over the same identities rides the
+/// family and proptest sweeps; here the composed kernels are the witness so the
+/// quadratic pair product stays fast.
 #[test]
 fn exhaustive_small_scope_pairs_agree() {
     let events: Vec<crate::codec::BitsMut> = all_normal_events(EV_SMALL_DEPTH)
@@ -347,13 +337,12 @@ fn exhaustive_small_scope_pairs_agree() {
 }
 
 proptest! {
-    /// Arbitrary normal-form trees agree with the recursive oracle on
-    /// every query fold.
+    /// Arbitrary normal-form trees agree with the recursive oracle on every
+    /// query fold.
     ///
-    /// Rank is additionally realized by the semantic oracle's Riemann sum
-    /// over the resolving grid — the geometric ground truth that shares
-    /// no recursion, no delta, and no accumulator with either
-    /// implementation.
+    /// Rank is additionally realized by the semantic oracle's Riemann sum over
+    /// the resolving grid — the geometric ground truth that shares no
+    /// recursion, no delta, and no accumulator with either implementation.
     #[test]
     fn arbitrary_trees_agree(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let a = from_oracle_version(&oa);
@@ -374,11 +363,11 @@ proptest! {
         );
     }
 
-    /// One organic fork/tick/send/sync/join history agrees with the
-    /// recursive oracle on every query fold.
+    /// One organic fork/tick/send/sync/join history agrees with the recursive
+    /// oracle on every query fold.
     ///
-    /// Projection runs onto the history's own parties — the operand
-    /// pairing production code actually builds.
+    /// Projection runs onto the history's own parties — the operand pairing
+    /// production code actually builds.
     #[test]
     fn organic_histories_agree(ops in optrace::world_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
@@ -394,41 +383,39 @@ proptest! {
         }
     }
 
-    /// Jump-comb pairs at arbitrary dimensions agree with the oracle and
-    /// the composed forms on distance and lag.
+    /// Jump-comb pairs at arbitrary dimensions agree with the oracle and the
+    /// composed forms on distance and lag.
     ///
-    /// The tooth width `k` is drawn across the freeze allowance's 256-bit
-    /// digit bound, so the sampled family covers both the
-    /// bounded-oscillation regime (wide folds cancel adjacently, nothing
-    /// freezes) and the wide-drift regime (the difference's live
-    /// component crosses cheap boundaries wide), at varying comb depth
-    /// `m` and spine density `d`.
+    /// The tooth width `k` is drawn across the freeze allowance's 256-bit digit
+    /// bound, so the sampled family covers both the bounded-oscillation regime
+    /// (wide folds cancel adjacently, nothing freezes) and the wide-drift
+    /// regime (the difference's live component crosses cheap boundaries wide),
+    /// at varying comb depth `m` and spine density `d`.
     #[test]
     fn arbitrary_jump_pairs_agree(k in 3usize..400, m in 1usize..8, d in 1usize..4) {
         let (pa, pb) = Shape::JumpPair.packed_pair3(k, m, d);
         assert_pair(&version_of(&pa), &version_of(&pb));
     }
 
-    /// Concurrent pairs at arbitrary power-of-two fork widths agree with
-    /// the oracle and the composed forms on distance and lag: the
-    /// side-switch density family, where every overlay boundary flips
-    /// which operand dominates.
+    /// Concurrent pairs at arbitrary power-of-two fork widths agree with the
+    /// oracle and the composed forms on distance and lag: the side-switch
+    /// density family, where every overlay boundary flips which operand
+    /// dominates.
     #[test]
     fn arbitrary_concurrent_pairs_agree(log_n in 1u32..7) {
         let (v, w) = Shape::ConcurrentPair.version_pair(1 << log_n);
         assert_pair(&v, &w);
     }
 
-    /// Arming trains at arbitrary dimensions agree with the oracle on
-    /// every query fold, singly and as a promoting × promoting pair.
+    /// Arming trains at arbitrary dimensions agree with the oracle on every
+    /// query fold, singly and as a promoting × promoting pair.
     ///
-    /// The dimensions cover arming counts across several product-tree
-    /// shapes (a lone entry, a full level, an odd drain), both sign
-    /// schedules, and window densities from trivial to multi-digit —
-    /// the ledger genres `arb_base`'s 128-bit ceiling keeps the
-    /// arbitrary-tree sweep from ever arming. The pair leg crosses the
-    /// train against its opposite-schedule twin, so the co-sweep
-    /// promotes on both operands with the difference's orientation
+    /// The dimensions cover arming counts across several product-tree shapes (a
+    /// lone entry, a full level, an odd drain), both sign schedules, and window
+    /// densities from trivial to multi-digit — the ledger genres `arb_base`'s
+    /// 128-bit ceiling keeps the arbitrary-tree sweep from ever arming. The
+    /// pair leg crosses the train against its opposite-schedule twin, so the
+    /// co-sweep promotes on both operands with the difference's orientation
     /// flipping inside wide plateaus.
     #[test]
     fn arbitrary_arming_trains_agree(
@@ -444,8 +431,8 @@ proptest! {
     }
 
     /// The projection kernel agrees with the oracle's semantic mask over
-    /// arbitrary tree × arbitrary id operands, where the id's absent
-    /// children exercise the synthetic-empty arm at every depth.
+    /// arbitrary tree × arbitrary id operands, where the id's absent children
+    /// exercise the synthetic-empty arm at every depth.
     #[test]
     fn arbitrary_projections_agree(
         ov in arb_oracle_version(),
@@ -456,22 +443,20 @@ proptest! {
         assert_projection(&v, &p);
     }
 
-    /// The exact rank embeds the product of two arbitrary integers:
-    /// `rank(V(x, y)) = (2·x·y + 1) / 2^bits(2y)` for every positive
-    /// `x` and `y`, through the public fold.
+    /// The exact rank embeds the product of two arbitrary integers: `rank(V(x,
+    /// y)) = (2·x·y + 1) / 2^bits(2y)` for every positive `x` and `y`, through
+    /// the public fold.
     ///
-    /// The `Ω(M(·))` floor's evidence of record — a reduction from
-    /// arbitrary integer multiplication, not a bet on one committed
-    /// shape: `V(x, y)` stores `Θ(bits(x) + bits(y))` bits, and its
-    /// exact rank's numerator carries the full product (one
-    /// subtraction and one shift recover `x·y`), so any fold that
-    /// answers this family exactly multiplies two arbitrary
-    /// input-funded factors at linear overhead. The independent
-    /// witness is the backend's own multiplication, computed here
-    /// outside any fold. The pair measures inherit the floor through
-    /// their valuation identities — against the empty version,
-    /// distance and lag both collapse to the rank — asserted here on
-    /// the public entry points.
+    /// The `Ω(M(·))` floor's evidence of record — a reduction from arbitrary
+    /// integer multiplication, not a bet on one committed shape: `V(x, y)`
+    /// stores `Θ(bits(x) + bits(y))` bits, and its exact rank's numerator
+    /// carries the full product (one subtraction and one shift recover `x·y`),
+    /// so any fold that answers this family exactly multiplies two arbitrary
+    /// input-funded factors at linear overhead. The independent witness is the
+    /// backend's own multiplication, computed here outside any fold. The pair
+    /// measures inherit the floor through their valuation identities — against
+    /// the empty version, distance and lag both collapse to the rank — asserted
+    /// here on the public entry points.
     #[test]
     fn arbitrary_factors_embed_their_product_in_exact_rank(
         x_bytes in proptest::collection::vec(any::<u8>(), 1..64),
@@ -492,14 +477,13 @@ proptest! {
             "the constructor's output must be canonical"
         );
         // The reduction's size premise, pinned where the reduction is
-        // constructed: the STORED stream is Θ(bits(x) + bits(y)) — the
-        // deltas collapse to one climb (≤ 2·bits(x) + 1 code bits) and
-        // one plunge (≤ 2·bits(x) + 3), and each of the `bits(2y)`
-        // levels costs O(1) topology and payload bits — even though
-        // the packed construction spells the plateau per turn. Without
-        // this bound the floor argument would rest on a stored size
-        // nothing checks: a fold could be charged M(|v|) against an
-        // operand secretly as large as the product itself.
+        // constructed: the STORED stream is Θ(bits(x) + bits(y)) — the deltas
+        // collapse to one climb (≤ 2·bits(x) + 1 code bits) and one plunge (≤
+        // 2·bits(x) + 3), and each of the `bits(2y)` levels costs O(1) topology
+        // and payload bits — even though the packed construction spells the
+        // plateau per turn. Without this bound the floor argument would rest on
+        // a stored size nothing checks: a fold could be charged M(|v|) against
+        // an operand secretly as large as the product itself.
         prop_assert!(
             v.encoded_bits() <= 4 * x.bit_len() + 4 * (y.bit_len() + 1) + 64,
             "the stored stream must stay linear in the factors' widths: \
@@ -528,14 +512,14 @@ proptest! {
     }
 }
 
-/// The cluster seam splits exactly at gaps wider than the limit: runs
-/// whose interior gaps stay within it stay whole, and a single
-/// over-wide gap is the only cut.
+/// The cluster seam splits exactly at gaps wider than the limit: runs whose
+/// interior gaps stay within it stay whole, and a single over-wide gap is the
+/// only cut.
 ///
-/// The deterministic geometry leg under the value proptest below: the
-/// split points are what the settle's cost bound reasons from (gaps
-/// wider than the factor never densify), so they are pinned by
-/// position, not just by round-tripped value.
+/// The deterministic geometry leg under the value proptest below: the split
+/// points are what the settle's cost bound reasons from (gaps wider than the
+/// factor never densify), so they are pinned by position, not just by
+/// round-tripped value.
 #[test]
 fn clusters_split_exactly_at_the_gap_limit() {
     let digits: &[(u64, i64)] = &[(0, 1), (3, -2), (4, 5), (8, 1), (20, -7)];
@@ -563,14 +547,13 @@ fn clusters_split_exactly_at_the_gap_limit() {
 }
 
 proptest! {
-    /// The clustered settle charge agrees exactly with two whole-span
-    /// backend products over the same signed mass.
+    /// The clustered settle charge agrees exactly with two whole-span backend
+    /// products over the same signed mass.
     ///
     /// Cluster splitting, the densified positive/negative images, the
-    /// single-digit fast path, and the scaled adds re-spell the same
-    /// integer for every gap schedule — including gaps straddling the
-    /// factor-width split threshold and cancellation across cluster
-    /// edges.
+    /// single-digit fast path, and the scaled adds re-spell the same integer
+    /// for every gap schedule — including gaps straddling the factor-width
+    /// split threshold and cancellation across cluster edges.
     #[test]
     fn clustered_charge_agrees_with_whole_span_products(
         factor_bytes in proptest::collection::vec(any::<u8>(), 1..200),
@@ -620,33 +603,30 @@ proptest! {
     }
 }
 
-/// The clustered charge agrees with the whole-span products at the
-/// backend's own multiplication-tier boundaries, with cluster-edge
-/// cancellation and the balanced range's extreme digits in play.
+/// The clustered charge agrees with the whole-span products at the backend's
+/// own multiplication-tier boundaries, with cluster-edge cancellation and the
+/// balanced range's extreme digits in play.
 ///
-/// The committed proptest above samples factors up to 200 bytes (50
-/// base-2^32 digits ≈ 25 dashu words), so on a 64-bit target it never
-/// pushes a settle product past the backend's simple→Karatsuba
-/// dispatch seam, let alone Karatsuba→Toom-3 or Toom-3→NTT. This
-/// deterministic leg holds the value seam at every dispatch boundary
-/// the shipped dashu 0.5 backend has (smaller side 24 / 96 / 4,000
-/// words, one width at and one past each), against the same
-/// un-clustered whole-span oracle, over three mass geometries per
-/// width: a dense run wider than the factor, digits spaced exactly at
-/// the gap limit (one bridged cluster) and exactly past it (split
-/// clusters), and an equal-magnitude ± pair straddling a forced split
-/// so the cancellation happens in the total, never inside one
-/// densified image. Digits include both balanced-range extremes
-/// (`−2^31` and `2^31 − 1`).
+/// The committed proptest above samples factors up to 200 bytes (50 base-2^32
+/// digits ≈ 25 dashu words), so on a 64-bit target it never pushes a settle
+/// product past the backend's simple→Karatsuba dispatch seam, let alone
+/// Karatsuba→Toom-3 or Toom-3→NTT. This deterministic leg holds the value seam
+/// at every dispatch boundary the shipped dashu 0.5 backend has (smaller side
+/// 24 / 96 / 4,000 words, one width at and one past each), against the same
+/// un-clustered whole-span oracle, over three mass geometries per width: a
+/// dense run wider than the factor, digits spaced exactly at the gap limit (one
+/// bridged cluster) and exactly past it (split clusters), and an
+/// equal-magnitude ± pair straddling a forced split so the cancellation happens
+/// in the total, never inside one densified image. Digits include both
+/// balanced-range extremes (`−2^31` and `2^31 − 1`).
 #[test]
 fn clustered_charge_agrees_at_backend_tier_boundaries() {
     use suanpan::{Accumulator, UBig};
 
     use crate::codec::Base;
 
-    /// One whole-span differential: `charge_digits` versus two
-    /// un-clustered products (positive and negative sides separately),
-    /// exact to the digit.
+    /// One whole-span differential: `charge_digits` versus two un-clustered
+    /// products (positive and negative sides separately), exact to the digit.
     fn assert_matches(factor: &Base, digits: &[(u64, i64)], neg: bool, label: &str) {
         let mut clustered = Accumulator::new();
         super::charge_digits(&mut clustered, neg, factor, digits);
@@ -677,30 +657,29 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
         );
     }
 
-    // The balanced range's extremes, alternated so carries propagate
-    // through the densified images in both sign parts.
+    // The balanced range's extremes, alternated so carries propagate through
+    // the densified images in both sign parts.
     const EXTREMES: [i64; 4] = [-(1i64 << 31), (1i64 << 31) - 1, 1, -1];
 
-    // dashu 0.5 dispatches on the smaller side in 64-bit words:
-    // simple ≤ 24, Karatsuba ≤ 96, Toom-3 ≤ 4,000, NTT above. One
-    // width at each threshold and one past it, in base-2^32 digits.
+    // dashu 0.5 dispatches on the smaller side in 64-bit words: simple ≤ 24,
+    // Karatsuba ≤ 96, Toom-3 ≤ 4,000, NTT above. One width at each threshold
+    // and one past it, in base-2^32 digits.
     for words in [24usize, 25, 96, 97, 4_000, 4_001] {
         let width = 2 * words;
         // A patterned full-width factor (no digit zero, top digit set).
         let factor_bytes: Vec<u8> = (0..width * 4).map(|i| (i % 251) as u8 + 1).collect();
         let factor = Base::from(UBig::from_le_bytes(&factor_bytes));
         let gap_limit = super::base_digits(&factor) as u64;
-        // A dense run wider than the factor: the product's smaller
-        // side is the factor, so the backend engages this width's own
-        // tier.
+        // A dense run wider than the factor: the product's smaller side is the
+        // factor, so the backend engages this width's own tier.
         let dense: Vec<(u64, i64)> = (0..width as u64 + 64)
             .map(|i| (i, EXTREMES[i as usize % EXTREMES.len()]))
             .collect();
         assert_matches(&factor, &dense, false, "dense run");
         assert_matches(&factor, &dense, true, "dense run, credited");
-        // Digits spaced exactly at the gap limit bridge into one
-        // cluster; exactly one position further they split. Both must
-        // spell the same value either way.
+        // Digits spaced exactly at the gap limit bridge into one cluster;
+        // exactly one position further they split. Both must spell the same
+        // value either way.
         for (spacing, label) in [
             (gap_limit + 1, "gaps exactly at the limit (bridged)"),
             (gap_limit + 2, "gaps exactly past the limit (split)"),
@@ -710,55 +689,51 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
                 .collect();
             assert_matches(&factor, &spaced, false, label);
         }
-        // Equal magnitudes of opposite sign in adjacent clusters
-        // forced apart by an over-limit gap: the value cancels only in
-        // the total, after two independent densified products.
+        // Equal magnitudes of opposite sign in adjacent clusters forced apart
+        // by an over-limit gap: the value cancels only in the total, after two
+        // independent densified products.
         let straddle: Vec<(u64, i64)> =
             vec![(0, (1i64 << 31) - 1), (gap_limit + 2, -((1i64 << 31) - 1))];
         assert_matches(&factor, &straddle, false, "cancellation across a split");
     }
 }
 
-/// Dense committed factors drive one settle product through the
-/// public rank at each backend multiplication-tier boundary, exact
-/// against the recursive oracle and the closed form.
+/// Dense committed factors drive one settle product through the public rank at
+/// each backend multiplication-tier boundary, exact against the recursive
+/// oracle and the closed form.
 ///
-/// The gap the seam-level differentials leave open: the tier-boundary
-/// charge test above holds the charge kernel value-exact at every
-/// dispatch boundary, but only a `charge_digits`-level operand ever
-/// reached the upper tiers — no public fold drove an incompressible
-/// factor through a settle product there. Here the puncture-product
-/// family does it end to end: the plateau `x` is dense pseudorandom
-/// at exactly 24, 25, 96, and 97 dashu words (the simple/Karatsuba
-/// and Karatsuba/Toom-3 boundaries of dashu-int 0.5.0's THRESHOLD
-/// constants, dispatched on the product's smaller side), the mass `y`
-/// spans 16 digits past the factor with every digit populated —
-/// fully dense at 24/25, four pseudorandom bits per digit at 96/97
-/// (the packed construction pays one plateau code per mass bit, so
-/// popcount is the test's whole budget; per-digit population is what
-/// the product's carry chains see) — so the close-time settle's one
-/// product meets the boundary width with dense content on both
-/// sides. Value legs per width: the recursive tree oracle and the
-/// closed form `(2·x·y + 1) / 2^bits(2y)` through an independent
-/// backend multiplication.
+/// The gap the seam-level differentials leave open: the tier-boundary charge
+/// test above holds the charge kernel value-exact at every dispatch boundary,
+/// but only a `charge_digits`-level operand ever reached the upper tiers — no
+/// public fold drove an incompressible factor through a settle product there.
+/// Here the puncture-product family does it end to end: the plateau `x` is
+/// dense pseudorandom at exactly 24, 25, 96, and 97 dashu words (the
+/// simple/Karatsuba and Karatsuba/Toom-3 boundaries of dashu-int 0.5.0's
+/// THRESHOLD constants, dispatched on the product's smaller side), the mass `y`
+/// spans 16 digits past the factor with every digit populated — fully dense at
+/// 24/25, four pseudorandom bits per digit at 96/97 (the packed construction
+/// pays one plateau code per mass bit, so popcount is the test's whole budget;
+/// per-digit population is what the product's carry chains see) — so the
+/// close-time settle's one product meets the boundary width with dense content
+/// on both sides. Value legs per width: the recursive tree oracle and the
+/// closed form `(2·x·y + 1) / 2^bits(2y)` through an independent backend
+/// multiplication.
 ///
-/// The Toom-3/NTT boundary (4,000/4,001 words) rides the same
-/// construction with the mass thinned to one jittered turn every 400
-/// digits: a per-digit-populated NTT-scale mass would build a packed
-/// operand in the hundreds of megabits, and the recursive oracle's
-/// fold over the ~256,000-leaf tree is likewise out of test budget —
-/// the punctured trailing run still densifies to one cluster image
-/// spanning the full smaller-side width the backend dispatches on
-/// (gaps of ~399 digits sit far inside the factor-width gap limit),
-/// the factor side stays fully dense, and the value leg is the
+/// The Toom-3/NTT boundary (4,000/4,001 words) rides the same construction with
+/// the mass thinned to one jittered turn every 400 digits: a
+/// per-digit-populated NTT-scale mass would build a packed operand in the
+/// hundreds of megabits, and the recursive oracle's fold over the ~256,000-leaf
+/// tree is likewise out of test budget — the punctured trailing run still
+/// densifies to one cluster image spanning the full smaller-side width the
+/// backend dispatches on (gaps of ~399 digits sit far inside the factor-width
+/// gap limit), the factor side stays fully dense, and the value leg is the
 /// closed form alone.
 #[test]
 fn dense_factors_agree_through_the_public_fold_at_tier_boundaries() {
-    // The recursive oracle and its bridge are test-only plain
-    // recursion on tree depth, and the dense masses here run the
-    // spine thousands of levels deep — the production folds are
-    // stack-safe (`crate::recurse::descend!`), so the headroom is for
-    // the witnesses, not the code under test.
+    // The recursive oracle and its bridge are test-only plain recursion on tree
+    // depth, and the dense masses here run the spine thousands of levels deep —
+    // the production folds are stack-safe (`crate::recurse::descend!`), so the
+    // headroom is for the witnesses, not the code under test.
     let body = std::thread::Builder::new()
         .stack_size(256 << 20)
         .spawn(dense_factor_tier_legs)
@@ -769,16 +744,14 @@ fn dense_factors_agree_through_the_public_fold_at_tier_boundaries() {
 }
 
 /// The tier legs of
-/// [`dense_factors_agree_through_the_public_fold_at_tier_boundaries`],
-/// on the fat-stack thread the recursive oracle needs at these
-/// depths.
+/// [`dense_factors_agree_through_the_public_fold_at_tier_boundaries`], on the
+/// fat-stack thread the recursive oracle needs at these depths.
 fn dense_factor_tier_legs() {
     use dashu_int::ops::BitTest;
     use suanpan::UBig;
 
-    /// One puncture-product leg: the public rank against the closed
-    /// form, and (where the tree fits the budget) the recursive
-    /// oracle.
+    /// One puncture-product leg: the public rank against the closed form, and
+    /// (where the tree fits the budget) the recursive oracle.
     fn assert_leg(x: &UBig, y: &UBig, oracle: bool, label: &str) {
         let v = Shape::PunctureProduct.packed_product(x, y).version();
         let numerator = ((x * y) << 1usize) + 1u8;
@@ -796,9 +769,8 @@ fn dense_factor_tier_legs() {
         }
     }
 
-    /// A mass with every base-2^32 digit populated by `bits`-many
-    /// pseudorandom bit choices (collisions allowed, so one to
-    /// `bits` live bits per digit).
+    /// A mass with every base-2^32 digit populated by `bits`-many pseudorandom
+    /// bit choices (collisions allowed, so one to `bits` live bits per digit).
     fn spread_mass(seed: u64, digits: usize, bits: u64) -> UBig {
         let mut y = UBig::ZERO;
         for digit in 0..digits {
@@ -832,34 +804,31 @@ fn dense_factor_tier_legs() {
             digit += 400;
             turn += 1;
         }
-        // The top turn sits at the span's last digit, so the settle
-        // product's mass side strictly out-spans the factor and the
-        // backend dispatches on the factor's word count exactly.
+        // The top turn sits at the span's last digit, so the settle product's
+        // mass side strictly out-spans the factor and the backend dispatches on
+        // the factor's word count exactly.
         y |= UBig::ONE << (32 * (span - 1) + 31);
         assert_leg(&x, &y, false, &format!("{words}-word"));
     }
 }
 
-/// The mass-balanced split isolates one leaf per level on
-/// exponentially spread masses: the product tree's depth is `n − 1`
-/// there, linear in the entry count, while uniform masses keep it at
-/// `⌈log₂ n⌉`.
+/// The mass-balanced split isolates one leaf per level on exponentially spread
+/// masses: the product tree's depth is `n − 1` there, linear in the entry
+/// count, while uniform masses keep it at `⌈log₂ n⌉`.
 ///
-/// The committed witness behind the module doc's depth denomination:
-/// the split arithmetic below replicates
-/// `Integrator::settle_armings`' inline rule verbatim (prefix sums,
-/// `div_ceil` midpoint, `partition_point`, the both-halves-nonempty
-/// clamp) — keep them in lockstep. What it demonstrates: a leaf's
-/// depth is bounded by the *total mass* logarithm (masses at least
-/// double along the isolating path), never by any function of the
-/// entry count alone — with `n` entries of masses `2^1..2^n` the
-/// deepest entry is re-read `n − 1` times, not `O(log n)`. Every
-/// aggregate cost bound absorbs this (heavy leaves sit shallow, so
-/// mass-weighted traffic stays entropy-bounded at the total mass
-/// times the entry-count logarithm), which is why the module doc
-/// denominates the tree's depth in settle mass — at most `log |v|`,
-/// the mass being input-funded — and why its `O((n + D) log n)`
-/// claim is conditioned on `O(1)`-wide parked masses.
+/// The committed witness behind the module doc's depth denomination: the split
+/// arithmetic below replicates `Integrator::settle_armings`' inline rule
+/// verbatim (prefix sums, `div_ceil` midpoint, `partition_point`, the
+/// both-halves-nonempty clamp) — keep them in lockstep. What it demonstrates: a
+/// leaf's depth is bounded by the *total mass* logarithm (masses at least
+/// double along the isolating path), never by any function of the entry count
+/// alone — with `n` entries of masses `2^1..2^n` the deepest entry is re-read
+/// `n − 1` times, not `O(log n)`. Every aggregate cost bound absorbs this
+/// (heavy leaves sit shallow, so mass-weighted traffic stays entropy-bounded at
+/// the total mass times the entry-count logarithm), which is why the module doc
+/// denominates the tree's depth in settle mass — at most `log |v|`, the mass
+/// being input-funded — and why its `O((n + D) log n)` claim is conditioned on
+/// `O(1)`-wide parked masses.
 #[test]
 fn mass_midpoint_split_runs_linear_depth_on_exponential_masses() {
     /// Depth of the deepest leaf under the settle's split rule.
@@ -899,19 +868,18 @@ fn mass_midpoint_split_runs_linear_depth_on_exponential_masses() {
     );
 }
 
-/// The committed known-bad freeze accounting: the freeze-position
-/// family's adequacy tripwire.
+/// The committed known-bad freeze accounting: the freeze-position family's
+/// adequacy tripwire.
 ///
-/// The anchored-segment integral exists because a freeze must not
-/// settle evicted drift against its absolute position (the module doc's
-/// discipline). This module keeps the refuted accounting — the
-/// frozen/live split whose every freeze correction multiplies the drift
-/// by the whole position accumulator, read across its full written span
-/// — committed and *failing*: the tripwire proves `FP(k)` still catches
-/// the mechanism red, so the family's green flatness band
-/// (`skyline_rank_freeze_position_is_flat_per_unit`, `tests/meter.rs`)
-/// is never decoration. The kernel is value-exact against the shipped
-/// rank, so the demonstrator is a real implementation, not a strawman.
+/// The anchored-segment integral exists because a freeze must not settle
+/// evicted drift against its absolute position (the module doc's discipline).
+/// This module keeps the refuted accounting — the frozen/live split whose every
+/// freeze correction multiplies the drift by the whole position accumulator,
+/// read across its full written span — committed and *failing*: the tripwire
+/// proves `FP(k)` still catches the mechanism red, so the family's green
+/// flatness band (`skyline_rank_freeze_position_is_flat_per_unit`,
+/// `tests/meter.rs`) is never decoration. The kernel is value-exact against the
+/// shipped rank, so the demonstrator is a real implementation, not a strawman.
 #[cfg(feature = "limb-meter")]
 mod adequacy {
     use core::cmp::Ordering;
@@ -926,15 +894,15 @@ mod adequacy {
 
     use super::super::{fold_signed_int, int_digits, max_depth, mul_into, FREEZE_ALLOWANCE_DIGITS};
 
-    /// The absolute-position rank fold: heights on a frozen/live split
-    /// whose freeze correction is `drift × position` with the position
-    /// accumulator read whole per freeze.
+    /// The absolute-position rank fold: heights on a frozen/live split whose
+    /// freeze correction is `drift × position` with the position accumulator
+    /// read whole per freeze.
     ///
-    /// Value-exact — the summation-by-parts identity
-    /// `Σᵢ F(i)·massᵢ = F_final·2^S − Σ_freezes drift·position` is
-    /// sound — and superlinear exactly where the tripwire asserts it:
-    /// freeze `i`'s position read walks the accumulator's whole written
-    /// span, which `FP(k)`'s descending spine grows with every block.
+    /// Value-exact — the summation-by-parts identity `Σᵢ F(i)·massᵢ =
+    /// F_final·2^S − Σ_freezes drift·position` is sound — and superlinear
+    /// exactly where the tripwire asserts it: freeze `i`'s position read walks
+    /// the accumulator's whole written span, which `FP(k)`'s descending spine
+    /// grows with every block.
     fn absolute_position_rank(bits: &BitsSlice) -> Rank {
         let max_depth = max_depth(bits);
         let scale = max_depth as u64;
@@ -980,8 +948,8 @@ mod adequacy {
         Rank::from_raw(Base::from(num), scale)
     }
 
-    /// One tripwire run: packed bytes and the touch count over the
-    /// known-bad fold, value-pinned against the shipped kernel.
+    /// One tripwire run: packed bytes and the touch count over the known-bad
+    /// fold, value-pinned against the shipped kernel.
     fn run(k: usize) -> (u64, u64) {
         let v = Shape::FreezePosition.packed1(k).version();
         let enc = encode(&v);
@@ -997,16 +965,16 @@ mod adequacy {
         (enc.len().div_ceil(8) as u64, touches)
     }
 
-    /// `FP(k)` catches the absolute-position accounting red: its
-    /// per-byte touch cost grows across the doubling.
+    /// `FP(k)` catches the absolute-position accounting red: its per-byte touch
+    /// cost grows across the doubling.
     ///
-    /// A linear fold reads ~x1.00 here; the floor 1.25 sits midway
-    /// between linear and the measured x1.50, while the shipped
-    /// kernel's flatness band holds the same family at x1.25.
+    /// A linear fold reads ~x1.00 here; the floor 1.25 sits midway between
+    /// linear and the measured x1.50, while the shipped kernel's flatness band
+    /// holds the same family at x1.25.
     ///
-    /// [measured in the dev profile, exact counters: touches
-    /// 124,368 -> 372,859 across FP(1,000) -> FP(2,000), packed
-    /// 73,328B -> 146,579B: per-byte growth x1.50.]
+    /// [measured in the dev profile, exact counters: touches 124,368 -> 372,859
+    /// across FP(1,000) -> FP(2,000), packed 73,328B -> 146,579B: per-byte
+    /// growth x1.50.]
     #[test]
     fn absolute_position_accounting_reads_superlinear_on_freeze_position() {
         let (small_bytes, small_touches) = run(1_000);
@@ -1028,26 +996,25 @@ mod adequacy {
     // ── the span-reading promotion accounting ──────────────────────────
     //
     // The promotion ledger exists because a promotion must not re-read
-    // whole-history position state (the module doc's promotion-ledger
-    // bullet). This kernel keeps the refuted accounting — the full
-    // anchored-segment integrator whose promotion debits `P × position`
-    // by reading an absolute position accumulator across its written
-    // span, re-anchoring the parked component into the base — committed
-    // and failing on the promotion re-arm family, through both the
-    // single-stream and the pair integrals, so the green re-arm
-    // flatness bands (`skyline_flatness`, `tests/meter.rs`) are never
-    // decoration. Value-exact against the shipped folds: the identity
-    // `P · (2^S − position) = P · 2^S − P · position` is sound; only
-    // its cost class is not.
+    // whole-history position state (the module doc's promotion-ledger bullet).
+    // This kernel keeps the refuted accounting — the full anchored-segment
+    // integrator whose promotion debits `P × position` by reading an absolute
+    // position accumulator across its written span, re-anchoring the parked
+    // component into the base — committed and failing on the promotion re-arm
+    // family, through both the single-stream and the pair integrals, so the
+    // green re-arm flatness bands (`skyline_flatness`, `tests/meter.rs`) are
+    // never decoration. Value-exact against the shipped folds: the identity `P
+    // · (2^S − position) = P · 2^S − P · position` is sound; only its cost
+    // class is not.
 
     use crate::version::skyline::sweep::advance_diff;
 
     /// The anchored-segment integral with the span-reading promotion.
     ///
-    /// Segments settle at the write watermark (linear on the
-    /// freeze-position family), but a promotion multiplies the parked
-    /// component by the absolute position accumulator, read across its
-    /// full written span, and re-anchors it into the base.
+    /// Segments settle at the write watermark (linear on the freeze-position
+    /// family), but a promotion multiplies the parked component by the absolute
+    /// position accumulator, read across its full written span, and re-anchors
+    /// it into the base.
     struct SpanIntegrator {
         total: Accumulator,
         live: Accumulator,
@@ -1167,8 +1134,8 @@ mod adequacy {
             );
         }
 
-        /// The refuted move: `P × position` with the position read
-        /// whole, then `P` re-anchored into the base.
+        /// The refuted move: `P × position` with the position read whole, then
+        /// `P` re-anchored into the base.
         fn promote(&mut self) {
             let (p_sign, p_mag) = self.parked.sign_magnitude();
             if p_mag != suanpan::UBig::ZERO {
@@ -1217,9 +1184,8 @@ mod adequacy {
         integral.finish(max_depth as u64)
     }
 
-    /// The distance co-sweep on the span-reading integrator: the
-    /// shipped pair loop verbatim (distance orientation), integrator
-    /// swapped.
+    /// The distance co-sweep on the span-reading integrator: the shipped pair
+    /// loop verbatim (distance orientation), integrator swapped.
     fn span_promotion_distance(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Rank {
         let orientation = |sign: Ordering| -> i8 {
             match sign {
@@ -1271,9 +1237,8 @@ mod adequacy {
         integral.finish(overlay_depth as u64)
     }
 
-    /// One rank tripwire run over `PR(p)`: packed bytes and the touch
-    /// count over the known-bad fold, value-pinned against the shipped
-    /// kernel.
+    /// One rank tripwire run over `PR(p)`: packed bytes and the touch count
+    /// over the known-bad fold, value-pinned against the shipped kernel.
     fn span_rank_run(p: usize) -> (u64, u64) {
         let v = Shape::PromotionRearm.packed1(p).version();
         let enc = encode(&v);
@@ -1289,9 +1254,9 @@ mod adequacy {
         (enc.len().div_ceil(8) as u64, touches)
     }
 
-    /// One pair tripwire run over `(PR(p), PRM(p))`: the pair's packed
-    /// bytes and the touch count over the known-bad co-sweep,
-    /// value-pinned against the shipped kernel.
+    /// One pair tripwire run over `(PR(p), PRM(p))`: the pair's packed bytes
+    /// and the touch count over the known-bad co-sweep, value-pinned against
+    /// the shipped kernel.
     fn span_pair_run(p: usize) -> (u64, u64) {
         let a = Shape::PromotionRearm.packed1(p).version();
         let b = Shape::PromotionRearmMate.packed1(p).version();
@@ -1309,17 +1274,16 @@ mod adequacy {
         ((ea.len() + eb.len()).div_ceil(8) as u64, touches)
     }
 
-    /// `PR(p)` catches the span-reading promotion red on the
-    /// single-stream integral: its per-byte touch cost grows across
-    /// the doubling.
+    /// `PR(p)` catches the span-reading promotion red on the single-stream
+    /// integral: its per-byte touch cost grows across the doubling.
     ///
-    /// A linear fold reads ~x1.00 here; the floor 1.36 sits midway
-    /// between linear and the measured x1.74, while the shipped
-    /// kernel's re-arm flatness band holds the same family at x1.25.
+    /// A linear fold reads ~x1.00 here; the floor 1.36 sits midway between
+    /// linear and the measured x1.74, while the shipped kernel's re-arm
+    /// flatness band holds the same family at x1.25.
     ///
-    /// [measured in the dev profile, exact counters: touches
-    /// 1,440,756 -> 5,006,506 across PR(1,000) -> PR(2,000), packed
-    /// 246,501B -> 493,001B: per-byte growth x1.74.]
+    /// [measured in the dev profile, exact counters: touches 1,440,756 ->
+    /// 5,006,506 across PR(1,000) -> PR(2,000), packed 246,501B -> 493,001B:
+    /// per-byte growth x1.74.]
     #[test]
     fn span_promotion_accounting_reads_superlinear_on_rearm_spine() {
         let (small_bytes, small_touches) = span_rank_run(1_000);
@@ -1338,17 +1302,16 @@ mod adequacy {
         );
     }
 
-    /// `(PR(p), PRM(p))` catches the span-reading promotion red on the
-    /// pair integral: its per-byte touch cost grows across the doubling.
+    /// `(PR(p), PRM(p))` catches the span-reading promotion red on the pair
+    /// integral: its per-byte touch cost grows across the doubling.
     ///
-    /// The committed proof that the pair family drives promotions
-    /// through the co-sweep, not just freezes.
+    /// The committed proof that the pair family drives promotions through the
+    /// co-sweep, not just freezes.
     ///
-    /// [measured in the dev profile, exact counters: touches
-    /// 1,504,885 -> 5,134,635 across p = 1,000 -> 2,000, packed pair
-    /// 269,001B -> 538,001B: per-byte growth x1.71; the floor 1.36
-    /// sits midway between linear and the measured growth, as the rank
-    /// tripwire's.]
+    /// [measured in the dev profile, exact counters: touches 1,504,885 ->
+    /// 5,134,635 across p = 1,000 -> 2,000, packed pair 269,001B -> 538,001B:
+    /// per-byte growth x1.71; the floor 1.36 sits midway between linear and the
+    /// measured growth, as the rank tripwire's.]
     #[test]
     fn span_promotion_accounting_reads_superlinear_on_rearm_pair() {
         let (small_bytes, small_touches) = span_pair_run(1_000);
@@ -1369,28 +1332,24 @@ mod adequacy {
     }
     // ── the per-arming suffix-walk settle ──────────────────────────────
     //
-    // The mass-balanced product-tree settle exists because the ledger's
-    // debt must not be charged by walking a shared suffix once per
-    // arming (the module doc's settle bound). This kernel keeps the
-    // refuted accounting — the ledger assembled newest-first into one
-    // running suffix mass, each arming's charge re-reading that
-    // suffix's whole density — committed and failing on the
-    // dense-suffix family, through both the single-stream and the pair
-    // integrals, so the green dense-suffix flatness bands
-    // (`skyline_flatness`, `tests/meter.rs`) are never decoration.
-    // Value-exact against the shipped folds: the suffix walk computes
-    // the same cross-term sum, term by term; only its cost class is
-    // not the tree's.
+    // The mass-balanced product-tree settle exists because the ledger's debt
+    // must not be charged by walking a shared suffix once per arming (the
+    // module doc's settle bound). This kernel keeps the refuted accounting —
+    // the ledger assembled newest-first into one running suffix mass, each
+    // arming's charge re-reading that suffix's whole density — committed and
+    // failing on the dense-suffix family, through both the single-stream and
+    // the pair integrals, so the green dense-suffix flatness bands
+    // (`skyline_flatness`, `tests/meter.rs`) are never decoration. Value-exact
+    // against the shipped folds: the suffix walk computes the same cross-term
+    // sum, term by term; only its cost class is not the tree's.
 
     use crate::version::skyline::query::{Arming, WindowMass};
 
-    /// The anchored-segment integral with the per-arming suffix-walk
-    /// settle.
+    /// The anchored-segment integral with the per-arming suffix-walk settle.
     ///
-    /// Promotions record funded-width ledger entries exactly as the
-    /// shipped integrator does; the close then walks one running
-    /// suffix mass per arming instead of reducing the entries through
-    /// the balanced product tree.
+    /// Promotions record funded-width ledger entries exactly as the shipped
+    /// integrator does; the close then walks one running suffix mass per arming
+    /// instead of reducing the entries through the balanced product tree.
     struct SuffixWalkIntegrator {
         total: Accumulator,
         live: Accumulator,
@@ -1525,9 +1484,8 @@ mod adequacy {
             self.parked.reset();
         }
 
-        /// The refuted settle: one running suffix mass, assembled
-        /// newest-first, each arming's charge re-reading the suffix's
-        /// whole balanced density.
+        /// The refuted settle: one running suffix mass, assembled newest-first,
+        /// each arming's charge re-reading the suffix's whole balanced density.
         fn settle_armings(&mut self) {
             if self.promotions.is_empty() {
                 return;
@@ -1586,9 +1544,8 @@ mod adequacy {
         integral.finish(max_depth as u64)
     }
 
-    /// The distance co-sweep on the suffix-walk integrator: the
-    /// shipped pair loop verbatim (distance orientation), integrator
-    /// swapped.
+    /// The distance co-sweep on the suffix-walk integrator: the shipped pair
+    /// loop verbatim (distance orientation), integrator swapped.
     fn suffix_walk_distance(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Rank {
         let orientation = |sign: Ordering| -> i8 {
             match sign {
@@ -1640,9 +1597,8 @@ mod adequacy {
         integral.finish(overlay_depth as u64)
     }
 
-    /// One rank tripwire run over `DS(p, p)`: packed bytes and the
-    /// touch count over the known-bad fold, value-pinned against the
-    /// shipped kernel.
+    /// One rank tripwire run over `DS(p, p)`: packed bytes and the touch count
+    /// over the known-bad fold, value-pinned against the shipped kernel.
     fn suffix_walk_rank_run(p: usize) -> (u64, u64) {
         let v = Shape::DenseSuffix.packed2(p, p).version();
         let enc = encode(&v);
@@ -1658,9 +1614,9 @@ mod adequacy {
         (enc.len().div_ceil(8) as u64, touches)
     }
 
-    /// One pair tripwire run over `(DS(p, p), DSM(p, p))`: the pair's
-    /// packed bytes and the touch count over the known-bad co-sweep,
-    /// value-pinned against the shipped kernel.
+    /// One pair tripwire run over `(DS(p, p), DSM(p, p))`: the pair's packed
+    /// bytes and the touch count over the known-bad co-sweep, value-pinned
+    /// against the shipped kernel.
     fn suffix_walk_pair_run(p: usize) -> (u64, u64) {
         let a = Shape::DenseSuffix.packed2(p, p).version();
         let b = Shape::DenseSuffixMate.packed2(p, p).version();
@@ -1678,17 +1634,16 @@ mod adequacy {
         ((ea.len() + eb.len()).div_ceil(8) as u64, touches)
     }
 
-    /// `DS(p, p)` catches the per-arming suffix walk red on the
-    /// single-stream integral: its per-byte touch cost grows across
-    /// the doubling.
+    /// `DS(p, p)` catches the per-arming suffix walk red on the single-stream
+    /// integral: its per-byte touch cost grows across the doubling.
     ///
-    /// A linear fold reads ~x1.00 here; the floor 1.48 sits between
-    /// linear and the measured x1.75, while the shipped kernel's
-    /// dense-suffix flatness band holds the same family at x1.25.
+    /// A linear fold reads ~x1.00 here; the floor 1.48 sits between linear and
+    /// the measured x1.75, while the shipped kernel's dense-suffix flatness
+    /// band holds the same family at x1.25.
     ///
-    /// [measured in the dev profile, exact counters: touches
-    /// 698,584 -> 2,449,356 across DS(500, 500) -> DS(1,000, 1,000),
-    /// packed 119,593B -> 239,030B: per-byte growth x1.75.]
+    /// [measured in the dev profile, exact counters: touches 698,584 ->
+    /// 2,449,356 across DS(500, 500) -> DS(1,000, 1,000), packed 119,593B ->
+    /// 239,030B: per-byte growth x1.75.]
     #[test]
     fn suffix_walk_settle_reads_superlinear_on_dense_suffix() {
         let (small_bytes, small_touches) = suffix_walk_rank_run(500);
@@ -1707,18 +1662,16 @@ mod adequacy {
         );
     }
 
-    /// `(DS(p, p), DSM(p, p))` catches the per-arming suffix walk red
-    /// on the pair integral: its per-byte touch cost grows across the
-    /// doubling.
+    /// `(DS(p, p), DSM(p, p))` catches the per-arming suffix walk red on the
+    /// pair integral: its per-byte touch cost grows across the doubling.
     ///
-    /// The committed proof that the pair family drives the ledger
-    /// settle through the co-sweep, not just freezes.
+    /// The committed proof that the pair family drives the ledger settle
+    /// through the co-sweep, not just freezes.
     ///
-    /// [measured in the dev profile, exact counters: touches
-    /// 810,227 -> 2,749,954 across p = 500 -> 1,000, packed pair
-    /// 127,033B -> 253,909B: per-byte growth x1.70; the floor 1.48
-    /// sits between linear and the measured growth, as the rank
-    /// tripwire's.]
+    /// [measured in the dev profile, exact counters: touches 810,227 ->
+    /// 2,749,954 across p = 500 -> 1,000, packed pair 127,033B -> 253,909B:
+    /// per-byte growth x1.70; the floor 1.48 sits between linear and the
+    /// measured growth, as the rank tripwire's.]
     #[test]
     fn suffix_walk_settle_reads_superlinear_on_dense_suffix_pair() {
         let (small_bytes, small_touches) = suffix_walk_pair_run(500);
@@ -1740,24 +1693,22 @@ mod adequacy {
 
     // ── the per-digit window absorb ─────────────────────────────────────
     //
-    // The settle's window masses move digits as plain `i64` vector
-    // traffic, invisible to the touch meter and to every `Base` shim;
-    // the per-digit tap in `WindowMass::combine` is their only meter.
-    // This kernel keeps the refuted merge — a product-tree absorb that
-    // folds the right half's window digits into the left one digit at a
-    // time, each single-digit combine re-walking the whole live vector,
-    // `O(density²)` per merge where the shipped absorb is one pass over
-    // both operands — committed and failing on the dense-suffix family
-    // *in the limb currency*: the committed-and-failing form is
-    // available here exactly because the tap exists (without it this
-    // kernel reads byte-identical to the shipped settle on every
-    // committed counter — the hole the tap closes), so this tripwire is
-    // simultaneously the tap's liveness proof and the dense-suffix
-    // flatness bands' adequacy witness for the digit-traffic genre.
-    // Value-exact: the balanced recentering is canonical per position,
-    // so digit-at-a-time recombination converges to the same digit
-    // stream and every charge and the final rank agree with the shipped
-    // fold exactly.
+    // The settle's window masses move digits as plain `i64` vector traffic,
+    // invisible to the touch meter and to every `Base` shim; the per-digit tap
+    // in `WindowMass::combine` is their only meter. This kernel keeps the
+    // refuted merge — a product-tree absorb that folds the right half's window
+    // digits into the left one digit at a time, each single-digit combine
+    // re-walking the whole live vector, `O(density²)` per merge where the
+    // shipped absorb is one pass over both operands — committed and failing on
+    // the dense-suffix family *in the limb currency*: the committed-and-failing
+    // form is available here exactly because the tap exists (without it this
+    // kernel reads byte-identical to the shipped settle on every committed
+    // counter — the hole the tap closes), so this tripwire is simultaneously
+    // the tap's liveness proof and the dense-suffix flatness bands' adequacy
+    // witness for the digit-traffic genre. Value-exact: the balanced
+    // recentering is canonical per position, so digit-at-a-time recombination
+    // converges to the same digit stream and every charge and the final rank
+    // agree with the shipped fold exactly.
 
     use crate::meter::{limb_ops, reset_limb_ops};
     use crate::version::skyline::query::{Aggregate, Integrator};
@@ -1916,19 +1867,18 @@ mod adequacy {
         (enc.len().div_ceil(8) as u64, limbs)
     }
 
-    /// `DS(p, p)` catches the per-digit window absorb red through the
-    /// combine tap: its per-byte limb cost grows across the doubling.
+    /// `DS(p, p)` catches the per-digit window absorb red through the combine
+    /// tap: its per-byte limb cost grows across the doubling.
     ///
-    /// A linear settle reads ~x1.00 here; the floor 1.42 sits midway
-    /// between linear (x1.00) and the measured growth, while the
-    /// shipped kernel's dense-suffix flatness band holds the same
-    /// family at x1.25 in the same currency.
+    /// A linear settle reads ~x1.00 here; the floor 1.42 sits midway between
+    /// linear (x1.00) and the measured growth, while the shipped kernel's
+    /// dense-suffix flatness band holds the same family at x1.25 in the same
+    /// currency.
     ///
-    /// [measured in the dev profile, exact counters: limb ops
-    /// 725,957 -> 2,702,714 across DS(500, 500) -> DS(1,000, 1,000),
-    /// packed 119,593B -> 239,030B: per-byte growth x1.86 — against
-    /// the shipped settle's 97,381 -> 195,491 (x1.00/byte) on the
-    /// same operands.]
+    /// [measured in the dev profile, exact counters: limb ops 725,957 ->
+    /// 2,702,714 across DS(500, 500) -> DS(1,000, 1,000), packed 119,593B ->
+    /// 239,030B: per-byte growth x1.86 — against the shipped settle's 97,381 ->
+    /// 195,491 (x1.00/byte) on the same operands.]
     #[test]
     fn per_digit_window_absorb_reads_superlinear_on_dense_suffix() {
         let (small_bytes, small_limbs) = per_digit_run(500);
@@ -1952,20 +1902,19 @@ mod adequacy {
     // ── the schoolbook settle products ──────────────────────────────────
     //
     // The settle's products are delegated cluster-wise to the backend's
-    // sub-quadratic multiplication because a per-digit charge pays the
-    // factor's width once per multiplicand digit — the schoolbook
-    // product (the module doc's settle bound). This kernel keeps the
-    // retired charge — every settle product formed one factor-wide
-    // product per balanced digit — committed and failing on both
-    // wide × dense families: the wide-arming family (the ledger's one
-    // aggregate product) and the plateau-puncture family (the
+    // sub-quadratic multiplication because a per-digit charge pays the factor's
+    // width once per multiplicand digit — the schoolbook product (the module
+    // doc's settle bound). This kernel keeps the retired charge — every settle
+    // product formed one factor-wide product per balanced digit — committed and
+    // failing on both wide × dense families: the wide-arming family (the
+    // ledger's one aggregate product) and the plateau-puncture family (the
     // arming-free close-time settle), so the `ledger_wide_arming` and
-    // `answer_embedded_product` flatness bands (`tests/meter.rs`) are
-    // never decoration. Value-exact against the shipped folds: the
-    // per-digit charge computes the same products digit by digit; only
-    // its cost class is not the backend's. Mid-sweep segment settles
-    // ride the shipped path — both families' wide × dense work sits
-    // entirely at the close, which is what this kernel swaps.
+    // `answer_embedded_product` flatness bands (`tests/meter.rs`) are never
+    // decoration. Value-exact against the shipped folds: the per-digit charge
+    // computes the same products digit by digit; only its cost class is not the
+    // backend's. Mid-sweep segment settles ride the shipped path — both
+    // families' wide × dense work sits entirely at the close, which is what
+    // this kernel swaps.
 
     /// The retired per-digit charge: one `parked`-wide product per
     /// balanced digit of the mass.
@@ -1981,9 +1930,9 @@ mod adequacy {
         }
     }
 
-    /// One product-tree node under the schoolbook charge: parked sum
-    /// and window absorb exactly as [`Aggregate::merge`], the product
-    /// routed through [`schoolbook_charge`].
+    /// One product-tree node under the schoolbook charge: parked sum and window
+    /// absorb exactly as [`Aggregate::merge`], the product routed through
+    /// [`schoolbook_charge`].
     fn merge_schoolbook(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
         let (p_sign, p_mag) = left.parked.sign_magnitude();
         if p_mag != UBig::ZERO {
@@ -1998,9 +1947,9 @@ mod adequacy {
         left.windows.absorb(right.windows);
     }
 
-    /// The shipped ledger settle with the schoolbook charge: the
-    /// mass-balanced product-tree reduction verbatim, every aggregate
-    /// product routed through [`merge_schoolbook`].
+    /// The shipped ledger settle with the schoolbook charge: the mass-balanced
+    /// product-tree reduction verbatim, every aggregate product routed through
+    /// [`merge_schoolbook`].
     fn schoolbook_settle_armings(integ: &mut Integrator) {
         if integ.promotions.is_empty() {
             return;
@@ -2065,8 +2014,8 @@ mod adequacy {
     }
 
     /// The rank fold's close under the schoolbook settle: the shipped
-    /// `Integrator::finish` verbatim, the close-time `P · segment`
-    /// settle routed through [`mul_into`] and the ledger settle through
+    /// `Integrator::finish` verbatim, the close-time `P · segment` settle
+    /// routed through [`mul_into`] and the ledger settle through
     /// [`schoolbook_settle_armings`].
     fn schoolbook_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
         if !integ.parked.is_literally_zero() {
@@ -2100,9 +2049,9 @@ mod adequacy {
         Rank::from_raw(Base::from(num), scale)
     }
 
-    /// The rank fold on the shipped integrator with the schoolbook
-    /// close: the shipped [`rank`](super::super::rank) loop verbatim,
-    /// only the close swapped.
+    /// The rank fold on the shipped integrator with the schoolbook close: the
+    /// shipped [`rank`](super::super::rank) loop verbatim, only the close
+    /// swapped.
     fn schoolbook_rank(bits: &BitsSlice) -> Rank {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
@@ -2140,19 +2089,19 @@ mod adequacy {
         (enc.len().div_ceil(8) as u64, touches, limbs)
     }
 
-    /// `WA(w, w)` catches the schoolbook charge red in both width
-    /// currencies: its per-byte cost grows across the doubling.
+    /// `WA(w, w)` catches the schoolbook charge red in both width currencies:
+    /// its per-byte cost grows across the doubling.
     ///
-    /// The ledger's one aggregate product pays the parked width once
-    /// per window digit under this kernel; a linear fold reads ~x1.00
-    /// here, and the floor 1.44 sits midway between linear and the
-    /// measured growth, while the shipped kernel's `ledger_wide_arming`
-    /// band holds the same family at x1.25.
+    /// The ledger's one aggregate product pays the parked width once per window
+    /// digit under this kernel; a linear fold reads ~x1.00 here, and the floor
+    /// 1.44 sits midway between linear and the measured growth, while the
+    /// shipped kernel's `ledger_wide_arming` band holds the same family at
+    /// x1.25.
     ///
-    /// [measured in the dev profile, exact counters: touches
-    /// 285,747 -> 1,079,383 and limb ops 293,119 -> 1,094,191 across
-    /// WA(500, 500) -> WA(1,000, 1,000), packed 14,263B -> 28,451B:
-    /// per-byte growth x1.89 touch and x1.87 limb.]
+    /// [measured in the dev profile, exact counters: touches 285,747 ->
+    /// 1,079,383 and limb ops 293,119 -> 1,094,191 across WA(500, 500) ->
+    /// WA(1,000, 1,000), packed 14,263B -> 28,451B: per-byte growth x1.89 touch
+    /// and x1.87 limb.]
     #[test]
     fn schoolbook_settle_reads_superlinear_on_wide_arming() {
         let (small_bytes, small_touches, small_limbs) =
@@ -2179,19 +2128,19 @@ mod adequacy {
         }
     }
 
-    /// `PP(s, s)` catches the schoolbook close-time settle red in both
-    /// width currencies: its per-byte cost grows across the doubling.
+    /// `PP(s, s)` catches the schoolbook close-time settle red in both width
+    /// currencies: its per-byte cost grows across the doubling.
     ///
-    /// The arming-free site: no promotion ever fires, so the whole
-    /// excess is the close-time `P · segment` product paid one digit
-    /// at a time. The floor 1.32 sits midway between linear and the
-    /// lower measured currency, while the shipped kernel's
-    /// `answer_embedded_product` band holds the same family at x1.25.
+    /// The arming-free site: no promotion ever fires, so the whole excess is
+    /// the close-time `P · segment` product paid one digit at a time. The floor
+    /// 1.32 sits midway between linear and the lower measured currency, while
+    /// the shipped kernel's `answer_embedded_product` band holds the same
+    /// family at x1.25.
     ///
-    /// [measured in the dev profile, exact counters: touches
-    /// 482,968 -> 1,843,181 and limb ops 198,320 -> 653,131 across
-    /// PP(500, 500) -> PP(1,000, 1,000), packed 20,376B -> 40,751B:
-    /// per-byte growth x1.91 touch and x1.65 limb.]
+    /// [measured in the dev profile, exact counters: touches 482,968 ->
+    /// 1,843,181 and limb ops 198,320 -> 653,131 across PP(500, 500) ->
+    /// PP(1,000, 1,000), packed 20,376B -> 40,751B: per-byte growth x1.91 touch
+    /// and x1.65 limb.]
     #[test]
     fn schoolbook_settle_reads_superlinear_on_plateau_puncture() {
         let (small_bytes, small_touches, small_limbs) =

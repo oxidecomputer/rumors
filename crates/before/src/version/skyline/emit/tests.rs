@@ -1,20 +1,19 @@
 //! Differential pins for the emission sweep against three witnesses.
 //!
-//! The recursive oracle's join and meet (through the bridge) are the
-//! byte-level value witness, a three-cursor overlay walk re-derives
-//! every output plateau pointwise, and the lattice laws are asserted on
-//! the emitted streams themselves. The fused hull sweep rides every
-//! oracle comparison: on each witnessed pair it must reproduce both
-//! single-op outputs byte for byte from its one walk.
+//! The recursive oracle's join and meet (through the bridge) are the byte-level
+//! value witness, a three-cursor overlay walk re-derives every output plateau
+//! pointwise, and the lattice laws are asserted on the emitted streams
+//! themselves. The fused hull sweep rides every oracle comparison: on each
+//! witnessed pair it must reproduce both single-op outputs byte for byte from
+//! its one walk.
 //!
-//! Canonical uniqueness is what makes the oracle differential total:
-//! the emitted stream must equal the oracle's encoded result *byte for
-//! byte*, so a silent side-switch misread cannot hide behind an
-//! equivalent-but-different spelling. The pointwise walk is the second
-//! independent witness, sharing nothing with the oracle's recursion
-//! either: it re-materializes absolute heights (test-only) and checks
-//! `max`/`min` on every elementary interval of the three-stream
-//! overlay.
+//! Canonical uniqueness is what makes the oracle differential total: the
+//! emitted stream must equal the oracle's encoded result *byte for byte*, so a
+//! silent side-switch misread cannot hide behind an equivalent-but-different
+//! spelling. The pointwise walk is the second independent witness, sharing
+//! nothing with the oracle's recursion either: it re-materializes absolute
+//! heights (test-only) and checks `max`/`min` on every elementary interval of
+//! the three-stream overlay.
 
 use proptest::prelude::*;
 use rayon::prelude::*;
@@ -38,14 +37,13 @@ fn version_of(p: &Packed) -> Version {
     p.version()
 }
 
-/// Assert both emitters against the recursive oracle on one pair, in
-/// both operand orders, and run the pointwise overlay witness on each
-/// emitted stream.
+/// Assert both emitters against the recursive oracle on one pair, in both
+/// operand orders, and run the pointwise overlay witness on each emitted
+/// stream.
 ///
-/// The fused hull sweep rides the same comparison: it must reproduce
-/// both single-op outputs byte for byte from its one walk, and its
-/// carried relation must match the oracle's lattice reading of the
-/// pair ([`oracle_relation`]).
+/// The fused hull sweep rides the same comparison: it must reproduce both
+/// single-op outputs byte for byte from its one walk, and its carried relation
+/// must match the oracle's lattice reading of the pair ([`oracle_relation`]).
 fn assert_emits(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
@@ -77,14 +75,13 @@ fn assert_emits(a: &Version, b: &Version) {
     }
 }
 
-/// The pair's causal order, read off the oracle's meet by the lattice
-/// laws alone: `x <= y` iff `x ∧ y = x`, and canonical uniqueness makes
-/// that one byte comparison per direction.
+/// The pair's causal order, read off the oracle's meet by the lattice laws
+/// alone: `x <= y` iff `x ∧ y = x`, and canonical uniqueness makes that one
+/// byte comparison per direction.
 ///
-/// Independent of the sweep under test on both faces — the meet comes
-/// from the recursive oracle, the reading from the order-theoretic
-/// definition — so the fused verdict differential shares nothing with
-/// the fold it checks.
+/// Independent of the sweep under test on both faces — the meet comes from the
+/// recursive oracle, the reading from the order-theoretic definition — so the
+/// fused verdict differential shares nothing with the fold it checks.
 fn oracle_relation(met: &BitsMut, x: &BitsMut, y: &BitsMut) -> Option<core::cmp::Ordering> {
     match (met == x, met == y) {
         (true, true) => Some(core::cmp::Ordering::Equal),
@@ -94,20 +91,20 @@ fn oracle_relation(met: &BitsMut, x: &BitsMut, y: &BitsMut) -> Option<core::cmp:
     }
 }
 
-/// Walk the three-stream overlay and check the output height is the
-/// pointwise `max` (or `min` when `meet`) of the input heights on every
-/// elementary interval.
+/// Walk the three-stream overlay and check the output height is the pointwise
+/// `max` (or `min` when `meet`) of the input heights on every elementary
+/// interval.
 ///
-/// Materializes absolute running heights (test-only; the emitter never
-/// does) with one signed accumulator per stream pair, advancing
-/// whichever cursors' plateaus end first — the deepest cursors step,
-/// per the nesting rule the sweeps rest on.
+/// Materializes absolute running heights (test-only; the emitter never does)
+/// with one signed accumulator per stream pair, advancing whichever cursors'
+/// plateaus end first — the deepest cursors step, per the nesting rule the
+/// sweeps rest on.
 fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
     let (mut ca, ha) = LeafCursor::open(a);
     let (mut cb, hb) = LeafCursor::open(b);
     let (mut co, ho) = LeafCursor::open(out);
-    // Signed differences out − a and out − b: the pointwise claim reads
-    // off their signs without materializing any height.
+    // Signed differences out − a and out − b: the pointwise claim reads off
+    // their signs without materializing any height.
     let mut oa = Accumulator::new();
     crate::version::skyline::fold_signed_int(&mut oa, false, &ho);
     crate::version::skyline::fold_signed_int(&mut oa, true, &ha);
@@ -140,11 +137,11 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
         if ca.done() && cb.done() && co.done() {
             return;
         }
-        // Advance every cursor whose plateau ends at this boundary:
-        // first the deepest — their plateaus end first, since
-        // overlapping dyadic intervals nest — then any shallower cursor
-        // the deepest side's flip level ties (the two-cursor sweeps'
-        // rule, which extends to three streams unchanged).
+        // Advance every cursor whose plateau ends at this boundary: first the
+        // deepest — their plateaus end first, since overlapping dyadic
+        // intervals nest — then any shallower cursor the deepest side's flip
+        // level ties (the two-cursor sweeps' rule, which extends to three
+        // streams unchanged).
         let depth = ca.depth().max(cb.depth()).max(co.depth());
         let mut flip = usize::MAX;
         let (mut so, mut sa, mut sb) = (None, None, None);
@@ -172,8 +169,8 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
         if sb.is_none() && !cb.done() && flip <= cb.depth() {
             sb = Some(cb.step().1);
         }
-        // Fold the boundary's deltas: the output's raises both
-        // differences, an input's lowers its own.
+        // Fold the boundary's deltas: the output's raises both differences, an
+        // input's lowers its own.
         if let Some(step) = &so {
             fold_signed(&mut oa, false, step);
             fold_signed(&mut ob, false, step);
@@ -187,8 +184,8 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
     }
 }
 
-/// Fold one raw step delta into a signed difference, subtracting when
-/// the stream sits on the difference's negative side.
+/// Fold one raw step delta into a signed difference, subtracting when the
+/// stream sits on the difference's negative side.
 fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
     crate::version::skyline::fold_signed_int(diff, step.negative != subtract, &step.magnitude);
 }
@@ -216,11 +213,11 @@ fn family_pool() -> Vec<Version> {
 }
 
 /// Every ordered pair drawn from the adversarial families emits
-/// byte-identically to the recursive oracle, validates as canonical,
-/// and re-derives pointwise.
+/// byte-identically to the recursive oracle, validates as canonical, and
+/// re-derives pointwise.
 ///
-/// Each operand is also paired against the pair's join and meet — the
-/// shapes where long shared plateaus force ties and total collapses.
+/// Each operand is also paired against the pair's join and meet — the shapes
+/// where long shared plateaus force ties and total collapses.
 #[test]
 fn family_pairs_emit_identically() {
     let pool = family_pool();
@@ -235,12 +232,11 @@ fn family_pairs_emit_identically() {
     });
 }
 
-/// A flat operand above a deep one collapses the whole output to one
-/// leaf through the absorb cascade, byte-identically to the recursive
-/// oracle.
+/// A flat operand above a deep one collapses the whole output to one leaf
+/// through the absorb cascade, byte-identically to the recursive oracle.
 ///
-/// The shape where a builder that re-copied the held code per level
-/// would go quadratic.
+/// The shape where a builder that re-copied the held code per level would go
+/// quadratic.
 #[test]
 fn flat_over_deep_collapses_totally() {
     let deep = version_of(&Shape::Dense.packed1(512));
@@ -254,13 +250,13 @@ fn flat_over_deep_collapses_totally() {
     );
 }
 
-/// Exhaustive small scope: every ordered pair of normal-form event
-/// trees to the small-scope depth emits join and meet byte-identically
-/// to the recursive oracle.
+/// Exhaustive small scope: every ordered pair of normal-form event trees to the
+/// small-scope depth emits join and meet byte-identically to the recursive
+/// oracle.
 ///
-/// Brute force reaches every boundary genre — aligned ties, flush-right
-/// ties, plateau consumption, switches at and across zero deltas,
-/// collapse cascades — deterministically rather than by sampling.
+/// Brute force reaches every boundary genre — aligned ties, flush-right ties,
+/// plateau consumption, switches at and across zero deltas, collapse cascades —
+/// deterministically rather than by sampling.
 #[test]
 fn exhaustive_small_scope_emits_identically() {
     let pool: Vec<(crate::oracle::Version, Version, BitsMut)> = all_normal_events(EV_SMALL_DEPTH)
@@ -300,9 +296,9 @@ fn exhaustive_small_scope_emits_identically() {
     });
 }
 
-/// The lattice laws hold on the emitted streams themselves over the
-/// family pool: commutativity, idempotence, and absorption for both
-/// operators, as byte equality of canonical streams.
+/// The lattice laws hold on the emitted streams themselves over the family
+/// pool: commutativity, idempotence, and absorption for both operators, as byte
+/// equality of canonical streams.
 #[test]
 fn family_lattice_laws_hold_on_the_kernel() {
     let pool: Vec<BitsMut> = family_pool().iter().map(encode).collect();
@@ -343,12 +339,12 @@ fn family_associativity_holds_on_the_kernel() {
 }
 
 proptest! {
-    /// Arbitrary normal-form pairs (magnitudes past `u64::MAX` included)
-    /// emit byte-identically to the recursive oracle, validate, and
-    /// re-derive pointwise.
+    /// Arbitrary normal-form pairs (magnitudes past `u64::MAX` included) emit
+    /// byte-identically to the recursive oracle, validate, and re-derive
+    /// pointwise.
     ///
-    /// The pair's join and meet supply the dominated shapes arbitrary
-    /// pairs alone under-hit.
+    /// The pair's join and meet supply the dominated shapes arbitrary pairs
+    /// alone under-hit.
     #[test]
     fn arbitrary_pairs_emit_identically(
         a in generators::arb_oracle_version(),
@@ -362,8 +358,8 @@ proptest! {
         assert_emits(&met, &vb);
     }
 
-    /// Arbitrary triples satisfy associativity and the absorption pair
-    /// on the emitted streams.
+    /// Arbitrary triples satisfy associativity and the absorption pair on the
+    /// emitted streams.
     #[test]
     fn arbitrary_triples_hold_the_lattice_laws(
         a in generators::arb_oracle_version(),
@@ -379,9 +375,8 @@ proptest! {
         prop_assert_eq!(meet(&ea, &join(&ea, &eb)), ea);
     }
 
-    /// Every pair of versions produced by one organic
-    /// fork/tick/send/sync/join history emits byte-identically to the
-    /// recursive oracle.
+    /// Every pair of versions produced by one organic fork/tick/send/sync/join
+    /// history emits byte-identically to the recursive oracle.
     #[test]
     fn organic_histories_emit_identically(ops in optrace::world_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
@@ -422,9 +417,9 @@ proptest! {
     }
 
     /// Interval-grid pairs whose plateaus swing across the machine-word
-    /// boundary emit byte-identically, validate, and re-derive
-    /// pointwise: the switch-delta arithmetic is exercised at spilled
-    /// widths in both directions.
+    /// boundary emit byte-identically, validate, and re-derive pointwise: the
+    /// switch-delta arithmetic is exercised at spilled widths in both
+    /// directions.
     #[test]
     fn wide_grid_pairs_emit_identically(
         ma in prop_oneof![1usize..=8, 60usize..=68, 190usize..=200],
@@ -446,9 +441,8 @@ proptest! {
     }
 }
 
-/// Build the version whose skyline takes `values[i]` on the `i`th cell
-/// of a uniform dyadic grid (test-only; recursive over the grid's
-/// `O(log)` depth).
+/// Build the version whose skyline takes `values[i]` on the `i`th cell of a
+/// uniform dyadic grid (test-only; recursive over the grid's `O(log)` depth).
 fn grid_version(values: &[Base]) -> Version {
     fn build(values: &[Base]) -> crate::oracle::Version {
         match values {

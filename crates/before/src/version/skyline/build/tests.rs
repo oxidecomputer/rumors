@@ -1,8 +1,8 @@
 //! Deterministic pins for the output builder's collapse genres.
 //!
-//! Each test feeds a hand-written leaf sequence and asserts the exact
-//! canonical stream, so a bookkeeping error in absorb, re-anchor, or the
-//! cascade fails against bits a reader can re-derive in the margin.
+//! Each test feeds a hand-written leaf sequence and asserts the exact canonical
+//! stream, so a bookkeeping error in absorb, re-anchor, or the cascade fails
+//! against bits a reader can re-derive in the margin.
 
 use crate::codec::{self, Base, BitsMut, Code};
 use crate::version::skyline::gamma_code_signed;
@@ -47,8 +47,8 @@ fn single_leaf_is_flag_plus_code() {
     assert_eq!(built(vec![(0, gamma(0))]), bits("1 1"));
 }
 
-/// Distinct sibling leaves keep their pair: `(3, 6)` at depth 1 builds
-/// `0 1 gamma(3) 1 zigzag(+3)` with no truncation anywhere.
+/// Distinct sibling leaves keep their pair: `(3, 6)` at depth 1 builds `0 1
+/// gamma(3) 1 zigzag(+3)` with no truncation anywhere.
 #[test]
 fn distinct_siblings_stay_a_pair() {
     let stream = built(vec![(1, gamma(3)), (1, delta(false, 3))]);
@@ -56,9 +56,9 @@ fn distinct_siblings_stay_a_pair() {
     assert_eq!(stream, bits("0 1 00100 1 00111"));
 }
 
-/// A zero-delta right sibling absorbs into its held left sibling: the
-/// pair's parent flag truncates and the merged leaf keeps the left code,
-/// collapsing `(5, 5)` at depth 1 to the single leaf 5.
+/// A zero-delta right sibling absorbs into its held left sibling: the pair's
+/// parent flag truncates and the merged leaf keeps the left code, collapsing
+/// `(5, 5)` at depth 1 to the single leaf 5.
 #[test]
 fn equal_siblings_absorb() {
     let stream = built(vec![(1, gamma(5)), (1, delta(false, 0))]);
@@ -66,9 +66,9 @@ fn equal_siblings_absorb() {
     assert_eq!(stream, bits("1 00110"));
 }
 
-/// The absorb cascade climbs: four equal leaves at depth 2 collapse
-/// pairwise all the way to a single depth-0 leaf, one parent-flag
-/// truncation per level, with the held code never moving.
+/// The absorb cascade climbs: four equal leaves at depth 2 collapse pairwise
+/// all the way to a single depth-0 leaf, one parent-flag truncation per level,
+/// with the held code never moving.
 #[test]
 fn uniform_region_cascades_to_one_leaf() {
     let stream = built(vec![
@@ -80,8 +80,8 @@ fn uniform_region_cascades_to_one_leaf() {
 }
 
 /// Re-anchor: a right subtree that merges into a leaf equal to its
-/// already-flushed left sibling truncates back over that sibling's code
-/// and keeps it as the held code — `(4, (4, 4))` collapses to the leaf 4.
+/// already-flushed left sibling truncates back over that sibling's code and
+/// keeps it as the held code — `(4, (4, 4))` collapses to the leaf 4.
 #[test]
 fn merged_right_subtree_reanchors_over_left_leaf() {
     let stream = built(vec![
@@ -92,9 +92,9 @@ fn merged_right_subtree_reanchors_over_left_leaf() {
     assert_eq!(stream, bits("1 00101"));
 }
 
-/// A zero delta across a subtree boundary is canonical and survives: in
-/// `((3, 5), 5)` the right leaf equals its predecessor but its sibling
-/// is internal, so nothing may collapse.
+/// A zero delta across a subtree boundary is canonical and survives: in `((3,
+/// 5), 5)` the right leaf equals its predecessor but its sibling is internal,
+/// so nothing may collapse.
 #[test]
 fn zero_delta_against_internal_sibling_survives() {
     let stream = built(vec![
@@ -120,9 +120,9 @@ fn deep_uniform_collapse_holds_the_wide_code() {
     assert_eq!(built(leaves), built(vec![(0, gamma(WIDE))]));
 }
 
-/// The absorb cascade climbs a left spine: the tiling of
-/// `((((3, 3), 3), 3), 3)` collapses to the single leaf 3 through one
-/// parent-flag truncation per level, never moving the held code.
+/// The absorb cascade climbs a left spine: the tiling of `((((3, 3), 3), 3),
+/// 3)` collapses to the single leaf 3 through one parent-flag truncation per
+/// level, never moving the held code.
 #[test]
 fn absorb_cascade_climbs_a_left_spine() {
     let leaves = vec![
@@ -135,10 +135,9 @@ fn absorb_cascade_climbs_a_left_spine() {
     assert_eq!(built(leaves), bits("1 00100"));
 }
 
-/// Re-anchor cascades down a right spine: the uniform tiling of
-/// `(5, (5, (5, 5)))` collapses through chained re-anchors — each level's
-/// flushed left-sibling code is truncated back out and re-held — to the
-/// single leaf 5.
+/// Re-anchor cascades down a right spine: the uniform tiling of `(5, (5, (5,
+/// 5)))` collapses through chained re-anchors — each level's flushed
+/// left-sibling code is truncated back out and re-held — to the single leaf 5.
 #[test]
 fn reanchor_cascade_climbs_chained_levels() {
     let leaves = vec![
@@ -150,9 +149,9 @@ fn reanchor_cascade_climbs_chained_levels() {
     assert_eq!(built(leaves), bits("1 00110"));
 }
 
-/// Collapse is value-driven, not shape-driven: the mixed tiling
-/// `(2, (2, 2))` collapses even though the equal leaves arrive at
-/// different depths, while `(2, (2, 9))` keeps its whole shape.
+/// Collapse is value-driven, not shape-driven: the mixed tiling `(2, (2, 2))`
+/// collapses even though the equal leaves arrive at different depths, while
+/// `(2, (2, 9))` keeps its whole shape.
 #[test]
 fn partial_equality_collapses_only_the_equal_pair() {
     let collapsed = built(vec![
@@ -171,21 +170,21 @@ fn partial_equality_collapses_only_the_equal_pair() {
 }
 
 /// One subtree's continuation range for [`SkylineBuilder::continue_verbatim`]:
-/// the stream bits between the first leaf's payload code and the
-/// subtree's end, re-derived by the forced flip-and-descend.
+/// the stream bits between the first leaf's payload code and the subtree's end,
+/// re-derived by the forced flip-and-descend.
 ///
 /// `first_depth` is the already-fed first leaf's depth; `leaves` are the
 /// remaining leaves in preorder. Returns the range with the last leaf's
-/// relative depth and code length — the coordinates the splice
-/// re-anchors the builder around.
+/// relative depth and code length — the coordinates the splice re-anchors the
+/// builder around.
 fn continuation(
     root_depth: usize,
     first_depth: usize,
     leaves: &[(usize, Code)],
 ) -> (BitsMut, usize, usize) {
     let mut range = BitsMut::new();
-    // The within-subtree path to the previous leaf; the subtree's first
-    // leaf is its leftmost, so the path starts all left branches.
+    // The within-subtree path to the previous leaf; the subtree's first leaf is
+    // its leftmost, so the path starts all left branches.
     let mut path = vec![false; first_depth - root_depth];
     for (depth, code) in leaves {
         // Close the ancestors the previous leaf completed and flip the
@@ -218,9 +217,9 @@ fn continuation(
 /// Splicing a subtree's continuation is stream-identical to feeding
 /// its leaves one by one.
 ///
-/// And it leaves the builder able to keep collapsing: a later zero
-/// delta against the spliced subtree's internal sibling survives,
-/// exactly as under per-leaf feeding.
+/// And it leaves the builder able to keep collapsing: a later zero delta
+/// against the spliced subtree's internal sibling survives, exactly as under
+/// per-leaf feeding.
 #[test]
 fn continue_verbatim_matches_per_leaf_feeding() {
     // Tiling of `((3, (5, 6)), 5)`: subtree `(5, 6)` at depth 2 arrives
@@ -241,9 +240,9 @@ fn continue_verbatim_matches_per_leaf_feeding() {
     assert_eq!(spliced.finish(), per_leaf);
 }
 
-/// A spliced continuation spanning several levels re-anchors the path
-/// to the subtree's rightmost leaf, so the very next leaf's close/flip
-/// bookkeeping matches per-leaf feeding bit for bit.
+/// A spliced continuation spanning several levels re-anchors the path to the
+/// subtree's rightmost leaf, so the very next leaf's close/flip bookkeeping
+/// matches per-leaf feeding bit for bit.
 #[test]
 fn continue_verbatim_reanchors_across_levels() {
     // Tiling of `((2, ((4, 7), 6)), 9)`: the depth-2 subtree's last
@@ -266,10 +265,9 @@ fn continue_verbatim_reanchors_across_levels() {
     assert_eq!(spliced.finish(), per_leaf);
 }
 
-/// An absorb arriving right after a spliced sibling still collapses:
-/// the held last leaf of the continuation participates in the normal
-/// flush, and a later equal-sibling pair merges exactly as under
-/// per-leaf feeding.
+/// An absorb arriving right after a spliced sibling still collapses: the held
+/// last leaf of the continuation participates in the normal flush, and a later
+/// equal-sibling pair merges exactly as under per-leaf feeding.
 #[test]
 fn collapse_after_a_splice_matches_per_leaf_feeding() {
     // Tiling of `((3, (5, 6)), (8, 8))`: the right pair collapses to
@@ -291,16 +289,14 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
     assert_eq!(spliced.finish(), per_leaf);
 }
 
-/// The collapse recognition's coupling pin: the zero delta's payload
-/// code is exactly `ZERO_DELTA_CODE_BITS` bits, and every nonzero
-/// delta's is wider.
+/// The collapse recognition's coupling pin: the zero delta's payload code is
+/// exactly `ZERO_DELTA_CODE_BITS` bits, and every nonzero delta's is wider.
 ///
-/// Recognizing a zero delta by code length alone is sound only under
-/// that pair of facts. The recognizer and the coder implement the
-/// arithmetic independently; a different integer code (the
-/// `implementation` essay contemplates ζ₂, whose zero costs two bits)
-/// would silently turn every collapse check into a no-op — this pin
-/// turns that into a red test.
+/// Recognizing a zero delta by code length alone is sound only under that pair
+/// of facts. The recognizer and the coder implement the arithmetic
+/// independently; a different integer code (the `implementation` essay
+/// contemplates ζ₂, whose zero costs two bits) would silently turn every
+/// collapse check into a no-op — this pin turns that into a red test.
 #[test]
 fn zero_delta_has_the_lone_shortest_code() {
     assert_eq!(delta(false, 0).len(), super::ZERO_DELTA_CODE_BITS);

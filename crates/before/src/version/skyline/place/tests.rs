@@ -8,8 +8,8 @@ use crate::testing::generators::arb_oracle_version;
 use crate::version::skyline::sweep;
 use crate::{Clock, Version};
 
-/// The composed two-sweep spelling of the span mode: the nine-state
-/// verdict transcribed from the raw relations.
+/// The composed two-sweep spelling of the span mode: the nine-state verdict
+/// transcribed from the raw relations.
 fn composed_span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
     let lo_rel = sweep::causal_cmp(probe.view(), lo.view());
     let hi_rel = sweep::causal_cmp(probe.view(), hi.view());
@@ -32,8 +32,8 @@ fn composed_span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
     }
 }
 
-/// The dominance coarsening of [`composed_span`]: the mode's
-/// stream-level oracle.
+/// The dominance coarsening of [`composed_span`]: the mode's stream-level
+/// oracle.
 fn composed_dominance(probe: &Version, lo: &Version, hi: &Version) -> Dominance {
     match composed_span(probe, lo, hi) {
         Placement::At(Endpoint::End | Endpoint::Both) | Placement::After => Dominance::After,
@@ -46,8 +46,8 @@ fn composed_dominance(probe: &Version, lo: &Version, hi: &Version) -> Dominance 
     }
 }
 
-/// The precedence coarsening of [`composed_span`]: the mode's
-/// stream-level oracle, [`composed_dominance`] mirrored.
+/// The precedence coarsening of [`composed_span`]: the mode's stream-level
+/// oracle, [`composed_dominance`] mirrored.
 fn composed_precedence(probe: &Version, lo: &Version, hi: &Version) -> Precedence {
     match composed_span(probe, lo, hi) {
         Placement::At(Endpoint::Start | Endpoint::Both) | Placement::Before => Precedence::Before,
@@ -60,8 +60,8 @@ fn composed_precedence(probe: &Version, lo: &Version, hi: &Version) -> Precedenc
     }
 }
 
-/// The membership coarsening of [`composed_span`]: the mode's
-/// stream-level oracle — exactly the at-endpoint and between regions.
+/// The membership coarsening of [`composed_span`]: the mode's stream-level
+/// oracle — exactly the at-endpoint and between regions.
 fn composed_contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
     matches!(
         composed_span(probe, lo, hi),
@@ -69,8 +69,8 @@ fn composed_contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
     )
 }
 
-/// The composed pairwise spelling of one demand's verdict: the filter
-/// walks' stream-level oracle, per bound.
+/// The composed pairwise spelling of one demand's verdict: the filter walks'
+/// stream-level oracle, per bound.
 fn demand_admits(probe: &Version, bound: &Version, demand: Demand) -> bool {
     let rel = sweep::causal_cmp(probe.view(), bound.view());
     let le = matches!(rel, Some(Ordering::Less | Ordering::Equal));
@@ -88,8 +88,8 @@ fn demand_admits(probe: &Version, bound: &Version, demand: Demand) -> bool {
 }
 
 /// The composed pairwise spelling of the coverage fold: per bound, the
-/// segment-emptying and segment-filling conditions from the endpoint
-/// relations, folded Empty-first.
+/// segment-emptying and segment-filling conditions from the endpoint relations,
+/// folded Empty-first.
 fn composed_coverage(lo: &Version, hi: &Version, bounds: &[(&Version, Demand)]) -> Coverage {
     let mut full = true;
     for &(bound, demand) in bounds {
@@ -127,9 +127,9 @@ fn composed_coverage(lo: &Version, hi: &Version, bounds: &[(&Version, Demand)]) 
     }
 }
 
-/// The demand lists the filter proptests sweep: every demand alone at
-/// either bound, required-plus-hole pairs, and one mixed list carrying
-/// every demand kind at once.
+/// The demand lists the filter proptests sweep: every demand alone at either
+/// bound, required-plus-hole pairs, and one mixed list carrying every demand
+/// kind at once.
 fn demand_lists<'a>(b: &'a Version, c: &'a Version) -> Vec<Vec<(&'a Version, Demand)>> {
     const DEMANDS: [Demand; 6] = [
         Demand::After,
@@ -166,9 +166,9 @@ fn streams<'a>(bounds: &[(&'a Version, Demand)]) -> Vec<(&'a BitsSlice, Demand)>
         .collect()
 }
 
-/// Every span-mode drop and early-return path on an organic witness
-/// set: a decided endpoint concurrency drops only its own cursor, and
-/// the walk returns early exactly when both endpoints have refuted.
+/// Every span-mode drop and early-return path on an organic witness set: a
+/// decided endpoint concurrency drops only its own cursor, and the walk returns
+/// early exactly when both endpoints have refuted.
 #[test]
 fn span_walk_places_organic_witnesses() {
     let mut alice = Clock::seed();
@@ -208,9 +208,9 @@ fn span_walk_places_organic_witnesses() {
 
 /// Every precedence-walk hook path on an organic witness set.
 ///
-/// The end refutation's early bail, the start refutation's drop (the
-/// verdict riding the end relation alone), and the exhaustion
-/// confirmations for both surviving directions.
+/// The end refutation's early bail, the start refutation's drop (the verdict
+/// riding the end relation alone), and the exhaustion confirmations for both
+/// surviving directions.
 #[test]
 fn precedence_walk_verdicts_organic_witnesses() {
     let mut alice = Clock::seed();
@@ -224,28 +224,27 @@ fn precedence_walk_verdicts_organic_witnesses() {
     let preceded = |probe: &Version, lo: &Version, hi: &Version| {
         precedence(probe.view(), lo.view(), hi.view())
     };
-    // Exhaustion confirmations: the whole span preceded, at and below
-    // the start.
+    // Exhaustion confirmations: the whole span preceded, at and below the
+    // start.
     assert_eq!(preceded(&Version::new(), &a1, &a3), Precedence::Before);
     assert_eq!(preceded(&a1, &a1, &a3), Precedence::Before);
-    // The start-drop path: `probe <= lo` refuted, the end relation
-    // still confirming at exhaustion — comparably (`At(End)`,
-    // `Between`) and concurrently (`Concurrent(Start)`).
+    // The start-drop path: `probe <= lo` refuted, the end relation still
+    // confirming at exhaustion — comparably (`At(End)`, `Between`) and
+    // concurrently (`Concurrent(Start)`).
     assert_eq!(preceded(&a2, &a1, &a3), Precedence::Between);
     assert_eq!(preceded(&a3, &a1, &a3), Precedence::Between);
     assert_eq!(preceded(&b1, &a2, &joined), Precedence::Between);
-    // The early bail: `probe <= hi` refuted, comparably (above the
-    // whole span) and concurrently (beside the end, and beside both).
+    // The early bail: `probe <= hi` refuted, comparably (above the whole span)
+    // and concurrently (beside the end, and beside both).
     assert_eq!(preceded(&a3, &a1, &a2), Precedence::After);
     let side_top = &a1 | &b1;
     assert_eq!(preceded(&a2, &a1, &side_top), Precedence::After);
     assert_eq!(preceded(&b1, &a1, &a3), Precedence::After);
 }
 
-/// Every membership-walk hook path on an organic witness set: the
-/// start-side and end-side bails (comparable and concurrent genres of
-/// each), and the exhaustion confirmations at and between the
-/// endpoints.
+/// Every membership-walk hook path on an organic witness set: the start-side
+/// and end-side bails (comparable and concurrent genres of each), and the
+/// exhaustion confirmations at and between the endpoints.
 #[test]
 fn contains_walk_verdicts_organic_witnesses() {
     let mut alice = Clock::seed();
@@ -261,8 +260,8 @@ fn contains_walk_verdicts_organic_witnesses() {
     assert!(within(&a1, &a1, &a3));
     assert!(within(&a2, &a1, &a3));
     assert!(within(&a3, &a1, &a3));
-    // The start-side bail: `lo <= probe` refuted, comparably (below
-    // the span) and concurrently (beside the start, and beside both).
+    // The start-side bail: `lo <= probe` refuted, comparably (below the span)
+    // and concurrently (beside the start, and beside both).
     assert!(!within(&Version::new(), &a1, &a3));
     let joined = &a2 | &b1;
     assert!(!within(&b1, &a2, &joined));
@@ -310,9 +309,9 @@ fn filter_admits_organic_witnesses() {
     assert!(admits(&a1, &[]));
 }
 
-/// The coverage walk's verdict arms on an organic witness set: the
-/// early floor/ceiling Empty, hole-driven Empty at exhaustion, Full,
-/// and the conservative Partial.
+/// The coverage walk's verdict arms on an organic witness set: the early
+/// floor/ceiling Empty, hole-driven Empty at exhaustion, Full, and the
+/// conservative Partial.
 #[test]
 fn filter_coverage_organic_witnesses() {
     let mut alice = Clock::seed();
@@ -362,13 +361,12 @@ fn filter_coverage_organic_witnesses() {
 }
 
 proptest! {
-    /// The fused span, dominance, precedence, and membership walks
-    /// equal their composed two-sweep spellings.
+    /// The fused span, dominance, precedence, and membership walks equal their
+    /// composed two-sweep spellings.
     ///
-    /// Checked on every ordered stream pair (constructed via meet/join,
-    /// the coincident pair, and the generated pair when it happens to
-    /// order), for probes spanning the operands and their lattice
-    /// corners.
+    /// Checked on every ordered stream pair (constructed via meet/join, the
+    /// coincident pair, and the generated pair when it happens to order), for
+    /// probes spanning the operands and their lattice corners.
     #[test]
     fn span_walks_match_the_composed_sweeps(
         a in arb_oracle_version(),
@@ -420,10 +418,9 @@ proptest! {
     /// The fused membership walk equals the composed pairwise sweeps.
     ///
     /// For every demand list — each demand kind alone at either bound,
-    /// required-plus-hole pairs, and mixed lists carrying every kind —
-    /// the walk's verdict is the conjunction of the per-bound
-    /// verdicts, for probes spanning the operands and their lattice
-    /// corners.
+    /// required-plus-hole pairs, and mixed lists carrying every kind — the
+    /// walk's verdict is the conjunction of the per-bound verdicts, for probes
+    /// spanning the operands and their lattice corners.
     #[test]
     fn filter_admits_matches_the_composed_sweeps(
         a in arb_oracle_version(),
@@ -452,10 +449,10 @@ proptest! {
 
     /// The fused coverage walk equals the composed pairwise fold.
     ///
-    /// For every demand list and every ordered segment (constructed
-    /// via meet/join, the coincident pair, and the generated pair when
-    /// it happens to order), the walk's verdict is the Empty-first
-    /// fold of the per-bound endpoint conditions.
+    /// For every demand list and every ordered segment (constructed via
+    /// meet/join, the coincident pair, and the generated pair when it happens
+    /// to order), the walk's verdict is the Empty-first fold of the per-bound
+    /// endpoint conditions.
     #[test]
     fn filter_coverage_matches_the_composed_sweeps(
         a in arb_oracle_version(),

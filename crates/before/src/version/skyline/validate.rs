@@ -1,7 +1,7 @@
 //! The streaming strict validator: canonical form on ~2 bits per level.
 //!
-//! One forward pass enforcing the module doc's canonical-form conditions.
-//! The transient state is exactly:
+//! One forward pass enforcing the module doc's canonical-form conditions. The
+//! transient state is exactly:
 //!
 //! - a packed bit stack holding two bits per open ancestor —
 //!   *left-complete* ("is my left child done") and *left-was-leaf* ("was
@@ -13,8 +13,8 @@
 //!   argument);
 //! - the cursor.
 //!
-//! No height, base, or node is ever materialized beyond the one decoded
-//! payload in flight.
+//! No height, base, or node is ever materialized beyond the one decoded payload
+//! in flight.
 
 use core::cmp::Ordering;
 
@@ -27,9 +27,9 @@ use super::{fold_signed_int, unzigzag};
 
 /// Strictly validate one whole skyline stream.
 ///
-/// The stream must be exactly one canonical tree: a tree that completes
-/// before the last live bit is [`Decode::TrailingBits`]; everything else
-/// is [`validate_from`]'s contract.
+/// The stream must be exactly one canonical tree: a tree that completes before
+/// the last live bit is [`Decode::TrailingBits`]; everything else is
+/// [`validate_from`]'s contract.
 pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
     let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
@@ -42,9 +42,9 @@ pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
 /// Strictly validate one skyline tree at the head of a bit stream,
 /// returning the position just past it.
 ///
-/// The wire decoder's entry: a version's skyline stream is
-/// bit-self-delimiting (one complete tree), so the returned end position
-/// is where any zero padding must begin.
+/// The wire decoder's entry: a version's skyline stream is bit-self-delimiting
+/// (one complete tree), so the returned end position is where any zero padding
+/// must begin.
 pub(crate) fn validate_prefix(bits: &BitsSlice) -> Result<usize, Decode> {
     let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
@@ -53,38 +53,36 @@ pub(crate) fn validate_prefix(bits: &BitsSlice) -> Result<usize, Decode> {
 
 /// Validate one skyline tree from a sequential bit cursor.
 ///
-/// Returns with the cursor just past the tree. Errors: running out of
-/// bits mid-tree or mid-code is [`Decode::Truncated`]; a collapsible
-/// sibling pair (an internal node's two leaf children with a zero right
-/// delta) or a delta driving the running leaf height negative is
-/// [`Decode::NotCanonical`].
+/// Returns with the cursor just past the tree. Errors: running out of bits
+/// mid-tree or mid-code is [`Decode::Truncated`]; a collapsible sibling pair
+/// (an internal node's two leaf children with a zero right delta) or a delta
+/// driving the running leaf height negative is [`Decode::NotCanonical`].
 pub(crate) fn validate_from<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
 where
     Decode: From<C::Error>,
 {
-    // Two bits per open ancestor, pushed [left-complete, left-was-leaf]
-    // and popped in reverse order below. A packed bit stack, so depth
-    // costs bits, not frames.
+    // Two bits per open ancestor, pushed [left-complete, left-was-leaf] and
+    // popped in reverse order below. A packed bit stack, so depth costs bits,
+    // not frames.
     let mut open: BitsMut = BitsMut::new();
-    // The running leaf height. Only its sign is ever read, and only after
-    // a subtracting delta: an adding delta cannot take a valid height
-    // negative, and the first leaf's absolute payload is a natural.
+    // The running leaf height. Only its sign is ever read, and only after a
+    // subtracting delta: an adding delta cannot take a valid height negative,
+    // and the first leaf's absolute payload is a natural.
     let mut height = Accumulator::new();
     let mut seen_leaf = false;
 
     loop {
-        // One whole descent per unary read: `k` internal nodes opened,
-        // then the leaf whose flag terminates the run.
+        // One whole descent per unary read: `k` internal nodes opened, then the
+        // leaf whose flag terminates the run.
         let k = cursor.read_unary()?;
         for _ in 0..k {
             open.push(false); // left-complete: the left child comes next
             open.push(false); // left-was-leaf: placeholder until it does
         }
 
-        // The leaf: decode its payload and update the running height,
-        // through the cursor's own `read_int` so a word-parallel cursor
-        // (the production reader; the wire-side reader's window) takes
-        // its fast path.
+        // The leaf: decode its payload and update the running height, through
+        // the cursor's own `read_int` so a word-parallel cursor (the production
+        // reader; the wire-side reader's window) takes its fast path.
         let code = cursor.read_int()?;
         let mut zero_delta = false;
         if seen_leaf {
@@ -100,8 +98,8 @@ where
         }
 
         // Close every subtree this leaf completes, walking up the open
-        // ancestors; `is_leaf`/`leaf_zero_delta` describe the completed
-        // subtree (the leaf itself on the first iteration).
+        // ancestors; `is_leaf`/`leaf_zero_delta` describe the completed subtree
+        // (the leaf itself on the first iteration).
         let mut is_leaf = true;
         let mut leaf_zero_delta = zero_delta;
         loop {

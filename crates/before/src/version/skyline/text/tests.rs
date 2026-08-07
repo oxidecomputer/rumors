@@ -1,12 +1,12 @@
 //! Differential pins for the skyline text kernels.
 //!
 //! The public entries route here (`Display` to [`render`], `FromStr` to
-//! [`parse`]), so asserts against them pin entry agreement and
-//! determinism, not an independent value. The independent legs: parsing
-//! rendered text must land on the *transcoder's* stream byte for byte
-//! (the construction-language transcoder shares nothing with either
-//! kernel), and a hand-stated accept/reject corpus plus a deterministic
-//! mutation sweep pin the grammar's decisions by expected error variant.
+//! [`parse`]), so asserts against them pin entry agreement and determinism, not
+//! an independent value. The independent legs: parsing rendered text must land
+//! on the *transcoder's* stream byte for byte (the construction-language
+//! transcoder shares nothing with either kernel), and a hand-stated
+//! accept/reject corpus plus a deterministic mutation sweep pin the grammar's
+//! decisions by expected error variant.
 
 use proptest::prelude::*;
 
@@ -27,11 +27,10 @@ fn version_of(p: &Packed) -> Version {
 
 /// The full differential pin on one version, over transcoded operands.
 ///
-/// The independent leg: parsing the rendered text must land on the
-/// stored stream the transcoder built, byte for byte, so render and
-/// parse are exact inverses anchored to the construction language. The
-/// `Display` comparison pins entry agreement (the public entry routes to
-/// the kernel).
+/// The independent leg: parsing the rendered text must land on the stored
+/// stream the transcoder built, byte for byte, so render and parse are exact
+/// inverses anchored to the construction language. The `Display` comparison
+/// pins entry agreement (the public entry routes to the kernel).
 fn assert_text_kernels_agree(v: &Version) {
     let enc = super::super::encode(v);
     let text = render(&enc);
@@ -101,13 +100,12 @@ fn exhaustive_small_scope_renders_and_parses_identically() {
     }
 }
 
-/// The kernel's grammar decisions are pinned on a deterministic
-/// accept/reject corpus.
+/// The kernel's grammar decisions are pinned on a deterministic accept/reject
+/// corpus.
 ///
-/// Each accepted text yields the value's canonical skyline stream, and
-/// each rejected text yields the *stated* error variant — the
-/// expectation lives in the table, not in another run of the same
-/// kernel.
+/// Each accepted text yields the value's canonical skyline stream, and each
+/// rejected text yields the *stated* error variant — the expectation lives in
+/// the table, not in another run of the same kernel.
 #[test]
 fn parse_corpus_pins_the_grammar_decisions() {
     // Accepted: value-preserving leading zeros and whitespace leniency.
@@ -156,17 +154,16 @@ const REJECT_PARITY_FUZZ_SEED: u64 = 0x5EED_CA5E_0B57_AC1E;
 /// whole alphabet plus one byte outside it.
 const MUTATION_ALPHABET: &[u8] = b"0123456789(), x";
 
-/// A deterministic byte-mutation sweep holds the kernel and its public
-/// entry in lockstep on every mutant.
+/// A deterministic byte-mutation sweep holds the kernel and its public entry in
+/// lockstep on every mutant.
 ///
-/// Each case deletes, inserts, replaces, or truncates one point of a
-/// rendered generator-family text. The public entry routes to the
-/// kernel, so the agreement legs pin entry plumbing and determinism —
-/// never panicking, and deciding every mutant one way — while the
-/// kernel's internal validator gate makes every accepted mutant's stream
-/// canonical. The hand-stated corpus above pins known grammar decisions
-/// by variant; this sweep is its generated regression sibling over
-/// [`REJECT_PARITY_FUZZ_CASES`] mutants at the fixed
+/// Each case deletes, inserts, replaces, or truncates one point of a rendered
+/// generator-family text. The public entry routes to the kernel, so the
+/// agreement legs pin entry plumbing and determinism — never panicking, and
+/// deciding every mutant one way — while the kernel's internal validator gate
+/// makes every accepted mutant's stream canonical. The hand-stated corpus above
+/// pins known grammar decisions by variant; this sweep is its generated
+/// regression sibling over [`REJECT_PARITY_FUZZ_CASES`] mutants at the fixed
 /// [`REJECT_PARITY_FUZZ_SEED`].
 #[test]
 fn mutated_texts_hold_reject_parity_through_the_public_entry() {
@@ -245,28 +242,26 @@ proptest! {
     }
 }
 
-/// The parse-side delta-extraction discipline, held by committed
-/// contrast on the wide-arming family.
+/// The parse-side delta-extraction discipline, held by committed contrast on
+/// the wide-arming family.
 ///
 /// [`parse`] extracts one signed magnitude per leaf and *resets* the
-/// accumulator, so the digit buffer's top settles to zero and every
-/// extraction pays the span written since the previous leaf. The
-/// schoolbook kernel here is the same parse with the one other
-/// discipline a value-equality suite cannot distinguish: it re-zeroes
-/// by *subtracting the extracted magnitude back* — value-exact, but
-/// the subtraction of a normalized magnitude from a redundant spelling
-/// leaves nonzero digits cancelling across the whole span, so the top
-/// stays parked at the widest swing and every later extraction
-/// re-walks its dead digits. `Shape::WideArming.packed2(w, w)` separates the two:
-/// after its single `2^(32w)` swing, the `Θ(w)` trailing zero-delta
-/// leaves cost the schoolbook kernel `Θ(w²)` touches on `Θ(w)` text
-/// (the exact-`top` genre at the text seam) while the shipped reset
-/// discipline stays flat per byte. Both leg's runs are value-pinned to
-/// the stored stream, so the contrast is an adequacy witness, not a
-/// broken kernel: the wide-arming parse flatness band in
-/// `tests/meter.rs` (`parse_wide_arming_touch_cost_is_flat_per_unit`,
-/// which the board's wide-arming column follows) is never decoration
-/// while this kernel keeps failing its criterion.
+/// accumulator, so the digit buffer's top settles to zero and every extraction
+/// pays the span written since the previous leaf. The schoolbook kernel here is
+/// the same parse with the one other discipline a value-equality suite cannot
+/// distinguish: it re-zeroes by *subtracting the extracted magnitude back* —
+/// value-exact, but the subtraction of a normalized magnitude from a redundant
+/// spelling leaves nonzero digits cancelling across the whole span, so the top
+/// stays parked at the widest swing and every later extraction re-walks its
+/// dead digits. `Shape::WideArming.packed2(w, w)` separates the two: after its
+/// single `2^(32w)` swing, the `Θ(w)` trailing zero-delta leaves cost the
+/// schoolbook kernel `Θ(w²)` touches on `Θ(w)` text (the exact-`top` genre at
+/// the text seam) while the shipped reset discipline stays flat per byte. Both
+/// leg's runs are value-pinned to the stored stream, so the contrast is an
+/// adequacy witness, not a broken kernel: the wide-arming parse flatness band
+/// in `tests/meter.rs` (`parse_wide_arming_touch_cost_is_flat_per_unit`, which
+/// the board's wide-arming column follows) is never decoration while this
+/// kernel keeps failing its criterion.
 #[cfg(feature = "limb-meter")]
 mod parse_schoolbook {
     use core::cmp::Ordering;
@@ -285,12 +280,11 @@ mod parse_schoolbook {
     /// The schoolbook delta-extraction kernel: [`parse`] with the
     /// compensating-subtraction re-zero in place of the reset.
     ///
-    /// Value-exact (the test pins its output against the shipped
-    /// parse's stream byte for byte) and deliberately kept failing the
-    /// flatness criterion: after each leaf's extraction it re-zeroes
-    /// the accumulator by subtracting the extracted magnitude, which
-    /// zeroes the *value* but not the digit buffer's top — the
-    /// high-water walk the wide-arming family prices.
+    /// Value-exact (the test pins its output against the shipped parse's stream
+    /// byte for byte) and deliberately kept failing the flatness criterion:
+    /// after each leaf's extraction it re-zeroes the accumulator by subtracting
+    /// the extracted magnitude, which zeroes the *value* but not the digit
+    /// buffer's top — the high-water walk the wide-arming family prices.
     fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
         /// What a parsed subtree contributes to its parent's
         /// normal-form check.
@@ -421,14 +415,13 @@ mod parse_schoolbook {
     /// large run doubles both.
     const WIDE_ARMING_SMALL: usize = 256;
 
-    /// The schoolbook read stays superlinear on the wide-arming family
-    /// (≥ ×1.5 per byte across the doubling) while the shipped reset
-    /// discipline stays flat (≤ ×1.25), both value-exact in one run.
+    /// The schoolbook read stays superlinear on the wide-arming family (≥ ×1.5
+    /// per byte across the doubling) while the shipped reset discipline stays
+    /// flat (≤ ×1.25), both value-exact in one run.
     ///
-    /// The committed contrast: a criterion the schoolbook kernel
-    /// passed would be decoration, and a shipped parse that reads the
-    /// schoolbook signature here fails before the envelope suite's
-    /// absolute ceilings move.
+    /// The committed contrast: a criterion the schoolbook kernel passed would
+    /// be decoration, and a shipped parse that reads the schoolbook signature
+    /// here fails before the envelope suite's absolute ceilings move.
     #[test]
     fn schoolbook_parse_reads_superlinear_on_wide_arming() {
         let (small_bytes, small_touches) = run(WIDE_ARMING_SMALL, parse_schoolbook);

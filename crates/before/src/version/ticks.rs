@@ -1,9 +1,8 @@
 //! The count-of-ticks vocabulary: [`Ticks`], an opaque unbounded count.
 //!
-//! The public contract lives on the type; the operations denominated in
-//! it are [`Version::ticks`](crate::Version::ticks) and its mirrors, and
-//! [`Version::min_ticks`](crate::Version::min_ticks). This module is
-//! private.
+//! The public contract lives on the type; the operations denominated in it are
+//! [`Version::ticks`](crate::Version::ticks) and its mirrors, and
+//! [`Version::min_ticks`](crate::Version::min_ticks). This module is private.
 
 use core::fmt;
 use core::iter::Sum;
@@ -16,40 +15,37 @@ use crate::error::Parse;
 /// A count of [`tick`](crate::Version::tick)s: an unbounded natural
 /// number.
 ///
-/// Event counts have no ceiling — heights in a [`Version`](crate::Version)
-/// are arbitrary-precision, and [`ticks`](crate::Version::ticks) can skip
-/// forward by any count in one call — so the count vocabulary is opaque
-/// and unbounded rather than any fixed-width integer: every conversion
-/// *into* it is total ([`From`] on the unsigned machine integers, decimal
-/// [`FromStr`] for counts wider than any of them), and no accessor
-/// converts back out to a machine integer, because any such accessor
-/// would be partial in exactly the range this type exists to carry.
-/// Render a count with [`Display`](fmt::Display) (decimal) instead.
+/// Event counts have no ceiling, so the count vocabulary is opaque and
+/// unbounded rather than any fixed-width integer: every conversion *into* it is
+/// total ([`From`] on the unsigned machine integers, decimal [`FromStr`] for
+/// counts wider than any of them), and no accessor converts back out to a
+/// machine integer. Render a count with [`Display`](fmt::Display) (decimal)
+/// instead.
 ///
-/// Produced by [`Version::min_ticks`](crate::Version::min_ticks);
-/// consumed by [`Version::ticks`](crate::Version::ticks),
+/// This type is produced by [`Version::min_ticks`](crate::Version::min_ticks);
+/// and consumed by [`Version::ticks`](crate::Version::ticks),
 /// [`Party::ticks`](crate::Party::ticks), and
-/// [`Clock::ticks`](crate::Clock::ticks) — all of which take
-/// `impl Into<Ticks>`, so call sites pass integer literals directly and
-/// the type appears only where a count is genuinely carried or genuinely
-/// wide.
+/// [`Clock::ticks`](crate::Clock::ticks), each of which take `impl
+/// Into<Ticks>`, so call sites pass integer literals directly and the type
+/// appears only where a count is genuinely carried or genuinely wide.
 ///
-/// Counts are totally ordered ([`Ord`]) and add ([`Add`], [`AddAssign`],
-/// [`Sum`]) as the naturals they are; [`ZERO`](Ticks::ZERO) is the empty
-/// run and the additive identity.
+/// Counts are totally ordered ([`Ord`]) and can be added ([`Add`],
+/// [`AddAssign`], [`Sum`]); [`ZERO`](Ticks::ZERO) is the additive identity.
 ///
 /// # Complexity
 ///
-/// Construction `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
-/// ‖b‖)`, `Sum` `O(N)`; text superlinear in the count's width (decimal
-/// conversion).
 /// A count's *numeric size* `‖n‖` is its bit width; cloning costs as
 /// comparison and hashing do, and an n-ary [`Sum`]'s `N` is the
 /// summands' total numeric size.
-/// Parsing ([`FromStr`]) and rendering ([`Display`](fmt::Display)) are
-/// `O(d)` space in the `d` decimal digits (`d = Θ(‖n‖)`), but their
-/// time additionally pays decimal↔binary conversion, superlinear
-/// (though subquadratic) in the count's width past a machine word.
+///
+/// Constructionis `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
+/// ‖b‖)`, `Sum` `O(N)`; text I/O is superlinear but subquadratic in the count's
+/// width (because it requires decimal conversion).
+///
+/// Parsing ([`FromStr`]) and rendering ([`Display`](fmt::Display)) are `O(d)`
+/// space in the `d` decimal digits (`d = Θ(‖n‖)`), but their time additionally
+/// pays decimal↔binary conversion, so it is superlinear (though subquadratic)
+/// in the count's width past a machine word.
 ///
 /// # Example
 ///

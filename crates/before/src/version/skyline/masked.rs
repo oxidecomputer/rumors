@@ -1,34 +1,32 @@
-//! The masked comparison co-walk: causal order between *projected*
-//! skylines, decided without materializing any projection.
+//! The masked comparison co-walk: causal order between *projected* skylines,
+//! decided without materializing any projection.
 //!
-//! A projection `v / p` is the version's step function gated by the
-//! party's 0-or-1 ownership landscape: the height where `p` owns, zero
-//! elsewhere. Comparing a projection therefore never needs the projected
-//! stream as an object — it is a pointwise question over the overlay of
-//! up to four packed streams (each side's event stream plus its optional
-//! id mask), and this module answers it in one fused merge, the
-//! [`sweep`](super::sweep) machinery generalized from two cursors to the
-//! full cursor set.
+//! A projection `v / p` is the version's step function gated by the party's
+//! 0-or-1 ownership landscape: the height where `p` owns, zero elsewhere.
+//! Comparing a projection therefore never needs the projected stream as an
+//! object — it is a pointwise question over the overlay of up to four packed
+//! streams (each side's event stream plus its optional id mask), and this
+//! module answers it in one fused merge, the [`sweep`](super::sweep) machinery
+//! generalized from two cursors to the full cursor set.
 //!
 //! # The walk
 //!
-//! One `LeafCursor` per event stream and one `IdLeafCursor` per mask
-//! (an unmasked side simply has no id cursor — its ownership is
-//! everywhere). All current leaves and regions contain the sweep point,
-//! so they nest by depth, and the comparison sweep's boundary bookkeeping
-//! generalizes verbatim: the deepest cursor advances, and every other
-//! cursor whose depth reaches the advanced cursor's flip level advances
-//! in the same step (tied boundaries close to one shared flip level; the
-//! walk debug-asserts it at every tie). Nothing recurses, and the
-//! transient state is the cursors' path bits plus three accumulators.
+//! One `LeafCursor` per event stream and one `IdLeafCursor` per mask (an
+//! unmasked side simply has no id cursor — its ownership is everywhere). All
+//! current leaves and regions contain the sweep point, so they nest by depth,
+//! and the comparison sweep's boundary bookkeeping generalizes verbatim: the
+//! deepest cursor advances, and every other cursor whose depth reaches the
+//! advanced cursor's flip level advances in the same step (tied boundaries
+//! close to one shared flip level; the walk debug-asserts it at every tie).
+//! Nothing recurses, and the transient state is the cursors' path bits plus
+//! three accumulators.
 //!
 //! # The integrators
 //!
-//! Per elementary interval the verdict needs the sign of
-//! `h′_a − h′_b`, where `h′` is the projected (gated) height. The walk
-//! never materializes a projected height; it maintains, on the
-//! cliff-immune [`Accumulator`], exactly the running quantities the four
-//! ownership cases read:
+//! Per elementary interval the verdict needs the sign of `h′_a − h′_b`, where
+//! `h′` is the projected (gated) height. The walk never materializes a
+//! projected height; it maintains, on the cliff-immune [`Accumulator`], exactly
+//! the running quantities the four ownership cases read:
 //!
 //! - `D = h_a − h_b`, fed by both event streams (the comparison sweep's
 //!   own difference): read where **both** sides are owned.
@@ -39,45 +37,43 @@
 //!   (reversed) where only `b` is owned.
 //! - Neither side owned: the interval compares `0` with `0` — no read.
 //!
-//! The single-owner reads are the trichotomy's zero-check: distinguishing
-//! `=` from `<` requires knowing whether the *other* operand has positive
-//! height outside the region, and the running `h` accumulator answers it
-//! without walking any skipped subtree twice. Each event delta folds into
-//! at most two accumulators (a constant factor over the pair sweep), and
-//! each per-interval sign read is amortized O(1) digit touches against
-//! the writes that preceded it ([`suanpan`]'s argument, unchanged) — a
-//! mask toggle adds a read, never a re-walk.
+//! The single-owner reads are the trichotomy's zero-check: distinguishing `=`
+//! from `<` requires knowing whether the *other* operand has positive height
+//! outside the region, and the running `h` accumulator answers it without
+//! walking any skipped subtree twice. Each event delta folds into at most two
+//! accumulators (a constant factor over the pair sweep), and each per-interval
+//! sign read is amortized O(1) digit touches against the writes that preceded
+//! it ([`suanpan`]'s argument, unchanged) — a mask toggle adds a read, never a
+//! re-walk.
 //!
 //! # Cost
 //!
 //! Derived, with the constants pinned by the `masked_cmp_*` rows of the
-//! resource-envelope suite (`tests/meter.rs`): every topology bit of
-//! every stream is read at most once, every path bit pushed and popped at
-//! most once, every event payload decoded once and folded into at most
-//! two accumulators, and every id region visited once — so scan, decode,
-//! stack, and fold work are all linear in the operand streams' bits,
-//! `O(|v| + |p| + |w|)` for one mask and
-//! `O(|v₁| + |p₁| + |v₂| + |p₂|)` for two. The per-interval sign reads
-//! ride the accumulator's amortized-O(1) collapse; the correlated
-//! families (mask boundaries riding the other operand's carry-boundary
-//! drift) are the committed adversaries holding that claim to its
-//! envelope.
+//! resource-envelope suite (`tests/meter.rs`): every topology bit of every
+//! stream is read at most once, every path bit pushed and popped at most once,
+//! every event payload decoded once and folded into at most two accumulators,
+//! and every id region visited once — so scan, decode, stack, and fold work are
+//! all linear in the operand streams' bits, `O(|v| + |p| + |w|)` for one mask
+//! and `O(|v₁| + |p₁| + |v₂| + |p₂|)` for two. The per-interval sign reads ride
+//! the accumulator's amortized-O(1) collapse; the correlated families (mask
+//! boundaries riding the other operand's carry-boundary drift) are the
+//! committed adversaries holding that claim to its envelope.
 //!
 //! # Early exit
 //!
-//! Each entry point stops at the first interval that decides its
-//! question, exactly as the pair sweep does: [`causal_cmp`] when both
-//! directions are excluded, [`eq`] when either is.
+//! Each entry point stops at the first interval that decides its question,
+//! exactly as the pair sweep does: [`causal_cmp`] when both directions are
+//! excluded, [`eq`] when either is.
 //!
 //! # Testing
 //!
 //! The materialized form is the behavioral oracle: `view ⋚ w` must equal
 //! `view.to_version() ⋚ w` on every input, which the differential laws in
-//! [`crate::laws`] pin over generated, organic, and fuzzed populations
-//! (three- and four-stream forms, plus the seed-mask coherence law), and
-//! the public-surface proptests beside [`OwnVersion`](crate::OwnVersion)
-//! drive against the recursive oracle's composed projection-and-compare.
-//! The resource envelopes are the meter rows named above.
+//! [`crate::laws`] pin over generated, organic, and fuzzed populations (three-
+//! and four-stream forms, plus the seed-mask coherence law), and the
+//! public-surface proptests beside [`OwnVersion`](crate::OwnVersion) drive
+//! against the recursive oracle's composed projection-and-compare. The resource
+//! envelopes are the meter rows named above.
 
 use core::cmp::Ordering;
 use core::ops::ControlFlow;
@@ -93,9 +89,9 @@ use super::sweep::{
 
 /// The causal order of two projected skylines, `None` for concurrent.
 ///
-/// `a_mask`/`b_mask` are the sides' packed id streams; a side without a
-/// mask compares its whole skyline. One fused merge over every operand
-/// stream; no projection is materialized.
+/// `a_mask`/`b_mask` are the sides' packed id streams; a side without a mask
+/// compares its whole skyline. One fused merge over every operand stream; no
+/// projection is materialized.
 ///
 /// # Panics
 ///
@@ -115,9 +111,9 @@ pub fn causal_cmp(
 ///
 /// Semantic equality of the projections (the gated step functions agree
 /// pointwise), decided by the same fused merge as [`causal_cmp`] with
-/// equality's earlier exit: any nonzero projected difference refutes
-/// it. No byte shortcut exists — the projections are never materialized,
-/// so there are no canonical bytes to compare.
+/// equality's earlier exit: any nonzero projected difference refutes it. No
+/// byte shortcut exists — the projections are never materialized, so there are
+/// no canonical bytes to compare.
 ///
 /// # Panics
 ///
@@ -145,8 +141,8 @@ struct Walk<'a> {
     bm: Option<IdLeafCursor<'a>>,
     /// `D = h_a − h_b`, the both-owned intervals' sign source.
     diff: Accumulator,
-    /// `h_a`, maintained only when `b` is masked (the only case that
-    /// reads it: `a` owned alone compares `h_a` against zero).
+    /// `h_a`, maintained only when `b` is masked (the only case that reads it:
+    /// `a` owned alone compares `h_a` against zero).
     ha: Option<Accumulator>,
     /// `h_b`, maintained only when `a` is masked, dually.
     hb: Option<Accumulator>,
@@ -168,9 +164,8 @@ impl<'a> Walk<'a> {
             a_first,
             b_first,
         } = OpenedPair::open(a_bits, b_bits);
-        // Each height integrator exists only if the *other* side is
-        // masked: no ownership case reads it otherwise, so feeding it
-        // would be pure waste.
+        // Each height integrator exists only if the *other* side is masked: no
+        // ownership case reads it otherwise, so feeding it would be pure waste.
         let ha = b_mask.map(|_| {
             let mut ha = Accumulator::new();
             super::fold_signed_int(&mut ha, false, &a_first);
@@ -192,17 +187,16 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Run the merge over the projected skylines, generic over the
-    /// question asked of the surviving [`Directions`] (here `a′ <= b′`,
-    /// `b′ <= a′`: the projected heights).
+    /// Run the merge over the projected skylines, generic over the question
+    /// asked of the surviving [`Directions`] (here `a′ <= b′`, `b′ <= a′`: the
+    /// projected heights).
     ///
-    /// After each interval's sign fold, `exit` sees the surviving
-    /// directions and may declare the question decided — the `Break`
-    /// payload carries the verdict, so the earliest stop and its answer
-    /// are one value (an early exit leaves the direction the question
-    /// does not need wherever the folded prefix left it, which is why
-    /// directions are never handed back early). At exhaustion `finish`
-    /// maps the fully-swept directions.
+    /// After each interval's sign fold, `exit` sees the surviving directions
+    /// and may declare the question decided — the `Break` payload carries the
+    /// verdict, so the earliest stop and its answer are one value (an early
+    /// exit leaves the direction the question does not need wherever the folded
+    /// prefix left it, which is why directions are never handed back early). At
+    /// exhaustion `finish` maps the fully-swept directions.
     fn run<V>(
         mut self,
         exit: impl Fn(Directions) -> ControlFlow<V>,
@@ -210,15 +204,15 @@ impl<'a> Walk<'a> {
     ) -> V {
         let mut dirs = Directions::new();
         loop {
-            // One fold per elementary interval: the ownership case picks
-            // which integrator's sign is the projected difference's.
+            // One fold per elementary interval: the ownership case picks which
+            // integrator's sign is the projected difference's.
             let owned_a = self.am.as_ref().is_none_or(IdLeafCursor::owned);
             let owned_b = self.bm.as_ref().is_none_or(IdLeafCursor::owned);
             let sign = match (owned_a, owned_b) {
                 (true, true) => self.diff.sign(),
                 (true, false) => {
-                    // `h′_b = 0`: the interval's sign is `sign(h_a)`,
-                    // the trichotomy's zero-check on the unmasked side.
+                    // `h′_b = 0`: the interval's sign is `sign(h_a)`, the
+                    // trichotomy's zero-check on the unmasked side.
                     let s = self.ha.as_mut().expect("a masked `b` maintains h_a").sign();
                     debug_assert_ne!(s, Ordering::Less, "heights are nonnegative");
                     s
@@ -243,8 +237,8 @@ impl<'a> Walk<'a> {
 
     /// Whether every operand stream is at its final leaf or region.
     ///
-    /// Canonical streams all tile the unit interval, so they exhaust
-    /// together, exactly as in the pair sweep.
+    /// Canonical streams all tile the unit interval, so they exhaust together,
+    /// exactly as in the pair sweep.
     fn done(&self) -> bool {
         self.a.done()
             && self.b.done()
@@ -254,22 +248,20 @@ impl<'a> Walk<'a> {
 
     /// Consume every boundary run the verdict cannot see, as blocks.
     ///
-    /// While a masked side's current region is unowned and its event
-    /// cursor's next flip level sits strictly below every other
-    /// cursor's depth, the boundaries it would cross are its own alone
-    /// (deeper than every plateau end, so no tie — the flip bound
-    /// implies the cursor is strictly deepest) and they subdivide
-    /// intervals whose sign every ownership case ignores: the side's
-    /// projection is constantly zero there, and no other integrator
+    /// While a masked side's current region is unowned and its event cursor's
+    /// next flip level sits strictly below every other cursor's depth, the
+    /// boundaries it would cross are its own alone (deeper than every plateau
+    /// end, so no tie — the flip bound implies the cursor is strictly deepest)
+    /// and they subdivide intervals whose sign every ownership case ignores:
+    /// the side's projection is constantly zero there, and no other integrator
     /// source moves. The run is consumed in one block
-    /// ([`LeafCursor::skip_deeper`]), its net movement folded once
-    /// into the integrators that watch the side — value-identical to
-    /// the per-boundary folds, with the duplicate interval signs never
-    /// re-folded (folding an unchanged sign is the identity on the
-    /// surviving directions).
+    /// ([`LeafCursor::skip_deeper`]), its net movement folded once into the
+    /// integrators that watch the side — value-identical to the per-boundary
+    /// folds, with the duplicate interval signs never re-folded (folding an
+    /// unchanged sign is the identity on the surviving directions).
     ///
-    /// A block can consume a side to exhaustion, so the caller
-    /// re-checks [`done`](Self::done) before applying the advance law.
+    /// A block can consume a side to exhaustion, so the caller re-checks
+    /// [`done`](Self::done) before applying the advance law.
     fn block_skip(&mut self) {
         loop {
             let depths = self.depths();
@@ -301,26 +293,25 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Advance the overlay one boundary: the deepest cursor steps, and
-    /// every other cursor whose depth reaches the flip level steps in the
-    /// same round (its boundary tied).
+    /// Advance the overlay one boundary: the deepest cursor steps, and every
+    /// other cursor whose depth reaches the flip level steps in the same round
+    /// (its boundary tied).
     ///
-    /// The overlay-advance law ([`super::sweep::advance`]) at full
-    /// arity, stated over [`PlateauCursor`]: overlapping dyadic
-    /// intervals nest, so the deepest cursor's plateau ends first, and a
-    /// shallower cursor's end ties exactly when the flip level rises to
-    /// or above its depth (tied sides close to one shared flip level,
-    /// debug-asserted here exactly as there). The loop below restates
-    /// the law at this arity — the advance rule and its tie assert are
-    /// the law's; only the arity, and the slot dispatch below (a static
-    /// match over the concrete cursor types), are this walk's. A cursor
-    /// at depth zero (a single-leaf stream, or no mask at all) never
-    /// steps: a flip level is at least one.
+    /// The overlay-advance law ([`super::sweep::advance`]) at full arity,
+    /// stated over [`PlateauCursor`]: overlapping dyadic intervals nest, so the
+    /// deepest cursor's plateau ends first, and a shallower cursor's end ties
+    /// exactly when the flip level rises to or above its depth (tied sides
+    /// close to one shared flip level, debug-asserted here exactly as there).
+    /// The loop below restates the law at this arity — the advance rule and its
+    /// tie assert are the law's; only the arity, and the slot dispatch below (a
+    /// static match over the concrete cursor types), are this walk's. A cursor
+    /// at depth zero (a single-leaf stream, or no mask at all) never steps: a
+    /// flip level is at least one.
     fn advance(&mut self) {
         self.block_skip();
         if self.done() {
-            // A block consumed the last unowned run; the final
-            // interval's sign folds in the caller's next round.
+            // A block consumed the last unowned run; the final interval's sign
+            // folds in the caller's next round.
             return;
         }
         let depths = self.depths();
@@ -347,9 +338,9 @@ impl<'a> Walk<'a> {
         ]
     }
 
-    /// Step one cursor slot past its current leaf or region, folding an
-    /// event delta into the integrators that watch it, and return the
-    /// flip level for the caller's tie test.
+    /// Step one cursor slot past its current leaf or region, folding an event
+    /// delta into the integrators that watch it, and return the flip level for
+    /// the caller's tie test.
     fn step(&mut self, slot: usize) -> usize {
         match slot {
             0 => {

@@ -1,14 +1,13 @@
-//! Differential pins for the comparison sweep against the recursive
-//! oracle's pointwise `leq` comparison.
+//! Differential pins for the comparison sweep against the recursive oracle's
+//! pointwise `leq` comparison.
 //!
-//! The oracle (through the bridge) is the verdict witness over the
-//! adversarial families, arbitrary trees, organic histories, and the
-//! exhaustive small scope — it shares no cursor, no delta, and no
-//! accumulator with the sweep.
+//! The oracle (through the bridge) is the verdict witness over the adversarial
+//! families, arbitrary trees, organic histories, and the exhaustive small scope
+//! — it shares no cursor, no delta, and no accumulator with the sweep.
 //!
-//! Every assertion runs all four entry points, so a bookkeeping error
-//! that misreads a direction (rather than panicking) has four chances to
-//! separate from the oracle on each pair, in both operand orders.
+//! Every assertion runs all four entry points, so a bookkeeping error that
+//! misreads a direction (rather than panicking) has four chances to separate
+//! from the oracle on each pair, in both operand orders.
 
 use core::cmp::Ordering;
 
@@ -71,9 +70,9 @@ fn assert_verdicts(a: &Version, b: &Version) {
     );
 }
 
-/// All four verdict outcomes are reachable and every entry point agrees
-/// with the recursive oracle on each: Equal on an identical history,
-/// Less/Greater across a join, None across concurrent forks.
+/// All four verdict outcomes are reachable and every entry point agrees with
+/// the recursive oracle on each: Equal on an identical history, Less/Greater
+/// across a join, None across concurrent forks.
 #[test]
 fn all_four_outcomes_agree() {
     let mut a = Clock::seed();
@@ -92,14 +91,14 @@ fn all_four_outcomes_agree() {
 }
 
 /// The flush-right tie at unequal depths: the deeper side's plateau ends
-/// exactly at the shallower side's boundary, so both cursors advance in
-/// one step — and the verdict still matches the recursive oracle.
+/// exactly at the shallower side's boundary, so both cursors advance in one
+/// step — and the verdict still matches the recursive oracle.
 #[test]
 fn flush_right_ties_agree() {
-    // `a`'s depth-2 pair fills the left half: its second leaf ends flush
-    // at 1/2, exactly where `b`'s depth-1 first leaf ends. The heights
-    // mix strictly across the overlay (`a` above on [1/4, 1/2), below on
-    // [3/4, 1)), so the pair is concurrent.
+    // `a`'s depth-2 pair fills the left half: its second leaf ends flush at
+    // 1/2, exactly where `b`'s depth-1 first leaf ends. The heights mix
+    // strictly across the overlay (`a` above on [1/4, 1/2), below on [3/4, 1)),
+    // so the pair is concurrent.
     let a = from_oracle_version(&oracle::Version::node(
         0u64,
         oracle::Version::node(
@@ -122,9 +121,9 @@ fn flush_right_ties_agree() {
     assert_verdicts(&a, &b);
 }
 
-/// A shallow operand is consumed as one long plateau: deep and wide
-/// shapes against the empty version agree in both orders, with the
-/// whole deep side merged against a single depth-0 leaf.
+/// A shallow operand is consumed as one long plateau: deep and wide shapes
+/// against the empty version agree in both orders, with the whole deep side
+/// merged against a single depth-0 leaf.
 #[test]
 fn deep_versus_empty_agrees() {
     for deep in [
@@ -136,12 +135,12 @@ fn deep_versus_empty_agrees() {
     }
 }
 
-/// Every ordered pair drawn from the adversarial families yields
-/// identical verdicts from the sweep and the recursive oracle.
+/// Every ordered pair drawn from the adversarial families yields identical
+/// verdicts from the sweep and the recursive oracle.
 ///
-/// The pool includes the empty version, and each operand is also
-/// compared against the pair's join — the ordered outcome raw
-/// cross-family pairs under-hit.
+/// The pool includes the empty version, and each operand is also compared
+/// against the pair's join — the ordered outcome raw cross-family pairs
+/// under-hit.
 #[test]
 fn family_pairs_agree() {
     let pool: Vec<Version> = vec![
@@ -172,13 +171,13 @@ fn family_pairs_agree() {
     }
 }
 
-/// Exhaustive small scope: every ordered pair of normal-form event trees
-/// to the small-scope depth yields identical verdicts from all four
-/// entry points and the recursive oracle.
+/// Exhaustive small scope: every ordered pair of normal-form event trees to the
+/// small-scope depth yields identical verdicts from all four entry points and
+/// the recursive oracle.
 ///
 /// Brute force rather than sampling is what reaches every boundary genre
-/// deterministically: aligned ties, flush-right ties at unequal depths,
-/// plateau consumption, zero deltas across subtree boundaries.
+/// deterministically: aligned ties, flush-right ties at unequal depths, plateau
+/// consumption, zero deltas across subtree boundaries.
 #[test]
 fn exhaustive_small_scope_agrees() {
     let pool: Vec<(oracle::Version, Version, BitsMut)> = all_normal_events(EV_SMALL_DEPTH)
@@ -217,10 +216,10 @@ fn exhaustive_small_scope_agrees() {
 }
 
 proptest! {
-    /// Arbitrary normal-form pairs (magnitudes past `u64::MAX` included)
-    /// yield identical verdicts from the sweep and the recursive
-    /// oracle; the pair's join and meet supply the ordered outcomes
-    /// arbitrary pairs alone under-hit.
+    /// Arbitrary normal-form pairs (magnitudes past `u64::MAX` included) yield
+    /// identical verdicts from the sweep and the recursive oracle; the pair's
+    /// join and meet supply the ordered outcomes arbitrary pairs alone
+    /// under-hit.
     #[test]
     fn arbitrary_pairs_agree(
         a in generators::arb_oracle_version(),
@@ -234,9 +233,9 @@ proptest! {
         assert_verdicts(&met, &vb);
     }
 
-    /// Every pair of versions produced by one organic
-    /// fork/tick/send/sync/join history yields identical verdicts from
-    /// the sweep and the recursive oracle.
+    /// Every pair of versions produced by one organic fork/tick/send/sync/join
+    /// history yields identical verdicts from the sweep and the recursive
+    /// oracle.
     #[test]
     fn organic_histories_agree(ops in optrace::world_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];

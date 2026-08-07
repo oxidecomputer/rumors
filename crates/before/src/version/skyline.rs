@@ -1,10 +1,9 @@
-//! The skyline coding of a [`Version`]: preorder topology bits plus
-//! delta-coded absolute leaf heights.
+//! The skyline coding of a [`Version`]: preorder topology bits plus delta-coded
+//! absolute leaf heights.
 //!
-//! A [`Version`] is a step function over the unit id interval — a *skyline*
-//! — and topology plus absolute leaf heights determine it completely.
-//! This module codes exactly that, as two interleaved streams in one bit
-//! string:
+//! A [`Version`] is a step function over the unit id interval — a *skyline* —
+//! and topology plus absolute leaf heights determine it completely. This module
+//! codes exactly that, as two interleaved streams in one bit string:
 //!
 //! - **Topology**: one preorder flag bit per node (`0` internal, `1` leaf).
 //!   Internal nodes carry no numbers, and a root-to-leaf descent is a
@@ -19,13 +18,13 @@
 //!   (`codec::encode_int`), so the code shape (`2k + 1` bits) and the
 //!   decoder's window fast path carry over unchanged.
 //!
-//! For *why* the payload code is gamma — the measured value distribution
-//! and the trade among the universal codes — see the
+//! For *why* the payload code is gamma — the measured value distribution and
+//! the trade among the universal codes — see the
 //! [`implementation`](crate::implementation) essay.
 //!
 //! This coding is the stored and wire form of a [`Version`]:
-//! [`Version::encode`] and [`Version::decode`] carry these streams, and
-//! every operation runs on them directly. The submodules:
+//! [`Version::encode`] and [`Version::decode`] carry these streams, and every
+//! operation runs on them directly. The submodules:
 //!
 //! - [`sweep`] decides comparisons on skyline streams — the merge form
 //!   the coding exists to enable.
@@ -48,10 +47,10 @@
 //! - [`text`] renders and parses the paper's text notation directly on
 //!   the streams.
 //!
-//! Every kernel is differentially pinned against
-//! the recursive oracle (`crate::oracle`), and the meter surface
-//! re-exports the module ([`crate::meter::skyline`]) so the
-//! resource-envelope suite can pin its internals.
+//! Every kernel is differentially pinned against the recursive oracle
+//! (`crate::oracle`), and the meter surface re-exports the module
+//! ([`crate::meter::skyline`]) so the resource-envelope suite can pin its
+//! internals.
 //!
 //! # Canonical form
 //!
@@ -68,48 +67,45 @@
 //!   trailing bits.
 //!
 //! There is no code-level canonicality obligation beyond these: gamma is a
-//! prefix code with exactly one spelling per natural, and the zigzag map is
-//! a bijection with no negative-zero form (odd codes decode to magnitude
-//! `>= 1`), so a non-minimal gamma code or a non-canonical zigzag spelling
-//! cannot be written at all. The tests pin both bijections exhaustively at
-//! small scope.
+//! prefix code with exactly one spelling per natural, and the zigzag map is a
+//! bijection with no negative-zero form (odd codes decode to magnitude `>= 1`),
+//! so a non-minimal gamma code or a non-canonical zigzag spelling cannot be
+//! written at all. The tests pin both bijections exhaustively at small scope.
 //!
-//! Canonical skyline streams are unique representations of the step
-//! function: minimal topology makes the tree unique, and heights are
-//! function-determined. Byte-equality is therefore semantic equality on
-//! this coding, and the construction-language transcoder (`encode_bits`,
-//! from the generators' min-lifted packed preorder streams) lands exactly
-//! on the one canonical stream per value.
+//! Canonical skyline streams are unique representations of the step function:
+//! minimal topology makes the tree unique, and heights are function-determined.
+//! Byte-equality is therefore semantic equality on this coding, and the
+//! construction-language transcoder (`encode_bits`, from the generators'
+//! min-lifted packed preorder streams) lands exactly on the one canonical
+//! stream per value.
 //!
 //! # Validation cost
 //!
-//! [`validate`](fn@validate) runs one forward pass holding, per open ancestor, two
-//! bits — "is my left child complete" and "was that child a leaf" — on a
-//! packed bit stack, plus one [`Accumulator`]
-//! carrying the running leaf height for the nonnegativity check. The bit
-//! stack costs ~2 bits per level where machine-word parse frames would
-//! cost tens of bytes; the resource-envelope suite
-//! (`tests/meter.rs`) pins both that transient and the validator's limb
+//! [`validate`](fn@validate) runs one forward pass holding, per open ancestor,
+//! two bits — "is my left child complete" and "was that child a leaf" — on a
+//! packed bit stack, plus one [`Accumulator`] carrying the running leaf height
+//! for the nonnegativity check. The bit stack costs ~2 bits per level where
+//! machine-word parse frames would cost tens of bytes; the resource-envelope
+//! suite (`tests/meter.rs`) pins both that transient and the validator's limb
 //! behavior.
 //!
-//! The accumulator choice is load-bearing, not an optimization: on the
-//! boundary comb (`meter::cliff_comb`) the payload stream is 3-bit `±1`
-//! codes sitting exactly on a `2^k` carry boundary, so a plain big-integer
-//! running height pays a full `k`-bit carry per 3-bit delta — `Θ(W²)` limb
-//! work in skyline wire bits `W` (`meter::tier2`'s plain-sweep pin measures
-//! it). The balanced signed-digit [`Accumulator`] applies a
-//! small delta and answers the sign check in amortized O(1) digit touches
-//! on every input sequence, so validation stays linear per wire bit; the
-//! envelope suite pins the per-delta touch cost flat across size doublings
-//! on the comb.
+//! The accumulator choice is load-bearing, not an optimization: on the boundary
+//! comb (`meter::cliff_comb`) the payload stream is 3-bit `±1` codes sitting
+//! exactly on a `2^k` carry boundary, so a plain big-integer running height
+//! pays a full `k`-bit carry per 3-bit delta — `Θ(W²)` limb work in skyline
+//! wire bits `W` (`meter::tier2`'s plain-sweep pin measures it). The balanced
+//! signed-digit [`Accumulator`] applies a small delta and answers the sign
+//! check in amortized O(1) digit touches on every input sequence, so validation
+//! stays linear per wire bit; the envelope suite pins the per-delta touch cost
+//! flat across size doublings on the comb.
 //!
 //! # Cost of encode and decode
 //!
 //! The stored form *is* this coding, so neither byte-level entry point
 //! transcodes anything: [`encode`](fn@encode) clones the stored stream, and
-//! [`decode`](fn@decode) runs [`validate`](fn@validate)'s wire-bit-linear pass and then
-//! adopts the accepted bits as the version's storage directly — no height,
-//! base, or node is materialized beyond validation's one payload in
+//! [`decode`](fn@decode) runs [`validate`](fn@validate)'s wire-bit-linear pass
+//! and then adopts the accepted bits as the version's storage directly — no
+//! height, base, or node is materialized beyond validation's one payload in
 //! flight. The construction-language transcoder (`encode_bits`, test- and
 //! meter-only) is the one walk that materializes path sums, priced by the
 //! packed stream it reads.
@@ -146,24 +142,24 @@ use crate::error::Decode;
 #[cfg(any(test, feature = "meter"))]
 use crate::Version;
 
-// The storage forms, re-exported so the resource-envelope suite can
-// name the streams this module's entry points exchange. The frozen
-// form rides the meter gate: only the suite (and the public docs the
-// meter feature exposes) name it through this module.
+// The storage forms, re-exported so the resource-envelope suite can name the
+// streams this module's entry points exchange. The frozen form rides the meter
+// gate: only the suite (and the public docs the meter feature exposes) name it
+// through this module.
 #[cfg(any(test, feature = "meter"))]
 pub use crate::codec::Bits;
 #[cfg(any(test, feature = "meter"))]
 pub use crate::codec::BitsMut;
 pub use crate::codec::BitsSlice;
 
-// The admission walk: the span wire form's fused second-component
-// parse, consumed by `causally::Span::decode` and the borsh span leg.
+// The admission walk: the span wire form's fused second-component parse,
+// consumed by `causally::Span::decode` and the borsh span leg.
 mod admit;
 mod build;
 pub mod place;
-// The strict byte-level decode of one whole stream: consumed by this
-// module's `decode` entry, which only the meter surface and the tests
-// reach (production decode paths run `validate_prefix` + `from_bits`).
+// The strict byte-level decode of one whole stream: consumed by this module's
+// `decode` entry, which only the meter surface and the tests reach (production
+// decode paths run `validate_prefix` + `from_bits`).
 #[cfg(any(test, feature = "meter"))]
 mod decode;
 pub mod emit;
@@ -196,8 +192,8 @@ pub(crate) use validate::validate_from;
 
 /// A [`Version`]'s canonical skyline stream: the stored form, cloned.
 ///
-/// Test- and meter-only: production callers reach the stored stream
-/// through [`Version::as_bytes`]/[`Version::encode`].
+/// Test- and meter-only: production callers reach the stored stream through
+/// [`Version::as_bytes`]/[`Version::encode`].
 #[cfg(any(test, feature = "meter"))]
 pub fn encode(version: &Version) -> BitsMut {
     let mut bits = version.as_bits().to_bitvec();
@@ -210,12 +206,12 @@ pub fn encode(version: &Version) -> BitsMut {
 /// Strictly validate a skyline stream without materializing any height.
 ///
 /// Enforces the module doc's canonical form in one forward pass: minimal
-/// topology and stream exactness on ~2 bits of stack per open ancestor,
-/// and leaf-height nonnegativity on the cliff-immune accumulator. Every
-/// error is [`Decode::Truncated`] (the stream ended mid-tree or
-/// mid-integer), [`Decode::TrailingBits`] (live bits remain after the
-/// tree), or [`Decode::NotCanonical`] (collapsible sibling leaves, or a
-/// delta driving the running height negative).
+/// topology and stream exactness on ~2 bits of stack per open ancestor, and
+/// leaf-height nonnegativity on the cliff-immune accumulator. Every error is
+/// [`Decode::Truncated`] (the stream ended mid-tree or mid-integer),
+/// [`Decode::TrailingBits`] (live bits remain after the tree), or
+/// [`Decode::NotCanonical`] (collapsible sibling leaves, or a delta driving the
+/// running height negative).
 ///
 /// Test- and meter-only: the production byte-level entries
 /// ([`Version::decode`], the borsh leg) run the underlying pass through
@@ -227,13 +223,13 @@ pub fn validate(bits: &BitsSlice) -> Result<(), Decode> {
 
 /// Strictly validate a skyline stream and wrap it as a [`Version`].
 ///
-/// [`validate`](fn@validate)'s pass runs first and gates acceptance, bit for bit; the
-/// accepted stream then becomes the version's storage directly (the stored
-/// form *is* this coding), so decoding materializes nothing beyond the
+/// [`validate`](fn@validate)'s pass runs first and gates acceptance, bit for
+/// bit; the accepted stream then becomes the version's storage directly (the
+/// stored form *is* this coding), so decoding materializes nothing beyond the
 /// copy.
 ///
-/// Test- and meter-only: the production decode ([`Version::decode`])
-/// validates the prefix and adopts the buffer without this wrapper.
+/// Test- and meter-only: the production decode ([`Version::decode`]) validates
+/// the prefix and adopts the buffer without this wrapper.
 #[cfg(any(test, feature = "meter"))]
 pub fn decode(bits: &BitsSlice) -> Result<Version, Decode> {
     decode_bits(bits)
@@ -242,8 +238,8 @@ pub fn decode(bits: &BitsSlice) -> Result<Version, Decode> {
 /// Whether a skyline stream is the canonical empty version.
 ///
 /// The empty version is exactly the 2-bit stream `11` (leaf flag `1`, then
-/// gamma(0), the single bit `1`). Canonical uniqueness makes this O(1)
-/// test the whole question.
+/// gamma(0), the single bit `1`). Canonical uniqueness makes this O(1) test the
+/// whole question.
 pub(crate) fn is_empty_stream(bits: &BitsSlice) -> bool {
     bits.len() == 2 && bits[0] && bits[1]
 }
@@ -258,12 +254,12 @@ fn zigzag(prev: &Base, cur: &Base) -> Base {
     }
 }
 
-/// Split a zigzag magnitude into its delta's sign and absolute value,
-/// staying in machine words for word-scale codes: even `m -> +m/2`, odd
-/// `m -> −(m + 1)/2`.
+/// Split a zigzag magnitude into its delta's sign and absolute value, staying
+/// in machine words for word-scale codes: even `m -> +m/2`, odd `m -> −(m +
+/// 1)/2`.
 ///
-/// The [`Int`] form of [`unzigzag_base`], the shape the sweeps and the
-/// fill walk consume; total (odd `u64::MAX` maps within the word range).
+/// The [`Int`] form of [`unzigzag_base`], the shape the sweeps and the fill
+/// walk consume; total (odd `u64::MAX` maps within the word range).
 fn unzigzag(code: Int) -> (bool, Int) {
     match code {
         // Odd `c`: `(c + 1) / 2 = c / 2 + 1`, in range at any `c`.
@@ -276,9 +272,9 @@ fn unzigzag(code: Int) -> (bool, Int) {
     }
 }
 
-/// Fold a signed [`Int`] delta into an accumulator: subtracted when
-/// negative, added otherwise — the [`Int`] twin of [`fold_signed`],
-/// dispatching word-scale values straight to the word entry points.
+/// Fold a signed [`Int`] delta into an accumulator: subtracted when negative,
+/// added otherwise — the [`Int`] twin of [`fold_signed`], dispatching
+/// word-scale values straight to the word entry points.
 fn fold_signed_int(acc: &mut Accumulator, negative: bool, magnitude: &Int) {
     match (negative, magnitude) {
         (false, Int::Small(n)) => acc.add_u64(*n),
@@ -296,8 +292,8 @@ fn gamma_code_int(value: &Int) -> Code {
     }
 }
 
-/// The gamma code of a signed delta's zigzag, from either width: the
-/// [`Int`] twin of [`gamma_code_signed`].
+/// The gamma code of a signed delta's zigzag, from either width: the [`Int`]
+/// twin of [`gamma_code_signed`].
 fn gamma_code_signed_int(negative: bool, magnitude: &Int) -> Code {
     match magnitude {
         Int::Small(mag) if *mag < (1 << 31) => {
@@ -317,12 +313,12 @@ fn gamma_code_signed_int(negative: bool, magnitude: &Int) -> Code {
     }
 }
 
-/// Map a delta given as sign and absolute value to its zigzag magnitude:
-/// `+m -> 2m`, `−m -> 2m − 1`.
+/// Map a delta given as sign and absolute value to its zigzag magnitude: `+m ->
+/// 2m`, `−m -> 2m − 1`.
 ///
-/// [`zigzag`] for a difference already in sign-magnitude form — the shape
-/// the emission sweep computes deltas in. A negative delta must have a
-/// nonzero magnitude (there is no negative zero to map).
+/// [`zigzag`] for a difference already in sign-magnitude form — the shape the
+/// emission sweep computes deltas in. A negative delta must have a nonzero
+/// magnitude (there is no negative zero to map).
 fn zigzag_signed(negative: bool, magnitude: Base) -> Base {
     debug_assert!(
         !negative || magnitude != Base::ZERO,
@@ -335,11 +331,11 @@ fn zigzag_signed(negative: bool, magnitude: Base) -> Base {
     }
 }
 
-/// Split a zigzag magnitude into its delta's sign and absolute value:
-/// even `m -> +m/2`, odd `m -> −(m + 1)/2`.
+/// Split a zigzag magnitude into its delta's sign and absolute value: even `m
+/// -> +m/2`, odd `m -> −(m + 1)/2`.
 ///
-/// The inverse of [`zigzag`]: total, and never yields a negative zero (an
-/// odd code's magnitude is at least 1).
+/// The inverse of [`zigzag`]: total, and never yields a negative zero (an odd
+/// code's magnitude is at least 1).
 fn unzigzag_base(code: Base) -> (bool, Base) {
     if code.bit(0) {
         (true, (code + 1u32) >> 1u32)
@@ -348,12 +344,12 @@ fn unzigzag_base(code: Base) -> (bool, Base) {
     }
 }
 
-/// Fold a signed magnitude into an accumulator: subtracted when negative,
-/// added otherwise.
+/// Fold a signed magnitude into an accumulator: subtracted when negative, added
+/// otherwise.
 ///
-/// The one home of the sign-magnitude fold every height walk applies —
-/// the exchange move between this module's sign-magnitude currency (the
-/// zigzag maps above) and the cliff-immune [`Accumulator`].
+/// The one home of the sign-magnitude fold every height walk applies — the
+/// exchange move between this module's sign-magnitude currency (the zigzag maps
+/// above) and the cliff-immune [`Accumulator`].
 fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
     if negative {
         acc.sub_magnitude(magnitude);
@@ -369,11 +365,10 @@ fn gamma_code(value: &Base) -> Code {
 
 /// The gamma code of a signed delta's zigzag, as a payload-code value.
 ///
-/// [`zigzag_signed`] fused with [`gamma_code`]: a word-scale magnitude
-/// zigzags and codes in machine arithmetic — no intermediate value is
-/// built — and a wider one takes the arbitrary-precision pair. A
-/// negative delta must have a nonzero magnitude, as in
-/// [`zigzag_signed`].
+/// [`zigzag_signed`] fused with [`gamma_code`]: a word-scale magnitude zigzags
+/// and codes in machine arithmetic — no intermediate value is built — and a
+/// wider one takes the arbitrary-precision pair. A negative delta must have a
+/// nonzero magnitude, as in [`zigzag_signed`].
 fn gamma_code_signed(negative: bool, magnitude: &Base) -> Code {
     debug_assert!(
         !negative || *magnitude != Base::ZERO,
