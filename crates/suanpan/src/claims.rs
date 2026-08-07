@@ -91,7 +91,7 @@ pub(crate) const FAMILY_SURFACE: &[&str] = &[
 ];
 
 /// Suanpan's own touch-metered pins.
-const OWN: &str = "src/accumulator/tests.rs";
+const OWN: &str = "src/accumulator/tests/metered.rs";
 
 /// The digit-touch stream bands committed beside the consumer.
 const BANDS: &str = "../before/tests/meter.rs";
