@@ -61,35 +61,6 @@ impl<'a> Span<'a> {
         union_core(self, other)
     }
 
-    /// The *intersection* of `self` and `other`: the largest [`Span`] covered
-    /// by both, or [`None`] when they share no overlap.
-    ///
-    /// The method spelling of `self & other`.
-    ///
-    /// # Complexity
-    ///
-    /// `O(|self| + |other|)`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use before::{Clock, Span};
-    /// let mut alice = Clock::seed();
-    /// let a1 = alice.tick().clone();
-    /// let a2 = alice.tick().clone();
-    /// let a3 = alice.tick().clone();
-    ///
-    /// let head = a1.span(&a2);
-    /// let tail = a2.span(&a3);
-    /// // Overlapping segments intersect at their shared segment…
-    /// assert_eq!(head.intersection(&tail), Some(a2.span(&a2)));
-    /// // …and disjoint segments have no intersection.
-    /// assert_eq!(a1.span(&a1).intersection(&tail), None);
-    /// ```
-    pub fn intersection(&self, other: &Span<'_>) -> Option<Span<'static>> {
-        intersect_core(self, other)
-    }
-
     /// The tightest [`Span`] covering every input (including `self`).
     ///
     /// # Complexity
@@ -121,6 +92,35 @@ impl<'a> Span<'a> {
     {
         let (lo, hi) = self.fold_endpoints(iter, &UNION_OPS);
         Span::owned(lo, hi)
+    }
+
+    /// The *intersection* of `self` and `other`: the largest [`Span`] covered
+    /// by both, or [`None`] when they share no overlap.
+    ///
+    /// The method spelling of `self & other`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|self| + |other|)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let a3 = alice.tick().clone();
+    ///
+    /// let head = a1.span(&a2);
+    /// let tail = a2.span(&a3);
+    /// // Overlapping segments intersect at their shared segment…
+    /// assert_eq!(head.intersection(&tail), Some(a2.span(&a2)));
+    /// // …and disjoint segments have no intersection.
+    /// assert_eq!(a1.span(&a1).intersection(&tail), None);
+    /// ```
+    pub fn intersect(&self, other: &Span<'_>) -> Option<Span<'static>> {
+        intersect_core(self, other)
     }
 
     /// The largest [`Span`] every input (including `self`) covers, or `None` if

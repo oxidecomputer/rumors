@@ -16,9 +16,10 @@ use std::io;
 #[error("parties are not disjoint")]
 pub struct Overlap;
 
-/// A span's endpoints crossed during construction: the pair is reversed or
-/// incomparable, so no chain segment lies between them (see
-/// [`Span::new`](crate::Span::new)).
+/// A [`Span`]'s endpoints crossed during construction.
+///
+/// The pair is reversed or incomparable, so zero [`Version`]s lie between them
+/// (see [`Span::new`](crate::Span::new)).
 ///
 /// # Example
 ///
@@ -33,7 +34,7 @@ pub struct Overlap;
 #[error("span endpoints cross: the start is not within the end")]
 pub struct Crossed;
 
-/// Why a byte string failed to decode into a [`Party`](crate::Party),
+/// Why bytes failed to decode into a [`Party`](crate::Party),
 /// [`Version`](crate::Version), [`Clock`](crate::Clock), [`Rank`](crate::Rank),
 /// [`Ranked`](crate::Ranked), or [`Span`](crate::causally::Span).
 ///
@@ -69,7 +70,8 @@ pub enum Decode {
 /// Why a string or Rust literal failed to parse into a [`Party`](crate::Party),
 /// [`Version`](crate::Version), or [`Clock`](crate::Clock).
 ///
-/// Parsing uses the paper's notation and strictly rejects non-canonical input.
+/// Parsing uses the original paper's notation and strictly rejects
+/// non-canonical input.
 ///
 /// # Example
 ///

@@ -1184,7 +1184,7 @@ laws! {
                 let cells = (s.clone() & t.clone()) == inter
                     && (s.clone() & t) == inter
                     && (s & t.clone()) == inter;
-                let method = s.intersection(t) == inter;
+                let method = s.intersect(t) == inter;
                 let absorbing = {
                     let u = s | t;
                     (s & &u) == Some(s.clone())

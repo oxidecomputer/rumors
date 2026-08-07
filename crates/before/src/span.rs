@@ -19,17 +19,17 @@
 //!
 //! - **The containment order** (set-like symbols): `a | b` is the
 //!   *union* — the tightest span covering both `a` and `b`, with endpoints
-//!   `[lo_a & lo_b, hi_a | hi_b]` — and   `a & b` is the *intersection*
+//!   `lo_a & lo_b <= hi_a | hi_b` — and   `a & b` is the *intersection*
 //!   — the largest span which is fully covered by both, with endpoints
-//!   `[lo_a | lo_b, hi_a & hi_b]`, returning [`None`] when the
+//!   `lo_a | lo_b <= hi_a & hi_b`, returning [`None`] when the
 //!   spans are non-overlapping.
 //! - **The pointwise order** (arithmetic symbols): `a + b` and
 //!   `a * b` lift the version lattice itself to spans, pointwise:
-//!   `a + b` yields a span with endpoints [lo_a | lo_b, hi_a | hi_b],
-//!   while `a * b` yield a span with endpoints [lo_a & lo_b, hi_a & hi_b].
+//!   `a + b` yields a span with endpoints `lo_a | lo_b <= hi_a | hi_b`,
+//!   while `a * b` yield a span with endpoints `lo_a & lo_b <= hi_a & hi_b`.
 //!
 //! The containment operators also have method spellings, [`Span::union`] and
-//! [`Span::intersection`].
+//! [`Span::intersect`].
 //!
 //! Each operator has a variadic extension in the idiom of
 //! [`Version::span_all`]: [`Span::union_all`], [`Span::intersect_all`],
