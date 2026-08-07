@@ -86,12 +86,6 @@
 //! silently rather than panic. Deep spines swap the native-frame oracle for
 //! closed-form expected values.
 
-// The module doc names crate-private machinery by intra-doc link so a rename
-// cannot rot the prose (the internal doc build resolves every link); on the
-// public build those links render as plain code spans — the items are private —
-// which this allow accepts.
-#![allow(rustdoc::private_intra_doc_links)]
-
 use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, Code};
 
 use super::build::SkylineBuilder;

@@ -149,6 +149,13 @@
 //! the semantic Riemann-sum oracle, which shares no structure with the sweep.
 //! The resource envelopes are the meter rows named above.
 
+// The module doc and the fold docs (`rank`, `distance`, `lag`, `rank_cmp`)
+// cite the crate-private `integral` submodule's essay by intra-doc link so a
+// rename cannot rot the prose (the internal doc build resolves every link); on
+// the public build those links render as plain code spans — the items are
+// private — which this allow accepts.
+#![allow(rustdoc::private_intra_doc_links)]
+
 use core::cmp::Ordering;
 
 use suanpan::{Accumulator, UBig};
@@ -608,7 +615,7 @@ fn max_depth(bits: &BitsSlice) -> usize {
     deepest
 }
 
-pub mod integral;
+pub(crate) mod integral;
 mod web;
 
 #[cfg(test)]

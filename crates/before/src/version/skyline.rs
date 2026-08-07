@@ -28,9 +28,9 @@
 //!
 //! - [`sweep`] decides comparisons on skyline streams — the merge form
 //!   the coding exists to enable.
-//! - [`masked`] decides the same comparisons over *projected* streams
+//! - `masked` decides the same comparisons over *projected* streams
 //!   (event × id overlays) without materializing any projection.
-//! - [`place`](mod@place) places one stream against a range's or an
+//! - `place` places one stream against a range's or an
 //!   interval's bound streams in a single fused merge, generic over the
 //!   verdict (`causally`'s placement kernel).
 //! - [`emit`] runs the same merge as join and meet, re-delta-coding
@@ -39,19 +39,21 @@
 //!   splice drives too).
 //! - [`query`] answers the linear functionals (rank, distance, lag,
 //!   min_ticks) and projection from the same leaf sweeps.
-//! - [`fill`](mod@fill) registers an event — the fused tick: one fill
+//! - `fill` registers an event — the fused tick: one fill
 //!   walk deciding in-pass whether raising full regions changed the
 //!   stream, else the cheapest inflation along the route the walk
-//!   recorded — with the [`grow`](mod@grow) submodule's splice emit
+//!   recorded — with the `grow` submodule's splice emit
 //!   rebuilding the one chosen root-to-leaf path.
 //! - [`text`] renders and parses the paper's text notation directly on
 //!   the streams.
 //!
-//! Three machinery layers sit under the operations, each with its own essay:
-//! [`overlay`] (the tiling cursors and the advance law every merge steps by),
-//! the private `watermark` (the anchored-minimum web the fill walk and the
-//! min-ticks fold share), and the private `signed` (the sign-magnitude
+//! Machinery layers sit under the operations, each with its own essay:
+//! `overlay` (the tiling cursors and the advance law every merge steps by),
+//! `watermark` (the anchored-minimum web the fill walk and the
+//! min-ticks fold share), and `signed` (the sign-magnitude
 //! currency: the zigzag maps, the signed folds and sums, the gamma codes).
+//! A submodule is public exactly where the meter integration suite
+//! path-names it; the machinery stays crate-private.
 //!
 //! Every kernel is differentially pinned against the recursive oracle
 //! (`crate::oracle`), and the meter surface re-exports the module
@@ -160,7 +162,7 @@ pub use crate::codec::BitsSlice;
 // consumed by `causally::Span::decode` and the borsh span leg.
 mod admit;
 mod build;
-pub mod place;
+pub(crate) mod place;
 // The strict byte-level decode of one whole stream: consumed by this module's
 // `decode` entry, which only the meter surface and the tests reach (production
 // decode paths run `validate_prefix` + `from_bits`).
@@ -171,13 +173,13 @@ pub mod emit;
 // surface and the transcoding tests only.
 #[cfg(any(test, feature = "meter"))]
 mod encode;
-pub mod fill;
-pub mod grow;
-pub mod literal;
-pub mod masked;
+pub(crate) mod fill;
+pub(crate) mod grow;
+pub(crate) mod literal;
+pub(crate) mod masked;
 // The overlay cursors and the advance law: crate-private walk machinery shared
-// by every merge; pub for its module doc's place in the meter-feature rustdoc.
-pub mod overlay;
+// by every merge.
+pub(crate) mod overlay;
 pub mod query;
 mod signed;
 pub mod sweep;

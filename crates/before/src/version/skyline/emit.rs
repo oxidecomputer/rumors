@@ -69,6 +69,13 @@
 //! algebraic laws (commutativity, associativity, idempotence, absorption) are
 //! asserted on the emitted streams themselves.
 
+// The module doc cites the crate-private `super::overlay` (the advance law and
+// its boundary bookkeeping) by intra-doc link so a rename cannot rot the prose
+// (the internal doc build resolves every link); on the public build those
+// links render as plain code spans — the items are private — which this allow
+// accepts.
+#![allow(rustdoc::private_intra_doc_links)]
+
 use core::cmp::Ordering;
 
 use suanpan::Accumulator;

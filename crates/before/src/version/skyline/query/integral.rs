@@ -246,7 +246,6 @@
 //! (`schoolbook_settle_reads_superlinear_on_wide_arming` and its
 //! plateau-puncture twin) keeps the per-digit charge failing on both
 //! families, so the bands are never decoration.
-#![allow(rustdoc::private_intra_doc_links)]
 
 use core::cmp::Ordering;
 
