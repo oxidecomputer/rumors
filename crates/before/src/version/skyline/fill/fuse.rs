@@ -50,24 +50,25 @@ use crate::idbits::{IdNode, IdReader};
 use super::super::build::SkylineBuilder;
 use super::super::grow::{Cost, Route};
 use super::super::walk::LeafWalk;
+use super::DeltaReg;
 
 /// The [`PopStack`] encoding of one deferred route-DP quantity (a [`Cost`]
 /// component, or an expansion chain's distance): 0 = infeasible (a `u32::MAX`
 /// component), else the value + 1.
-pub(super) fn encode_cost_component(v: u32) -> u64 {
-    if v == u32::MAX {
+pub(super) fn encode_cost_component(component: u32) -> u64 {
+    if component == u32::MAX {
         0
     } else {
-        u64::from(v) + 1
+        u64::from(component) + 1
     }
 }
 
 /// Invert [`encode_cost_component`].
-pub(super) fn decode_cost_component(v: u64) -> u32 {
-    if v == 0 {
+pub(super) fn decode_cost_component(encoded: u64) -> u32 {
+    if encoded == 0 {
         u32::MAX
     } else {
-        (v - 1) as u32
+        (encoded - 1) as u32
     }
 }
 
@@ -176,21 +177,21 @@ impl Out {
 
     /// Materialize the matched prefix at the first divergence.
     ///
-    /// Decodes `ev[..matched_end]` — byte-identical to the output so far by the
-    /// verbatim invariant — and feeds its plateaus through a fresh builder,
+    /// Decodes `event[..matched_end]` — byte-identical to the output so far by
+    /// the verbatim invariant — and feeds its plateaus through a fresh builder,
     /// leaving `self` built; a no-op once built.
     ///
     /// One wholesale prefix copy, priced by the divergence that ends the
     /// verbatim run; the walk from here on is a direct fill emission. Iterative
     /// (a path bit stack, no recursion), so prefix depth cannot overflow the
     /// native stack.
-    pub(super) fn materialize(&mut self, ev: &BitsSlice) {
+    pub(super) fn materialize(&mut self, event: &BitsSlice) {
         let Out::Verbatim { matched_end, .. } = self else {
             return;
         };
         let matched_end = *matched_end;
-        let mut builder = SkylineBuilder::with_capacity(ev.len());
-        let mut cursor = crate::codec::DsiCursor::new(ev);
+        let mut builder = SkylineBuilder::with_capacity(event.len());
+        let mut cursor = crate::codec::DsiCursor::new(event);
         let mut walk = LeafWalk::new();
         while cursor.position() < matched_end {
             // A descent never straddles `matched_end` (a matched prefix ends on
@@ -204,7 +205,7 @@ impl Out {
                 .expect("a matched prefix is a proper prefix of the tiling");
             let start = cursor.position();
             cursor.skip_int().expect("canonical skyline bits");
-            builder.leaf(depth, Code::from_slice(&ev[start..cursor.position()]));
+            builder.leaf(depth, Code::from_slice(&event[start..cursor.position()]));
         }
         debug_assert_eq!(
             cursor.position(),
@@ -217,13 +218,13 @@ impl Out {
     /// Finish the walk's output: the built stream when a plateau diverged, or
     /// `None` for an unchanged walk (every plateau matched; `fill(i, e) = e`,
     /// byte-exact by canonical uniqueness).
-    pub(super) fn finish(self, ev: &BitsSlice) -> Option<BitsMut> {
+    pub(super) fn finish(self, event: &BitsSlice) -> Option<BitsMut> {
         match self {
             Out::Built(builder) => Some(builder.finish()),
             Out::Verbatim { matched_end } => {
                 debug_assert_eq!(
                     matched_end,
-                    ev.len(),
+                    event.len(),
                     "an unchanged walk matches every input plateau"
                 );
                 None
@@ -269,10 +270,10 @@ impl RouteProbe {
         }
         let chose_left = left < right;
         self.route().record(key, chose_left);
-        let m = if chose_left { left } else { right };
+        let cheaper = if chose_left { left } else { right };
         Cost {
-            expansions: m.expansions,
-            depth: m.depth.saturating_add(1),
+            expansions: cheaper.expansions,
+            depth: cheaper.depth.saturating_add(1),
         }
     }
 
@@ -300,22 +301,22 @@ impl RouteProbe {
             }
             return Cost::MAX;
         }
-        let l = if left {
+        let left_cost = if left {
             self.expand_subtree(id)
         } else {
             Cost::MAX
         };
-        let r = if right {
+        let right_cost = if right {
             self.expand_subtree(id)
         } else {
             Cost::MAX
         };
-        let chose_left = l < r;
+        let chose_left = left_cost < right_cost;
         self.route().record(key, chose_left);
-        let m = if chose_left { l } else { r };
+        let cheaper = if chose_left { left_cost } else { right_cost };
         Cost {
-            expansions: m.expansions.saturating_add(1),
-            depth: m.depth.saturating_add(1),
+            expansions: cheaper.expansions.saturating_add(1),
+            depth: cheaper.depth.saturating_add(1),
         }
     }
 
@@ -353,22 +354,21 @@ impl RouteProbe {
         // true = the right child's.
         let mut phase = BitStack::new();
         let mut right_present = BitStack::new();
-        let mut vals = PopStack::new();
-        let mut reg = 0usize;
-        // `None`: enter the subtree at the cursor; `Some(d)`: rise with a
-        // computed distance (`u32::MAX` infeasible).
+        let mut values = PopStack::new();
+        let mut keys = DeltaReg::new();
+        // `None`: enter the subtree at the cursor; `Some(distance)`: rise with
+        // a computed distance (`u32::MAX` infeasible).
         let mut rise: Option<u32> = None;
         loop {
-            let mut d = match rise.take() {
-                Some(d) => d,
+            let mut distance = match rise.take() {
+                Some(distance) => distance,
                 None => {
                     let key = id.pos();
                     match id.read() {
                         // An owned terminal: the landing, distance 0.
                         IdNode::Full => 0,
                         IdNode::Internal { left, right } => {
-                            vals.push((key - reg) as u64);
-                            reg = key;
+                            keys.push(&mut values, key);
                             phase.push(false);
                             right_present.push(right);
                             if left {
@@ -382,16 +382,16 @@ impl RouteProbe {
                     }
                 }
             };
-            // Rise `d` through completed frames.
+            // Rise the distance through completed frames.
             loop {
                 match phase.last() {
                     None => {
-                        return if d == u32::MAX {
+                        return if distance == u32::MAX {
                             Cost::MAX
                         } else {
                             Cost {
-                                expansions: d,
-                                depth: d,
+                                expansions: distance,
+                                depth: distance,
                             }
                         };
                     }
@@ -399,26 +399,29 @@ impl RouteProbe {
                         // The left distance arrived: defer it, descend right
                         // (or rise its absence straight back).
                         phase.set_last(true);
-                        vals.push(encode_cost_component(d));
+                        values.push(encode_cost_component(distance));
                         if right_present.last().expect("one presence bit per frame") {
                             break;
                         }
-                        d = u32::MAX;
+                        distance = u32::MAX;
                     }
                     Some(true) => {
                         // Both children measured: pick, record, fold.
                         phase.pop();
                         right_present.pop();
-                        let left = decode_cost_component(vals.pop());
-                        let right = d;
-                        let key = reg;
-                        reg = key - vals.pop() as usize;
+                        let left_distance = decode_cost_component(values.pop());
+                        let right_distance = distance;
+                        let key = keys.pop(&mut values);
                         // Strict `<` ties to the right, matching the
                         // lexicographic (k, k) comparison.
-                        let chose_left = left < right;
+                        let chose_left = left_distance < right_distance;
                         self.route().record(key, chose_left);
-                        let m = if chose_left { left } else { right };
-                        d = m.saturating_add(1);
+                        let nearer = if chose_left {
+                            left_distance
+                        } else {
+                            right_distance
+                        };
+                        distance = nearer.saturating_add(1);
                     }
                 }
             }
