@@ -58,6 +58,10 @@
 //! once at each of the pair's two levels — and a child builds one family at a
 //! time, in roster order, so its live set stays one operand-bundle pair wide.
 
+// The acceptance entry point's doc cites the private judge seam it drives;
+// the link is the rename detector, and the internal-docs gate resolves it.
+#![allow(rustdoc::private_intra_doc_links)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::sync::{Mutex, OnceLock};
@@ -510,10 +514,12 @@ pub fn run(
     render_results(&merge(scale, shards, &spawn(scale)?), out)
 }
 
-/// Sweep every cell's whole measurement ladder — the two sizes at each of
-/// the ladder's two sampling scales — across `shards` child processes per
-/// sweep, judge each cell's exponents as one trend over the four measured
-/// points, and render both matrices to `out`.
+/// Sweep every cell's whole measurement ladder and render both matrices to
+/// `out`: the board's acceptance judgment.
+///
+/// The ladder is the two sizes at each of the ladder's two sampling scales,
+/// swept across `shards` child processes per sweep; each cell's exponents
+/// are judged as one trend over the four measured points.
 ///
 /// This is the acceptance judgment — the board's one verdict of record
 /// (`just amp-board-acceptance`): every constant, declared-model band, and

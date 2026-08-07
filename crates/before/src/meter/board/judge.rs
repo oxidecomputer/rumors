@@ -159,11 +159,12 @@ fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
     }
 }
 
-/// The per-currency exponent ceilings over the fitted span, resolved from the
-/// declared models (the `ceilings` module's declared-models section): the
-/// fold rows' predicted-marginal ceiling on the fold currencies, a
-/// family-stated limb exponent where one is declared, the global bound
-/// everywhere else.
+/// The per-currency exponent ceilings over the fitted span.
+///
+/// Resolved from the declared models (the `ceilings` module's
+/// declared-models section): the fold rows' predicted-marginal ceiling on
+/// the fold currencies, a family-stated limb exponent where one is
+/// declared, the global bound everywhere else.
 fn exp_ceilings(first: &Sample, last: &Sample) -> ByCurrency<f64> {
     let spans =
         last.exp_denom_bytes as f64 >= first.exp_denom_bytes as f64 * MIN_EXPONENT_DENOM_GROWTH;
@@ -212,10 +213,11 @@ pub(super) struct CellResult {
 }
 
 /// Score one window (a cell's two samples at one scale) against the
-/// ceilings, the declared models, and the liveness floors, with the exponent
-/// legs judged at the supplied fits — the trend over every point the run
-/// measured, which for a single-scale run is exactly this window and for the
-/// acceptance judgment spans the whole ladder.
+/// ceilings, the declared models, and the liveness floors.
+///
+/// The exponent legs are judged at the supplied fits — the trend over every
+/// point the run measured, which for a single-scale run is exactly this
+/// window and for the acceptance judgment spans the whole ladder.
 ///
 /// Every exponent — the limb column's included — is judged against the
 /// denominator bytes (packed input, or `n_io` on the I/O-denominated cells),
@@ -403,10 +405,11 @@ pub(super) fn evaluate(
     judge_window(op, family, s1, s2, fits, ceilings)
 }
 
-/// Score one cell across its whole measurement ladder: one exponent trend
-/// over all four measured points (the two sizes at each sampling scale),
-/// with every constant, declared-model band, and liveness floor still judged
-/// per window.
+/// Score one cell across its whole measurement ladder.
+///
+/// One exponent trend over all four measured points (the two sizes at each
+/// sampling scale), with every constant, declared-model band, and liveness
+/// floor still judged per window.
 ///
 /// Returns the two windows' results in ladder order; an exponent-leg red
 /// binds both windows (the trend is one judgment), so it renders on both
