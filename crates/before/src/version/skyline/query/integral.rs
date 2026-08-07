@@ -286,16 +286,6 @@ pub(super) fn base_digits(value: &Base) -> usize {
     digits.max(1)
 }
 
-/// A magnitude's little-endian base-2^32 digits.
-///
-/// The top digit of the top limb may be zero (the compaction loop skips
-/// zero digits, so the padding is free).
-pub(super) fn u32_digits(value: &Base) -> Vec<u32> {
-    Limbs::new(&value.0)
-        .flat_map(|limb| [(limb & 0xFFFF_FFFF) as u32, (limb >> 32) as u32])
-        .collect()
-}
-
 /// Split an ascending balanced-digit run into clusters whose interior zero gaps
 /// never exceed `gap_limit` digit positions.
 ///

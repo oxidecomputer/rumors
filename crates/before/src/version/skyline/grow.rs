@@ -1,5 +1,6 @@
 //! The grow splice on skyline streams: rebuild exactly one root-to-leaf path
-//! along a recorded route, registering `k >= 1` events at once.
+//! along a recorded route, registering `k >= 1` events at once (the `events`
+//! parameter of [`emit`]).
 //!
 //! `grow` registers new events when `fill` cannot simplify the tree, by
 //! inflating the cheapest available leaf — cheapest by the lexicographic cost
@@ -84,6 +85,12 @@
 //! guard against a walk/emit coordinate drift, which would misread a direction
 //! silently rather than panic. Deep spines swap the native-frame oracle for
 //! closed-form expected values.
+
+// The module doc names crate-private machinery by intra-doc link so a rename
+// cannot rot the prose (the internal doc build resolves every link); on the
+// public build those links render as plain code spans — the items are private —
+// which this allow accepts.
+#![allow(rustdoc::private_intra_doc_links)]
 
 use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, Code};
 
@@ -227,13 +234,13 @@ impl<'a> EvScan<'a> {
     /// Panics if the stream is not a canonical skyline encoding.
     #[cfg(test)]
     fn skip(&mut self) {
-        // One unary read per descent: `k` internal nodes open two children
-        // each, and the terminating leaf closes one.
+        // One unary read per descent: each internal node in the run opens two
+        // children, and the terminating leaf closes one.
         let mut pending = 1usize;
         while pending > 0 {
-            let k = self.cursor.read_unary().expect("canonical skyline bits");
+            let internal_nodes = self.cursor.read_unary().expect("canonical skyline bits");
             self.cursor.skip_int().expect("canonical skyline bits");
-            pending = pending + k - 1;
+            pending = pending + internal_nodes - 1;
         }
     }
 }
@@ -258,12 +265,12 @@ fn id_skip(bits: &BitsSlice, pos: usize) -> usize {
 
 /// The boundary repair a spliced subtree's first payload code needs.
 #[derive(Clone, Copy)]
-enum Repair<'k> {
+enum Repair<'a> {
     /// The predecessor leaf is unchanged: copy the code verbatim.
     None,
-    /// The predecessor is the grown leaf, `k` higher than it was: the delta
-    /// drops by `k`.
-    Minus(&'k Base),
+    /// The predecessor is the grown leaf, raised by the event count: the delta
+    /// drops by the same amount.
+    Minus(&'a Base),
 }
 
 /// One complete off-path subtree, located by a forward topology scan.
@@ -323,25 +330,30 @@ fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
 /// The first leaf goes through the builder's collapse checks (with the
 /// successor repair when the grown leaf precedes it); the remainder is one
 /// verbatim splice.
-fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, repair: Repair<'_>) {
-    let info = scan_subtree(ev.bits, ev.pos());
-    let orig = &ev.bits[info.first_code.clone()];
+fn feed_subtree(
+    out: &mut SkylineBuilder,
+    event: &mut EvScan<'_>,
+    depth: usize,
+    repair: Repair<'_>,
+) {
+    let subtree = scan_subtree(event.bits, event.pos());
+    let original = &event.bits[subtree.first_code.clone()];
     let first_code = match repair {
-        Repair::None => Code::from_slice(orig),
+        Repair::None => Code::from_slice(original),
         // The successor is never the stream's first leaf (the grown leaf
         // precedes it), so its code is always a zigzag delta.
-        Repair::Minus(k) => recode(orig, Step::DownDelta, k),
+        Repair::Minus(events) => recode(original, Step::DownDelta, events),
     };
-    out.leaf(depth + info.first_rel_depth, first_code);
-    if info.first_rel_depth > 0 {
+    out.leaf(depth + subtree.first_rel_depth, first_code);
+    if subtree.first_rel_depth > 0 {
         out.continue_verbatim(
-            &ev.bits[info.first_code.end..info.end],
+            &event.bits[subtree.first_code.end..subtree.end],
             depth,
-            info.last_rel_depth,
-            info.last_code.len(),
+            subtree.last_rel_depth,
+            subtree.last_code.len(),
         );
     }
-    ev.seek(info.end);
+    event.seek(subtree.end);
 }
 
 /// The three height steppings [`recode`] performs.
@@ -353,25 +365,25 @@ fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, rep
 #[derive(Clone, Copy)]
 enum Step {
     /// The grown leaf as the stream's first: its absolute height rises
-    /// by `k`.
+    /// by the event count.
     UpAbsolute,
     /// The grown leaf behind a predecessor: its zigzag delta rises by
-    /// `k`.
+    /// the event count.
     UpDelta,
-    /// The grown leaf's successor: its zigzag delta drops by `k`, undoing the
-    /// raise the grown leaf's own step introduced.
+    /// The grown leaf's successor: its zigzag delta drops by the event count,
+    /// undoing the raise the grown leaf's own step introduced.
     DownDelta,
 }
 
-/// Re-code one leaf payload with its height stepped by `k`, per [`Step`].
+/// Re-code one leaf payload with its height stepped by `events`, per [`Step`].
 ///
 /// One decode, one signed step, one re-encode — `O(the code's own width + the
-/// width of k)`, the only payload arithmetic in the whole emit.
-fn recode(code: &BitsSlice, step: Step, k: &Base) -> Code {
+/// width of events)`, the only payload arithmetic in the whole emit.
+fn recode(code: &BitsSlice, step: Step, events: &Base) -> Code {
     let (value, end) = codec::decode_int(code, 0).expect("canonical skyline bits");
     debug_assert_eq!(end, code.len(), "a payload range is exactly one code");
     let increment = match step {
-        Step::UpAbsolute => return gamma_code(&(value + k)),
+        Step::UpAbsolute => return gamma_code(&(value + events)),
         Step::UpDelta => true,
         Step::DownDelta => false,
     };
@@ -379,32 +391,34 @@ fn recode(code: &BitsSlice, step: Step, k: &Base) -> Code {
     let stepped = match (increment, negative) {
         // Stepping a nonnegative delta up, or a negative one further down,
         // grows the magnitude.
-        (true, false) | (false, true) => zigzag_signed(negative, magnitude + k),
+        (true, false) | (false, true) => zigzag_signed(negative, magnitude + events),
         // Stepping a nonnegative delta down past zero: the sign flips and the
-        // magnitude is the overshoot — `k` itself from a zero magnitude, read
-        // off the unmetered width so the zero case costs exactly its
+        // magnitude is the overshoot — `events` itself from a zero magnitude,
+        // read off the unmetered width so the zero case costs exactly its
         // comparison.
-        (false, false) if magnitude < *k => {
-            let over = if magnitude.bits() == 0 {
-                k.clone()
+        (false, false) if magnitude < *events => {
+            let overshoot = if magnitude.bits() == 0 {
+                events.clone()
             } else {
-                k.clone() - &magnitude
+                events.clone() - &magnitude
             };
-            zigzag_signed(true, over)
+            zigzag_signed(true, overshoot)
         }
-        // Otherwise the magnitude shrinks by `k`; a shrink to exactly zero
-        // lands on the positive zero. The increment-on-negative arm can cross
-        // zero only at `k > magnitude >= 1`, which the width tests decide for
-        // free at `k = 1` (one bit wide) and route through one comparison only
-        // when the widths tie.
+        // Otherwise the magnitude shrinks by `events`; a shrink to exactly
+        // zero lands on the positive zero. The increment-on-negative arm can
+        // cross zero only at `events > magnitude >= 1`, which the width tests
+        // decide for free at a one-event step (one bit wide) and route through
+        // one comparison only when the widths tie.
         (true, true) | (false, false) => {
             let crosses = negative
-                && (magnitude.bits() < k.bits()
-                    || (magnitude.bits() == k.bits() && k.bits() > 1 && magnitude < *k));
+                && (magnitude.bits() < events.bits()
+                    || (magnitude.bits() == events.bits()
+                        && events.bits() > 1
+                        && magnitude < *events));
             if crosses {
-                zigzag_signed(false, k.clone() - &magnitude)
+                zigzag_signed(false, events.clone() - &magnitude)
             } else {
-                let shrunk = magnitude - k;
+                let shrunk = magnitude - events;
                 zigzag_signed(negative && shrunk != Base::ZERO, shrunk)
             }
         }
@@ -412,32 +426,40 @@ fn recode(code: &BitsSlice, step: Step, k: &Base) -> Code {
     gamma_code(&stepped)
 }
 
-/// Emit the grown stream: replay `route` along the chosen path and register `k`
-/// events at the inflation site in one `+k` compound.
+/// Emit the grown stream: replay `route` along the chosen path and register
+/// all `events` events at the inflation site in one compound splice.
 ///
 /// Everything off the path is spliced verbatim, the boundary deltas repair by
-/// `±k`, and the output runs through the builder, which collapses anything the
-/// splice leaves collapsible; the module doc carries why one compound equals
-/// `k` sequential grows.
+/// `±events`, and the output runs through the builder, which collapses
+/// anything the splice leaves collapsible; the module doc carries why one
+/// compound equals `events` sequential grows.
 ///
-/// `route` is the fused tick walk's record over exactly this `(ev, id)` pair,
-/// and the pair is one the walk left unchanged — the caller
+/// `route` is the fused tick walk's record over exactly this `(event, id)`
+/// pair, and the pair is one the walk left unchanged — the caller
 /// (`fill::tick`/`fill::ticks`) established both. The id must own at least one
-/// region and `k` must be at least 1; the result otherwise is unspecified in
-/// release builds (debug builds panic).
-pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &Base) -> BitsMut {
+/// region and `events` must be at least 1; the result otherwise is unspecified
+/// in release builds (debug builds panic).
+pub(super) fn emit(
+    event_bits: &BitsSlice,
+    id_bits: &BitsSlice,
+    route: &Route,
+    events: &Base,
+) -> BitsMut {
     debug_assert!(
         !id_bits.is_empty(),
         "grow requires an id owning at least one region"
     );
     // The width test keeps the guard off the limb meter: a dev-profile meter
     // reading must match the release reading on this path.
-    debug_assert!(k.bits() != 0, "the splice registers at least one event");
-    let mut ev = EvScan::new(ev_bits);
+    debug_assert!(
+        events.bits() != 0,
+        "the splice registers at least one event"
+    );
+    let mut event = EvScan::new(event_bits);
     let mut id_pos = 0usize;
     // Subadditivity of the coding bounds the output by the input plus the
     // expansion chain's fresh codes, each a few bits per id level.
-    let mut out = SkylineBuilder::with_capacity(ev_bits.len() + id_bits.len() + 64);
+    let mut out = SkylineBuilder::with_capacity(event_bits.len() + id_bits.len() + 64);
     // One bit per chosen-path level: `true` = the branch descended left, so its
     // right sibling subtree is pending after the inflation point.
     let mut pending = BitsMut::new();
@@ -456,30 +478,36 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
     // the builder, the pending-sibling bits, the path depth, `fed_any`), all of
     // which the later phases keep using, so a function boundary would thread
     // every one of them.
-    let (orig_code, chain_dirs) = loop {
+    let (original_range, chain_dirs) = loop {
         let key = id_pos;
-        let (l, r) = id_tag(id_bits, id_pos);
+        let (left_present, right_present) = id_tag(id_bits, id_pos);
         id_pos += 2;
-        if !l && !r {
+        if !left_present && !right_present {
             // A fully-owned terminal: on the unchanged branch it covers a
             // single leaf (over an event node, `fill(1, e) = max(e)` would have
             // collapsed the region and tripped the changed flag), and
             // incrementing that leaf in place is the inflation.
-            match ev.read() {
+            match event.read() {
                 Some(code) => break (code, BitsMut::new()),
                 None => unreachable!("a full id over an event node collapses under fill"),
             }
         }
-        match ev.read() {
+        match event.read() {
             // An id node over an event node: one more path level.
             None => {
                 if route.descends_left(key) {
-                    debug_assert!(l, "the chosen path never enters an absent id child");
+                    debug_assert!(
+                        left_present,
+                        "the chosen path never enters an absent id child"
+                    );
                     pending.push(true);
                 } else {
-                    debug_assert!(r, "the chosen path never enters an absent id child");
-                    feed_subtree(&mut out, &mut ev, depth + 1, Repair::None);
-                    if l {
+                    debug_assert!(
+                        right_present,
+                        "the chosen path never enters an absent id child"
+                    );
+                    feed_subtree(&mut out, &mut event, depth + 1, Repair::None);
+                    if left_present {
                         id_pos = id_skip(id_bits, id_pos);
                     }
                     fed_any = true;
@@ -490,60 +518,70 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
             // An id node over an event leaf — the chain below is id-only, its
             // directions collected for the fresh leaves' preorder.
             Some(code) => {
-                let mut dirs = BitsMut::new();
-                let mut cur = (key, l, r);
+                let mut directions = BitsMut::new();
+                let mut current = (key, left_present, right_present);
                 loop {
-                    let (key, l, r) = cur;
+                    let (key, left_present, right_present) = current;
                     let left = route.descends_left(key);
                     if left {
-                        debug_assert!(l, "the chosen path never enters an absent id child");
+                        debug_assert!(
+                            left_present,
+                            "the chosen path never enters an absent id child"
+                        );
                     } else {
-                        debug_assert!(r, "the chosen path never enters an absent id child");
-                        if l {
+                        debug_assert!(
+                            right_present,
+                            "the chosen path never enters an absent id child"
+                        );
+                        if left_present {
                             id_pos = id_skip(id_bits, id_pos);
                         }
                     }
-                    dirs.push(left);
-                    let next = (id_pos, id_tag(id_bits, id_pos));
+                    directions.push(left);
+                    let next_key = id_pos;
+                    let (next_left, next_right) = id_tag(id_bits, id_pos);
                     id_pos += 2;
-                    let (nkey, (nl, nr)) = next;
-                    if !nl && !nr {
+                    if !next_left && !next_right {
                         break;
                     }
-                    cur = (nkey, nl, nr);
+                    current = (next_key, next_left, next_right);
                 }
-                break (code, dirs);
+                break (code, directions);
             }
         }
     };
 
-    // Phase 2: the inflation point, with the grown height `h + k`. The original
-    // leaf spanned depth `d0`; a chain of expansions roots a fresh subtree
-    // there whose leaves are the original height `h` everywhere except the
-    // grown leaf's `h + k` at the bottom — so every fresh code is a `0`/`±k`
-    // delta, except the chain's first leaf, which keeps the original code (same
-    // height, same predecessor) or re-codes it `+k` when the grown leaf itself
-    // comes first.
-    let d0 = depth;
+    // Phase 2: the inflation point, with the grown height `h + k`. The
+    // original leaf spanned the path's depth; a chain of expansions roots a
+    // fresh subtree there whose leaves are the original height `h` everywhere
+    // except the grown leaf's `h + k` at the bottom — so every fresh code is a
+    // `0`/`±k` delta, except the chain's first leaf, which keeps the original
+    // code (same height, same predecessor) or re-codes it `+k` when the grown
+    // leaf itself comes first.
+    let path_depth = depth;
     let chain = chain_dirs.len();
-    let orig = &ev_bits[orig_code];
-    debug_assert_eq!(d0, pending.len(), "one pending record per path level");
+    let original = &event_bits[original_range];
+    debug_assert_eq!(
+        path_depth,
+        pending.len(),
+        "one pending record per path level"
+    );
     let mut emitted_in_chain = false;
     // Fresh sibling leaves that precede the grown leaf: one per level whose
     // branch descended right (the sibling is the left child).
-    for j in 0..chain {
-        if !chain_dirs[j] {
+    for level in 0..chain {
+        if !chain_dirs[level] {
             let code = if emitted_in_chain {
                 gamma_code(&Base::ZERO)
             } else {
-                Code::from_slice(orig)
+                Code::from_slice(original)
             };
-            out.leaf(d0 + j + 1, code);
+            out.leaf(path_depth + level + 1, code);
             emitted_in_chain = true;
         }
     }
     let grown_code = if emitted_in_chain {
-        gamma_code_signed(false, k)
+        gamma_code_signed(false, events)
     } else {
         // With nothing fed before it, the grown leaf is the output's first: its
         // code is the absolute height, not a delta.
@@ -552,19 +590,19 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
         } else {
             Step::UpAbsolute
         };
-        recode(orig, step, k)
+        recode(original, step, events)
     };
-    out.leaf(d0 + chain, grown_code);
+    out.leaf(path_depth + chain, grown_code);
     // Fresh sibling leaves that follow the grown leaf, deepest first.
     let mut first_after_grown = true;
-    for j in (0..chain).rev() {
-        if chain_dirs[j] {
+    for level in (0..chain).rev() {
+        if chain_dirs[level] {
             let code = if first_after_grown {
-                gamma_code_signed(true, k)
+                gamma_code_signed(true, events)
             } else {
                 gamma_code(&Base::ZERO)
             };
-            out.leaf(d0 + j + 1, code);
+            out.leaf(path_depth + level + 1, code);
             first_after_grown = false;
         }
     }
@@ -574,18 +612,18 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &
     // can need the `−k` repair, and only when the grown leaf (not a trailing
     // fresh sibling) is the last leaf the inflation emitted.
     let mut repair = if first_after_grown {
-        Repair::Minus(k)
+        Repair::Minus(events)
     } else {
         Repair::None
     };
-    for level in (0..d0).rev() {
+    for level in (0..path_depth).rev() {
         let went_left = pending.pop().expect("one pending record per path level");
         if went_left {
-            feed_subtree(&mut out, &mut ev, level + 1, repair);
+            feed_subtree(&mut out, &mut event, level + 1, repair);
             repair = Repair::None;
         }
     }
-    debug_assert_eq!(ev.pos(), ev_bits.len(), "the emit consumes the event");
+    debug_assert_eq!(event.pos(), event_bits.len(), "the emit consumes the event");
     out.finish()
 }
 

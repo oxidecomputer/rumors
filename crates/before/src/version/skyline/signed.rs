@@ -65,6 +65,23 @@ impl Signed {
     pub(super) fn is_zero(&self) -> bool {
         self.magnitude.is_zero()
     }
+
+    /// The sum of two [`Signed`] values: [`signed_sum_int`] lifted to the
+    /// struct.
+    ///
+    /// Never yields a negative zero, as [`signed_sum`].
+    pub(super) fn sum(self, other: &Signed) -> Signed {
+        let (negative, magnitude) = signed_sum_int(
+            self.negative,
+            self.magnitude,
+            other.negative,
+            &other.magnitude,
+        );
+        Signed {
+            negative,
+            magnitude,
+        }
+    }
 }
 
 /// Map the signed difference `cur − prev` to its zigzag magnitude:
@@ -261,17 +278,6 @@ pub(super) fn signed_sum_int(x_neg: bool, x: Int, y_neg: bool, y: &Int) -> (bool
     };
     let (negative, magnitude) = signed_sum(x_neg, x.into_base(), y_neg, y);
     (negative, Int::from_base(magnitude))
-}
-
-/// The sum of two [`Signed`] values: [`signed_sum_int`] lifted to the struct.
-///
-/// Never yields a negative zero, as [`signed_sum`].
-pub(super) fn signed_sum_base(x: Signed, y: &Signed) -> Signed {
-    let (negative, magnitude) = signed_sum_int(x.negative, x.magnitude, y.negative, &y.magnitude);
-    Signed {
-        negative,
-        magnitude,
-    }
 }
 
 /// Whether `x <= y` over signed relative quantities. Zero compares equal under

@@ -77,10 +77,10 @@ impl LeafWalk {
             }
         }
         self.started = true;
-        // One whole descent per unary read: `k` internal nodes, then
+        // One whole descent per unary read: the run's internal nodes, then
         // the leaf whose flag terminates the run.
-        let k = cursor.read_unary().expect("canonical skyline bits");
-        for _ in 0..k {
+        let internal_nodes = cursor.read_unary().expect("canonical skyline bits");
+        for _ in 0..internal_nodes {
             self.path.push(false);
         }
         Some(self.path.len())
@@ -108,7 +108,7 @@ enum Direction {
 /// range's own content, which prices every later fold of it.
 pub(super) struct Extremum {
     /// `extremum − h`, the running register.
-    acc: Accumulator,
+    register: Accumulator,
     /// Whether the first leaf has armed the fold.
     armed: bool,
     /// The extreme the register tracks.
@@ -118,12 +118,12 @@ pub(super) struct Extremum {
 impl Extremum {
     /// Track the maximum, resetting when the height rises past it.
     ///
-    /// `acc` is a leased watermark-pool buffer (zero, returned to its pool by
-    /// the caller's materialize), so resets re-zero it in place and the pool
+    /// `register` is a leased watermark-pool buffer (zero, returned to its pool
+    /// by the caller's materialize), so resets re-zero it in place and the pool
     /// stays warm.
-    pub(super) fn max(acc: Accumulator) -> Self {
+    pub(super) fn max(register: Accumulator) -> Self {
         Extremum {
-            acc,
+            register,
             armed: false,
             direction: Direction::Max,
         }
@@ -131,12 +131,12 @@ impl Extremum {
 
     /// Track the minimum, resetting when the height drops past it.
     ///
-    /// `acc` is an owned buffer: resets replace it whole, because an in-place
-    /// clear scans (and meters) every dead digit a wide swing left behind where
-    /// dropping the buffer is O(1).
-    pub(super) fn min(acc: Accumulator) -> Self {
+    /// `register` is an owned buffer: resets replace it whole, because an
+    /// in-place clear scans (and meters) every dead digit a wide swing left
+    /// behind where dropping the buffer is O(1).
+    pub(super) fn min(register: Accumulator) -> Self {
         Extremum {
-            acc,
+            register,
             armed: false,
             direction: Direction::Min,
         }
@@ -144,12 +144,12 @@ impl Extremum {
 
     /// Fold one consumed leaf-to-leaf step; the arming first call
     /// folds nothing.
-    pub(super) fn fold(&mut self, neg: bool, mag: &Int) {
+    pub(super) fn fold(&mut self, negative: bool, magnitude: &Int) {
         if !self.armed {
             self.armed = true;
             return;
         }
-        self.fold_armed(neg, mag);
+        self.fold_armed(negative, magnitude);
     }
 
     /// Fold one undecoded zigzag payload code; the arming first call folds
@@ -160,27 +160,27 @@ impl Extremum {
             self.armed = true;
             return;
         }
-        let (neg, mag) = unzigzag(code);
-        self.fold_armed(neg, &mag);
+        let (negative, magnitude) = unzigzag(code);
+        self.fold_armed(negative, &magnitude);
     }
 
-    fn fold_armed(&mut self, neg: bool, mag: &Int) {
-        fold_signed_int(&mut self.acc, !neg, mag);
+    fn fold_armed(&mut self, negative: bool, magnitude: &Int) {
+        fold_signed_int(&mut self.register, !negative, magnitude);
         let overtaken = match self.direction {
             Direction::Max => Ordering::Less,
             Direction::Min => Ordering::Greater,
         };
-        if self.acc.sign() == overtaken {
+        if self.register.sign() == overtaken {
             match self.direction {
-                Direction::Max => self.acc.reset(),
-                Direction::Min => self.acc = Accumulator::new(),
+                Direction::Max => self.register.reset(),
+                Direction::Min => self.register = Accumulator::new(),
             }
         }
     }
 
     /// The finished register, `extremum − h` at the walk's exit.
     pub(super) fn into_offset(self) -> Accumulator {
-        self.acc
+        self.register
     }
 }
 
@@ -244,14 +244,14 @@ pub(super) fn fold_region(
         };
         let start = cursor.position();
         let code = cursor.read_int().expect("canonical skyline bits");
-        let (neg, mag) = if first {
+        let (negative, magnitude) = if first {
             first = false;
             (false, code)
         } else {
             unzigzag(code)
         };
-        fold_signed_int(net, neg, &mag);
-        extremum.fold(neg, &mag);
+        fold_signed_int(net, negative, &magnitude);
+        extremum.fold(negative, &magnitude);
         last = Some((depth, cursor.position() - start));
     }
     last
@@ -289,16 +289,16 @@ pub(super) fn skip_leaves(
     let mut min = Extremum::min(Accumulator::new());
     let (last_depth, last_code_len) =
         fold_region(walk, cursor, first, &mut net, &mut min, pending)?;
-    let (n_sign, n_mag) = net.sign_magnitude();
-    let (o_sign, o_mag) = min.into_offset().sign_magnitude();
+    let (net_sign, net_magnitude) = net.sign_magnitude();
+    let (min_sign, min_magnitude) = min.into_offset().sign_magnitude();
     debug_assert_ne!(
-        o_sign,
+        min_sign,
         Ordering::Greater,
         "the minimum is at or below the exit height"
     );
     Some(RegionSkip {
-        net: Signed::from_sign_magnitude(n_sign, n_mag),
-        min_from_exit: Signed::from_sign_magnitude(o_sign, o_mag),
+        net: Signed::from_sign_magnitude(net_sign, net_magnitude),
+        min_from_exit: Signed::from_sign_magnitude(min_sign, min_magnitude),
         last_depth,
         last_code_len,
     })

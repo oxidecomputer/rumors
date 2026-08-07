@@ -47,6 +47,12 @@
 //! - [`text`] renders and parses the paper's text notation directly on
 //!   the streams.
 //!
+//! Three machinery layers sit under the operations, each with its own essay:
+//! [`overlay`] (the tiling cursors and the advance law every merge steps by),
+//! the private `watermark` (the anchored-minimum web the fill walk and the
+//! min-ticks fold share), and the private `signed` (the sign-magnitude
+//! currency: the zigzag maps, the signed folds and sums, the gamma codes).
+//!
 //! Every kernel is differentially pinned against the recursive oracle
 //! (`crate::oracle`), and the meter surface re-exports the module
 //! ([`crate::meter::skyline`]) so the resource-envelope suite can pin its

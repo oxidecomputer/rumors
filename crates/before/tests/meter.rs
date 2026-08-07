@@ -7616,7 +7616,7 @@ mod memo_resolution_cost {
 // touches on a Θ(k + b) input whose output is Θ(k + b) too (each
 // site's fill collapses to the shared plateau leaf; the per-site
 // output deltas are unit codes) — an amplification the input+output
-// denominator cannot excuse. The watermark stack's latent boundary
+// denominator cannot excuse. The watermark web's latent boundary
 // register is what these pins hold: a close MOVES the popped wide
 // boundary into the register and the next consume's arm recycles it
 // by a narrow anchor-relative fold, with the relation follower going
@@ -7632,8 +7632,8 @@ mod memo_resolution_cost {
 // the cost leg alone. The high-floor control (identical forest,
 // identical deferral and close-reveal cycle, consume-time gap 2)
 // separates the wide gap from the shape; the pure comb (no left-full
-// site anywhere: no memo, no pre-scan) pins the base watermark
-// stack's own arm-move + close-pop cycle in isolation.
+// site anywhere: no memo, no pre-scan) pins the watermark web's
+// own arm-move + close-pop cycle in isolation.
 #[cfg(feature = "limb-meter")]
 mod width_circulation_cost {
     use before::meter;
@@ -7759,8 +7759,8 @@ mod width_circulation_cost {
         );
     }
 
-    /// The pure comb's arm-move + close-pop cycle is flat in the base
-    /// watermark stack alone — at most ×1.15 per-byte touch growth
+    /// The pure comb's arm-move + close-pop cycle is flat in the
+    /// watermark web alone — at most ×1.15 per-byte touch growth
     /// across a width doubling at fixed site count, under an absolute
     /// band on the larger run.
     ///

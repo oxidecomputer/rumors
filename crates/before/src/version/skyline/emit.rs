@@ -80,6 +80,30 @@ use super::overlay::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
 use super::signed::{gamma_code_int, gamma_code_signed_int, signed_sum_int};
 use super::sweep::Directions;
 
+/// The side a pointwise max follows on one elementary interval: the higher
+/// side by the running difference's sign (`D = height_a − height_b`), sticky
+/// at ties — `D = 0` keeps the current side, which both inputs then agree on.
+///
+/// The whole difference between join and meet is which of this pair of pick
+/// functions the sweep consults (the module doc's side-switch algebra).
+fn follow_max(sign: Ordering, current: Side) -> Side {
+    match sign {
+        Ordering::Greater => Side::A,
+        Ordering::Less => Side::B,
+        Ordering::Equal => current,
+    }
+}
+
+/// The side a pointwise min follows on one elementary interval:
+/// [`follow_max`] mirrored — the lower side wins, sticky at ties.
+fn follow_min(sign: Ordering, current: Side) -> Side {
+    match sign {
+        Ordering::Less => Side::A,
+        Ordering::Greater => Side::B,
+        Ordering::Equal => current,
+    }
+}
+
 /// The join (pointwise max) of the versions two skyline streams denote, as a
 /// canonical skyline stream.
 ///
@@ -96,12 +120,7 @@ use super::sweep::Directions;
 /// collapsible sibling pair, a delta driving the running height negative) sweep
 /// silently, and the output is then unspecified.
 pub fn join(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
-    // Pointwise max: the higher side wins the interval, sticky at ties.
-    emit(a, b, |sign, current| match sign {
-        Ordering::Greater => Side::A,
-        Ordering::Less => Side::B,
-        Ordering::Equal => current,
-    })
+    emit(a, b, follow_max)
 }
 
 /// The meet (pointwise min) of the versions two skyline streams denote, as a
@@ -114,12 +133,7 @@ pub fn join(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output.
 pub fn meet(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
-    // Pointwise min: the lower side wins the interval, sticky at ties.
-    emit(a, b, |sign, current| match sign {
-        Ordering::Less => Side::A,
-        Ordering::Greater => Side::B,
-        Ordering::Equal => current,
-    })
+    emit(a, b, follow_min)
 }
 
 /// The fused hull's product: the two endpoint streams beside the pair's causal
@@ -177,8 +191,8 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
     }
 
     let OpenedPair {
-        a: mut ca,
-        b: mut cb,
+        a: mut cursor_a,
+        b: mut cursor_b,
         mut diff,
         a_first,
         b_first,
@@ -187,30 +201,20 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
     // One sign read serves the whole interval: both side picks and the relation
     // fold consume the same `sign(D)`, so the accumulator is read once per
     // elementary interval however many consumers share it.
-    let mut dirs = Directions::new();
+    let mut directions = Directions::new();
     let sign = diff.sign();
-    dirs.fold(sign);
+    directions.fold(sign);
 
     // The first interval opens each output with its winning side's absolute
     // height; the capacity estimate is `emit`'s, per builder.
     let mut outputs = [
-        // Pointwise min: the lower side wins, sticky at ties.
         Emission {
-            pick: |sign, current| match sign {
-                Ordering::Less => Side::A,
-                Ordering::Greater => Side::B,
-                Ordering::Equal => current,
-            },
+            pick: follow_min,
             side: Side::A,
             out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
         },
-        // Pointwise max: the higher side wins, sticky at ties.
         Emission {
-            pick: |sign, current| match sign {
-                Ordering::Greater => Side::A,
-                Ordering::Less => Side::B,
-                Ordering::Equal => current,
-            },
+            pick: follow_max,
             side: Side::A,
             out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
         },
@@ -221,20 +225,21 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
             Side::A => &a_first,
             Side::B => &b_first,
         };
-        emission
-            .out
-            .leaf(ca.depth().max(cb.depth()), gamma_code_int(first));
+        emission.out.leaf(
+            cursor_a.depth().max(cursor_b.depth()),
+            gamma_code_int(first),
+        );
     }
 
-    while !(ca.done() && cb.done()) {
+    while !(cursor_a.done() && cursor_b.done()) {
         // One crossing, folded once, serves both outputs' deltas.
-        let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
+        let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
         let sign = diff.sign();
-        dirs.fold(sign);
-        let depth = ca.depth().max(cb.depth());
+        directions.fold(sign);
+        let depth = cursor_a.depth().max(cursor_b.depth());
         for emission in &mut outputs {
             let new_side = (emission.pick)(sign, emission.side);
-            let code = delta_code(&diff, emission.side, new_side, &da, &db);
+            let code = delta_code(&diff, emission.side, new_side, &step_a, &step_b);
             emission.side = new_side;
             emission.out.leaf(depth, code);
         }
@@ -242,7 +247,7 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
 
     let [lo, hi] = outputs;
     Hull {
-        relation: dirs.relation(),
+        relation: directions.relation(),
         lo: lo.out.finish(),
         hi: hi.out.finish(),
     }
@@ -256,8 +261,8 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
 /// side-switch algebra).
 fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) -> Side) -> BitsMut {
     let OpenedPair {
-        a: mut ca,
-        b: mut cb,
+        a: mut cursor_a,
+        b: mut cursor_b,
         mut diff,
         a_first,
         b_first,
@@ -277,14 +282,17 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
         Side::A => &a_first,
         Side::B => &b_first,
     };
-    out.leaf(ca.depth().max(cb.depth()), gamma_code_int(first));
+    out.leaf(
+        cursor_a.depth().max(cursor_b.depth()),
+        gamma_code_int(first),
+    );
 
-    while !(ca.done() && cb.done()) {
-        let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
+    while !(cursor_a.done() && cursor_b.done()) {
+        let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
         let new_side = pick(diff.sign(), side);
-        let code = delta_code(&diff, side, new_side, &da, &db);
+        let code = delta_code(&diff, side, new_side, &step_a, &step_b);
         side = new_side;
-        out.leaf(ca.depth().max(cb.depth()), code);
+        out.leaf(cursor_a.depth().max(cursor_b.depth()), code);
     }
 
     // Canonicalizing the storage (zeroing dead pad bits) is the job of
@@ -303,12 +311,12 @@ fn delta_code(
     diff: &Accumulator,
     side: Side,
     new_side: Side,
-    da: &Option<Step>,
-    db: &Option<Step>,
+    step_a: &Option<Step>,
+    step_b: &Option<Step>,
 ) -> Code {
     let step = match side {
-        Side::A => da.as_ref(),
-        Side::B => db.as_ref(),
+        Side::A => step_a.as_ref(),
+        Side::B => step_b.as_ref(),
     };
     if new_side == side {
         return match step {

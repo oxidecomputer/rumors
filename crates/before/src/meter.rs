@@ -1223,7 +1223,7 @@ fn reveal_comb_id(k: usize) -> Packed {
 /// [`pure_comb_id`], no left-full site exists anywhere — no memo, no pre-scan,
 /// no site consume: each wide leaf is walked in its own leaf-under-internal-id
 /// frame, whose first emission arms it `2^b` above the floor and whose close
-/// pops the width-`b` boundary difference back — the base watermark stack's own
+/// pops the width-`b` boundary difference back — the watermark web's own
 /// arm-move + close-pop cycle, isolated from the pre-scan's frame ledger.
 /// Normal form: every comb node's subtree minimum is 0 via the floor, and no
 /// two sibling leaves are equal (`2^b` pairs with an internal node or the

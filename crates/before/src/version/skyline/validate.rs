@@ -15,6 +15,10 @@
 //!
 //! No height, base, or node is ever materialized beyond the one decoded payload
 //! in flight.
+//!
+//! The span wire form's second component never takes this pass: the admission
+//! walk ([`admit`](super::admit)) enforces the same strict obligations fused
+//! with its dominance sweep, the height check subsumed by the verdict.
 
 use core::cmp::Ordering;
 
@@ -72,10 +76,10 @@ where
     let mut seen_leaf = false;
 
     loop {
-        // One whole descent per unary read: `k` internal nodes opened, then the
-        // leaf whose flag terminates the run.
-        let k = cursor.read_unary()?;
-        for _ in 0..k {
+        // One whole descent per unary read: the run's internal nodes opened,
+        // then the leaf whose flag terminates the run.
+        let internal_nodes = cursor.read_unary()?;
+        for _ in 0..internal_nodes {
             open.push(false); // left-complete: the left child comes next
             open.push(false); // left-was-leaf: placeholder until it does
         }

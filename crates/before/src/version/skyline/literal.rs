@@ -14,59 +14,60 @@ use crate::error::Parse;
 
 use super::signed::{unzigzag_base, zigzag};
 
-/// The skyline stream of an event leaf with base `n`.
-pub(crate) fn leaf(n: u64) -> BitsMut {
+/// The skyline stream of an event leaf with base `base`.
+pub(crate) fn leaf(base: u64) -> BitsMut {
     let mut bits = BitsMut::new();
     bits.push(true); // topology: a leaf
-    codec::encode_int(&mut bits, &Base::from(n)); // absolute height
+    codec::encode_int(&mut bits, &Base::from(base)); // absolute height
     bits
 }
 
-/// Compose an event node with base `n` from two already-canonical child
+/// Compose an event node with base `base` from two already-canonical child
 /// streams, enforcing normal form.
 ///
 /// Rejects [`Parse::NotCanonical`] when the node hoards a liftable minimum
 /// (neither child's minimum leaf height is zero — normal form stores the shared
 /// minimum at the parent) or when the node is collapsible (two leaf children of
 /// equal height, which is just the leaf itself).
-pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<BitsMut, Parse> {
-    let (l_topo, l_heights) = scan(l);
-    let (r_topo, r_heights) = scan(r);
+pub(crate) fn node(base: u64, left: &BitsSlice, right: &BitsSlice) -> Result<BitsMut, Parse> {
+    let (left_topology, left_heights) = scan(left);
+    let (right_topology, right_heights) = scan(right);
 
-    let l_min = l_heights
+    let left_min = left_heights
         .iter()
         .min()
         .expect("a tree has at least one leaf");
-    let r_min = r_heights
+    let right_min = right_heights
         .iter()
         .min()
         .expect("a tree has at least one leaf");
-    if *l_min != Base::ZERO && *r_min != Base::ZERO {
+    if *left_min != Base::ZERO && *right_min != Base::ZERO {
         return Err(Parse::NotCanonical); // a liftable minimum: not min-lifted
     }
-    if l_topo.len() == 1 && r_topo.len() == 1 && l_heights[0] == r_heights[0] {
+    if left_topology.len() == 1 && right_topology.len() == 1 && left_heights[0] == right_heights[0]
+    {
         return Err(Parse::NotCanonical); // (n, m, m) collapses to a leaf
     }
 
-    let n = Base::from(n);
+    let base = Base::from(base);
     let mut bits = BitsMut::new();
     bits.push(false); // topology: this node
-    bits.extend_from_bitslice(&l_topo); // then the left subtree's topology…
-    bits.extend_from_bitslice(&r_topo); // …then the right's — but the
-                                        // payloads interleave, so re-emit.
+    bits.extend_from_bitslice(&left_topology); // then the left subtree's topology…
+    bits.extend_from_bitslice(&right_topology); // …then the right's — but the
+                                                // payloads interleave, so re-emit.
     let mut out = BitsMut::new();
-    let mut topo = bits.iter().by_vals();
-    let mut heights = l_heights.iter().chain(r_heights.iter());
+    let mut flags = bits.iter().by_vals();
+    let mut heights = left_heights.iter().chain(right_heights.iter());
     let mut prev: Option<Base> = None;
-    for flag in &mut topo {
+    for flag in &mut flags {
         out.push(flag);
         if !flag {
             continue; // an internal node carries no payload
         }
-        let height = heights.next().expect("one height per leaf") + &n;
+        let height = heights.next().expect("one height per leaf") + &base;
         match &prev {
             None => codec::encode_int(&mut out, &height),
-            Some(p) => codec::encode_int(&mut out, &zigzag(p, &height)),
+            Some(previous) => codec::encode_int(&mut out, &zigzag(previous, &height)),
         }
         prev = Some(height);
     }
@@ -83,17 +84,17 @@ fn scan(bits: &BitsSlice) -> (BitsMut, Vec<Base>) {
     let mut heights: Vec<Base> = Vec::new();
     let mut pending = 1usize;
     while pending > 0 {
-        // One whole descent per unary read: `k` internal nodes, then the leaf
-        // whose flag terminates the run. Each internal node opens two children
-        // and closes itself; the leaf closes itself.
-        let k = cursor
+        // One whole descent per unary read: the run's internal nodes, then the
+        // leaf whose flag terminates the run. Each internal node opens two
+        // children and closes itself; the leaf closes itself.
+        let internal_nodes = cursor
             .read_unary()
             .expect("a canonical stream holds a complete tree");
-        for _ in 0..k {
+        for _ in 0..internal_nodes {
             topology.push(false);
         }
         topology.push(true);
-        pending = pending + k - 1;
+        pending = pending + internal_nodes - 1;
         // The cursor's own `read_int`: word-parallel payload decode.
         let code = cursor
             .read_int()

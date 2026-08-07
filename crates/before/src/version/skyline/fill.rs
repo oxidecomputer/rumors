@@ -166,8 +166,7 @@ use self::memo::Memo;
 use self::prescan::PreScan;
 use super::grow::Cost;
 use super::signed::{
-    fold_signed_int, gamma_code_int, gamma_code_signed_int, signed_max, signed_sum_base, unzigzag,
-    Signed,
+    fold_signed_int, gamma_code_int, gamma_code_signed_int, signed_max, unzigzag, Signed,
 };
 use super::walk::{fold_region, skip_leaves, skip_region, Extremum, LeafWalk};
 use super::watermark::MinWeb;
@@ -903,13 +902,11 @@ impl FillWalk<'_> {
             self.height.sign();
             let (sign, magnitude) = self.height.sign_magnitude();
             debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-            let value = signed_sum_base(
-                Signed {
-                    negative: false,
-                    magnitude: Int::from_ubig(magnitude),
-                },
-                &offset,
-            );
+            let value = Signed {
+                negative: false,
+                magnitude: Int::from_ubig(magnitude),
+            }
+            .sum(&offset);
             debug_assert!(!value.negative, "a collapsed height is a natural");
             self.started = true;
             self.out.leaf(depth, gamma_code_int(&value.magnitude));
@@ -1291,7 +1288,7 @@ fn scan_min_from(event: &BitsSlice, pos: usize, first: bool) -> Signed {
     let mut cursor = codec::DsiCursor::new_at(event, pos);
     let skip = skip_region(&mut cursor, first);
     // `min = h_entry + net + (min − h_exit)`.
-    signed_sum_base(skip.net, &skip.min_from_exit)
+    skip.net.sum(&skip.min_from_exit)
 }
 
 #[cfg(test)]

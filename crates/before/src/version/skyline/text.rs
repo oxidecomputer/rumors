@@ -174,7 +174,11 @@ impl<T> ParkedStack<T> {
     }
 
     fn push(&mut self, entry: T) {
-        if self.chunks.last().is_none_or(|c| c.len() == PARKED_CHUNK) {
+        if self
+            .chunks
+            .last()
+            .is_none_or(|chunk| chunk.len() == PARKED_CHUNK)
+        {
             let chunk = self
                 .spare
                 .take()
@@ -241,10 +245,10 @@ pub fn render(bits: &BitsSlice) -> String {
     let mut entries: Vec<(usize, usize)> = Vec::new();
     let mut first_height: Option<Base> = None;
     let root_summary = 'tree: loop {
-        // One whole descent per unary read: `k` internal nodes, then the leaf
-        // whose flag terminates the run.
-        let k = cursor.read_unary().expect("canonical skyline bits");
-        for _ in 0..k {
+        // One whole descent per unary read: the run's internal nodes, then the
+        // leaf whose flag terminates the run.
+        let internal_nodes = cursor.read_unary().expect("canonical skyline bits");
+        for _ in 0..internal_nodes {
             phase.push(LEFT_PHASE);
             open.push(topology.len());
             topology.push(true);
@@ -411,13 +415,14 @@ fn push_base(arena: &mut String, entries: &mut Vec<(usize, usize)>, node: usize,
 /// Merge a closed internal node's two child summaries, rendering the one
 /// printed base the merge finalizes into the digit arena.
 ///
-/// With `t` the right child's floor relative to the left's entry leaf
-/// (`span(left) + incoming(right) − drop(right)`), the node's floor is
-/// `min(−drop(left), t)`, still relative to the left entry — so `u = t +
-/// drop(left)` decides the min-lift: a non-negative `u` says the left child
-/// sits on the node's floor (its base is zero and `u` is the right child's), a
-/// negative `u` says the right child does (its magnitude is the left child's
-/// base and the node's drop deepens by it). The child the merge leaves off the
+/// With `right_floor` the right child's floor relative to the left's entry
+/// leaf (`span(left) + incoming(right) − drop(right)`), the node's floor is
+/// `min(−drop(left), right_floor)`, still relative to the left entry — so the
+/// min-lift decision quantity `lift = right_floor + drop(left)` settles which
+/// child sits on the node's floor: a non-negative `lift` says the left child
+/// does (its base is zero and `lift` is the right child's base), a negative
+/// `lift` says the right child does (its magnitude is the left child's base
+/// and the node's drop deepens by it). The child the merge leaves off the
 /// arena prints as zero, so each merge stores at most one base.
 fn merge(
     parent: usize,
@@ -438,14 +443,14 @@ fn merge(
         right.span.0,
         &right.span.1,
     );
-    let t = signed_sum(entry_step.0, entry_step.1, true, &right.drop);
-    let (u_negative, u) = signed_sum(t.0, t.1, false, &left.drop);
-    let drop = if u_negative {
+    let right_floor = signed_sum(entry_step.0, entry_step.1, true, &right.drop);
+    let (lift_negative, lift) = signed_sum(right_floor.0, right_floor.1, false, &left.drop);
+    let drop = if lift_negative {
         // The left child's root is the parent's preorder successor.
-        push_base(arena, entries, parent + 1, &u);
-        left.drop + &u
+        push_base(arena, entries, parent + 1, &lift);
+        left.drop + &lift
     } else {
-        push_base(arena, entries, right.root, &u);
+        push_base(arena, entries, right.root, &lift);
         left.drop
     };
     Summary {
@@ -467,7 +472,7 @@ fn merge(
 /// pass, so syntax errors — including trailing junk — outrank
 /// [`Parse::NotCanonical`]; the built stream is then gated through the strict
 /// validator.
-pub fn parse(s: &str) -> Result<BitsMut, Parse> {
+pub fn parse(text: &str) -> Result<BitsMut, Parse> {
     /// What a parsed subtree contributes to its parent's normal-form check: its
     /// written base and whether it is a single leaf.
     struct Child {
@@ -475,8 +480,8 @@ pub fn parse(s: &str) -> Result<BitsMut, Parse> {
         is_leaf: bool,
     }
 
-    let mut cur = Cur::new(s);
-    let mut builder = SkylineBuilder::with_capacity(s.len());
+    let mut cursor = Cur::new(text);
+    let mut builder = SkylineBuilder::with_capacity(text.len());
     // The open-node stacks, innermost last — the render's parallel-stack
     // discipline: `phase` holds one bit per open node ([`LEFT_PHASE`] while it
     // awaits its left child), `bases` the node's own written base, and `lefts`
@@ -495,11 +500,11 @@ pub fn parse(s: &str) -> Result<BitsMut, Parse> {
 
     'nodes: loop {
         // Parse one node at the cursor.
-        match cur.peek() {
+        match cursor.peek() {
             Some(b'(') => {
-                cur.bump();
-                let base = parse_base(&mut cur)?;
-                if cur.bump() != Some(b',') {
+                cursor.bump();
+                let base = parse_base(&mut cursor)?;
+                if cursor.bump() != Some(b',') {
                     return Err(Parse::Syntax);
                 }
                 delta.add_magnitude(&base);
@@ -507,10 +512,10 @@ pub fn parse(s: &str) -> Result<BitsMut, Parse> {
                 bases.push(base);
                 continue 'nodes;
             }
-            Some(c) if c.is_ascii_digit() => {}
+            Some(byte) if byte.is_ascii_digit() => {}
             _ => return Err(Parse::Syntax),
         }
-        let base = parse_base(&mut cur)?;
+        let base = parse_base(&mut cursor)?;
         delta.add_magnitude(&base);
 
         // Emit the leaf's plateau: the accumulated movement is exactly the
@@ -554,7 +559,7 @@ pub fn parse(s: &str) -> Result<BitsMut, Parse> {
             match phase.pop() {
                 None => break 'nodes,
                 Some(LEFT_PHASE) => {
-                    if cur.bump() != Some(b',') {
+                    if cursor.bump() != Some(b',') {
                         return Err(Parse::Syntax);
                     }
                     phase.push(!LEFT_PHASE);
@@ -562,7 +567,7 @@ pub fn parse(s: &str) -> Result<BitsMut, Parse> {
                     continue 'nodes;
                 }
                 Some(_) => {
-                    if cur.bump() != Some(b')') {
+                    if cursor.bump() != Some(b')') {
                         return Err(Parse::Syntax);
                     }
                     let left = lefts
@@ -587,7 +592,7 @@ pub fn parse(s: &str) -> Result<BitsMut, Parse> {
             }
         }
     }
-    if cur.peek().is_some() {
+    if cursor.peek().is_some() {
         return Err(Parse::Syntax); // trailing junk
     }
     if !canonical {

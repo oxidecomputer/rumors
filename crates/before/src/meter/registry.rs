@@ -647,7 +647,7 @@ pub enum FamilyId {
     /// The pure-comb cross: `pure_comb(s, s)` × its own id.
     ///
     /// The reveal comb's cycle with no left-full site anywhere — no memo, no
-    /// pre-scan, no site consume: the base watermark stack's own arm-move +
+    /// pre-scan, no site consume: the watermark web's own arm-move +
     /// close-pop width circulation, isolated from the frame ledger. The
     /// designated cross of the two tick rows.
     PureComb,

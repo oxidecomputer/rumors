@@ -12,8 +12,8 @@
 //!
 //! # Why the validator's height accumulator disappears
 //!
-//! The standalone validator carries a running leaf height for its nonnegativity
-//! condition. Here the dominance verdict subsumes it: on every elementary
+//! The standalone validator ([`validate_from`](super::validate::validate_from))
+//! carries a running leaf height for its nonnegativity condition. Here the dominance verdict subsumes it: on every elementary
 //! interval an accepted walk holds `height_hi >= height_lo >= 0` — the left
 //! inequality is the verdict itself, the right is `lo`'s own canonicality — so
 //! a stream whose height dips negative is always also non-dominating, and both
@@ -111,16 +111,16 @@ where
         Ok((this, first))
     }
 
-    /// Descend to the next leaf in preorder, opening `k` internal nodes:
-    /// [`LeafCursor`]'s descent with the reads fallible and the validator's
-    /// placeholder bits pushed alongside the path.
+    /// Descend to the next leaf in preorder, opening the internal nodes on the
+    /// way: [`LeafCursor`]'s descent with the reads fallible and the
+    /// validator's placeholder bits pushed alongside the path.
     fn descend(&mut self) -> Result<Int, Decode> {
-        let k = self.cursor.read_unary()?;
-        for _ in 0..k {
+        let internal_nodes = self.cursor.read_unary()?;
+        for _ in 0..internal_nodes {
             self.path.push(false);
             self.left_was_leaf.push(false); // placeholder until the left child completes
         }
-        self.open_lefts += k;
+        self.open_lefts += internal_nodes;
         self.cursor.read_int()
     }
 
@@ -134,13 +134,32 @@ where
         self.open_lefts == 0
     }
 
+    /// Close one ancestor whose right child just completed: pop its left
+    /// child's kind from the parallel stack and run the validator's
+    /// collapsible-pair check.
+    ///
+    /// An internal node whose two children are leaves with a zero right delta
+    /// is the shape minimal topology forbids. The closed pair then reads as an
+    /// internal subtree for the next close up (`is_leaf`/`zero_delta`
+    /// cleared).
+    fn close_ancestor(&mut self, is_leaf: &mut bool, zero_delta: &mut bool) -> Result<(), Decode> {
+        let left_was_leaf = self
+            .left_was_leaf
+            .pop()
+            .expect("the parallel stacks hold one bit each per open ancestor");
+        if left_was_leaf && *is_leaf && *zero_delta {
+            return Err(Decode::NotCanonical); // a collapsible sibling pair
+        }
+        *is_leaf = false;
+        *zero_delta = false;
+        Ok(())
+    }
+
     /// Advance past the current leaf: the flip level for the advance law's tie
     /// test, and the crossed boundary's delta.
     ///
-    /// Every ancestor the consumed leaf completes closes here, each close
-    /// running the validator's collapsible-pair check: an internal node whose
-    /// two children are leaves with a zero right delta is the shape minimal
-    /// topology forbids.
+    /// Every ancestor the consumed leaf completes closes here, through
+    /// [`close_ancestor`](Self::close_ancestor)'s collapsible-pair check.
     ///
     /// Never called on a done cursor; the walk asks first.
     fn step(&mut self) -> Result<(usize, Step), Decode> {
@@ -153,16 +172,8 @@ where
             match self.path.pop() {
                 Some(true) => {
                     // This ancestor closes: the completed subtree was its right
-                    // child; its left child's kind is on the parallel stack.
-                    let left_was_leaf = self
-                        .left_was_leaf
-                        .pop()
-                        .expect("the parallel stacks hold one bit each per open ancestor");
-                    if left_was_leaf && is_leaf && zero_delta {
-                        return Err(Decode::NotCanonical); // a collapsible sibling pair
-                    }
-                    is_leaf = false;
-                    zero_delta = false;
+                    // child.
+                    self.close_ancestor(&mut is_leaf, &mut zero_delta)?;
                 }
                 Some(false) => {
                     // The flip level: the completed subtree was this ancestor's
@@ -205,15 +216,7 @@ where
         let mut zero_delta = self.last_delta_zero;
         while let Some(right) = self.path.pop() {
             debug_assert!(right, "a done cursor's path is all right branches");
-            let left_was_leaf = self
-                .left_was_leaf
-                .pop()
-                .expect("the parallel stacks hold one bit each per open ancestor");
-            if left_was_leaf && is_leaf && zero_delta {
-                return Err(Decode::NotCanonical); // a collapsible sibling pair
-            }
-            is_leaf = false;
-            zero_delta = false;
+            self.close_ancestor(&mut is_leaf, &mut zero_delta)?;
         }
         Ok(())
     }
@@ -354,29 +357,35 @@ where
 {
     match lo.depth().cmp(&hi.depth()) {
         Ordering::Greater => {
-            let (fl, step) = lo.step();
+            let (flip_lo, step) = lo.step();
             fold(diff, Side::A, step.negative, &step.magnitude);
-            if fl <= hi.depth() {
-                let (fh, step) = hi.step()?;
-                debug_assert_eq!(fl, fh, "tied boundaries close to one shared flip level");
+            if flip_lo <= hi.depth() {
+                let (flip_hi, step) = hi.step()?;
+                debug_assert_eq!(
+                    flip_lo, flip_hi,
+                    "tied boundaries close to one shared flip level"
+                );
                 fold(diff, Side::B, step.negative, &step.magnitude);
             }
         }
         Ordering::Less => {
-            let (fh, step) = hi.step()?;
+            let (flip_hi, step) = hi.step()?;
             fold(diff, Side::B, step.negative, &step.magnitude);
-            if fh <= lo.depth() {
-                let (fl, step) = lo.step();
-                debug_assert_eq!(fh, fl, "tied boundaries close to one shared flip level");
+            if flip_hi <= lo.depth() {
+                let (flip_lo, step) = lo.step();
+                debug_assert_eq!(
+                    flip_hi, flip_lo,
+                    "tied boundaries close to one shared flip level"
+                );
                 fold(diff, Side::A, step.negative, &step.magnitude);
             }
         }
         Ordering::Equal => {
-            let (fl, step) = lo.step();
+            let (flip_lo, step) = lo.step();
             fold(diff, Side::A, step.negative, &step.magnitude);
-            let (fh, step) = hi.step()?;
+            let (flip_hi, step) = hi.step()?;
             debug_assert_eq!(
-                fl, fh,
+                flip_lo, flip_hi,
                 "equal-depth leaves share their whole path, so their flip levels agree"
             );
             fold(diff, Side::B, step.negative, &step.magnitude);

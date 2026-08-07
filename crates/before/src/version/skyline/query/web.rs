@@ -84,12 +84,22 @@
 
 use core::cmp::Ordering;
 
-use suanpan::{Accumulator, UBig};
+use suanpan::{Accumulator, Limbs, UBig};
 
 use crate::codec::{Base, Int};
 
 use super::super::watermark::{Close, MinWeb};
-use super::integral::u32_digits;
+
+/// A magnitude's little-endian base-2^32 digits: [`mul_into`]'s read of its
+/// `digits` operand.
+///
+/// The top digit of the top limb may be zero (the compaction loop skips
+/// zero digits, so the padding is free).
+fn u32_digits(value: &Base) -> Vec<u32> {
+    Limbs::new(&value.0)
+        .flat_map(|limb| [(limb & 0xFFFF_FFFF) as u32, (limb >> 32) as u32])
+        .collect()
+}
 
 /// Add (or, with `subtract`, remove) `factor · digits · 2^shift` in the total:
 /// one `factor`-wide product per nonzero signed digit of the compacted `digits`
