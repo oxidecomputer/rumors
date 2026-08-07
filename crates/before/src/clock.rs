@@ -756,7 +756,8 @@ impl Clock {
     }
 }
 
-/// Paper notation: `(<id>, <event>)`, e.g. `(1, 0)` for [`Clock::seed`].
+/// Notation from the original paper: `(<id>, <event>)`, e.g. `(1, 0)` for
+/// [`Clock::seed`].
 ///
 /// # Complexity
 ///
