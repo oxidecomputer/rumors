@@ -338,11 +338,15 @@ impl<'a> Walk<'a> {
 /// ([`advance_set`]).
 ///
 /// Priority `[B_MASK, B, A_MASK, A]`: among equally-deep cursors the pick
-/// falls on the later operand's streams first, masks before events. The pick
-/// order is pinned by the committed `masked_cmp_*` readings
-/// (`tests/meter.rs`); the only accumulator two slots share is `diff` (`A` and
-/// `B` both fold into it), so among the tie-break's remaining freedom only the
-/// `A`/`B` relative step order moves a committed reading.
+/// falls on the later operand's streams first, masks before events — an
+/// arbitrary order, pinned by the committed `masked_cmp_*` readings
+/// (`tests/meter.rs`). What `step` shows is what a reorder may move: the
+/// mask slots fold nothing and the height integrators are per-side, so the
+/// only accumulator two slots share is `diff` (`A` and `B` both fold into
+/// it) — reordering `A` relative to `B` changes `diff`'s write sequence and
+/// therefore moves committed readings (a deliberate re-pin event), while any
+/// other reorder moves nothing. Every fold is a commutative sum, so no
+/// order changes a verdict.
 impl CursorSet for Walk<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         [Self::B_MASK, Self::B, Self::A_MASK, Self::A].into_iter()

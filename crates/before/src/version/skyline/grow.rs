@@ -27,7 +27,9 @@
 //! grow's cost is a function of the `(id, event)` topology alone — the fold
 //! never reads a leaf value — and a free increment changes no topology (a
 //! collapse would need the grown leaf to rise into equality with a sibling leaf
-//! it was strictly below, which fill-fixedness forbids), so `k` sequential
+//! it was strictly below, which fill-fixedness forbids: fill raises an owned
+//! leaf sitting strictly below its sibling's filled minimum, so on the
+//! unchanged branch no such leaf remains), so `k` sequential
 //! grows re-derive the identical route and compound `+k` at one leaf. After an
 //! expansion, the chain's terminal is the unique zero-expansion site — the
 //! chain was chosen cheapest, so no zero-expansion site existed before it — and

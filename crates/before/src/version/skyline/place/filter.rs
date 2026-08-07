@@ -142,8 +142,8 @@ pub(crate) fn admits<'a>(
     if bounds.peek().is_none() {
         return true;
     }
-    let (mut probe, probe_first) = LeafCursor::open(probe);
-    let mut sides: Vec<Option<BoundSide<'a>>> = bounds
+    let (probe, probe_first) = LeafCursor::open(probe);
+    let sides: Vec<Option<BoundSide<'a>>> = bounds
         .map(|(bits, demand)| {
             let (cursor, first) = LeafCursor::open(bits);
             Some(BoundSide {
@@ -154,10 +154,11 @@ pub(crate) fn admits<'a>(
         })
         .collect();
     let mut live = sides.len();
+    let mut walk = MemberCursors { probe, sides };
 
     loop {
         // One read per live bound per elementary interval, in demand order.
-        for slot in &mut sides {
+        for slot in &mut walk.sides {
             let Some(side) = slot else { continue };
             side.pair.read();
             let directions = side.pair.directions;
@@ -184,21 +185,19 @@ pub(crate) fn admits<'a>(
         if live == 0 {
             return true;
         }
-        let exhausted = probe.done() && sides.iter().flatten().all(|side| side.cursor.done());
+        let exhausted =
+            walk.probe.done() && walk.sides.iter().flatten().all(|side| side.cursor.done());
         if exhausted {
             break;
         }
-        advance_set(&mut MemberCursors {
-            probe: &mut probe,
-            sides: &mut sides,
-        });
+        advance_set(&mut walk);
     }
 
     // Exhaustion: dominations confirm. A required side reaching here kept its
     // direction alive, so it holds; a live inclusive hole means its subtraction
     // held (`le` surviving is `Less` or `Equal`, both subtracted); a strict
     // hole subtracts only the strict relation.
-    sides.iter().flatten().all(|side| match side.demand {
+    walk.sides.iter().flatten().all(|side| match side.demand {
         Demand::After | Demand::Before => true,
         Demand::NotBefore | Demand::NotAfter => false,
         Demand::NotStrictlyBefore => side.pair.relation() != Some(Ordering::Less),
@@ -206,15 +205,16 @@ pub(crate) fn admits<'a>(
     })
 }
 
-/// The membership walk's cursor roster for the overlay-advance law
-/// ([`advance_set`]): the probe's cursor and every bound side, borrowed for
-/// one advance round.
-struct MemberCursors<'w, 'a> {
-    probe: &'w mut LeafCursor<'a>,
-    sides: &'w mut [Option<BoundSide<'a>>],
+/// The membership walk's owned cursor set — the walk state itself, as in the
+/// placement walk's `Cursors`: the probe's cursor and every bound side. The
+/// read loop reaches the sides through the fields between advances, and the
+/// whole set steps by the overlay-advance law ([`advance_set`]).
+struct MemberCursors<'a> {
+    probe: LeafCursor<'a>,
+    sides: Vec<Option<BoundSide<'a>>>,
 }
 
-impl MemberCursors<'_, '_> {
+impl MemberCursors<'_> {
     /// The probe stream's slot; bound `i` occupies slot `i + 1`.
     const PROBE: usize = 0;
 }
@@ -228,7 +228,7 @@ impl MemberCursors<'_, '_> {
 /// identity rows in `tests/meter.rs` pin the single-bound identity). The
 /// bounds' order among themselves moves no committed reading: no two bounds
 /// share an accumulator.
-impl CursorSet for MemberCursors<'_, '_> {
+impl CursorSet for MemberCursors<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         0..self.sides.len() + 1
     }
@@ -304,9 +304,9 @@ pub(crate) fn coverage<'a>(
     if bounds.peek().is_none() {
         return Coverage::Full;
     }
-    let (mut lo, lo_first) = LeafCursor::open(lo);
-    let (mut hi, hi_first) = LeafCursor::open(hi);
-    let mut sides: Vec<Option<SpanSide<'a>>> = bounds
+    let (lo, lo_first) = LeafCursor::open(lo);
+    let (hi, hi_first) = LeafCursor::open(hi);
+    let sides: Vec<Option<SpanSide<'a>>> = bounds
         .map(|(bits, demand)| {
             let (cursor, first) = LeafCursor::open(bits);
             Some(SpanSide {
@@ -323,9 +323,15 @@ pub(crate) fn coverage<'a>(
     // relation intact.
     let mut full_possible = true;
 
-    let (mut lo_live, mut hi_live) = (true, true);
+    let mut walk = SpanCursors {
+        lo,
+        lo_live: true,
+        hi,
+        hi_live: true,
+        sides,
+    };
     loop {
-        for slot in &mut sides {
+        for slot in &mut walk.sides {
             let Some(side) = slot else { continue };
             if side.lo.live {
                 side.lo.read();
@@ -396,24 +402,18 @@ pub(crate) fn coverage<'a>(
             break;
         }
         // A probe endpoint whose every pair is settled stops being scanned.
-        lo_live = lo_live && sides.iter().flatten().any(|side| side.lo.live);
-        hi_live = hi_live && sides.iter().flatten().any(|side| side.hi.live);
-        let exhausted = (!lo_live || lo.done())
-            && (!hi_live || hi.done())
-            && sides.iter().flatten().all(|side| side.cursor.done());
+        walk.lo_live = walk.lo_live && walk.sides.iter().flatten().any(|side| side.lo.live);
+        walk.hi_live = walk.hi_live && walk.sides.iter().flatten().any(|side| side.hi.live);
+        let exhausted = (!walk.lo_live || walk.lo.done())
+            && (!walk.hi_live || walk.hi.done())
+            && walk.sides.iter().flatten().all(|side| side.cursor.done());
         if exhausted {
             break;
         }
-        advance_set(&mut SpanCursors {
-            lo: &mut lo,
-            lo_live,
-            hi: &mut hi,
-            hi_live,
-            sides: &mut sides,
-        });
+        advance_set(&mut walk);
     }
 
-    finish(&sides, full_possible)
+    finish(&walk.sides, full_possible)
 }
 
 /// Map the exhausted coverage walk's decided relations to the verdict.
@@ -470,21 +470,23 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
     }
 }
 
-/// The coverage walk's cursor roster for the overlay-advance law
-/// ([`advance_set`]): both probe endpoints' cursors, their live flags, and
-/// every bound side, borrowed for one advance round.
-struct SpanCursors<'w, 'a> {
-    lo: &'w mut LeafCursor<'a>,
+/// The coverage walk's owned cursor set — the walk state itself, as in the
+/// placement walk's `Cursors`: both probe endpoints' cursors, their live
+/// flags, and every bound side. The read loop reaches the sides through the
+/// fields between advances, and the whole set steps by the overlay-advance
+/// law ([`advance_set`]).
+struct SpanCursors<'a> {
+    lo: LeafCursor<'a>,
     /// Whether any pair still reads the `lo` endpoint; a settled endpoint's
     /// stream is never scanned further.
     lo_live: bool,
-    hi: &'w mut LeafCursor<'a>,
+    hi: LeafCursor<'a>,
     /// Whether any pair still reads the `hi` endpoint, as `lo_live`.
     hi_live: bool,
-    sides: &'w mut [Option<SpanSide<'a>>],
+    sides: Vec<Option<SpanSide<'a>>>,
 }
 
-impl SpanCursors<'_, '_> {
+impl SpanCursors<'_> {
     /// The `hi` endpoint's slot.
     const HI: usize = 0;
     /// The `lo` endpoint's slot; bound `i` occupies slot `i + 2`.
@@ -499,7 +501,7 @@ impl SpanCursors<'_, '_> {
 /// pair's accumulator write sequence identical to its pair sweep's. `hi`
 /// before `lo` and the bounds' order among themselves move no committed
 /// reading: no two of those cursors share an accumulator.
-impl CursorSet for SpanCursors<'_, '_> {
+impl CursorSet for SpanCursors<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         0..self.sides.len() + 2
     }

@@ -2,7 +2,11 @@
 //! web both skyline sweeps share.
 //!
 //! One [`MinWeb`] tracks, for every open range of a LIFO sweep, the minimum
-//! *emitted* value in that range — without materializing any of them. Two
+//! *emitted* value in that range — without materializing any of them. A
+//! *range* is the client's own bracket, opened and closed by the client's
+//! sweep and never interpreted by the web; the web holds one *frame* per
+//! open range — the two words are the client's and the web's for the same
+//! record. Two
 //! clients drive it: the fill walk (payload `()`, followers installed) and
 //! the min-ticks fold (`query`'s `web` module, riding its reign records as
 //! the payload). The representation, the emission decisions, and the cost
@@ -34,7 +38,9 @@
 //! - Each consumed input delta folds into `gap` once (a uniform shift of
 //!   `h` against a fixed anchor) — never once per open range.
 //! - A close never folds: a popped nonzero boundary MOVES into the latent
-//!   register (merging min-into-max with one already parked), leaving
+//!   register (merging *min-into-max* with one already parked: the narrower
+//!   buffer folds into the wider — [`Accumulator::merge_into_wider`] — so
+//!   the fold costs the dying narrow side's width), leaving
 //!   `gap` and the followers untouched — the anchor goes stale by exactly
 //!   the parked width.
 //! - An arm recycles: the arming offset `v − A` is narrow whenever the
@@ -47,7 +53,9 @@
 //!   fold — a min-into-max collapse whose near-cancellation funds it,
 //!   after which re-widening the latent costs the input a fresh climb.
 //!   When a comparison must fold, it folds the *priced* side (the
-//!   emission's own offset, paid by the scan or code that produced it) and
+//!   emission's own offset, paid by the scan or code that produced it —
+//!   *priced by* is the cost convention the [`overlay`](super::overlay)
+//!   module's Cost section mints) and
 //!   restores it, or it is the dying side's single terminal fold. A wide
 //!   `gap` is never folded into anything while it survives; a word-scale
 //!   offset against a dominating `gap` is decided post-sign with no fold
@@ -66,8 +74,10 @@
 //! # Followers
 //!
 //! *Followers* ride the stack: accumulators tracking `m − X` for a
-//! caller-fixed reference `X`. Only the fill walk installs them (its
-//! output-delta and ledger relations; the min-ticks fold installs none and
+//! caller-fixed reference `X`. What `X` means is the client's business —
+//! the web maintains the relation and never reads it. Only the fill walk
+//! installs any (two, for relations named in `fill.rs`; the min-ticks fold
+//! installs none and
 //! pays two `None` checks per event). Arms, undercuts, and collapses fold
 //! the same operand they already price into each active follower; closes
 //! touch no follower at all — each active slot goes *anchor-relative*
@@ -76,6 +86,30 @@
 //! anchor-relative or the switch's terms cancel, by one latent fold where
 //! an emitted code prices it, and by the death-event fan-out at undercuts
 //! and collapses. A set tag never outlives its latent.
+//! ([`park`](MinWeb::park) is where the tag is set; its doc discharges the
+//! value-preservation of both cases.)
+//!
+//! # The arming paths
+//!
+//! Three entry points arm pending frames, split by where the emission's
+//! value comes from:
+//!
+//! - [`arm_at_height`](MinWeb::arm_at_height): `v = h` exactly. Handles the
+//!   first arming (it seats the anchor); the dying `gap` is itself the
+//!   anchor-relative offset, moved out whole with no fold.
+//! - [`arm_below`](MinWeb::arm_below): `v = h − below`, the accumulator
+//!   moving in as the new `gap`. Handles the first arming too; the offset
+//!   `gap_old − below` costs one fold of the narrow dying side.
+//! - [`arm_relative`](MinWeb::arm_relative): `v = A + arm_offset`,
+//!   anchor-relative from the start. Requires an armed anchor — it cannot
+//!   first-arm; the memo consumer's arming, its offset recycling any parked
+//!   latent.
+//!
+//! All three converge on the shared boundary bookkeeping
+//! ([`push_boundary`](MinWeb::push_boundary)): fold the offset into the
+//! active followers, merge it with any latent, then push it as the new
+//! difference, count it as an exact meet, or propagate it as an arming
+//! undercut's residue.
 //!
 //! # The payload seam
 //!
@@ -795,6 +829,24 @@ impl MinWeb<()> {
 
     /// Record an emission at `v = h + offset` for a signed, priced offset (a
     /// consuming scan's extremum, or a raise decided against it).
+    ///
+    /// Five paths, in order:
+    ///
+    /// 1. A zero offset delegates to [`emit_here`](Self::emit_here).
+    /// 2. Pending frames arm at `v` ([`arm_below`](Self::arm_below) with
+    ///    `below = −offset`).
+    /// 3. No latent and a word-scale offset: post-sign domination reads the
+    ///    answer with no fold — a dominating-positive `gap` returns; a
+    ///    wide-negative `gap` is an undercut whose residue dwarfs the
+    ///    offset.
+    /// 4. Otherwise the priced offset folds into `gap`, and three gates each
+    ///    restore the fold on exit: `v` at or above the anchor; a drop that
+    ///    does not carry through the latent; a collapse that re-based the
+    ///    anchor with `v` not below it.
+    /// 5. A true undercut. The fold is deliberately *not* restored — the
+    ///    folded offset funds the residue (`gap` holds `v − A`, negated
+    ///    into `m − v`) — and the re-seated `gap` is `h − v = −offset`
+    ///    exactly.
     pub(super) fn emit_offset(&mut self, offset: &Signed) {
         if offset.is_zero() {
             self.emit_here();

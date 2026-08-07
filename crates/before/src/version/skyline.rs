@@ -2,8 +2,10 @@
 //! absolute leaf heights.
 //!
 //! A [`Version`] is a step function over the unit id interval — a *skyline* —
-//! and topology plus absolute leaf heights determine it completely. This module
-//! codes exactly that, as two interleaved streams in one bit string:
+//! and each maximal constant run of it is a *plateau*: one leaf of the tree,
+//! spanning a dyadic interval of width `2^-depth`. Topology plus absolute
+//! leaf heights determine the function completely. This module codes exactly
+//! that, as two interleaved streams in one bit string:
 //!
 //! - **Topology**: one preorder flag bit per node (`0` internal, `1` leaf).
 //!   Internal nodes carry no numbers, and a root-to-leaf descent is a
@@ -49,6 +51,7 @@
 //!
 //! Machinery layers sit under the operations, each with its own essay:
 //! `overlay` (the tiling cursors and the advance law every merge steps by),
+//! `walk` (the leaf-walk driver the single-stream scanning passes share),
 //! `watermark` (the anchored-minimum web the fill walk and the
 //! min-ticks fold share), and `signed` (the sign-magnitude
 //! currency: the zigzag maps, the signed folds and sums, the gamma codes).
@@ -175,6 +178,8 @@ pub mod emit;
 mod encode;
 pub(crate) mod fill;
 pub(crate) mod grow;
+// Literal skyline construction from paper-notation event trees: the doctest
+// and unit-test vocabulary's builder.
 pub(crate) mod literal;
 pub(crate) mod masked;
 // The overlay cursors and the advance law: crate-private walk machinery shared
@@ -185,6 +190,8 @@ mod signed;
 pub mod sweep;
 pub mod text;
 mod validate;
+// The leaf-walk driver: the descend/backtrack skeleton and shared leaf
+// actions of the single-stream scanning passes.
 mod walk;
 // The anchored-minimum web the fill walk and the min-ticks fold share: the
 // range-minimum discipline stated once, each client thin over it.

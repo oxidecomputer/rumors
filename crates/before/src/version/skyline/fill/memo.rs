@@ -1,8 +1,9 @@
 //! The frame ledger: the channel between the fill walk and its memoized
 //! pre-scan.
 //!
-//! A *left-full site* is the shortcut arm whose raised leaf precedes the range
-//! its minimum argument comes from: an id node whose left child is fully owned
+//! A left-full site (minted in [`fill`](super)'s module doc: an id node
+//! whose left child is full, the shortcut direction whose raised leaf
+//! precedes the range its minimum argument comes from)
 //! collapses that child to `max(max(el), min(fill(ir, er)))`, and the right
 //! sibling's filled minimum is unknown until the sibling range — which the
 //! walk has not reached — has been walked. The walk therefore sends one

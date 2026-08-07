@@ -23,14 +23,18 @@
 //!   base charged at most twice), and at each leaf the accumulator holds
 //!   exactly the leaf-to-leaf delta the skyline payload codes — extracted,
 //!   zigzag-coded, fed to the collapsing output builder, and *reset*.
-//!   The reset settles the digit buffer's top back to zero, so every
-//!   extraction pays the span written since the previous leaf and a
-//!   trailing run of zero-delta leaves after one wide swing stays O(1)
-//!   each — the exact-`top` discipline, held by the wide-arming flatness
-//!   band in `tests/meter.rs` and the committed schoolbook kernel beside
-//!   this module's tests (which preserves the compensating-subtraction
-//!   read, whose value-zero re-zero parks the top at the swing's width
-//!   and re-walks its dead digits once per later leaf). The
+//!   The reset settles the digit buffer's *top* (its high-water digit
+//!   index, `suanpan`'s word for it) back to zero, so every extraction
+//!   pays the span written since the previous leaf and a trailing run
+//!   of zero-delta leaves after one wide swing stays O(1) each. That
+//!   exact-top discipline is what keeps the walk linear, and it is
+//!   pinned twice in `tests/meter.rs`: the wide-arming flatness band
+//!   (per-byte touches flat across a size doubling on the wide-swing
+//!   family), and the committed schoolbook kernel beside this module's
+//!   tests — a known-bad twin that re-zeroes by compensating
+//!   subtraction, which leaves the top parked at the swing's width and
+//!   re-walks its dead digits once per later leaf, so it reads
+//!   superlinear and proves the reset is the load-bearing move. The
 //!   accumulator is the cliff-immune [`Accumulator`]: a plain big-integer running
 //!   value re-imports the boundary comb's quadratic carry genre. The ≤2×
 //!   charge is enforced structurally (one join, one leave per base) plus,
@@ -418,7 +422,10 @@ fn push_base(arena: &mut String, entries: &mut Vec<(usize, usize)>, node: usize,
 /// leaf (`span(left) + incoming(right) − drop(right)`), the node's floor is
 /// `min(−drop(left), right_floor)`, still relative to the left entry — so the
 /// min-lift decision quantity `lift = right_floor + drop(left)` settles which
-/// child sits on the node's floor: a non-negative `lift` says the left child
+/// child sits on the node's floor. Frame-free, `lift` is
+/// `floor(right) − floor(left)`: whichever child's floor is lower sits on
+/// the node's floor, and the other child's printed base is the gap. So a
+/// non-negative `lift` says the left child
 /// does (its base is zero and `lift` is the right child's base), a negative
 /// `lift` says the right child does (its magnitude is the left child's base
 /// and the node's drop deepens by it). The child the merge leaves off the

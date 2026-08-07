@@ -20,7 +20,8 @@ use super::measure::Sample;
 /// over all measured points, never a per-window ratio** (owner-ratified
 /// measurement policy). Through two points the slope is exactly their log
 /// ratio; the acceptance judgment fits one trend across the cell's whole
-/// measurement ladder — four points spanning both sampling scales — so a
+/// measurement ladder — two *sampling scales* × two *sizes* per scale, four
+/// points (the ladder's two axes, named so throughout this module) — so a
 /// single generator lump at one point cannot define the estimate, while a
 /// genuine super-linearity bends every point and still reads red. Densifying
 /// the ladder (measuring more points) is not part of this policy: it remains
@@ -29,7 +30,10 @@ use super::measure::Sample;
 ///
 /// Readings are clamped through `max(m, 1)` so a zero at some points keeps
 /// the fit defined; all-zero readings and degenerate spans (no denominator
-/// variance) score 0.
+/// variance) score 0. A sparse, lumpy counter therefore errs red, never
+/// green: its clamped zeros steepen the fit toward the exponent ceiling (a
+/// conservative false red to triage), and a vacuously quiet counter is the
+/// liveness floors' business, not the trend's.
 pub(super) fn trend(points: &[(usize, u64)]) -> f64 {
     if points.iter().all(|&(_, m)| m == 0) {
         return 0.0;
@@ -191,7 +195,8 @@ fn exp_ceilings(first: &Sample, last: &Sample) -> ByCurrency<f64> {
 }
 
 /// One judged column's derived scores: the fitted exponent trend and the
-/// larger scale's per-unit constant (`None` where the counter is off).
+/// window's larger size's per-unit constant (`None` where the counter is
+/// off).
 #[derive(Clone, Copy)]
 pub(super) struct Score {
     pub(super) exp: Option<f64>,
@@ -212,8 +217,9 @@ pub(super) struct CellResult {
     pub(super) red: Vec<&'static str>,
 }
 
-/// Score one window (a cell's two samples at one scale) against the
-/// ceilings, the declared models, and the liveness floors.
+/// Score one window (a cell's two samples — two sizes — at one sampling
+/// scale) against the ceilings, the declared models, and the liveness
+/// floors.
 ///
 /// The exponent legs are judged at the supplied fits — the trend over every
 /// point the run measured, which for a single-scale run is exactly this
@@ -391,9 +397,9 @@ fn judge_window(
     }
 }
 
-/// Score one single-scale window: the exponent legs are the trend over the
-/// window's own two points (all this run measured), the ceilings, models, and
-/// floors exactly [`judge_window`]'s.
+/// Score one window at a single sampling scale: the exponent legs are the
+/// trend over the window's own two points (all this run measured), the
+/// ceilings, models, and floors exactly [`judge_window`]'s.
 pub(super) fn evaluate(
     op: &'static str,
     family: &'static str,

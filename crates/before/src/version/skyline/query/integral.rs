@@ -61,10 +61,10 @@
 //!   second unfunded interval could ride a stale width.
 //! - `P` (*parked*): drift a freeze moved out of `L`, anchored at that
 //!   freeze. A segment-mass accumulator sums the interval masses since
-//!   `P`'s anchor — the feed opens at the first freeze, since segment
-//!   mass exists only to settle parked drift and the mass behind the
-//!   first freeze funds no settle (no arming precedes the first
-//!   window), so a sweep that never freezes deposits no interval mass
+//!   `P`'s anchor — the feed opens at the first freeze, because the
+//!   pre-freeze mass funds no settle (the promotion-ledger section
+//!   below and the [`Integrator::frozen`] field doc derive why), so a
+//!   sweep that never freezes deposits no interval mass
 //!   at all; the next freeze (or the stream end) settles
 //!   `P · segment` in one compacted product and re-anchors. The
 //!   segment mass's nonzero span is the *depth variation inside the
@@ -164,13 +164,15 @@
 //! - the ledger settle: one aggregate product per tree node — the left
 //!   half's parked sum times the right half's window sum, delegated
 //!   cluster-wise to the backend's multiplication at its bound over
-//!   (parked width, cluster span), the width funded by the deposits
-//!   that armed it and every span funded by the position space (each
-//!   digit position of a window is a depth the stream's topology paid
-//!   at least one bit for) — with every window's digits rewritten at
-//!   most once per tree level (each rewrite paid by the window's own
-//!   read, repeated a factor the mass balance keeps logarithmic in
-//!   the total settle mass, hence at most `log |v|`).
+//!   (parked width, cluster span). Its funding splits three ways:
+//!   - the width side: the deposits that armed the parked sum;
+//!   - the span side: the position space — each digit position of a
+//!     window is a depth the stream's topology paid at least one bit
+//!     for;
+//!   - the rewrites: every window's digits are rewritten at most once
+//!     per tree level, each rewrite paid by the window's own read, and
+//!     the mass balance keeps the level count logarithmic in the total
+//!     settle mass, hence at most `log |v|`.
 //!
 //! A cheap code from one operand can *fire* a freeze, but the work the freeze
 //! performs is bounded by deposits from the codes that built the state being
@@ -236,8 +238,11 @@
 //! linear overhead, and `Ω(M(|v|))` digit work is mandatory for any fold
 //! that answers exactly: no settle goes below the multiplication bound.
 //!
-//! The public `# Complexity` sections (`rank`, `distance`, `lag` — one
-//! shared integrator) state the resulting three-part claim. The
+//! The public API's `# Complexity` sections
+//! ([`Version::rank`](crate::Version::rank),
+//! [`Version::distance`](crate::Version::distance),
+//! [`Version::lag`](crate::Version::lag) — one shared integrator) state the
+//! resulting three-part claim. The
 //! `ledger_wide_arming` and `answer_embedded_product` bands
 //! (`tests/meter.rs`) hold both wide × dense families flat per byte in the
 //! deterministic counters (which price the fold's own traffic; the

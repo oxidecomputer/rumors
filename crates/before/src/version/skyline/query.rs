@@ -28,9 +28,10 @@
 //!   exactly, at any magnitude: heights and minima enter the total as
 //!   narrow epoch-relative offsets, the frozen component arrives
 //!   through counting, and the closing nodes' minima ride a
-//!   range-minimum anchor web whose closes count instead of fold (the
-//!   `web` submodule carries the accounting and its funding
-//!   certificate).
+//!   range-minimum anchor web whose closes count instead of fold — how
+//!   a close can *count* (one count on the web's reigning record, the
+//!   record settling once when it dies) is the `web` submodule's module
+//!   doc, which carries the accounting and its funding certificate.
 //! - [`project`](fn@project) overlays the skyline against a packed *id* stream
 //!   and re-emits the masked skyline through the collapsing output
 //!   builder: owned regions keep their plateaus, unowned regions emit
@@ -49,9 +50,11 @@
 //! 3-bit stored deltas. Every fold here therefore splits its running quantity
 //! into anchored components folded narrow, with a relative freeze trigger
 //! that evicts stale wide drift at the first cheaper code. The rank fold and
-//! the pair co-sweep run the anchored-segment split — the [`integral`]
-//! submodule carries the discipline and its funding — and the min_ticks fold
-//! runs the epoch-ledger form (the `web` submodule).
+//! the pair co-sweep run the anchored-segment split, `h* = B + P + L` —
+//! *base*, *parked*, *live* — whose components the [`integral`] submodule
+//! mints and derives along with the discipline and its funding; the
+//! min_ticks fold runs the epoch-ledger form, `h = F + L` — *frozen* +
+//! *live* — (the `web` submodule).
 //!
 //! # The pair co-sweep: distance, lag, and the rank order
 //!
@@ -124,7 +127,7 @@
 //! and the epoch ledger's one product per freeze at the evicted drift's width
 //! — the `web` submodule certifies every charge (the `skyline_flatness`
 //! module's pure-comb and reveal-comb bands hold the close-reveal genre flat
-//! in both width currencies).
+//! in both width-denominated counters, touch and limb).
 //!
 //! Projection adds one height materialization per ownership transition,
 //! priced by the code it emits. Transient state is the cursor paths, the

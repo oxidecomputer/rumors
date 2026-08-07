@@ -33,14 +33,23 @@
 //!   the feature the scenarios still run and assert the other two columns.
 //!
 //! Every row whose measured limb count is nonzero also carries a limb
-//! *liveness floor* — the measured value ×0.75, rounded down, a column in
-//! the same tables as the ceilings. A limb ceiling passes vacuously when
-//! the counter stops counting (a meter hook deleted from one `Base`
+//! lower bound — the measured value ×0.75, rounded down, a column in the
+//! same tables as the ceilings. Two lower-bound genres appear in this
+//! suite, named apart because their trips mean opposite things: a derived
+//! *liveness floor* states a mechanism's irreducible work, never a
+//! measured basis — an honest improvement can approach but never cross
+//! it, so a trip means the work left the metered representation
+//! (investigate the meter) — while a measured-×0.75 *improvement
+//! tripwire*, the envelope columns' genre, bands the pinned reading — a
+//! trip means the reading dropped more than 25% below the pin: attribute
+//! it, and an honest improvement re-pins the band while a dead meter is
+//! the bypass the column exists to catch. A limb ceiling passes vacuously
+//! when the counter stops counting (a meter hook deleted from one `Base`
 //! operation reads a near-zero column with every ceiling green), and the
-//! floor is what fails instead. Like the board's floors, these detect
+//! tripwire is what fails instead. Like the board's floors, these detect
 //! *total* bypass, not partial rerouting: an implementation that routes
 //! some width-scale work through metered operations and the rest around
-//! them still reads green, so a floor is a bypass tripwire, never a
+//! them still reads green, so the column is a bypass tripwire, never a
 //! full-liveness proof.
 //!
 //! Wall time is deliberately never asserted *in this suite*: it is the one
@@ -161,7 +170,8 @@ const RANK_SUM_EXP_DEPTH: usize = 250_000;
 // ─── pinned envelopes ───────────────────────────────────────────────────────
 
 /// One scenario's pinned ceilings (the measured value ×1.25, rounded up)
-/// and its limb liveness floor (measured ×0.75, rounded down).
+/// and its limb improvement tripwire (measured ×0.75, rounded down — the
+/// file doc's tripwire genre).
 struct Envelope {
     /// Peak heap delta over the scenario body, in bytes.
     peak_heap: usize,
@@ -170,9 +180,11 @@ struct Envelope {
     /// Big-integer limb operations counted during the scenario body.
     #[cfg(feature = "limb-meter")]
     limb_ops: u64,
-    /// Liveness floor under the limb column: a reading below it means the
-    /// meter is not watching this work (zero where the measured count is
-    /// zero, under which the floor asserts nothing).
+    /// Improvement tripwire under the limb column: a reading below it is
+    /// a drop of more than 25% from the pinned reading — attribute it,
+    /// re-pinning an
+    /// honest improvement or curing a dead meter (zero where the measured
+    /// count is zero, under which the bound asserts nothing).
     #[cfg(feature = "limb-meter")]
     limb_floor: u64,
 }
@@ -206,7 +218,7 @@ const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64, _limb_floor: 
 // reading the MEASURED lines (the limb column needs `--all-features` or
 // `--features limb-meter`).
 // The limb floor column is the measured value ×0.75, rounded down (the
-// module doc's liveness-floor convention).
+// file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod envelope {
     use super::{envelope, sweep_envelope, Envelope, SweepEnvelope};
@@ -351,8 +363,10 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
     #[cfg(feature = "limb-meter")]
     assert!(
         limb_ops >= env.limb_floor,
-        "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
-         the meter is not watching this work",
+        "{name}: limb counter reads {limb_ops}, below the {} improvement \
+         tripwire (measured x0.75): attribute the drop — an honest \
+         improvement re-pins the band; a dead meter is the bypass this \
+         column exists to catch",
         env.limb_floor,
     );
     r
@@ -582,7 +596,7 @@ fn ticks_mirror_wide_envelope() {
 /// column may move beyond a word of slack. An implementation iterating
 /// any fraction of the count moves every column by ~8x here and cannot
 /// hide in a constant; a dead meter reads zero movement AND a zero
-/// point, which the envelope rows' liveness floors already reject.
+/// point, which the envelope rows' improvement tripwires already reject.
 #[test]
 #[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 fn ticks_flatness_holds_the_log_band() {
@@ -989,21 +1003,23 @@ struct TouchEnvelope {
     /// Accumulator digit touches counted during the scenario body.
     #[cfg(feature = "limb-meter")]
     touches: u64,
-    /// Liveness floor under the limb column: measured ×0.75, per the
-    /// module doc's floor convention.
+    /// Improvement tripwire under the limb column: measured ×0.75, per
+    /// the file doc's tripwire convention.
     #[cfg(feature = "limb-meter")]
     limb_floor: u64,
-    /// Liveness floor under the touch column: measured ×0.75.
+    /// Improvement tripwire under the touch column: measured ×0.75, per
+    /// the file doc's tripwire convention.
     ///
-    /// A touch reading below it means the scenario's accumulator work
-    /// left the metered representation, and every touch ceiling above
-    /// would hold vacuously.
+    /// A touch reading below it is a >25% drop from the pinned reading —
+    /// attribute it, re-pinning an honest improvement or curing a dead
+    /// meter, without which every touch ceiling above would hold
+    /// vacuously.
     #[cfg(feature = "limb-meter")]
     touch_floor: u64,
 }
 
 /// Build a [`TouchEnvelope`] from the four pinned columns and the two
-/// liveness floors.
+/// improvement tripwires.
 ///
 /// The limb and touch columns are carried only when the `limb-meter`
 /// feature compiles their counters in; the leading underscores keep the
@@ -1042,7 +1058,7 @@ const fn touch_envelope(
 // `old -> new`. Re-pin by rerunning under `--no-capture` with
 // `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
-// module doc's liveness-floor convention).
+// file doc's improvement-tripwire convention).
 // One rise is recorded against the tightening rule: every limb ceiling
 // here rose when `Base::trailing_zeros` joined the metered
 // seam (rank normalization strips factors of two through it, so these
@@ -1060,7 +1076,7 @@ mod rank_env {
 }
 
 /// Run one touch-priced scenario body under all four meters and assert
-/// its envelope, both liveness floors included.
+/// its envelope, both improvement tripwires included.
 ///
 /// [`metered`]'s harness plus the accumulator touch column; prints the
 /// measured numbers so re-pinning never requires editing the harness.
@@ -1117,15 +1133,19 @@ fn touch_metered<R>(
     #[cfg(feature = "limb-meter")]
     assert!(
         limb_ops >= env.limb_floor,
-        "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
-         the meter is not watching this work",
+        "{name}: limb counter reads {limb_ops}, below the {} improvement \
+         tripwire (measured x0.75): attribute the drop — an honest \
+         improvement re-pins the band; a dead meter is the bypass this \
+         column exists to catch",
         env.limb_floor,
     );
     #[cfg(feature = "limb-meter")]
     assert!(
         touches >= env.touch_floor,
-        "{name}: touch counter reads {touches}, below the {} liveness floor: \
-         the accumulator work left the metered representation",
+        "{name}: touch counter reads {touches}, below the {} improvement \
+         tripwire (measured x0.75): attribute the drop — an honest \
+         improvement re-pins the band; a dead meter is the bypass this \
+         column exists to catch",
         env.touch_floor,
     );
     r
@@ -1460,8 +1480,8 @@ struct SweepEnvelope {
     /// Packed-stream bits scanned during the scenario body.
     #[cfg(feature = "scan-meter")]
     scan_bits: u64,
-    /// Liveness floor under the limb column: measured ×0.75, per the
-    /// module doc's floor convention.
+    /// Improvement tripwire under the limb column: measured ×0.75, per
+    /// the file doc's tripwire convention.
     #[cfg(feature = "limb-meter")]
     limb_floor: u64,
 }
@@ -1500,7 +1520,7 @@ const fn sweep_envelope(
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
-// module doc's liveness-floor convention).
+// file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod sweep_env {
     use super::{sweep_envelope, SweepEnvelope};
@@ -1578,8 +1598,10 @@ fn sweep_metered<R>(
     #[cfg(feature = "limb-meter")]
     assert!(
         limb_ops >= env.limb_floor,
-        "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
-         the meter is not watching this work",
+        "{name}: limb counter reads {limb_ops}, below the {} improvement \
+         tripwire (measured x0.75): attribute the drop — an honest \
+         improvement re-pins the band; a dead meter is the bypass this \
+         column exists to catch",
         env.limb_floor,
     );
     r
@@ -1725,7 +1747,7 @@ fn skyline_cmp_wide_tooth_envelope() {
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
-// module doc's liveness-floor convention).
+// file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod emit_env {
     use super::{sweep_envelope, SweepEnvelope};
@@ -2000,7 +2022,7 @@ fn tick_expand_cross_envelope() {
 // ceiling derives from. Re-pin by rerunning under `--no-capture` with
 // `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
-// module doc's liveness-floor convention).
+// file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod text_env {
     use super::{sweep_envelope, SweepEnvelope};
@@ -5887,16 +5909,18 @@ struct QueryEnvelope {
     /// Accumulator digit touches counted during the scenario body.
     #[cfg(feature = "limb-meter")]
     touches: u64,
-    /// Liveness floor under the limb column: measured ×0.75, per the
-    /// module doc's floor convention.
+    /// Improvement tripwire under the limb column: measured ×0.75, per
+    /// the file doc's tripwire convention.
     #[cfg(feature = "limb-meter")]
     limb_floor: u64,
-    /// Liveness floor under the touch column: measured ×0.75.
+    /// Improvement tripwire under the touch column: measured ×0.75, per
+    /// the file doc's tripwire convention.
     ///
-    /// A touch reading below it means the scenario's accumulator work
-    /// left the metered representation, and every touch ceiling above
-    /// would hold vacuously (zero where the measured count is zero,
-    /// under which the floor asserts nothing).
+    /// A touch reading below it is a >25% drop from the pinned reading —
+    /// attribute it, re-pinning an honest improvement or curing a dead
+    /// meter, without which every touch ceiling above would hold
+    /// vacuously (zero where the measured count is zero, under which the
+    /// bound asserts nothing).
     #[cfg(feature = "limb-meter")]
     touch_floor: u64,
 }
@@ -5941,7 +5965,7 @@ const fn query_envelope(
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
-// module doc's liveness-floor convention).
+// file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod query_env {
     use super::{query_envelope, QueryEnvelope};
@@ -6081,15 +6105,19 @@ fn query_metered<R>(
     #[cfg(feature = "limb-meter")]
     assert!(
         limb_ops >= env.limb_floor,
-        "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
-         the meter is not watching this work",
+        "{name}: limb counter reads {limb_ops}, below the {} improvement \
+         tripwire (measured x0.75): attribute the drop — an honest \
+         improvement re-pins the band; a dead meter is the bypass this \
+         column exists to catch",
         env.limb_floor,
     );
     #[cfg(feature = "limb-meter")]
     assert!(
         touches >= env.touch_floor,
-        "{name}: touch counter reads {touches}, below the {} liveness floor: \
-         the accumulator work left the metered representation",
+        "{name}: touch counter reads {touches}, below the {} improvement \
+         tripwire (measured x0.75): attribute the drop — an honest \
+         improvement re-pins the band; a dead meter is the bypass this \
+         column exists to catch",
         env.touch_floor,
     );
     r
@@ -7364,11 +7392,16 @@ mod memo_resolution_cost {
     /// Tick the event × id cross and read the touch counter over the
     /// tick body alone.
     ///
-    /// Enforces a one-touch-per-input-byte liveness floor before
-    /// returning: the walk folds every consumed delta into the height
-    /// accumulator, so a reading below the floor means the walk's
-    /// accumulator work left the metered representation and any ratio
-    /// over it would hold vacuously.
+    /// Enforces a one-touch-per-eight-input-bytes liveness floor before
+    /// returning, derived from the walk's irreducible work: every
+    /// consumed code's magnitude folds into the height accumulator at
+    /// least once — one digit touch per 64-bit limb of the operand,
+    /// zero limbs included — and in every family here the folded
+    /// payload (the circulated memo minima and the per-leaf delta
+    /// codes) is at least an eighth of the packed input. A reading
+    /// below the floor means the walk's accumulator work left the
+    /// metered representation and any ratio over it would hold
+    /// vacuously.
     fn tick_run(ev: meter::Packed, id: meter::Packed) -> Run {
         let mut v = ev.version();
         let p = Party::decode(&*id.bytes).expect("the generator's id is canonical");
@@ -7380,9 +7413,9 @@ mod memo_resolution_cost {
             touches: touch_meter::touches(),
         };
         assert!(
-            run.touches >= run.input,
+            run.touches >= run.input / 8,
             "memo family at {input} input bytes: {} digit touches under the \
-             one-per-byte floor: the walk's accumulator work is not metered",
+             one-per-eight-bytes floor: the walk's accumulator work is not metered",
             run.touches,
         );
         run
@@ -7632,6 +7665,15 @@ mod memo_resolution_cost {
 // separates the wide gap from the shape; the pure comb (no left-full
 // site anywhere: no memo, no pre-scan) pins the watermark web's
 // own arm-move + close-pop cycle in isolation.
+//
+// Two lower-bound genres guard these pins, named apart because their
+// trips mean opposite things. A liveness FLOOR is derived from the
+// mechanism's irreducible work, never from a measured basis: an honest
+// improvement approaches it but can never cross it, so a trip means
+// the work left the metered representation — investigate the meter. An
+// improvement TRIPWIRE is a measured reading ×0.75: a trip means the
+// reading dropped more than 25% below the pin — attribute the
+// improvement and re-pin; the meter may be perfectly alive.
 #[cfg(feature = "limb-meter")]
 mod width_circulation_cost {
     use before::meter;
@@ -7753,13 +7795,19 @@ mod width_circulation_cost {
             large.touches,
         );
         assert!(
-            large.touches >= 56_772,
-            "reveal_comb: {} touches read below the 56,772 liveness floor \
-             (measured 75,696 x0.75): the cycle's work left the \
-             metered representation",
+            large.touches >= REVEAL_COMB_TOUCH_TRIPWIRE,
+            "reveal_comb: {} touches dropped more than 25% below the pinned \
+             reading ({REVEAL_COMB_TOUCH_TRIPWIRE} = measured 75,696 x0.75): \
+             attribute the improvement and re-pin",
             large.touches,
         );
     }
+
+    /// Improvement tripwire on the reveal comb's larger run: the
+    /// measured reading ×0.75, rounded down (the module comment's
+    /// tripwire genre — a trip means the reading improved past the
+    /// band, not that the meter died: attribute and re-pin).
+    const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 56_772;
 
     /// Touch liveness floor on the pure comb's larger run, derived from
     /// the cycle's irreducible work — never from a measured basis.
@@ -7862,9 +7910,11 @@ mod width_circulation_cost {
     /// the deleted close and consume folds this family paid narrow.
     const HIFLOOR_TOUCH_CEILING: u64 = 51_042;
 
-    /// Touch liveness floor paired with [`HIFLOOR_TOUCH_CEILING`]:
-    /// measured ×0.75, rounded down.
-    const HIFLOOR_TOUCH_FLOOR: u64 = 30_624;
+    /// Improvement tripwire paired with [`HIFLOOR_TOUCH_CEILING`]: the
+    /// measured reading ×0.75, rounded down (the module comment's
+    /// tripwire genre — a trip means the reading improved past the
+    /// band, not that the meter died: attribute and re-pin).
+    const HIFLOOR_TOUCH_TRIPWIRE: u64 = 30_624;
 
     /// GREEN PIN: the high-floor control is flat and width-independent
     /// — identical forest, identical deferral and close-reveal cycle,
@@ -7929,10 +7979,10 @@ mod width_circulation_cost {
             large.touches,
         );
         assert!(
-            large.touches >= HIFLOOR_TOUCH_FLOOR,
-            "reveal_comb_hifloor: {} touches read below the {HIFLOOR_TOUCH_FLOOR} \
-             liveness floor (measured 40,833 x0.75): the cycle's work left the \
-             metered representation",
+            large.touches >= HIFLOOR_TOUCH_TRIPWIRE,
+            "reveal_comb_hifloor: {} touches dropped more than 25% below the \
+             pinned reading ({HIFLOOR_TOUCH_TRIPWIRE} = measured 40,833 x0.75): \
+             attribute the improvement and re-pin",
             large.touches,
         );
     }

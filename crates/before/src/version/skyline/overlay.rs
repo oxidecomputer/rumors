@@ -75,8 +75,13 @@
 //! ancestor per cursor plus the client's accumulators: a deep operand costs
 //! its *bits*, never stack frames. The pair algebra's arithmetic rides the
 //! cliff-immune [`Accumulator`]: a machine-word delta costs amortized O(1)
-//! digit touches, a wide delta O(its own limbs) — paid by the code the input
-//! spent to express it ([`suanpan`]'s crate docs carry the argument). The
+//! digit touches, a wide delta O(its own limbs) — *priced by* the code the
+//! input spent to express it. That phrase is the cost convention every
+//! skyline walk's claims are stated in: work is *priced by* (paid by) a
+//! quantity when it is charged against bits already read or written at that
+//! width, so a wide fold always has a wide spelling funding it and linearity
+//! in wire bits is preserved ([`suanpan`]'s crate docs carry the
+//! accumulator's half of the argument). The
 //! comparison sweeps pin these constants for the pair walk (the Cost section
 //! of [`sweep`](super::sweep)); each other client's meter rows pin its own.
 
@@ -284,6 +289,11 @@ pub(super) struct Step {
 /// through [`PlateauCursor`]: the [`Step`]s it yields are folded by each
 /// client's own algebra (the pair clients through [`fold`]), and emission
 /// additionally re-codes them.
+///
+/// This is the overlay-law twin of the single-stream driver
+/// ([`walk::LeafWalk`](super::walk::LeafWalk)): the same descend/backtrack
+/// skeleton, carried here as an owned cursor with exhaustion by position and
+/// flip-level steps, because that is what the multi-stream merges consume.
 pub(super) struct LeafCursor<'a> {
     cursor: DsiCursor<'a>,
     /// Root-to-leaf branch directions, root first.

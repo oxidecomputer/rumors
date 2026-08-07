@@ -23,13 +23,19 @@
 //! The walk pairs the packed id (`IdReader`) against the skyline topology and
 //! streams one `(depth, payload code)` plateau per output leaf to the
 //! collapsing builder, which derives the union topology and performs the
-//! equal-sibling normalization. A shortcut raise needs no builder repair: the
+//! equal-sibling normalization. A child is *full* when the id owns it
+//! entirely (`IdNode::Full`); the shortcut arms fire at an id node with one
+//! full child, collapsing that child to a single raised leaf, and the two
+//! directions differ only in whether the raised leaf precedes or follows the
+//! range whose minimum it needs. A shortcut raise needs no builder repair:
+//! the
 //! raised value is known before its leaf is emitted. The right-full arm gets it
 //! by deferral — the raised leaf is the *right* child's output, so the walk
 //! fills the left child first, and the id cursor then sits exactly at the right
 //! child's tag: one `O(1)` peek decides the arm, and the raise's minimum
-//! argument is the walk's own watermark for the enclosing range. The left-full
-//! arm's raised leaf precedes the range its minimum comes from, so it alone
+//! argument is the walk's own watermark for the enclosing range. A *left-full
+//! site* — an id node whose left child is full — is the other direction: its
+//! raised leaf precedes the range its minimum comes from, so it alone
 //! pre-scans (the `prescan` submodule) — memoized: one fresh scan records every
 //! interior left-full site's minimum as a frame-ledger link, so no stream
 //! position is ever pre-scanned twice and no minimum is materialized (the
@@ -431,8 +437,12 @@ impl FillWalk<'_> {
             let mut cost: Cost = loop {
                 let (left, right) = match id.read() {
                     // fill(0, e) = e: the id owns nothing here, and grow can
-                    // inflate nothing (`grow` skips absent regions). A real
-                    // cursor reads this only at an empty root.
+                    // inflate nothing (`grow` skips absent regions). Reachable
+                    // only at an empty root: below the root the walk descends
+                    // only into children whose presence bits are set, so an
+                    // interior read never lands here. Kept so the walk
+                    // realizes fill's equation totally instead of asserting
+                    // the shape away.
                     IdNode::Empty => {
                         self.copy_subtree(depth);
                         break Cost::MAX;

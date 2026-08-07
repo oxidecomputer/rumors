@@ -22,7 +22,8 @@
 //! Per bound, the walk maintains the running difference `D = height_probe −
 //! height_bound` on the cliff-immune [`Accumulator`] and folds its sign once
 //! per elementary interval into the bound's two surviving-direction flags — the
-//! same `(probe <= bound, bound <= probe)` pair the comparison sweep folds. A
+//! same `(probe <= bound, bound <= probe)` pair the comparison sweep folds,
+//! in that orientation everywhere: the probe is every pair's `a` operand. A
 //! probe crossing folds into both differences; a bound crossing folds into its
 //! own. Each accumulator therefore sees exactly the write sequence the
 //! corresponding pair sweep would commit, which is what keeps the one-bound
@@ -212,7 +213,10 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
         on_side,
         // A dropped side is a decided concurrency (the walk is always
         // given both endpoint streams), and so is the total
-        // non-canonical `Some(None)` corner — `flatten` folds the two.
+        // non-canonical `Some(None)` corner — `flatten` folds the two,
+        // soundly per `walk`'s obligation: `on_side` drops only at a
+        // both-directions refutation, exactly the relation the
+        // `Concurrent` arms below read a `None` as.
         |lo, hi| match (lo.flatten(), hi.flatten()) {
             (Some(Ordering::Less), _) => Placement::Before,
             (Some(Ordering::Equal), Some(Ordering::Equal)) => Placement::At(Endpoint::Both),
@@ -266,7 +270,10 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
         // span; otherwise `lo <= probe` surviving is the start.
         // `Dominance::Before` is unreachable here on canonical validated inputs
         // (a refuted start direction returned from the loop) but keeps the map
-        // total.
+        // total. The `flatten` merge is sound (`walk`'s obligation): the end
+        // side drops only when `hi <= probe` is refuted, so a dropped end
+        // flattens to the same not-`Equal`/`Greater` answer its decided
+        // relation could ever have given.
         |lo, hi| {
             if matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
                 Dominance::After
@@ -320,7 +327,10 @@ pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> P
         // span; otherwise `probe <= hi` surviving is the end.
         // `Precedence::After` is unreachable here on canonical validated inputs
         // (a refuted end direction returned from the loop) but keeps the map
-        // total.
+        // total. The `flatten` merge is sound (`walk`'s obligation): the
+        // start side drops only when `probe <= lo` is refuted, so a dropped
+        // start flattens to the same not-`Equal`/`Less` answer its decided
+        // relation could ever have given.
         |lo, hi| {
             if matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Less)) {
                 Precedence::Before
@@ -390,6 +400,13 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
 /// at the last interval (unreachable on canonical inputs — every caller keeps
 /// the arm total so a non-canonical sweep stays a silent unspecified verdict,
 /// per the panics contract).
+///
+/// Obligation on every caller: a `finish` arm that reads a side through
+/// `flatten` merges "dropped" with "swept to concurrent", so the side's drop
+/// condition must agree with that arm's reading — the hook may drop a side
+/// only when the direction the finish arm tests is already refuted, making
+/// the flattened `None` and the decided relation give the same answer. Each
+/// entry point carries the per-verdict argument at its closures.
 fn walk<V>(
     probe: &BitsSlice,
     start: Option<&BitsSlice>,

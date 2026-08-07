@@ -1,5 +1,14 @@
-//! The leaf-walk driver: one home for the iterative descend-to-leaf/backtrack
-//! skeleton every in-order leaf pass over a skyline subtree runs.
+//! The leaf-walk driver: the iterative descend-to-leaf/backtrack skeleton of
+//! the *single-stream* leaf passes — the scanning walks that visit one
+//! skyline subtree's leaves through a caller-owned cursor (the fill walk's
+//! block scans and sibling walks, the pre-scan's replays).
+//!
+//! The overlay layer's [`LeafCursor`](super::overlay::LeafCursor) carries its
+//! own copy of the same skeleton for the other client family: the
+//! multi-stream merges, which need an owned cursor, exhaustion by position,
+//! and flip levels rather than depths. The split is by client family —
+//! single-stream scans drive [`LeafWalk`] here, overlay-law merges drive the
+//! overlay's cursors.
 //!
 //! A skyline subtree's leaves are visited by alternating one word-parallel
 //! unary read (the descent: a run of internal flags ended by the leaf's `1`)
