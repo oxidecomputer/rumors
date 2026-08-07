@@ -3,10 +3,10 @@
 //! The board is the campaign's dashboard, not its enforcement: this test
 //! only pins that the whole sweep keeps compiling and running — every
 //! operation row prepares, measures at both scales, and renders. It
-//! deliberately asserts no colors: a red cell is the red-triage buffer's
-//! business (`BOARD_EXPECTED_REDS`, empty at acceptance), and the
-//! enforced resource record is the process-isolated envelope suite in
-//! `tests/meter.rs`.
+//! deliberately asserts no colors: verdicts of record belong to the
+//! release-profile board runs the gate's board leg consumes (any red
+//! cell there fails it), and the enforced resource record is the
+//! process-isolated envelope suite in `tests/meter.rs`.
 //!
 //! This binary also holds the registry's band-name parity survivor (the
 //! `before::meter::registry` module doc names it): the envelope suite's

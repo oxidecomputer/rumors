@@ -51,12 +51,12 @@
 //!   reason instead. Bespoke instruments (adequacy tripwires with
 //!   committed-bad kernels, gate pins outside the band convention) stay
 //!   hand-written and reach their shapes through the same door.
-//! - **The intermediate state.** A red board cell with a live task in
-//!   [`BOARD_EXPECTED_REDS`](crate::meter::board::BOARD_EXPECTED_REDS) —
-//!   asserted empty at acceptance — is the only legitimate intermediate
-//!   state for a family under cure. Coverage by bands alone is not a
-//!   state a family can occupy silently: the roster answer is a board
-//!   column or a dated envelope-only ruling, nothing in between.
+//! - **No intermediate state.** A red board cell at a scale of record
+//!   is unconditionally a gate failure until it is resolved — by a cure,
+//!   or by an owner-declared model at the cell. Coverage by bands alone
+//!   is likewise not a state a family can occupy silently: the roster
+//!   answer is a board column or a dated envelope-only ruling, nothing
+//!   in between.
 //!
 //! # What the compiler cannot reach
 //!
@@ -535,9 +535,7 @@ impl Shape {
 /// enforced record), the ceiling-calibration witnesses (the board `ceilings`
 /// module's header comment), and — only if a cell needs a declared model or
 /// turns up red — the declaration site (the `ceilings` module's declared-models
-/// section), the red-triage buffer
-/// ([`BOARD_EXPECTED_REDS`](crate::meter::board::BOARD_EXPECTED_REDS), with a
-/// live task), the rider list
+/// section), the rider list
 /// ([`BOARD_DECLARED_BENCH_RIDERS`](crate::meter::board::BOARD_DECLARED_BENCH_RIDERS)),
 /// and the judge roster with its membership pin
 /// (`tools/benchjudge-expected.json`, `tests/bench_judge_roster.rs`). And not

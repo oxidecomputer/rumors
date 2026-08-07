@@ -1,5 +1,5 @@
-//! The coverage rosters: both halves of the board tiling and the red-triage
-//! buffer — committed data the tiling tests beside them enforce.
+//! The coverage rosters: both halves of the board tiling — committed data the
+//! tiling test beside them enforces.
 //!
 //! Rows price delegations at their shared mechanism, so several surface rows
 //! legitimately cite one row: `Clock::send` is `Clock::tick` by definition;
@@ -608,52 +608,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          production builds",
     ),
 ];
-
-/// One in-flight triage entry in the red buffer: a board cell reading red whose
-/// triage — a cure, or an owner-declared model at the cell — someone owns but
-/// has not landed yet.
-///
-/// `exponent` is a scaling-class finding (some counter's growth exceeds its
-/// ceiling — flat or declared); `constant` a proportionality finding at
-/// exponent ~1 (a per-byte constant, a segments count, or a declared-model
-/// band). The tags are the render's `mech[...]` column as committed data, so a
-/// triage entry names the mechanism it buffers.
-pub struct ExpectedRed {
-    /// The board row's operation name.
-    pub op: &'static str,
-    /// The input family.
-    pub family: &'static str,
-    /// Whether the cell reads red on an exponent mechanism at either
-    /// acceptance scale.
-    pub exponent: bool,
-    /// Whether the cell reads red on a constant mechanism at either
-    /// acceptance scale.
-    pub constant: bool,
-    /// The live task that owns this entry's triage.
-    ///
-    /// An entry with no owner is normalization of deviance; the
-    /// acceptance assertion
-    /// (`expected_red_buffer_is_an_empty_triage_buffer`, beside this
-    /// module's tiling test) refuses it, and refuses any entry at all
-    /// at acceptance.
-    pub task: &'static str,
-}
-
-/// The red-triage buffer: board cells currently red whose triage is in flight —
-/// **empty at acceptance, and empty on the settled tree**.
-///
-/// Red means untriaged, nothing else. Every dashboard contradiction resolves to
-/// exactly one of: a cure, or an owner-declared model with a dated rationale
-/// committed at the declaration site (the `ceilings` module's declared-models
-/// section — the cell then reads green because the behavior is intended and
-/// modeled). This buffer exists only so a freshly-found red can be committed
-/// while its triage is worked; every entry carries the live task that owns it,
-/// and the acceptance assertion
-/// (`expected_red_buffer_is_an_empty_triage_buffer`) holds the buffer EMPTY, so
-/// a red that persists across commits is a process failure, not a status. The
-/// acceptance protocol diffs each rendered red set against this list: on the
-/// settled tree both are empty and the boards render all-green at both scales.
-pub const BOARD_EXPECTED_REDS: &[ExpectedRed] = &[];
 
 #[cfg(test)]
 mod tests;

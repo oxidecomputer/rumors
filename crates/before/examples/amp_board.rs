@@ -17,9 +17,8 @@
 //! seconds of runtime; acceptance requires all green at both the default
 //! and acceptance scales, one run each under the board's determinism
 //! tripwire — and the exit code carries that verdict: at those two
-//! scales of record, a red count disagreeing with the expected-reds
-//! triage buffer exits nonzero, so every gate leg that runs a board of
-//! record consumes its verdicts. The counter features are
+//! scales of record, any red cell exits nonzero, so every gate leg that
+//! runs a board of record consumes its verdicts. The counter features are
 //! `required-features`: a build without them would render limb, scan,
 //! and touch unjudged while still printing verdict colors, so cargo
 //! refuses it outright.
@@ -186,21 +185,19 @@ fn main() {
                 .expect("stdout stays writable");
             // The verdicts are consumed, not just rendered: at the
             // scales of record (default and acceptance, the two the
-            // all-green acceptance criterion is stated over), a red
-            // count disagreeing with the expected-reds triage buffer
-            // exits nonzero, so a red board cannot pass a gate leg
-            // that runs it. Other scales stay debugging views whose
+            // all-green acceptance criterion is stated over), any red
+            // cell exits nonzero, so a red board cannot pass a gate
+            // leg that runs it — a red is an untriaged contradiction,
+            // resolved only by a cure or an owner-declared model at
+            // the cell. Other scales stay debugging views whose
             // verdicts are not of record and never bind.
-            if scale == DEFAULT_SCALE || scale == board::ACCEPTANCE_SCALE {
-                let expected = board::BOARD_EXPECTED_REDS.len();
-                if summary.red != expected {
-                    eprintln!(
-                        "amp-board: {red} red cells at scale {scale} vs {expected} \
-                         in the expected-reds triage buffer",
-                        red = summary.red
-                    );
-                    std::process::exit(1);
-                }
+            let of_record = scale == DEFAULT_SCALE || scale == board::ACCEPTANCE_SCALE;
+            if of_record && summary.red != 0 {
+                eprintln!(
+                    "amp-board: {red} red cells at scale {scale}",
+                    red = summary.red
+                );
+                std::process::exit(1);
             }
         }
     }

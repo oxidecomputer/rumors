@@ -2,11 +2,11 @@
 
 Status (2026-07-31): the campaign is at its tail on branch
 `before-hardening`. The audit's amplifier classes and every
-adversarial round's findings are cured or owner-modeled: the board's
-red-triage buffer (`BOARD_EXPECTED_REDS`, `meter::board`) is empty and
-asserted empty at acceptance, with every former standing red resolved
-to a cure or a dated owner-declared model at its declaration site
-(`meter::board`'s ceilings module). What remains is the tail this
+adversarial round's findings are cured or owner-modeled: a red board
+cell at a scale of record is a gate failure outright (the runner exits
+nonzero), and every standing red has been resolved to a cure or a
+dated owner-declared model at its declaration site (`meter::board`'s
+ceilings module). What remains is the tail this
 document plans: the fuelscape rank-view kernel item, the tick-seam
 probe, the closeout obligations, the survey/soak and benchmark legs,
 the final adversarial review (in flight), and the go-criteria for
@@ -1017,12 +1017,12 @@ the commits the entries name.
 - **Landed 2026-07-28..30 (the post-#91 tranche; landed shapes of
   record, each with its instruments — detail in git history and
   the named module docs):**
-  - *The red-triage doctrine realized* (the owner's 2026-07-28
-    "accepted red" ruling): `BOARD_EXPECTED_REDS` is an empty
-    triage buffer — every entry must carry a live task, and the
-    acceptance assertion
-    (`expected_red_buffer_is_an_empty_triage_buffer`) refuses any
-    entry at all at acceptance. Every former standing red resolved
+  - *The red doctrine realized* (the owner's 2026-07-28
+    "accepted red" ruling): red means untriaged, nothing else — a
+    red board cell at a scale of record is a gate failure until
+    resolved, and no accepted-reds list may exist (it would
+    mechanize normalization of deviance). Every former standing
+    red resolved
     to a cure or a dated owner-declared model at the ceilings
     module (§17.3): the ascend-cliff tick certificate constant and
     min_ticks reign constant (ratified 2026-07-28, conditional on
@@ -1305,12 +1305,11 @@ against an n·log n constant can read red at default and green at
 Record-scale runtime budget: ≤ 30 s summed measured-body wall per
 family.
 
-**The red set** is empty on the settled tree: `BOARD_EXPECTED_REDS`
-is an in-flight triage buffer whose every entry must carry a live
-task, asserted EMPTY at acceptance
-(`expected_red_buffer_is_an_empty_triage_buffer`) — red is
-reserved for untriaged contradictions, and every resolved
-contradiction is either a cure or a dated declared model (§17.3).
+**The red set** is empty on the settled tree: red is reserved for
+untriaged contradictions, and a red cell at either scale of record
+fails the gate's board leg outright (the runner exits nonzero) —
+every resolved contradiction is either a cure or a dated declared
+model (§17.3).
 
 ### The rejection surface (fallible operations)
 
@@ -1399,7 +1398,7 @@ all-green means the release-profile board green on counters and
 floors at BOTH scales, one run each under the committed
 determinism tripwire (the runner's in-process double measurement
 plus the gate's cross-process byte-compare), with
-`BOARD_EXPECTED_REDS` empty; AND the bench judge roster-satisfied
+zero red cells; AND the bench judge roster-satisfied
 at both scales in both modes at the roster membership current at
 the sweep** — record sampling belongs to this acceptance sweep
 alone (the standing cadence judges in quick mode). Dev runs
@@ -1464,8 +1463,8 @@ judged):
 - `just all` clean at the final tip (the gate plus the feature
   matrix, fuzz smoke, lean, wasm, and the judge legs).
 - The §13 acceptance criterion met in full: boards all-green at
-  both scales under the single-run determinism protocol with the
-  red buffer empty; bench judge roster-satisfied at both scales,
+  both scales under the single-run determinism protocol with
+  zero red cells; bench judge roster-satisfied at both scales,
   both modes, at record sampling — only permanent expectations
   standing, which means the display-pair class question (§17.2
   item 5) is resolved or explicitly re-ratified by the owner at
@@ -1639,10 +1638,9 @@ other cost-moving item or its annotation is polluted.
 
 ### 17.3 Owned-red accounting
 
-The board's red set is **empty**: `BOARD_EXPECTED_REDS`
-(`meter::board`) is an in-flight triage buffer, every entry
-carrying a live task, asserted empty at acceptance and empty on
-the settled tree — red is reserved for untriaged contradictions
+The board's red set is **empty**: red is reserved for untriaged
+contradictions, and a red cell at a scale of record fails the
+gate's board leg outright — no accepted-reds list may exist
 (the owner's 2026-07-28 ruling: an "accepted red" list would
 mechanize normalization of deviance). Every contradiction the
 campaign found resolves to exactly one of a cure (§3's ledger) or

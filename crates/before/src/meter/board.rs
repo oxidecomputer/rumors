@@ -173,8 +173,9 @@
 //! unsatisfiable on work their contracts mandate (the same reasoning that
 //! re-denominates the I/O cells). A modeled cell reads green because its
 //! behavior is *intended and modeled*; red is reserved for untriaged
-//! contradictions (the red-triage buffer, [`BOARD_EXPECTED_REDS`], is empty on
-//! the settled tree). Each model is disclosed on its row face (`decl[...]`),
+//! contradictions, and any red cell at a scale of record is unconditionally a
+//! gate failure until it is resolved — by a cure, or by an owner-declared
+//! model at the cell. Each model is disclosed on its row face (`decl[...]`),
 //! derived at its constant's definition site (the `ceilings` module's
 //! declared-models section), and held honest on the under side — banded floors
 //! where the model predicts a quantity, committed liveness pins where it
@@ -268,7 +269,7 @@ pub use ceilings::{
     SCAN_FLOOR_BITS_PER_INPUT_BYTE, SCAN_TOUCH_FLOOR_BITS, TEXT_BYTES_PER_RADIX_UNIT,
     TEXT_PIPELINE_LIMB_OPS_PER_VALUE, TICKS_BOARD_COUNT,
 };
-pub use coverage::{ExpectedRed, BOARD_EXPECTED_REDS, BOARD_NOT_APPLICABLE, BOARD_PRICED};
+pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
 pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
 pub use family::study_family_versions;

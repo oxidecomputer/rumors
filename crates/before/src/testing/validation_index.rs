@@ -69,8 +69,8 @@
 //! a shape × operation pairing nobody thought to pin, and meter vacuity
 //! (a counter that stopped watching reads a floor trip, not a green).
 //! Red means untriaged, nothing else: every persistent contradiction
-//! resolves to a cure or a declared model, and the red-triage buffer
-//! (`BOARD_EXPECTED_REDS`) is asserted empty at acceptance. The board
+//! resolves to a cure or a declared model, and any red cell at a scale
+//! of record fails the gate's board leg outright. The board
 //! asserts breadth, not records: its readings are indicative, the
 //! enforcement lives in the envelope suite.
 //!

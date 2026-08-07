@@ -1,9 +1,8 @@
-//! The board coverage tests: the tiling over the public surface and the
-//! red-triage buffer's acceptance assertion.
+//! The board coverage tests: the tiling over the public surface.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{BOARD_EXPECTED_REDS, BOARD_NOT_APPLICABLE, BOARD_PRICED};
+use super::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 use crate::meter::board::{bench_cells, BenchMode};
 use crate::testing::surface_coverage;
 
@@ -103,60 +102,5 @@ fn board_coverage_tiles_the_public_surface() {
         orphans.is_empty(),
         "board rows cited by no BOARD_PRICED entry (name the public operation \
          each prices, or retire the row): {orphans:?}"
-    );
-}
-
-/// The red-triage buffer is empty at acceptance, and any in-flight entry names
-/// a live board cell, exactly once, with a mechanism tag and a live-task
-/// reference.
-///
-/// Red means untriaged, nothing else: every dashboard contradiction resolves to
-/// a cure or an owner-declared model at the cell, so [`BOARD_EXPECTED_REDS`]
-/// may hold an entry only while its triage is in flight (the `task` field names
-/// the work), and this assertion is the acceptance teeth — a red that persists
-/// across commits is a process failure, not a status.
-#[test]
-fn expected_red_buffer_is_an_empty_triage_buffer() {
-    let cells: BTreeSet<(String, String)> = bench_cells(0.02, BenchMode::Full)
-        .into_iter()
-        .map(|cell| (cell.op.to_owned(), cell.family.to_owned()))
-        .collect();
-    let mut seen = BTreeSet::new();
-    for red in BOARD_EXPECTED_REDS {
-        assert!(
-            cells.contains(&(red.op.to_owned(), red.family.to_owned())),
-            "{}/{} in BOARD_EXPECTED_REDS names no live board cell",
-            red.op,
-            red.family
-        );
-        assert!(
-            red.exponent || red.constant,
-            "{}/{} carries no mechanism tag",
-            red.op,
-            red.family
-        );
-        assert!(
-            !red.task.trim().is_empty(),
-            "{}/{} carries no live-task reference: an untriaged red may sit in \
-             the buffer only while someone owns its triage",
-            red.op,
-            red.family
-        );
-        assert!(
-            seen.insert((red.op, red.family)),
-            "{}/{} appears twice in BOARD_EXPECTED_REDS",
-            red.op,
-            red.family
-        );
-    }
-    assert!(
-        BOARD_EXPECTED_REDS.is_empty(),
-        "the red-triage buffer is not empty: every entry is an untriaged \
-         contradiction whose resolution (a cure, or an owner-declared model \
-         at the cell) must land before acceptance: {:?}",
-        BOARD_EXPECTED_REDS
-            .iter()
-            .map(|red| format!("{}/{} ({})", red.op, red.family, red.task))
-            .collect::<Vec<_>>()
     );
 }
