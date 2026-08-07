@@ -449,8 +449,9 @@ impl FillWalk<'_> {
                     }
                     IdNode::Internal { left, right } => (left, right),
                 };
-                // The branch's route key: the 2-bit tag `read` just consumed
-                // (an `Internal` reader is always a real cursor).
+                // The branch's route key (`Route`'s convention: the bit
+                // position of the branch's 2-bit id tag) — here the tag `read`
+                // just consumed (an `Internal` reader is always a real cursor).
                 let key = id.pos() - 2;
                 if self.read_flag() {
                     // fill((il, ir), Leaf n) = Leaf n: an event leaf is already

@@ -235,6 +235,11 @@ pub(crate) enum Admission {
     Dominates,
     /// Dominance refuted: some elementary interval has `lo` strictly above the
     /// parsed stream. The pair is crossed or concurrent — no span encodes it.
+    ///
+    /// Also the surface for a structurally whole stream whose running height
+    /// dips negative (the module doc's subsumption argument) — a stream that is
+    /// not a valid version at all — so every caller must treat `Refuted` as
+    /// rejection, never as a decided relation between two versions.
     Refuted,
 }
 
@@ -255,8 +260,9 @@ pub(crate) enum Admission {
 /// - [`Decode::Truncated`]: the cursor's bits end mid-tree or
 ///   mid-integer.
 /// - [`Decode::NotCanonical`]: a collapsible sibling pair. A stream
-///   whose running height dips negative surfaces as the `false`
-///   verdict instead (the module doc's subsumption argument), so on a
+///   whose running height dips negative surfaces as the
+///   [`Refuted`](Admission::Refuted) verdict instead (the module doc's
+///   subsumption argument), so on a
 ///   structurally whole stream the caller's rejection carries the same
 ///   genre the standalone validator would.
 /// - [`Decode::Io`]: the cursor's own reads fail (the wire-side

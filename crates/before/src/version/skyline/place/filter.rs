@@ -362,7 +362,10 @@ pub(crate) fn coverage<'a>(
                 }
                 // A hole subtracts all of the segment only by covering its
                 // maximum (confirmed at exhaustion), and none of it once it
-                // provably misses the minimum — both pairs settle by
+                // provably misses the minimum: missing the minimum is missing
+                // everything, since a covered `v` with `v <= bound` would give
+                // `lo <= v <= bound`, forcing the refuted `lo <= bound` (the
+                // up-set arm below dually, through `hi`). Both pairs settle by
                 // refutation, and a hole settled both ways drops its stream.
                 Demand::NotBefore | Demand::NotStrictlyBefore => {
                     if side.hi.live && !side.hi.directions.le {
@@ -414,6 +417,14 @@ pub(crate) fn coverage<'a>(
 }
 
 /// Map the exhausted coverage walk's decided relations to the verdict.
+///
+/// Division of labor with the walk: a settled pair's refutation already lives
+/// where the verdict needs it — a required demand's in `full_possible`, a
+/// hole's as the favorable answer itself — so the `!live` guards below keep
+/// `finish` from consulting a settled pair's stale `directions`. The stale
+/// directions would happen to agree (a settle-direction refutation is
+/// permanent), but that agreement is not part of the contract: only a pair
+/// alive at exhaustion answers by its decided relation.
 fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
     for side in sides.iter().flatten() {
         // Emptiness first: any bound whose subtraction covers the whole segment

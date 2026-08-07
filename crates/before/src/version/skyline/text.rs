@@ -70,7 +70,6 @@ use crate::error::Parse;
 
 use super::build::SkylineBuilder;
 use super::signed::{gamma_code, gamma_code_signed, signed_sum, unzigzag_base};
-use super::validate_bits;
 
 #[cfg(test)]
 mod tests;
@@ -470,8 +469,7 @@ fn merge(
 /// the stream. Canonicality (a zero-base child under every node, no equal
 /// sibling leaves) is checked at each close and reported after the whole syntax
 /// pass, so syntax errors — including trailing junk — outrank
-/// [`Parse::NotCanonical`]; the built stream is then gated through the strict
-/// validator.
+/// [`Parse::NotCanonical`].
 pub fn parse(text: &str) -> Result<BitsMut, Parse> {
     /// What a parsed subtree contributes to its parent's normal-form check: its
     /// written base and whether it is a single leaf.
@@ -599,7 +597,8 @@ pub fn parse(text: &str) -> Result<BitsMut, Parse> {
         return Err(Parse::NotCanonical);
     }
     let bits = builder.finish();
-    validate_bits(&bits).expect("a canonical text parse builds a canonical skyline stream");
+    // Canonicality of the built stream is pinned by the render↔parse inverse
+    // pair and the transcoder differential (the module doc's independent legs).
     // Canonicalizing the storage is `Version::from_bits`'s job, the
     // single gate a stream passes through when it becomes a stored value.
     Ok(bits)

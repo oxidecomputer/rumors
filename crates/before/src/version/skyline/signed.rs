@@ -28,11 +28,14 @@
 //!
 //! [`Signed`] is the walks' exchange pair: a sign tag beside a magnitude, the
 //! shape the scans return extrema in and the watermark webs price emissions
-//! against. A fold of signed quantities can leave a negative-tagged zero; it
-//! means zero, and the comparisons order it so ([`signed_le`] discharges the
-//! tag before comparing). The coding itself never sees one: [`signed_sum`]
-//! returns the positive zero on exact cancellation, and the zigzag maps have
-//! no spelling for it.
+//! against. No producer emits a negative-tagged zero — every construction
+//! normalizes: the zigzag maps have no spelling for one, the accumulator
+//! read-out ties a zero magnitude to the `Equal` sign
+//! ([`Accumulator::sign_magnitude`]'s contract, which
+//! [`Signed::from_sign_magnitude`] inherits), and [`signed_sum`] returns the
+//! positive zero on exact cancellation. The comparisons tolerate one anyway —
+//! deliberate slack, so no future fold is obligated to normalize: it means
+//! zero, and [`signed_le`] discharges the tag before comparing.
 
 use core::cmp::Ordering;
 

@@ -363,6 +363,9 @@ impl RouteProbe {
             let mut distance = match rise.take() {
                 Some(distance) => distance,
                 None => {
+                    // The branch's route key ([`Route`]'s convention: the bit
+                    // position of the branch's 2-bit id tag) — here the tag
+                    // `read` is about to consume.
                     let key = id.pos();
                     match id.read() {
                         // An owned terminal: the landing, distance 0.

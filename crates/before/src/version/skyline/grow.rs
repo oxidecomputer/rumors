@@ -473,6 +473,8 @@ pub(super) fn emit(
     // which the later phases keep using, so a function boundary would thread
     // every one of them.
     let (original_range, chain_dirs) = loop {
+        // The branch's route key ([`Route`]'s convention: the bit position of
+        // the branch's 2-bit id tag) — here the tag `id_tag` reads below.
         let key = id_pos;
         let (left_present, right_present) = id_tag(id_bits, id_pos);
         id_pos += 2;

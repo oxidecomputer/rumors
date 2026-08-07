@@ -128,23 +128,20 @@ fn rendered_text_is_honest_and_padding_trips() {
 /// Pinned liveness floors for the delegating-parser pin, one per family: the
 /// whole `FromStr` pipeline's measured limb records × 0.85.
 ///
-/// The pipeline records from three sites — the delegated radix conversion (one
-/// width-proportional count per materialized value), the gamma encoder's
-/// arithmetic, and the validator's wide decodes — and the radix site alone
-/// contributes ~33% on hugeleaf and ~25% on bigroot \[measured: pipeline totals
-/// 752 and 16_391; the radix side's own contribution is 250 and 4_127, so the
-/// bypass readings are 502 and 12_264\]. A floor at ×0.85 of the pipeline total
-/// (639 and 13_932) sits above what the other two sites can reach, so a parse
-/// path that stops recording trips it; the values' mandatory limbs alone cannot
-/// separate that bypass (the encode-side arithmetic already covers them). The
-/// bigroot separation margin is thin — the floor sits over a bypass reading of
-/// pipeline-total-minus-radix — so a re-measure that moves the other sites up
-/// must re-derive both readings before trusting the floor separates. Bigroot
-/// re-measured at 8_385 (the gamma encoder's word-path arithmetic and then the
-/// word-valued decoded form left the limb denomination): floor 7_127 (×0.85)
-/// over the derived bypass 4_258 (8_385 − 4_127) keeps the separation.
+/// The pipeline records from two sites — the delegated radix conversion (one
+/// width-proportional count per materialized value) and the gamma encoder's
+/// arithmetic — and the radix site alone contributes ~50% on both families
+/// \[measured: pipeline totals 501 and 8_259; the radix side's own
+/// contribution is 250 and 4_127, so the bypass readings are 251 and 4_132\].
+/// A floor at ×0.85 of the pipeline total (425 and 7_020) sits above what the
+/// encoder site can reach alone, so a parse path that stops recording trips
+/// it; the values' mandatory limbs alone cannot separate that bypass (the
+/// encode-side arithmetic already covers them). The separation margin is
+/// measured, not structural — the floor sits over a bypass reading of
+/// pipeline-total-minus-radix — so a re-measure that moves the encoder site
+/// up must re-derive both readings before trusting the floor separates.
 #[cfg(feature = "limb-meter")]
-const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 639), ("bigroot", 7_127)];
+const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 425), ("bigroot", 7_020)];
 
 /// The production parser's recorded limb work sits under the text-row limb
 /// ceiling κ on the wide-magnitude families, with a live counter.
