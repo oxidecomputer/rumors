@@ -329,7 +329,7 @@ pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude
         Side::A => negative,
         Side::B => !negative,
     };
-    super::fold_signed_int(diff, lowers_diff, magnitude);
+    super::signed::fold_signed_int(diff, lowers_diff, magnitude);
 }
 
 /// A cursor over one dyadic tiling of the unit interval, yielding its plateaus
@@ -497,8 +497,8 @@ impl<'a> OpenedPair<'a> {
         let (a, a_first) = LeafCursor::open(a_bits);
         let (b, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();
-        super::fold_signed_int(&mut diff, false, &a_first);
-        super::fold_signed_int(&mut diff, true, &b_first);
+        super::signed::fold_signed_int(&mut diff, false, &a_first);
+        super::signed::fold_signed_int(&mut diff, true, &b_first);
         OpenedPair {
             a,
             b,
@@ -612,7 +612,7 @@ impl<'a> LeafCursor<'a> {
     pub(super) fn skip_deeper(&mut self, bound: usize, net: &mut Accumulator) {
         while self.peek_flip() > bound {
             let (_, step) = self.step();
-            super::fold_signed_int(net, step.negative, &step.magnitude);
+            super::signed::fold_signed_int(net, step.negative, &step.magnitude);
         }
     }
 
@@ -681,7 +681,7 @@ impl PlateauCursor for LeafCursor<'_> {
         self.path.push(true);
         let flip = self.path.len();
         let code = self.descend();
-        let (negative, magnitude) = super::unzigzag(code);
+        let (negative, magnitude) = super::signed::unzigzag(code);
         (
             flip,
             Step {

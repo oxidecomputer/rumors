@@ -156,11 +156,14 @@ use suanpan::Accumulator;
 use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsSlice, Int, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
-use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe, COST_FREE};
-use self::watermark::{MinStack, Signed};
-use super::grow::{Cost, COST_MAX};
+use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe};
+use self::watermark::MinStack;
+use super::grow::Cost;
+use super::signed::{
+    fold_signed_int, gamma_code_int, gamma_code_signed_int, signed_max, signed_sum_base, unzigzag,
+    Signed,
+};
 use super::walk::{fold_region, skip_leaves, skip_region, Extremum, LeafWalk};
-use super::{fold_signed_int, gamma_code_int, gamma_code_signed_int, unzigzag};
 
 mod fuse;
 mod watermark;
@@ -510,7 +513,7 @@ impl FillWalk<'_> {
                     // cursor reads this only at an empty root.
                     IdNode::Empty => {
                         self.copy_subtree(depth);
-                        break COST_MAX;
+                        break Cost::MAX;
                     }
                     // fill(1, e) = max(e): a fully-owned region collapses. On a
                     // route-live walk the region is a single leaf — a node
@@ -520,7 +523,7 @@ impl FillWalk<'_> {
                     IdNode::Full => {
                         let above = self.scan_max_consuming();
                         self.emit_offset(depth, above);
-                        break COST_FREE;
+                        break Cost::FREE;
                     }
                     IdNode::Internal { left, right } => (left, right),
                 };
@@ -531,8 +534,8 @@ impl FillWalk<'_> {
                     // fill((il, ir), Leaf n) = Leaf n: an event leaf is already
                     // simple; the dominated id children are lazy-skipped, and
                     // the route's expansion fold rides the skips.
-                    let (neg, mag) = self.consume_payload();
-                    self.emit_step(depth, neg, mag);
+                    let step = self.consume_payload();
+                    self.emit_step(depth, step.negative, step.magnitude);
                     break self.probe.expand(key, id, left, right);
                 }
 
@@ -563,7 +566,7 @@ impl FillWalk<'_> {
                         self.stack.open();
                         self.copy_subtree(depth + 1);
                         self.stack.close();
-                        break self.probe.join(key, COST_FREE, COST_MAX);
+                        break self.probe.join(key, Cost::FREE, Cost::MAX);
                     }
                     let outermost = self.pos() >= self.memo.covered_until;
                     debug_assert_eq!(
@@ -619,7 +622,7 @@ impl FillWalk<'_> {
                 // opened; its infeasible cost rises into the node exactly as a
                 // child walk's would.
                 self.copy_subtree(depth);
-                break COST_MAX;
+                break Cost::MAX;
             };
             // Ascend: fold the completed subtree's cost upward until a
             // suspended node still has a child to walk (or the root completes).
@@ -639,7 +642,7 @@ impl FillWalk<'_> {
                     Frame::Site => {
                         let (key, outermost) = frames.pop_site();
                         self.pop_site(outermost);
-                        cost = self.probe.join(key, COST_FREE, cost);
+                        cost = self.probe.join(key, Cost::FREE, cost);
                     }
                     // A node's left child finished: peek the right-full
                     // arm, walk the right child, or fold an absent one.
@@ -660,7 +663,7 @@ impl FillWalk<'_> {
                                 self.emit_offset(depth + 1, above);
                             }
                             let key = frames.pop_await_left();
-                            cost = self.probe.join(key, cost, COST_FREE);
+                            cost = self.probe.join(key, cost, Cost::FREE);
                         } else if right {
                             frames.flip_to_await_right(cost);
                             self.stack.open();
@@ -673,7 +676,7 @@ impl FillWalk<'_> {
                             self.copy_subtree(depth + 1);
                             self.stack.close();
                             let key = frames.pop_await_left();
-                            cost = self.probe.join(key, cost, COST_MAX);
+                            cost = self.probe.join(key, cost, Cost::MAX);
                         }
                     }
                     // A node's right child finished: fold both children.
@@ -717,7 +720,10 @@ impl FillWalk<'_> {
         if let Corr::H(acc) = &mut self.corr {
             fold_signed_int(acc, neg, &mag);
         }
-        (neg, mag)
+        Signed {
+            negative: neg,
+            magnitude: mag,
+        }
     }
 
     /// Fold one consumed block's net movement into every height-carried
@@ -727,13 +733,13 @@ impl FillWalk<'_> {
     /// folded leaf by leaf: nothing reads the registers between a block's
     /// leaves, so the batched fold is observationally the per-leaf sequence.
     fn fold_block(&mut self, net: &Signed) {
-        fold_signed_int(&mut self.h, net.0, &net.1);
-        self.stack.fold_height(net.0, &net.1);
+        fold_signed_int(&mut self.h, net.negative, &net.magnitude);
+        self.stack.fold_height(net.negative, &net.magnitude);
         if !self.w_anchored {
-            fold_signed_int(&mut self.gap, net.0, &net.1);
+            fold_signed_int(&mut self.gap, net.negative, &net.magnitude);
         }
         if let Corr::H(acc) = &mut self.corr {
-            fold_signed_int(acc, net.0, &net.1);
+            fold_signed_int(acc, net.negative, &net.magnitude);
         }
     }
 
@@ -810,13 +816,13 @@ impl FillWalk<'_> {
         // The decision is sign((h + above) − m_s) = sign(acc + above − link);
         // the link stays folded in, so acc then holds h − m_s and the relation
         // re-anchors to this site for free. The link dies here — its one read.
-        fold_signed_int(&mut acc, above.0, &above.1);
+        fold_signed_int(&mut acc, above.negative, &above.magnitude);
         if let Some(link) = link {
             acc.sub_accum(&link);
             self.stack.retire(link);
         }
         let sign = acc.sign();
-        fold_signed_int(&mut acc, !above.0, &above.1);
+        fold_signed_int(&mut acc, !above.negative, &above.magnitude);
         if sign == Ordering::Less {
             // The minimum side: the raise lifts the emitted value strictly
             // above the consumed range's maximum, so a verbatim walk diverges
@@ -831,9 +837,9 @@ impl FillWalk<'_> {
                 v.sub_accum(&acc);
                 self.stack.emit_below_accum(acc);
                 let value = self.stack.materialize(v);
-                debug_assert!(!value.0, "a raised height is a natural");
+                debug_assert!(!value.negative, "a raised height is a natural");
                 self.started = true;
-                self.out.leaf(depth + 1, gamma_code_int(&value.1));
+                self.out.leaf(depth + 1, gamma_code_int(&value.magnitude));
                 // prev_out = min: the output delta anchors to the
                 // watermark from the start.
                 let zero = self.stack.lease();
@@ -940,12 +946,14 @@ impl FillWalk<'_> {
             // single step just folded.
             self.gap.sign();
             let (sign, magnitude) = self.gap.sign_magnitude();
-            (sign == Ordering::Less, Int::from_ubig(magnitude))
+            Signed::from_sign_magnitude(sign, magnitude)
         };
         // The new gap is h − value = 0 exactly.
         self.gap.reset();
-        self.out
-            .leaf(depth, gamma_code_signed_int(delta.0, &delta.1));
+        self.out.leaf(
+            depth,
+            gamma_code_signed_int(delta.negative, &delta.magnitude),
+        );
     }
 
     /// Emit a leaf whose value is `h + off`: a collapsed region's max, or a
@@ -963,7 +971,7 @@ impl FillWalk<'_> {
     fn emit_offset(&mut self, depth: usize, off: Signed) {
         self.stack.emit_offset(&off);
         if self.out.is_verbatim() {
-            if self.range_is_leaf && off.1.is_zero() {
+            if self.range_is_leaf && off.is_zero() {
                 if self.out.note_match(self.pos()) {
                     self.started = true;
                     self.gap.reset();
@@ -981,32 +989,40 @@ impl FillWalk<'_> {
             self.h.sign();
             let (sign, magnitude) = self.h.sign_magnitude();
             debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-            let value = signed_sum_base((false, Int::from_ubig(magnitude)), &off);
-            debug_assert!(!value.0, "a collapsed height is a natural");
+            let value = signed_sum_base(
+                Signed {
+                    negative: false,
+                    magnitude: Int::from_ubig(magnitude),
+                },
+                &off,
+            );
+            debug_assert!(!value.negative, "a collapsed height is a natural");
             self.started = true;
-            self.out.leaf(depth, gamma_code_int(&value.1));
+            self.out.leaf(depth, gamma_code_int(&value.magnitude));
         } else {
             let delta = if self.w_anchored {
                 // d_out = (h + off) − prev_out: the bridge read plus
                 // the priced offset.
                 let mut d = self.stack.follower_take(OUT_FOLLOWER);
                 self.stack.bridge_add_t(&mut d);
-                fold_signed_int(&mut d, off.0, &off.1);
+                fold_signed_int(&mut d, off.negative, &off.magnitude);
                 self.w_anchored = false;
                 self.stack.materialize(d)
             } else {
                 // d_out = (h + off) − prev_out = gap + off.
-                fold_signed_int(&mut self.gap, off.0, &off.1);
+                fold_signed_int(&mut self.gap, off.negative, &off.magnitude);
                 self.gap.sign();
                 let (sign, magnitude) = self.gap.sign_magnitude();
-                (sign == Ordering::Less, Int::from_ubig(magnitude))
+                Signed::from_sign_magnitude(sign, magnitude)
             };
-            self.out
-                .leaf(depth, gamma_code_signed_int(delta.0, &delta.1));
+            self.out.leaf(
+                depth,
+                gamma_code_signed_int(delta.negative, &delta.magnitude),
+            );
         }
         // The new gap is h − (h + off) = −off exactly.
         self.gap.reset();
-        fold_signed_int(&mut self.gap, !off.0, &off.1);
+        fold_signed_int(&mut self.gap, !off.negative, &off.magnitude);
     }
 
     /// Emit a leaf at exactly the enclosing frame's tracked minimum (the
@@ -1049,8 +1065,10 @@ impl FillWalk<'_> {
         self.stack.follower_set(OUT_FOLLOWER, zero);
         self.w_anchored = true;
         self.gap.reset();
-        self.out
-            .leaf(depth, gamma_code_signed_int(delta.0, &delta.1));
+        self.out.leaf(
+            depth,
+            gamma_code_signed_int(delta.negative, &delta.magnitude),
+        );
     }
 
     /// Copy the event subtree at the cursor unchanged.
@@ -1094,8 +1112,8 @@ impl FillWalk<'_> {
         }
         // Per-leaf for the first leaf (and, post-divergence, its re-code
         // against the live output delta through the full emission machinery).
-        let (neg, mag) = self.consume_payload();
-        self.emit_step(depth + d1, neg, mag);
+        let step = self.consume_payload();
+        self.emit_step(depth + d1, step.negative, step.magnitude);
         if d1 >= 2 && self.out.held_at(depth + d1) {
             // Post-divergence the rest of the region is byte-identical to the
             // input — every consecutive-leaf delta lies strictly inside the
@@ -1120,8 +1138,8 @@ impl FillWalk<'_> {
             return;
         }
         while let Some(d) = walk.descend(&mut self.cursor) {
-            let (neg, mag) = self.consume_payload();
-            self.emit_step(depth + d, neg, mag);
+            let step = self.consume_payload();
+            self.emit_step(depth + d, step.negative, step.magnitude);
         }
     }
 
@@ -1147,11 +1165,11 @@ impl FillWalk<'_> {
         if d1 < 2 {
             // A tiny range (the first descent's depth routes for free): the
             // per-leaf fold is cheaper than a block summary's fixed cost.
-            let (neg, mag) = self.consume_payload();
-            above.fold(neg, &mag);
+            let step = self.consume_payload();
+            above.fold(step.negative, &step.magnitude);
             while walk.descend(&mut self.cursor).is_some() {
-                let (neg, mag) = self.consume_payload();
-                above.fold(neg, &mag);
+                let step = self.consume_payload();
+                above.fold(step.negative, &step.magnitude);
             }
         } else {
             let mut net = Accumulator::new();
@@ -1165,11 +1183,11 @@ impl FillWalk<'_> {
             );
             self.first_read = false;
             let (n_sign, n_mag) = net.sign_magnitude();
-            let net = (n_sign == Ordering::Less, Int::from_ubig(n_mag));
+            let net = Signed::from_sign_magnitude(n_sign, n_mag);
             self.fold_block(&net);
         }
         let result = self.stack.materialize(above.into_offset());
-        debug_assert!(!result.0, "the fold floors at zero");
+        debug_assert!(!result.negative, "the fold floors at zero");
         result
     }
 }
@@ -1275,8 +1293,8 @@ impl Frames {
             "a left-awaiting node flips"
         );
         self.phase.set_last(true);
-        self.vals.push(encode_cost_component(l_cost.0));
-        self.vals.push(encode_cost_component(l_cost.1));
+        self.vals.push(encode_cost_component(l_cost.expansions));
+        self.vals.push(encode_cost_component(l_cost.depth));
     }
 
     /// Pop the control bits of the top frame and restore the key register,
@@ -1298,9 +1316,9 @@ impl Frames {
 
     /// Close a right-awaiting node: its route key and deferred left cost.
     fn pop_await_right(&mut self) -> (usize, Cost) {
-        let d = decode_cost_component(self.vals.pop());
-        let e = decode_cost_component(self.vals.pop());
-        (self.pop_key(), (e, d))
+        let depth = decode_cost_component(self.vals.pop());
+        let expansions = decode_cost_component(self.vals.pop());
+        (self.pop_key(), Cost { expansions, depth })
     }
 
     /// Close a site frame: its route key and outermost flag.
@@ -1559,7 +1577,7 @@ impl PreScan<'_, '_> {
             above.fold_zigzag(code);
         }
         let result = self.stack.materialize(above.into_offset());
-        debug_assert!(!result.0, "the fold floors at zero");
+        debug_assert!(!result.negative, "the fold floors at zero");
         result
     }
 
@@ -1691,7 +1709,10 @@ impl PreScan<'_, '_> {
         if let Some(net) = &mut self.entry_net {
             fold_signed_int(net, neg, &mag);
         }
-        (neg, mag)
+        Signed {
+            negative: neg,
+            magnitude: mag,
+        }
     }
 
     /// A virtual emission at the current height.
@@ -1719,7 +1740,7 @@ impl PreScan<'_, '_> {
             .take()
             .expect("the entry net lives until the first arming");
         if let Some(off) = off {
-            fold_signed_int(&mut rel, off.0, &off.1);
+            fold_signed_int(&mut rel, off.negative, &off.magnitude);
         }
         self.pending_rel = Some(rel);
     }
@@ -1756,9 +1777,10 @@ impl PreScan<'_, '_> {
         }
         let skip = skip_leaves(&mut walk, &mut self.cursor, first, Some(d1))
             .expect("the descended leaf is pending");
-        self.stack.fold_height(skip.net.0, &skip.net.1);
+        self.stack
+            .fold_height(skip.net.negative, &skip.net.magnitude);
         if let Some(net) = &mut self.entry_net {
-            fold_signed_int(net, skip.net.0, &skip.net.1);
+            fold_signed_int(net, skip.net.negative, &skip.net.magnitude);
         }
         self.emit_offset(&skip.min_from_exit);
     }
@@ -1776,10 +1798,10 @@ impl PreScan<'_, '_> {
             // A tiny range (the first descent's depth routes for free):
             // per-leaf is cheaper than a block summary.
             let step = self.payload(first);
-            above.fold(step.0, &step.1);
+            above.fold(step.negative, &step.magnitude);
             while walk.descend(&mut self.cursor).is_some() {
                 let step = self.payload(false);
-                above.fold(step.0, &step.1);
+                above.fold(step.negative, &step.magnitude);
             }
         } else {
             let mut net = Accumulator::new();
@@ -1792,14 +1814,14 @@ impl PreScan<'_, '_> {
                 Some(d1),
             );
             let (n_sign, n_mag) = net.sign_magnitude();
-            let net = (n_sign == Ordering::Less, Int::from_ubig(n_mag));
-            self.stack.fold_height(net.0, &net.1);
+            let net = Signed::from_sign_magnitude(n_sign, n_mag);
+            self.stack.fold_height(net.negative, &net.magnitude);
             if let Some(entry) = &mut self.entry_net {
-                fold_signed_int(entry, net.0, &net.1);
+                fold_signed_int(entry, net.negative, &net.magnitude);
             }
         }
         let result = self.stack.materialize(above.into_offset());
-        debug_assert!(!result.0, "the fold floors at zero");
+        debug_assert!(!result.negative, "the fold floors at zero");
         result
     }
 }
@@ -1918,33 +1940,6 @@ impl PreFrames {
         let slot = self.reg_slot;
         self.reg_slot = slot - self.vals.pop() as usize;
         (slot, el_start)
-    }
-}
-
-/// The sign-and-magnitude sum of two signed magnitudes, as [`Signed`].
-fn signed_sum_base(x: Signed, y: &Signed) -> Signed {
-    super::emit::signed_sum_int(x.0, x.1, y.0, &y.1)
-}
-
-/// The larger of two signed relative quantities.
-fn signed_max(x: &Signed, y: &Signed) -> Signed {
-    if signed_le(x, y) {
-        y.clone()
-    } else {
-        x.clone()
-    }
-}
-
-/// Whether `x <= y` over signed relative quantities. Zero compares equal under
-/// either sign, so a `(true, 0)` that a fold produced is ordered correctly.
-fn signed_le(x: &Signed, y: &Signed) -> bool {
-    let x_neg = x.0 && !x.1.is_zero();
-    let y_neg = y.0 && !y.1.is_zero();
-    match (x_neg, y_neg) {
-        (true, false) => true,
-        (false, true) => false,
-        (false, false) => x.1.cmp_magnitude(&y.1) != Ordering::Greater,
-        (true, true) => x.1.cmp_magnitude(&y.1) != Ordering::Less,
     }
 }
 

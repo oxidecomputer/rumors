@@ -83,8 +83,8 @@
 //!
 //! [`validate`](fn@validate) runs one forward pass holding, per open ancestor,
 //! two bits — "is my left child complete" and "was that child a leaf" — on a
-//! packed bit stack, plus one [`Accumulator`] carrying the running leaf height
-//! for the nonnegativity check. The bit stack costs ~2 bits per level where
+//! packed bit stack, plus one [`Accumulator`](suanpan::Accumulator) carrying
+//! the running leaf height for the nonnegativity check. The bit stack costs ~2 bits per level where
 //! machine-word parse frames would cost tens of bytes; the resource-envelope
 //! suite (`tests/meter.rs`) pins both that transient and the validator's limb
 //! behavior.
@@ -94,7 +94,8 @@
 //! exactly on a `2^k` carry boundary, so a plain big-integer running height
 //! pays a full `k`-bit carry per 3-bit delta — `Θ(W²)` limb work in skyline
 //! wire bits `W` (`meter::tier2`'s plain-sweep pin measures it). The balanced
-//! signed-digit [`Accumulator`] applies a small delta and answers the sign
+//! signed-digit [`Accumulator`](suanpan::Accumulator) applies a small delta
+//! and answers the sign
 //! check in amortized O(1) digit touches on every input sequence, so validation
 //! stays linear per wire bit; the envelope suite pins the per-delta touch cost
 //! flat across size doublings on the comb.
@@ -134,9 +135,6 @@
 //!   segment, limb, and accumulator-touch envelopes on the adversarial
 //!   families.
 
-use suanpan::Accumulator;
-
-use crate::codec::{self, Base, Code, Int};
 #[cfg(any(test, feature = "meter"))]
 use crate::error::Decode;
 #[cfg(any(test, feature = "meter"))]
@@ -172,6 +170,7 @@ pub mod grow;
 pub mod literal;
 pub mod masked;
 pub mod query;
+mod signed;
 pub mod sweep;
 pub mod text;
 mod validate;
@@ -242,150 +241,4 @@ pub fn decode(bits: &BitsSlice) -> Result<Version, Decode> {
 /// whole question.
 pub(crate) fn is_empty_stream(bits: &BitsSlice) -> bool {
     bits.len() == 2 && bits[0] && bits[1]
-}
-
-/// Map the signed difference `cur − prev` to its zigzag magnitude:
-/// `k >= 0 -> 2k`, `k < 0 -> 2|k| − 1`.
-fn zigzag(prev: &Base, cur: &Base) -> Base {
-    if cur >= prev {
-        (cur.clone() - prev) << 1u32
-    } else {
-        ((prev.clone() - cur) << 1u32) - &Base::from(1u8)
-    }
-}
-
-/// Split a zigzag magnitude into its delta's sign and absolute value, staying
-/// in machine words for word-scale codes: even `m -> +m/2`, odd `m -> −(m +
-/// 1)/2`.
-///
-/// The [`Int`] form of [`unzigzag_base`], the shape the sweeps and the fill
-/// walk consume; total (odd `u64::MAX` maps within the word range).
-fn unzigzag(code: Int) -> (bool, Int) {
-    match code {
-        // Odd `c`: `(c + 1) / 2 = c / 2 + 1`, in range at any `c`.
-        Int::Small(c) if c & 1 == 1 => (true, Int::Small(c / 2 + 1)),
-        Int::Small(c) => (false, Int::Small(c / 2)),
-        Int::Wide(base) => {
-            let (negative, magnitude) = unzigzag_base(base);
-            (negative, Int::from_base(magnitude))
-        }
-    }
-}
-
-/// Fold a signed [`Int`] delta into an accumulator: subtracted when negative,
-/// added otherwise — the [`Int`] twin of [`fold_signed`], dispatching
-/// word-scale values straight to the word entry points.
-fn fold_signed_int(acc: &mut Accumulator, negative: bool, magnitude: &Int) {
-    match (negative, magnitude) {
-        (false, Int::Small(n)) => acc.add_u64(*n),
-        (true, Int::Small(n)) => acc.sub_u64(*n),
-        (false, Int::Wide(base)) => acc.add_magnitude(base),
-        (true, Int::Wide(base)) => acc.sub_magnitude(base),
-    }
-}
-
-/// A value's gamma code as a payload-code value, from either width.
-fn gamma_code_int(value: &Int) -> Code {
-    match value {
-        Int::Small(n) => codec::code_int_small(*n),
-        Int::Wide(base) => codec::code_int(base),
-    }
-}
-
-/// The gamma code of a signed delta's zigzag, from either width: the [`Int`]
-/// twin of [`gamma_code_signed`].
-fn gamma_code_signed_int(negative: bool, magnitude: &Int) -> Code {
-    match magnitude {
-        Int::Small(mag) if *mag < (1 << 31) => {
-            debug_assert!(
-                !negative || *mag != 0,
-                "a negative delta has a nonzero magnitude"
-            );
-            let m = 2 * mag + u64::from(!negative);
-            let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
-            Code::Small {
-                bits: m,
-                len: (2 * k + 1) as u8,
-            }
-        }
-        Int::Small(mag) => gamma_code_signed(negative, &Base::from(*mag)),
-        Int::Wide(base) => gamma_code_signed(negative, base),
-    }
-}
-
-/// Map a delta given as sign and absolute value to its zigzag magnitude: `+m ->
-/// 2m`, `−m -> 2m − 1`.
-///
-/// [`zigzag`] for a difference already in sign-magnitude form — the shape the
-/// emission sweep computes deltas in. A negative delta must have a nonzero
-/// magnitude (there is no negative zero to map).
-fn zigzag_signed(negative: bool, magnitude: Base) -> Base {
-    debug_assert!(
-        !negative || magnitude != Base::ZERO,
-        "a negative delta has a nonzero magnitude"
-    );
-    if negative {
-        (magnitude << 1u32) - &Base::from(1u8)
-    } else {
-        magnitude << 1u32
-    }
-}
-
-/// Split a zigzag magnitude into its delta's sign and absolute value: even `m
-/// -> +m/2`, odd `m -> −(m + 1)/2`.
-///
-/// The inverse of [`zigzag`]: total, and never yields a negative zero (an odd
-/// code's magnitude is at least 1).
-fn unzigzag_base(code: Base) -> (bool, Base) {
-    if code.bit(0) {
-        (true, (code + 1u32) >> 1u32)
-    } else {
-        (false, code >> 1u32)
-    }
-}
-
-/// Fold a signed magnitude into an accumulator: subtracted when negative, added
-/// otherwise.
-///
-/// The one home of the sign-magnitude fold every height walk applies — the
-/// exchange move between this module's sign-magnitude currency (the zigzag maps
-/// above) and the cliff-immune [`Accumulator`].
-fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
-    if negative {
-        acc.sub_magnitude(magnitude);
-    } else {
-        acc.add_magnitude(magnitude);
-    }
-}
-
-/// A value's gamma code as a payload-code value.
-fn gamma_code(value: &Base) -> Code {
-    codec::code_int(value)
-}
-
-/// The gamma code of a signed delta's zigzag, as a payload-code value.
-///
-/// [`zigzag_signed`] fused with [`gamma_code`]: a word-scale magnitude zigzags
-/// and codes in machine arithmetic — no intermediate value is built — and a
-/// wider one takes the arbitrary-precision pair. A negative delta must have a
-/// nonzero magnitude, as in [`zigzag_signed`].
-fn gamma_code_signed(negative: bool, magnitude: &Base) -> Code {
-    debug_assert!(
-        !negative || *magnitude != Base::ZERO,
-        "a negative delta has a nonzero magnitude"
-    );
-    if let Some(mag) = magnitude.to_u64() {
-        if mag < (1 << 31) {
-            // negative: gamma of `zigzag + 1 = (2m − 1) + 1 = 2m`;
-            // positive: gamma of `2m + 1`. Either way the whole code is
-            // that mantissa under its own leading zeros.
-            let m = 2 * mag + u64::from(!negative);
-            let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
-            return Code::Small {
-                bits: m,
-                len: (2 * k + 1) as u8,
-            };
-        }
-    }
-    codec::code_int(&zigzag_signed(negative, magnitude.clone()))
 }

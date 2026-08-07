@@ -18,7 +18,7 @@ use suanpan::Accumulator;
 
 use crate::codec::{BitCursor, BitStack, DsiCursor, Int};
 
-use super::{fold_signed_int, unzigzag};
+use super::signed::{fold_signed_int, unzigzag, Signed};
 
 /// The topology walk over one skyline subtree's leaves, in preorder.
 ///
@@ -195,11 +195,11 @@ impl Extremum {
 /// that splice the range's bits verbatim.
 pub(super) struct RegionSkip {
     /// The range's net signed height movement: `h(exit) − h(entry)`.
-    pub(super) net: (bool, Int),
+    pub(super) net: Signed,
     /// The range's minimum leaf height relative to the exit height:
     /// `min − h(exit)`, nonpositive (the exit height is the last
     /// leaf's, itself in the minimum's range).
-    pub(super) min_from_exit: (bool, Int),
+    pub(super) min_from_exit: Signed,
     /// The last leaf's depth below the walked subtree's root.
     pub(super) last_depth: usize,
     /// The last leaf's payload code length in bits.
@@ -297,8 +297,8 @@ pub(super) fn skip_leaves(
         "the minimum is at or below the exit height"
     );
     Some(RegionSkip {
-        net: (n_sign == Ordering::Less, Int::from_ubig(n_mag)),
-        min_from_exit: (o_sign == Ordering::Less, Int::from_ubig(o_mag)),
+        net: Signed::from_sign_magnitude(n_sign, n_mag),
+        min_from_exit: Signed::from_sign_magnitude(o_sign, o_mag),
         last_depth,
         last_code_len,
     })

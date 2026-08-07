@@ -57,8 +57,8 @@ use suanpan::Accumulator;
 use crate::codec::{BitCursor, BitsMut, BitsSlice, Int};
 use crate::error::Decode;
 
+use super::signed::unzigzag;
 use super::sweep::{fold, LeafCursor, PlateauCursor, Side, Step};
-use super::unzigzag;
 
 /// A validating leaf cursor over one untrusted skyline stream.
 ///
@@ -288,8 +288,8 @@ where
     // `a` operand, seeded and folded in the sweep's own order so the
     // accumulator traffic is identical).
     let mut diff = Accumulator::new();
-    super::fold_signed_int(&mut diff, false, &lo_first);
-    super::fold_signed_int(&mut diff, true, &hi_first);
+    super::signed::fold_signed_int(&mut diff, false, &lo_first);
+    super::signed::fold_signed_int(&mut diff, true, &hi_first);
     // Equality rides the same sign reads: the pair is equal exactly when no
     // elementary interval reads a strict `Less` (and none reads `Greater`,
     // which refutes outright) — canonical uniqueness then makes the verdict

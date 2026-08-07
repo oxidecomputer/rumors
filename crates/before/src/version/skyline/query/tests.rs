@@ -892,7 +892,9 @@ mod adequacy {
     use crate::version::skyline::sweep::{fold, LeafCursor, PlateauCursor, Side};
     use crate::Rank;
 
-    use super::super::{fold_signed_int, int_digits, max_depth, mul_into, FREEZE_ALLOWANCE_DIGITS};
+    use crate::version::skyline::signed::fold_signed_int;
+
+    use super::super::{int_digits, max_depth, mul_into, FREEZE_ALLOWANCE_DIGITS};
 
     /// The absolute-position rank fold: heights on a frozen/live split whose
     /// freeze correction is `drift × position` with the position accumulator

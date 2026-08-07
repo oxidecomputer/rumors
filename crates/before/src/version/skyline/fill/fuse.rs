@@ -48,12 +48,8 @@ use crate::codec::{BitCursor, BitStack, BitsMut, BitsSlice, Code, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::build::SkylineBuilder;
-use super::super::grow::{Cost, Route, COST_MAX};
+use super::super::grow::{Cost, Route};
 use super::super::walk::LeafWalk;
-
-/// The zero inflation cost: a fully-owned terminal is a free increment
-/// (`grow(1, n) = (n + 1, 0)`).
-pub(super) const COST_FREE: Cost = (0, 0);
 
 /// The [`PopStack`] encoding of one deferred route-DP quantity (a [`Cost`]
 /// component, or an expansion chain's distance): 0 = infeasible (a `u32::MAX`
@@ -269,12 +265,15 @@ impl RouteProbe {
     /// the chosen direction at the branch's id key.
     pub(super) fn join(&mut self, key: usize, left: Cost, right: Cost) -> Cost {
         if !self.live {
-            return COST_MAX;
+            return Cost::MAX;
         }
         let chose_left = left < right;
         self.route().record(key, chose_left);
         let m = if chose_left { left } else { right };
-        (m.0, m.1.saturating_add(1))
+        Cost {
+            expansions: m.expansions,
+            depth: m.depth.saturating_add(1),
+        }
     }
 
     /// Fold the leaf-under-internal-id arm (`grow(i, n) = grow(i, (n, 0, 0)) +
@@ -299,22 +298,25 @@ impl RouteProbe {
             if right {
                 id.skip();
             }
-            return COST_MAX;
+            return Cost::MAX;
         }
         let l = if left {
             self.expand_subtree(id)
         } else {
-            COST_MAX
+            Cost::MAX
         };
         let r = if right {
             self.expand_subtree(id)
         } else {
-            COST_MAX
+            Cost::MAX
         };
         let chose_left = l < r;
         self.route().record(key, chose_left);
         let m = if chose_left { l } else { r };
-        (m.0.saturating_add(1), m.1.saturating_add(1))
+        Cost {
+            expansions: m.expansions.saturating_add(1),
+            depth: m.depth.saturating_add(1),
+        }
     }
 
     /// Take the finished route for the splice emit (the unchanged branch's
@@ -336,7 +338,7 @@ impl RouteProbe {
     ///
     /// Every internal node costs one expansion and one depth whichever child it
     /// descends, so its cost is `(k, k)` for `k` the distance to its nearest
-    /// owned terminal (`COST_MAX` where no child is present — unreachable in
+    /// owned terminal ([`Cost::MAX`] where no child is present — unreachable in
     /// normal form, kept total); the fold records the direction at every
     /// internal node's id key and leaves `id` just past the subtree.
     ///
@@ -384,7 +386,14 @@ impl RouteProbe {
             loop {
                 match phase.last() {
                     None => {
-                        return if d == u32::MAX { COST_MAX } else { (d, d) };
+                        return if d == u32::MAX {
+                            Cost::MAX
+                        } else {
+                            Cost {
+                                expansions: d,
+                                depth: d,
+                            }
+                        };
                     }
                     Some(false) => {
                         // The left distance arrived: defer it, descend right

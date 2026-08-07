@@ -23,7 +23,7 @@ use suanpan::Accumulator;
 use crate::codec::{BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Decode;
 
-use super::{fold_signed_int, unzigzag};
+use super::signed::{fold_signed_int, unzigzag};
 
 /// Strictly validate one whole skyline stream.
 ///

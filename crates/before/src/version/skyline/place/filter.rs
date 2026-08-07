@@ -91,8 +91,8 @@ impl Pair {
     /// Seed the pair from the two streams' absolute first heights.
     fn open(probe_first: &Int, bound_first: &Int) -> Pair {
         let mut diff = Accumulator::new();
-        super::super::fold_signed_int(&mut diff, false, probe_first);
-        super::super::fold_signed_int(&mut diff, true, bound_first);
+        super::super::signed::fold_signed_int(&mut diff, false, probe_first);
+        super::super::signed::fold_signed_int(&mut diff, true, bound_first);
         Pair {
             diff,
             dirs: Directions::new(),

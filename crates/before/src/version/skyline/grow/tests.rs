@@ -38,7 +38,7 @@ use crate::version::skyline::fill::{fused_fill, tick, FillOutcome};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Version};
 
-use super::{id_tag, Cost, EvScan, Route, COST_MAX};
+use super::{id_tag, Cost, EvScan, Route};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -146,11 +146,11 @@ fn rec(
             if !ev_zero {
                 ev.skip();
             }
-            COST_MAX
+            Cost::MAX
         }
         RefId::Full => {
             if ev_zero {
-                return (0, 0);
+                return Cost::FREE;
             }
             if ev.read().is_none() {
                 // The reference is driven only on grow-branch pairs, where a
@@ -158,7 +158,7 @@ fn rec(
                 // collapses it and trips the flag.
                 unreachable!("a full id over an event node collapses under fill");
             }
-            (0, 0)
+            Cost::FREE
         }
         RefId::At => {
             let key = *id_pos;
@@ -191,9 +191,15 @@ fn combine(route: &mut Route, expand: bool, key: usize, left: Cost, right: Cost)
     route.record(key, left_chosen);
     let m = if left_chosen { left } else { right };
     if expand {
-        (m.0.saturating_add(1), m.1.saturating_add(1))
+        Cost {
+            expansions: m.expansions.saturating_add(1),
+            depth: m.depth.saturating_add(1),
+        }
     } else {
-        (m.0, m.1.saturating_add(1))
+        Cost {
+            expansions: m.expansions,
+            depth: m.depth.saturating_add(1),
+        }
     }
 }
 

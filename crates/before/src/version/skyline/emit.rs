@@ -73,11 +73,11 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitsMut, BitsSlice, Code, Int};
+use crate::codec::{BitsMut, BitsSlice, Code, Int};
 
 use super::build::SkylineBuilder;
+use super::signed::{gamma_code_int, gamma_code_signed_int, signed_sum_int};
 use super::sweep::{advance_diff, Directions, OpenedPair, PlateauCursor, Side, Step};
-use super::{gamma_code_int, gamma_code_signed_int};
 
 /// The join (pointwise max) of the versions two skyline streams denote, as a
 /// canonical skyline stream.
@@ -336,57 +336,6 @@ fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> 
             &step.magnitude,
         ),
         None => (negative, Int::from_ubig(magnitude)),
-    }
-}
-
-/// The sign and magnitude of a sum of two signed [`Int`] magnitudes:
-/// [`signed_sum`]'s value form, word-scale pairs summed in machine arithmetic.
-///
-/// Never yields a negative zero, as [`signed_sum`].
-pub(super) fn signed_sum_int(x_neg: bool, x: Int, y_neg: bool, y: &Int) -> (bool, Int) {
-    if let (Int::Small(a), Int::Small(b)) = (&x, y) {
-        let a = if x_neg {
-            -i128::from(*a)
-        } else {
-            i128::from(*a)
-        };
-        let b = if y_neg {
-            -i128::from(*b)
-        } else {
-            i128::from(*b)
-        };
-        let sum = a + b;
-        let magnitude = match u64::try_from(sum.unsigned_abs()) {
-            Ok(word) => Int::Small(word),
-            Err(_) => Int::Wide(Base::from(sum.unsigned_abs())),
-        };
-        return (sum < 0, magnitude);
-    }
-    let y_widened;
-    let y = match y {
-        Int::Wide(base) => base,
-        Int::Small(n) => {
-            y_widened = Base::from(*n);
-            &y_widened
-        }
-    };
-    let (negative, magnitude) = signed_sum(x_neg, x.into_base(), y_neg, y);
-    (negative, Int::from_base(magnitude))
-}
-
-/// The sign and magnitude of a sum of two signed magnitudes.
-///
-/// Never yields a negative zero: a cancelling pair returns the positive zero,
-/// so the zigzag coding downstream stays canonical. Shared with the projection
-/// sweep, whose leaving-the-owned-region delta is the same signed combination.
-pub(super) fn signed_sum(x_neg: bool, x: Base, y_neg: bool, y: &Base) -> (bool, Base) {
-    if x_neg == y_neg {
-        return (x_neg, &x + y);
-    }
-    match x.cmp(y) {
-        Ordering::Greater => (x_neg, x - y),
-        Ordering::Less => (y_neg, y.clone() - &x),
-        Ordering::Equal => (false, Base::ZERO),
     }
 }
 

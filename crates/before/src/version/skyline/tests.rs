@@ -24,7 +24,8 @@ use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
 use crate::{oracle, Clock, Version};
 
-use super::{decode_bits, unzigzag, validate_bits, zigzag};
+use super::signed::{unzigzag, zigzag};
+use super::{decode_bits, validate_bits};
 
 /// Lift a meter-generated packed shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {

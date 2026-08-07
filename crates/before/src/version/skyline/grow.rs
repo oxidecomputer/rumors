@@ -88,21 +88,41 @@
 use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, Code};
 
 use super::build::SkylineBuilder;
+use super::signed::{gamma_code, gamma_code_signed, unzigzag_base, zigzag_signed};
 use super::walk::LeafWalk;
-use super::{gamma_code, gamma_code_signed, unzigzag_base, zigzag_signed};
 
-/// Lexicographic inflation cost `(expansions, depth)`: prefer fewer
-/// leaf-to-node expansions, then a shallower spot.
+/// Lexicographic inflation cost: prefer fewer leaf-to-node expansions, then a
+/// shallower spot. The derived ordering is exactly that comparison — the field
+/// order spells it, `expansions` before `depth`.
 ///
-/// `MAX` ([`COST_MAX`]) marks an infeasible (empty-id) region. Ties between a
-/// node's two children favor the *right* child (strict `<` picks the left only
-/// when strictly cheaper). The fold itself rides the fused tick walk
-/// (`fill::fuse`); this module owns the vocabulary because the [`Route`] the
-/// fold records is the emit's input.
-pub(super) type Cost = (u32, u32);
+/// [`Cost::MAX`] marks an infeasible (empty-id) region. Ties between a node's
+/// two children favor the *right* child (strict `<` picks the left only when
+/// strictly cheaper). The fold itself rides the fused tick walk (`fill::fuse`);
+/// this module owns the vocabulary because the [`Route`] the fold records is
+/// the emit's input.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct Cost {
+    /// Leaf-to-node expansions along the inflation path.
+    pub(super) expansions: u32,
+    /// The inflation site's depth below the walked root.
+    pub(super) depth: u32,
+}
 
-/// The cost of an infeasible region: an empty-id subtree can never be inflated.
-pub(super) const COST_MAX: Cost = (u32::MAX, u32::MAX);
+impl Cost {
+    /// The cost of an infeasible region: an empty-id subtree can never be
+    /// inflated.
+    pub(super) const MAX: Cost = Cost {
+        expansions: u32::MAX,
+        depth: u32::MAX,
+    };
+
+    /// The zero inflation cost: a fully-owned terminal is a free increment
+    /// (`grow(1, n) = (n + 1, 0)`).
+    pub(super) const FREE: Cost = Cost {
+        expansions: 0,
+        depth: 0,
+    };
+}
 
 /// The walk → emit channel: the cheapest inflation's route, one direction *bit*
 /// per id branch node — `true` = descend the left child.

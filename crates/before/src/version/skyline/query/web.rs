@@ -88,7 +88,8 @@ use suanpan::{Accumulator, UBig};
 
 use crate::codec::{Base, Int};
 
-use super::{fold_signed_int, mul_into};
+use super::super::signed::fold_signed_int;
+use super::mul_into;
 
 /// The value the innermost minimum currently holds, as the sweep folds it: a
 /// frozen-relative offset, its epoch, and the closes counted at it since the

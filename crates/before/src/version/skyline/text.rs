@@ -69,8 +69,8 @@ use crate::codec::{Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Parse;
 
 use super::build::SkylineBuilder;
-use super::emit::signed_sum;
-use super::{gamma_code, gamma_code_signed, unzigzag_base, validate_bits};
+use super::signed::{gamma_code, gamma_code_signed, signed_sum, unzigzag_base};
+use super::validate_bits;
 
 #[cfg(test)]
 mod tests;

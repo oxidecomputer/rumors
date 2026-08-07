@@ -4,7 +4,7 @@
 
 use crate::codec::{self, Base, BitsMut, BitsSlice};
 
-use super::zigzag;
+use super::signed::zigzag;
 
 /// Transcode a min-lifted packed preorder stream into its skyline stream.
 ///

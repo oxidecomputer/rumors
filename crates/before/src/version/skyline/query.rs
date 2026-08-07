@@ -345,12 +345,11 @@ use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsSlice, Int, Sli
 use crate::Rank;
 
 use super::build::SkylineBuilder;
-use super::emit::signed_sum_int;
+use super::signed::{fold_signed, fold_signed_int, gamma_code_int, signed_sum_int};
 use super::sweep::{
     advance, advance_diff, fold, Crossed, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
 use super::walk::LeafWalk;
-use super::{fold_signed, fold_signed_int, gamma_code_int};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32 digits, over
 /// the just-folded delta's own width: a fold that leaves `L` wider than its
@@ -1506,7 +1505,7 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
                 debug_assert_eq!(flip, f, "the peeked flip is the step's own");
                 fold(&mut height, Side::A, step.negative, &step.magnitude);
                 sc.skip_deeper(f, &mut height);
-                out.leaf(f, super::gamma_code_signed_int(false, &Int::ZERO));
+                out.leaf(f, super::signed::gamma_code_signed_int(false, &Int::ZERO));
             }
             if sc.done() && ic.done() {
                 break;
@@ -1547,7 +1546,7 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
         owned = now_owned;
         out.leaf(
             sc.depth().max(ic.depth()),
-            super::gamma_code_signed_int(negative, &magnitude),
+            super::signed::gamma_code_signed_int(negative, &magnitude),
         );
     }
     let bits = out.finish();

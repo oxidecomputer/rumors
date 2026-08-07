@@ -168,12 +168,12 @@ impl<'a> Walk<'a> {
         // ownership case reads it otherwise, so feeding it would be pure waste.
         let ha = b_mask.map(|_| {
             let mut ha = Accumulator::new();
-            super::fold_signed_int(&mut ha, false, &a_first);
+            super::signed::fold_signed_int(&mut ha, false, &a_first);
             ha
         });
         let hb = a_mask.map(|_| {
             let mut hb = Accumulator::new();
-            super::fold_signed_int(&mut hb, false, &b_first);
+            super::signed::fold_signed_int(&mut hb, false, &b_first);
             hb
         });
         Walk {

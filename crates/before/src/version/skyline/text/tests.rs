@@ -273,7 +273,8 @@ mod parse_schoolbook {
     use crate::error::Parse;
     use crate::meter::registry::Shape;
     use crate::version::skyline::build::SkylineBuilder;
-    use crate::version::skyline::{encode, gamma_code, validate_bits, zigzag_signed};
+    use crate::version::skyline::signed::{gamma_code, zigzag_signed};
+    use crate::version::skyline::{encode, validate_bits};
 
     use super::{parse, render};
 

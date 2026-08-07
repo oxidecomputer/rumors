@@ -69,11 +69,7 @@ use core::cmp::Ordering;
 use suanpan::Accumulator;
 
 use crate::codec::Int;
-use crate::version::skyline::fold_signed_int;
-
-/// A signed relative quantity: sign and magnitude, the module's exchange
-/// currency with the zigzag coding and the scans.
-pub(super) type Signed = (bool, Int);
+use crate::version::skyline::signed::{fold_signed_int, Signed};
 
 /// One record of the difference stack.
 enum DiffEntry {
@@ -283,21 +279,21 @@ impl MinStack {
     /// Record an emission at `v = h + off` for a signed, priced offset (a
     /// consuming scan's extremum, or a raise decided against it).
     pub(super) fn emit_offset(&mut self, off: &Signed) {
-        if off.1.is_zero() {
+        if off.is_zero() {
             self.emit_here();
             return;
         }
         if self.pending > 0 {
             // below = h − v = −off.
             let mut below = self.lease();
-            fold_signed_int(&mut below, !off.0, &off.1);
+            fold_signed_int(&mut below, !off.negative, &off.magnitude);
             self.arm(below);
             return;
         }
         // v − A = t + off. With no latent, post-sign domination decides against
         // a word-scale offset with no fold (with one live, the O(off) fold
         // below is cheap for a word and the ladder decides).
-        if self.latent.is_none() && off.1.to_u64().is_some() {
+        if self.latent.is_none() && off.magnitude.to_u64().is_some() {
             let (sign, decided) = self.t.sign_dominates_word();
             if decided {
                 if sign == Ordering::Greater {
@@ -307,38 +303,38 @@ impl MinStack {
                 // drop dwarfs the offset. Residue = m − v = −t − off.
                 let mut residue = core::mem::take(&mut self.t);
                 residue.negate();
-                fold_signed_int(&mut residue, off.0, &off.1);
+                fold_signed_int(&mut residue, off.negative, &off.magnitude);
                 for follower in self.followers.iter_mut().flatten() {
                     follower.sub_accum(&residue);
                 }
                 let mut t = self.lease();
-                fold_signed_int(&mut t, !off.0, &off.1);
+                fold_signed_int(&mut t, !off.negative, &off.magnitude);
                 self.t = t;
                 self.propagate(residue);
                 return;
             }
         }
         // Fold the priced side; restore it unless it funds the residue.
-        fold_signed_int(&mut self.t, off.0, &off.1);
+        fold_signed_int(&mut self.t, off.negative, &off.magnitude);
         if self.t.sign() != Ordering::Less {
             // v at or above the anchor, hence at or above the minimum.
-            fold_signed_int(&mut self.t, !off.0, &off.1);
+            fold_signed_int(&mut self.t, !off.negative, &off.magnitude);
             return;
         }
         // v < A: only a drop past the latent too is a true undercut.
         if self.latent.is_some() && !self.decide_undercut_through_latent() {
-            fold_signed_int(&mut self.t, !off.0, &off.1);
+            fold_signed_int(&mut self.t, !off.negative, &off.magnitude);
             return;
         }
         if self.t.sign() != Ordering::Less {
             // A collapse re-based the anchor to m and v is not below it.
-            fold_signed_int(&mut self.t, !off.0, &off.1);
+            fold_signed_int(&mut self.t, !off.negative, &off.magnitude);
             return;
         }
         // Undercut: t holds v − A, off stays folded to fund the residue.
         self.undercut();
         let mut t = self.lease();
-        fold_signed_int(&mut t, !off.0, &off.1);
+        fold_signed_int(&mut t, !off.negative, &off.magnitude);
         self.t = t;
     }
 
@@ -420,13 +416,13 @@ impl MinStack {
     /// scales).
     pub(super) fn compare_above(&mut self, above: &Signed) -> Ordering {
         debug_assert!(self.armed > 0, "a raise compares against an armed frame");
-        if self.latent.is_none() && above.1.to_u64().is_some() {
+        if self.latent.is_none() && above.magnitude.to_u64().is_some() {
             let (sign, decided) = self.t.sign_dominates_word();
             if decided {
                 return sign;
             }
         }
-        fold_signed_int(&mut self.t, above.0, &above.1);
+        fold_signed_int(&mut self.t, above.negative, &above.magnitude);
         let mut sign = self.t.sign();
         if self.latent.is_some() {
             sign = match sign {
@@ -446,7 +442,7 @@ impl MinStack {
                 }
             };
         }
-        fold_signed_int(&mut self.t, !above.0, &above.1);
+        fold_signed_int(&mut self.t, !above.negative, &above.magnitude);
         sign
     }
 
@@ -463,9 +459,9 @@ impl MinStack {
     pub(super) fn compare_above_vs(&mut self, above: &Signed, d_arm: &Accumulator) -> Ordering {
         debug_assert!(self.armed > 0, "a raise compares against an armed frame");
         self.t.sub_accum(d_arm);
-        fold_signed_int(&mut self.t, above.0, &above.1);
+        fold_signed_int(&mut self.t, above.negative, &above.magnitude);
         let sign = self.t.sign();
-        fold_signed_int(&mut self.t, !above.0, &above.1);
+        fold_signed_int(&mut self.t, !above.negative, &above.magnitude);
         self.t.add_accum(d_arm);
         sign
     }
@@ -573,7 +569,7 @@ impl MinStack {
         acc.sign();
         let (sign, magnitude) = acc.sign_magnitude();
         self.retire(acc);
-        (sign == Ordering::Less, Int::from_ubig(magnitude))
+        Signed::from_sign_magnitude(sign, magnitude)
     }
 
     /// Fold the stored `t` into `acc` (`acc += h − A`): the watermark-to-height

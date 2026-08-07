@@ -5,7 +5,7 @@
 //! against bits a reader can re-derive in the margin.
 
 use crate::codec::{self, Base, BitsMut, Code};
-use crate::version::skyline::gamma_code_signed;
+use crate::version::skyline::signed::gamma_code_signed;
 
 use super::SkylineBuilder;
 

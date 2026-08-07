@@ -160,8 +160,8 @@ impl<'a> BoundSide<'a> {
     fn open(bits: &'a BitsSlice, probe_first: &Int) -> BoundSide<'a> {
         let (cursor, first) = LeafCursor::open(bits);
         let mut diff = Accumulator::new();
-        super::fold_signed_int(&mut diff, false, probe_first);
-        super::fold_signed_int(&mut diff, true, &first);
+        super::signed::fold_signed_int(&mut diff, false, probe_first);
+        super::signed::fold_signed_int(&mut diff, true, &first);
         BoundSide {
             cursor,
             diff,

@@ -12,7 +12,7 @@
 use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Parse;
 
-use super::{unzigzag_base, zigzag};
+use super::signed::{unzigzag_base, zigzag};
 
 /// The skyline stream of an event leaf with base `n`.
 pub(crate) fn leaf(n: u64) -> BitsMut {
