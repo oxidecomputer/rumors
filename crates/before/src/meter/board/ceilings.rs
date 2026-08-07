@@ -21,7 +21,7 @@
 //!   heap is the output builder's doubling chain anchored at the
 //!   operand-size reserve — [`capacity_chain_peak`]'s
 //!   `3·(n+m)·2^(k−1)`, ratified within 2% at every probed point. The
-//!   heap reading is banded around the model at both scales
+//!   heap reading is banded around the model at every measured size
 //!   ([`CAPACITY_MODEL_FLOOR`], [`CAPACITY_MODEL_CEILING`]) and the heap
 //!   exponent fit is retired as unjudgeable there — the chain quantizes
 //!   peak by powers of two, so a probe pair straddling a `k` step
@@ -111,8 +111,8 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 /// emit, the query folds, the text parse) touch a handful of digits per delta
 /// code — single digits per packed byte on organic shapes — and the heaviest
 /// honest reader measured is the mirror-narrow tick cross (the memo machinery's
-/// per-site resolution) at 30.8 touches per input byte at the default scale,
-/// 24.3 at the record scale \[measured in release, both scales\]. The ceiling
+/// per-site resolution) at 30.8 touches per input byte at the ladder's base
+/// scale, 24.3 at its top \[measured in release, both sampling scales\]. The ceiling
 /// sits at 96, scan's own margin convention, so only a walk that re-reads digit
 /// state growing with the input — the width-circulation genre — goes red on
 /// this column's constant.
@@ -164,7 +164,7 @@ pub const TICKS_BOARD_COUNT: u64 = 512;
 /// exponent ~2 against `n_io` \[measured — the chunked tripwire in the test
 /// suite\]; the exponent leg is what excludes it. What κ excludes is a wasteful
 /// constant. It is pinned from the production kernels' observed meter at the
-/// acceptance scale (release, the profile of record): the honest cells read at
+/// ladder's top sampling scale (release, the profile of record): the honest cells read at
 /// most 0.59 limb per `R` unit (the staircase pipeline, both directions), so κ
 /// leaves the worst honest family ~27% headroom while a digit-by-digit
 /// schoolbook probe's measured ~1 limb per `R` unit still exceeds it, and the
@@ -242,7 +242,7 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// join level re-scans the operands it merges, so scan work per input byte
 /// grows by a constant per level — never flat, at any implementation of the
 /// balanced reduction. Derivation of the constant: the fold cells read 9.1–10.0
-/// scan bits per byte per level across both scales and both committed
+/// scan bits per byte per level across both sampling scales and both committed
 /// populations \[measured in release: the benign control at k = 512 reads 100.1
 /// bits/B over 10 levels, at k = 2048 reads 116.9 over 12\]; 12 leaves the
 /// worst honest reading ~20% headroom while a fold whose per-level constant
@@ -263,7 +263,7 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 /// each. The allowance is that bound summed over the inputs' both-present
 /// nodes, computed from the operands at prepare; it is tight-ish where the
 /// searches dominate \[measured in release, the weave family: readings sit
-/// within ~10% of the fold model plus this allowance at both scales\], zero on
+/// within ~10% of the fold model plus this allowance at both sampling scales\], zero on
 /// populations with no both-present structure (scatter's single-leaf operands),
 /// and absent from the version fold, which runs no overlap test. The index
 /// stays, its searches priced, over a per-input cursor walk: the committed
@@ -403,7 +403,7 @@ pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 247.0;
 /// Complexity` sections; judge-rostered red on the wall leg), so on the
 /// mirror-wide cross the limb column honestly reads a superlinear exponent
 /// against `n_io` — intended and modeled, not a regression. Measured (release,
-/// the two acceptance scales): fitted limb exponents 1.55 → 1.81
+/// per-window at the ladder's two sampling scales): fitted limb exponents 1.55 → 1.81
 /// (`version_display`) and 1.56 → 1.81 (`clock_display`). The ceiling is the
 /// worst measured exponent plus the linear cells' slack (1.81 + 0.15, the
 /// [`MAX_SCALING_EXPONENT`] margin), so a genuinely quadratic conversion (~2.0)
@@ -420,25 +420,34 @@ pub const MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING: f64 = 1.96;
 ///
 /// κ is calibrated on conversion-honest cells; the mirror-wide render merge
 /// re-folds wide summaries beyond conversion, so its per-`R` constant honestly
-/// exceeds κ at the acceptance scales — the same mechanism as the exponent
-/// ceiling above, priced on the constant leg. Measured (release, both
-/// acceptance scales): 0.7 → 1.4 (`version_display`) and 0.6 → 1.3
+/// exceeds κ at the ladder's sizes — the same mechanism as the exponent
+/// ceiling above, priced on the constant leg. Measured (release, across the
+/// ladder's two sampling scales): 0.7 → 1.4 (`version_display`) and 0.6 → 1.3
 /// (`clock_display`) limb per `R` unit; the ceiling is the worst reading ×1.25
 /// (owner-ratified, conditional on the render-merge mechanism the liveness pin
 /// holds).
 pub const MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT: f64 = 1.75;
 
-/// The acceptance scale: the size multiplier of the acceptance-mode board run
-/// (`just amp-board-acceptance`).
+/// The base sampling scale of the measurement ladder, and the size
+/// multiplier of a bare single-scale board run.
 ///
-/// The default-scale board under-detects segment amplifiers: stacker grows a
+/// Each cell's ladder is the two sizes measured at this scale and the two at
+/// [`LADDER_TOP_SCALE`]: four points feeding one exponent trend, each also
+/// carrying its own constant and floor checks.
+pub const DEFAULT_SCALE: f64 = 1.0;
+
+/// The top sampling scale of the measurement ladder.
+///
+/// The base-scale sizes under-detect segment amplifiers: stacker grows a
 /// segment only past ~1 MiB of frames, so a recursion-frame amplifier whose
-/// onset sits above the default depths reads a false green there. ×4 is the
-/// witnessed calibration floor — the scale at which every known segment-onset
-/// amplifier read red under pre-fix code — so acceptance runs pin it.
-/// **Campaign acceptance is all cells green at BOTH the default scale and this
-/// one, one run each under the determinism tripwire**; an acceptance-scale run
-/// is acceptance-time only (the inner loop stays at the default scale, and the
-/// enforced per-operation record remains the envelope suite in `tests/meter.rs`
-/// regardless of board onset).
-pub const ACCEPTANCE_SCALE: f64 = 4.0;
+/// onset sits above the base depths reads a false green there. ×4 is the
+/// witnessed calibration floor — the sampling scale at which every known
+/// segment-onset amplifier read red under pre-fix code — so the ladder tops
+/// out there. **Campaign acceptance is every cell green across the whole
+/// ladder, one acceptance invocation measuring all of it under the
+/// determinism tripwire**, with each exponent judged as one trend over the
+/// four measured points; an acceptance run is acceptance-time only (the
+/// inner loop stays at the base scale, and the enforced per-operation record
+/// remains the envelope suite in `tests/meter.rs` regardless of board
+/// onset).
+pub const LADDER_TOP_SCALE: f64 = 4.0;

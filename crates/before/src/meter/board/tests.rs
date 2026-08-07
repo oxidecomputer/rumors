@@ -22,7 +22,7 @@ use super::TEXT_BYTES_PER_RADIX_UNIT;
 // The limb-priced tripwires read the touch counter, so they compile only
 // with the `limb-meter` feature; these names have no ungated user.
 #[cfg(feature = "limb-meter")]
-use super::judge::exponent;
+use super::judge::trend;
 #[cfg(feature = "limb-meter")]
 use super::operand::{stored_bases, value_content_bytes, version_output_bytes};
 #[cfg(feature = "limb-meter")]
@@ -592,8 +592,8 @@ fn flat_denominator_packed_fit_manufactures_an_exponent() {
         "per-tooth touch work must be flat across the doubling: {per_tooth:?}"
     );
     // The same readings, two fits, an exponent class apart.
-    let packed_fit = exponent(ops1, ops2, packed1, packed2);
-    let content_fit = exponent(ops1, ops2, content1, content2);
+    let packed_fit = trend(&[(packed1, ops1), (packed2, ops2)]);
+    let content_fit = trend(&[(content1, ops1), (content2, ops2)]);
     assert!(
         packed_fit > 2.0 * MAX_SCALING_EXPONENT,
         "the packed fit must manufacture a superlinear exponent from flat marginal work: \
@@ -632,7 +632,7 @@ fn quadratic_in_teeth_work_reads_red_against_the_content_denominator() {
     };
     let (content1, ops1) = measure(128);
     let (content2, ops2) = measure(256);
-    let content_fit = exponent(ops1, ops2, content1, content2);
+    let content_fit = trend(&[(content1, ops1), (content2, ops2)]);
     assert!(
         content_fit > MAX_SCALING_EXPONENT,
         "a quadratic-in-teeth probe must read red against the content denominator: \
@@ -754,6 +754,107 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
          exponent unjudged: {:?}",
         straddling.red
     );
+}
+
+/// The acceptance judgment fits one exponent trend over all four measured
+/// points, so a single generator lump cannot define the estimate, while a
+/// genuine super-linearity bends every point and still reads red.
+///
+/// The exponent-policy tripwire, in both directions. The lump ladder is a
+/// linear counter with one bumped point (the shape of a sparse counter over
+/// an organic control rebuilt per scale): its first window's own two-point
+/// fit reads over the ceiling — the pinned proof that the per-window ratio
+/// would have manufactured a red — while the four-point trend reads it
+/// linear, in both windows. The quadratic ladder grows as the square of the
+/// denominator at every point: the trend reads it a full class over the
+/// ceiling, red in both windows, so the policy cannot be softened into an
+/// exemption for real amplifiers.
+#[test]
+fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
+    use super::floors::na;
+    use super::judge::{evaluate_acceptance, trend};
+    use super::measure::Sample;
+    use super::{ByCurrency, Floors, MAX_SCALING_EXPONENT};
+    const PROBE_NA: &str = "probe: the exponent trend alone is under test";
+    let sample = |denom: usize, limb: u64| -> Sample {
+        Sample {
+            denom_bytes: denom,
+            exp_denom_bytes: denom,
+            limb_denom: denom as u64,
+            text_row: false,
+            floors: Floors {
+                heap: na(PROBE_NA),
+                segments: na(PROBE_NA),
+                limb: na(PROBE_NA),
+                scan: na(PROBE_NA),
+                touch: na(PROBE_NA),
+            },
+            fold_arity: None,
+            fold_search_bits: 0,
+            heap_model: None,
+            declared_heap: None,
+            declared_limb: None,
+            readings: ByCurrency {
+                heap: Some(0),
+                segments: Some(0),
+                limb: Some(limb),
+                scan: None,
+                touch: None,
+            },
+        }
+    };
+    // A linear counter (~2 per denominator byte) with the second point
+    // bumped: the lump an organic family rebuilt per scale can hand any
+    // sparse counter.
+    let ladder = [(134usize, 226u64), (288, 708), (549, 860), (1117, 1720)];
+    let window_fit = trend(&ladder[..2]);
+    assert!(
+        window_fit > MAX_SCALING_EXPONENT,
+        "the tripwire's premise: the lumped window's own two-point fit must \
+         read over the ceiling (read {window_fit:.2})"
+    );
+    let (lo, hi) = evaluate_acceptance(
+        "trend_probe",
+        "lump-ladder",
+        (
+            sample(ladder[0].0, ladder[0].1),
+            sample(ladder[1].0, ladder[1].1),
+        ),
+        (
+            sample(ladder[2].0, ladder[2].1),
+            sample(ladder[3].0, ladder[3].1),
+        ),
+    );
+    for (label, cell) in [("lo", &lo), ("hi", &hi)] {
+        assert!(
+            !cell.red.iter().any(|r| r.contains("limb exponent")),
+            "a single lump must not define the four-point trend ({label}: {:?})",
+            cell.red
+        );
+    }
+    // The same denominators carrying genuinely quadratic work: every point
+    // bends, and the trend stays red in both windows.
+    let quadratic = |n: usize| (n * n / 100) as u64;
+    let (lo, hi) = evaluate_acceptance(
+        "trend_probe",
+        "quadratic-ladder",
+        (
+            sample(ladder[0].0, quadratic(ladder[0].0)),
+            sample(ladder[1].0, quadratic(ladder[1].0)),
+        ),
+        (
+            sample(ladder[2].0, quadratic(ladder[2].0)),
+            sample(ladder[3].0, quadratic(ladder[3].0)),
+        ),
+    );
+    for (label, cell) in [("lo", &lo), ("hi", &hi)] {
+        assert!(
+            cell.red.contains(&"limb exponent"),
+            "a genuine super-linearity must stay red through the trend \
+             ({label}: {:?})",
+            cell.red
+        );
+    }
 }
 
 /// The declared fold model admits the balanced reduction's log factor and
@@ -1128,7 +1229,7 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
 /// The committed ranking pin stays well-formed against the live axes without a
 /// board run.
 ///
-/// Per scale of record it names exactly the board's operation rows, in board
+/// Per sampling scale it names exactly the board's operation rows, in board
 /// row order, and every pinned worst set is name-sorted, duplicate-free
 /// rostered family names (or the dead-row `-`).
 ///
@@ -1158,7 +1259,7 @@ fn worst_rankings_pin_is_well_formed() {
     assert_eq!(
         WORST_RANKINGS.len(),
         ops.len() * super::worst::WORST_MAP_SCALES.len(),
-        "the pin carries exactly one entry per operation per scale of record"
+        "the pin carries exactly one entry per operation per sampling scale"
     );
     for (scale, op, columns) in WORST_RANKINGS {
         for worst in columns {

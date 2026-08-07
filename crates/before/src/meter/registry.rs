@@ -51,7 +51,7 @@
 //!   reason instead. Bespoke instruments (adequacy tripwires with
 //!   committed-bad kernels, gate pins outside the band convention) stay
 //!   hand-written and reach their shapes through the same door.
-//! - **No intermediate state.** A red board cell at a scale of record
+//! - **No intermediate state.** A red board cell on the board of record
 //!   is unconditionally a gate failure until it is resolved — by a cure,
 //!   or by an owner-declared model at the cell. Coverage by bands alone
 //!   is likewise not a state a family can occupy silently: the roster

@@ -2,7 +2,8 @@
 //!
 //! The board is the campaign's dashboard, not its enforcement: this test
 //! only pins that the whole sweep keeps compiling and running — every
-//! operation row prepares, measures at both scales, and renders. It
+//! operation row prepares, measures at both of its window's sizes, and
+//! renders. It
 //! deliberately asserts no colors: verdicts of record belong to the
 //! release-profile board runs the gate's board leg consumes (any red
 //! cell there fails it), and the enforced resource record is the

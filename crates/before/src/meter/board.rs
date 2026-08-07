@@ -90,7 +90,7 @@
 //! must read if the meter is watching the work, derived from what the operation
 //! must do, never from how it does it — or an explicit **not-applicable** with
 //! the reason no floor can bind. Floors bind in the same pass the ceilings do,
-//! at both scales; a counter reading below its floor is red, named as the
+//! at every measured size; a counter reading below its floor is red, named as the
 //! column's floor with the vacuity mechanism (the meter is not watching that
 //! work). The declarations render per cell (`flr[...]`) and their derivations
 //! print as a legend above the matrix. The per-currency derivation conventions
@@ -129,14 +129,14 @@
 //! ([`BenchCell::denominator_bytes`]), and holds every judged cell to a ceiling
 //! generous to scheduler noise and impassable for a quadratic's ~2.0.
 //!
-//! # Acceptance scales and the profile of record
+//! # The measurement ladder and the profile of record
 //!
-//! Every cell runs at a size scale; the inner loop uses the default (scale 1,
-//! seconds of runtime). Acceptance is [`ACCEPTANCE_SCALE`]'s rule — that
-//! constant owns the ×4 calibration argument and the both-scales requirement —
-//! plus the bench judge green across the same two scales; the enforced
-//! per-operation record remains the process-isolated envelope suite in
-//! `tests/meter.rs` throughout.
+//! Every cell runs at a size scale; the inner loop uses the ladder's base
+//! ([`DEFAULT_SCALE`], seconds of runtime). Acceptance measures the whole
+//! ladder — [`LADDER_TOP_SCALE`] owns the ×4 calibration argument for its
+//! top — plus the bench judge green across the same two sampling scales; the
+//! enforced per-operation record remains the process-isolated envelope suite
+//! in `tests/meter.rs` throughout.
 //!
 //! Readings of record come from the **release profile** (the `amp-board*`
 //! recipes): debug assertions perform metered work — `Base` comparisons through
@@ -173,8 +173,8 @@
 //! unsatisfiable on work their contracts mandate (the same reasoning that
 //! re-denominates the I/O cells). A modeled cell reads green because its
 //! behavior is *intended and modeled*; red is reserved for untriaged
-//! contradictions, and any red cell at a scale of record is unconditionally a
-//! gate failure until it is resolved — by a cure, or by an owner-declared
+//! contradictions, and any red cell on the board of record is unconditionally
+//! a gate failure until it is resolved — by a cure, or by an owner-declared
 //! model at the cell. Each model is disclosed on its row face (`decl[...]`),
 //! derived at its constant's definition site (the `ceilings` module's
 //! declared-models section), and held honest on the under side — banded floors
@@ -207,7 +207,25 @@
 //! the meter test binary (`tests/meter.rs`), whose scenarios run one per
 //! process under nextest and pin exact envelopes. Zero-measurement cells score
 //! exponent 0; a meter that moves from 0 to a nonzero count is clamped through
-//! `max(m, 1)` before the ratio, so the exponent stays finite.
+//! `max(m, 1)` before the fit, so the exponent stays finite.
+//!
+//! # The exponent policy
+//!
+//! An exponent is a **trend over all measured points, never a per-window
+//! ratio**: every exponent leg is the log-log least-squares slope of its
+//! counter against the denominator, fitted across every point the run
+//! measured for the cell. The acceptance judgment ([`run_acceptance`], `just
+//! amp-board-acceptance` — the board's one verdict of record) measures each
+//! cell's whole ladder — the two sizes at each of the ladder's two sampling
+//! scales — and fits one trend across the four points, so a single generator
+//! lump at one probe cannot define the estimate, while a genuine
+//! super-linearity bends every point and still reads red; constants,
+//! declared-model bands, and liveness floors stay judged per size across the
+//! ladder. A bare single-scale run fits its own window's two points and
+//! renders a debugging view whose verdicts never bind. Densifying the ladder
+//! (measuring more points per cell) is deliberately not part of this policy:
+//! it remains a case-by-case adjudication tool for a future disputed cell,
+//! owner-invoked.
 //!
 //! # Families
 //!
@@ -259,15 +277,16 @@ mod tests;
 mod worst;
 
 pub use ceilings::{
-    ACCEPTANCE_SCALE, ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE,
-    ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE, CAPACITY_MODEL_CEILING, CAPACITY_MODEL_FLOOR,
+    ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE, ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE,
+    CAPACITY_MODEL_CEILING, CAPACITY_MODEL_FLOOR, DEFAULT_SCALE,
     FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, HEAP_FLAT_ALLOWANCE_BYTES, INDEX_PROBE_SCAN_BITS,
-    MACHINE_WORD_MAGNITUDE_BITS, MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE,
-    MAX_LIMB_OPS_PER_INPUT_BYTE, MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE,
-    MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
-    MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING, MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT,
-    SCAN_FLOOR_BITS_PER_INPUT_BYTE, SCAN_TOUCH_FLOOR_BITS, TEXT_BYTES_PER_RADIX_UNIT,
-    TEXT_PIPELINE_LIMB_OPS_PER_VALUE, TICKS_BOARD_COUNT,
+    LADDER_TOP_SCALE, MACHINE_WORD_MAGNITUDE_BITS, MAX_GROWN_STACK_SEGMENTS,
+    MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_LIMB_OPS_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
+    MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, MAX_TOUCHES_PER_INPUT_BYTE,
+    MIN_EXPONENT_DENOM_GROWTH, MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING,
+    MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT, SCAN_FLOOR_BITS_PER_INPUT_BYTE,
+    SCAN_TOUCH_FLOOR_BITS, TEXT_BYTES_PER_RADIX_UNIT, TEXT_PIPELINE_LIMB_OPS_PER_VALUE,
+    TICKS_BOARD_COUNT,
 };
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
@@ -275,5 +294,7 @@ pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS}
 pub use family::study_family_versions;
 pub use measure::HeapMeter;
 pub use render::Summary;
-pub use shard::{check_worst_map, emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
+pub use shard::{
+    check_worst_map, emit_shard, max_useful_shards, run, run_acceptance, worst_map, ShardSpawner,
+};
 pub use worst::{NEAR_TIE_RATIO, WORST_MAP_SCALES};

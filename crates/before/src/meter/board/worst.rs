@@ -51,19 +51,20 @@
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 
-use super::ceilings::{ACCEPTANCE_SCALE, HEAP_FLAT_ALLOWANCE_BYTES};
+use super::ceilings::{HEAP_FLAT_ALLOWANCE_BYTES, LADDER_TOP_SCALE};
 use super::currency::Currency;
 use super::judge::CellResult;
 
-/// The two scales of record the worst-case map is rendered and pinned at: the
-/// board's seconds-scale default and the acceptance scale
-/// ([`ACCEPTANCE_SCALE`], which owns the ×4 calibration argument).
+/// The measurement ladder's two sampling scales, at each of which the
+/// worst-case map is rendered and pinned: the board's seconds-scale base and
+/// the ladder top ([`LADDER_TOP_SCALE`], which owns the ×4 calibration
+/// argument).
 ///
 /// The map's claim is scale-qualified because a ranking is: a shape's
 /// normalized constant carries its intercept at the default scale, and the
 /// acceptance scale is where the known onset effects (segment growth,
 /// doubling-chain steps) have fired.
-pub const WORST_MAP_SCALES: [(&str, f64); 2] = [("default", 1.0), ("acceptance", ACCEPTANCE_SCALE)];
+pub const WORST_MAP_SCALES: [(&str, f64); 2] = [("default", 1.0), ("acceptance", LADDER_TOP_SCALE)];
 
 /// A runner-up within this ratio of the worst reading is flagged `~near-tie` in
 /// the rendered table.
@@ -292,7 +293,7 @@ pub(super) fn row(out: &mut dyn Write, op: &str, c: &CurrencyWorst) -> io::Resul
 ///
 /// `results` must be a whole board's cells in board row order: a shard merge's
 /// reconstruction of one sweep. `label` names the scale in the header (the
-/// scales of record are [`WORST_MAP_SCALES`]; a smoke run may pass its own).
+/// sampling scales are [`WORST_MAP_SCALES`]; a smoke run may pass its own).
 /// The fold is a pure consumer of the board's own judged cells: no reading,
 /// family, or ceiling is recomputed here.
 pub(super) fn render_map(
@@ -355,7 +356,7 @@ pub(super) fn render_map(
 ///
 /// Each column is the worst family set, comma-joined in family-name order, `-`
 /// where no committed shape drives the currency; one entry per operation per
-/// scale of record, in board row order.
+/// sampling scale, in board row order.
 ///
 /// The tamper-evident ranking pin:
 /// [`check_worst_map`](super::shard::check_worst_map) entry-compares the live
@@ -576,7 +577,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
 /// (the `WORST_RANKINGS` table beside the fold), writing one drift line per
 /// disagreement to `out`.
 ///
-/// `sweeps` yields one whole board's judged cells per scale of record — a shard
+/// `sweeps` yields one whole board's judged cells per sampling scale — a shard
 /// merge under [`check_worst_map`](super::shard::check_worst_map).
 ///
 /// Returns `Ok(true)` when the pin matches exactly. Detects both directions of
@@ -660,7 +661,7 @@ pub(super) fn check_with(
     if clean {
         writeln!(
             out,
-            "worst-case pin: clean ({} pinned rows verified at {} scales)",
+            "worst-case pin: clean ({} pinned rows verified at {} sampling scales)",
             WORST_RANKINGS.len(),
             WORST_MAP_SCALES.len()
         )?;

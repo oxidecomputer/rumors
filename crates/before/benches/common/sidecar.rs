@@ -5,8 +5,8 @@
 //! default to off:
 //!
 //! - [`SCALE_ENV`]: the input scale (a positive number, or the literal
-//!   `acceptance` for the board's acceptance scale
-//!   `before::meter::board::ACCEPTANCE_SCALE`).
+//!   `acceptance` for the board ladder's top sampling scale
+//!   `before::meter::board::LADDER_TOP_SCALE`).
 //! - [`MODE_ENV`]: the product slice (`pinned`, the default, or `full`;
 //!   `board::BenchMode`).
 //! - [`DENOMS_ENV`]: a path; when set, the harness writes the JSON sidecar
@@ -81,11 +81,11 @@ pub const DENOMS_ENV: &str = "BOARD_BENCH_DENOMS";
 pub const TIP_ENV: &str = "BOARD_BENCH_TIP";
 
 /// The input scale from [`SCALE_ENV`]: unset means the board's
-/// seconds-scale default of 1, `acceptance` means `board::ACCEPTANCE_SCALE`.
+/// seconds-scale base of 1, `acceptance` means `board::LADDER_TOP_SCALE`.
 pub fn scale_from_env() -> f64 {
     match std::env::var(SCALE_ENV) {
         Err(std::env::VarError::NotPresent) => 1.0,
-        Ok(raw) if raw == "acceptance" => board::ACCEPTANCE_SCALE,
+        Ok(raw) if raw == "acceptance" => board::LADDER_TOP_SCALE,
         Ok(raw) => raw.parse().unwrap_or_else(|_| {
             panic!("{SCALE_ENV} must be a positive number or `acceptance`, got {raw:?}")
         }),

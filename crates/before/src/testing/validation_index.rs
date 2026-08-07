@@ -61,16 +61,16 @@
 //! **The amplification board** (`crate::meter::board`; rendered by
 //! `just amp-board`).
 //! The whole-surface dashboard: every operation × every committed
-//! adversarial family, two probe sizes per cell, judged on deterministic
-//! counters only (heap, stack segments, limb ops, scan bits, digit
-//! touches) against fitted exponents, per-byte constants, liveness
-//! floors, and owner-declared models — at both acceptance scales. What
+//! adversarial family, a four-size measurement ladder per cell, judged on
+//! deterministic counters only (heap, stack segments, limb ops, scan bits,
+//! digit touches) against one fitted exponent trend per currency, per-size
+//! constants, liveness floors, and owner-declared models. What
 //! it alone catches: **structural blindness** — a resource regression on
 //! a shape × operation pairing nobody thought to pin, and meter vacuity
 //! (a counter that stopped watching reads a floor trip, not a green).
 //! Red means untriaged, nothing else: every persistent contradiction
-//! resolves to a cure or a declared model, and any red cell at a scale
-//! of record fails the gate's board leg outright. The board
+//! resolves to a cure or a declared model, and any red cell fails the
+//! gate's board leg outright. The board
 //! asserts breadth, not records: its readings are indicative, the
 //! enforcement lives in the envelope suite.
 //!

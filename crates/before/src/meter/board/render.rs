@@ -205,7 +205,7 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
     writeln!(
         out,
         "amplification board: transient cost vs denominator bytes (packed input; total I/O on \
-         the text and cross cells), each cell at two scales"
+         the text and cross cells), each cell at its window's two sizes"
     )?;
     writeln!(
         out,
@@ -257,7 +257,7 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
             "  declared capacity model (decl[heap ...] rows): peak = 3(n+m)2^(k-1) B, \
              k = ceil(log2(output/(n+m))) - the output builder's doubling chain anchored at \
              the operand-size reserve; readings banded within x{CAPACITY_MODEL_FLOOR} to \
-             x{CAPACITY_MODEL_CEILING} of the model at both scales"
+             x{CAPACITY_MODEL_CEILING} of the model at both sizes"
         )?;
     }
     if results.iter().any(|r| r.s2.declared_heap.is_some()) {

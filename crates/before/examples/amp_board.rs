@@ -11,21 +11,23 @@
 //! a debugging view whose readings are never pinned), or directly
 //! `cargo run -p before --example amp_board --features limb-meter,scan-meter
 //! -- [scale]` where the optional `scale` (a positive number, default 1)
-//! multiplies every input family's base size; the literal `acceptance`
-//! selects the acceptance scale (`board::ACCEPTANCE_SCALE`, `just
-//! amp-board-acceptance`). The default sizes keep the whole board at
-//! seconds of runtime; acceptance requires all green at both the default
-//! and acceptance scales, one run each under the board's determinism
-//! tripwire — and the exit code carries that verdict: at those two
-//! scales of record, any red cell exits nonzero, so every gate leg that
-//! runs a board of record consumes its verdicts. The counter features are
-//! `required-features`: a build without them would render limb, scan,
-//! and touch unjudged while still printing verdict colors, so cargo
-//! refuses it outright.
+//! multiplies every input family's base size and renders a single-scale
+//! debugging view whose verdicts never bind. The literal `acceptance`
+//! (`just amp-board-acceptance`) runs the board's one verdict of record:
+//! each cell's whole measurement ladder (two sizes at each of the two
+//! sampling scales, `board::DEFAULT_SCALE` and `board::LADDER_TOP_SCALE`)
+//! in one judgment, the exponents fitted as one trend over the four
+//! measured points (the board module doc's exponent-policy section), and
+//! the exit code carries the verdict — any red cell anywhere on the
+//! ladder exits nonzero, so every gate leg that runs the board of record
+//! consumes it. The default sizes keep the whole board at seconds of
+//! runtime. The counter features are `required-features`: a build
+//! without them would render limb, scan, and touch unjudged while still
+//! printing verdict colors, so cargo refuses it outright.
 //!
 //! Two further modes consume the same sweep instead of rendering the
 //! matrix: `worst-cases` renders the worst-case map (the argmax family
-//! per operation × currency) at both scales of record
+//! per operation × currency) at each of the ladder's sampling scales
 //! (`board::WORST_MAP_SCALES`, `just worst-cases`), and
 //! `worst-cases-check` entry-compares the live fold against the
 //! committed ranking pin, exiting nonzero on any drift (`just
@@ -53,9 +55,6 @@ use peak_alloc::PeakAlloc;
 
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
-
-/// The default size multiplier when no argument is given.
-const DEFAULT_SCALE: f64 = 1.0;
 
 /// The shard-count override. Unset, the runner uses available
 /// parallelism.
@@ -173,32 +172,31 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        arg => {
-            let scale = match arg {
-                None => DEFAULT_SCALE,
-                Some("acceptance") => board::ACCEPTANCE_SCALE,
-                Some(arg) => arg.parse::<f64>().unwrap_or_else(|_| {
-                    panic!("amp-board: scale must be a positive number, got {arg:?}")
-                }),
-            };
-            let summary = board::run(scale, shards, &spawner(shards), &mut out)
+        // The verdict of record: the whole ladder, one judgment, any red
+        // cell exits nonzero — a red is an untriaged contradiction, resolved
+        // only by a cure or an owner-declared model at the cell.
+        Some("acceptance") => {
+            let summary = board::run_acceptance(shards, &spawner(shards), &mut out)
                 .expect("stdout stays writable");
-            // The verdicts are consumed, not just rendered: at the
-            // scales of record (default and acceptance, the two the
-            // all-green acceptance criterion is stated over), any red
-            // cell exits nonzero, so a red board cannot pass a gate
-            // leg that runs it — a red is an untriaged contradiction,
-            // resolved only by a cure or an owner-declared model at
-            // the cell. Other scales stay debugging views whose
-            // verdicts are not of record and never bind.
-            let of_record = scale == DEFAULT_SCALE || scale == board::ACCEPTANCE_SCALE;
-            if of_record && summary.red != 0 {
+            if summary.red != 0 {
                 eprintln!(
-                    "amp-board: {red} red cells at scale {scale}",
+                    "amp-board: {red} red cells across the measurement ladder",
                     red = summary.red
                 );
                 std::process::exit(1);
             }
+        }
+        // A single-scale render is a debugging view: its verdict colors
+        // ride per-window fits and never bind (the acceptance mode above
+        // is the one verdict of record).
+        arg => {
+            let scale = match arg {
+                None => board::DEFAULT_SCALE,
+                Some(arg) => arg.parse::<f64>().unwrap_or_else(|_| {
+                    panic!("amp-board: scale must be a positive number, got {arg:?}")
+                }),
+            };
+            board::run(scale, shards, &spawner(shards), &mut out).expect("stdout stays writable");
         }
     }
 }

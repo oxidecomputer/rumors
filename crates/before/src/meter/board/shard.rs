@@ -62,8 +62,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::sync::{Mutex, OnceLock};
 
+use super::ceilings::{DEFAULT_SCALE, LADDER_TOP_SCALE};
 use super::currency::{ByCurrency, Liveness};
-use super::judge::{evaluate, CellResult};
+use super::judge::{evaluate, evaluate_acceptance, CellResult};
 use super::measure::{HeapMeter, Sample};
 use super::ops::ops;
 use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
@@ -362,14 +363,37 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
 /// board row order.
 ///
 /// Validates every stamp, parses the samples, reorders by the parent's own
-/// operation table and family roster, and judges each cell ([`evaluate`]).
+/// operation table and family roster, and judges each cell ([`evaluate`]) —
+/// the single-scale judgment, whose exponent trend is the window's own two
+/// points. The acceptance path judges across scales instead
+/// ([`run_acceptance`], over [`merge_samples`]).
+///
+/// # Panics
+///
+/// As [`merge_samples`].
+fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
+    merge_samples(scale, count, captures)
+        .into_iter()
+        .map(|(op, family, s1, s2)| evaluate(op, family, s1, s2))
+        .collect()
+}
+
+/// Merge `count` children's captures into one whole board's measured cells in
+/// board row order, unjudged.
+///
+/// Validates every stamp, parses the samples, and reorders by the parent's
+/// own operation table and family roster.
 ///
 /// # Panics
 ///
 /// Panics on any protocol violation — the module doc's refusal list — and
 /// unless `scale` is strictly positive, checked before any child capture is
 /// trusted.
-fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
+fn merge_samples(
+    scale: f64,
+    count: usize,
+    captures: &[Vec<u8>],
+) -> Vec<(&'static str, &'static str, Sample, Sample)> {
     assert!(
         scale > 0.0 && scale.is_finite(),
         "amp-board: scale must be a positive finite number"
@@ -462,10 +486,7 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
             "amp-board shard merge: shard {index}/{count} capture is truncated: no end line"
         );
     }
-    cells
-        .into_values()
-        .map(|(op, family, s1, s2)| evaluate(op, family, s1, s2))
-        .collect()
+    cells.into_values().collect()
 }
 
 /// Sweep the whole board across `shards` child processes at `scale` and render
@@ -489,6 +510,71 @@ pub fn run(
     render_results(&merge(scale, shards, &spawn(scale)?), out)
 }
 
+/// Sweep every cell's whole measurement ladder — the two sizes at each of
+/// the ladder's two sampling scales — across `shards` child processes per
+/// sweep, judge each cell's exponents as one trend over the four measured
+/// points, and render both matrices to `out`.
+///
+/// This is the acceptance judgment — the board's one verdict of record
+/// (`just amp-board-acceptance`): every constant, declared-model band, and
+/// liveness floor is judged per ladder window exactly as a single-scale run
+/// judges it, while the exponent legs are judged once, on the log-log
+/// least-squares trend across the whole ladder ([`evaluate_acceptance`]).
+/// The returned [`Summary`] counts distinct cells: red is the number of
+/// cells red anywhere on the ladder, so a zero-red summary is the all-green
+/// acceptance criterion whole.
+///
+/// `spawn` is invoked once per sampling scale.
+///
+/// # Panics
+///
+/// As [`run`], plus if the two sweeps disagree on the cell grid (impossible
+/// while both run this binary's own tables: applicability depends on the
+/// family, never the size).
+pub fn run_acceptance(
+    shards: usize,
+    spawn: ShardSpawner<'_>,
+    out: &mut dyn Write,
+) -> io::Result<Summary> {
+    let lo = merge_samples(DEFAULT_SCALE, shards, &spawn(DEFAULT_SCALE)?);
+    let hi = merge_samples(LADDER_TOP_SCALE, shards, &spawn(LADDER_TOP_SCALE)?);
+    assert_eq!(
+        lo.len(),
+        hi.len(),
+        "amp-board acceptance: the ladder's two sweeps measured different cell grids"
+    );
+    let mut lo_cells = Vec::with_capacity(lo.len());
+    let mut hi_cells = Vec::with_capacity(hi.len());
+    for ((op_lo, family_lo, l1, l2), (op_hi, family_hi, h1, h2)) in lo.into_iter().zip(hi) {
+        assert_eq!(
+            (op_lo, family_lo),
+            (op_hi, family_hi),
+            "amp-board acceptance: the ladder's two sweeps measured different cell grids"
+        );
+        let (cell_lo, cell_hi) = evaluate_acceptance(op_lo, family_lo, (l1, l2), (h1, h2));
+        lo_cells.push(cell_lo);
+        hi_cells.push(cell_hi);
+    }
+    // Each matrix prints its own per-scale summary line; the returned
+    // summary is the joint verdict over distinct cells.
+    writeln!(out, "=== ladder base: sampling scale {DEFAULT_SCALE} ===")?;
+    render_results(&lo_cells, out)?;
+    writeln!(out, "=== ladder top: sampling scale {LADDER_TOP_SCALE} ===")?;
+    render_results(&hi_cells, out)?;
+    // Distinct red cells across the two matrices: an exponent-leg red binds
+    // both windows, so the union, not the sum, is the honest count.
+    let red: BTreeSet<(&'static str, &'static str)> = lo_cells
+        .iter()
+        .chain(hi_cells.iter())
+        .filter(|cell| !cell.red.is_empty())
+        .map(|cell| (cell.op, cell.family))
+        .collect();
+    Ok(Summary {
+        green: lo_cells.len() - red.len(),
+        red: red.len(),
+    })
+}
+
 /// Sweep the whole board across `shards` child processes at `scale` and render
 /// the worst-case map table to `out`.
 ///
@@ -508,9 +594,10 @@ pub fn worst_map(
 }
 
 /// Entry-compare the live worst-case fold against the committed ranking pin,
-/// from sweeps run across `shards` child processes at each scale of record.
+/// from sweeps run across `shards` child processes at each of the ladder's
+/// sampling scales.
 ///
-/// `spawn` is invoked once per scale of record.
+/// `spawn` is invoked once per sampling scale.
 ///
 /// # Panics
 ///
