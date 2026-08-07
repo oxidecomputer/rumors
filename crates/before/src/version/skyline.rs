@@ -178,6 +178,9 @@ pub mod sweep;
 pub mod text;
 mod validate;
 mod walk;
+// The anchored-minimum web the fill walk and the min-ticks fold share: the
+// range-minimum discipline stated once, each client thin over it.
+mod watermark;
 
 #[cfg(test)]
 mod tests;

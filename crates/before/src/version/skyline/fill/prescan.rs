@@ -33,8 +33,8 @@ use crate::idbits::{IdNode, IdReader};
 
 use super::super::signed::{fold_signed_int, unzigzag, Signed};
 use super::super::walk::{fold_region, skip_leaves, Extremum, LeafWalk};
+use super::super::watermark::MinWeb;
 use super::memo::Memo;
-use super::watermark::MinStack;
 use super::{DeltaReg, REL_FOLLOWER};
 
 /// The pre-scan's cursor, web, and recording state (module doc); the `&mut`
@@ -48,7 +48,7 @@ pub(super) struct PreScan<'a, 'm> {
     /// cursor is untouched (the scan never consumes).
     cursor: codec::DsiCursor<'a>,
     /// The pre-scan's own range-minimum watermarks.
-    pub(super) stack: MinStack,
+    pub(super) stack: MinWeb<()>,
     /// `h′ − h(scan entry)`, alive until the first virtual arming seeds the
     /// recording head.
     entry_net: Option<Accumulator>,
@@ -98,7 +98,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         PreScan {
             event,
             cursor: codec::DsiCursor::new_at(event, start),
-            stack: MinStack::new(),
+            stack: MinWeb::new(),
             entry_net: Some(Accumulator::new()),
             pending_relation: None,
             memo,
@@ -177,7 +177,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                         // fill(0, er): the leaves stay as they are, and the
                         // walk re-derives this raise from its own local scan —
                         // nothing is recorded.
-                        self.stack.open();
+                        self.stack.open(1);
                         self.copy_range(false);
                         self.stack.close();
                         if self.stack.compare_above(&above) != Ordering::Less {
@@ -188,12 +188,12 @@ impl<'a, 'm> PreScan<'a, 'm> {
                     let slot = self.reserve(site_pos);
                     frames.push_site(slot, collapse_start);
                     level += 1;
-                    self.stack.open();
+                    self.stack.open(1);
                     continue; // walk the sibling range
                 }
                 // An ordinary node: the left child's range first.
                 frames.push_node(right);
-                self.stack.open();
+                self.stack.open(1);
                 if left {
                     continue; // descend into the left child
                 }
@@ -241,12 +241,12 @@ impl<'a, 'm> PreScan<'a, 'm> {
                             frames.pop_node();
                         } else if right {
                             frames.flip_to_await_right();
-                            self.stack.open();
+                            self.stack.open(1);
                             continue 'descend; // walk the right child
                         } else {
                             // Absent right child: fill(0, er) in its own
                             // frame.
-                            self.stack.open();
+                            self.stack.open(1);
                             self.copy_range(false);
                             self.stack.close();
                             frames.pop_node();

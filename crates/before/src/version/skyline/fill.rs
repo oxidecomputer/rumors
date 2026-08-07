@@ -41,9 +41,9 @@
 //! leaf (whose code is that absolute, so the read is priced by the write). The
 //! walk carries the last consumed input height on one cliff-immune
 //! [`Accumulator`], and every range minimum the shortcut arms can ask for lives
-//! in one shared anchor web — the `watermark` module's stack: `h − A` for an
+//! in one shared anchor web — the `watermark` module's web: `h − A` for an
 //! anchor at or above the innermost open range's minimum (the excess parked in
-//! the stack's latent register) plus nonnegative, zero-run-compressed
+//! the web's latent register) plus nonnegative, zero-run-compressed
 //! differences outward, so each consumed delta folds into O(1) accumulators and
 //! a raise's comparison is an amortized-O(1) sign read. The output-delta
 //! register (`h − prev_out` between pass-throughs, watermark-relative after a
@@ -101,7 +101,7 @@
 //!   propagation whose every fold is a dying operand or the one surviving
 //!   fold the update's own priced width bounds;
 //! - a range close and the next arm: the close *moves* its popped boundary
-//!   into the watermark stack's latent register and the arm recycles the
+//!   into the watermark web's latent register and the arm recycles the
 //!   register into the new boundary, so the close-reveal cycle's wide content
 //!   shuttles by moves at a narrow anchor-relative marginal cost (the
 //!   `watermark` module doc carries the register's discipline);
@@ -164,18 +164,17 @@ use crate::idbits::{IdNode, IdReader};
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe};
 use self::memo::Memo;
 use self::prescan::PreScan;
-use self::watermark::MinStack;
 use super::grow::Cost;
 use super::signed::{
     fold_signed_int, gamma_code_int, gamma_code_signed_int, signed_max, signed_sum_base, unzigzag,
     Signed,
 };
 use super::walk::{fold_region, skip_leaves, skip_region, Extremum, LeafWalk};
+use super::watermark::MinWeb;
 
 mod fuse;
 mod memo;
 mod prescan;
-mod watermark;
 
 /// The follower slot carrying `min − prev_out` while the output delta is
 /// watermark-anchored (a raise just emitted the tracked minimum).
@@ -298,14 +297,14 @@ pub(super) fn fused_fill(event_bits: &BitsSlice, id: &crate::Party) -> FillOutco
         w_anchored: false,
         started: false,
         range_is_leaf: false,
-        stack: MinStack::new(),
+        stack: MinWeb::new(),
         memo: Memo::new(),
         relation: Relation::None,
         out: Out::verbatim(),
         probe: RouteProbe::new(id_bits.len()),
     };
     let mut reader = IdReader::root(id_bits);
-    walk.stack.open();
+    walk.stack.open(1);
     walk.walk(&mut reader);
     if walk.w_anchored {
         let follower = walk.stack.follower_take(OUT_FOLLOWER);
@@ -368,8 +367,8 @@ struct FillWalk<'a> {
     /// range: a multi-leaf range collapsing to one leaf is a divergence before
     /// any code comparison.
     range_is_leaf: bool,
-    /// The walk's range-minimum watermarks (the anchor web).
-    stack: MinStack,
+    /// The walk's range-minimum watermarks (the anchor web), payload-free.
+    stack: MinWeb<()>,
     /// Left-full minima computed ahead of the walk (the frame ledger).
     ///
     /// A fresh pre-scan records every interior left-full site it evaluates, and
@@ -418,7 +417,7 @@ impl FillWalk<'_> {
     /// completed child's inflation cost into the suspended node, resuming its
     /// remaining work — the right-full peek, the right child's walk, the site
     /// close). Each child runs inside its own watermark frame
-    /// ([`MinStack::open`]/[`close`](MinStack::close)), absent children as the
+    /// ([`MinWeb::open`]/[`close`](MinWeb::close)), absent children as the
     /// inlined `fill(0, e) = e` copy at infeasible cost, so the arms,
     /// emissions, and route folds run in exactly the paired preorder the fill
     /// equations prescribe. The root subtree's cost is dropped: only interior
@@ -487,7 +486,7 @@ impl FillWalk<'_> {
                         let raise = scan_min_from(self.event, self.pos(), self.first_read);
                         let value_offset = signed_max(&above, &raise);
                         self.emit_offset(depth + 1, value_offset);
-                        self.stack.open();
+                        self.stack.open(1);
                         self.copy_subtree(depth + 1);
                         self.stack.close();
                         break self.probe.join(key, Cost::FREE, Cost::MAX);
@@ -505,7 +504,7 @@ impl FillWalk<'_> {
                         let scan_start = self.pos();
                         let mut scan = PreScan::new(self.event, scan_start, &mut self.memo);
                         let slot = scan.reserve(scan_start);
-                        scan.stack.open();
+                        scan.stack.open(1);
                         let mut reader = IdReader::at(id.bits(), id.pos());
                         let end = scan.run(self.first_read, &mut reader);
                         scan.record(slot, 0);
@@ -517,7 +516,7 @@ impl FillWalk<'_> {
                     }
                     self.consume_site(&above, depth);
                     frames.push_site(key, outermost);
-                    self.stack.open();
+                    self.stack.open(1);
                     depth += 1;
                     continue; // walk the right sibling range
                 }
@@ -526,7 +525,7 @@ impl FillWalk<'_> {
                 // is one `O(1)` peek on the way back up — no lookahead over the
                 // left id subtree.
                 frames.push_node(key, right);
-                self.stack.open();
+                self.stack.open(1);
                 depth += 1;
                 if left {
                     continue; // descend into the left child
@@ -579,13 +578,13 @@ impl FillWalk<'_> {
                             cost = self.probe.join(key, cost, Cost::FREE);
                         } else if right {
                             frames.flip_to_await_right(cost);
-                            self.stack.open();
+                            self.stack.open(1);
                             depth += 1;
                             continue 'descend; // walk the right child
                         } else {
                             // Absent right child: fill(0, er) in its own frame,
                             // infeasible for the route.
-                            self.stack.open();
+                            self.stack.open(1);
                             self.copy_subtree(depth + 1);
                             self.stack.close();
                             let key = frames.pop_await_left();
@@ -680,13 +679,13 @@ impl FillWalk<'_> {
             }
             Relation::Height(relation) => self.consume_h_anchored(relation, link, above, depth),
             Relation::Min => {
-                // d_arm = m_s − A = (m_s − m_r) − (f_stored = A − m_r): the
+                // arm_offset = m_s − A = (m_s − m_r) − (f_stored = A − m_r): the
                 // link dies into the decision, and taking the relation raw
                 // keeps everything anchor-relative — the latent a preceding
                 // close parked cancels out of the comparison and the arming
                 // alike, so the cycle's cost is the narrow inter-site movement,
                 // never the parked width. (Without the tag, f = m − m_r would
-                // gross the full anchor-to-floor gap into d_arm at every
+                // gross the full anchor-to-floor gap into arm_offset at every
                 // consume.)
                 let mut arm_offset = self.stack.follower_take(REL_FOLLOWER);
                 arm_offset.negate();
@@ -852,7 +851,7 @@ impl FillWalk<'_> {
             // switch's one bridge read of the surviving web, priced by this
             // emission's own code.
             let mut out_delta = self.stack.follower_take(OUT_FOLLOWER);
-            self.stack.bridge_add_t(&mut out_delta);
+            self.stack.bridge_add_gap(&mut out_delta);
             self.w_anchored = false;
             self.stack.materialize(out_delta)
         } else {
@@ -919,7 +918,7 @@ impl FillWalk<'_> {
                 // d_out = (h + offset) − prev_out: the bridge read plus
                 // the priced offset.
                 let mut out_delta = self.stack.follower_take(OUT_FOLLOWER);
-                self.stack.bridge_add_t(&mut out_delta);
+                self.stack.bridge_add_gap(&mut out_delta);
                 fold_signed_int(&mut out_delta, offset.negative, &offset.magnitude);
                 self.w_anchored = false;
                 self.stack.materialize(out_delta)
@@ -972,7 +971,7 @@ impl FillWalk<'_> {
             // emission's own code.
             let fresh = self.stack.lease();
             let mut out_delta = core::mem::replace(&mut self.gap, fresh);
-            self.stack.bridge_sub_t(&mut out_delta);
+            self.stack.bridge_sub_gap(&mut out_delta);
             self.stack.materialize(out_delta)
         };
         // prev_out = min now: the follower restarts at zero.

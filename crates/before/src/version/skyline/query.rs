@@ -405,7 +405,7 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
     // The minima side: subtree spans nest LIFO along the sweep, so each closing
     // node's minimum is the innermost open range's — the range-minimum web (the
     // `web` module carries the discipline and the funding argument).
-    let mut web = web::MinWeb::new();
+    let mut web = web::ReignWeb::new();
     web.open(cursor.depth());
     ledger.leaf_ref();
     web.leaf(false, &Base::ZERO, 0, &mut total, &mut ledger);

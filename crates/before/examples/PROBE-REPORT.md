@@ -48,7 +48,7 @@ accumulator; ~13% sweep logic (`advance_diff`, `LeafCursor::descend`,
 **tick (n=8192):** ~19% `bitvec` writes; ~20% allocator; ~12% suanpan
 (`fold_and_collapse`, `add_at`, `read_magnitude`, `add_u64`, `reset`);
 ~9% `SkylineBuilder::leaf`; ~14% fill-walk machinery (`FillWalk::walk`,
-watermark `MinStack`, `PopStack`, `LeafWalk::descend`); ~7% codec.
+watermark `MinWeb`, `PopStack`, `LeafWalk::descend`); ~7% codec.
 
 The gamma coding itself — the thing one might presume expensive — is
 under 10% in both. The costs are (a) the *currency* the sweeps trade in
@@ -92,7 +92,7 @@ small n, where fixed overhead sets the ratio).
 
 **D4. Tick's fused walk runs its full generality per node.** Tick costs
 2x a join despite the grow branch's output being "one splice": the
-fill walk's watermark/route machinery (MinStack boundaries, frame
+fill walk's watermark/route machinery (MinWeb boundaries, frame
 stacks, per-delta accumulator folds) has a per-leaf constant ~15x
 decode's (126ns vs ~9ns per leaf at n=8192). The width-circulation
 discipline is what makes adversarial wide inputs linear — but on
