@@ -152,8 +152,22 @@ impl Drop for Forks<'_> {
 /// `N` shares whose id tree has minimal depth `⌈log₂ N⌉`. The shares
 /// [`join_all`](Party::join_all) back to the original region.
 ///
-/// `N` must be at least 1: a [`Party`] owns a nonempty region and cannot vanish
-/// into zero shares, so `<[Party; 0]>::from` fails to compile.
+/// # The `N >= 1` bound
+///
+/// A [`Party`] owns a nonempty region and cannot vanish into zero shares, so
+/// `N` must be at least 1. The bound is enforced at compile time, not by a
+/// runtime panic: the zero-length split is rejected when the conversion is
+/// built, while the same spelling at any nonzero arity compiles and runs.
+///
+/// ```
+/// use before::Party;
+/// let _shares: [Party; 1] = Party::seed().into();
+/// ```
+///
+/// ```compile_fail,E0080
+/// use before::Party;
+/// let _shares: [Party; 0] = Party::seed().into();
+/// ```
 ///
 /// # Complexity
 ///
@@ -168,6 +182,9 @@ impl Drop for Forks<'_> {
 /// ```
 impl<const N: usize> From<Party> for [Party; N] {
     fn from(party: Party) -> [Party; N] {
+        // Fires at monomorphization, making `N == 0` a build error. The paired
+        // doctests above pin it: the `compile_fail` twin must be rejected while
+        // its identical-but-for-arity sibling compiles.
         const { assert!(N >= 1, "a `Party` cannot split into zero shares") }
         let mut split = Split::new(party, N as u64);
         // `from_fn` calls indices `0..N` in order, and `Split` yields in

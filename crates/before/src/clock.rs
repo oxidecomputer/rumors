@@ -54,6 +54,13 @@ pub struct Clock {
     version: Version,
 }
 
+// Identity Linearity (the crate docs' second safety rule) is compiler-enforced
+// within a process because `Clock` — like the [`Party`] it owns — is `!Clone`:
+// duplicating a live clock would put its party's share in two hands. The
+// absence is pinned here at the definition, where a tempting `derive` would
+// land.
+static_assertions::assert_not_impl_any!(Clock: Clone, Copy);
+
 impl Clock {
     /// The initial clock of the distinguished [`Party::seed`]; the only
     /// [`Clock`] not derived from some prior clock.
@@ -974,3 +981,27 @@ clock_join_matrix! {
     as_clock Clock,    Version;
     as_clock Clock,    &Version;
 }
+
+// The matrix above is the entire `|` surface a `Clock` participates in, and
+// its shape is load-bearing:
+//
+// - No cell reunites two clocks, in any borrow shape: `Clock::join` is the
+//   only reunion, fallible because it must verify the parties are disjoint,
+//   and an infallible `|` would silently merge overlapping shares.
+// - No cell borrows its clock operand: the `clock | version` impls are
+//   carried by `Clock` itself, `BitOr::bitor` takes its receiver by value,
+//   and `Clock` is `!Copy` (pinned at the definition) — so `|` moves the
+//   clock, and any later use of it is rejected by the compiler as a
+//   use-after-move. An impl carried by `&Clock` would instead hand back a
+//   merged clock while the operand stayed live: two holders of one share.
+static_assertions::assert_impl_all!(
+    Clock: BitOr<Version, Output = Clock>,
+    BitOr<&'static Version, Output = Clock>
+);
+static_assertions::assert_not_impl_any!(Clock: BitOr<Clock>, BitOr<&'static Clock>);
+static_assertions::assert_not_impl_any!(
+    &'static Clock: BitOr<Clock>,
+    BitOr<&'static Clock>,
+    BitOr<Version>,
+    BitOr<&'static Version>
+);

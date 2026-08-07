@@ -64,6 +64,14 @@ mod tests;
 /// ```
 pub struct Party(codec::Bits);
 
+// Identity Linearity (the crate docs' second safety rule) is compiler-enforced
+// within a process precisely because `Party` is `!Clone`: every operation that
+// redistributes identity moves it, so no share is ever in two hands. A
+// `Clone`/`Copy` impl would break the rule for every holder at once, so its
+// absence is pinned here at the definition, where a tempting `derive` would
+// land.
+static_assertions::assert_not_impl_any!(Party: Clone, Copy);
+
 // Equality and hashing are byte-level over the stored stream's raw bytes plus
 // its live length, resting on the canonical-raw-slice invariant: `from_bits`
 // zeroes the dead pad bits at every storage seam, so raw-byte equality is
