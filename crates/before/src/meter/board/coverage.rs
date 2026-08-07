@@ -80,6 +80,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Version::concurrent", &["version_concurrent"]),
     ("Version::min_ticks", &["version_min_ticks"]),
     ("Version::rank", &["version_rank"]),
+    ("Version::encode_rank", &["ranked_encode_rank"]),
+    ("Version::encode_rank_to", &["ranked_encode_rank"]),
     ("Version::distance", &["version_distance"]),
     ("Version::lag", &["version_lag"]),
     ("Version::join_all", &["version_join_all"]),
@@ -109,6 +111,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Clock::send", &["clock_tick"]),
     ("Clock::recv", &["clock_recv"]),
     ("Clock::recv_all", &["version_join_all"]),
+    ("Clock::absorb", &["version_join"]),
+    ("Clock::absorb_all", &["version_join_all"]),
     (
         "OwnVersion::to_version",
         &["own_version_to_version", "clock_own_version_to_version"],
@@ -124,10 +128,11 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         ],
     ),
     ("Rank::checked_sub", &["rank_pair_ops"]),
+    ("Rank::saturating_sub", &["rank_pair_ops"]),
     ("Rank::encode", &["rank_encode"]),
     ("Rank::encode_to", &["rank_encode"]),
     ("Rank::decode", &["rank_decode"]),
-    ("Ranked::to_rank", &["version_rank"]),
+    ("Ranked::rank", &["version_rank"]),
     ("Ranked::encode", &["ranked_encode"]),
     ("Ranked::encode_to", &["ranked_encode"]),
     ("Ranked::encode_rank", &["ranked_encode_rank"]),
@@ -142,6 +147,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("causally::Query::coverage", &["query_coverage"]),
     ("Span::place", &["span_place"]),
     ("Span::dominance", &["span_dominance"]),
+    ("Span::precedence", &["span_precedence"]),
+    ("Span::contains", &["span_contains"]),
     ("Span::encode", &["span_encode"]),
     ("Span::encode_to", &["span_encode"]),
     (
@@ -158,8 +165,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "Span::intersect_all",
         &["version_join_all", "version_meet_all"],
     ),
-    ("Span::sum_all", &["version_join_all"]),
-    ("Span::product_all", &["version_meet_all"]),
+    ("Span::join_all", &["version_join_all"]),
+    ("Span::meet_all", &["version_meet_all"]),
     (
         "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
         &["version_join", "version_join_assign"],
@@ -191,6 +198,14 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     (
         "Version Sum / FromIterator (owned and borrowed)",
         &["version_join_all"],
+    ),
+    (
+        "Span Sum / FromIterator (owned and borrowed — the union fold)",
+        &["version_span_all"],
+    ),
+    (
+        "Span Product (owned and borrowed — the intersection fold)",
+        &["version_join_all", "version_meet_all"],
     ),
     (
         "Version Eq / Hash (canonical byte compare)",
@@ -406,14 +421,25 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "one refcount bump per borrowed bound: no walk, no byte copy",
     ),
     (
+        "causally & conjunction (atoms and queries, every admitted pairing)",
+        "the celled version join/meet on same-side bounds, plus the hole \
+         re-admission: one masked comparison (the version_cmp row's walk) \
+         against the merged bound per hole and one per cross-side hole pair \
+         — bilinear in the operands' hole counts, never in the bound sizes",
+    ),
+    (
+        "causally ! complement (atom negation into the polar hole)",
+        "O(1) hole mint over the atom's bound: no comparison, no walk",
+    ),
+    (
+        "From into Query (atoms, spans, versions, borrowed queries)",
+        "O(1) constructions through the cross-side merge, which performs no \
+         comparison; the membership rows price the walks the queries feed",
+    ),
+    (
         "Span::new",
         "stores two borrows plus one validating causal comparison, the \
          identical comparison the causally_contains row prices",
-    ),
-    (
-        "Span::new_unchecked",
-        "stores two borrows and performs no comparison at all: the trusted \
-         door's debug assertion sits outside the cost contract",
     ),
     (
         "Span::at",
@@ -467,34 +493,71 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          cell, one when the start refutes",
     ),
     (
+        "OwnSpan::precedence",
+        "at most two of the masked co-walks the OwnVersion comparison rows \
+         cell, one when the end refutes",
+    ),
+    (
+        "OwnSpan::contains",
+        "at most two of the masked co-walks the OwnVersion comparison rows \
+         cell, one when the start refutes",
+    ),
+    (
         "OwnSpan::to_span",
         "two of the materializations the OwnVersion to_version row cells, one \
          per endpoint",
     ),
     (
-        "Span | Span (BitOr, owned and borrowed — the containment join)",
+        "Span + Span (Add, owned and borrowed — the containment join)",
         "the celled version meet/join, one per endpoint pair; a point-like \
          operand pair fuses to the celled version_span walk",
     ),
     (
-        "Span & Span (BitAnd, owned and borrowed — the containment meet)",
+        "Span * Span (Mul, owned and borrowed — the containment meet)",
         "the celled version join/meet, one per endpoint pair, plus one \
          validating causal comparison",
     ),
     (
-        "Span + Span (Add, owned and borrowed — the pointwise join)",
+        "Span::union",
+        "the method spelling of the containment join (`+`): the celled \
+         version meet/join, one per endpoint pair",
+    ),
+    (
+        "Span::intersect",
+        "the method spelling of the containment meet (`*`): the celled \
+         version join/meet, one per endpoint pair, plus one validating \
+         causal comparison",
+    ),
+    (
+        "Span | Span (BitOr, owned and borrowed — the pointwise join)",
         "the celled version join, one per endpoint pair; a point-like operand \
          pair pays one join, shared across both legs",
     ),
     (
-        "Span * Span (Mul, owned and borrowed — the pointwise meet)",
+        "Span & Span (BitAnd, owned and borrowed — the pointwise meet)",
         "the celled version meet, one per endpoint pair; a point-like operand \
          pair pays one meet, shared across both legs",
+    ),
+    (
+        "Span::join",
+        "the method spelling of the pointwise join (`|`): the celled version \
+         join, one per endpoint pair",
+    ),
+    (
+        "Span::meet",
+        "the method spelling of the pointwise meet (`&`): the celled version \
+         meet, one per endpoint pair",
     ),
     (
         "&Span / &Party (Div — the lazy span projection view)",
         "O(1) view construction (two borrows); the verdict and materialization \
          costs sit on the OwnSpan entries above",
+    ),
+    (
+        "Span::project",
+        "the named spelling of the span projection (`/`): O(1) view \
+         construction (two borrows); the verdict and materialization costs \
+         sit on the OwnSpan entries above",
     ),
     (
         "From<OwnSpan> for Span (explicit materialization)",
@@ -505,6 +568,12 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "&Version / &Party (Div — the lazy projection view)",
         "O(1) view construction (two borrows); the materialization and fused \
          comparison costs are celled at the OwnVersion rows",
+    ),
+    (
+        "Version::project",
+        "the named spelling of the projection (`/`): O(1) view construction \
+         (two borrows); the materialization and fused comparison costs are \
+         celled at the OwnVersion rows",
     ),
     (
         "From<Party> for [Party; N] (consuming balanced split)",

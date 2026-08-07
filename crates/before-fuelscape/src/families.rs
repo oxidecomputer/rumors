@@ -493,13 +493,13 @@ fn meet_shade_ramp(max_bytes: usize) -> Vec<FamilyInput> {
 ///   composed from drawn versions follow the same assignment by the
 ///   lattice directions their legs fold: the containment doors
 ///   (`span_union_all`, `span_intersect_all`) fold one leg each way
-///   and get both, the pointwise join (`span_sum_all`) folds join legs
+///   and get both, the pointwise join (`span_join_all`) folds join legs
 ///   only and gets the staggers, the pointwise meet
-///   (`span_product_all`) folds meet legs only and gets the shade.
+///   (`span_meet_all`) folds meet legs only and gets the shade.
 fn slice_overlays(name: &str, max_bytes: usize) -> Vec<FamilyInput> {
     match name {
-        "version_join_all" | "span_sum_all" => stagger_ramps(max_bytes),
-        "version_meet_all" | "span_product_all" => meet_shade_ramp(max_bytes),
+        "version_join_all" | "span_join_all" => stagger_ramps(max_bytes),
+        "version_meet_all" | "span_meet_all" => meet_shade_ramp(max_bytes),
         "version_span_all" | "span_union_all" | "span_intersect_all" => {
             let mut out = stagger_ramps(max_bytes);
             out.extend(meet_shade_ramp(max_bytes));

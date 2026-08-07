@@ -216,8 +216,8 @@ fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
 /// to the delta coding: each 3-bit `±1` delta lands exactly on the `2^k` carry
 /// boundary, so applying it to a plain big-integer accumulator propagates a
 /// full `k`-bit carry or borrow — `Θ(k)` limb work bought by `O(1)` wire bits,
-/// `Θ(W²)` total in wire bits `W`. Under today's coding the same tree pays `2k
-/// + 1` stored bits per crossing (the envelope suite pins those operations
+/// `Θ(W²)` total in wire bits `W`. Under today's coding the same tree pays
+/// `2k + 1` stored bits per crossing (the envelope suite pins those operations
 /// linear). Any Tier 2 sweep that must materialize running leaf values — strict
 /// decode's nonnegativity validation included, since values are naturals and a
 /// plain 2-bit/level topology check cannot see a delta drive one negative —

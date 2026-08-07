@@ -443,8 +443,9 @@ impl Clock {
     /// Merges a received [`Version`] into this [`Clock`]'s version, then
     /// [`tick`](Clock::tick)s the [`Clock`].
     ///
-    /// Equivalent to `self |= version; self.tick()`. The receiving half of the
-    /// vector-clock communication pattern described on [`send`](Clock::send).
+    /// Equivalent to [`absorb`](Clock::absorb)ing the version and then
+    /// [`tick`](Clock::tick)ing. The receiving half of the vector-clock
+    /// communication pattern described on [`send`](Clock::send).
     ///
     /// # Complexity
     ///
@@ -461,8 +462,36 @@ impl Clock {
     /// assert!(*b.version() > msg);
     /// ```
     pub fn recv(&mut self, version: &Version) -> &Version {
-        self.version |= version;
+        self.absorb(version);
         self.tick()
+    }
+
+    /// Merges a received [`Version`] into this [`Clock`]'s version, without
+    /// marking an event, and returns the new version.
+    ///
+    /// Identical to the operator form `self |= version`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|self| + |version|)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let msg = a.send().clone();
+    /// b.absorb(&msg); // learn a's history without marking an event
+    /// assert!(*b.version() >= msg);
+    /// // Already seen: absorbing the same message again changes nothing.
+    /// let seen = b.version().clone();
+    /// b.absorb(&msg);
+    /// assert_eq!(*b.version(), seen);
+    /// ```
+    pub fn absorb(&mut self, version: &Version) -> &Version {
+        self.version |= version;
+        &self.version
     }
 
     /// Merges any number of received [`Version`]s into this [`Clock`]'s
@@ -471,7 +500,7 @@ impl Clock {
     /// Prefer this to iteratively [`recv`](Clock::recv)-ing [`Version`]s
     /// one-at-a-time, which is less efficient than this method.
     ///
-    /// Equivalent to `|=`-ing every version in and then
+    /// Equivalent to [`absorb_all`](Clock::absorb_all) and then
     /// [`tick`](Clock::tick)ing once. The n-ary half of the vector-clock
     /// communication pattern described on [`send`](Clock::send).
     ///
@@ -496,8 +525,39 @@ impl Clock {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        self.version = self.version.join_all(iter);
+        self.absorb_all(iter);
         self.tick()
+    }
+
+    /// Merges any number of received [`Version`]s into this [`Clock`]'s
+    /// version, without marking an event, and returning the new version.
+    ///
+    /// Prefer this to iteratively [`absorb`](Clock::absorb)ing [`Version`]s
+    /// one-at-a-time, which is less efficient than this method.
+    ///
+    /// # Complexity
+    ///
+    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` space, where
+    /// `k` is the count of `iter`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let mut c = b.fork();
+    /// let (m1, m2) = (b.send().clone(), c.send().clone());
+    /// a.absorb_all([&m1, &m2]); // learn both histories; no event of a's own
+    /// assert!(*a.version() >= m1 && *a.version() >= m2);
+    /// ```
+    pub fn absorb_all<I>(&mut self, iter: I) -> &Version
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
+    {
+        self.version = self.version.join_all(iter);
+        &self.version
     }
 
     /// Pairs a [`Party`] with a [`Version`] to form a [`Clock`].
@@ -859,7 +919,8 @@ where
 
 // The join operators for `Clock` over {Clock, Version}: `|` merges a `Version`
 // into a clock (on either side, since a `Version` carries no party) and returns
-// the clock; `|=` merges in place. There is no `Clock | Clock`: a borrowing
+// the clock; `|=` merges in place (`Clock::absorb` is the named spelling of
+// both). There is no `Clock | Clock`: a borrowing
 // form would duplicate the clock's party, and reuniting two whole clocks is the
 // fallible `Clock::join`. Every cell folds the version operand into the clock's
 // `version` through the `Version` join-assign; `Borrow::borrow` coerces an

@@ -3,28 +3,32 @@
 //! two-sided fold.
 //!
 //! The operators are the joins and meets of the two lattice structures spans
-//! carry (the [span module docs](super) place them side by side). Every door
-//! folds the inputs' meets into its `lo` leg and their joins into its `hi`
-//! leg; the four doors are exactly the four assignments of the two lattice
-//! directions to the two legs:
+//! carry (the [span module docs](super) place them side by side). The
+//! pointwise pair wears the version lattice's own symbols — `|` and `&` on
+//! spans are exactly `|` and `&` on versions, lifted endpointwise — while the
+//! containment pair's novel semantics ride the novel symbols `+` and `*`.
+//! Every door folds through its `lo` and `hi` legs; the four doors are exactly
+//! the four assignments of the two lattice directions to the two legs:
 //!
 //! ```text
-//!              lo leg      hi leg      total?
-//!   union       meet        join       yes (containment join)
-//!   intersect   join        meet       no  (containment meet)
-//!   sum         join        join       yes (pointwise join)
-//!   product     meet        meet       yes (pointwise meet)
+//!                lo leg      hi leg      total?
+//!   + union       meet        join       yes (containment join)
+//!   * intersect   join        meet       no  (containment meet)
+//!   | join        join        join       yes (pointwise join)
+//!   & meet        meet        meet       yes (pointwise meet)
 //! ```
 //!
 //! Totality arguments, once: union's `lo` only descends below `a.lo` and its
-//! `hi` only ascends above `a.hi`, so the output pair stays ordered; sum's `hi`
-//! (a join of upper endpoints) bounds both lower endpoints from above, so it
-//! bounds their join, and product dually. Intersect is the one genuinely
-//! partial door: its `lo` ascends while its `hi` descends, and the pair crosses
-//! exactly when the spans share no version.
+//! `hi` only ascends above `a.hi`, so the output pair stays ordered; the
+//! pointwise join's `hi` (a join of upper endpoints) bounds both lower
+//! endpoints from above, so it bounds their join, and the pointwise meet
+//! dually. Intersect is the one genuinely partial door: its `lo` ascends while
+//! its `hi` descends, and the pair crosses exactly when the spans share no
+//! version.
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
+use std::iter::{Product, Sum};
 use std::ops::{Add, BitAnd, BitOr, Mul};
 
 use crate::codec;
@@ -35,7 +39,7 @@ use super::Span;
 impl<'a> Span<'a> {
     /// The *union* of `self` and `other`: the tightest [`Span`] covering both.
     ///
-    /// The method spelling of `self | other`.
+    /// The method spelling of `self + other`.
     ///
     /// # Complexity
     ///
@@ -54,8 +58,8 @@ impl<'a> Span<'a> {
     /// let tail = a2.span(&a3);
     /// // The union covers both operands…
     /// assert_eq!(head.union(&tail), a1.span(&a3));
-    /// // …and is exactly the `|` operator.
-    /// assert_eq!(head.union(&tail), &head | &tail);
+    /// // …and is exactly the `+` operator.
+    /// assert_eq!(head.union(&tail), &head + &tail);
     /// ```
     pub fn union(&self, other: &Span<'_>) -> Span<'static> {
         union_core(self, other)
@@ -79,9 +83,9 @@ impl<'a> Span<'a> {
     /// let b1 = b.tick().clone();
     ///
     /// let spans = [a1.span(&a2), b1.span(&b1)];
-    /// let hull = spans[0].union_all(&spans[1..]);
+    /// let span = spans[0].union_all(&spans[1..]);
     /// // The union covers every input span's endpoints.
-    /// assert_eq!(hull, &spans[0] | &spans[1]);
+    /// assert_eq!(span, &spans[0] + &spans[1]);
     /// // An empty iterator settles the receiver.
     /// assert_eq!(spans[0].union_all::<[Span; 0]>([]), spans[0]);
     /// ```
@@ -97,7 +101,7 @@ impl<'a> Span<'a> {
     /// The *intersection* of `self` and `other`: the largest [`Span`] covered
     /// by both, or [`None`] when they share no overlap.
     ///
-    /// The method spelling of `self & other`.
+    /// The method spelling of `self * other`.
     ///
     /// # Complexity
     ///
@@ -115,9 +119,9 @@ impl<'a> Span<'a> {
     /// let head = a1.span(&a2);
     /// let tail = a2.span(&a3);
     /// // Overlapping segments intersect at their shared segment…
-    /// assert_eq!(head.intersection(&tail), Some(a2.span(&a2)));
+    /// assert_eq!(head.intersect(&tail), Some(a2.span(&a2)));
     /// // …and disjoint segments have no intersection.
-    /// assert_eq!(a1.span(&a1).intersection(&tail), None);
+    /// assert_eq!(a1.span(&a1).intersect(&tail), None);
     /// ```
     pub fn intersect(&self, other: &Span<'_>) -> Option<Span<'static>> {
         intersect_core(self, other)
@@ -159,8 +163,37 @@ impl<'a> Span<'a> {
         }
     }
 
+    /// The *pointwise join* of `self` and `other`: the version lattice's join
+    /// applied to each endpoint pair.
+    ///
+    /// The method spelling of `self | other`, mirroring [`Version::join`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(|self| + |other|)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let mut bob = alice.fork();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let b1 = bob.tick().clone();
+    ///
+    /// // A subtree's bounds, after every member also absorbs b1:
+    /// let advanced = a1.span(&a2).join(&b1.span(&b1));
+    /// assert_eq!(*advanced.lo(), &a1 | &b1);
+    /// assert_eq!(*advanced.hi(), &a2 | &b1);
+    /// ```
+    pub fn join(&self, other: &Span<'_>) -> Span<'static> {
+        join_core(self, other)
+    }
+
     /// The [`Span`] whose lower and upper bounds are, respectively, the joins
-    /// of the lower and upper bounds of `self` and all the spans in `iter`.
+    /// of the lower and upper bounds of `self` and all the spans in `iter`,
+    /// mirroring [`Version::join_all`].
     ///
     /// # Complexity
     ///
@@ -177,21 +210,48 @@ impl<'a> Span<'a> {
     /// let b1 = b.tick().clone();
     ///
     /// // On points, the pointwise door is the version join.
-    /// let sum = a1.span(&a1).sum_all([&b1.span(&b1)]);
-    /// assert_eq!(sum.lo(), sum.hi());
-    /// assert_eq!(sum.lo(), &(&a1 | &b1));
+    /// let joined = a1.span(&a1).join_all([&b1.span(&b1)]);
+    /// assert_eq!(joined.lo(), joined.hi());
+    /// assert_eq!(joined.lo(), &(&a1 | &b1));
     /// ```
-    pub fn sum_all<'s, I>(&self, others: I) -> Span<'static>
+    pub fn join_all<'s, I>(&self, others: I) -> Span<'static>
     where
         I: IntoIterator,
         I::Item: Borrow<Span<'s>>,
     {
-        let (lo, hi) = self.fold_endpoints(others, &SUM_OPS);
+        let (lo, hi) = self.fold_endpoints(others, &JOIN_OPS);
         Span::owned(lo, hi)
     }
 
+    /// The *pointwise meet* of `self` and `other`: the version lattice's meet
+    /// applied to each endpoint pair.
+    ///
+    /// The method spelling of `self & other`, mirroring [`Version::meet`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(|self| + |other|)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let a3 = alice.tick().clone();
+    ///
+    /// // Clamping a segment to a point's past:
+    /// let clamped = a2.span(&a3).meet(&a2.span(&a2));
+    /// assert_eq!(clamped, a2.span(&a2));
+    /// ```
+    pub fn meet(&self, other: &Span<'_>) -> Span<'static> {
+        meet_core(self, other)
+    }
+
     /// The [`Span`] whose lower and upper bounds are, respectively, the meets
-    /// of the lower and upper bounds of `self` and all the spans in `iter`.
+    /// of the lower and upper bounds of `self` and all the spans in `iter`,
+    /// mirroring [`Version::meet_all`].
     ///
     /// # Complexity
     ///
@@ -208,16 +268,16 @@ impl<'a> Span<'a> {
     /// let b1 = b.tick().clone();
     ///
     /// // On points, the pointwise door is the version meet.
-    /// let product = a1.span(&a1).product_all([&b1.span(&b1)]);
-    /// assert_eq!(product.lo(), product.hi());
-    /// assert_eq!(product.lo(), &(&a1 & &b1));
+    /// let met = a1.span(&a1).meet_all([&b1.span(&b1)]);
+    /// assert_eq!(met.lo(), met.hi());
+    /// assert_eq!(met.lo(), &(&a1 & &b1));
     /// ```
-    pub fn product_all<'s, I>(&self, others: I) -> Span<'static>
+    pub fn meet_all<'s, I>(&self, others: I) -> Span<'static>
     where
         I: IntoIterator,
         I::Item: Borrow<Span<'s>>,
     {
-        let (lo, hi) = self.fold_endpoints(others, &PRODUCT_OPS);
+        let (lo, hi) = self.fold_endpoints(others, &MEET_OPS);
         Span::owned(lo, hi)
     }
 
@@ -309,9 +369,9 @@ impl<'a> Span<'a> {
     }
 }
 
-/// One n-ary span door's kernels. Every door folds the inputs' meets into its
-/// `lo` leg and their joins into its `hi` leg; the module doc
-/// carries the four leg assignments and their totality arguments.
+/// One n-ary span door's kernels. Each door folds through its `lo` and `hi`
+/// legs; the module doc carries the four leg assignments and their totality
+/// arguments.
 struct SpanFoldOps {
     /// Combine two borrowed lower endpoints into a fresh owned one.
     lo_refs: fn(&Version, &Version) -> Version,
@@ -327,7 +387,7 @@ struct SpanFoldOps {
     points: fn(&Version, &Version) -> (Version, Version),
 }
 
-/// Union's point-combine: two points' union is their hull — one fused pair walk
+/// Union's point-combine: two points' union is their hull: one fused pair walk
 /// through [`Version::span_refs`]'s ladder, fast paths and traffic accounting
 /// included.
 fn union_points(a: &Version, b: &Version) -> (Version, Version) {
@@ -347,17 +407,17 @@ fn intersect_points(a: &Version, b: &Version) -> (Version, Version) {
     (Version::join_refs(a, b), Version::meet_refs(a, b))
 }
 
-/// Sum's point-combine: the legs read the same operand pair, so one
-/// join walk feeds both, the result stored twice (clones share the
+/// The pointwise join's point-combine: the legs read the same operand pair, so
+/// one join walk feeds both, the result stored twice (clones share the
 /// buffer, keeping the group point-like).
-fn sum_points(a: &Version, b: &Version) -> (Version, Version) {
+fn join_points(a: &Version, b: &Version) -> (Version, Version) {
     let v = Version::join_refs(a, b);
     (v.clone(), v)
 }
 
-/// Product's point-combine: dually to [`sum_points`], one meet walk
-/// feeds both legs.
-fn product_points(a: &Version, b: &Version) -> (Version, Version) {
+/// The pointwise meet's point-combine: dually to [`join_points`], one meet
+/// walk feeds both legs.
+fn meet_points(a: &Version, b: &Version) -> (Version, Version) {
     let v = Version::meet_refs(a, b);
     (v.clone(), v)
 }
@@ -381,21 +441,21 @@ const INTERSECT_OPS: SpanFoldOps = SpanFoldOps {
 };
 
 /// Pointwise join: both legs join.
-const SUM_OPS: SpanFoldOps = SpanFoldOps {
+const JOIN_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::join_refs,
     hi_refs: Version::join_refs,
     lo_view: Version::join_view,
     hi_view: Version::join_view,
-    points: sum_points,
+    points: join_points,
 };
 
 /// Pointwise meet: both legs meet.
-const PRODUCT_OPS: SpanFoldOps = SpanFoldOps {
+const MEET_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::meet_refs,
     hi_refs: Version::meet_refs,
     lo_view: Version::meet_view,
     hi_view: Version::meet_view,
-    points: product_points,
+    points: meet_points,
 };
 
 /// One input to the doors' shared fold: the receiver rides by reference beside
@@ -449,7 +509,7 @@ impl<'i, 's, T: Borrow<Span<'s>>> Group<FoldInput<'_, 'i, T>> {
     }
 }
 
-/// `a | b`'s kernel: the containment join over borrowed operands.
+/// `a + b`'s kernel: the containment join over borrowed operands.
 fn union_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     if a.is_coincident() && b.is_coincident() {
         // Two points' union is their hull: one fused pair walk (Version::span's
@@ -466,7 +526,7 @@ fn union_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     Span::owned(lo, hi)
 }
 
-/// `a & b`'s kernel: the containment meet over borrowed operands, or [`None`]
+/// `a * b`'s kernel: the containment meet over borrowed operands, or [`None`]
 /// where the segments share no version.
 fn intersect_core(a: &Span<'_>, b: &Span<'_>) -> Option<Span<'static>> {
     if a.is_coincident() && b.is_coincident() {
@@ -487,8 +547,8 @@ fn intersect_core(a: &Span<'_>, b: &Span<'_>) -> Option<Span<'static>> {
     }
 }
 
-/// `a + b`'s kernel: the pointwise join over borrowed operands.
-fn sum_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
+/// `a | b`'s kernel: the pointwise join over borrowed operands.
+fn join_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     if a.is_coincident() && b.is_coincident() {
         // On points the pointwise door is the version operator: one walk feeds
         // both endpoints, stored twice (the clones share one buffer, keeping
@@ -505,9 +565,9 @@ fn sum_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     Span::owned(lo, hi)
 }
 
-/// `a * b`'s kernel: the pointwise meet over borrowed operands, dually to
-/// [`sum_core`] in every clause.
-fn product_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
+/// `a & b`'s kernel: the pointwise meet over borrowed operands, dually to
+/// [`join_core`] in every clause.
+fn meet_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     if a.is_coincident() && b.is_coincident() {
         let v = Version::meet_refs(a.lo(), b.lo());
         return Span::owned(v.clone(), v);
@@ -561,7 +621,60 @@ macro_rules! span_binop_matrix {
 }
 
 span_binop_matrix! {
-    /// `a | b`: the *union*: the tightest span covering both operands.
+    /// `a | b`: the *pointwise join*, the version lattice's `|` lifted to each
+    /// endpoint pair.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let mut bob = alice.fork();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let b1 = bob.tick().clone();
+    ///
+    /// // A subtree's bounds, after every member also absorbs b1:
+    /// let advanced = &a1.span(&a2) | &b1.span(&b1);
+    /// assert_eq!(*advanced.lo(), &a1 | &b1);
+    /// assert_eq!(*advanced.hi(), &a2 | &b1);
+    /// ```
+    BitOr::bitor, join_core, Span<'static>
+}
+
+span_binop_matrix! {
+    /// `a & b`: the *pointwise meet*, the version lattice's `&` lifted to each
+    /// endpoint pair.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let a3 = alice.tick().clone();
+    ///
+    /// // Clamping a segment to a point's past:
+    /// let clamped = &a2.span(&a3) & &a2.span(&a2);
+    /// assert_eq!(clamped, a2.span(&a2));
+    /// // Pointwise absorption: (a | b) & a == a.
+    /// let (s, t) = (a1.span(&a2), a2.span(&a3));
+    /// assert_eq!(&(&s | &t) & &s, s);
+    /// ```
+    BitAnd::bitand, meet_core, Span<'static>
+}
+
+span_binop_matrix! {
+    /// `a + b`: the *union*: the tightest span covering both operands.
     ///
     /// # Complexity
     ///
@@ -579,17 +692,17 @@ span_binop_matrix! {
     ///
     /// let ours = a1.span(&a2);
     /// let theirs = b1.span(&b1);
-    /// let both = &ours | &theirs;
+    /// let both = &ours + &theirs;
     /// // The union covers both operands' whole segments…
     /// assert_eq!(*both.hi(), &a2 | &b1);
     /// // …and is the same span from either side.
-    /// assert_eq!(both, &theirs | &ours);
+    /// assert_eq!(both, &theirs + &ours);
     /// ```
-    BitOr::bitor, union_core, Span<'static>
+    Add::add, union_core, Span<'static>
 }
 
 span_binop_matrix! {
-    /// `a & b`: the *intersection*: the largest span covered by both operands,
+    /// `a * b`: the *intersection*: the largest span covered by both operands,
     /// or [`None`] when they share no overlap.
     ///
     /// # Complexity
@@ -609,64 +722,122 @@ span_binop_matrix! {
     /// let tail = a2.span(&a3);
     /// let wide = a1.span(&a3);
     /// // Overlapping segments meet at their shared version…
-    /// assert_eq!(&head & &tail, Some(a2.span(&a2)));
+    /// assert_eq!(&head * &tail, Some(a2.span(&a2)));
     /// // …a covered segment is absorbed…
-    /// assert_eq!(&tail & &wide, Some(tail.clone()));
+    /// assert_eq!(&tail * &wide, Some(tail.clone()));
     /// // …and disjoint segments have no intersection.
-    /// assert_eq!(&a1.span(&a1) & &tail, None);
+    /// assert_eq!(&a1.span(&a1) * &tail, None);
     /// ```
-    BitAnd::bitand, intersect_core, Option<Span<'static>>
+    Mul::mul, intersect_core, Option<Span<'static>>
 }
 
-span_binop_matrix! {
-    /// `a + b`: the *pointwise join*, the version lattice's `|` lifted to
-    /// spans.
-    ///
-    /// # Complexity
-    ///
-    /// `O(|a| + |b|)`.
+/// Generates the union-fold collection impls for one item shape: summing or
+/// collecting an iterator of spans yields their union — the fold of `+` —
+/// through the same balanced n-ary door as [`Span::union_all`].
+///
+/// The receiver is [`Option`] because union has no identity: the version
+/// lattice has no top, so an empty iterator has no non-empty hull. `None` means
+/// exactly "no spans came", never an empty union.
+macro_rules! span_union_fold {
+    ($(#[$doc:meta])* ($($lt:lifetime),*) $Item:ty) => {
+        $(#[$doc])*
+        impl<$($lt),*> Sum<$Item> for Option<Span<'static>> {
+            fn sum<I: Iterator<Item = $Item>>(mut iter: I) -> Self {
+                let first = iter.next()?;
+                Some(first.borrow().union_all(iter))
+            }
+        }
+
+        $(#[$doc])*
+        impl<$($lt),*> FromIterator<$Item> for Option<Span<'static>> {
+            fn from_iter<I: IntoIterator<Item = $Item>>(iter: I) -> Self {
+                iter.into_iter().sum()
+            }
+        }
+    };
+}
+
+span_union_fold! {
+    /// The union of every span in the iterator — the fold of `+`, run through
+    /// the balanced n-ary door of [`Span::union_all`] — or [`None`] on an
+    /// empty iterator (union has no identity span).
     ///
     /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
-    /// let mut alice = Clock::seed();
-    /// let mut bob = alice.fork();
-    /// let a1 = alice.tick().clone();
-    /// let a2 = alice.tick().clone();
-    /// let b1 = bob.tick().clone();
+    /// let mut a = Clock::seed();
+    /// let a1 = a.tick().clone();
+    /// let a2 = a.tick().clone();
+    /// let a3 = a.tick().clone();
     ///
-    /// // A subtree's bounds, after every member also absorbs b1:
-    /// let advanced = &a1.span(&a2) + &b1.span(&b1);
-    /// assert_eq!(*advanced.lo(), &a1 | &b1);
-    /// assert_eq!(*advanced.hi(), &a2 | &b1);
+    /// let spans = [a1.span(&a2), a2.span(&a3)];
+    /// // Sum and collect are the same union fold…
+    /// let span: Option<Span> = spans.iter().sum();
+    /// assert_eq!(span, Some(a1.span(&a3)));
+    /// let span: Option<Span> = spans.into_iter().collect();
+    /// assert_eq!(span, Some(a1.span(&a3)));
+    /// // …and the empty iterator has no union.
+    /// let empty: Option<Span> = std::iter::empty::<Span>().sum();
+    /// assert_eq!(empty, None);
     /// ```
-    Add::add, sum_core, Span<'static>
+    ('a) Span<'a>
 }
 
-span_binop_matrix! {
-    /// `a * b`: the *pointwise meet*, the version lattice's `&` lifted to
-    /// spans.
-    ///
-    /// # Complexity
-    ///
-    /// `O(|a| + |b|)`.
+span_union_fold! {
+    /// The union of every borrowed span in the iterator; see the owned impl.
+    ('x, 'a) &'x Span<'a>
+}
+
+/// Generates the intersection-fold [`Product`] impl for one item shape:
+/// multiplying out an iterator of spans yields their intersection — the fold
+/// of `*` — through the same balanced n-ary door as [`Span::intersect_all`].
+///
+/// [`None`] covers both an empty iterator (intersection has no identity: the
+/// version lattice has no top, so no span is covered by every span) and a
+/// nonempty family sharing no version — the two ways there is no product.
+macro_rules! span_intersect_fold {
+    ($(#[$doc:meta])* ($($lt:lifetime),*) $Item:ty) => {
+        $(#[$doc])*
+        impl<$($lt),*> Product<$Item> for Option<Span<'static>> {
+            fn product<I: Iterator<Item = $Item>>(mut iter: I) -> Self {
+                let first = iter.next()?;
+                first.borrow().intersect_all(iter)
+            }
+        }
+    };
+}
+
+span_intersect_fold! {
+    /// The intersection of every span in the iterator — the fold of `*`, run
+    /// through the balanced n-ary door of [`Span::intersect_all`] — or
+    /// [`None`] on an empty iterator or an empty intersection.
     ///
     /// # Example
     ///
     /// ```
     /// use before::{Clock, Span};
-    /// let mut alice = Clock::seed();
-    /// let a1 = alice.tick().clone();
-    /// let a2 = alice.tick().clone();
-    /// let a3 = alice.tick().clone();
+    /// let mut a = Clock::seed();
+    /// let a1 = a.tick().clone();
+    /// let a2 = a.tick().clone();
+    /// let a3 = a.tick().clone();
     ///
-    /// // Clamping a segment to a point's past:
-    /// let clamped = &a2.span(&a3) * &a2.span(&a2);
-    /// assert_eq!(clamped, a2.span(&a2));
-    /// // Pointwise absorption: (a + b) * a == a.
-    /// let (s, t) = (a1.span(&a2), a2.span(&a3));
-    /// assert_eq!(&(&s + &t) * &s, s);
+    /// let spans = [a1.span(&a3), a2.span(&a3)];
+    /// // The product is the shared segment…
+    /// let shared: Option<Span> = spans.iter().product();
+    /// assert_eq!(shared, Some(a2.span(&a3)));
+    /// // …disjoint spans have none…
+    /// let disjoint: Option<Span> = [a1.span(&a1), a2.span(&a3)].iter().product();
+    /// assert_eq!(disjoint, None);
+    /// // …and neither does the empty iterator.
+    /// let empty: Option<Span> = std::iter::empty::<Span>().product();
+    /// assert_eq!(empty, None);
     /// ```
-    Mul::mul, product_core, Span<'static>
+    ('a) Span<'a>
+}
+
+span_intersect_fold! {
+    /// The intersection of every borrowed span in the iterator; see the owned
+    /// impl.
+    ('x, 'a) &'x Span<'a>
 }

@@ -294,9 +294,10 @@ impl<'a> OwnSpan<'a> {
     }
 }
 
-/// `&span / &party` — the part of the [`Span`] within the [`Party`]'s
-/// id region, as the lazy [`OwnSpan`] view. Both operands are
-/// borrowed, not consumed.
+/// `&span / &party`: the part of the [`Span`] wholly owned by the [`Party`],
+/// as a lazy [`OwnSpan`] view.
+///
+/// [`Span::project`] is the named spelling of the same view.
 ///
 /// # Complexity
 ///

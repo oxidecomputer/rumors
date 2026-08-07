@@ -62,8 +62,8 @@ proptest! {
     }
 }
 
-/// The integer code is Elias-gamma of `n + 1`, so its bit cost is `2⌊log2(n+1)⌋
-/// + 1`.
+/// The integer code is Elias-gamma of `n + 1`, so its bit cost is
+/// `2⌊log2(n+1)⌋ + 1`.
 ///
 /// `0` costs a single bit, and the cost steps up by two at each power-of-two
 /// boundary of `n + 1` (`1`/`2` → 3 bits, `6` → 5, `7` → 7). Pinning these

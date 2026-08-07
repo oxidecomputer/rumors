@@ -145,7 +145,8 @@ use crate::error::Decode;
 /// rational, produced by [`Version::rank`](crate::Version::rank).
 ///
 /// The [`Rank`] of a [`Version`] is **strictly monotone** in
-/// [`tick`](Version::tick)s; that is, for every pair of versions `v` and `w`:
+/// [`tick`](crate::Version::tick)s; that is, for every pair of versions `v` and
+/// `w`:
 ///
 /// > if `v < w` then `v.rank() < w.rank()`.
 ///
@@ -205,13 +206,14 @@ use crate::error::Decode;
 /// in-memory size. Addition and subtraction are `O(‖a‖ + ‖b‖)`.
 /// Serialization/deserialization is linear in the bytes produced or read.
 ///
-/// # Relationship to [`min_ticks`](Version::min_ticks)
+/// # Relationship to [`min_ticks`](crate::Version::min_ticks)
 ///
 /// [`Rank`] buys a more fine-grained differentiation than
 /// [`min_ticks`](crate::Version::min_ticks), since the latter cannot
-/// differentiate between a [`Version`] comprising one [`tick`](Version::tick)
-/// and a [`Version`] comprising two concurrent [`tick`](Version::tick)s. By
-/// contrast, the latter strictly out-[`Rank`]s the former:
+/// differentiate between a [`Version`] comprising one
+/// [`tick`](crate::Version::tick) and a [`Version`] comprising two concurrent
+/// [`tick`](crate::Version::tick)s. By contrast, the latter strictly
+/// out-[`Rank`]s the former:
 ///
 /// ```
 /// use before::{Party, Version};
@@ -228,6 +230,12 @@ use crate::error::Decode;
 /// assert_eq!(v.min_ticks(), w.min_ticks());
 /// assert!(v.rank() < w.rank());
 /// ```
+///
+/// [`Clock`]: crate::Clock
+/// [`Party`]: crate::Party
+/// [`Ranked`]: crate::Ranked
+/// [`Span`]: crate::Span
+/// [`Version`]: crate::Version
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Rank {
     /// The numerator. Normalized: odd, or zero with `exp` zero, so each
@@ -258,6 +266,9 @@ impl Rank {
 
     /// The difference `self - rhs`, or [`None`] when `rhs` exceeds `self`.
     ///
+    /// When a deficit should floor at zero instead of being handled, use
+    /// [`saturating_sub`](Rank::saturating_sub).
+    ///
     /// # Complexity
     ///
     /// `O(‖self‖ + ‖other‖)`, the operands' numeric sizes; a [`None`] or zero
@@ -287,6 +298,31 @@ impl Rank {
                 Some(Rank::from_raw(a - &b, e))
             }
         }
+    }
+
+    /// The difference `self - rhs`, or [`Rank::ZERO`] when `rhs` exceeds
+    /// `self`.
+    ///
+    /// [`checked_sub`](Rank::checked_sub) with the nonexistent difference
+    /// floored at zero: use this when a deficit should read as "no distance
+    /// remaining" rather than be handled arm by arm.
+    ///
+    /// # Complexity
+    ///
+    /// `O(‖self‖ + ‖other‖)`, the operands' numeric sizes; a floored or zero
+    /// result costs only the comparison, which allocates nothing.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Rank, Version};
+    /// let five = Version::try_from(5).unwrap().rank();
+    /// let three = Version::try_from(3).unwrap().rank();
+    /// assert_eq!(five.saturating_sub(&three).to_string(), "2");
+    /// assert_eq!(three.saturating_sub(&five), Rank::ZERO); // 3 - 5 floors at zero
+    /// ```
+    pub fn saturating_sub(&self, other: &Rank) -> Rank {
+        self.checked_sub(other).unwrap_or(Rank::ZERO)
     }
 
     /// Encodes this rank into its canonical byte form, whose **byte-wise
@@ -323,6 +359,9 @@ impl Rank {
     /// assert!(ka < kb); // byte order is rank order: 1/2 < 1
     /// assert_eq!(Rank::decode(&ka[..]).unwrap(), half.rank());
     /// ```
+    ///
+    /// [`Ranked`]: crate::Ranked
+    /// [`Version`]: crate::Version
     pub fn encode(&self) -> Vec<u8> {
         encode_parts(&self.num, self.exp)
     }
@@ -366,10 +405,10 @@ impl Rank {
     /// # Errors
     ///
     /// - [`Decode::Truncated`] when the stream ends inside the integral header,
-    ///    its mantissa, or the fraction (a group or its continuation bit);
+    ///   its mantissa, or the fraction (a group or its continuation bit);
     /// - [`Decode::TrailingBits`] when the byte string is not the minimal packing
     ///   of its content (bytes past the stream's own, a set bit in the padding,
-    ///   or an all-zero final fraction group;
+    ///   or an all-zero final fraction group);
     /// - [`Decode::NotCanonical`] when otherwise valid content exceeds the type's
     ///   representation bound (an integral mantissa of `2⁶⁴` or more bits, effectively
     ///   unreachable, since it can only be hit by reading inputs of 2 EiB or more);

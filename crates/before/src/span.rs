@@ -17,34 +17,34 @@
 //!
 //! Spans can be manipulated according to two distinct lattice structures:
 //!
-//! - **The containment order** (set-like symbols): `a | b` is the
+//! - **The pointwise order** (the version lattice's own symbols): `a | b` and
+//!   `a & b` lift the version lattice itself to spans, pointwise: `a | b`
+//!   yields a span with endpoints `lo_a | lo_b <= hi_a | hi_b`, while `a & b`
+//!   yields a span with endpoints `lo_a & lo_b <= hi_a & hi_b` — exactly
+//!   [`Version`]'s `|` and `&`, applied to each endpoint pair.
+//! - **The containment order** (arithmetic symbols): `a + b` is the
 //!   *union* — the tightest span covering both `a` and `b`, with endpoints
-//!   `lo_a & lo_b <= hi_a | hi_b` — and   `a & b` is the *intersection*
+//!   `lo_a & lo_b <= hi_a | hi_b` — and `a * b` is the *intersection*
 //!   — the largest span which is fully covered by both, with endpoints
 //!   `lo_a | lo_b <= hi_a & hi_b`, returning [`None`] when the
 //!   spans are non-overlapping.
-//! - **The pointwise order** (arithmetic symbols): `a + b` and
-//!   `a * b` lift the version lattice itself to spans, pointwise:
-//!   `a + b` yields a span with endpoints `lo_a | lo_b <= hi_a | hi_b`,
-//!   while `a * b` yield a span with endpoints `lo_a & lo_b <= hi_a & hi_b`.
 //!
-//! The containment operators also have method spellings, [`Span::union`] and
-//! [`Span::intersect`].
-//!
-//! Each operator has a variadic extension in the idiom of
-//! [`Version::span_all`]: [`Span::union_all`], [`Span::intersect_all`],
-//! [`Span::sum_all`], [`Span::product_all`] are each implemented as one
-//! balanced fold, which is much more efficient than folding the operator
-//! linearly across a list of inputs.
+//! Every operator has a method spelling: [`Span::join`] and [`Span::meet`]
+//! mirror [`Version::join`] and [`Version::meet`], and [`Span::union`] and
+//! [`Span::intersect`] name the containment pair, with variadic extensions
+//! [`Span::join_all`], [`Span::meet_all`], [`Span::union_all`],
+//! and [`Span::intersect_all`], each implemented as one optimal
+//! balanced fold.
 //!
 //! Like [`Version`]s, [`Span`]s support the `/` projection operator: `&span /
 //! &party` is [`OwnSpan`], a lazy view equivalent to the span with endpoints
-//! `[lo / &p, hi / &p]`.
+//! `[lo / &p, hi / &p]`; [`Span::project`] is the named spelling, mirroring
+//! [`Version::project`].
 //!
 //! # The wire form
 //!
 //! A [`Span`] has a canonical byte encoding, just like [`Clock`](crate::Clock),
-//! [`Version`], and [`Party`](crate::Party): the meet's [`Version::encode`]
+//! [`Version`], and [`Party`]: the meet's [`Version::encode`]
 //! bytes, followed by the join's.
 //! Each component is byte-aligned, independently canonical, and
 //! self-delimiting, so the two concatenate with no length prefix.
@@ -55,7 +55,7 @@ use std::cmp::Ordering;
 use crate::codec;
 use crate::error::Crossed;
 use crate::version::skyline::place;
-use crate::Version;
+use crate::{Party, Version};
 
 mod algebra;
 mod own;
@@ -413,6 +413,33 @@ impl<'a> Span<'a> {
             return codec::canonical_eq(version.view(), self.lo().view());
         }
         place::contains(version.view(), self.lo.view(), self.hi.view())
+    }
+
+    /// The part of this [`Span`] wholly owned by a [`Party`], as a lazy
+    /// [`OwnSpan`] view.
+    ///
+    /// Identical to the operator form `&self / party`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let mut alice = Clock::seed();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let span = a1.span(&a2);
+    /// // The named and operator spellings build the same view...
+    /// let view = span.project(alice.party());
+    /// assert_eq!(view.to_span(), (&span / alice.party()).to_span());
+    /// // ...and the seed owns everything: the view places like the span.
+    /// assert_eq!(view.place(&a1), span.place(&a1));
+    /// ```
+    pub fn project(&'a self, party: &'a Party) -> OwnSpan<'a> {
+        self / party
     }
 
     /// The span's upper bound.

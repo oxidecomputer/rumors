@@ -769,10 +769,10 @@ fn deep_tree_query_and_causal_stack_safety() {
     // fold's combine arms, and the quotient view runs the masked co-walks —
     // every constituent iterative, pinned here at the door.
     let head = causally::Span::new(&early, &early).expect("coincident");
-    assert_eq!(&head | &span, span);
-    assert_eq!(&head & &span, Some(head.clone()));
     assert_eq!(&head + &span, span);
-    assert_eq!(&head * &span, head);
+    assert_eq!(&head * &span, Some(head.clone()));
+    assert_eq!(&head | &span, span);
+    assert_eq!(&head & &span, head);
     assert_eq!(head.union_all([&span, &hull]), span);
     let view = &span / clock.party();
     let _ = view.place(&early);

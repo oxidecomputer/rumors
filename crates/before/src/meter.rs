@@ -569,8 +569,8 @@ fn id_spine(d: usize, divert: bool) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The nested-full-sibling id `N(d)`: `(x, 1)` repeated down a left spine, `4d
-/// + 4` bits.
+/// The nested-full-sibling id `N(d)`: `(x, 1)` repeated down a left spine,
+/// `4d + 4` bits.
 ///
 /// Layout: `d` both-children tags (`11`) descending left, then the left-only
 /// terminus `(1, 0)` (`10 · 00`; a `(1, 1)` terminus would break normal form),
@@ -600,8 +600,8 @@ fn nested_full_id(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The mirror nested-full id `M(d)`: `(1, x)` repeated down a right spine, `4d
-/// + 4` bits.
+/// The mirror nested-full id `M(d)`: `(1, x)` repeated down a right spine,
+/// `4d + 4` bits.
 ///
 /// Layout: `d` both-children tags (`11`) descending right, each followed
 /// immediately by its full left terminal (`00` — preorder visits the left child
@@ -855,8 +855,8 @@ fn memo_comb_id(d: usize) -> Packed {
 }
 
 /// The memo fan-out event `F(k, b)`: the memo-chain skeleton with one `2^b − 1`
-/// minimum shared by all `k` sites over the covering site's zero floor, `~(13k
-/// + 2kb + 9)` bits.
+/// minimum shared by all `k` sites over the covering site's zero floor,
+/// `~(13k + 2kb + 9)` bits.
 ///
 /// Layout: [`memo_chain`]'s skeleton with every site's range leaf at `2^b − 1`
 /// and its collapsed left leaf at `2^b − 2` — the stream climbs to the wide
@@ -1054,8 +1054,8 @@ fn descending_raises(d: usize) -> Packed {
 }
 
 /// The descending-raises id over [`descending_raises`]: the covering `(1, ·)`
-/// root, an absent left over the floor leaf, then the memo-chain site ids, `10d
-/// + 10` bits.
+/// root, an absent left over the floor leaf, then the memo-chain site ids,
+/// `10d + 10` bits.
 ///
 /// Layout: the root tag `11 · 00`, the floor carrier's `01` (left absent: the
 /// floor leaf stays), then per site `11` (spine) · `11 · 00 · 10 · 00`,
@@ -1177,8 +1177,8 @@ fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
 }
 
 /// The reveal-comb id over [`reveal_comb`]: the covering `(1, ·)` root over
-/// per-comb-level `(b_{i−1}, site)` tags with the site ids `(1, (1, 0))`, `10k
-/// + 4` bits.
+/// per-comb-level `(b_{i−1}, site)` tags with the site ids `(1, (1, 0))`,
+/// `10k + 4` bits.
 ///
 /// Layout: the root tag `11 · 00`, then `k − 1` comb tags `11` (deeper comb
 /// left, site right), the deepest comb tag `01` (left absent: the floor stays),

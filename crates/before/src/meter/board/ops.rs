@@ -1123,7 +1123,12 @@ pub(super) fn ops() -> Vec<Op> {
         // coincidence rung cannot collapse the walk; and the probe always
         // lies within its own pair's hull, so the verdict is confirming
         // — full examination of all three streams is forced, and the
-        // full-examination scan floor is honest on every family.
+        // full-examination scan floor is honest on every family. The
+        // precedence row's probe re-decodes the meet instead: its watched
+        // directions are the mirror pair (probe at-or-below each bound),
+        // so only a probe at the span's own floor confirms both and
+        // forces the full sweep — an in-hull probe above the meet refutes
+        // `probe <= lo` and legitimately stops the start stream's scan.
         Op {
             name: "span_place",
             group: OpGroup::Version,
@@ -1155,6 +1160,42 @@ pub(super) fn ops() -> Vec<Op> {
                     walk_floors(n, na(NA_TOUCH_PLACEMENT)),
                     move || {
                         let verdict = span.dominance(&probe);
+                        (verdict, span, probe)
+                    },
+                ))
+            },
+        },
+        Op {
+            name: "span_precedence",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let probe = decode_version(&span.lo().encode());
+                let n = span.lo().encode().len() + span.hi().encode().len() + probe.encode().len();
+                Some(Cell::new(
+                    n,
+                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
+                    move || {
+                        let verdict = span.precedence(&probe);
+                        (verdict, span, probe)
+                    },
+                ))
+            },
+        },
+        Op {
+            name: "span_contains",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let probe = decode_version(&v.encode());
+                let n = span.lo().encode().len() + span.hi().encode().len() + probe.encode().len();
+                Some(Cell::new(
+                    n,
+                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
+                    move || {
+                        let verdict = span.contains(&probe);
                         (verdict, span, probe)
                     },
                 ))

@@ -16,10 +16,10 @@ use std::io;
 #[error("parties are not disjoint")]
 pub struct Overlap;
 
-/// A [`Span`]'s endpoints crossed during construction.
+/// A [`Span`](crate::Span)'s endpoints crossed during construction.
 ///
-/// The pair is reversed or incomparable, so zero [`Version`]s lie between them
-/// (see [`Span::new`](crate::Span::new)).
+/// The pair is reversed or incomparable, so zero [`Version`](crate::Version)s
+/// lie between them (see [`Span::new`](crate::Span::new)).
 ///
 /// # Example
 ///
@@ -88,7 +88,7 @@ pub enum Parse {
     /// The structure is well-formed but not in canonical normal form.
     #[error("input is not canonical")]
     NotCanonical,
-    /// The [`Party`] denotes the anonymous identity.
+    /// The [`Party`](crate::Party) denotes the anonymous identity.
     ///
     /// A standalone [`Party`](crate::Party)/[`Clock`](crate::Clock) must own a
     /// nonzero share of the unit interval `[0, 1)`.

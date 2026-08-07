@@ -365,7 +365,7 @@ laws! {
     /// carries exactly the view.
     ///
     /// Every entry views the same version (both `From` constructors and
-    /// the `Version::ranked` method spelling), `to_rank` (and the `From`
+    /// the `Version::ranked` method spelling), `rank` (and the `From`
     /// materialization, and the fused `encode_rank`) realize exactly
     /// `Version::rank`'s value, the composite `encode` is the rank
     /// encoding followed by the version's canonical bytes,
@@ -559,7 +559,7 @@ laws! {
     /// The fused co-walk equals the materialized `Rank` order wherever the
     /// ranks differ, rank ties resolve by the versions' canonical bytes,
     /// equality is version identity, the explicit spelling of the rank question
-    /// (`to_rank`, then [`Rank`]'s own comparison) answers exactly the
+    /// (`rank`, then [`Rank`]'s own comparison) answers exactly the
     /// materialized rank order — and the order therefore extends causality
     /// (causally ordered versions compare the same way, by rank strict
     /// monotonicity; only ties fall to the causally-free tiebreak).
@@ -1131,26 +1131,26 @@ laws! {
         true
     }
 
-    /// `|` is the containment join: endpoints definitionally the meet of the
+    /// `+` is the containment join: endpoints definitionally the meet of the
     /// meets and the join of the joins.
     ///
     /// The same span from either operand order, from every owned/borrowed
     /// cell, and from the `union` method spelling; idempotent, and covering
     /// both operands' whole segments.
-    // The idempotence probes repeat an operand on purpose: `s | s == s` is
+    // The idempotence probes repeat an operand on purpose: `s + s == s` is
     // the law itself, not a typo the lint should flag.
     #[allow(clippy::eq_op)]
     fn span_union_is_the_containment_join {
         for s in &operand_spans(a, b) {
             for t in &operand_spans(b, c) {
-                let union = s | t;
+                let union = s + t;
                 let definitional =
                     union == Span::new(&(s.lo() & t.lo()), &(s.hi() | t.hi())).unwrap();
-                let commutative = union == t | s;
-                let idempotent = (s | s) == *s;
-                let cells = (s.clone() | t.clone()) == union
-                    && (s.clone() | t) == union
-                    && (s | t.clone()) == union;
+                let commutative = union == t + s;
+                let idempotent = (s + s) == *s;
+                let cells = (s.clone() + t.clone()) == union
+                    && (s.clone() + t) == union
+                    && (s + t.clone()) == union;
                 let method = s.union(t) == union;
                 let covering = [s.lo(), s.hi(), t.lo(), t.hi()]
                     .into_iter()
@@ -1163,31 +1163,31 @@ laws! {
         true
     }
 
-    /// `&` is the containment meet: the joined meets under the met joins
+    /// `*` is the containment meet: the joined meets under the met joins
     /// when that pair orders, [`None`] exactly otherwise.
     ///
-    /// Commutative, idempotent, absorbing with `|`, the `intersection` method
+    /// Commutative, idempotent, absorbing with `+`, the `intersect` method
     /// spelling exactly, and containing every version both operands contain
     /// (so two overlapping operands always intersect).
-    // The idempotence probe repeats an operand on purpose: `s & s` is the law.
+    // The idempotence probe repeats an operand on purpose: `s * s` is the law.
     #[allow(clippy::eq_op)]
     fn span_intersect_is_the_shared_segment {
         for s in &operand_spans(a, b) {
             for t in &operand_spans(b, c) {
-                let inter = s & t;
+                let inter = s * t;
                 let definitional = inter
                     == Span::new(&(s.lo() | t.lo()), &(s.hi() & t.hi()))
                         .ok()
                         .map(Span::into_owned);
-                let commutative = inter == (t & s);
-                let idempotent = (s & s) == Some(s.clone());
-                let cells = (s.clone() & t.clone()) == inter
-                    && (s.clone() & t) == inter
-                    && (s & t.clone()) == inter;
+                let commutative = inter == (t * s);
+                let idempotent = (s * s) == Some(s.clone());
+                let cells = (s.clone() * t.clone()) == inter
+                    && (s.clone() * t) == inter
+                    && (s * t.clone()) == inter;
                 let method = s.intersect(t) == inter;
                 let absorbing = {
-                    let u = s | t;
-                    (s & &u) == Some(s.clone())
+                    let u = s + t;
+                    (s * &u) == Some(s.clone())
                 };
                 let membership = [a, b, c].into_iter().all(|probe| {
                     !(within(s, probe) && within(t, probe))
@@ -1208,73 +1208,77 @@ laws! {
         true
     }
 
-    /// `+` is the pointwise join: endpoints definitionally the joins of the
+    /// `|` is the pointwise join: endpoints definitionally the joins of the
     /// corresponding endpoints.
     ///
-    /// Commutative, idempotent, with the coincident empty span as identity —
-    /// and on coincident operands it restricts to the version join exactly (the
-    /// lifting is a lattice homomorphism on points, where `|` yields the hull
-    /// instead).
-    // The idempotence probe repeats an operand on purpose: `s + s == s` is
+    /// Commutative, idempotent, with the coincident empty span as identity,
+    /// the `join` method spelling exactly — and on coincident operands it
+    /// restricts to the version join exactly (the lifting is a lattice
+    /// homomorphism on points, where `+` yields the hull instead).
+    // The idempotence probe repeats an operand on purpose: `s | s == s` is
     // the law itself.
     #[allow(clippy::eq_op)]
-    fn span_sum_is_the_pointwise_join {
+    fn span_join_is_the_pointwise_join {
         let empty = Version::new();
         let identity = empty.span(&empty);
         for s in &operand_spans(a, b) {
             for t in &operand_spans(b, c) {
-                let sum = s + t;
+                let join = s | t;
                 let definitional =
-                    sum == Span::new(&(s.lo() | t.lo()), &(s.hi() | t.hi())).unwrap();
-                let commutative = sum == (t + s);
-                let idempotent = (s + s) == *s;
-                let cells = (s.clone() + t.clone()) == sum
-                    && (s.clone() + t) == sum
-                    && (s + t.clone()) == sum;
-                let identity_holds = (s + &identity) == *s;
-                if !(definitional && commutative && idempotent && cells && identity_holds) {
+                    join == Span::new(&(s.lo() | t.lo()), &(s.hi() | t.hi())).unwrap();
+                let commutative = join == (t | s);
+                let idempotent = (s | s) == *s;
+                let cells = (s.clone() | t.clone()) == join
+                    && (s.clone() | t) == join
+                    && (s | t.clone()) == join;
+                let method = s.join(t) == join;
+                let identity_holds = (s | &identity) == *s;
+                if !(definitional && commutative && idempotent && cells && method && identity_holds)
+                {
                     return false;
                 }
             }
         }
-        // The point identity: two coincident spans sum to the coincident
+        // The point identity: two coincident spans join to the coincident
         // span at their versions' join.
         let bc = b | c;
-        (b.span(b) + c.span(c)) == bc.span(&bc)
+        (b.span(b) | c.span(c)) == bc.span(&bc)
     }
 
-    /// `*` is the pointwise meet: endpoints definitionally the meets of the
+    /// `&` is the pointwise meet: endpoints definitionally the meets of the
     /// corresponding endpoints.
     ///
-    /// Commutative, idempotent, absorbing with `+` in the pointwise lattice —
-    /// and on coincident operands it restricts to the version meet exactly.
-    // The idempotence probe repeats an operand on purpose: `s * s == s` is
+    /// Commutative, idempotent, absorbing with `|` in the pointwise lattice,
+    /// the `meet` method spelling exactly — and on coincident operands it
+    /// restricts to the version meet exactly.
+    // The idempotence probe repeats an operand on purpose: `s & s == s` is
     // the law itself.
     #[allow(clippy::eq_op)]
-    fn span_product_is_the_pointwise_meet {
+    fn span_meet_is_the_pointwise_meet {
         for s in &operand_spans(a, b) {
             for t in &operand_spans(b, c) {
-                let product = s * t;
+                let meet = s & t;
                 let definitional =
-                    product == Span::new(&(s.lo() & t.lo()), &(s.hi() & t.hi())).unwrap();
-                let commutative = product == (t * s);
-                let idempotent = (s * s) == *s;
-                let cells = (s.clone() * t.clone()) == product
-                    && (s.clone() * t) == product
-                    && (s * t.clone()) == product;
+                    meet == Span::new(&(s.lo() & t.lo()), &(s.hi() & t.hi())).unwrap();
+                let commutative = meet == (t & s);
+                let idempotent = (s & s) == *s;
+                let cells = (s.clone() & t.clone()) == meet
+                    && (s.clone() & t) == meet
+                    && (s & t.clone()) == meet;
+                let method = s.meet(t) == meet;
                 let absorbing = {
-                    let u = s + t;
-                    (&u * s) == *s
+                    let u = s | t;
+                    (&u & s) == *s
                 };
-                if !(definitional && commutative && idempotent && cells && absorbing) {
+                if !(definitional && commutative && idempotent && cells && method && absorbing) {
                     return false;
                 }
             }
         }
-        // The point identity: two coincident spans multiply to the
+        // The point identity: two coincident spans meet to the
         // coincident span at their versions' meet.
         let bc = b & c;
-        (b.span(b) * c.span(c)) == bc.span(&bc)
+        (b.span(b) & c.span(c)) == bc.span(&bc)
     }
 }
 
@@ -1550,7 +1554,7 @@ laws! {
         let seed = receiver.span(receiver);
         let hull = receiver.span_all(items);
         let spans = item_spans(items);
-        let union = seed.union_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc | s);
+        let union = seed.union_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc + s);
         // The sequential reference folds *through* `Option` with no early exit,
         // deliberately: the door defers its verdict to the end, and the
         // equation quantifies over the same completed fold (`try_fold` would
@@ -1559,11 +1563,10 @@ laws! {
         let intersect = hull.intersect_all(&spans)
             == spans
                 .iter()
-                .fold(Some(hull.clone()), |acc, s| acc.and_then(|a| &a & s));
-        let sum = seed.sum_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc + s);
-        let product =
-            seed.product_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc * s);
-        union && intersect && sum && product
+                .fold(Some(hull.clone()), |acc, s| acc.and_then(|a| &a * s));
+        let join = seed.join_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc | s);
+        let meet = seed.meet_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc & s);
+        union && intersect && join && meet
     }
 
     /// The n-ary span doors are item-order-independent at every arity: every
@@ -1579,14 +1582,14 @@ laws! {
         let spans = item_spans(items);
         let union = seed.union_all(&spans);
         let intersect = hull.intersect_all(&spans);
-        let sum = seed.sum_all(&spans);
-        let product = seed.product_all(&spans);
+        let join = seed.join_all(&spans);
+        let meet = seed.meet_all(&spans);
         let agrees = |ordered: &mut dyn Iterator<Item = &Span<'static>>| {
             let ordered: Vec<&Span<'static>> = ordered.collect();
             seed.union_all(ordered.iter().copied()) == union
                 && hull.intersect_all(ordered.iter().copied()) == intersect
-                && seed.sum_all(ordered.iter().copied()) == sum
-                && seed.product_all(ordered.iter().copied()) == product
+                && seed.join_all(ordered.iter().copied()) == join
+                && seed.meet_all(ordered.iter().copied()) == meet
         };
         agrees(&mut spans.iter().rev())
             && (1..spans.len()).all(|r| agrees(&mut spans[r..].iter().chain(&spans[..r])))
@@ -1598,6 +1601,39 @@ laws! {
     fn span_union_of_points_is_span_all {
         let points: Vec<Span<'static>> = items.iter().map(|v| v.span(v)).collect();
         receiver.span(receiver).union_all(&points) == receiver.span_all(items)
+    }
+
+    /// Summing or collecting an iterator of spans is the union fold.
+    ///
+    /// Both collection doors equal the receiver-seeded n-ary union over the
+    /// same inputs, owned and borrowed alike, and the empty iterator yields
+    /// [`None`] (union has no identity span).
+    fn span_sum_and_collect_are_the_union_fold {
+        let seed = receiver.span(receiver);
+        let spans = item_spans(items);
+        let expected = Some(seed.union_all(&spans));
+        let inputs = || core::iter::once(&seed).chain(&spans);
+        let sum: Option<Span> = inputs().sum();
+        let collected: Option<Span> = inputs().collect();
+        let owned: Option<Span> = inputs().map(Span::clone).sum();
+        let empty: Option<Span> = core::iter::empty::<&Span>().sum();
+        sum == expected && collected == expected && owned == expected && empty.is_none()
+    }
+
+    /// Multiplying out an iterator of spans is the intersection fold.
+    ///
+    /// The `Product` door equals the receiver-seeded n-ary intersection over
+    /// the same inputs, owned and borrowed alike, and the empty iterator
+    /// yields [`None`] (intersection has no identity span).
+    fn span_product_is_the_intersect_fold {
+        let hull = receiver.span_all(items);
+        let spans = item_spans(items);
+        let expected = hull.intersect_all(&spans);
+        let inputs = || core::iter::once(&hull).chain(&spans);
+        let product: Option<Span> = inputs().product();
+        let owned: Option<Span> = inputs().map(Span::clone).product();
+        let empty: Option<Span> = core::iter::empty::<&Span>().product();
+        product == expected && owned == expected && empty.is_none()
     }
 }
 
@@ -2145,6 +2181,12 @@ laws! {
         let child = keeper.fork();
         ((a / &keeper).to_version() | (a / &child).to_version()) == (a / p)
     }
+
+    /// The named spelling is the operator's, exactly: `a.project(p)` is
+    /// `a / p` — the same view, the same materialization.
+    fn project_is_the_operator_spelling {
+        a.project(p) == (a / p) && a.project(p).to_version() == (a / p).to_version()
+    }
 }
 
 // ───────────────────────────── Version × Version × Party ─────────────────────────────
@@ -2269,6 +2311,25 @@ laws! {
         }
         true
     }
+
+    /// The named spelling is the operator's, exactly: `span.project(p)` is
+    /// `span / p` — the same endpoint views, the same materialization —
+    /// quantified over the pair's hull and the coincident span.
+    fn span_project_is_the_operator_spelling(a, b, party) {
+        let hull = a.span(b);
+        let coincident = a.span(a);
+        for span in [&hull, &coincident] {
+            let named = span.project(party);
+            let operator = span / party;
+            if named.lo() != operator.lo()
+                || named.hi() != operator.hi()
+                || named.to_span() != operator.to_span()
+            {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 // ───────────────────────────── Version × Party × Party ─────────────────────────────
@@ -2382,6 +2443,19 @@ laws! {
         }
     }
 
+    /// `saturating_sub` is `checked_sub` with the nonexistent difference
+    /// floored: equal where the difference exists, `ZERO` exactly
+    /// otherwise.
+    fn rank_saturating_sub_is_checked_sub_floored(a, b, _c) {
+        a.saturating_sub(b) == a.checked_sub(b).unwrap_or(Rank::ZERO)
+    }
+
+    /// Saturation reaches the floor from every deficit: `a - (a + b)` is
+    /// `ZERO` (with `b == ZERO` the degenerate equal-operands arm).
+    fn rank_saturating_sub_saturates_at_zero(a, b, _c) {
+        a.saturating_sub(&(a + b)) == Rank::ZERO
+    }
+
     /// The total order is its own dual: `cmp(a, b)` is `cmp(b, a)` reversed.
     fn rank_cmp_antisymmetric(a, b, _c) {
         a.cmp(b) == b.cmp(a).reverse()
@@ -2411,8 +2485,9 @@ laws! {
     /// `fork` preserves the event component and splits the id, the balanced
     /// n-way fork's two forms agree, `tick`/`send` advance strictly and fix
     /// the party, `ticks` agrees with the version entry point, peeks are
-    /// stable, an own-message receive is a bare tick, `sync` reconciles a
-    /// fork, `own_version` is the projection, and the parts/codec/text
+    /// stable, an own-message receive is a bare tick, an absorb is the
+    /// anonymous join with no event minted, `sync` reconciles a fork,
+    /// `own_version` is the projection, and the parts/codec/text
     /// round-trips.
     pub static CLOCK_SOLO: (c: &Clock);
 
@@ -2653,6 +2728,21 @@ laws! {
             && *clock_version.version() == (c.version() | msg)
             && version_clock == clock_version
     }
+
+    /// `absorb` is the anonymous join with no event minted: the version
+    /// becomes exactly `old | msg`, the party never moves, and the returned
+    /// reference is the clock's new version.
+    ///
+    /// Absorbing the same message a second time changes nothing.
+    fn absorb_is_the_anonymous_join {
+        let mut fused = c.dangerously_alias();
+        let returned = fused.absorb(msg).clone();
+        let (party, version) = c.dangerously_alias().into_parts();
+        let composed = Clock::from_parts(party, version | msg);
+        let mut again = fused.dangerously_alias();
+        again.absorb(msg);
+        returned == *fused.version() && fused == composed && again == fused
+    }
 }
 
 // ───────────────────── Clock: a receiver and items ─────────────────────
@@ -2670,8 +2760,9 @@ laws! {
     /// n-ary doors are pinned to their composed spellings:
     /// [`Clock::sync_all`] byte-identical to `join_all` then the balanced
     /// re-share — with every overlap refused and no participant moved —
-    /// and [`Clock::recv_all`] to the sequential binary joins followed by
-    /// one tick.
+    /// [`Clock::recv_all`] to the sequential binary joins followed by one
+    /// tick, and [`Clock::absorb_all`] to the same joins with no tick at
+    /// all.
     pub static CLOCK_AND_LIST: (c: &Clock, items: &[Clock]);
 
     /// `join_all` accepts exactly the families whose parties — the
@@ -2822,6 +2913,25 @@ laws! {
             composed |= item.version();
         }
         composed.tick();
+        returned == *composed.version() && fused == composed
+    }
+
+    /// `absorb_all` equals its stated composition — every message joined in
+    /// through the bound binary join, no event minted — value for value at
+    /// every arity, returned reference included.
+    ///
+    /// The items' versions serve as the message list; the party never
+    /// moving and the empty list changing nothing both ride the whole-clock
+    /// comparison.
+    fn absorb_all_is_the_sequential_joins {
+        let mut fused = c.dangerously_alias();
+        let returned = fused
+            .absorb_all(items.iter().map(|item| item.version()))
+            .clone();
+        let mut composed = c.dangerously_alias();
+        for item in items {
+            composed |= item.version();
+        }
         returned == *composed.version() && fused == composed
     }
 }

@@ -887,19 +887,19 @@ fn containment_operators_on_chain_witnesses() {
     let mid = Span::new(&a2, &a3).unwrap();
 
     // Union covers both segments end to end.
-    assert_eq!(&head | &tail, Span::new(&a1, &a4).unwrap());
+    assert_eq!(&head + &tail, Span::new(&a1, &a4).unwrap());
     // Overlapping segments intersect at their shared segment.
-    assert_eq!(&head & &tail, Some(Span::new(&a2, &a2).unwrap()));
-    assert_eq!(&mid & &tail, Some(mid.clone()));
+    assert_eq!(&head * &tail, Some(Span::new(&a2, &a2).unwrap()));
+    assert_eq!(&mid * &tail, Some(mid.clone()));
     // Disjoint segments share no version.
-    assert_eq!(&head & &Span::new(&a3, &a4).unwrap(), None);
+    assert_eq!(&head * &Span::new(&a3, &a4).unwrap(), None);
     // A concurrent point beside the chain still has a union (the hull)
     // and an empty intersection.
     let beside = Span::new(&b1, &b1).unwrap();
-    let hull = &mid | &beside;
+    let hull = &mid + &beside;
     assert_eq!(*hull.lo(), &a2 & &b1);
     assert_eq!(*hull.hi(), &a3 | &b1);
-    assert_eq!(&mid & &beside, None);
+    assert_eq!(&mid * &beside, None);
 }
 
 /// The pointwise operators restrict to the version operators on coincident
@@ -914,17 +914,17 @@ fn pointwise_operators_restrict_to_versions_on_points() {
     let pa = Span::new(&a1, &a1).unwrap();
     let pb = Span::new(&b1, &b1).unwrap();
 
-    let sum = &pa + &pb;
-    assert_eq!(*sum.lo(), &a1 | &b1);
-    assert!(sum.is_coincident(), "a point sum shares one buffer");
+    let joined = &pa | &pb;
+    assert_eq!(*joined.lo(), &a1 | &b1);
+    assert!(joined.is_coincident(), "a point join shares one buffer");
 
-    let product = &pa * &pb;
-    assert_eq!(*product.lo(), &a1 & &b1);
-    assert!(product.is_coincident(), "a point product shares one buffer");
+    let met = &pa & &pb;
+    assert_eq!(*met.lo(), &a1 & &b1);
+    assert!(met.is_coincident(), "a point meet shares one buffer");
 
     // The union of two points is their hull — strictly wider than
     // either on concurrent points.
-    let hull = &pa | &pb;
+    let hull = &pa + &pb;
     assert!(!hull.is_coincident());
     assert_eq!(hull, a1.span(&b1));
 }
@@ -939,8 +939,8 @@ fn nary_doors_settle_the_receiver_on_empty_input() {
     let none: [Span; 0] = [];
     assert_eq!(span.union_all(none.iter()), span);
     assert_eq!(span.intersect_all(none.iter()), Some(span.clone()));
-    assert_eq!(span.sum_all(none.iter()), span);
-    assert_eq!(span.product_all(none.iter()), span);
+    assert_eq!(span.join_all(none.iter()), span);
+    assert_eq!(span.meet_all(none.iter()), span);
 }
 
 /// One mixed n-ary fold per door — coincident and wide inputs together, so the
@@ -959,7 +959,7 @@ fn nary_doors_match_sequential_folds_on_a_mixed_family() {
     ];
     assert_eq!(
         seed.union_all(&family),
-        family.iter().fold(seed.clone(), |acc, s| &acc | s),
+        family.iter().fold(seed.clone(), |acc, s| &acc + s),
     );
     // The sequential reference folds *through* `Option` deliberately: the door
     // defers its verdict to the end, so the reference must complete the same
@@ -967,15 +967,15 @@ fn nary_doors_match_sequential_folds_on_a_mixed_family() {
     #[allow(clippy::manual_try_fold)]
     let sequential_intersect = family
         .iter()
-        .fold(Some(seed.clone()), |acc, s| acc.and_then(|a| &a & s));
+        .fold(Some(seed.clone()), |acc, s| acc.and_then(|a| &a * s));
     assert_eq!(seed.intersect_all(&family), sequential_intersect);
     assert_eq!(
-        seed.sum_all(&family),
-        family.iter().fold(seed.clone(), |acc, s| &acc + s),
+        seed.join_all(&family),
+        family.iter().fold(seed.clone(), |acc, s| &acc | s),
     );
     assert_eq!(
-        seed.product_all(&family),
-        family.iter().fold(seed.clone(), |acc, s| &acc * s),
+        seed.meet_all(&family),
+        family.iter().fold(seed.clone(), |acc, s| &acc & s),
     );
 }
 

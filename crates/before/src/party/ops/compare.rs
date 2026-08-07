@@ -4,9 +4,9 @@ use crate::codec::BitsMut;
 use crate::idbits::{IdNode, IdReader};
 
 impl IdReader<'_> {
-    /// Whether `self` and `other` (normal-form ids) share no owned region. `O(n
-    /// + m)`: both cursors are threaded, and a side is skipped only where the
-    /// other's leaf dominates it.
+    /// Whether `self` and `other` (normal-form ids) share no owned region.
+    /// `O(n + m)`: both cursors are threaded, and a side is skipped only where
+    /// the other's leaf dominates it.
     ///
     /// The cursor form of the paper's region-disjointness test, on the shared
     /// lockstep predicate walk ([`lockstep_holds`]).

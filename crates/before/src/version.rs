@@ -151,7 +151,7 @@ impl Version {
     /// Dealing directly with a [`Party`] and a [`Version`] permits one version
     /// to be [`tick`](Version::tick)ed by many parties, or one [`Party`] to
     /// [`tick`](Party::tick) many [`Version`]s; this is in contrast to a
-    /// [`Clock`], which binds the two together.
+    /// [`Clock`](crate::Clock), which binds the two together.
     ///
     /// # Complexity
     ///
@@ -547,7 +547,7 @@ impl Version {
 
     /// The causal [`Span`] from this [`Version`] to `other`.
     ///
-    /// This computes the tightest [`Span`](crate::causally::Span) which
+    /// This computes the tightest [`Span`] which
     /// encloses all [`Version`]s `v` such that `self & other <= v <= self |
     /// other`.
     ///
@@ -584,7 +584,7 @@ impl Version {
 
     /// The causal [`Span`] enclosing `self` and all the [`Version`]s in `iter`.
     ///
-    /// This computes the tightest [`Span`](crate::causally::Span) which
+    /// This computes the tightest [`Span`] which
     /// encloses all [`Version`]s `v` such that `self.meet_all(iter) <= v <=
     /// self.join_all(iter)`.
     ///
@@ -682,6 +682,35 @@ impl Version {
             }
             Hull::Merged { lo, hi } => Span::owned(lo, hi),
         }
+    }
+
+    /// The part of this [`Version`] wholly owned by a [`Party`], as a
+    /// lazy [`OwnVersion`] view.
+    ///
+    /// Identical to the operator form `&self / party`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Clock;
+    /// // Two disjoint halves each tick, then learn each other's history.
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// a.tick();
+    /// b.tick();
+    /// a.sync(&mut b).unwrap();
+    /// let v = a.version().clone();
+    /// // The named and operator spellings agree...
+    /// assert_eq!(v.project(a.party()), &v / a.party());
+    /// // ...and each half's contribution is a sub-version.
+    /// assert!(v.project(a.party()) <= v && v.project(b.party()) <= v);
+    /// ```
+    pub fn project<'a>(&'a self, party: &'a Party) -> OwnVersion<'a> {
+        self / party
     }
 
     /// The balanced reduction under [`join_all`](Self::join_all) and
@@ -1533,13 +1562,11 @@ span_matrix! {
 // Projection can still raise `min_ticks` (carving one broad tick into
 // disjoint peaks), so it is not monotone under `<=`.
 
-/// `&v / &p` — the part of the [`Version`] `v` contributed within
-/// [`Party`] `p`'s id region (zero everywhere `p` does not own), as the
-/// lazy [`OwnVersion`] view. Both operands are borrowed, not consumed.
+/// `&v / &p`: the part of the [`Version`] `v` contributed within
+/// [`Party`] `p`'s id region (zero everywhere `p` does not own), as a
+/// lazy [`OwnVersion`] view.
 ///
-/// The view compares directly (against a [`Version`] or another view);
-/// the projected [`Version`] itself exists only through the explicit
-/// [`OwnVersion::to_version`], whose result can outgrow its operands.
+/// [`Version::project`] is the named spelling of the same view.
 ///
 /// # Complexity
 ///

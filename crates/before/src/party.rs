@@ -149,7 +149,7 @@ impl Party {
     /// Dealing directly with a [`Party`] and a [`Version`] permits one version
     /// to be [`tick`](Version::tick)ed by many parties, or one [`Party`] to
     /// [`tick`](Party::tick) many [`Version`]s; this is in contrast to a
-    /// [`Clock`], which binds the two together.
+    /// [`Clock`](crate::Clock), which binds the two together.
     ///
     /// # Complexity
     ///
@@ -460,7 +460,7 @@ impl Party {
     ///
     /// The caller must ensure that at most one of the two copies is ever
     /// treated as live; the other must be dropped without further use. The same
-    /// rule applies to any [`Clock`] built from such a party.
+    /// rule applies to any [`Clock`](crate::Clock) built from such a party.
     ///
     /// This method exists for handing a clock across a boundary where ownership
     /// transfers to exactly one side based on an outcome not known at the time
@@ -543,9 +543,10 @@ impl Party {
     ///
     /// # Warning
     ///
-    /// Serializing a [`Clock`] circumvents its otherwise compiler-enforced
-    /// `!Clone` linearity. Deserializing one can violate causality. Treat
-    /// serialization/deserialization boundaries as *moves* of the [`Clock`].
+    /// Serializing a [`Clock`](crate::Clock) circumvents its otherwise
+    /// compiler-enforced `!Clone` linearity. Deserializing one can violate
+    /// causality. Treat serialization/deserialization boundaries as *moves* of
+    /// the [`Clock`](crate::Clock).
     ///
     /// # Complexity
     ///

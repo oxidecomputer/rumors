@@ -193,8 +193,7 @@ pub trait Node<T: Send + Sync + 'static> {
     /// bounds held as two already-decoded versions validate through
     /// [`causally::Span::new`], surfacing
     /// [`Crossed`](causally::Crossed) the same way. Either way the
-    /// backend answers thereafter through the trusted door
-    /// ([`causally::Span::new_unchecked`]) or its own stored span's reborrow.
+    /// backend answers thereafter by reborrowing the span it validated.
     /// A violated ordering is not a detected fault: every verdict read
     /// off the span becomes unspecified, which here means silently
     /// wrong reconciliation — news withheld or re-sent — so the check

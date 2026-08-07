@@ -33,7 +33,7 @@ use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use before::causally::{
-    self, Coverage, Dominance, Down, Endpoint, Neutral, Placement, Query, Span, Up,
+    self, Coverage, Dominance, Down, Endpoint, Neutral, Placement, Precedence, Query, Span, Up,
 };
 use before::{Clock, Party, Rank, Ranked, Version};
 
@@ -1378,6 +1378,40 @@ pub extern "C" fn ff_span_dominance(s: u32, probe: u32) -> i32 {
     }
 }
 
+/// `Span::precedence`: the three-way precedence coarsening of the
+/// version in `probe` against the span in `s`, encoded 0 `Before`,
+/// 1 `Between`, 2 `After`.
+///
+/// The placement family's earliest exits live in this verdict's mirror
+/// pair, so its fuel can undercut `ff_span_place`'s on probes the end
+/// bound refutes.
+#[no_mangle]
+pub extern "C" fn ff_span_precedence(s: u32, probe: u32) -> i32 {
+    let r = with_s(s, |span| with_v(probe, |p| span.precedence(p)));
+    match r {
+        Some(Some(precedence)) => match precedence {
+            Precedence::Before => 0,
+            Precedence::Between => 1,
+            Precedence::After => 2,
+        },
+        _ => ERR_REG,
+    }
+}
+
+/// `Span::contains`: whether the version in `probe` lies within the
+/// span in `s`, encoded 0 outside, 1 within.
+///
+/// Either bound's refutation is the whole verdict, so the fused walk's
+/// fuel can undercut `ff_span_place`'s on refuting probes.
+#[no_mangle]
+pub extern "C" fn ff_span_contains(s: u32, probe: u32) -> i32 {
+    let r = with_s(s, |span| with_v(probe, |p| span.contains(p)));
+    match r {
+        Some(Some(hit)) => hit as i32,
+        _ => ERR_REG,
+    }
+}
+
 /// Encode the `Span` in `src` into the staging buffer (the meet's
 /// canonical bytes, then the join's).
 #[no_mangle]
@@ -1403,12 +1437,12 @@ pub extern "C" fn ff_span_decode(dst: u32) -> i32 {
     })
 }
 
-/// `Span | Span`: the containment join of the spans in `a` and `b`
+/// `Span + Span`: the containment join of the spans in `a` and `b`
 /// into `dst` (operands read in place; the union's endpoints are
 /// minted owned).
 #[no_mangle]
 pub extern "C" fn ff_span_union(dst: u32, a: u32, b: u32) -> i32 {
-    let r = with_s(a, |sa| with_s(b, |sb| sa | sb));
+    let r = with_s(a, |sa| with_s(b, |sb| sa.union(sb)));
     match r {
         Some(Some(s)) => {
             put(dst, Val::S(s));
@@ -1418,7 +1452,7 @@ pub extern "C" fn ff_span_union(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Span & Span`: the containment meet of the spans in `a` and `b`
+/// `Span * Span`: the containment meet of the spans in `a` and `b`
 /// into `dst`.
 ///
 /// Returns 1 with `dst` written when the segments share a version, 0
@@ -1426,7 +1460,7 @@ pub extern "C" fn ff_span_union(dst: u32, a: u32, b: u32) -> i32 {
 /// verdicts, not errors.
 #[no_mangle]
 pub extern "C" fn ff_span_intersect(dst: u32, a: u32, b: u32) -> i32 {
-    let r = with_s(a, |sa| with_s(b, |sb| sa & sb));
+    let r = with_s(a, |sa| with_s(b, |sb| sa.intersect(sb)));
     match r {
         Some(Some(Some(s))) => {
             put(dst, Val::S(s));
@@ -1437,11 +1471,11 @@ pub extern "C" fn ff_span_intersect(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Span + Span`: the pointwise join of the spans in `a` and `b` into
+/// `Span | Span`: the pointwise join of the spans in `a` and `b` into
 /// `dst`.
 #[no_mangle]
-pub extern "C" fn ff_span_sum(dst: u32, a: u32, b: u32) -> i32 {
-    let r = with_s(a, |sa| with_s(b, |sb| sa + sb));
+pub extern "C" fn ff_span_join(dst: u32, a: u32, b: u32) -> i32 {
+    let r = with_s(a, |sa| with_s(b, |sb| sa.join(sb)));
     match r {
         Some(Some(s)) => {
             put(dst, Val::S(s));
@@ -1451,11 +1485,11 @@ pub extern "C" fn ff_span_sum(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Span * Span`: the pointwise meet of the spans in `a` and `b` into
+/// `Span & Span`: the pointwise meet of the spans in `a` and `b` into
 /// `dst`.
 #[no_mangle]
-pub extern "C" fn ff_span_product(dst: u32, a: u32, b: u32) -> i32 {
-    let r = with_s(a, |sa| with_s(b, |sb| sa * sb));
+pub extern "C" fn ff_span_meet(dst: u32, a: u32, b: u32) -> i32 {
+    let r = with_s(a, |sa| with_s(b, |sb| sa.meet(sb)));
     match r {
         Some(Some(s)) => {
             put(dst, Val::S(s));
@@ -1521,11 +1555,11 @@ pub extern "C" fn ff_span_intersect_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Span::sum_all`: the pointwise join of the spans in `src..src + n`
+/// `Span::join_all`: the pointwise join of the spans in `src..src + n`
 /// into `dst` (the receiver-seeded balanced fold).
 #[no_mangle]
-pub extern "C" fn ff_span_sum_all(dst: u32, src: u32, n: u32) -> i32 {
-    match span_fold(src, n, |receiver, others| receiver.sum_all(others)) {
+pub extern "C" fn ff_span_join_all(dst: u32, src: u32, n: u32) -> i32 {
+    match span_fold(src, n, |receiver, others| receiver.join_all(others)) {
         Some(s) => {
             put(dst, Val::S(s));
             OK
@@ -1534,11 +1568,11 @@ pub extern "C" fn ff_span_sum_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Span::product_all`: the pointwise meet of the spans in
+/// `Span::meet_all`: the pointwise meet of the spans in
 /// `src..src + n` into `dst` (the receiver-seeded balanced fold).
 #[no_mangle]
-pub extern "C" fn ff_span_product_all(dst: u32, src: u32, n: u32) -> i32 {
-    match span_fold(src, n, |receiver, others| receiver.product_all(others)) {
+pub extern "C" fn ff_span_meet_all(dst: u32, src: u32, n: u32) -> i32 {
+    match span_fold(src, n, |receiver, others| receiver.meet_all(others)) {
         Some(s) => {
             put(dst, Val::S(s));
             OK
@@ -1604,6 +1638,46 @@ pub extern "C" fn ff_own_span_dominance(s: u32, p: u32, probe: u32) -> i32 {
             Dominance::Between => 1,
             Dominance::After => 2,
         },
+        _ => ERR_REG,
+    }
+}
+
+/// `OwnSpan::precedence`: the three-way precedence coarsening of the
+/// version in `probe` against the projection of the span in `s` by
+/// the party in `p`, encoded 0 `Before`, 1 `Between`, 2 `After`.
+///
+/// The coarse question buys the projected placement's early exit: a
+/// probe the projected end refutes never walks the start, so its fuel
+/// can undercut `ff_own_span_place`'s there.
+#[no_mangle]
+pub extern "C" fn ff_own_span_precedence(s: u32, p: u32, probe: u32) -> i32 {
+    let r = with_s(s, |span| {
+        with_p(p, |party| with_v(probe, |v| (span / party).precedence(v)))
+    });
+    match r {
+        Some(Some(Some(precedence))) => match precedence {
+            Precedence::Before => 0,
+            Precedence::Between => 1,
+            Precedence::After => 2,
+        },
+        _ => ERR_REG,
+    }
+}
+
+/// `OwnSpan::contains`: whether the version in `probe` lies within the
+/// projection of the span in `s` by the party in `p`, encoded
+/// 0 outside, 1 within.
+///
+/// Either projected bound's refutation is the whole verdict: a probe
+/// the projected start refutes never walks the end, so its fuel can
+/// undercut `ff_own_span_place`'s there.
+#[no_mangle]
+pub extern "C" fn ff_own_span_contains(s: u32, p: u32, probe: u32) -> i32 {
+    let r = with_s(s, |span| {
+        with_p(p, |party| with_v(probe, |v| (span / party).contains(v)))
+    });
+    match r {
+        Some(Some(Some(hit))) => hit as i32,
         _ => ERR_REG,
     }
 }
@@ -1721,6 +1795,41 @@ pub extern "C" fn ff_query_coverage(q: u32, s: u32) -> i32 {
         Some(Some(Coverage::Empty)) => 0,
         Some(Some(Coverage::Partial)) => 1,
         Some(Some(Coverage::Full)) => 2,
+        _ => ERR_REG,
+    }
+}
+
+/// `Query & Query`: the normal-form merge of the queries in `a` and
+/// `b` into `dst`.
+///
+/// Floors join, ceilings meet, and every hole from either side
+/// re-admits against the merged bounds and the growing antichain (the
+/// comparison-driven pruning).
+///
+/// Operands are read in place and cloned at entry (buffer-sharing
+/// bumps, no walk); the priced work is the merge itself. Polarities
+/// must conjoin under the algebra — the `Down` × `Up` pairing is its
+/// one absent arm and reads as a register error.
+#[no_mangle]
+pub extern "C" fn ff_query_conjoin(dst: u32, a: u32, b: u32) -> i32 {
+    use StoredQuery as Q;
+    let merged = with_q(a, |qa| {
+        with_q(b, |qb| match (qa, qb) {
+            (Q::N(x), Q::N(y)) => Some(Q::N(x.clone() & y.clone())),
+            (Q::D(x), Q::D(y)) => Some(Q::D(x.clone() & y.clone())),
+            (Q::U(x), Q::U(y)) => Some(Q::U(x.clone() & y.clone())),
+            (Q::N(x), Q::D(y)) => Some(Q::D(x.clone() & y.clone())),
+            (Q::D(x), Q::N(y)) => Some(Q::D(x.clone() & y.clone())),
+            (Q::N(x), Q::U(y)) => Some(Q::U(x.clone() & y.clone())),
+            (Q::U(x), Q::N(y)) => Some(Q::U(x.clone() & y.clone())),
+            (Q::D(_), Q::U(_)) | (Q::U(_), Q::D(_)) => None,
+        })
+    });
+    match merged {
+        Some(Some(Some(q))) => {
+            put(dst, Val::Q(q));
+            OK
+        }
         _ => ERR_REG,
     }
 }

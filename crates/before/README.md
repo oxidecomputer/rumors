@@ -74,10 +74,10 @@ assert_eq!(restored, alice);
 | Type                | Is                                              | Core operations                                                                                                                                                   |
 |---------------------|-------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `Party`           | a distinct entity which may emit events         | `tick`, `fork`(`s`), `join`, `is_disjoint`                                     |
-| `Version`         | a causal timestamp (history of known events)    | `tick`, `PartialOrd` (`<`, `<=`, `concurrent`), `join` (`\|`), `meet` (`&`), `span` (`^`), `rank` |
-| `Clock`           | a `Party` paired with its current `Version` | `tick`, `fork`(`s`), `join`, `send`, `recv`, join (`\|`, `\|=`) a `Version` |
-| `Rank`/`Ranked` | a total order extending the causal order        | `Ord` (`<`, `==`, `>`, etc.), summation (`+`), `checked_sub`, `encode`/`decode`                            |
-| `Span`            | an ordered pair of versions and the chain segment between them | `place`, `dominance`, union (`\|`), intersect (`&`), pointwise join/meet (`+`, `*`), projection (`/`)     |
+| `Version`         | a causal timestamp (history of known events)    | `tick`, `PartialOrd` (`<`, `<=`, `concurrent`), `join` (`\|`), `meet` (`&`), `span` (`^`), `project` (`/`), `rank` |
+| `Clock`           | a `Party` paired with its current `Version` | `tick`, `fork`(`s`), `join`, `send`, `recv`, `absorb` (`\|`, `\|=`) a `Version` |
+| `Rank`/`Ranked` | a total order extending the causal order        | `Ord` (`<`, `==`, `>`, etc.), summation (`+`), `checked_sub`/`saturating_sub`, `encode`/`decode`                            |
+| `Span`            | an ordered pair of versions and the chain segment between them | `place`, `dominance`, pointwise `join`/`meet` (`\|`, `&`), `union` (`+`), `intersect` (`*`), `project` (`/`)     |
 
 ### Version vector or vector clock?
 

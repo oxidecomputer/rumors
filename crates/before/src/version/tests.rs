@@ -967,7 +967,7 @@ fn rank_known_values() {
     assert!(half < one, "strict containment in the causal order");
     assert!(half.rank() < one.rank(), "so strictly smaller rank");
     assert_eq!(half.min_ticks(), one.min_ticks(), "the floor ties them");
-    assert_eq!(half.rank().to_string(), "1/2^1");
+    assert_eq!(half.rank().to_string(), "1/2");
 
     let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
     assert!(half.concurrent(&peaks), "different halves of the interval");
@@ -1833,7 +1833,7 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
 /// fused walk's hardest arm (the exact total must cancel to zero) into the
 /// tiebreak: the views compare non-`Equal`, ordered exactly as the versions'
 /// canonical bytes, while the rank question — asked explicitly through
-/// `to_rank` — still answers a tie.
+/// `rank` — still answers a tie.
 #[test]
 fn ranked_orders_equal_rank_concurrent_pairs_by_bytes() {
     let half: Version = "(0, 1, 0)".parse().unwrap();

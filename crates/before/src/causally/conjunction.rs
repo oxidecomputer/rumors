@@ -20,8 +20,21 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// Conjunction with a query of the same polarity.
     ///
     /// Floors join, ceilings meet, and every hole from either side is
-    /// re-admitted against the merged bounds and the growing antichain, so
-    /// absorption and pruning cannot be evaded by construction order.
+    /// re-admitted against the merged bounds, so absorption and pruning cannot
+    /// be evaded by construction order: a hole is dropped when the bound on
+    /// its own side already avoids everything it subtracts or a kept hole from
+    /// the other side subtracts a superset, and it evicts the other side's
+    /// kept holes it covers.
+    ///
+    /// Each operand's holes are already a pairwise-unabsorbed antichain
+    /// (constructors mint at most one hole; every multi-hole query came
+    /// through this merge), so same-side pairs are never compared — only the
+    /// cross pairs are probed for absorption, in both directions.
+    ///
+    /// Pruning is *comparative* — against the interval bound and the other
+    /// side's holes — never a semantic emptiness judgment: a hole nothing can
+    /// fall into rides through inert, subtracting nothing on every path,
+    /// rather than minting a corner case here.
     fn and(self, other: Query<'a, P>) -> Query<'a, P> {
         let floor = match (self.floor, other.floor) {
             (None, floor) | (floor, None) => floor,
@@ -31,40 +44,36 @@ impl<'a, P: Polarity> Query<'a, P> {
             (None, ceiling) | (ceiling, None) => ceiling,
             (Some(a), Some(b)) => Some(Cow::Owned(Version::meet_refs(&a, &b))),
         };
-        let mut merged = Query {
+        let survives =
+            |hole: &Hole<'a>| P::hole_survives(hole, floor.as_deref(), ceiling.as_deref());
+        let mut kept: Vec<Hole<'a>> = self.holes.into_iter().filter(survives).collect();
+        let mut added: Vec<Hole<'a>> = Vec::new();
+        for hole in other.holes {
+            if !survives(&hole) {
+                continue;
+            }
+            if kept.iter().any(|held| P::absorbs(held, &hole)) {
+                continue;
+            }
+            kept.retain(|held| !P::absorbs(&hole, held));
+            added.push(hole);
+        }
+        kept.append(&mut added);
+        Query {
             floor,
             ceiling,
-            holes: Vec::with_capacity(self.holes.len() + other.holes.len()),
+            holes: kept,
             polarity: PhantomData,
-        };
-        for hole in self.holes.into_iter().chain(other.holes) {
-            merged.push_hole(hole);
         }
-        merged
-    }
-
-    /// Admit one hole, maintaining the normal form: drop it if the bound on its
-    /// own side already avoids everything it subtracts or an existing hole
-    /// subtracts a superset; evict existing holes it covers.
-    ///
-    /// Pruning is *comparative* — against the interval bound and the sibling
-    /// holes — never a semantic emptiness judgment: a hole nothing can fall
-    /// into rides through inert, subtracting nothing on every path, rather than
-    /// minting a corner case here.
-    fn push_hole(&mut self, hole: Hole<'a>) {
-        if !P::hole_survives(&hole, self.floor.as_deref(), self.ceiling.as_deref()) {
-            return;
-        }
-        if self.holes.iter().any(|held| P::absorbs(held, &hole)) {
-            return;
-        }
-        self.holes.retain(|held| !P::absorbs(&hole, held));
-        self.holes.push(hole);
     }
 }
 
 /// Elementary conjunction of two floors, staying elementary: the bounds
 /// [`join`](Version::join).
+///
+/// # Complexity
+///
+/// `O(|a| + |b|)`: one fused join walk over the two bounds.
 impl<'a> BitAnd for Floor<'a> {
     type Output = Floor<'a>;
 
@@ -77,6 +86,10 @@ impl<'a> BitAnd for Floor<'a> {
 
 /// Elementary conjunction of two ceilings, staying elementary: the bounds
 /// [`meet`](Version::meet).
+///
+/// # Complexity
+///
+/// `O(|a| + |b|)`: one fused meet walk over the two bounds.
 impl<'a> BitAnd for Ceiling<'a> {
     type Output = Ceiling<'a>;
 
@@ -134,8 +147,12 @@ impl<'a> Conjoin<'a, Up> for Query<'a, Neutral> {
 
 macro_rules! conjoin {
     ($($lhs:ty, $rhs:ty => $out:ty;)*) => {$(
-        #[doc = "Conjunction: predicate intersection, through the"]
-        #[doc = "same-polarity merge's normal form."]
+        #[doc = "Conjunction of [`Query`]s."]
+        #[doc = ""]
+        #[doc = "# Complexity"]
+        #[doc = ""]
+        #[doc = "Linear in the operands' stored versions, plus one version comparison per pair of holes"]
+        #[doc = "drawn from opposite sides (at worst, multiplicative in the size of the operands)."]
         impl<'a> BitAnd<$rhs> for $lhs {
             type Output = $out;
 

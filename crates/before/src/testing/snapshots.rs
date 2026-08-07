@@ -230,9 +230,9 @@ fn rank_rendered_forms() {
     assert_snapshot!(block, @r"
     zero                   0
     integral               5
-    fractional             1/2^1
+    fractional             1/2
     normalized after sub   1
-    spilled numerator      1267650600228229401496703205377/2^1
+    spilled numerator      1267650600228229401496703205377/2
     ");
 }
 

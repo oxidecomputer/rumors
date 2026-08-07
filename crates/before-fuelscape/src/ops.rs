@@ -346,6 +346,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Party]),
         covers: &[
             "&Version / &Party (Div — the lazy projection view)",
+            "Version::project",
             "OwnVersion::to_version",
             "From<OwnVersion> for Version (explicit materialization)",
         ],
@@ -1034,7 +1035,7 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "ranked_encode_rank",
         inputs: Inputs::Packed(&[Operand::Version]),
-        covers: &["Ranked::encode_rank"],
+        covers: &["Ranked::encode_rank", "Version::encode_rank"],
         size_measure: "packed bytes of the viewed version (the composite key's \
              rank component alone: one fused rank fold and emission; view \
              construction is O(1))",
@@ -1100,6 +1101,32 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
+        name: "span_precedence",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["Span::precedence"],
+        size_measure: M_SPAN_PROBE,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_version_span", &[3, 0, 1]);
+            g.call("ff_span_precedence", &[3, 2])
+        },
+    },
+    OpSpec {
+        name: "span_contains",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        covers: &["Span::contains"],
+        size_measure: M_SPAN_PROBE,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            prep(g, "ff_version_span", &[3, 0, 1]);
+            g.call("ff_span_contains", &[3, 2])
+        },
+    },
+    OpSpec {
         name: "span_encode",
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Span::encode"],
@@ -1134,7 +1161,10 @@ pub const ROSTER: &[OpSpec] = &[
             Operand::Version,
             Operand::Version,
         ]),
-        covers: &["Span | Span (BitOr, owned and borrowed — the containment join)"],
+        covers: &[
+            "Span + Span (Add, owned and borrowed — the containment join)",
+            "Span::union",
+        ],
         size_measure: M_SPAN_PAIR,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1154,7 +1184,10 @@ pub const ROSTER: &[OpSpec] = &[
             Operand::Version,
             Operand::Version,
         ]),
-        covers: &["Span & Span (BitAnd, owned and borrowed — the containment meet)"],
+        covers: &[
+            "Span * Span (Mul, owned and borrowed — the containment meet)",
+            "Span::intersect",
+        ],
         size_measure: M_SPAN_PAIR,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1169,14 +1202,17 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
-        name: "span_sum",
+        name: "span_join",
         inputs: Inputs::Packed(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
             Operand::Version,
         ]),
-        covers: &["Span + Span (Add, owned and borrowed — the pointwise join)"],
+        covers: &[
+            "Span | Span (BitOr, owned and borrowed — the pointwise join)",
+            "Span::join",
+        ],
         size_measure: M_SPAN_PAIR,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1185,18 +1221,21 @@ pub const ROSTER: &[OpSpec] = &[
             load_version(g, 3, &inputs[3]);
             prep(g, "ff_version_span", &[4, 0, 1]);
             prep(g, "ff_version_span", &[5, 2, 3]);
-            g.call("ff_span_sum", &[6, 4, 5])
+            g.call("ff_span_join", &[6, 4, 5])
         },
     },
     OpSpec {
-        name: "span_product",
+        name: "span_meet",
         inputs: Inputs::Packed(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
             Operand::Version,
         ]),
-        covers: &["Span * Span (Mul, owned and borrowed — the pointwise meet)"],
+        covers: &[
+            "Span & Span (BitAnd, owned and borrowed — the pointwise meet)",
+            "Span::meet",
+        ],
         size_measure: M_SPAN_PAIR,
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1205,7 +1244,7 @@ pub const ROSTER: &[OpSpec] = &[
             load_version(g, 3, &inputs[3]);
             prep(g, "ff_version_span", &[4, 0, 1]);
             prep(g, "ff_version_span", &[5, 2, 3]);
-            g.call("ff_span_product", &[6, 4, 5])
+            g.call("ff_span_meet", &[6, 4, 5])
         },
     },
     OpSpec {
@@ -1237,29 +1276,29 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
-        name: "span_sum_all",
+        name: "span_join_all",
         inputs: Inputs::VersionSlice,
-        covers: &["Span::sum_all"],
+        covers: &["Span::join_all"],
         size_measure: M_SPAN_FOLD,
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             for i in 0..n {
                 prep(g, "ff_version_span", &[n + i, i, (i + 1) % n]);
             }
-            g.call("ff_span_sum_all", &[2 * n, n, n])
+            g.call("ff_span_join_all", &[2 * n, n, n])
         },
     },
     OpSpec {
-        name: "span_product_all",
+        name: "span_meet_all",
         inputs: Inputs::VersionSlice,
-        covers: &["Span::product_all"],
+        covers: &["Span::meet_all"],
         size_measure: M_SPAN_FOLD,
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             for i in 0..n {
                 prep(g, "ff_version_span", &[n + i, i, (i + 1) % n]);
             }
-            g.call("ff_span_product_all", &[2 * n, n, n])
+            g.call("ff_span_meet_all", &[2 * n, n, n])
         },
     },
     OpSpec {
@@ -1267,6 +1306,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Party]),
         covers: &[
             "&Span / &Party (Div — the lazy span projection view)",
+            "Span::project",
             "OwnSpan::to_span",
             "From<OwnSpan> for Span (explicit materialization)",
         ],
@@ -1318,6 +1358,44 @@ pub const ROSTER: &[OpSpec] = &[
             load_version(g, 3, &inputs[3]);
             prep(g, "ff_version_span", &[4, 0, 1]);
             g.call("ff_own_span_dominance", &[4, 2, 3])
+        },
+    },
+    OpSpec {
+        name: "own_span_precedence",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Party,
+            Operand::Version,
+        ]),
+        covers: &["OwnSpan::precedence"],
+        size_measure: M_OWN_SPAN_PROBE,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_party(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_version_span", &[4, 0, 1]);
+            g.call("ff_own_span_precedence", &[4, 2, 3])
+        },
+    },
+    OpSpec {
+        name: "own_span_contains",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Party,
+            Operand::Version,
+        ]),
+        covers: &["OwnSpan::contains"],
+        size_measure: M_OWN_SPAN_PROBE,
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_party(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_version_span", &[4, 0, 1]);
+            g.call("ff_own_span_contains", &[4, 2, 3])
         },
     },
     // ─────────────────────────── Causal queries ───────────────────────────
@@ -1620,6 +1698,67 @@ pub const ROSTER: &[OpSpec] = &[
             g.call("ff_query_coverage", &[4, 5])
         },
     },
+    // The conjunction panels: one per costly merge path — the floor
+    // join, the ceiling meet, and the hole re-admission's
+    // comparison-driven pruning against the merged bounds and the
+    // cross-side holes. The operands are built in unmeasured
+    // preparation; the measured call is the `&` merge itself.
+    OpSpec {
+        name: "query_conjoin_floors",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally & conjunction (atoms and queries, every admitted pairing)"],
+        size_measure: "total packed bytes of the two floor bounds, split uniform \
+             (each composed in unmeasured preparation as after(f) & all(); \
+             the measured merge joins the floors — one version join walk)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            prep(g, "ff_query_floor", &[2, 0]);
+            prep(g, "ff_query_floor", &[3, 1]);
+            g.call("ff_query_conjoin", &[4, 2, 3])
+        },
+    },
+    OpSpec {
+        name: "query_conjoin_ceilings",
+        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        covers: &["causally & conjunction (atoms and queries, every admitted pairing)"],
+        size_measure: "total packed bytes of the two ceiling bounds, split \
+             uniform (each composed in unmeasured preparation as before(c) & \
+             all(); the measured merge meets the ceilings — one version meet \
+             walk, the order dual of query_conjoin_floors)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            prep(g, "ff_query_ceiling", &[2, 0]);
+            prep(g, "ff_query_ceiling", &[3, 1]);
+            g.call("ff_query_conjoin", &[4, 2, 3])
+        },
+    },
+    OpSpec {
+        name: "query_conjoin_bounded_holes",
+        inputs: Inputs::Packed(&[
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+            Operand::Version,
+        ]),
+        covers: &["causally & conjunction (atoms and queries, every admitted pairing)"],
+        size_measure: "total packed bytes of the two strict-lower bounds and the \
+             two ceilings, split uniform four ways (each operand composed in \
+             unmeasured preparation as strictly_after(a) & before(c) — \
+             floor, ceiling, and the hole at the floor; the measured merge \
+             joins the floors, meets the ceilings, and re-admits both holes \
+             against the merged bounds and the cross-side pruning probes)",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_version(g, 3, &inputs[3]);
+            prep(g, "ff_query_floor_ceiling_hole", &[4, 0, 1]);
+            prep(g, "ff_query_floor_ceiling_hole", &[5, 2, 3]);
+            g.call("ff_query_conjoin", &[6, 4, 5])
+        },
+    },
 ];
 
 /// The coverage roster rows deliberately without a panel, each with its
@@ -1708,6 +1847,17 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          clock's own parts (the version_ticks panel prices it)",
     ),
     (
+        "Clock::absorb",
+        "the version-join walk entered through the clock's version (the named \
+         spelling of the heterogeneous-join family); the version_join panel \
+         prices the walk",
+    ),
+    (
+        "Clock::absorb_all",
+        "the balanced join fold entered through the clock's version; the \
+         version_join_all panel prices the mechanism",
+    ),
+    (
         "Party::encode_to",
         "the encode walk with a writer sink; the party_encode panel prices the walk",
     ),
@@ -1723,6 +1873,16 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "Version Sum / FromIterator (owned and borrowed)",
         "the balanced join fold entered without a receiver; the version_join_all \
          panel prices the mechanism",
+    ),
+    (
+        "Span Sum / FromIterator (owned and borrowed — the union fold)",
+        "the balanced union fold entered without a receiver; the span_union_all \
+         panel prices the mechanism",
+    ),
+    (
+        "Span Product (owned and borrowed — the intersection fold)",
+        "the balanced intersection fold entered without a receiver; the \
+         span_intersect_all panel prices the mechanism",
     ),
     (
         "Clock | Version and Version | Clock (heterogeneous joins, |=)",
@@ -1743,9 +1903,15 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          clock_forks panels price",
     ),
     (
-        "Ranked::to_rank",
+        "Ranked::rank",
         "the identical rank walk as Version::rank, entered from the view (the \
          version_rank panel prices it)",
+    ),
+    (
+        "Rank::saturating_sub",
+        "the identical ordering pre-check and subtraction as Rank::checked_sub, \
+         the nonexistent difference floored at ZERO; the rank_checked_sub panel \
+         prices it",
     ),
     (
         "Rank::encode_to",
@@ -1761,6 +1927,11 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "Ranked::encode_rank_to",
         "the identical fused rank walk and emission with a writer sink; the \
          ranked_encode_rank panel prices it",
+    ),
+    (
+        "Version::encode_rank_to",
+        "the identical fused rank walk and emission with a writer sink, entered \
+         from the version; the ranked_encode_rank panel prices it",
     ),
     (
         "Span::encode_to",
@@ -1856,15 +2027,19 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "one refcount bump per borrowed bound: no walk, no byte copy",
     ),
     (
+        "causally ! complement (atom negation into the polar hole)",
+        "O(1) hole mint over the atom's bound: no comparison, no walk",
+    ),
+    (
+        "From into Query (atoms, spans, versions, borrowed queries)",
+        "O(1) constructions through the cross-side merge (no comparison, no \
+         walk); the membership panels price the walks the queries feed",
+    ),
+    (
         "Span::new",
         "validating constructor: the check is literally one Version PartialOrd \
          call (the version_cmp panel's measured operation) around an O(1) \
          construction, so a panel would re-measure version_cmp under another name",
-    ),
-    (
-        "Span::new_unchecked",
-        "O(1) span constructor over two borrowed versions (the trusted \
-         door performs no comparison)",
     ),
     (
         "Span::at",

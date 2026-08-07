@@ -273,6 +273,30 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the delegation"),
     },
     SurfaceRow {
+        op: "Version::encode_rank",
+        prod_tree: Leg::Excluded(
+            "the identical fused rank-only emission as Ranked::encode_rank, \
+             entered from the version; its doctest pins the emission back to \
+             Version::rank through strict Rank::decode",
+        ),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; see the Ranked::encode_rank row",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
+        op: "Version::encode_rank_to",
+        prod_tree: Leg::Excluded(
+            "the identical fused rank-only emission as the view's writer-sink \
+             door, entered from the version; its doctest pins byte identity \
+             with Rank::encode over the materialized rank",
+        ),
+        prod_fs: Leg::Excluded(
+            "a function has no byte representation; see the Ranked::encode_rank row",
+        ),
+        tree_fs: Leg::Excluded("neither reference has a wire format"),
+    },
+    SurfaceRow {
         op: "Version::distance",
         prod_tree: Leg::Bound("distance_and_lag_realize_both_oracles"),
         prod_fs: Leg::Bound("distance_and_lag_realize_both_oracles"),
@@ -337,6 +361,12 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
              {self} ∪ others; the law pins the endpoints byte-identical to them",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
+    },
+    SurfaceRow {
+        op: "Version::project",
+        prod_tree: Leg::Trans("project_is_the_operator_spelling"),
+        prod_fs: Leg::Trans("project_is_the_operator_spelling"),
+        tree_fs: Leg::Trans("project_is_the_operator_spelling"),
     },
     codec_row("Version::encode"),
     codec_row("Version::encode_to"),
@@ -423,10 +453,22 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
     SurfaceRow {
+        op: "Clock::absorb",
+        prod_tree: Leg::Trans("absorb_is_the_anonymous_join"),
+        prod_fs: Leg::Trans("absorb_is_the_anonymous_join"),
+        tree_fs: Leg::Trans("absorb_is_the_anonymous_join"),
+    },
+    SurfaceRow {
         op: "Clock::recv_all",
         prod_tree: Leg::Trans("recv_all_is_joins_then_tick"),
         prod_fs: Leg::Trans("recv_all_is_joins_then_tick"),
         tree_fs: Leg::Trans("recv_all_is_joins_then_tick"),
+    },
+    SurfaceRow {
+        op: "Clock::absorb_all",
+        prod_tree: Leg::Trans("absorb_all_is_the_sequential_joins"),
+        prod_fs: Leg::Trans("absorb_all_is_the_sequential_joins"),
+        tree_fs: Leg::Trans("absorb_all_is_the_sequential_joins"),
     },
     SurfaceRow {
         op: "Clock::from_parts",
@@ -492,6 +534,19 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         ),
     },
     SurfaceRow {
+        op: "Rank::saturating_sub",
+        prod_tree: Leg::Law("rank_saturating_sub_is_checked_sub_floored"),
+        prod_fs: Leg::Excluded(
+            "Rank is not a paper object; the rank quantity itself is bound on all \
+             three legs at Version::rank, and Rank's order/arithmetic to the in-test \
+             alignment oracle",
+        ),
+        tree_fs: Leg::Excluded(
+            "Rank is not a paper object; see the Version::rank row and the alignment \
+             oracle",
+        ),
+    },
+    SurfaceRow {
         op: "Rank::encode",
         prod_tree: Leg::Excluded(
             "Rank is not a paper object and no wire form exists in the oracle; the \
@@ -539,7 +594,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("accessor over the rank view; law-pinned"),
     },
     SurfaceRow {
-        op: "Ranked::to_rank",
+        op: "Ranked::rank",
         prod_tree: Leg::Law("ranked_carries_own_rank"),
         prod_fs: Leg::Excluded(
             "definitional delegation to Version::rank, which is bound on all three \
@@ -629,7 +684,6 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     causally_row("causally::Query::coverage"),
     causally_row("causally::Query::into_owned"),
     span_row("Span::new"),
-    span_row("Span::new_unchecked"),
     SurfaceRow {
         op: "Span::at",
         prod_tree: Leg::Law("at_is_the_coincident_hull"),
@@ -683,15 +737,15 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         op: "Span::union",
         prod_tree: Leg::Law("span_union_is_the_containment_join"),
         prod_fs: Leg::Excluded(
-            "the method spelling of the `|` operator; the law pins it to the operator across every operand cell",
+            "the method spelling of the `+` operator; the law pins it to the operator across every operand cell",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the spelling"),
     },
     SurfaceRow {
-        op: "Span::intersection",
+        op: "Span::intersect",
         prod_tree: Leg::Law("span_intersect_is_the_shared_segment"),
         prod_fs: Leg::Excluded(
-            "the method spelling of the `&` operator; the law pins it to the operator across every operand cell",
+            "the method spelling of the `*` operator; the law pins it to the operator across every operand cell",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the spelling"),
     },
@@ -712,7 +766,23 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the fold"),
     },
     SurfaceRow {
-        op: "Span::sum_all",
+        op: "Span::join",
+        prod_tree: Leg::Law("span_join_is_the_pointwise_join"),
+        prod_fs: Leg::Excluded(
+            "the method spelling of the `|` operator; the law pins it to the operator across every operand cell",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the spelling"),
+    },
+    SurfaceRow {
+        op: "Span::meet",
+        prod_tree: Leg::Law("span_meet_is_the_pointwise_meet"),
+        prod_fs: Leg::Excluded(
+            "the method spelling of the `&` operator; the law pins it to the operator across every operand cell",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the spelling"),
+    },
+    SurfaceRow {
+        op: "Span::join_all",
         prod_tree: Leg::Law("span_folds_match_the_sequential_operators"),
         prod_fs: Leg::Excluded(
             "definitionally the binary pointwise join folded over {self} ∪ others; the law pins the door to the bound operator at every arity",
@@ -720,12 +790,18 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the fold"),
     },
     SurfaceRow {
-        op: "Span::product_all",
+        op: "Span::meet_all",
         prod_tree: Leg::Law("span_folds_match_the_sequential_operators"),
         prod_fs: Leg::Excluded(
             "definitionally the binary pointwise meet folded over {self} ∪ others; the law pins the door to the bound operator at every arity",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the fold"),
+    },
+    SurfaceRow {
+        op: "Span::project",
+        prod_tree: Leg::Trans("span_project_is_the_operator_spelling"),
+        prod_fs: Leg::Trans("span_project_is_the_operator_spelling"),
+        tree_fs: Leg::Trans("span_project_is_the_operator_spelling"),
     },
     SurfaceRow {
         op: "OwnSpan::lo",
@@ -863,7 +939,7 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("see the prod↔fs reason; the matrix test pins the delegation"),
     },
     SurfaceRow {
-        op: "Span | Span (BitOr, owned and borrowed — the containment join)",
+        op: "Span + Span (Add, owned and borrowed — the containment join)",
         prod_tree: Leg::Law("span_union_is_the_containment_join"),
         prod_fs: Leg::Excluded(
             "definitionally the bound meet/join over the corresponding endpoints; the law pins the endpoints, every operand cell, and coverage of both operands",
@@ -871,7 +947,7 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
     },
     SurfaceRow {
-        op: "Span & Span (BitAnd, owned and borrowed — the containment meet)",
+        op: "Span * Span (Mul, owned and borrowed — the containment meet)",
         prod_tree: Leg::Law("span_intersect_is_the_shared_segment"),
         prod_fs: Leg::Excluded(
             "definitionally the bound join/meet over the corresponding endpoints, validated once; the law pins the endpoints, the None verdict, every operand cell, absorption, and shared-membership coherence",
@@ -879,20 +955,36 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
     },
     SurfaceRow {
-        op: "Span + Span (Add, owned and borrowed — the pointwise join)",
-        prod_tree: Leg::Law("span_sum_is_the_pointwise_join"),
+        op: "Span | Span (BitOr, owned and borrowed — the pointwise join)",
+        prod_tree: Leg::Law("span_join_is_the_pointwise_join"),
         prod_fs: Leg::Excluded(
             "definitionally the bound join over both endpoint pairs; the law pins the endpoints, every operand cell, the identity, and the restriction to the version join on coincident operands",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
     },
     SurfaceRow {
-        op: "Span * Span (Mul, owned and borrowed — the pointwise meet)",
-        prod_tree: Leg::Law("span_product_is_the_pointwise_meet"),
+        op: "Span & Span (BitAnd, owned and borrowed — the pointwise meet)",
+        prod_tree: Leg::Law("span_meet_is_the_pointwise_meet"),
         prod_fs: Leg::Excluded(
             "definitionally the bound meet over both endpoint pairs; the law pins the endpoints, every operand cell, pointwise absorption, and the restriction to the version meet on coincident operands",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the endpoints"),
+    },
+    SurfaceRow {
+        op: "Span Sum / FromIterator (owned and borrowed — the union fold)",
+        prod_tree: Leg::Law("span_sum_and_collect_are_the_union_fold"),
+        prod_fs: Leg::Excluded(
+            "definitionally the receiver-less entry to the union fold; the law pins both collection doors to Span::union_all and the empty iterator to None",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the doors"),
+    },
+    SurfaceRow {
+        op: "Span Product (owned and borrowed — the intersection fold)",
+        prod_tree: Leg::Law("span_product_is_the_intersect_fold"),
+        prod_fs: Leg::Excluded(
+            "definitionally the receiver-less entry to the intersection fold; the law pins the door to Span::intersect_all and the empty iterator to None",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the door"),
     },
     SurfaceRow {
         op: "&Span / &Party (Div — the lazy span projection view)",
@@ -1041,9 +1133,33 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
             "every cell is the rank comparison — whose quantity is bound on all three \
              legs at Version::rank — completed on rank ties by the canonical-byte \
              tiebreak; the law pins the fused walk, the version-identity equality, \
-             and the explicit to_rank spelling of the rank question to it",
+             and the explicit Ranked::rank spelling of the rank question to it",
         ),
         tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the delegation"),
+    },
+    SurfaceRow {
+        op: "causally & conjunction (atoms and queries, every admitted pairing)",
+        prod_tree: Leg::Law("conjunction_is_intersection"),
+        prod_fs: Leg::Excluded(
+            "semantically predicate intersection over the bound causal order; the law pins every polarity pairing pointwise, and conjunction_operand_forms_agree pins each typed merge path to the same predicate",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the laws pin the merge"),
+    },
+    SurfaceRow {
+        op: "causally ! complement (atom negation into the polar hole)",
+        prod_tree: Leg::Law("atom_membership_matches_relations"),
+        prod_fs: Leg::Excluded(
+            "O(1) hole mint over the atom's bound; the law's complement clause pins membership to the negated relation",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the complement"),
+    },
+    SurfaceRow {
+        op: "From into Query (atoms, spans, versions, borrowed queries)",
+        prod_tree: Leg::Law("conjunction_operand_forms_agree"),
+        prod_fs: Leg::Excluded(
+            "O(1) constructions through the cross-side merge (no comparison, no walk); the law pins the composed membership",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the composition"),
     },
     SurfaceRow {
         op: "unbounded depth (beyond the differential grids)",

@@ -538,7 +538,7 @@ fn mul_bound_pair_embedding_is_alive() {
 /// their own fused entry points — distinct doors from
 /// `Version::rank`'s, which [`mul_bound_embedding_is_alive`] pins — so
 /// the embedding family must reproduce through them directly, not by
-/// composing the committed `encode_rank == to_rank().encode()` law
+/// composing the committed `encode_rank == rank().encode()` law
 /// (whose sampled generators do not reach this family) with rank's
 /// pin.
 ///

@@ -334,8 +334,8 @@ fn harmonic_decodes_canonically_at_predicted_length_and_rank() {
     assert_eq!(gap.to_string(), format!("1/2^{d}"));
 }
 
-/// The alternating-binary spine `A(d)` is canonical normal form at exactly `4d
-/// + 4` bits, with the internal child changing sides every level.
+/// The alternating-binary spine `A(d)` is canonical normal form at exactly
+/// `4d + 4` bits, with the internal child changing sides every level.
 ///
 /// The direction alternation is pinned via the paper notation on a
 /// hand-checkable depth: left at the root (even), right one level down (odd).
@@ -1105,8 +1105,9 @@ fn min_lift_text(vals: &[UBig], parent_min: &UBig) -> String {
 
 /// `freeze_parade(k)` is canonical normal form at exactly `1546k − 2` bits.
 ///
-/// Its `min_ticks` is exactly the printed-base sum in closed form — `(64k − 1)
-/// + 2^band + k·2^288 + (k/2)·log2(k)·(2^288 + 1) − (k − 1)(2^288 + 1) − 2^288`
+/// Its `min_ticks` is exactly the printed-base sum in closed form —
+/// `(64k − 1) + 2^band + k·2^288 + (k/2)·log2(k)·(2^288 + 1) −
+/// (k − 1)(2^288 + 1) − 2^288`
 /// for `band = 290 + bitlen(k)`: the spine's unit leaves, then the block's `k`
 /// left-leaf wide drops, its internal left children's half-minima differences
 /// (`k/2` per level, each level's difference doubling from the pair stride),
