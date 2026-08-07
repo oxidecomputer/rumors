@@ -117,8 +117,8 @@ fn domination_decision_index_is_tight_at_floor_plus_two() {
 }
 
 /// A decided domination verdict covers a maximally redundant
-/// *accumulator* operand held in digits `0..=floor` — the contract
-/// clause scale-disparate comparisons lean on, and the one leg the
+/// *accumulator* operand held in digits `0..=floor` — the clause
+/// scale-disparate comparisons lean on, and the one leg the
 /// differential proptests cannot reach.
 ///
 /// A caller comparing accumulators reads

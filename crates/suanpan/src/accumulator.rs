@@ -76,15 +76,14 @@ const QUICK_SHIFT_MAX: u64 = 30;
 ///
 /// # Complexity
 ///
-/// `Clone` and `Debug` `O(b)`, `b` the digit buffer (the highest
-/// position ever written); `Default` `O(1)`.
-/// The costs of the operations live on the operations (the crate docs'
-/// table is the overview); what is priced here is the derived surface.
-/// `Clone` and `Debug` walk the digit buffer, which covers the highest
-/// position ever written since construction and never shrinks — after a
-/// wide interlude collapses to a narrow value, a clone still pays the
-/// old width (a [`reset`](Accumulator::reset) does not release it
-/// either; only dropping the accumulator does).
+/// Priced here is only the derived surface; each operation's cost lives
+/// on the operation, and the crate docs' table is the overview.
+/// `Default` is `O(1)`. `Clone` and `Debug` are `O(b)`, `b` the digit
+/// buffer: it covers the highest position ever written since
+/// construction and never shrinks — after a wide interlude collapses to
+/// a narrow value, a clone still pays the old width (a
+/// [`reset`](Accumulator::reset) does not release it either; only
+/// dropping the accumulator does).
 #[derive(Debug, Clone)]
 pub struct Accumulator {
     /// The quick register: `Some(v)` means the held value is exactly
@@ -591,6 +590,13 @@ impl Accumulator {
     /// scoped totals re-arms one cleared accumulator instead of
     /// allocating per scope.
     ///
+    /// A reset **scans**: it zeroes every held digit to keep the
+    /// allocation. Replacing the accumulator with a fresh
+    /// [`new`](Accumulator::new) is O(1) and drops the buffer instead.
+    /// Choose by what happens next: reset wins when the capacity will
+    /// be spilled into again, replacement when a wide buffer has served
+    /// its purpose and the allocation is not worth carrying.
+    ///
     /// # Complexity
     ///
     /// `O(|self|)` digit touches.
@@ -976,10 +982,16 @@ impl Accumulator {
     /// lands in whichever buffer held more (buffers are swapped first
     /// when `other` is the wider; on a tie, `other` is the one read and
     /// `self`'s buffer keeps the sum), so the digits a dying operand
-    /// holds fund the fold that consumes it. The returned buffer is for the caller's pool: a
-    /// valid accumulator holding an unspecified value — every operation
-    /// on it remains memory-safe, but answers about that value are
-    /// meaningless until [`reset`](Accumulator::reset).
+    /// holds fund the fold that consumes it. *Amortized* is the write
+    /// bound's usual accounting: a merge whose operands nearly cancel
+    /// zeroes the receiver's top digits, and the settlement scan that
+    /// re-finds the top spends credits prepaid by the writes that built
+    /// those digits (the crate docs' zero-run ledger argument) — no
+    /// merge schedule pays more than the narrower operand plus that
+    /// prepaid settlement. The returned buffer is for the caller's
+    /// pool: a valid accumulator holding an unspecified value — every
+    /// operation on it remains memory-safe, but answers about that
+    /// value are meaningless until [`reset`](Accumulator::reset).
     ///
     /// ```
     /// use suanpan::{Accumulator, UBig};
