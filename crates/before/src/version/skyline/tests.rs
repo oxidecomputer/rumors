@@ -462,11 +462,10 @@ fn exhaustive_small_scope_agrees_and_is_injective() {
     for t in &pool {
         let v = from_oracle_version(t);
         assert_agreement(&v);
-        let enc = super::encode(&v);
-        // Key on padded bytes plus the live length: distinct versions must
-        // differ somewhere a decoder can see.
-        let mut key = enc.as_raw_slice().to_vec();
-        key.extend_from_slice(&enc.len().to_le_bytes());
+        // Key on the stored bytes alone: marker padding makes them
+        // injective, so distinct versions must differ somewhere a
+        // decoder can see.
+        let key = v.as_bytes().to_vec();
         assert!(
             seen.insert(key),
             "two distinct versions encoded to one skyline stream: {v}"

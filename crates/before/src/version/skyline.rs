@@ -201,7 +201,9 @@ pub(crate) use validate::validate_from;
 #[cfg(any(test, feature = "meter"))]
 pub fn encode(version: &Version) -> BitsMut {
     let mut bits = version.as_bits().to_bitvec();
-    codec::zero_dead_bits(&mut bits);
+    // Live bits only — no padding: consumers walk these as a stream. The
+    // dead tail is zeroed so the buffer reads deterministically anyway.
+    bits.set_uninitialized(false);
     bits
 }
 

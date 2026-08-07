@@ -13,11 +13,11 @@ version frame: 29 bytes
   0000: 00 00 00 19 00 00 00 00
   0008: 00 00 00 00 00 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 c0
+  0018: 00 00 00 00 e0
 listing frame: 8 bytes
   0000: 00 00 00 04 00 00 00 00
 trailing frame: 6 bytes
-  0000: 00 00 00 01 40 2e
+  0000: 00 00 00 01 48 2e
 
 direction B -> A
 preamble: 25 bytes
@@ -30,7 +30,7 @@ version frame: 29 bytes
   0000: 00 00 00 19 00 00 00 00
   0008: 00 00 00 00 00 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 c0
+  0018: 00 00 00 00 e0
 listing frame: 8 bytes
   0000: 00 00 00 04 00 00 00 00
 trailing frame: 1 bytes

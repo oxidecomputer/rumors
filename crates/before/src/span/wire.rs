@@ -128,23 +128,28 @@ impl<'a> Span<'a> {
         // The pair verdict is pronounced last, after the padding check, so a
         // composite defective several ways rejects by its structural genre
         // first, exactly as decoding the components would.
-        let (lo_end, lo_bytes, hi_end, admission) = {
+        let (lo_bytes, admission) = {
             let bits = codec::bytes_as_bits(&buf);
             let lo_end = skyline::validate_prefix(bits)?;
-            let lo_bytes = lo_end.div_ceil(8);
-            codec::require_zero_padding(&bits[..8 * lo_bytes], lo_end)?;
+            // The meet's padding marker rides in its final byte — which
+            // an input truncated right after a flush stream lacks.
+            let lo_bytes = (lo_end + 1).div_ceil(8);
+            if 8 * lo_bytes > bits.len() {
+                return Err(Decode::TrailingBits);
+            }
+            codec::require_marker_padding(&bits[..8 * lo_bytes], lo_end)?;
             let tail = &bits[8 * lo_bytes..];
             let mut cursor = codec::DsiCursor::new(tail);
             let admission = skyline::validate_dominating_from(&bits[..lo_end], &mut cursor)?;
             let hi_end = codec::BitCursor::position(&cursor);
-            codec::require_zero_padding(tail, hi_end)?;
+            codec::require_marker_padding(tail, hi_end)?;
             if admission == skyline::Admission::Refuted {
                 return Err(Decode::NotCanonical);
             }
-            (lo_end, lo_bytes, hi_end, admission)
+            (lo_bytes, admission)
         };
         let buf = bytes::Bytes::from(buf);
-        let lo = Version::from_frozen(codec::Bits::from_canonical(buf.slice(..lo_bytes), lo_end));
+        let lo = Version::from_frozen(codec::Bits::from_canonical(buf.slice(..lo_bytes)));
         let hi = match admission {
             // The coincident span stores one buffer twice: the admission walk
             // proved the second stream byte-equal to the first, so the join is
@@ -152,7 +157,7 @@ impl<'a> Span<'a> {
             // then recognize.
             skyline::Admission::Equal => lo.clone(),
             skyline::Admission::Dominates => {
-                Version::from_frozen(codec::Bits::from_canonical(buf.slice(lo_bytes..), hi_end))
+                Version::from_frozen(codec::Bits::from_canonical(buf.slice(lo_bytes..)))
             }
             skyline::Admission::Refuted => unreachable!("refuted admissions rejected above"),
         };

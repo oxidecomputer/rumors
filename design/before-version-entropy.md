@@ -108,9 +108,10 @@ Canonical form, enforced bit-exactly by
 3. **Exactness**: exactly one complete tree, no trailing bits.
 
 Byte level (`Version::decode` in `version.rs` +
-`codec/bits.rs::require_zero_padding`): the stream is zero-padded to a
-byte boundary, and decode rejects both nonzero padding and any whole
-spurious zero byte, so byte strings biject with canonical streams.
+`codec/bits.rs::require_marker_padding`): the stream is marker-padded
+to a byte boundary (one `1`, then zeros), and decode rejects a missing
+or malformed marker and any spurious trailing byte, so byte strings
+biject with canonical streams.
 Gamma has one spelling per natural and zigzag is a bijection with no
 negative zero, so no code-level non-canonical spelling exists to
 prune. Canonical streams are unique representations of the step
@@ -118,7 +119,7 @@ function (module doc's uniqueness argument; pinned by the
 byte-uniqueness and exhaustive small-scope injectivity tests). Counting
 canonical streams by exact bit length therefore counts versions:
 `f(n)` below is both. The analysis runs in bits pre-padding; §7 folds
-the ≤ 7 pad bits back in.
+the pad bits (the marker plus up to 7 zeros) back in.
 
 ## 3. Four nested counting models
 
@@ -377,12 +378,14 @@ delta/omega cover ~2³² more versions in the same worst-case budget.
 The covered sets are incomparable (§1), so this is a statement about
 counts, not about any particular version's cost — §8.
 
-**Bytes.** Stored size is `⌈n/8⌉` bytes with the pad enforced
-canonical, so a `B`-byte budget covers exactly the streams with
-`n ≤ 8B`: the byte-denominated comparison is the table at `n = 8B`
-(rows chosen accordingly), and byte-quantizing both sides shifts the
-gamma 100 B ratio from 1.067 to `100/94 = 1.064` — under half a
-percent, in the code's favor.
+**Bytes.** Stored size is `⌈(n+1)/8⌉` bytes with the pad enforced
+canonical (the marker bit rides in the final byte), so a `B`-byte
+budget covers exactly the streams with `n ≤ 8B − 1`: the
+byte-denominated comparison is the table at `n = 8B − 1` (rows chosen
+accordingly; the one marker bit sits below the table's resolution),
+and byte-quantizing both sides shifts the gamma 100 B ratio from
+1.067 to `100/94 = 1.064` — under half a percent, in the code's
+favor.
 
 **Framing (b) divergence [derived].** For versions with `ℓ` plateaus
 and heights uniform in `[0, 2^w)`: the family counts
@@ -478,8 +481,8 @@ validator. Add to `version/skyline/tests.rs`:
   itself, not just individual accept/reject cases."
 - Optionally, the byte-level twin: all byte strings of length ≤ 2
   through `Version::decode`, accept counts per byte length must equal
-  `[#{n ∈ (0,8]}, #{n ∈ (8,16]}]` from the same table — pinning the
-  padding bijection.
+  `[#{n ∈ (0,7]}, #{n ∈ (7,15]}]` from the same table (the marker
+  claims one bit of the final byte) — pinning the padding bijection.
 
 This is deliberately a *count* pin: any drift in the accept set (a
 lost reject, an over-eager reject) moves a committed integer even if

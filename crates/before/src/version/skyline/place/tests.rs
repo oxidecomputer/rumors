@@ -206,8 +206,9 @@ fn span_walk_places_organic_witnesses() {
     assert_eq!(placed(&b1, &a1, &a3), Placement::Concurrent(Endpoint::Both));
 }
 
-/// Every precedence-walk hook path on an organic witness set: the
-/// end refutation's early bail, the start refutation's drop (the
+/// Every precedence-walk hook path on an organic witness set.
+///
+/// The end refutation's early bail, the start refutation's drop (the
 /// verdict riding the end relation alone), and the exhaustion
 /// confirmations for both surviving directions.
 #[test]

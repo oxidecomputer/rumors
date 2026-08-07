@@ -152,7 +152,7 @@ pub fn party_subtrees(n: usize) -> Vec<(Vec<bool>, bool)> {
 }
 
 /// Pack an unpadded bit stream into canonical stored bytes (MSB-first,
-/// final partial byte zero-padded).
+/// marker-padded to the byte boundary).
 pub fn pack(bits: &[bool]) -> Vec<u8> {
     let mut sink = crate::sample::BitSink::default();
     for &b in bits {

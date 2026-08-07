@@ -111,20 +111,20 @@ pub fn seed_set() -> Vec<Seed> {
     //
     // A running height that dips negative mid-stream: root internal
     // `0`, left leaf `1` with height gamma(0) `1`, right leaf `1` with
-    // delta zigzag(-1) `010`, one zero padding bit — 0b0111_0100.
+    // delta zigzag(-1) `010`, then the padding marker — 0b0111_0101.
     seeds.push(Seed {
         target: "fuzz_decode",
         name: "version_negative_height",
-        bytes: vec![0x74],
+        bytes: vec![0x75],
     });
     // A collapsible sibling pair (zero right delta): root internal `0`,
     // left leaf `1` with height gamma(5) `00110`, right leaf `1` with
-    // delta zigzag(0) `1` — nine live bits, 0b0100_1101 then `1` and
-    // seven zero padding bits.
+    // delta zigzag(0) `1` — nine live bits, 0b0100_1101 then `1`, the
+    // padding marker, and six zeros.
     seeds.push(Seed {
         target: "fuzz_decode",
         name: "version_zero_sibling",
-        bytes: vec![0x4D, 0x80],
+        bytes: vec![0x4D, 0xC0],
     });
     // `y` exists to nest `z`'s party a level deeper; its version stays
     // empty and needs no seed of its own.
@@ -203,13 +203,14 @@ pub fn seed_set() -> Vec<Seed> {
     });
     // A join whose running height dips negative: root internal `0`, left
     // leaf `1` with height gamma(0) `1`, right leaf `1` with delta
-    // zigzag(-1) `010`, one zero padding bit — 0b0111_0100. Not derivable
-    // from the API (no encode produces it); it seeds the one documented
-    // fused/composed genre divergence, the height-dip subsumption.
+    // zigzag(-1) `010`, then the padding marker — 0b0111_0101. Not
+    // derivable from the API (no encode produces it); it seeds the one
+    // documented fused/composed genre divergence, the height-dip
+    // subsumption.
     seeds.push(Seed {
         target: "fuzz_decode_differential",
         name: "span_negative_join",
-        bytes: [Version::new().encode(), vec![0x74]].concat(),
+        bytes: [Version::new().encode(), vec![0x75]].concat(),
     });
     // A complete span followed by a spurious byte: the borsh prefix read
     // accepts and leaves a remainder; the whole-slice decode must reject.

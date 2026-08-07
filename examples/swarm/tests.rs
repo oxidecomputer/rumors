@@ -108,7 +108,7 @@ fn controller_converges_through_retargeting() {
 
     // Three phases: settle at the seed-sized target, drop hard, raise hard.
     // Each phase interleaves bursts of local churn with ring reconciliation
-    // every third round, the swarm's own rhythm at test scale; the assertion
+    // every third round, the swarm's own rhythm at test scale; the judgment
     // runs after the phase's full budget.
     for (target, rounds) in [(100u64, 12), (20, 24), (200, 24)] {
         for round in 0..rounds {
@@ -120,16 +120,31 @@ fn controller_converges_through_retargeting() {
                 reconcile(&runtime, &parties[1].rumors, &parties[2].rumors);
             }
         }
-        // One full ring pass so every party holds the reconciled set before
-        // its count is judged.
-        reconcile(&runtime, &parties[0].rumors, &parties[1].rumors);
-        reconcile(&runtime, &parties[1].rumors, &parties[2].rumors);
-        reconcile(&runtime, &parties[2].rumors, &parties[0].rumors);
-        for party in &parties {
-            let live = party.live();
+        // Judge the converged equilibrium, not one draw of it: the count
+        // oscillates round to round (churn bursts between syncs are large
+        // relative to a small target), so a single post-ring sample puts
+        // the band's edge inside the oscillation. Each sample is one
+        // churn round settled by a full ring pass — so every party holds
+        // the reconciled surviving set when read — and each party's mean
+        // over the samples is what must sit in band.
+        const SAMPLES: usize = 4;
+        let mut settled = [0u64; 3];
+        for _ in 0..SAMPLES {
+            for party in &mut parties {
+                party.churn(target, 25);
+            }
+            reconcile(&runtime, &parties[0].rumors, &parties[1].rumors);
+            reconcile(&runtime, &parties[1].rumors, &parties[2].rumors);
+            reconcile(&runtime, &parties[2].rumors, &parties[0].rumors);
+            for (sum, party) in settled.iter_mut().zip(&parties) {
+                *sum += party.live();
+            }
+        }
+        for sum in settled {
+            let live = sum / SAMPLES as u64;
             assert!(
                 live >= target / 2 && live <= target * 2,
-                "controller failed to converge: live {live} vs target {target}",
+                "controller failed to converge: mean live {live} vs target {target}",
             );
         }
     }

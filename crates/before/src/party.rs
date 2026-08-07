@@ -106,17 +106,17 @@ impl Party {
     /// ```
     pub fn seed() -> Self {
         // The seed id is exactly the 2-bit terminal tag `00` (the whole
-        // interval, owned), so the stored form is one static zero byte:
-        // construction allocates nothing, and every seed shares the one static
-        // buffer. A `static`, not a `const`: a const's promoted allocation has
-        // no guaranteed unique address, and the cross-call sharing claim rests
-        // on one. The codec round-trip and text laws pin the constant against
-        // the parsed form.
-        static SEED_STREAM: &[u8] = &[0x00];
-        Party(codec::Bits::from_canonical(
-            bytes::Bytes::from_static(SEED_STREAM),
-            2,
-        ))
+        // interval, owned), marker-padded to the one static byte
+        // `0b0010_0000`: construction allocates nothing, and every seed
+        // shares the one static buffer. A `static`, not a `const`: a
+        // const's promoted allocation has no guaranteed unique address,
+        // and the cross-call sharing claim rests on one. The codec
+        // round-trip and text laws pin the constant against the parsed
+        // form.
+        static SEED_STREAM: &[u8] = &[0b0010_0000];
+        Party(codec::Bits::from_canonical(bytes::Bytes::from_static(
+            SEED_STREAM,
+        )))
     }
 
     /// Whether this party is equal to [`Party::seed`].
@@ -516,7 +516,8 @@ impl Party {
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its
-    /// byte-boundary padding.
+    /// padding — the marker bit and zero-pad to the byte boundary, so
+    /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
     /// # Complexity
     ///
@@ -556,20 +557,19 @@ impl Party {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        let end = {
+        {
             let bits = codec::bytes_as_bits(&buf);
             let end = codec::parse_id(bits, 0)?;
-            codec::require_zero_padding(bits, end)?;
-            end
-        };
+            codec::require_marker_padding(bits, end)?;
+        }
         // Adopt the read buffer as the result's backing store without
-        // copying: the padding check proved the buffer covers exactly the
-        // live bits' bytes with the dead bits zero — the canonical form
-        // the at-rest container stores. The id grammar has no empty
-        // production (exhausted input rejects as `Truncated` above), so
-        // the parsed id is a nonzero share — the standalone-party
-        // invariant (paper §3: `i ≠ 0`) holds structurally.
-        Ok(Party(codec::Bits::from_canonical(buf.into(), end)))
+        // copying: the padding check proved the buffer is the stream's one
+        // marker-padded spelling — the canonical form the at-rest
+        // container stores. The id grammar has no empty production
+        // (exhausted input rejects as `Truncated` above), so the parsed
+        // id is a nonzero share — the standalone-party invariant (paper
+        // §3: `i ≠ 0`) holds structurally.
+        Ok(Party(codec::Bits::from_canonical(buf.into())))
     }
 
     /// The anonymous (zero) id: the empty bit stream, since a `0` is structural
@@ -629,13 +629,14 @@ impl Party {
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
         debug_assert!(
-            codec::dead_bits_are_zero(&self.0),
-            "non-canonical Party storage: dead bits past the live length must be zero",
+            codec::padding_is_canonical(&self.0),
+            "non-canonical Party storage: the bytes must end in the `1 0*` padding",
         );
         self.0.as_raw_slice()
     }
 
-    /// The packed preorder bit stream (no trailing padding). Internal.
+    /// The packed preorder bit stream, live bits only (the padding stays
+    /// behind the view). Internal.
     pub(crate) fn as_bits(&self) -> &BitsSlice {
         &self.0
     }
@@ -644,10 +645,10 @@ impl Party {
     /// storage. The single build-side gate every built/parsed `Party` passes
     /// through.
     ///
-    /// Callers guarantee normal *tree* form (a nonempty, normalized id); the
-    /// freeze zeroes the dead bits past the live length so the stored bytes are
-    /// canonical — see [`codec::Bits::freeze`] for why a tree op can leave them
-    /// non-zero, and what byte-canonicity underpins.
+    /// Callers guarantee normal *tree* form (a nonempty, normalized id);
+    /// the freeze seals the marker padding so the stored bytes are
+    /// canonical — see [`codec::Bits::freeze`] for why a tree op can leave
+    /// the tail dirty, and what the padding underpins.
     pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
         Party(codec::Bits::freeze(bits))
     }

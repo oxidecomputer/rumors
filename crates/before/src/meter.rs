@@ -80,23 +80,24 @@ use crate::codec::{self, Base, BitsMut};
 
 /// A generator's output: canonical packed bytes plus the exact bit length.
 ///
-/// `bytes` is what `decode` accepts and `encode` reproduces (final partial byte
-/// zero-padded); `bits` is the live bit length before that padding, so tests
-/// can pin the closed-form size of each shape.
+/// `bytes` is what `decode` accepts and `encode` reproduces
+/// (marker-padded to a byte boundary); `bits` is the live bit length
+/// before that padding, so tests can pin the closed-form size of each
+/// shape.
 #[derive(Debug, Clone)]
 pub struct Packed {
-    /// The canonical packed bytes, zero-padded to a byte boundary.
+    /// The canonical packed bytes, marker-padded to a byte boundary.
     pub bytes: Vec<u8>,
-    /// The exact number of live bits in `bytes` before the zero pad.
+    /// The exact number of live bits in `bytes` before the padding.
     pub bits: usize,
 }
 
 impl Packed {
-    /// Canonicalize a built bit stream: zero the dead pad bits and keep the
-    /// live length.
+    /// Canonicalize a built bit stream: seal the marker padding, keeping
+    /// the live length.
     fn from_bits(mut bits: BitsMut) -> Self {
         let len = bits.len();
-        codec::zero_dead_bits(&mut bits);
+        codec::seal_padding(&mut bits);
         Packed {
             bytes: bits.into_vec(),
             bits: len,

@@ -25,15 +25,15 @@ fn seeded<T>() -> Rumors<T> {
 }
 
 /// A second message whose key shares its first byte with message `1`'s in
-/// this staging (keys `8a 44` and `8a fd`, found by search), so the two
+/// this staging (keys `09 a7` and `09 5a`, found by search), so the two
 /// sides dispute one root child.
 ///
 /// The initiator holds both leaves, the
 /// responder — forked between the two sends — only the first.
-const DISPUTED_SIBLING_VALUE: u64 = 33;
+const DISPUTED_SIBLING_VALUE: u64 = 165;
 
 /// First of three consecutive responder ballast values whose keys' first
-/// bytes (`48`, `82`, `c9`) avoid the disputed radix (`8a`) and make the
+/// bytes (`08`, `b6`, `ef`) avoid the disputed radix (`09`) and make the
 /// responder the larger set, so the disputed-subtree holder initiates.
 const BALLAST_FROM: u64 = 100;
 

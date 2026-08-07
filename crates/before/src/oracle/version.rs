@@ -351,10 +351,11 @@ impl Version {
     }
 
     /// The meet (GLB) of every version in `iter`, or [`None`] for an empty
-    /// iterator — the reference for
-    /// [`Version::meet_all`](crate::Version::meet_all), whose differential
-    /// feeds the production door's `{receiver} ∪ items` family here as one
-    /// list.
+    /// iterator.
+    ///
+    /// The reference for [`Version::meet_all`](crate::Version::meet_all),
+    /// whose differential feeds the production door's `{receiver} ∪ items`
+    /// family here as one list.
     ///
     /// The sequential fold of the binary meet; `None` because the
     /// meet-semilattice has no identity (no version dominates all others) —

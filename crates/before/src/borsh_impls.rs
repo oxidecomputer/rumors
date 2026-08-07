@@ -50,7 +50,7 @@ struct ReaderCursor<'a, R> {
     position: usize,
 }
 
-impl<'a, R> ReaderCursor<'a, R> {
+impl<'a, R: Read> ReaderCursor<'a, R> {
     fn new(reader: &'a mut R) -> Self {
         ReaderCursor {
             reader,
@@ -59,10 +59,23 @@ impl<'a, R> ReaderCursor<'a, R> {
         }
     }
 
-    fn finish(self) -> Result<BitsMut, Decode> {
+    fn finish(mut self) -> Result<BitsMut, Decode> {
+        // Consume the tree's padding — one `1` marker, then zeros to the
+        // byte boundary — through the same on-demand reads as the parse:
+        // when the live bits end flush against a byte boundary, the
+        // padding is a whole `1000_0000` byte the parse never pulled, and
+        // leaving it unread would hand its bits to the next borsh field.
+        let end = self.position;
+        if !self.read_bit()? {
+            return Err(Decode::TrailingBits);
+        }
+        while !self.position.is_multiple_of(8) {
+            if self.read_bit()? {
+                return Err(Decode::TrailingBits);
+            }
+        }
         let mut bits = BitsMut::from_vec(self.bytes);
-        codec::require_zero_padding(&bits, self.position)?;
-        bits.truncate(self.position);
+        bits.truncate(end);
         Ok(bits)
     }
 }

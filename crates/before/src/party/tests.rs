@@ -739,8 +739,9 @@ proptest! {
 }
 
 proptest! {
-    /// `as_bytes` returns exactly the canonical `encode` bytes (zero-padded
-    /// tail), over arbitrary non-empty ids — the `id_node`/`extend` build path.
+    /// `as_bytes` returns exactly the canonical `encode` bytes
+    /// (marker-padded tail), over arbitrary non-empty ids — the
+    /// `id_node`/`extend` build path.
     #[test]
     fn as_bytes_matches_encode(op in arb_oracle_party_nonempty()) {
         let p = from_oracle_party(&op);
@@ -764,10 +765,10 @@ proptest! {
     /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
     /// bit-level compare of the live id streams, in both operand orders.
     ///
-    /// The cross-check that the canonical-raw-slice invariant (dead bits zeroed
-    /// at every storage seam) really licenses the byte shortcut over raw bytes
-    /// plus live length. Equal values must also hash equally (`Eq`/`Hash`
-    /// consistency).
+    /// The cross-check that the canonical-padding invariant (the marker
+    /// sealed at every storage seam) really makes the raw bytes
+    /// injective, licensing the byte-compare shortcut. Equal values must
+    /// also hash equally (`Eq`/`Hash` consistency).
     #[test]
     fn byte_equality_matches_bit_equality(
         oa in arb_oracle_party_nonempty(),

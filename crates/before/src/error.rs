@@ -49,9 +49,14 @@ pub enum Decode {
     /// The bit stream ended mid-tree (or mid-integer).
     #[error("unexpected end of input")]
     Truncated,
-    /// Non-padding bits remained after a complete tree, or the padding was
-    /// nonzero.
-    #[error("trailing or nonzero padding bits")]
+    /// The input did not end in a complete tree followed by exactly its
+    /// canonical padding: a `1` marker bit, then zeros to the byte
+    /// boundary.
+    ///
+    /// Nothing less passes (a stream flush against the boundary still
+    /// owes a whole marker byte) and nothing more (no bits after the
+    /// tree beyond one padded byte, however well-formed).
+    #[error("missing or malformed trailing padding")]
     TrailingBits,
     /// The structure is well-formed but not in canonical normal form.
     #[error("input is not canonical")]

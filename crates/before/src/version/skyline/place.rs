@@ -290,10 +290,11 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
 }
 
 /// The precedence face of [`span`]: [`dominance`] mirrored — the
-/// three-way verdict over the probe-at-or-below-bound directions, with
-/// the mirrored earliest bail (a refuted `probe <= hi` returns at the
+/// three-way verdict over the probe-at-or-below-bound directions.
+///
+/// The bail mirrors too: a refuted `probe <= hi` returns at the
 /// refuting interval; a refuted `probe <= lo` stops the start stream's
-/// scan).
+/// scan.
 ///
 /// The same operand contract as [`span`].
 ///

@@ -11,10 +11,11 @@
 //! `version::skyline`'s, built on these primitives.
 //!
 //! At rest, a `Party`/`Version` holds its canonical packed preorder bit
-//! stream (no trailing padding), so bit-equality is semantic equality.
-//! `encode` pads that stream to a byte boundary; each `decode` parses and
+//! stream, marker-padded to a byte boundary (`bits`' docs give the coding),
+//! so the stored bytes are injective on streams — byte equality is semantic
+//! equality — and are exactly what `encode` emits. Each `decode` parses and
 //! *strictly validates* normal form (iteratively — nothing here recurses),
-//! then stores the (canonical) consumed prefix.
+//! then adopts the (canonical) input bytes.
 
 pub(crate) mod base;
 mod bits;
@@ -38,15 +39,15 @@ mod tests;
 pub(crate) use base::limb_meter;
 pub use base::Base;
 pub(crate) use bits::{
-    byte_view, bytes_as_bits, canonical_eq, canonical_hash, dead_bits_are_zero,
-    require_zero_padding, slice_ptr_eq,
+    byte_view, bytes_as_bits, canonical_eq, canonical_hash, padding_is_canonical,
+    require_marker_padding, slice_ptr_eq,
 };
-// Production streams canonicalize at the freeze seam (`Bits::freeze`);
-// the standalone form serves the buffers that stay build-side, all of
-// them meter/test instruments (the generators' packed outputs, the
-// board's defect shapes, the snapshot corpus).
+// Production streams seal at the freeze seam (`Bits::freeze`); the
+// standalone form serves the buffers that stay build-side, all of them
+// meter/test instruments producing decodable bytes (the generators'
+// packed outputs, the board's defect shapes, the snapshot corpus).
 #[cfg(any(test, feature = "meter"))]
-pub(crate) use bits::zero_dead_bits;
+pub(crate) use bits::seal_padding;
 // The storage forms are `pub` (the enclosing module is not), so the
 // meter surface can re-export them for the resource-envelope suite.
 pub use bits::{Bits, BitsMut, BitsSlice};

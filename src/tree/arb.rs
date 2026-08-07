@@ -319,10 +319,10 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
     ///
     /// The precompute below is proportional to this bound, so it directly
     /// prices the fixture. Hashing is deterministic and the winning window
-    /// is attempt 622, so 1024 is exact headroom, not a guess; if hashing
+    /// is attempt 1581, so 2048 is exact headroom, not a guess; if hashing
     /// or the leaf encoding ever changes, the search either finds another
     /// window within the budget or fails loudly here.
-    const ATTEMPTS: usize = 1024;
+    const ATTEMPTS: usize = 2048;
 
     // Paths are functions of (version, payload) and payloads are unit, so a
     // candidate pair is fully determined by where each side's version chain

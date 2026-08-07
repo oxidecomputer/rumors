@@ -106,20 +106,20 @@ impl Version {
     /// assert_eq!(before::Version::new().to_string(), "0");
     /// ```
     pub fn new() -> Self {
-        // The canonical empty version is exactly the 2-bit stream `11` (the
-        // single-leaf topology flag, then gamma(0), the single bit `1` — see
-        // `is_empty`), so the stored form is one static byte: construction
-        // allocates nothing, and every empty version shares the one static
-        // buffer (clone identity holds even across separate `new()` calls). A
-        // `static`, not a `const`: a const's promoted allocation has no
-        // guaranteed unique address, and the cross-call sharing claim rests on
-        // one. The codec round-trip and text laws pin the constant against the
-        // built form.
-        static EMPTY_STREAM: &[u8] = &[0b1100_0000];
-        Version::from_frozen(codec::Bits::from_canonical(
-            bytes::Bytes::from_static(EMPTY_STREAM),
-            2,
-        ))
+        // The canonical empty version is exactly the 2-bit stream `11`
+        // (the single-leaf topology flag, then gamma(0), the single bit
+        // `1` — see `is_empty`), marker-padded to the one static byte
+        // `0b1110_0000`: construction allocates nothing, and every empty
+        // version shares the one static buffer (clone identity holds
+        // even across separate `new()` calls). A `static`, not a
+        // `const`: a const's promoted allocation has no guaranteed
+        // unique address, and the cross-call sharing claim rests on one.
+        // The codec round-trip and text laws pin the constant against
+        // the built form.
+        static EMPTY_STREAM: &[u8] = &[0b1110_0000];
+        Version::from_frozen(codec::Bits::from_canonical(bytes::Bytes::from_static(
+            EMPTY_STREAM,
+        )))
     }
 
     /// Whether this version records no events: equal to [`Version::new`].
@@ -669,8 +669,9 @@ impl Version {
 
     /// The balanced reduction under [`join_all`](Self::join_all) and
     /// [`meet_all`](Self::meet_all) (which seed it with their receiver) and
-    /// the `Sum`/`FromIterator` impls (which feed it the bare iterator): fold
-    /// items that [borrow](Borrow) as [`Version`] through
+    /// the `Sum`/`FromIterator` impls (which feed it the bare iterator).
+    ///
+    /// Folds items that [borrow](Borrow) as [`Version`] through
     /// [`crate::fold::balanced_reduce`] without cloning them on entry.
     ///
     /// Each combiner comes in the two forms ownership demands — `refs` combines
@@ -997,24 +998,23 @@ impl Version {
     pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        let end = {
+        {
             let bits = codec::bytes_as_bits(&buf);
             let end = skyline::validate_prefix(bits)?;
-            codec::require_zero_padding(bits, end)?;
-            end
-        };
-        // Adopt the read buffer as the result's backing store without copying:
-        // the padding check proved the buffer covers exactly the live bits'
-        // bytes with the dead bits zero — the canonical form the at-rest
+            codec::require_marker_padding(bits, end)?;
+        }
+        // Adopt the read buffer as the result's backing store without
+        // copying: the padding check proved the buffer is the stream's one
+        // marker-padded spelling — the canonical form the at-rest
         // container stores.
         Ok(Version::from_frozen(codec::Bits::from_canonical(
             buf.into(),
-            end,
         )))
     }
 
-    /// The exact length in bits of [`encode`](Self::encode) before its zero-pad
-    /// to a byte boundary.
+    /// The exact length in bits of [`encode`](Self::encode) before its
+    /// padding — the marker bit and zero-pad to the byte boundary, so
+    /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
     /// # Complexity
     ///
@@ -1051,8 +1051,8 @@ impl Version {
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
         debug_assert!(
-            codec::dead_bits_are_zero(&self.0),
-            "non-canonical Version storage: dead bits past the live length must be zero",
+            codec::padding_is_canonical(&self.0),
+            "non-canonical Version storage: the bytes must end in the `1 0*` padding",
         );
         self.0.as_raw_slice()
     }
@@ -1071,8 +1071,8 @@ impl Version {
     /// its storage. The single build-side gate every built/parsed `Version`
     /// passes through.
     ///
-    /// Callers guarantee canonical skyline form; the freeze zeroes the dead
-    /// bits past the live length so the stored bytes are canonical (see
+    /// Callers guarantee canonical skyline form; the freeze seals the
+    /// marker padding so the stored bytes are canonical (see
     /// [`codec::Bits::freeze`]).
     pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
         Version(codec::Bits::freeze(bits))
@@ -1163,9 +1163,10 @@ enum Group<B> {
 }
 
 /// One raw input to a receiver-seeded fold ([`Version::join_all`],
-/// [`Version::meet_all`], [`Version::span_all`]): the receiver rides by borrow,
-/// the caller's items in their own form (owned or borrowed through [`Borrow`],
-/// never cloned on entry).
+/// [`Version::meet_all`], [`Version::span_all`]).
+///
+/// The receiver rides by borrow, the caller's items in their own form
+/// (owned or borrowed through [`Borrow`], never cloned on entry).
 enum FoldInput<'r, B> {
     /// The receiver: the guaranteed first element that keeps the fold
     /// total.

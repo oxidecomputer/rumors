@@ -109,21 +109,21 @@ fn party_canonical_forms() {
     assert_snapshot!(party_block(&seed), @"
     display: 1
     bits:    00 (2 bits)
-    bytes:   00
+    bytes:   20
     ");
 
     let half: Party = "(1, 0)".parse().unwrap();
     assert_snapshot!(party_block(&half), @"
     display: (1, 0)
     bits:    1000 (4 bits)
-    bytes:   80
+    bytes:   88
     ");
 
     let deep: Party = "(1, (0, 1))".parse().unwrap();
     assert_snapshot!(party_block(&deep), @"
     display: (1, (0, 1))
     bits:    11000100 (8 bits)
-    bytes:   c4
+    bytes:   c4 80
     ");
 }
 
@@ -138,21 +138,21 @@ fn version_canonical_forms() {
     assert_snapshot!(version_block(&zero), @"
     display: 0
     bits:    11 (2 bits)
-    bytes:   c0
+    bytes:   e0
     ");
 
     let leaf = Version::try_from(5u64).unwrap();
     assert_snapshot!(version_block(&leaf), @"
     display: 5
     bits:    100110 (6 bits)
-    bytes:   98
+    bytes:   9a
     ");
 
     let node: Version = "(1, 0, (0, 1, 0))".parse().unwrap();
     assert_snapshot!(version_block(&node), @"
     display: (1, 0, (0, 1, 0))
     bits:    01010010111010 (14 bits)
-    bytes:   52 e8
+    bytes:   52 ea
     ");
 }
 
@@ -178,7 +178,7 @@ fn clock_canonical_form() {
     display: (1, 1)
     debug:   Clock { party: 1, version: 1 }
     bits:    001010 (6 bits)
-    bytes:   00 a0
+    bytes:   20 a8
     ");
 }
 
@@ -256,11 +256,11 @@ fn error_display_strings() {
         format!("Parse::Anonymous      {}", Parse::Anonymous),
     ]
     .join("\n");
-    assert_snapshot!(block, @r"
+    assert_snapshot!(block, @"
     Overlap               parties are not disjoint
     Crossed               span endpoints cross: the start is not within the end
     Decode::Truncated     unexpected end of input
-    Decode::TrailingBits  trailing or nonzero padding bits
+    Decode::TrailingBits  missing or malformed trailing padding
     Decode::NotCanonical  input is not canonical
     Parse::Syntax         input is not well-formed paper notation
     Parse::NotCanonical   input is not canonical

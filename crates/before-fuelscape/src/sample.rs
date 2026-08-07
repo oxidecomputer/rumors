@@ -69,9 +69,11 @@ impl BitSink {
         self.len == 0
     }
 
-    /// The packed bytes, final partial byte zero-padded (the canonical
-    /// stored form).
-    pub fn into_bytes(self) -> Vec<u8> {
+    /// The packed bytes, sealed behind the canonical padding — one `1`
+    /// marker bit, then zeros to the byte boundary (the canonical
+    /// stored form `decode` accepts).
+    pub fn into_bytes(mut self) -> Vec<u8> {
+        self.push(true);
         self.bytes
     }
 }

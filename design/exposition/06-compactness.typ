@@ -14,9 +14,9 @@ number honest.
 For each $n$, let $cal(F)(n)$ be the family of versions whose
 canonical stream fits in $n$ bits, and let
 $H(n) = log_2 |cal(F)(n)|$. Bits are unpadded throughout, per
-@canonical: the tabulated budgets are byte multiples, so the
-worst-case member pads to nothing, though a typical value carries
-up to seven padding bits that these ratios do not price.
+@canonical: the tabulated budgets are byte multiples, and every
+value carries its padding marker plus up to seven zero bits that
+these ratios do not price.
 _Any_ injective assignment of bit
 strings to the members of $cal(F)(n)$ — ours, or the best
 conceivable replacement, prefix-free or not — must give some member

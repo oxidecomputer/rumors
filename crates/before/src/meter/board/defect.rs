@@ -27,18 +27,27 @@
 use crate::codec::{self, Base};
 use crate::{Party, Version};
 
-/// `bytes` with its last byte dropped.
+/// `bytes` cut short through its live bits.
 ///
-/// A strict prefix of a preorder stream has an open subtree at every position
-/// before its true end, so this is the maximally-deferred
-/// [`Truncated`](crate::error::Decode) defect — discoverable only by parsing to
-/// the cut.
+/// A strict prefix of a preorder stream has an open subtree at every
+/// position before its true end, so this is the maximally-deferred
+/// [`Truncated`](crate::error::Decode) defect — discoverable only by
+/// parsing to the cut. The final byte is pure padding exactly when it is
+/// the whole-byte marker `1000_0000` (the live bits end flush against
+/// the byte boundary); dropping only that byte would leave a *complete*
+/// tree missing its padding — a `TrailingBits` defect, not a cut — so
+/// the cut then takes the last live byte with it.
 pub(super) fn truncated_bytes(bytes: &[u8]) -> Vec<u8> {
+    let cut = if bytes.last() == Some(&0b1000_0000) {
+        2
+    } else {
+        1
+    };
     assert!(
-        bytes.len() >= 2,
-        "a truncation row needs a stream of at least two bytes"
+        bytes.len() > cut,
+        "a truncation row needs a stream with live bits beyond the cut"
     );
-    bytes[..bytes.len() - 1].to_vec()
+    bytes[..bytes.len() - cut].to_vec()
 }
 
 /// `bytes` with a `0xFF` byte appended after the complete valid stream: the
@@ -93,7 +102,7 @@ pub(super) fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
     out.extend_from_bitslice(&bits[leaf..]); // left child: the old leaf verbatim
     out.push(true); // right child: a leaf equal to its sibling
     codec::encode_int(&mut out, &Base::from(0u32)); // zero delta
-    codec::zero_dead_bits(&mut out);
+    codec::seal_padding(&mut out);
     out.into_vec()
 }
 
@@ -118,7 +127,7 @@ pub(super) fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
         out.push(false); // each child a terminal: the collapsible (1, 1)
         out.push(false);
     }
-    codec::zero_dead_bits(&mut out);
+    codec::seal_padding(&mut out);
     out.into_vec()
 }
 

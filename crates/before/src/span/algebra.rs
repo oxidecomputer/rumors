@@ -1,7 +1,9 @@
 //! The span algebra: four binary operators over owned and borrowed [`Span`]
-//! operands, the joins and meets of the two lattice structures spans carry
-//! (the [span module docs](super) place them side by side), each with a
-//! receiver-seeded n-ary door running one balanced two-sided fold. Every door
+//! operands, each with a receiver-seeded n-ary door running one balanced
+//! two-sided fold.
+//!
+//! The operators are the joins and meets of the two lattice structures spans
+//! carry (the [span module docs](super) place them side by side). Every door
 //! folds the inputs' meets into its `lo` leg and their joins into its `hi`
 //! leg; the four doors are exactly the four assignments of the two lattice
 //! directions to the two legs:
@@ -17,9 +19,9 @@
 //! Totality arguments, once: union's `lo` only descends below `a.lo` and its
 //! `hi` only ascends above `a.hi`, so the output pair stays ordered; sum's `hi`
 //! (a join of upper endpoints) bounds both lower endpoints from above, so it
-//! bounds their join, and product dually. Intersect is the one genuinely partial
-//! door: its `lo` ascends while its `hi` descends, and the pair crosses exactly
-//! when the spans share no version.
+//! bounds their join, and product dually. Intersect is the one genuinely
+//! partial door: its `lo` ascends while its `hi` descends, and the pair crosses
+//! exactly when the spans share no version.
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
@@ -559,8 +561,7 @@ macro_rules! span_binop_matrix {
 }
 
 span_binop_matrix! {
-    /// `a | b`: the *union*: the tightest span covering both
-    /// operands.
+    /// `a | b`: the *union*: the tightest span covering both operands.
     ///
     /// # Complexity
     ///
@@ -618,8 +619,8 @@ span_binop_matrix! {
 }
 
 span_binop_matrix! {
-    /// `a + b`: the *pointwise join*: the span of possible joins,
-    /// the version lattice's `|` lifted to spans.
+    /// `a + b`: the *pointwise join*, the version lattice's `|` lifted to
+    /// spans.
     ///
     /// # Complexity
     ///
@@ -644,18 +645,8 @@ span_binop_matrix! {
 }
 
 span_binop_matrix! {
-    /// `a * b` — the *pointwise meet*: the span of possible meets,
-    /// the version lattice's `&` lifted to spans — dually to `+` in
-    /// every clause.
-    ///
-    /// Endpoints are `[meet ∧ meet, join ∧ join]`, total: the lower
-    /// endpoint bounds every operand endpoint from below. On
-    /// coincident spans the operator restricts to the version meet
-    /// exactly, and meet distributes over join — the semiring reading
-    /// behind the symbol pair. The `span_product_is_the_pointwise_meet`
-    /// law in [`laws`](crate::laws) pins the endpoints, the point
-    /// identity, commutativity, idempotence, and the pointwise
-    /// absorption with `+`.
+    /// `a * b`: the *pointwise meet*, the version lattice's `&` lifted to
+    /// spans.
     ///
     /// # Complexity
     ///

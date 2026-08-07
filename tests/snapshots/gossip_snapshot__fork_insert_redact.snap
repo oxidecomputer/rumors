@@ -13,23 +13,23 @@ version frame: 30 bytes
   0000: 00 00 00 1a 02 00 00 00
   0008: 00 00 00 00 02 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 4b 20
+  0018: 00 00 00 00 4b 24
 listing frame: 42 bytes
   0000: 00 00 00 26 02 00 00 00
-  0008: 23 d5 44 50 f1 57 79 5b
-  0010: 10 fd f7 f1 7e b2 94 ad
-  0018: e9 8d 49 10 04 c8 ca 84
-  0020: dd 40 db a9 79 15 cc b9
-  0028: 4b b2
+  0008: 9c 5b 97 e7 f3 a0 78 10
+  0010: e9 13 79 36 df dc 8f a3
+  0018: 0e a0 b7 e9 9b 38 1b a2
+  0020: cb 4d 2f 4f ef 62 4e d0
+  0028: 66 74
 Responder stream 0 (height 31), epoch 0
   frame 0: QueryEmpty(Continue)
     0000: 22
-  frame 1: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a 49 40 03 00 00 00 00
+  frame 1: QueryEmpty(Continue)
+    0000: 22
+  frame 2: Supply(End)
+    0000: 77 00 00 00 0e 00 00 00
+    0008: 0a 49 50 03 00 00 00 00
     0010: 00 00 00
-  frame 2: QueryEmpty(End)
-    0000: 33
   frame 3: End(Stream)
     0000: 99
 trailing frame: 1 bytes
@@ -46,18 +46,18 @@ version frame: 30 bytes
   0000: 00 00 00 1a 02 00 00 00
   0008: 00 00 00 00 02 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 5c a0
+  0018: 00 00 00 00 5c b0
 listing frame: 42 bytes
   0000: 00 00 00 26 02 00 00 00
-  0008: 8a cf 92 a2 8d de 05 81
-  0010: 00 d7 59 f7 07 5d 49 c7
-  0018: ba a8 a1 56 6d de 68 3a
-  0020: 0a b6 6e 5e cc 1a aa f2
-  0028: c2 c0
+  0008: 09 7c a8 b0 7c b2 82 54
+  0010: 10 9e b3 f8 96 75 cd b2
+  0018: 2a 57 8c 3f 01 07 d1 64
+  0020: 5e 45 e3 1c 5c 5b d2 c2
+  0028: c8 4f
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     0000: 77 00 00 00 0e 00 00 00
-    0008: 0a 5d 80 04 00 00 00 00
+    0008: 0a 5d c0 04 00 00 00 00
     0010: 00 00 00
   frame 1: End(Stream)
     0000: 99

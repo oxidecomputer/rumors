@@ -225,8 +225,9 @@ decode boundary:
 + *Exactness.* One complete tree and nothing after it (in a clock,
   the component that follows starts at the next byte boundary).
   Every
-  encoded stream ends on a byte boundary with the final partial
-  byte zero-filled, and the decoder requires exactly that padding.
+  encoded stream ends on a byte boundary behind its padding — one
+  marker bit, then zeros — and the decoder requires exactly that
+  padding.
   Every size in this document is a bit count before the padding.
 
 Parties get the same discipline, with rules matched to their coding:

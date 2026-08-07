@@ -33,7 +33,7 @@
 //! encode row's work before it propagates; the `TryFrom` literal rejections
 //! have word-scale or type-bounded operands; `Rank::checked_sub`'s `None` is
 //! measured on the `rank_pair_ops` row, which attempts both directions; other
-//! decode non-canonicality genres (a negative running height, nonzero padding)
+//! decode non-canonicality genres (a negative running height, malformed padding)
 //! ride
 //! the same single validator pass at the same full-parse cost as the committed
 //! maximally-deferred tails; serde/borsh deserialize errors are the strict
