@@ -84,7 +84,7 @@ use crate::codec::{BitsMut, BitsSlice, Code, Int};
 
 use super::build::SkylineBuilder;
 use super::overlay::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
-use super::signed::{gamma_code_int, gamma_code_signed_int, signed_sum_int};
+use super::signed::{gamma_code_int, gamma_code_signed_int, signed_sum_int, Sign, Signed};
 use super::sweep::Directions;
 
 /// The side a pointwise max follows on one elementary interval: the higher
@@ -339,31 +339,29 @@ fn delta_code(
     };
     if new_side == side {
         return match step {
-            Some(step) => gamma_code_signed_int(step.negative, &step.magnitude),
-            None => gamma_code_signed_int(false, &Int::ZERO),
+            Some(step) => gamma_code_signed_int(step.sign, &step.magnitude),
+            None => gamma_code_signed_int(Sign::Positive, &Int::ZERO),
         };
     }
-    let (negative, magnitude) = switch_delta(diff, new_side, step);
-    gamma_code_signed_int(negative, &magnitude)
+    let delta = switch_delta(diff, new_side, step);
+    gamma_code_signed_int(delta.sign, &delta.magnitude)
 }
 
 /// The output delta across a side switch: `±D′` oriented toward the new side,
 /// plus the old side's step delta (the module doc's algebra).
-fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> (bool, Int) {
-    let (sign, magnitude) = diff.sign_magnitude();
-    debug_assert_ne!(sign, Ordering::Equal, "a tie never switches the side");
-    let negative = match new_side {
-        Side::A => sign == Ordering::Less,
-        Side::B => sign == Ordering::Greater,
-    };
+fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> Signed {
+    let (diff_sign, magnitude) = diff.sign_magnitude();
+    debug_assert_ne!(diff_sign, Ordering::Equal, "a tie never switches the side");
+    let sign = Sign::from_is_negative(match new_side {
+        Side::A => diff_sign == Ordering::Less,
+        Side::B => diff_sign == Ordering::Greater,
+    });
     match old_step {
-        Some(step) => signed_sum_int(
-            negative,
-            Int::from_ubig(magnitude),
-            step.negative,
-            &step.magnitude,
-        ),
-        None => (negative, Int::from_ubig(magnitude)),
+        Some(step) => signed_sum_int(sign, Int::from_ubig(magnitude), step.sign, &step.magnitude),
+        None => Signed {
+            sign,
+            magnitude: Int::from_ubig(magnitude),
+        },
     }
 }
 

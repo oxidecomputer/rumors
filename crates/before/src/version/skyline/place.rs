@@ -118,6 +118,7 @@ use crate::causally::{Dominance, Endpoint, Placement, Precedence};
 use crate::codec::{BitsSlice, Int};
 
 use super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
+use super::signed::Sign;
 use super::sweep::Directions;
 
 /// A side's disposition when a verdict hook leaves the walk running: keep
@@ -150,8 +151,8 @@ impl<'a> BoundSide<'a> {
     fn open(bits: &'a BitsSlice, probe_first: &Int) -> BoundSide<'a> {
         let (cursor, first) = LeafCursor::open(bits);
         let mut diff = Accumulator::new();
-        super::signed::fold_signed_int(&mut diff, /* negative: */ false, probe_first);
-        super::signed::fold_signed_int(&mut diff, /* negative: */ true, &first);
+        super::signed::fold_signed_int(&mut diff, Sign::Positive, probe_first);
+        super::signed::fold_signed_int(&mut diff, Sign::Negative, &first);
         BoundSide {
             cursor,
             diff,
@@ -173,7 +174,7 @@ impl<'a> BoundSide<'a> {
     /// difference as the `B` operand; returns the flip level.
     fn step(&mut self) -> usize {
         let (flip, step) = self.cursor.step();
-        fold(&mut self.diff, Side::B, step.negative, &step.magnitude);
+        fold(&mut self.diff, Side::B, step.sign, &step.magnitude);
         flip
     }
 }
@@ -523,7 +524,7 @@ impl CursorSet for Cursors<'_> {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
                 for side in [&mut self.start, &mut self.end].into_iter().flatten() {
-                    fold(&mut side.diff, Side::A, step.negative, &step.magnitude);
+                    fold(&mut side.diff, Side::A, step.sign, &step.magnitude);
                 }
                 flip
             }

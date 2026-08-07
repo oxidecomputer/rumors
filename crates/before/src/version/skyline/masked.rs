@@ -84,6 +84,7 @@ use crate::codec::BitsSlice;
 use super::overlay::{
     advance_set, fold, CursorSet, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
+use super::signed::Sign;
 use super::sweep::{eq_exit, order_exit, Directions};
 
 /// The causal order of two projected skylines, `None` for concurrent.
@@ -180,12 +181,12 @@ impl<'a> Walk<'a> {
         // ownership case reads it otherwise, so feeding it would be pure waste.
         let height_a = b_mask.map(|_| {
             let mut height_a = Accumulator::new();
-            super::signed::fold_signed_int(&mut height_a, /* negative: */ false, &a_first);
+            super::signed::fold_signed_int(&mut height_a, Sign::Positive, &a_first);
             height_a
         });
         let height_b = a_mask.map(|_| {
             let mut height_b = Accumulator::new();
-            super::signed::fold_signed_int(&mut height_b, /* negative: */ false, &b_first);
+            super::signed::fold_signed_int(&mut height_b, Sign::Positive, &b_first);
             height_b
         });
         Walk {
@@ -374,11 +375,11 @@ impl CursorSet for Walk<'_> {
         match slot {
             Self::A => {
                 let (flip, step) = self.a.step();
-                fold(&mut self.diff, Side::A, step.negative, &step.magnitude);
+                fold(&mut self.diff, Side::A, step.sign, &step.magnitude);
                 if let Some(height_a) = &mut self.height_a {
                     // A height integrator accumulates its own side plainly:
                     // the side orientation belongs to `D` alone.
-                    super::signed::fold_signed_int(height_a, step.negative, &step.magnitude);
+                    super::signed::fold_signed_int(height_a, step.sign, &step.magnitude);
                 }
                 flip
             }
@@ -391,11 +392,11 @@ impl CursorSet for Walk<'_> {
             }
             Self::B => {
                 let (flip, step) = self.b.step();
-                fold(&mut self.diff, Side::B, step.negative, &step.magnitude);
+                fold(&mut self.diff, Side::B, step.sign, &step.magnitude);
                 if let Some(height_b) = &mut self.height_b {
                     // A height integrator accumulates its own side plainly:
                     // the side orientation belongs to `D` alone.
-                    super::signed::fold_signed_int(height_b, step.negative, &step.magnitude);
+                    super::signed::fold_signed_int(height_b, step.sign, &step.magnitude);
                 }
                 flip
             }

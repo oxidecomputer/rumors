@@ -91,6 +91,8 @@ use suanpan::Accumulator;
 
 use crate::codec::{BitCursor, BitStack, BitsSlice, DsiCursor, Int, SliceCursor};
 
+use super::signed::Sign;
+
 /// A cursor over one dyadic tiling of the unit interval, yielding its plateaus
 /// in preorder.
 ///
@@ -287,8 +289,8 @@ pub(crate) fn advance_set(set: &mut impl CursorSet) {
 /// the walks' exchange *quantity* — the clients' algebras convert at their
 /// folds.
 pub(super) struct Step {
-    /// Whether the delta lowers this stream's height.
-    pub(super) negative: bool,
+    /// The delta's sign: `Negative` lowers this stream's height.
+    pub(super) sign: Sign,
     /// The delta's absolute value.
     pub(super) magnitude: Int,
 }
@@ -371,7 +373,7 @@ impl<'a> LeafCursor<'a> {
     pub(super) fn skip_deeper(&mut self, bound: usize, net: &mut Accumulator) {
         while self.peek_flip() > bound {
             let (_, step) = self.step();
-            super::signed::fold_signed_int(net, step.negative, &step.magnitude);
+            super::signed::fold_signed_int(net, step.sign, &step.magnitude);
         }
     }
 
@@ -446,14 +448,8 @@ impl PlateauCursor for LeafCursor<'_> {
         self.path.push(true);
         let flip = self.path.len();
         let code = self.descend();
-        let (negative, magnitude) = super::signed::unzigzag(code);
-        (
-            flip,
-            Step {
-                negative,
-                magnitude,
-            },
-        )
+        let (sign, magnitude) = super::signed::unzigzag(code);
+        (flip, Step { sign, magnitude })
     }
 }
 
@@ -621,12 +617,12 @@ impl Side {
 
 /// Fold one decoded leaf delta into the running difference, oriented by the
 /// side its stream feeds: `a`'s height rising raises `D`, `b`'s lowers it.
-pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude: &Int) {
-    let lowers_diff = match side {
-        Side::A => negative,
-        Side::B => !negative,
+pub(super) fn fold(diff: &mut Accumulator, side: Side, sign: Sign, magnitude: &Int) {
+    let toward_diff = match side {
+        Side::A => sign,
+        Side::B => sign.negate(),
     };
-    super::signed::fold_signed_int(diff, lowers_diff, magnitude);
+    super::signed::fold_signed_int(diff, toward_diff, magnitude);
 }
 
 /// Advance the skyline pair overlay one boundary, folding each consumed delta
@@ -647,7 +643,7 @@ pub(super) fn advance_diff(
             Crossed::A(step) => (Side::A, step),
             Crossed::B(step) => (Side::B, step),
         };
-        fold(diff, side, step.negative, &step.magnitude);
+        fold(diff, side, step.sign, &step.magnitude);
     })
 }
 
@@ -685,8 +681,8 @@ impl<'a> OpenedPair<'a> {
         let (a, a_first) = LeafCursor::open(a_bits);
         let (b, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();
-        super::signed::fold_signed_int(&mut diff, false, &a_first);
-        super::signed::fold_signed_int(&mut diff, true, &b_first);
+        super::signed::fold_signed_int(&mut diff, Sign::Positive, &a_first);
+        super::signed::fold_signed_int(&mut diff, Sign::Negative, &b_first);
         OpenedPair {
             a,
             b,

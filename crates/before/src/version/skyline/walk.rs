@@ -28,7 +28,7 @@ use suanpan::Accumulator;
 
 use crate::codec::{BitCursor, BitStack, DsiCursor, Int};
 
-use super::signed::{fold_signed_int, unzigzag, Signed};
+use super::signed::{fold_signed_int, unzigzag, Sign, Signed};
 
 /// The topology walk over one skyline subtree's leaves, in preorder.
 ///
@@ -166,12 +166,12 @@ impl Extremum {
 
     /// Fold one consumed leaf-to-leaf step; the arming first call
     /// folds nothing.
-    pub(super) fn fold(&mut self, negative: bool, magnitude: &Int) {
+    pub(super) fn fold(&mut self, sign: Sign, magnitude: &Int) {
         if !self.armed {
             self.armed = true;
             return;
         }
-        self.fold_armed(negative, magnitude);
+        self.fold_armed(sign, magnitude);
     }
 
     /// Fold one undecoded zigzag payload code; the arming first call folds
@@ -182,12 +182,12 @@ impl Extremum {
             self.armed = true;
             return;
         }
-        let (negative, magnitude) = unzigzag(code);
-        self.fold_armed(negative, &magnitude);
+        let (sign, magnitude) = unzigzag(code);
+        self.fold_armed(sign, &magnitude);
     }
 
-    fn fold_armed(&mut self, negative: bool, magnitude: &Int) {
-        fold_signed_int(&mut self.register, !negative, magnitude);
+    fn fold_armed(&mut self, sign: Sign, magnitude: &Int) {
+        fold_signed_int(&mut self.register, sign.negate(), magnitude);
         let overtaken = match self.direction {
             Direction::Max => Ordering::Less,
             Direction::Min => Ordering::Greater,
@@ -269,14 +269,14 @@ pub(super) fn fold_region(
         };
         let start = cursor.position();
         let code = cursor.read_int().expect("canonical skyline bits");
-        let (negative, magnitude) = if first {
+        let (sign, magnitude) = if first {
             first = false;
-            (false, code)
+            (Sign::Positive, code)
         } else {
             unzigzag(code)
         };
-        fold_signed_int(net, negative, &magnitude);
-        extremum.fold(negative, &magnitude);
+        fold_signed_int(net, sign, &magnitude);
+        extremum.fold(sign, &magnitude);
         last = Some((depth, cursor.position() - start));
     }
     last

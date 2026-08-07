@@ -137,7 +137,7 @@ use suanpan::Accumulator;
 
 use crate::codec::Int;
 
-use super::signed::{fold_signed_int, Signed};
+use super::signed::{fold_signed_int, Sign, Signed};
 
 /// Follower slots the web carries (the fill walk's two relations; a const
 /// assert beside the fill walk's slot constants binds the two rosters).
@@ -272,9 +272,9 @@ impl<P> MinWeb<P> {
     ///
     /// `h` moved while every `m` stayed: exactly the innermost range's
     /// `gap` shifts; the differences and followers are height-free.
-    pub(super) fn fold_height(&mut self, negative: bool, magnitude: &Int) {
+    pub(super) fn fold_height(&mut self, sign: Sign, magnitude: &Int) {
         if self.armed > 0 {
-            fold_signed_int(&mut self.gap, negative, magnitude);
+            fold_signed_int(&mut self.gap, sign, magnitude);
         }
     }
 
@@ -886,7 +886,7 @@ impl MinWeb<()> {
         if self.pending > 0 {
             // below = h − v = −offset.
             let mut below = self.lease();
-            fold_signed_int(&mut below, !offset.negative, &offset.magnitude);
+            fold_signed_int(&mut below, offset.sign.negate(), &offset.magnitude);
             self.arm_below(below, || (), |()| ());
             return;
         }
@@ -903,32 +903,32 @@ impl MinWeb<()> {
                 // drop dwarfs the offset. Residue = m − v = −gap − offset.
                 let mut residue = core::mem::take(&mut self.gap);
                 residue.negate();
-                fold_signed_int(&mut residue, offset.negative, &offset.magnitude);
+                fold_signed_int(&mut residue, offset.sign, &offset.magnitude);
                 for follower in self.followers.iter_mut().flatten() {
                     follower.sub_accum(&residue);
                 }
                 let mut gap = self.lease();
-                fold_signed_int(&mut gap, !offset.negative, &offset.magnitude);
+                fold_signed_int(&mut gap, offset.sign.negate(), &offset.magnitude);
                 self.gap = gap;
                 self.propagate(residue, |()| ());
                 return;
             }
         }
         // Fold the priced side; restore it unless it funds the residue.
-        fold_signed_int(&mut self.gap, offset.negative, &offset.magnitude);
+        fold_signed_int(&mut self.gap, offset.sign, &offset.magnitude);
         if self.gap.sign() != Ordering::Less {
             // v at or above the anchor, hence at or above the minimum.
-            fold_signed_int(&mut self.gap, !offset.negative, &offset.magnitude);
+            fold_signed_int(&mut self.gap, offset.sign.negate(), &offset.magnitude);
             return;
         }
         // v < A: only a drop past the latent too is a true undercut.
         if self.latent.is_some() && !self.decide_undercut_through_latent() {
-            fold_signed_int(&mut self.gap, !offset.negative, &offset.magnitude);
+            fold_signed_int(&mut self.gap, offset.sign.negate(), &offset.magnitude);
             return;
         }
         if self.gap.sign() != Ordering::Less {
             // A collapse re-based the anchor to m and v is not below it.
-            fold_signed_int(&mut self.gap, !offset.negative, &offset.magnitude);
+            fold_signed_int(&mut self.gap, offset.sign.negate(), &offset.magnitude);
             return;
         }
         // Undercut: gap holds v − A, offset stays folded to fund the
@@ -937,7 +937,7 @@ impl MinWeb<()> {
         residue.negate();
         self.drop_below(residue, |()| ());
         let mut gap = self.lease();
-        fold_signed_int(&mut gap, !offset.negative, &offset.magnitude);
+        fold_signed_int(&mut gap, offset.sign.negate(), &offset.magnitude);
         self.gap = gap;
     }
 
@@ -972,7 +972,7 @@ impl MinWeb<()> {
                 return sign;
             }
         }
-        fold_signed_int(&mut self.gap, above.negative, &above.magnitude);
+        fold_signed_int(&mut self.gap, above.sign, &above.magnitude);
         let mut sign = self.gap.sign();
         if self.latent.is_some() {
             sign = match sign {
@@ -992,7 +992,7 @@ impl MinWeb<()> {
                 }
             };
         }
-        fold_signed_int(&mut self.gap, !above.negative, &above.magnitude);
+        fold_signed_int(&mut self.gap, above.sign.negate(), &above.magnitude);
         sign
     }
 
@@ -1014,9 +1014,9 @@ impl MinWeb<()> {
     ) -> Ordering {
         debug_assert!(self.armed > 0, "a raise compares against an armed range");
         self.gap.sub_accum(arm_offset);
-        fold_signed_int(&mut self.gap, above.negative, &above.magnitude);
+        fold_signed_int(&mut self.gap, above.sign, &above.magnitude);
         let sign = self.gap.sign();
-        fold_signed_int(&mut self.gap, !above.negative, &above.magnitude);
+        fold_signed_int(&mut self.gap, above.sign.negate(), &above.magnitude);
         self.gap.add_accum(arm_offset);
         sign
     }

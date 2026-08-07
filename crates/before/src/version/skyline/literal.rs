@@ -102,8 +102,8 @@ fn scan(bits: &BitsSlice) -> (BitsMut, Vec<Base>) {
         let value = match heights.last() {
             None => code.into_base(),
             Some(prev) => {
-                let (negative, magnitude) = unzigzag_base(code.into_base());
-                if negative {
+                let (sign, magnitude) = unzigzag_base(code.into_base());
+                if sign.is_negative() {
                     prev.clone() - &magnitude
                 } else {
                     prev + &magnitude

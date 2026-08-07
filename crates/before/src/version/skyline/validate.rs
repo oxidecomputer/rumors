@@ -27,7 +27,7 @@ use suanpan::Accumulator;
 use crate::codec::{BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Decode;
 
-use super::signed::{fold_signed_int, unzigzag};
+use super::signed::{fold_signed_int, unzigzag, Sign};
 
 /// Strictly validate one whole skyline stream.
 ///
@@ -98,13 +98,13 @@ where
         let mut zero_delta = false;
         if seen_leaf {
             zero_delta = code.is_zero();
-            let (negative, magnitude) = unzigzag(code);
-            fold_signed_int(&mut height, negative, &magnitude);
-            if negative && height.sign() == Ordering::Less {
+            let (sign, magnitude) = unzigzag(code);
+            fold_signed_int(&mut height, sign, &magnitude);
+            if sign == Sign::Negative && height.sign() == Ordering::Less {
                 return Err(Decode::NotCanonical); // a leaf height fell below zero
             }
         } else {
-            fold_signed_int(&mut height, false, &code);
+            fold_signed_int(&mut height, Sign::Positive, &code);
             seen_leaf = true;
         }
 

@@ -5,7 +5,7 @@
 //! against bits a reader can re-derive in the margin.
 
 use crate::codec::{self, Base, BitsMut, Code};
-use crate::version::skyline::signed::gamma_code_signed;
+use crate::version::skyline::signed::{gamma_code_signed, Sign};
 
 use super::SkylineBuilder;
 
@@ -15,8 +15,8 @@ fn gamma(value: u64) -> Code {
 }
 
 /// One leaf payload code: `gamma(zigzag(delta))` for later leaves.
-fn delta(negative: bool, magnitude: u64) -> Code {
-    gamma_code_signed(negative, &Base::from(magnitude))
+fn delta(sign: Sign, magnitude: u64) -> Code {
+    gamma_code_signed(sign, &Base::from(magnitude))
 }
 
 /// Drive a builder over `(depth, code)` leaves and return the stream.
@@ -51,7 +51,7 @@ fn single_leaf_is_flag_plus_code() {
 /// gamma(3) 1 zigzag(+3)` with no truncation anywhere.
 #[test]
 fn distinct_siblings_stay_a_pair() {
-    let stream = built(vec![(1, gamma(3)), (1, delta(false, 3))]);
+    let stream = built(vec![(1, gamma(3)), (1, delta(Sign::Positive, 3))]);
     // gamma(3) = 00100, zigzag(+3) = 6 -> gamma(6) = 00111.
     assert_eq!(stream, bits("0 1 00100 1 00111"));
 }
@@ -61,7 +61,7 @@ fn distinct_siblings_stay_a_pair() {
 /// `(5, 5)` at depth 1 to the single leaf 5.
 #[test]
 fn equal_siblings_absorb() {
-    let stream = built(vec![(1, gamma(5)), (1, delta(false, 0))]);
+    let stream = built(vec![(1, gamma(5)), (1, delta(Sign::Positive, 0))]);
     // gamma(5) = 00110; the depth-1 pair collapsed to one depth-0 leaf.
     assert_eq!(stream, bits("1 00110"));
 }
@@ -73,8 +73,8 @@ fn equal_siblings_absorb() {
 fn uniform_region_cascades_to_one_leaf() {
     let stream = built(vec![
         (2, gamma(7)),
-        (2, delta(false, 0)),
-        (1, delta(false, 0)),
+        (2, delta(Sign::Positive, 0)),
+        (1, delta(Sign::Positive, 0)),
     ]);
     assert_eq!(stream, bits("1 0001000"));
 }
@@ -86,8 +86,8 @@ fn uniform_region_cascades_to_one_leaf() {
 fn merged_right_subtree_reanchors_over_left_leaf() {
     let stream = built(vec![
         (1, gamma(4)),
-        (2, delta(false, 0)),
-        (2, delta(false, 0)),
+        (2, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Positive, 0)),
     ]);
     assert_eq!(stream, bits("1 00101"));
 }
@@ -99,8 +99,8 @@ fn merged_right_subtree_reanchors_over_left_leaf() {
 fn zero_delta_against_internal_sibling_survives() {
     let stream = built(vec![
         (2, gamma(3)),
-        (2, delta(false, 2)),
-        (1, delta(false, 0)),
+        (2, delta(Sign::Positive, 2)),
+        (1, delta(Sign::Positive, 0)),
     ]);
     // 0 (root) 0 (left pair) 1 gamma(3) 1 zigzag(+2)=4 1 zigzag(0).
     assert_eq!(stream, bits("0 0 1 00100 1 00101 1 1"));
@@ -113,9 +113,9 @@ fn zero_delta_against_internal_sibling_survives() {
 fn deep_uniform_collapse_holds_the_wide_code() {
     const DEPTH: usize = 8;
     const WIDE: u64 = u64::MAX >> 1;
-    let mut leaves = vec![(DEPTH, gamma(WIDE)), (DEPTH, delta(false, 0))];
+    let mut leaves = vec![(DEPTH, gamma(WIDE)), (DEPTH, delta(Sign::Positive, 0))];
     for level in (1..DEPTH).rev() {
-        leaves.push((level, delta(false, 0)));
+        leaves.push((level, delta(Sign::Positive, 0)));
     }
     assert_eq!(built(leaves), built(vec![(0, gamma(WIDE))]));
 }
@@ -127,10 +127,10 @@ fn deep_uniform_collapse_holds_the_wide_code() {
 fn absorb_cascade_climbs_a_left_spine() {
     let leaves = vec![
         (4, gamma(3)),
-        (4, delta(false, 0)),
-        (3, delta(false, 0)),
-        (2, delta(false, 0)),
-        (1, delta(false, 0)),
+        (4, delta(Sign::Positive, 0)),
+        (3, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Positive, 0)),
+        (1, delta(Sign::Positive, 0)),
     ];
     assert_eq!(built(leaves), bits("1 00100"));
 }
@@ -142,9 +142,9 @@ fn absorb_cascade_climbs_a_left_spine() {
 fn reanchor_cascade_climbs_chained_levels() {
     let leaves = vec![
         (1, gamma(5)),
-        (2, delta(false, 0)),
-        (3, delta(false, 0)),
-        (3, delta(false, 0)),
+        (2, delta(Sign::Positive, 0)),
+        (3, delta(Sign::Positive, 0)),
+        (3, delta(Sign::Positive, 0)),
     ];
     assert_eq!(built(leaves), bits("1 00110"));
 }
@@ -156,14 +156,14 @@ fn reanchor_cascade_climbs_chained_levels() {
 fn partial_equality_collapses_only_the_equal_pair() {
     let collapsed = built(vec![
         (1, gamma(2)),
-        (2, delta(false, 0)),
-        (2, delta(false, 0)),
+        (2, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Positive, 0)),
     ]);
     assert_eq!(collapsed, bits("1 011"));
     let kept = built(vec![
         (1, gamma(2)),
-        (2, delta(false, 0)),
-        (2, delta(false, 7)),
+        (2, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Positive, 7)),
     ]);
     // 0 (root) 1 gamma(2) 0 (right pair) 1 zigzag(0) 1 zigzag(+7)=14.
     assert_eq!(kept, bits("0 1 011 0 1 1 1 0001111"));
@@ -227,16 +227,16 @@ fn continue_verbatim_matches_per_leaf_feeding() {
     // canonical zero delta across the subtree boundary.
     let per_leaf = built(vec![
         (2, gamma(3)),
-        (3, delta(false, 2)),
-        (3, delta(false, 1)),
-        (1, delta(true, 1)),
+        (3, delta(Sign::Positive, 2)),
+        (3, delta(Sign::Positive, 1)),
+        (1, delta(Sign::Negative, 1)),
     ]);
     let mut spliced = SkylineBuilder::with_capacity(64);
     spliced.leaf(2, gamma(3));
-    spliced.leaf(3, delta(false, 2));
-    let (range, last_rel, last_len) = continuation(2, 3, &[(3, delta(false, 1))]);
+    spliced.leaf(3, delta(Sign::Positive, 2));
+    let (range, last_rel, last_len) = continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
     spliced.continue_verbatim(&range, 2, last_rel, last_len);
-    spliced.leaf(1, delta(true, 1));
+    spliced.leaf(1, delta(Sign::Negative, 1));
     assert_eq!(spliced.finish(), per_leaf);
 }
 
@@ -249,19 +249,22 @@ fn continue_verbatim_reanchors_across_levels() {
     // leaf sits two levels below its root.
     let leaves = vec![
         (2, gamma(2)),
-        (4, delta(false, 2)),
-        (4, delta(false, 3)),
-        (3, delta(true, 1)),
-        (1, delta(false, 3)),
+        (4, delta(Sign::Positive, 2)),
+        (4, delta(Sign::Positive, 3)),
+        (3, delta(Sign::Negative, 1)),
+        (1, delta(Sign::Positive, 3)),
     ];
     let per_leaf = built(leaves);
     let mut spliced = SkylineBuilder::with_capacity(64);
     spliced.leaf(2, gamma(2));
-    spliced.leaf(4, delta(false, 2));
-    let (range, last_rel, last_len) =
-        continuation(2, 4, &[(4, delta(false, 3)), (3, delta(true, 1))]);
+    spliced.leaf(4, delta(Sign::Positive, 2));
+    let (range, last_rel, last_len) = continuation(
+        2,
+        4,
+        &[(4, delta(Sign::Positive, 3)), (3, delta(Sign::Negative, 1))],
+    );
     spliced.continue_verbatim(&range, 2, last_rel, last_len);
-    spliced.leaf(1, delta(false, 3));
+    spliced.leaf(1, delta(Sign::Positive, 3));
     assert_eq!(spliced.finish(), per_leaf);
 }
 
@@ -274,18 +277,18 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
     // one leaf whichever way the left subtree arrived.
     let per_leaf = built(vec![
         (2, gamma(3)),
-        (3, delta(false, 2)),
-        (3, delta(false, 1)),
-        (2, delta(false, 2)),
-        (2, delta(false, 0)),
+        (3, delta(Sign::Positive, 2)),
+        (3, delta(Sign::Positive, 1)),
+        (2, delta(Sign::Positive, 2)),
+        (2, delta(Sign::Positive, 0)),
     ]);
     let mut spliced = SkylineBuilder::with_capacity(64);
     spliced.leaf(2, gamma(3));
-    spliced.leaf(3, delta(false, 2));
-    let (range, last_rel, last_len) = continuation(2, 3, &[(3, delta(false, 1))]);
+    spliced.leaf(3, delta(Sign::Positive, 2));
+    let (range, last_rel, last_len) = continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
     spliced.continue_verbatim(&range, 2, last_rel, last_len);
-    spliced.leaf(2, delta(false, 2));
-    spliced.leaf(2, delta(false, 0));
+    spliced.leaf(2, delta(Sign::Positive, 2));
+    spliced.leaf(2, delta(Sign::Positive, 0));
     assert_eq!(spliced.finish(), per_leaf);
 }
 
@@ -299,9 +302,9 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
 /// collapse check into a no-op — this pin turns that into a red test.
 #[test]
 fn zero_delta_has_the_lone_shortest_code() {
-    assert_eq!(delta(false, 0).len(), super::ZERO_DELTA_CODE_BITS);
+    assert_eq!(delta(Sign::Positive, 0).len(), super::ZERO_DELTA_CODE_BITS);
     for magnitude in 1..=64u64 {
-        assert!(delta(false, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
-        assert!(delta(true, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
+        assert!(delta(Sign::Positive, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
+        assert!(delta(Sign::Negative, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
     }
 }

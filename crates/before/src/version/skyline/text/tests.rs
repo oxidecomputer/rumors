@@ -273,7 +273,7 @@ mod parse_schoolbook {
     use crate::error::Parse;
     use crate::meter::registry::Shape;
     use crate::version::skyline::build::SkylineBuilder;
-    use crate::version::skyline::signed::{gamma_code, zigzag_signed};
+    use crate::version::skyline::signed::{gamma_code, zigzag_signed, Sign};
     use crate::version::skyline::{encode, validate_bits};
 
     use super::{parse, render};
@@ -332,7 +332,7 @@ mod parse_schoolbook {
             let (sign, magnitude) = delta.sign_magnitude();
             let code = if emitted_first {
                 gamma_code(&zigzag_signed(
-                    sign == Ordering::Less,
+                    Sign::from_is_negative(sign == Ordering::Less),
                     Base::from(magnitude.clone()),
                 ))
             } else {

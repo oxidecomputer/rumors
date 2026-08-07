@@ -255,7 +255,7 @@ use suanpan::{Accumulator, Limbs, UBig};
 
 use crate::codec::{Base, Int};
 
-use super::super::signed::fold_signed_int;
+use super::super::signed::{fold_signed, fold_signed_int, Sign};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32 digits, over
 /// the just-folded delta's own width: a fold that leaves `L` wider than its
@@ -355,8 +355,8 @@ fn meter_window_digits(count: u64) {
     let _ = count;
 }
 
-/// Debit (or, with `negative`, credit) `factor × segment · 2^shift` into the
-/// total: the segment settle move of [`charge_digits`].
+/// Debit (or, with a negative `sign`, credit) `factor × segment · 2^shift`
+/// into the total: the segment settle move of [`charge_digits`].
 ///
 /// The segment mass compacts into balanced signed digits first (the
 /// [`WindowMass`] spelling, one metered pass over the read-out span), so an
@@ -364,20 +364,15 @@ fn meter_window_digits(count: u64) {
 /// digits and splits into two word-scale products instead of densifying its
 /// whole span, and the punctured dense runs that remain ride the backend's
 /// multiplication cluster-wise.
-fn charge_segment(
-    total: &mut Accumulator,
-    negative: bool,
-    factor: &Base,
-    segment: &UBig,
-    shift: u64,
-) {
+fn charge_segment(total: &mut Accumulator, sign: Sign, factor: &Base, segment: &UBig, shift: u64) {
     let mut mass = WindowMass::new();
     mass.merge(segment, shift);
-    mass.charge(total, negative, factor);
+    mass.charge(total, sign, factor);
 }
 
-/// Debit (or, with `negative`, credit) `factor × Σ digits · 2^(32·index)` into
-/// the total, cluster-wise through the backend's sub-quadratic multiplication.
+/// Debit (or, with a negative `sign`, credit) `factor × Σ digits ·
+/// 2^(32·index)` into the total, cluster-wise through the backend's
+/// sub-quadratic multiplication.
 ///
 /// `digits` is an ascending balanced signed-digit run (a [`WindowMass`]'s
 /// spelling). Each cluster of digits whose interior gaps stay within the
@@ -396,7 +391,7 @@ fn charge_segment(
 /// exactly this shape.
 pub(super) fn charge_digits(
     total: &mut Accumulator,
-    negative: bool,
+    sign: Sign,
     factor: &Base,
     digits: &[(u64, i64)],
 ) {
@@ -410,7 +405,7 @@ pub(super) fn charge_digits(
             // densified image.
             let mut product = factor.clone();
             product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
-            if negative == (digit < 0) {
+            if sign.is_negative() == (digit < 0) {
                 total.add_magnitude_shl(&product, 32 * index);
             } else {
                 total.sub_magnitude_shl(&product, 32 * index);
@@ -441,7 +436,7 @@ pub(super) fn charge_digits(
             let part = UBig::from_le_bytes(image);
             let product = &factor.0 * &part;
             meter_product(&factor.0, &part, &product);
-            if negative == (side == 1) {
+            if sign.is_negative() == (side == 1) {
                 total.add_wide_shl(&product, 32 * floor_index);
             } else {
                 total.sub_wide_shl(&product, 32 * floor_index);
@@ -509,8 +504,8 @@ pub(super) struct Integrator {
 /// the promoted parked component and the window of interval mass that separates
 /// it from the previous promotion.
 pub(super) struct Arming {
-    /// Whether the promoted parked component is negative.
-    pub(super) negative: bool,
+    /// The promoted parked component's sign.
+    pub(super) sign: Sign,
     /// The promoted parked component, read once at its promotion.
     pub(super) parked: Base,
     /// The interval mass banked between the previous promotion (or the sweep's
@@ -641,8 +636,8 @@ impl WindowMass {
     /// One backend multiplication per dense cluster of the mass's live digits,
     /// so the charge runs at the multiplication bound instead of the parked
     /// width times the mass's balanced density.
-    pub(super) fn charge(&self, total: &mut Accumulator, negative: bool, parked: &Base) {
-        charge_digits(total, negative, parked, &self.digits);
+    pub(super) fn charge(&self, total: &mut Accumulator, sign: Sign, parked: &Base) {
+        charge_digits(total, sign, parked, &self.digits);
     }
 }
 
@@ -674,7 +669,7 @@ impl Aggregate {
         if parked_magnitude != UBig::ZERO {
             right.windows.charge(
                 total,
-                parked_sign == Ordering::Less,
+                Sign::from_is_negative(parked_sign == Ordering::Less),
                 &Base::from(parked_magnitude),
             );
         }
@@ -701,8 +696,8 @@ impl Integrator {
     /// Anchor the opening plateau at position zero (signed: the signed pair
     /// measure's integrand carries `D`'s own sign, every other caller opens
     /// nonnegative).
-    pub(super) fn open(&mut self, negative: bool, opening: &Int) {
-        fold_signed_int(&mut self.base, negative, opening);
+    pub(super) fn open(&mut self, sign: Sign, opening: &Int) {
+        fold_signed_int(&mut self.base, sign, opening);
     }
 
     /// Credit one elementary interval: the live component's contribution at the
@@ -822,7 +817,7 @@ impl Integrator {
         }
         charge_segment(
             &mut self.total,
-            parked_sign == Ordering::Less,
+            Sign::from_is_negative(parked_sign == Ordering::Less),
             &Base::from(parked_magnitude),
             &segment.0,
             segment_shift,
@@ -854,7 +849,7 @@ impl Integrator {
         );
         charge_segment(
             &mut self.total,
-            parked_sign == Ordering::Less,
+            Sign::from_is_negative(parked_sign == Ordering::Less),
             &Base::from(parked_magnitude),
             &segment_magnitude,
             segment_shift,
@@ -886,7 +881,7 @@ impl Integrator {
                 "a freeze always follows at least one interval"
             );
             self.promotions.push(Arming {
-                negative: parked_sign == Ordering::Less,
+                sign: Sign::from_is_negative(parked_sign == Ordering::Less),
                 parked: Base::from(parked_magnitude),
                 window: window_magnitude,
                 shift: window_shift,
@@ -948,11 +943,7 @@ impl Integrator {
         let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
         for arming in armings {
             let mut parked = Accumulator::new();
-            if arming.negative {
-                parked.sub_magnitude(&arming.parked);
-            } else {
-                parked.add_magnitude(&arming.parked);
-            }
+            fold_signed(&mut parked, arming.sign, &arming.parked);
             let mut windows = WindowMass::new();
             windows.merge(&arming.window, arming.shift);
             leaves.push(Aggregate { parked, windows });

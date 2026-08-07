@@ -73,7 +73,7 @@ use crate::codec::{Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
 use crate::error::Parse;
 
 use super::build::SkylineBuilder;
-use super::signed::{gamma_code, gamma_code_signed, signed_sum, unzigzag_base};
+use super::signed::{gamma_code, gamma_code_signed, signed_sum, unzigzag_base, Sign};
 
 #[cfg(test)]
 mod tests;
@@ -122,11 +122,11 @@ struct Summary {
     /// Entry leaf height minus the subtree's floor (its minimum leaf height):
     /// non-negative.
     drop: Base,
-    /// The last leaf's height minus the entry leaf's, as (negative, magnitude).
-    span: (bool, Base),
-    /// The stream delta that carried the entry leaf, as (negative, magnitude);
+    /// The last leaf's height minus the entry leaf's, as (sign, magnitude).
+    span: (Sign, Base),
+    /// The stream delta that carried the entry leaf, as (sign, magnitude);
     /// the whole stream's first leaf stores the (unused) positive zero.
-    incoming: (bool, Base),
+    incoming: (Sign, Base),
 }
 
 /// A completed left-child summary parked until its parent's right subtree
@@ -138,10 +138,10 @@ struct Summary {
 struct StoredLeft {
     /// Entry leaf height minus the subtree's floor: non-negative.
     drop: Base,
-    /// The last leaf's height minus the entry leaf's, as (negative, magnitude).
-    span: (bool, Base),
-    /// The stream delta that carried the entry leaf, as (negative, magnitude).
-    incoming: (bool, Base),
+    /// The last leaf's height minus the entry leaf's, as (sign, magnitude).
+    span: (Sign, Base),
+    /// The stream delta that carried the entry leaf, as (sign, magnitude).
+    incoming: (Sign, Base),
 }
 
 /// How many parked entries one [`ParkedStack`] chunk holds: small enough that a
@@ -267,12 +267,12 @@ pub fn render(bits: &BitsSlice) -> String {
             unzigzag_base(code)
         } else {
             first_height = Some(code);
-            (false, Base::ZERO)
+            (Sign::Positive, Base::ZERO)
         };
         let mut summary = Summary {
             root: index,
             drop: Base::ZERO,
-            span: (false, Base::ZERO),
+            span: (Sign::Positive, Base::ZERO),
             incoming,
         };
         // Close every subtree this leaf completes.
@@ -452,10 +452,10 @@ fn merge(
         &right.span.1,
     );
     // The right child's floor.
-    let right_floor = signed_sum(entry_step.0, entry_step.1, true, &right.drop);
+    let right_floor = signed_sum(entry_step.0, entry_step.1, Sign::Negative, &right.drop);
     // The lift: floor(right) − floor(left).
-    let (lift_negative, lift) = signed_sum(right_floor.0, right_floor.1, false, &left.drop);
-    let drop = if lift_negative {
+    let (lift_sign, lift) = signed_sum(right_floor.0, right_floor.1, Sign::Positive, &left.drop);
+    let drop = if lift_sign.is_negative() {
         // The left child's root is the parent's preorder successor.
         push_base(arena, entries, parent + 1, &lift);
         left.drop + &lift
@@ -550,7 +550,10 @@ pub fn parse(text: &str) -> Result<BitsMut, Parse> {
             delta.reset();
         }
         let code = if emitted_first {
-            gamma_code_signed(sign == Ordering::Less, &Base::from(magnitude))
+            gamma_code_signed(
+                Sign::from_is_negative(sign == Ordering::Less),
+                &Base::from(magnitude),
+            )
         } else {
             emitted_first = true;
             debug_assert_ne!(sign, Ordering::Less, "a path sum of naturals is a natural");

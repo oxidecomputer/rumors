@@ -27,6 +27,7 @@ use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
 use crate::version::skyline::overlay::{LeafCursor, PlateauCursor, Step};
+use crate::version::skyline::signed::Sign;
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Version};
 
@@ -106,11 +107,11 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
     // Signed differences out − a and out − b: the pointwise claim reads off
     // their signs without materializing any height.
     let mut oa = Accumulator::new();
-    crate::version::skyline::signed::fold_signed_int(&mut oa, false, &ho);
-    crate::version::skyline::signed::fold_signed_int(&mut oa, true, &ha);
+    crate::version::skyline::signed::fold_signed_int(&mut oa, Sign::Positive, &ho);
+    crate::version::skyline::signed::fold_signed_int(&mut oa, Sign::Negative, &ha);
     let mut ob = Accumulator::new();
-    crate::version::skyline::signed::fold_signed_int(&mut ob, false, &ho);
-    crate::version::skyline::signed::fold_signed_int(&mut ob, true, &hb);
+    crate::version::skyline::signed::fold_signed_int(&mut ob, Sign::Positive, &ho);
+    crate::version::skyline::signed::fold_signed_int(&mut ob, Sign::Negative, &hb);
     let mut intervals = 0u64;
     loop {
         intervals += 1;
@@ -187,11 +188,12 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
 /// Fold one raw step delta into a signed difference, subtracting when the
 /// stream sits on the difference's negative side.
 fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
-    crate::version::skyline::signed::fold_signed_int(
-        diff,
-        step.negative != subtract,
-        &step.magnitude,
-    );
+    let sign = if subtract {
+        step.sign.negate()
+    } else {
+        step.sign
+    };
+    crate::version::skyline::signed::fold_signed_int(diff, sign, &step.magnitude);
 }
 
 /// The adversarial family pool the deterministic grids run over.

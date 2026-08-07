@@ -577,7 +577,8 @@ proptest! {
         }
         let factor = Base::from(UBig::from_le_bytes(&factor_bytes));
         let mut clustered = Accumulator::new();
-        super::integral::charge_digits(&mut clustered, neg, &factor, &digits);
+        let sign = crate::version::skyline::signed::Sign::from_is_negative(neg);
+        super::integral::charge_digits(&mut clustered, sign, &factor, &digits);
         // The oracle: one whole-span product per sign side, no
         // clustering anywhere on the path.
         let mut positive = UBig::ZERO;
@@ -591,7 +592,11 @@ proptest! {
             }
         }
         let mut expected = Accumulator::new();
-        let (add_side, sub_side) = if neg { (&negative, &positive) } else { (&positive, &negative) };
+        let (add_side, sub_side) = if sign.is_negative() {
+            (&negative, &positive)
+        } else {
+            (&positive, &negative)
+        };
         expected.add_wide(&(add_side * &factor.0));
         expected.sub_wide(&(sub_side * &factor.0));
         expected.sub_accum(&clustered);
@@ -624,12 +629,13 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
     use suanpan::{Accumulator, UBig};
 
     use crate::codec::Base;
+    use crate::version::skyline::signed::Sign;
 
     /// One whole-span differential: `charge_digits` versus two un-clustered
     /// products (positive and negative sides separately), exact to the digit.
-    fn assert_matches(factor: &Base, digits: &[(u64, i64)], neg: bool, label: &str) {
+    fn assert_matches(factor: &Base, digits: &[(u64, i64)], sign: Sign, label: &str) {
         let mut clustered = Accumulator::new();
-        super::integral::charge_digits(&mut clustered, neg, factor, digits);
+        super::integral::charge_digits(&mut clustered, sign, factor, digits);
         let mut positive = UBig::ZERO;
         let mut negative = UBig::ZERO;
         for &(i, d) in digits {
@@ -642,7 +648,7 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
             }
         }
         let mut expected = Accumulator::new();
-        let (add_side, sub_side) = if neg {
+        let (add_side, sub_side) = if sign.is_negative() {
             (&negative, &positive)
         } else {
             (&positive, &negative)
@@ -675,8 +681,8 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
         let dense: Vec<(u64, i64)> = (0..width as u64 + 64)
             .map(|i| (i, EXTREMES[i as usize % EXTREMES.len()]))
             .collect();
-        assert_matches(&factor, &dense, false, "dense run");
-        assert_matches(&factor, &dense, true, "dense run, credited");
+        assert_matches(&factor, &dense, Sign::Positive, "dense run");
+        assert_matches(&factor, &dense, Sign::Negative, "dense run, credited");
         // Digits spaced exactly at the gap limit bridge into one cluster;
         // exactly one position further they split. Both must spell the same
         // value either way.
@@ -687,14 +693,19 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
             let spaced: Vec<(u64, i64)> = (0..6u64)
                 .map(|k| (k * spacing, EXTREMES[k as usize % EXTREMES.len()]))
                 .collect();
-            assert_matches(&factor, &spaced, false, label);
+            assert_matches(&factor, &spaced, Sign::Positive, label);
         }
         // Equal magnitudes of opposite sign in adjacent clusters forced apart
         // by an over-limit gap: the value cancels only in the total, after two
         // independent densified products.
         let straddle: Vec<(u64, i64)> =
             vec![(0, (1i64 << 31) - 1), (gap_limit + 2, -((1i64 << 31) - 1))];
-        assert_matches(&factor, &straddle, false, "cancellation across a split");
+        assert_matches(
+            &factor,
+            &straddle,
+            Sign::Positive,
+            "cancellation across a split",
+        );
     }
 }
 
@@ -894,7 +905,7 @@ mod adequacy {
     use crate::version::skyline::overlay::{fold, LeafCursor, PlateauCursor, Side};
     use crate::Rank;
 
-    use crate::version::skyline::signed::fold_signed_int;
+    use crate::version::skyline::signed::{fold_signed, fold_signed_int, Sign};
 
     use super::super::integral::{int_digits, FREEZE_ALLOWANCE_DIGITS};
     use super::super::max_depth;
@@ -916,7 +927,7 @@ mod adequacy {
         let mut total = Accumulator::new();
         let mut live_height = Accumulator::new();
         let mut frozen = Accumulator::new();
-        fold_signed_int(&mut frozen, false, &first);
+        fold_signed_int(&mut frozen, Sign::Positive, &first);
         let mut position = Accumulator::new();
         let one = Base::from(1u8);
         loop {
@@ -929,7 +940,7 @@ mod adequacy {
                 break;
             }
             let (_, step) = cursor.step();
-            fold(&mut live_height, Side::A, step.negative, &step.magnitude);
+            fold(&mut live_height, Side::A, step.sign, &step.magnitude);
             if live_height.digit_count() > int_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
                 let (drift_sign, drift) = live_height.sign_magnitude();
                 let (_, position_mag) = position.sign_magnitude();
@@ -1048,7 +1059,7 @@ mod adequacy {
         }
 
         fn open(&mut self, opening: &Int) {
-            fold_signed_int(&mut self.base, false, opening);
+            fold_signed_int(&mut self.base, Sign::Positive, opening);
         }
 
         fn interval(&mut self, weight_shift: u64) {
@@ -1185,7 +1196,7 @@ mod adequacy {
                 break;
             }
             let (_, step) = cursor.step();
-            fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
+            fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
             integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
         integral.finish(max_depth as u64)
@@ -1205,8 +1216,8 @@ mod adequacy {
         let (mut ca, a_first) = LeafCursor::open(a_bits);
         let (mut cb, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();
-        fold_signed_int(&mut diff, false, &a_first);
-        fold_signed_int(&mut diff, true, &b_first);
+        fold_signed_int(&mut diff, Sign::Positive, &a_first);
+        fold_signed_int(&mut diff, Sign::Negative, &b_first);
         let mut orient = orientation(diff.sign());
         let mut integral = SpanIntegrator::new();
         if orient != 0 {
@@ -1225,7 +1236,7 @@ mod adequacy {
                 for (side, step) in [(Side::A, &da), (Side::B, &db)] {
                     if let Some(step) = step {
                         let toward = if orient > 0 { side } else { side.other() };
-                        fold(&mut integral.live, toward, step.negative, &step.magnitude);
+                        fold(&mut integral.live, toward, step.sign, &step.magnitude);
                     }
                 }
             }
@@ -1384,7 +1395,7 @@ mod adequacy {
         }
 
         fn open(&mut self, opening: &Int) {
-            fold_signed_int(&mut self.base, false, opening);
+            fold_signed_int(&mut self.base, Sign::Positive, opening);
         }
 
         fn interval(&mut self, weight_shift: u64) {
@@ -1483,7 +1494,7 @@ mod adequacy {
             if parked_magnitude != suanpan::UBig::ZERO {
                 let (_, window_magnitude, window_shift) = self.banked_window.sign_magnitude_shl();
                 self.promotions.push(Arming {
-                    negative: parked_sign == Ordering::Less,
+                    sign: Sign::from_is_negative(parked_sign == Ordering::Less),
                     parked: Base::from(parked_magnitude),
                     window: window_magnitude,
                     shift: window_shift,
@@ -1507,7 +1518,7 @@ mod adequacy {
             }
             let armings = core::mem::take(&mut self.promotions);
             for (i, arming) in armings.iter().enumerate().rev() {
-                suffix.charge(&mut self.total, arming.negative, &arming.parked);
+                suffix.charge(&mut self.total, arming.sign, &arming.parked);
                 if i > 0 {
                     suffix.merge(&arming.window, arming.shift);
                 }
@@ -1548,7 +1559,7 @@ mod adequacy {
                 break;
             }
             let (_, step) = cursor.step();
-            fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
+            fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
             integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
         integral.finish(max_depth as u64)
@@ -1568,8 +1579,8 @@ mod adequacy {
         let (mut ca, a_first) = LeafCursor::open(a_bits);
         let (mut cb, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();
-        fold_signed_int(&mut diff, false, &a_first);
-        fold_signed_int(&mut diff, true, &b_first);
+        fold_signed_int(&mut diff, Sign::Positive, &a_first);
+        fold_signed_int(&mut diff, Sign::Negative, &b_first);
         let mut orient = orientation(diff.sign());
         let mut integral = SuffixWalkIntegrator::new();
         if orient != 0 {
@@ -1588,7 +1599,7 @@ mod adequacy {
                 for (side, step) in [(Side::A, &da), (Side::B, &db)] {
                     if let Some(step) = step {
                         let toward = if orient > 0 { side } else { side.other() };
-                        fold(&mut integral.live, toward, step.negative, &step.magnitude);
+                        fold(&mut integral.live, toward, step.sign, &step.magnitude);
                     }
                 }
             }
@@ -1741,7 +1752,7 @@ mod adequacy {
         if parked_magnitude != UBig::ZERO {
             right.windows.charge(
                 total,
-                parked_sign == Ordering::Less,
+                Sign::from_is_negative(parked_sign == Ordering::Less),
                 &Base::from(parked_magnitude),
             );
         }
@@ -1762,11 +1773,7 @@ mod adequacy {
         let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
         for arming in armings {
             let mut parked = Accumulator::new();
-            if arming.negative {
-                parked.sub_magnitude(&arming.parked);
-            } else {
-                parked.add_magnitude(&arming.parked);
-            }
+            fold_signed(&mut parked, arming.sign, &arming.parked);
             let mut windows = WindowMass::new();
             windows.merge(&arming.window, arming.shift);
             leaves.push(Aggregate { parked, windows });
@@ -1853,7 +1860,7 @@ mod adequacy {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut integral = Integrator::new();
-        integral.open(false, &first);
+        integral.open(Sign::Positive, &first);
         loop {
             let weight_shift = (max_depth - cursor.depth()) as u64;
             integral.interval(weight_shift);
@@ -1861,7 +1868,7 @@ mod adequacy {
                 break;
             }
             let (_, step) = cursor.step();
-            fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
+            fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
             integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
         per_digit_finish(integral, max_depth as u64)
@@ -1940,11 +1947,16 @@ mod adequacy {
 
     /// The retired per-digit charge: one `parked`-wide product per
     /// balanced digit of the mass.
-    fn schoolbook_charge(total: &mut Accumulator, neg: bool, parked: &Base, digits: &[(u64, i64)]) {
+    fn schoolbook_charge(
+        total: &mut Accumulator,
+        sign: Sign,
+        parked: &Base,
+        digits: &[(u64, i64)],
+    ) {
         for &(index, digit) in digits {
             let mut product = parked.clone();
             product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
-            if neg == (digit < 0) {
+            if sign.is_negative() == (digit < 0) {
                 total.add_magnitude_shl(&product, 32 * index);
             } else {
                 total.sub_magnitude_shl(&product, 32 * index);
@@ -1960,7 +1972,7 @@ mod adequacy {
         if parked_magnitude != UBig::ZERO {
             schoolbook_charge(
                 total,
-                parked_sign == Ordering::Less,
+                Sign::from_is_negative(parked_sign == Ordering::Less),
                 &Base::from(parked_magnitude),
                 &right.windows.digits,
             );
@@ -1982,11 +1994,7 @@ mod adequacy {
         let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
         for arming in armings {
             let mut parked = Accumulator::new();
-            if arming.negative {
-                parked.sub_magnitude(&arming.parked);
-            } else {
-                parked.add_magnitude(&arming.parked);
-            }
+            fold_signed(&mut parked, arming.sign, &arming.parked);
             let mut windows = WindowMass::new();
             windows.merge(&arming.window, arming.shift);
             leaves.push(Aggregate { parked, windows });
@@ -2087,7 +2095,7 @@ mod adequacy {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut integral = Integrator::new();
-        integral.open(false, &first);
+        integral.open(Sign::Positive, &first);
         loop {
             let weight_shift = (max_depth - cursor.depth()) as u64;
             integral.interval(weight_shift);
@@ -2095,7 +2103,7 @@ mod adequacy {
                 break;
             }
             let (_, step) = cursor.step();
-            fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
+            fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
             integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
         schoolbook_finish(integral, max_depth as u64)

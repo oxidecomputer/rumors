@@ -163,7 +163,7 @@ use self::memo::Memo;
 use self::prescan::PreScan;
 use super::grow::Cost;
 use super::signed::{
-    fold_signed_int, gamma_code_int, gamma_code_signed_int, signed_max, unzigzag, Signed,
+    fold_signed_int, gamma_code_int, gamma_code_signed_int, signed_max, unzigzag, Sign, Signed,
 };
 use super::walk::{fold_region, skip_leaves, skip_region, Extremum, LeafWalk};
 use super::watermark::MinWeb;
@@ -474,7 +474,7 @@ impl FillWalk<'_> {
                     // simple; the dominated id children are lazy-skipped, and
                     // the route's expansion fold rides the skips.
                     let step = self.consume_payload();
-                    self.emit_step(depth, step.negative, step.magnitude);
+                    self.emit_step(depth, step.sign, step.magnitude);
                     break self.probe.expand(key, id, left, right);
                 }
 
@@ -639,24 +639,21 @@ impl FillWalk<'_> {
     /// height-anchored accumulators, and advancing the cursor.
     fn consume_payload(&mut self) -> Signed {
         let code = self.cursor.read_int().expect("canonical skyline bits");
-        let (negative, magnitude) = if self.first_read {
+        let (sign, magnitude) = if self.first_read {
             self.first_read = false;
-            (false, code)
+            (Sign::Positive, code)
         } else {
             unzigzag(code)
         };
-        fold_signed_int(&mut self.height, negative, &magnitude);
-        self.web.fold_height(negative, &magnitude);
+        fold_signed_int(&mut self.height, sign, &magnitude);
+        self.web.fold_height(sign, &magnitude);
         if !self.w_anchored {
-            fold_signed_int(&mut self.gap, negative, &magnitude);
+            fold_signed_int(&mut self.gap, sign, &magnitude);
         }
         if let Relation::Height(relation) = &mut self.relation {
-            fold_signed_int(relation, negative, &magnitude);
+            fold_signed_int(relation, sign, &magnitude);
         }
-        Signed {
-            negative,
-            magnitude,
-        }
+        Signed { sign, magnitude }
     }
 
     /// Fold one consumed block's net movement into every height-carried
@@ -666,13 +663,13 @@ impl FillWalk<'_> {
     /// folded leaf by leaf: nothing reads the registers between a block's
     /// leaves, so the batched fold is observationally the per-leaf sequence.
     fn fold_block(&mut self, net: &Signed) {
-        fold_signed_int(&mut self.height, net.negative, &net.magnitude);
-        self.web.fold_height(net.negative, &net.magnitude);
+        fold_signed_int(&mut self.height, net.sign, &net.magnitude);
+        self.web.fold_height(net.sign, &net.magnitude);
         if !self.w_anchored {
-            fold_signed_int(&mut self.gap, net.negative, &net.magnitude);
+            fold_signed_int(&mut self.gap, net.sign, &net.magnitude);
         }
         if let Relation::Height(relation) = &mut self.relation {
-            fold_signed_int(relation, net.negative, &net.magnitude);
+            fold_signed_int(relation, net.sign, &net.magnitude);
         }
     }
 
@@ -751,13 +748,13 @@ impl FillWalk<'_> {
         // link); the link stays folded in, so the accumulator then holds h −
         // m_s and the relation re-anchors to this site for free. The link dies
         // here — its one read.
-        fold_signed_int(&mut relation, above.negative, &above.magnitude);
+        fold_signed_int(&mut relation, above.sign, &above.magnitude);
         if let Some(link) = link {
             relation.sub_accum(&link);
             self.web.retire(link);
         }
         let sign = relation.sign();
-        fold_signed_int(&mut relation, !above.negative, &above.magnitude);
+        fold_signed_int(&mut relation, above.sign.negate(), &above.magnitude);
         if sign == Ordering::Less {
             // The minimum side: the raise lifts the emitted value strictly
             // above the consumed range's maximum, so a verbatim walk diverges
@@ -772,7 +769,7 @@ impl FillWalk<'_> {
                 absolute.sub_accum(&relation);
                 self.web.emit_below_accum(relation);
                 let value = self.web.materialize(absolute);
-                debug_assert!(!value.negative, "a raised height is a natural");
+                debug_assert!(!value.sign.is_negative(), "a raised height is a natural");
                 self.started = true;
                 self.out.leaf(depth + 1, gamma_code_int(&value.magnitude));
                 // prev_out = min: the output delta anchors to the
@@ -848,7 +845,7 @@ impl FillWalk<'_> {
     /// against an unchanged predecessor — byte-identical by canonical
     /// uniqueness — so a verbatim walk records the match and skips the emission
     /// body outright.
-    fn emit_step(&mut self, depth: usize, negative: bool, magnitude: Int) {
+    fn emit_step(&mut self, depth: usize, sign: Sign, magnitude: Int) {
         self.web.emit_here();
         if self.out.note_match(self.pos()) {
             self.started = true;
@@ -859,7 +856,10 @@ impl FillWalk<'_> {
             // The output's first leaf is coded absolute. A pass-through first
             // leaf is the input's first (every consumed-but-not-emitted range
             // ends in a collapse emit), whose absolute is the step itself.
-            debug_assert!(!negative, "the stream's first height is a natural");
+            debug_assert!(
+                !sign.is_negative(),
+                "the stream's first height is a natural"
+            );
             debug_assert!(!self.w_anchored, "the first emission finds no anchor");
             self.started = true;
             self.gap.reset();
@@ -869,7 +869,7 @@ impl FillWalk<'_> {
         // Deliberately unread past this point: the step is already folded
         // into the live gap, and the delta below re-derives the output code
         // from the registers, not from the step.
-        let _ = (negative, magnitude);
+        let _ = (sign, magnitude);
         let delta = if self.w_anchored {
             // d_out = h − prev_out = (min − prev_out) + (h − min): the anchor
             // switch's one bridge read of the surviving web, priced by this
@@ -888,10 +888,8 @@ impl FillWalk<'_> {
         };
         // The new gap is h − value = 0 exactly.
         self.gap.reset();
-        self.out.leaf(
-            depth,
-            gamma_code_signed_int(delta.negative, &delta.magnitude),
-        );
+        self.out
+            .leaf(depth, gamma_code_signed_int(delta.sign, &delta.magnitude));
     }
 
     /// Emit a leaf whose value is `h + offset`: a collapsed region's max, or a
@@ -931,11 +929,11 @@ impl FillWalk<'_> {
             let (sign, magnitude) = self.height.sign_magnitude();
             debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
             let value = Signed {
-                negative: false,
+                sign: Sign::Positive,
                 magnitude: Int::from_ubig(magnitude),
             }
             .sum(&offset);
-            debug_assert!(!value.negative, "a collapsed height is a natural");
+            debug_assert!(!value.sign.is_negative(), "a collapsed height is a natural");
             self.started = true;
             self.out.leaf(depth, gamma_code_int(&value.magnitude));
         } else {
@@ -944,24 +942,22 @@ impl FillWalk<'_> {
                 // the priced offset.
                 let mut out_delta = self.web.follower_take(OUT_FOLLOWER);
                 self.web.bridge_add_gap(&mut out_delta);
-                fold_signed_int(&mut out_delta, offset.negative, &offset.magnitude);
+                fold_signed_int(&mut out_delta, offset.sign, &offset.magnitude);
                 self.w_anchored = false;
                 self.web.materialize(out_delta)
             } else {
                 // d_out = (h + offset) − prev_out = gap + offset.
-                fold_signed_int(&mut self.gap, offset.negative, &offset.magnitude);
+                fold_signed_int(&mut self.gap, offset.sign, &offset.magnitude);
                 self.gap.sign();
                 let (sign, magnitude) = self.gap.sign_magnitude();
                 Signed::from_sign_magnitude(sign, magnitude)
             };
-            self.out.leaf(
-                depth,
-                gamma_code_signed_int(delta.negative, &delta.magnitude),
-            );
+            self.out
+                .leaf(depth, gamma_code_signed_int(delta.sign, &delta.magnitude));
         }
         // The new gap is h − (h + offset) = −offset exactly.
         self.gap.reset();
-        fold_signed_int(&mut self.gap, !offset.negative, &offset.magnitude);
+        fold_signed_int(&mut self.gap, offset.sign.negate(), &offset.magnitude);
     }
 
     /// Emit a leaf at exactly the enclosing frame's tracked minimum (the
@@ -1004,10 +1000,8 @@ impl FillWalk<'_> {
         self.web.follower_set(OUT_FOLLOWER, zero);
         self.w_anchored = true;
         self.gap.reset();
-        self.out.leaf(
-            depth,
-            gamma_code_signed_int(delta.negative, &delta.magnitude),
-        );
+        self.out
+            .leaf(depth, gamma_code_signed_int(delta.sign, &delta.magnitude));
     }
 
     /// Copy the event subtree at the cursor unchanged.
@@ -1064,7 +1058,7 @@ impl FillWalk<'_> {
         // Per-leaf for the first leaf (and, post-divergence, its re-code
         // against the live output delta through the full emission machinery).
         let step = self.consume_payload();
-        self.emit_step(depth + first_leaf_depth, step.negative, step.magnitude);
+        self.emit_step(depth + first_leaf_depth, step.sign, step.magnitude);
         if first_leaf_depth >= 2 && self.out.held_at(depth + first_leaf_depth) {
             // Post-divergence the rest of the region is byte-identical to the
             // input — every consecutive-leaf delta lies strictly inside the
@@ -1090,7 +1084,7 @@ impl FillWalk<'_> {
         }
         while let Some(leaf_depth) = walk.descend(&mut self.cursor) {
             let step = self.consume_payload();
-            self.emit_step(depth + leaf_depth, step.negative, step.magnitude);
+            self.emit_step(depth + leaf_depth, step.sign, step.magnitude);
         }
     }
 
@@ -1117,10 +1111,10 @@ impl FillWalk<'_> {
             // A tiny range (the first descent's depth routes for free): the
             // per-leaf fold is cheaper than a block summary's fixed cost.
             let step = self.consume_payload();
-            above.fold(step.negative, &step.magnitude);
+            above.fold(step.sign, &step.magnitude);
             while walk.descend(&mut self.cursor).is_some() {
                 let step = self.consume_payload();
-                above.fold(step.negative, &step.magnitude);
+                above.fold(step.sign, &step.magnitude);
             }
         } else {
             let mut net = Accumulator::new();
@@ -1138,7 +1132,7 @@ impl FillWalk<'_> {
             self.fold_block(&net);
         }
         let result = self.web.materialize(above.into_offset());
-        debug_assert!(!result.negative, "the fold floors at zero");
+        debug_assert!(!result.sign.is_negative(), "the fold floors at zero");
         result
     }
 }

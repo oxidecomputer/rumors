@@ -201,18 +201,21 @@ fn rejects_trailing_bits() {
 fn zigzag_is_a_bijection_without_negative_zero() {
     let mut seen: BTreeSet<(bool, u64)> = BTreeSet::new();
     for m in 0..=100u64 {
-        let (negative, magnitude) = unzigzag(crate::codec::Int::Small(m));
+        let (sign, magnitude) = unzigzag(crate::codec::Int::Small(m));
         let mag = magnitude
             .to_u64()
             .expect("small codes decode to small magnitudes");
-        assert!(!(negative && mag == 0), "no code may spell a negative zero");
         assert!(
-            seen.insert((negative, mag)),
+            !(sign.is_negative() && mag == 0),
+            "no code may spell a negative zero"
+        );
+        assert!(
+            seen.insert((sign.is_negative(), mag)),
             "two codes decoded to one delta: the map is not injective"
         );
         // Re-encode through the encoder's map: the round-trip pins the two
         // helpers as mutual inverses over the same sign convention.
-        let (prev, cur) = if negative {
+        let (prev, cur) = if sign.is_negative() {
             (Base::from(mag), Base::ZERO)
         } else {
             (Base::ZERO, Base::from(mag))

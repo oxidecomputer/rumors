@@ -54,7 +54,7 @@ use crate::codec::{BitCursor, BitsMut, BitsSlice, Int};
 use crate::error::Decode;
 
 use super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
-use super::signed::unzigzag;
+use super::signed::{unzigzag, Sign};
 
 /// A validating leaf cursor over one untrusted skyline stream.
 ///
@@ -190,14 +190,8 @@ where
         let flip = self.path.len();
         let code = self.descend()?;
         self.last_delta_zero = code.is_zero();
-        let (negative, magnitude) = unzigzag(code);
-        Ok((
-            flip,
-            Step {
-                negative,
-                magnitude,
-            },
-        ))
+        let (sign, magnitude) = unzigzag(code);
+        Ok((flip, Step { sign, magnitude }))
     }
 
     /// Close out the whole tree at exhaustion.
@@ -293,8 +287,8 @@ where
     // `a` operand, seeded and folded in the sweep's own order so the
     // accumulator traffic is identical).
     let mut diff = Accumulator::new();
-    super::signed::fold_signed_int(&mut diff, /* negative: */ false, &lo_first);
-    super::signed::fold_signed_int(&mut diff, /* negative: */ true, &hi_first);
+    super::signed::fold_signed_int(&mut diff, Sign::Positive, &lo_first);
+    super::signed::fold_signed_int(&mut diff, Sign::Negative, &hi_first);
     // Equality rides the same sign reads: the pair is equal exactly when no
     // elementary interval reads a strict `Less` (and none reads `Greater`,
     // which refutes outright) — canonical uniqueness then makes the verdict
@@ -361,37 +355,37 @@ where
     match lo.depth().cmp(&hi.depth()) {
         Ordering::Greater => {
             let (flip_lo, step) = lo.step();
-            fold(diff, Side::A, step.negative, &step.magnitude);
+            fold(diff, Side::A, step.sign, &step.magnitude);
             if flip_lo <= hi.depth() {
                 let (flip_hi, step) = hi.step()?;
                 debug_assert_eq!(
                     flip_lo, flip_hi,
                     "tied boundaries close to one shared flip level"
                 );
-                fold(diff, Side::B, step.negative, &step.magnitude);
+                fold(diff, Side::B, step.sign, &step.magnitude);
             }
         }
         Ordering::Less => {
             let (flip_hi, step) = hi.step()?;
-            fold(diff, Side::B, step.negative, &step.magnitude);
+            fold(diff, Side::B, step.sign, &step.magnitude);
             if flip_hi <= lo.depth() {
                 let (flip_lo, step) = lo.step();
                 debug_assert_eq!(
                     flip_hi, flip_lo,
                     "tied boundaries close to one shared flip level"
                 );
-                fold(diff, Side::A, step.negative, &step.magnitude);
+                fold(diff, Side::A, step.sign, &step.magnitude);
             }
         }
         Ordering::Equal => {
             let (flip_lo, step) = lo.step();
-            fold(diff, Side::A, step.negative, &step.magnitude);
+            fold(diff, Side::A, step.sign, &step.magnitude);
             let (flip_hi, step) = hi.step()?;
             debug_assert_eq!(
                 flip_lo, flip_hi,
                 "equal-depth leaves share their whole path, so their flip levels agree"
             );
-            fold(diff, Side::B, step.negative, &step.magnitude);
+            fold(diff, Side::B, step.sign, &step.magnitude);
         }
     }
     Ok(())

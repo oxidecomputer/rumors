@@ -87,6 +87,7 @@ use suanpan::{Accumulator, Limbs, UBig};
 
 use crate::codec::{Base, Int};
 
+use super::super::signed::Sign;
 use super::super::watermark::{Close, MinWeb};
 
 /// A magnitude's little-endian base-2^32 digits: [`mul_into`]'s read of its
@@ -128,13 +129,13 @@ pub(super) fn mul_into(
         return;
     }
     let mut carry = 0u64;
-    let mut add_term = |digit: u64, negative: bool, shift: u64| {
+    let mut add_term = |digit: u64, sign: Sign, shift: u64| {
         if digit == 0 {
             return;
         }
         let mut product = factor.clone();
         product *= u32::try_from(digit).expect("a compacted signed digit fits 32 bits");
-        if negative == subtract {
+        if sign.is_negative() == subtract {
             total.add_magnitude_shl(&product, shift);
         } else {
             total.sub_magnitude_shl(&product, shift);
@@ -146,16 +147,16 @@ pub(super) fn mul_into(
         if digit_sum > 1 << 31 {
             // Balanced arm: `digit_sum − 2^32` with a carry, so ones-runs
             // cancel.
-            add_term((1u64 << 32) - digit_sum, true, shift);
+            add_term((1u64 << 32) - digit_sum, Sign::Negative, shift);
             carry = 1;
         } else {
-            add_term(digit_sum, false, shift);
+            add_term(digit_sum, Sign::Positive, shift);
             carry = 0;
         }
         shift += 32;
     }
     if carry == 1 {
-        add_term(1, false, shift);
+        add_term(1, Sign::Positive, shift);
     }
 }
 
@@ -163,8 +164,8 @@ pub(super) fn mul_into(
 /// frozen-relative offset, its epoch, and the closes counted at it since the
 /// record's mint (module doc: the minima side).
 struct Reign {
-    /// Whether the offset is negative.
-    negative: bool,
+    /// The offset's sign.
+    sign: Sign,
     /// The offset's magnitude, relative to its epoch's frozen component.
     offset: Base,
     /// The epoch whose frozen component anchors `offset`.
@@ -175,9 +176,9 @@ struct Reign {
 
 impl Reign {
     /// A fresh record at a leaf's value, no closes counted yet.
-    fn mint(negative: bool, offset: &Base, epoch: u32) -> Reign {
+    fn mint(sign: Sign, offset: &Base, epoch: u32) -> Reign {
         Reign {
-            negative,
+            sign,
             offset: offset.clone(),
             epoch,
             count: 0,
@@ -198,7 +199,7 @@ fn settle(reign: Reign, total: &mut Accumulator, ledger: &mut EpochLedger) {
         &reign.offset,
         &Base::from(reign.count),
         0,
-        !reign.negative,
+        !reign.sign.is_negative(),
     );
 }
 
@@ -227,8 +228,8 @@ impl ReignWeb {
     }
 
     /// Fold one consumed delta into the height side of the web's `gap`.
-    pub(super) fn fold_height(&mut self, negative: bool, magnitude: &Int) {
-        self.web.fold_height(negative, magnitude);
+    pub(super) fn fold_height(&mut self, sign: Sign, magnitude: &Int) {
+        self.web.fold_height(sign, magnitude);
     }
 
     /// Close the innermost range: fold its minimum into the total (one count on
@@ -271,7 +272,7 @@ impl ReignWeb {
     }
 
     /// Record one leaf at the running height, with its narrow frozen-relative
-    /// offset (`negative`, `offset`) and epoch.
+    /// offset (`sign`, `offset`) and epoch.
     ///
     /// Arms any pending ranges at the leaf; otherwise an amortized sign read
     /// decides whether the leaf undercuts the innermost minimum, and only a
@@ -279,7 +280,7 @@ impl ReignWeb {
     /// consumes, each dying record settling as its difference dies.
     pub(super) fn leaf(
         &mut self,
-        negative: bool,
+        sign: Sign,
         offset: &Base,
         epoch: u32,
         total: &mut Accumulator,
@@ -288,7 +289,7 @@ impl ReignWeb {
         if self.web.has_pending() {
             if !self.web.armed() {
                 // The first arming: the web seats its anchor at the leaf.
-                self.winner = Some(Reign::mint(negative, offset, epoch));
+                self.winner = Some(Reign::mint(sign, offset, epoch));
             }
             // The trichotomy through the hooks: an arming above the old
             // minimum stacks the interrupted record as the boundary's
@@ -299,7 +300,7 @@ impl ReignWeb {
             self.web.arm_at_height(
                 || {
                     winner
-                        .replace(Reign::mint(negative, offset, epoch))
+                        .replace(Reign::mint(sign, offset, epoch))
                         .expect("an armed web has a reigning record")
                 },
                 |reign| settle(reign, total, ledger),
@@ -318,7 +319,7 @@ impl ReignWeb {
         // whose difference it consumes.
         let dead = self
             .winner
-            .replace(Reign::mint(negative, offset, epoch))
+            .replace(Reign::mint(sign, offset, epoch))
             .expect("an armed web has a reigning record");
         settle(dead, total, ledger);
         self.web.undercut(|reign| settle(reign, total, ledger));
@@ -341,7 +342,7 @@ impl ReignWeb {
 pub(super) struct EpochLedger {
     /// One signed drift per epoch: entry 0 is the first leaf's absolute height,
     /// every later entry one freeze's evicted live drift.
-    drifts: Vec<(bool, Base)>,
+    drifts: Vec<(Sign, Base)>,
     /// Per epoch, the signed count of events denominated in that epoch's frozen
     /// component: `+1` per leaf, `−count` per settled reign.
     refs: Vec<i128>,
@@ -352,7 +353,7 @@ impl EpochLedger {
     /// opening frozen component.
     pub(super) fn new(first: Base) -> EpochLedger {
         EpochLedger {
-            drifts: vec![(false, first)],
+            drifts: vec![(Sign::Positive, first)],
             refs: vec![0],
         }
     }
@@ -377,8 +378,10 @@ impl EpochLedger {
     pub(super) fn freeze(&mut self, live: &mut Accumulator) {
         let (sign, drift) = live.sign_magnitude();
         if drift != UBig::ZERO {
-            self.drifts
-                .push((sign == Ordering::Less, Base::from(drift)));
+            self.drifts.push((
+                Sign::from_is_negative(sign == Ordering::Less),
+                Base::from(drift),
+            ));
             self.refs.push(0);
         }
         live.reset();
@@ -389,13 +392,19 @@ impl EpochLedger {
     /// own width.
     pub(super) fn settle(self, total: &mut Accumulator) {
         let mut suffix: i128 = 0;
-        for ((negative, drift), refs) in self.drifts.iter().zip(&self.refs).rev() {
+        for ((drift_sign, drift), refs) in self.drifts.iter().zip(&self.refs).rev() {
             suffix += refs;
             if suffix == 0 {
                 continue;
             }
             let count = Base::from(suffix.unsigned_abs());
-            mul_into(total, drift, &count, 0, *negative != (suffix < 0));
+            mul_into(
+                total,
+                drift,
+                &count,
+                0,
+                drift_sign.is_negative() != (suffix < 0),
+            );
         }
         debug_assert_eq!(
             suffix, 1,

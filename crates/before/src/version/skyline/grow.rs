@@ -91,7 +91,7 @@
 use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, Code};
 
 use super::build::SkylineBuilder;
-use super::signed::{gamma_code, gamma_code_signed, unzigzag_base, zigzag_signed};
+use super::signed::{gamma_code, gamma_code_signed, unzigzag_base, zigzag_signed, Sign};
 use super::walk::LeafWalk;
 
 /// Lexicographic inflation cost: prefer fewer leaf-to-node expansions, then a
@@ -383,39 +383,44 @@ fn recode(code: &BitsSlice, step: Step, events: &Base) -> Code {
         Step::UpDelta => true,
         Step::DownDelta => false,
     };
-    let (negative, magnitude) = unzigzag_base(value);
-    let stepped = match (increment, negative) {
+    let (sign, magnitude) = unzigzag_base(value);
+    let stepped = match (increment, sign) {
         // Stepping a nonnegative delta up, or a negative one further down,
         // grows the magnitude.
-        (true, false) | (false, true) => zigzag_signed(negative, magnitude + events),
+        (true, Sign::Positive) | (false, Sign::Negative) => zigzag_signed(sign, magnitude + events),
         // Stepping a nonnegative delta down past zero: the sign flips and the
         // magnitude is the overshoot — `events` itself from a zero magnitude,
         // read off the unmetered width so the zero case costs exactly its
         // comparison.
-        (false, false) if magnitude < *events => {
+        (false, Sign::Positive) if magnitude < *events => {
             let overshoot = if magnitude.bits() == 0 {
                 events.clone()
             } else {
                 events.clone() - &magnitude
             };
-            zigzag_signed(true, overshoot)
+            zigzag_signed(Sign::Negative, overshoot)
         }
         // Otherwise the magnitude shrinks by `events`; a shrink to exactly
         // zero lands on the positive zero. The increment-on-negative arm can
         // cross zero only at `events > magnitude >= 1`, which the width tests
         // decide for free at a one-event step (one bit wide) and route through
         // one comparison only when the widths tie.
-        (true, true) | (false, false) => {
-            let crosses = negative
+        (true, Sign::Negative) | (false, Sign::Positive) => {
+            let crosses = sign.is_negative()
                 && (magnitude.bits() < events.bits()
                     || (magnitude.bits() == events.bits()
                         && events.bits() > 1
                         && magnitude < *events));
             if crosses {
-                zigzag_signed(false, events.clone() - &magnitude)
+                zigzag_signed(Sign::Positive, events.clone() - &magnitude)
             } else {
                 let shrunk = magnitude - events;
-                zigzag_signed(negative && shrunk != Base::ZERO, shrunk)
+                let sign = if shrunk == Base::ZERO {
+                    Sign::Positive
+                } else {
+                    sign
+                };
+                zigzag_signed(sign, shrunk)
             }
         }
     };
@@ -583,7 +588,7 @@ pub(super) fn emit(
         }
     }
     let grown_code = if emitted_in_chain {
-        gamma_code_signed(false, events)
+        gamma_code_signed(Sign::Positive, events)
     } else {
         // With nothing fed before it, the grown leaf is the output's first: its
         // code is the absolute height, not a delta.
@@ -600,7 +605,7 @@ pub(super) fn emit(
     for level in (0..chain).rev() {
         if chain_dirs[level] {
             let code = if first_after_grown {
-                gamma_code_signed(true, events)
+                gamma_code_signed(Sign::Negative, events)
             } else {
                 gamma_code(&Base::ZERO)
             };

@@ -31,7 +31,7 @@ use suanpan::Accumulator;
 use crate::codec::{self, BitCursor, BitStack, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
-use super::super::signed::{fold_signed_int, unzigzag, Signed};
+use super::super::signed::{fold_signed_int, unzigzag, Sign, Signed};
 use super::super::walk::{fold_region, skip_leaves, Extremum, LeafWalk};
 use super::super::watermark::MinWeb;
 use super::memo::Memo;
@@ -297,7 +297,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             above.fold_zigzag(code);
         }
         let result = self.web.materialize(above.into_offset());
-        debug_assert!(!result.negative, "the fold floors at zero");
+        debug_assert!(!result.sign.is_negative(), "the fold floors at zero");
         result
     }
 
@@ -434,15 +434,16 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// the web (and the entry net while it lives).
     fn payload(&mut self, first: bool) -> Signed {
         let code = self.cursor.read_int().expect("canonical skyline bits");
-        let (negative, magnitude) = if first { (false, code) } else { unzigzag(code) };
-        self.web.fold_height(negative, &magnitude);
+        let (sign, magnitude) = if first {
+            (Sign::Positive, code)
+        } else {
+            unzigzag(code)
+        };
+        self.web.fold_height(sign, &magnitude);
         if let Some(net) = &mut self.entry_net {
-            fold_signed_int(net, negative, &magnitude);
+            fold_signed_int(net, sign, &magnitude);
         }
-        Signed {
-            negative,
-            magnitude,
-        }
+        Signed { sign, magnitude }
     }
 
     /// A virtual emission at the current height.
@@ -470,7 +471,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .take()
             .expect("the entry net lives until the first arming");
         if let Some(offset) = offset {
-            fold_signed_int(&mut relation, offset.negative, &offset.magnitude);
+            fold_signed_int(&mut relation, offset.sign, &offset.magnitude);
         }
         self.pending_relation = Some(relation);
     }
@@ -507,9 +508,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
         }
         let skip = skip_leaves(&mut walk, &mut self.cursor, first, Some(first_leaf_depth))
             .expect("the descended leaf is pending");
-        self.web.fold_height(skip.net.negative, &skip.net.magnitude);
+        self.web.fold_height(skip.net.sign, &skip.net.magnitude);
         if let Some(net) = &mut self.entry_net {
-            fold_signed_int(net, skip.net.negative, &skip.net.magnitude);
+            fold_signed_int(net, skip.net.sign, &skip.net.magnitude);
         }
         self.emit_offset(&skip.min_from_exit);
     }
@@ -527,10 +528,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // A tiny range (the first descent's depth routes for free):
             // per-leaf is cheaper than a block summary.
             let step = self.payload(first);
-            above.fold(step.negative, &step.magnitude);
+            above.fold(step.sign, &step.magnitude);
             while walk.descend(&mut self.cursor).is_some() {
                 let step = self.payload(false);
-                above.fold(step.negative, &step.magnitude);
+                above.fold(step.sign, &step.magnitude);
             }
         } else {
             let mut net = Accumulator::new();
@@ -544,13 +545,13 @@ impl<'a, 'm> PreScan<'a, 'm> {
             );
             let (net_sign, net_magnitude) = net.sign_magnitude();
             let net = Signed::from_sign_magnitude(net_sign, net_magnitude);
-            self.web.fold_height(net.negative, &net.magnitude);
+            self.web.fold_height(net.sign, &net.magnitude);
             if let Some(entry) = &mut self.entry_net {
-                fold_signed_int(entry, net.negative, &net.magnitude);
+                fold_signed_int(entry, net.sign, &net.magnitude);
             }
         }
         let result = self.web.materialize(above.into_offset());
-        debug_assert!(!result.negative, "the fold floors at zero");
+        debug_assert!(!result.sign.is_negative(), "the fold floors at zero");
         result
     }
 }

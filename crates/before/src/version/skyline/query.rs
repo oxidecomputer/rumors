@@ -181,7 +181,7 @@ use super::build::SkylineBuilder;
 use super::overlay::{
     advance, advance_diff, fold, Crossed, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
-use super::signed::{fold_signed, fold_signed_int, gamma_code_int, signed_sum_int};
+use super::signed::{fold_signed, fold_signed_int, gamma_code_int, signed_sum_int, Sign, Signed};
 use super::walk::LeafWalk;
 
 /// The exact causal rank of the version a skyline stream denotes.
@@ -207,7 +207,7 @@ pub fn rank(bits: &BitsSlice) -> Rank {
     // integrand is the height itself, opened at the first leaf's absolute (the
     // plateau anchored at position zero) and folded delta-by-delta thereafter.
     let mut integral = Integrator::new();
-    integral.open(false, &first);
+    integral.open(Sign::Positive, &first);
     loop {
         let weight_shift = (max_depth - cursor.depth()) as u64;
         integral.interval(weight_shift);
@@ -215,7 +215,7 @@ pub fn rank(bits: &BitsSlice) -> Rank {
             break;
         }
         let (_, step) = cursor.step();
-        fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
+        fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
         integral.boundary(int_digits(&step.magnitude));
     }
     let (sign, numerator) = integral.finish(max_depth as u64);
@@ -345,12 +345,12 @@ fn pair_fold(
         // the spelling). Negative exactly when σ and `D` disagree in sign —
         // never for the directed measures, whose nonzero σ is `D`'s own sign.
         let (opening_sign, opening) = diff.sign_magnitude();
-        let negative = match opening_sign {
+        let sign = Sign::from_is_negative(match opening_sign {
             Ordering::Greater => current_orientation < 0,
             Ordering::Less => current_orientation > 0,
             Ordering::Equal => false,
-        };
-        integral.open(negative, &Int::from_ubig(opening));
+        });
+        integral.open(sign, &Int::from_ubig(opening));
     }
     loop {
         let weight_shift = (overlay_depth - cursor_a.depth().max(cursor_b.depth())) as u64;
@@ -370,7 +370,7 @@ fn pair_fold(
                     } else {
                         side.other()
                     };
-                    fold(&mut integral.live, toward, step.negative, &step.magnitude);
+                    fold(&mut integral.live, toward, step.sign, &step.magnitude);
                 }
             }
         }
@@ -431,12 +431,12 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
     let mut web = web::ReignWeb::new();
     web.open(cursor.depth());
     ledger.leaf_ref();
-    web.leaf(false, &Base::ZERO, 0, &mut total, &mut ledger);
+    web.leaf(Sign::Positive, &Base::ZERO, 0, &mut total, &mut ledger);
     while !cursor.done() {
         let depth_before = cursor.depth();
         let (flip, step) = cursor.step();
-        fold(&mut live, Side::A, step.negative, &step.magnitude);
-        web.fold_height(step.negative, &step.magnitude);
+        fold(&mut live, Side::A, step.sign, &step.magnitude);
+        web.fold_height(step.sign, &step.magnitude);
         // Every popped right-branch level closed one internal node: its subtree
         // minimum folds into the total (a count on the
         // web's reigning record) and merges into its parent.
@@ -453,11 +453,11 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
         }
         let (live_sign, live_magnitude) = live.sign_magnitude();
         let leaf_offset = Base::from(live_magnitude);
-        let leaf_negative = live_sign == Ordering::Less;
-        fold_signed(&mut total, leaf_negative, &leaf_offset);
+        let leaf_sign = Sign::from_is_negative(live_sign == Ordering::Less);
+        fold_signed(&mut total, leaf_sign, &leaf_offset);
         ledger.leaf_ref();
         web.leaf(
-            leaf_negative,
+            leaf_sign,
             &leaf_offset,
             ledger.epoch(),
             &mut total,
@@ -496,7 +496,7 @@ pub fn project(event_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
     let (mut event_cursor, first) = LeafCursor::open(event_bits);
     let mut id_cursor = IdLeafCursor::open(id_bits);
     let mut height = Accumulator::new();
-    fold_signed_int(&mut height, false, &first);
+    fold_signed_int(&mut height, Sign::Positive, &first);
     let mut owned = id_cursor.owned();
     // Allocation-strategy seam: the shipped arm pre-sizes to the operands'
     // summed lengths — an estimate, since the projection's output is not
@@ -535,11 +535,11 @@ pub fn project(event_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
                 }
                 let (stepped_flip, step) = event_cursor.step();
                 debug_assert_eq!(stepped_flip, flip, "the peeked flip is the step's own");
-                fold(&mut height, Side::A, step.negative, &step.magnitude);
+                fold(&mut height, Side::A, step.sign, &step.magnitude);
                 event_cursor.skip_deeper(flip, &mut height);
                 out.leaf(
                     flip,
-                    super::signed::gamma_code_signed_int(false, &Int::ZERO),
+                    super::signed::gamma_code_signed_int(Sign::Positive, &Int::ZERO),
                 );
             }
             if event_cursor.done() && id_cursor.done() {
@@ -551,37 +551,47 @@ pub fn project(event_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
         // deltas, each folded into the running height as it is consumed.
         let (ev_step, _) = advance(&mut event_cursor, &mut id_cursor, |crossing| {
             if let Crossed::A(step) = crossing {
-                fold(&mut height, Side::A, step.negative, &step.magnitude);
+                fold(&mut height, Side::A, step.sign, &step.magnitude);
             }
         });
         let now_owned = id_cursor.owned();
-        let (negative, magnitude) = match (owned, now_owned) {
+        let (sign, magnitude) = match (owned, now_owned) {
             // Inside an owned run the output moves with the skyline; a boundary
             // the id alone crossed is a zero delta.
             (true, true) => match &ev_step {
-                Some(step) => (step.negative, step.magnitude.clone()),
-                None => (false, Int::ZERO),
+                Some(step) => (step.sign, step.magnitude.clone()),
+                None => (Sign::Positive, Int::ZERO),
             },
-            (false, false) => (false, Int::ZERO),
+            (false, false) => (Sign::Positive, Int::ZERO),
             // Entering the owned region: the output jumps to the current
             // absolute height.
-            (false, true) => (false, Int::from_base(absolute_height(&mut height))),
+            (false, true) => (Sign::Positive, Int::from_base(absolute_height(&mut height))),
             // Leaving it: the output drops from the height *before* this
             // boundary's fold — the new height minus the folded delta.
             (true, false) => {
                 let now = Int::from_base(absolute_height(&mut height));
-                let (negative, magnitude) = match &ev_step {
-                    Some(step) => signed_sum_int(false, now, !step.negative, &step.magnitude),
-                    None => (false, now),
+                let before = match &ev_step {
+                    Some(step) => {
+                        signed_sum_int(Sign::Positive, now, step.sign.negate(), &step.magnitude)
+                    }
+                    None => Signed {
+                        sign: Sign::Positive,
+                        magnitude: now,
+                    },
                 };
-                debug_assert!(!negative, "heights are nonnegative");
-                (!magnitude.is_zero(), magnitude)
+                debug_assert!(!before.sign.is_negative(), "heights are nonnegative");
+                let sign = if before.magnitude.is_zero() {
+                    Sign::Positive
+                } else {
+                    Sign::Negative
+                };
+                (sign, before.magnitude)
             }
         };
         owned = now_owned;
         out.leaf(
             event_cursor.depth().max(id_cursor.depth()),
-            super::signed::gamma_code_signed_int(negative, &magnitude),
+            super::signed::gamma_code_signed_int(sign, &magnitude),
         );
     }
     let bits = out.finish();
