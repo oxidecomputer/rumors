@@ -298,7 +298,9 @@ impl<P> MinWeb<P> {
     /// relation needs re-anchoring).
     ///
     /// The outcome carries the popped payload where one was stacked
-    /// ([`Close::Parked`]); a payload-free client discards it.
+    /// ([`Close::Parked`]). The fill walk discards the whole outcome — not
+    /// just the payload — while the min-ticks fold dispatches on all four
+    /// arms.
     pub(super) fn close(&mut self) -> Close<P> {
         if self.pending > 0 {
             self.pending -= 1;
@@ -657,7 +659,16 @@ impl<P> MinWeb<P> {
     /// has already adjusted `gap` and the followers.
     fn propagate(&mut self, residue: Accumulator, mut on_die: impl FnMut(P)) {
         let mut residue = residue;
+        // Deferred zero-run bookkeeping: every consumed entry whose range's
+        // minimum now equals the new innermost one's counts here, and one
+        // flush after the loop pushes the merged run — every escape path
+        // below reaches that flush.
         let mut zeros = 0usize;
+        // Loop invariant: `residue > 0` is always the drop still to apply at
+        // the current stack position. Every arm either kills it (the
+        // stopping range absorbs it, or the stack empties — break), consumes
+        // a difference whole and keeps it going, or replaces it with the
+        // surviving remainder of a comparable-scale fold.
         loop {
             match self.diffs.pop() {
                 None => {
