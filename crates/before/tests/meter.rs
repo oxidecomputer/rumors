@@ -7496,13 +7496,11 @@ mod memo_resolution_cost {
     /// The absolute ceiling is the k-independence assert — a
     /// discipline that materializes one wide record per site (the
     /// refuted floor-anchored recording) adds the width once per
-    /// site and blows it [measured: 94,723 touches at k = 2,000,
-    /// b = 2,048 (94,725 before the fused tick; 88,726,
-    /// from which the pinned band derives, before the latent boundary
-    /// register's O(1) tag work per close; the older ceiling stands
-    /// over the rise; live remeasure: 100,723 — +3 touches per site
-    /// accumulated since the record, ×1.10 under the standing
-    /// ceiling) — a
+    /// site and blows it [measured: 72,721 touches at k = 2,000,
+    /// b = 2,048, the pinned band's basis (76,722 before the at-height
+    /// arm moved the dying gap out whole instead of folding a leased
+    /// zero; 94,725 before the fused tick; 88,726 before the latent
+    /// boundary register's O(1) tag work per close) — a
     /// per-site fan-out at that width would add ~64 touches per site
     /// on top of the ~43-touch linear slope].
     #[test]
@@ -7517,13 +7515,13 @@ mod memo_resolution_cost {
         );
         assert_flat("memo_fanout", &small, &large);
         assert!(
-            large.touches <= 110_907,
-            "memo_fanout: {} touches at k = 2,000 exceed the pinned absolute              ceiling 110,907 (measured 88,726 x1.25): a wide ledger quantity              is being materialized per site",
+            large.touches <= 90_902,
+            "memo_fanout: {} touches at k = 2,000 exceed the pinned absolute              ceiling 90,902 (measured 72,721 x1.25): a wide ledger quantity              is being materialized per site",
             large.touches,
         );
         assert!(
-            large.touches >= 66_544,
-            "memo_fanout: {} touches read below the 66,544 liveness floor              (measured 88,726 x0.75): the ledger's work left the metered              representation",
+            large.touches >= 54_540,
+            "memo_fanout: {} touches read below the 54,540 liveness floor              (measured 72,721 x0.75): the ledger's work left the metered              representation",
             large.touches,
         );
     }
@@ -7655,11 +7653,17 @@ mod width_circulation_cost {
     /// Tick the event × id cross and read the touch counter over the
     /// tick body alone.
     ///
-    /// Enforces a one-touch-per-input-byte liveness floor before
-    /// returning: the walk folds every consumed delta into the height
-    /// accumulator, so a reading below the floor means the walk's
-    /// accumulator work left the metered representation and any ratio
-    /// over it would hold vacuously.
+    /// Enforces a one-touch-per-eight-input-bytes liveness floor before
+    /// returning, derived from the walk's irreducible work: every
+    /// consumed code's magnitude folds into a live accumulator at least
+    /// once — one digit touch per 64-bit limb of the operand, zero limbs
+    /// included — and in every family here the folded payload (the
+    /// circulated wide minimum and the nonzero boundary codes) is at
+    /// least an eighth of the packed input, the leanest committed shape
+    /// (the leveled control) holding roughly a limb of wide payload per
+    /// site's worth of structure. A reading below the floor means the
+    /// walk's accumulator work left the metered representation and any
+    /// ratio over it would hold vacuously.
     fn tick_run(ev: meter::Packed, id: meter::Packed) -> Run {
         let mut v = ev.version();
         let p = Party::decode(&*id.bytes).expect("the generator's id is canonical");
@@ -7672,9 +7676,9 @@ mod width_circulation_cost {
             ticked: v,
         };
         assert!(
-            run.touches >= run.input,
+            run.touches >= run.input / 8,
             "reveal family at {input} input bytes: {} digit touches under the \
-             one-per-byte floor: the walk's accumulator work is not metered",
+             one-per-eight-bytes floor: the walk's accumulator work is not metered",
             run.touches,
         );
         run
@@ -7693,14 +7697,12 @@ mod width_circulation_cost {
     /// Semantics first: the tick is the closed form (every site
     /// collapses to the shared plateau leaf; the covering raise stays
     /// at the floor), so this pin carries the cost leg alone. The
-    /// signature [measured: 48,853 → 97,701 touches across
+    /// signature [measured: 37,848 → 75,696 touches across
     /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×2.00 on a ×2.00
-    /// input (48,857 → 97,705 before the fused tick, the
-    /// pinned band's derivation; 738,449 → 2,884,881 (×3.91) before
-    /// the latent boundary register landed); live remeasure:
-    /// 51,853 → 103,701 — +3 touches per site accumulated since the
-    /// record, still ×2.00 on the ×2.00 input, under the standing
-    /// band]: the consume-minted width-b
+    /// input (39,849 → 79,697 before the at-height arm moved the dying
+    /// gap out whole instead of folding a leased zero — two arms per
+    /// site, walk and pre-scan; 738,449 → 2,884,881 (×3.91) before
+    /// the latent boundary register landed)]: the consume-minted width-b
     /// boundary difference parks in the latent register at the site's
     /// close and the next consume's arm recycles it by a narrow
     /// anchor-relative fold, so no hop re-reads the width. A reading
@@ -7745,19 +7747,32 @@ mod width_circulation_cost {
             large.touches,
         );
         assert!(
-            large.touches <= 122_131,
+            large.touches <= 94_620,
             "reveal_comb: {} touches at (k, b) = (2,000, 2,048) exceed the pinned \
-             ceiling 122,131 (measured 97,705 x1.25)",
+             ceiling 94,620 (measured 75,696 x1.25)",
             large.touches,
         );
         assert!(
-            large.touches >= 73_278,
-            "reveal_comb: {} touches read below the 73,278 liveness floor \
-             (measured 97,705 x0.75): the cycle's work left the \
+            large.touches >= 56_772,
+            "reveal_comb: {} touches read below the 56,772 liveness floor \
+             (measured 75,696 x0.75): the cycle's work left the \
              metered representation",
             large.touches,
         );
     }
+
+    /// Touch liveness floor on the pure comb's larger run, derived from
+    /// the cycle's irreducible work — never from a measured basis.
+    ///
+    /// Each of the comb's k − 1 close-reveal cycles must pay two touches
+    /// no correct arm can avoid: the recycle's fold of the arriving
+    /// offset with the parked latent boundary (a fold of an accumulator
+    /// operand touches at least one digit, a leased zero included) and
+    /// the merged boundary's sign read deciding the push trichotomy.
+    /// The wide plateau's own code folds into the running height once,
+    /// at one touch per 64-bit limb. At (k, b) = (1,000, 2,048):
+    /// 2·(k − 1) + b/64 = 1,998 + 32.
+    const PURE_COMB_TOUCH_FLOOR: u64 = 2_030;
 
     /// The pure comb's arm-move + close-pop cycle is flat in the
     /// watermark web alone — at most ×1.15 per-byte touch growth
@@ -7767,8 +7782,10 @@ mod width_circulation_cost {
     /// Semantics first: fill is the identity here (no left-full site
     /// exists), so the tick is grow's closed form — the shallowest
     /// owned leaf expands, ties right. The signature [measured:
-    /// per-byte 3.71 → 3.20 across b = 1,024 → 2,048 at k = 1,000
-    /// (the widening input divides a flat count; 5.18 → 4.46 before
+    /// per-byte 1.53 → 1.36 across b = 1,024 → 2,048 at k = 1,000
+    /// (the widening input divides a flat count; 2.26 → 1.97 before
+    /// the at-height arm moved the dying gap out whole instead of
+    /// folding a leased zero — one touch per arm; 5.18 → 4.46 before
     /// the fused tick skipped the matched pass-through emissions'
     /// output materializations; 50.8 → 82.0 (×1.61)
     /// before the latent boundary register landed)]: each
@@ -7820,44 +7837,44 @@ mod width_circulation_cost {
             large.input,
         );
         assert!(
-            large.touches <= 4_043,
+            large.touches <= 2_793,
             "pure_comb: {} touches at (k, b) = (1,000, 2,048) exceed the pinned \
-             ceiling 4,043 (measured 3,234 x1.25, the fused tick; the \
-             accumulator's quick register folds the comb's narrow values \
-             in its register)",
+             ceiling 2,793 (measured 2,234 x1.25, the at-height arm's no-fold \
+             move; the accumulator's quick register folds the comb's narrow \
+             values in its register)",
             large.touches,
         );
         assert!(
-            large.touches >= 2_425,
-            "pure_comb: {} touches read below the 2,425 liveness floor \
-             (measured 3,234 x0.75, the fused tick): the cycle's \
-             work left the metered representation",
+            large.touches >= PURE_COMB_TOUCH_FLOOR,
+            "pure_comb: {} touches read below the {PURE_COMB_TOUCH_FLOOR} \
+             liveness floor (the cycle's derived irreducible work): the \
+             cycle's work left the metered representation",
             large.touches,
         );
     }
 
     /// Absolute touch ceiling on the high-floor control's larger run,
-    /// measured 50,837 ×1.25 (three identical runs).
+    /// measured 40,833 ×1.25, rounded up.
     ///
-    /// Movement: 56,831 → 50,837 when the latent boundary register
-    /// landed — the deleted close and consume folds this family paid
-    /// narrow. Live remeasure: 53,837 — +3 touches per site
-    /// accumulated since the record, under the standing ceiling.
-    const HIFLOOR_TOUCH_CEILING: u64 = 63_547;
+    /// Movement: 42,834 → 40,833 when the at-height arm moved the dying
+    /// gap out whole instead of folding a leased zero (one touch per
+    /// arm); 56,831 → 50,837 when the latent boundary register landed —
+    /// the deleted close and consume folds this family paid narrow.
+    const HIFLOOR_TOUCH_CEILING: u64 = 51_042;
 
     /// Touch liveness floor paired with [`HIFLOOR_TOUCH_CEILING`]:
-    /// measured ×0.75.
-    const HIFLOOR_TOUCH_FLOOR: u64 = 38_127;
+    /// measured ×0.75, rounded down.
+    const HIFLOOR_TOUCH_FLOOR: u64 = 30_624;
 
     /// GREEN PIN: the high-floor control is flat and width-independent
     /// — identical forest, identical deferral and close-reveal cycle,
     /// consume-time gap 2.
     ///
     /// Per-byte touches stay flat (×1.25) across the width QUADRUPLING
-    /// the wide family scales with [measured: 19.1 → 16.9 per byte
-    /// across b = 512 → 2,048 at k = 1,000; 21.4 → 18.9 before the
-    /// latent boundary register landed; live remeasure:
-    /// 20.2 → 17.9 per byte], under an absolute
+    /// the wide family scales with [measured: 15.3 → 13.5 per byte
+    /// across b = 512 → 2,048 at k = 1,000; 16.1 → 14.2 before the
+    /// at-height arm's no-fold move; 21.4 → 18.9 before the
+    /// latent boundary register landed], under an absolute
     /// band on the larger run. The wide GAP is the cycle's cost driver
     /// — not the site forest, not the deferral, not the close-reveal
     /// schedule, all of which this family shares with the wide one.
@@ -7908,13 +7925,13 @@ mod width_circulation_cost {
         assert!(
             large.touches <= HIFLOOR_TOUCH_CEILING,
             "reveal_comb_hifloor: {} touches exceed the pinned ceiling \
-             {HIFLOOR_TOUCH_CEILING} (measured 50,837 x1.25)",
+             {HIFLOOR_TOUCH_CEILING} (measured 40,833 x1.25)",
             large.touches,
         );
         assert!(
             large.touches >= HIFLOOR_TOUCH_FLOOR,
             "reveal_comb_hifloor: {} touches read below the {HIFLOOR_TOUCH_FLOOR} \
-             liveness floor (measured 50,837 x0.75): the cycle's work left the \
+             liveness floor (measured 40,833 x0.75): the cycle's work left the \
              metered representation",
             large.touches,
         );
@@ -7934,6 +7951,21 @@ mod width_circulation_cost {
             .expect("the grown ascending-cliff literal parses")
     }
 
+    /// Touch liveness floor on the undercut cascade's larger run,
+    /// derived from the cascade's irreducible work — never from a
+    /// measured basis.
+    ///
+    /// Per boundary, no correct walk can avoid: one fold of each of the
+    /// k − 1 consumed nonzero unit codes into the running height, one
+    /// sign read per arm deciding each of the k − 1 pushed boundaries'
+    /// trichotomy, and — at the cascade — one domination read plus one
+    /// dying fold per penetrated boundary (the difference dies into the
+    /// residue at its own width, at least one digit each). The wide
+    /// cliff code folds into the running height once, at one touch per
+    /// 64-bit limb. At (k, b) = (2,000, 4,096):
+    /// 4·(k − 1) + b/64 = 7,996 + 64.
+    const ASCEND_CLIFF_TOUCH_FLOOR: u64 = 8_060;
+
     /// The undercut cascade is dying-digit-funded flat — touches grow
     /// by at most ×2.5 across the joint (k, b) doubling on a ×2 input,
     /// under an absolute band on the larger run.
@@ -7942,10 +7974,11 @@ mod width_circulation_cost {
     /// subdividable subtree at its minimum), so the tick is grow's
     /// closed form — the owned cliff leaf expands to `(0, 1, 0)` — and
     /// this pin carries the cost leg alone. The signature [measured:
-    /// 10,432 → 20,848 touches across (k, b) =
+    /// 7,432 → 14,848 touches across (k, b) =
     /// (1,000, 2,048) → (2,000, 4,096), ×2.00 on a ×2.00 input
-    /// (10,495 → 20,975 before the zero-run ledger's certificate
-    /// skips; 12,626 → 25,234 before the fused tick
+    /// (8,432 → 16,848 before the at-height arm moved the dying gap
+    /// out whole instead of folding a leased zero — one touch per arm;
+    /// 12,626 → 25,234 before the fused tick
     /// skipped the matched pass-through emissions' output
     /// materializations; 203,435 → 790,851 (×3.89) before
     /// the cascade's fold direction
@@ -7989,41 +8022,50 @@ mod width_circulation_cost {
             large.touches,
         );
         assert!(
-            large.touches <= 26_060,
+            large.touches <= 18_560,
             "ascend_cliff: {} touches at (k, b) = (2,000, 4,096) exceed the pinned \
-             ceiling 26,060 (measured 20,848 x1.25, the zero-run \
-             ledger's certificate skips)",
+             ceiling 18,560 (measured 14,848 x1.25, the at-height arm's \
+             no-fold move)",
             large.touches,
         );
         assert!(
-            large.touches >= 15_636,
-            "ascend_cliff: {} touches read below the 15,636 liveness floor \
-             (measured 20,848 x0.75): the cascade's \
-             work left the metered representation",
+            large.touches >= ASCEND_CLIFF_TOUCH_FLOOR,
+            "ascend_cliff: {} touches read below the {ASCEND_CLIFF_TOUCH_FLOOR} \
+             liveness floor (the cascade's derived irreducible work): the \
+             cascade's work left the metered representation",
             large.touches,
         );
     }
 
     /// Absolute touch ceiling on the leveled control's larger run,
-    /// measured 8,854 ×1.25.
+    /// measured 2,854 ×1.25, rounded up.
     ///
-    /// Measurement history: 8,854 (the zero-run ledger's
-    /// certificate skips); 8,981 before them; 13,240 before the fused
-    /// tick skipped the matched pass-through emissions' output
-    /// materializations.
-    const PLATEAU_TOUCH_CEILING: u64 = 6_068;
+    /// Movement: 4,854 → 2,854 when the at-height arm moved the dying
+    /// gap out whole instead of folding a leased zero (one touch per
+    /// arm); 13,240 before the fused tick skipped the matched
+    /// pass-through emissions' output materializations.
+    const PLATEAU_TOUCH_CEILING: u64 = 3_568;
 
-    /// Touch liveness floor paired with [`PLATEAU_TOUCH_CEILING`]:
-    /// measured ×0.75.
-    const PLATEAU_TOUCH_FLOOR: u64 = 3_640;
+    /// Touch liveness floor paired with [`PLATEAU_TOUCH_CEILING`],
+    /// derived from the walk's irreducible work on this family — never
+    /// from a measured basis.
+    ///
+    /// Every arm reads its pushed boundary offset's sign — one touch,
+    /// even for this family's all-zero boundaries — and the wide first
+    /// raise folds into the running height once, at one touch per
+    /// 64-bit limb; the all-zero difference stack passes the final
+    /// undercut whole, so the cascade owes nothing further. At
+    /// (k, b) = (2,000, 4,096): (k − 1) + b/64 = 1,999 + 64.
+    const PLATEAU_TOUCH_FLOOR: u64 = 2_063;
 
     /// GREEN PIN: the leveled control is flat — identical spine,
     /// identical arming schedule, identical cliff undercut, all
     /// boundary differences zero.
     ///
     /// Per-byte touches stay flat (×1.25) across the joint (k, b)
-    /// doubling the ascending family scales with [measured: 2.69 →
-    /// 2.68 per byte across (1,000, 2,048) → (2,000, 4,096)],
+    /// doubling the ascending family scales with [measured: 0.87 →
+    /// 0.86 per byte across (1,000, 2,048) → (2,000, 4,096); 1.48 →
+    /// 1.47 before the at-height arm's no-fold move],
     /// under an absolute band on the larger run. The
     /// nonzero differences are the cascade's cost driver — with the
     /// stack one compressed zero run, the same wide undercut passes it
@@ -8078,14 +8120,14 @@ mod width_circulation_cost {
         assert!(
             large.touches <= PLATEAU_TOUCH_CEILING,
             "ascend_cliff_plateau: {} touches exceed the pinned ceiling \
-             {PLATEAU_TOUCH_CEILING} (measured 4,854 x1.25)",
+             {PLATEAU_TOUCH_CEILING} (measured 2,854 x1.25)",
             large.touches,
         );
         assert!(
             large.touches >= PLATEAU_TOUCH_FLOOR,
             "ascend_cliff_plateau: {} touches read below the {PLATEAU_TOUCH_FLOOR} \
-             liveness floor (measured 4,854 x0.75): the cascade's work left the \
-             metered representation",
+             liveness floor (the walk's derived irreducible work): the cascade's \
+             work left the metered representation",
             large.touches,
         );
     }

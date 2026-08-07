@@ -776,9 +776,10 @@ impl MinWeb<()> {
     /// Record an emission at the current height (`v = h`).
     pub(super) fn emit_here(&mut self) {
         if self.pending > 0 {
-            // below = h − v = 0.
-            let below = self.lease();
-            self.arm_below(below, || (), |()| ());
+            // v = h exactly: the dying gap is itself the anchor-relative
+            // offset, moved out whole with no fold
+            // ([`arm_at_height`](Self::arm_at_height)).
+            self.arm_at_height(|| (), |()| ());
             return;
         }
         if !self.undercuts_here() {
