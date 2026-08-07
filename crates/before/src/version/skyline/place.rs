@@ -151,8 +151,8 @@ impl<'a> BoundSide<'a> {
     fn open(bits: &'a BitsSlice, probe_first: &Int) -> BoundSide<'a> {
         let (cursor, first) = LeafCursor::open(bits);
         let mut diff = Accumulator::new();
-        super::signed::fold_signed_int(&mut diff, false, probe_first);
-        super::signed::fold_signed_int(&mut diff, true, &first);
+        super::signed::fold_signed_int(&mut diff, /* negative: */ false, probe_first);
+        super::signed::fold_signed_int(&mut diff, /* negative: */ true, &first);
         BoundSide {
             cursor,
             diff,
@@ -428,7 +428,10 @@ fn walk<V>(
     loop {
         // One read per live bound per elementary interval, end first — a fixed
         // order, so every question's accumulator traffic is identical (the
-        // committed meter rows pin the write sequences).
+        // committed meter rows pin the write sequences). End-first is
+        // arbitrary; only fixedness matters — each side's directions fold
+        // only its own difference's sign, so read order cannot move a
+        // verdict.
         if let Some(side) = &mut set.end {
             side.read();
             match on_end(side.directions, set.start.is_some()) {

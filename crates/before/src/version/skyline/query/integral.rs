@@ -44,8 +44,9 @@
 //! freeze per block at ever-growing written position spans. The overlay is
 //! worse: one operand's cheap boundaries fire freezes of drift the other
 //! operand's wide codes deposited, at positions whose compacted density
-//! neither operand's codes funded. (On the two-operand jump comb — a shared
-//! descent spine planting isolated position bits, then an `m`-level comb
+//! neither operand's codes funded. (On the two-operand jump comb — the
+//! jump-pair board family's shape: a shared descent spine planting isolated
+//! position bits, then an `m`-level comb
 //! where one operand's wide teeth cross the other's near-flat band — every
 //! crest of `|D|` would pay a drift-width × position-density product,
 //! superlinear in the packed pair while each operand alone stays flat.) The
@@ -182,10 +183,10 @@
 //!
 //! The product tree charges every arming-window cross term of the exact debt
 //! `Σ_{i<j} P_i · w_j` inside exactly one aggregate product, so no accounting
-//! direction exists for an input to load: a shared dense suffix cannot be
-//! re-walked once per arming (the reverse dual's defect), a promoted prefix
-//! cannot be re-read once per window (the forward dual's), and no width or
-//! density is re-read more times than its node's depth.
+//! direction exists for an input to load — the two one-sided settle orders'
+//! defects are both closed: a shared dense suffix cannot be re-walked once
+//! per arming, a promoted prefix cannot be re-read once per window, and no
+//! width or density is re-read more times than its node's depth.
 //!
 //! Streams whose parked masses stay `O(1)` digits wide — every committed
 //! board family, and the dense-suffix adversaries of the `skyline_flatness`
@@ -502,7 +503,9 @@ pub(super) struct Integrator {
     /// The promotion ledger: one [`Arming`] per promotion, settled once at the
     /// sweep's close ([`settle_armings`](Self::settle_armings)).
     pub(super) promotions: Vec<Arming>,
-    /// The unit mass every interval deposits at its own scale.
+    /// The unit mass every interval deposits at its own scale; a constant,
+    /// held on the struct so the per-interval deposit borrows a ready
+    /// `&Base` instead of building one per interval.
     one: Base,
 }
 

@@ -4,9 +4,8 @@
 //! One [`MinWeb`] tracks, for every open range of a LIFO sweep, the minimum
 //! *emitted* value in that range — without materializing any of them. A
 //! *range* is the client's own bracket, opened and closed by the client's
-//! sweep and never interpreted by the web; the web holds one *frame* per
-//! open range — the two words are the client's and the web's for the same
-//! record. Two
+//! sweep and never interpreted by the web; the web holds one record per
+//! open range. Two
 //! clients drive it: the fill walk (payload `()`, followers installed) and
 //! the min-ticks fold (`query`'s `web` module, riding its reign records as
 //! the payload). The representation, the emission decisions, and the cost
@@ -15,19 +14,25 @@
 //!
 //! # The representation
 //!
-//! One signed accumulator `gap = h − A` (`h` the sweep's running input
-//! height, `A` an *anchor* at or above the innermost armed range's minimum
-//! `m`), one optional latent boundary `Λ = A − m` (strictly positive when
-//! present; absent means `A = m` exactly), and a stack of nonnegative
-//! differences `min(inner) − min(outer)` between adjacent armed ranges,
-//! with runs of zero differences compressed to one counted entry and —
-//! where the instantiation elects it ([`MinWeb::compacting`]) — each
-//! nonzero difference held at machine width whenever it fits
-//! ([`Boundary`]). Ranges nest LIFO and minima are monotone outward (an
-//! outer range's emissions include its inner ranges'), so the differences
-//! are nonnegative by construction and one `gap` serves every frame.
+//! - One signed accumulator `gap = h − A` (`h` the sweep's running input
+//!   height, `A` an *anchor* at or above the innermost armed range's
+//!   minimum `m`).
+//! - One optional latent boundary `Λ = A − m` (strictly positive when
+//!   present; absent means `A = m` exactly).
+//! - A stack of nonnegative differences `min(inner) − min(outer)` between
+//!   adjacent armed ranges, with runs of zero differences compressed to
+//!   one counted entry and — where the instantiation elects it
+//!   ([`MinWeb::compacting`]) — each nonzero difference held at machine
+//!   width whenever it fits ([`Boundary`]).
+//!
+//! Ranges nest LIFO and minima are monotone outward (an outer range's
+//! emissions include its inner ranges'), so the differences are
+//! nonnegative by construction and one `gap` serves every range.
 //!
 //! # The cost discipline: width conservation
+//!
+//! (An amortization argument, self-contained: a first read can skip to the
+//! operations and return here.)
 //!
 //! Every digit touch is paid by a consumed input code, an emitted output
 //! code, or the death of the digits it reads — so wide content can shuttle
@@ -38,19 +43,23 @@
 //! - Each consumed input delta folds into `gap` once (a uniform shift of
 //!   `h` against a fixed anchor) — never once per open range.
 //! - A close never folds: a popped nonzero boundary MOVES into the latent
-//!   register (merging *min-into-max* with one already parked: the narrower
-//!   buffer folds into the wider — [`Accumulator::merge_into_wider`] — so
-//!   the fold costs the dying narrow side's width), leaving
+//!   register (merged with one already parked by
+//!   [`Accumulator::merge_into_wider`]: the narrower buffer folds into the
+//!   wider, costing the dying narrow side's width), leaving
 //!   `gap` and the followers untouched — the anchor goes stale by exactly
 //!   the parked width.
 //! - An arm recycles: the arming offset `v − A` is narrow whenever the
 //!   input moved little since the anchor was seated, and the true boundary
-//!   `v − m` is that offset merged min-into-max with the latent's buffer —
+//!   `v − m` is that offset merged into the latent's buffer
+//!   (`merge_into_wider` again, the narrow side dying) —
 //!   pushed back as the new difference by move, the register drained.
 //! - An emission compares against `m` by one amortized sign read against
 //!   the anchor; a drop landing under the anchor is decided against the
-//!   latent by top-index domination in O(1), and only comparable scales
-//!   fold — a min-into-max collapse whose near-cancellation funds it,
+//!   latent by top-index domination (a clear gap between the two
+//!   operands' top digit indices decides the sign with no fold) in O(1),
+//!   and only comparable scales
+//!   fold — a narrower-into-wider collapse whose near-cancellation funds
+//!   it,
 //!   after which re-widening the latent costs the input a fresh climb.
 //!   When a comparison must fold, it folds the *priced* side (the
 //!   emission's own offset, paid by the scan or code that produced it —
@@ -62,12 +71,15 @@
 //!   at all.
 //! - An undercut (an emission below `m`) replaces `gap`, annihilates any
 //!   latent into the residue (the drop dominated it), and propagates the
-//!   drop outward: whole zero runs pass in O(1) (their frames' minima
-//!   track the innermost implicitly), word-scale boundaries fold in O(1)
-//!   outright, each wide difference the drop consumes dies by one fold
-//!   into the residue, and the stopping frame absorbs exactly one
-//!   surviving fold, bounded by the residue the input or the emission
-//!   already paid for. The residue is never folded into frames it passes.
+//!   drop outward:
+//!   - whole zero runs pass in O(1) (their ranges' minima track the
+//!     innermost implicitly);
+//!   - word-scale boundaries fold in O(1) outright;
+//!   - each wide difference the drop consumes dies by one fold into the
+//!     residue;
+//!   - the stopping range absorbs exactly one surviving fold, bounded by
+//!     the residue the input or the emission already paid for;
+//!   - the residue is never folded into ranges it passes.
 //! - Dying accumulators return to a pool and are re-armed cleared, so
 //!   range churn allocates nothing in steady state.
 //!
@@ -91,7 +103,7 @@
 //!
 //! # The arming paths
 //!
-//! Three entry points arm pending frames, split by where the emission's
+//! Three entry points arm pending ranges, split by where the emission's
 //! value comes from:
 //!
 //! - [`arm_at_height`](MinWeb::arm_at_height): `v = h` exactly. Handles the
@@ -132,8 +144,9 @@ use crate::codec::Int;
 
 use super::signed::{fold_signed_int, Signed};
 
-/// Follower slots the web carries (the fill walk's two relations).
-const FOLLOWER_SLOTS: usize = 2;
+/// Follower slots the web carries (the fill walk's two relations; a const
+/// assert beside the fill walk's slot constants binds the two rosters).
+pub(super) const FOLLOWER_SLOTS: usize = 2;
 
 /// A stacked boundary `min(inner) − min(outer)`, held at machine width when
 /// the instantiation compacts and the value fits
@@ -147,9 +160,9 @@ enum Boundary {
 
 /// One record of the difference stack.
 enum Entry<P> {
-    /// `count` consecutive frames whose minima equal the next inner frame's.
+    /// `count` consecutive ranges whose minima equal the next inner range's.
     ZeroRun(usize),
-    /// A frame whose minimum sits `boundary` below the next-inner one, with
+    /// A range whose minimum sits `boundary` below the next-inner one, with
     /// the payload its client rode on that boundary.
     Diff { boundary: Boundary, payload: P },
 }
@@ -170,27 +183,27 @@ pub(super) enum Close<P> {
 
 /// The LIFO web of range-minimum watermarks (module doc).
 pub(super) struct MinWeb<P> {
-    /// `h − A` for the anchor `A` of the innermost armed frame (`A = m + Λ` for
+    /// `h − A` for the anchor `A` of the innermost armed range (`A = m + Λ` for
     /// the latent `Λ`, so `A = m` exactly while no latent lives); zero-valued
     /// while `armed == 0`.
     gap: Accumulator,
     /// The latent boundary `Λ = A − m`: the anchor's stale excess over the
-    /// innermost armed frame's true minimum.
+    /// innermost armed range's true minimum.
     ///
     /// Strictly positive when present; at most one lives, conceptually at the
     /// top of the difference stack; it holds no height content (heights fold
-    /// into `gap` only) and dies with the last armed frame.
+    /// into `gap` only) and dies with the last armed range.
     latent: Option<Accumulator>,
     /// Per follower slot: whether the stored content is anchor-relative
     /// (`f_true = f_stored − Λ`). Set only while the latent lives; a set tag
     /// never outlives it.
     anchor_relative: [bool; FOLLOWER_SLOTS],
-    /// Adjacent-frame differences outward from the innermost armed frame, zero
+    /// Adjacent-range differences outward from the innermost armed range, zero
     /// runs compressed; last entry = nearest the innermost.
     diffs: Vec<Entry<P>>,
-    /// Open frames with no emission yet, all inner of every armed one.
+    /// Open ranges with no emission yet, all inner of every armed one.
     pending: usize,
-    /// Armed frames (the difference stack carries `armed − 1` frame
+    /// Armed ranges (the difference stack carries `armed − 1` range
     /// records).
     armed: usize,
     /// Active followers (module doc), tracking `m − X` (anchor-relative while
@@ -208,10 +221,12 @@ pub(super) struct MinWeb<P> {
 impl<P> MinWeb<P> {
     /// A fresh web whose pushed boundaries stay on their own accumulators.
     ///
-    /// The fill walk's instantiation: measured on its committed families,
-    /// per-push word compaction reads one extra touch per word-scale site
-    /// (the compacting read-out) and improves no committed transient — the
-    /// walk's boundary buffers live in the pool either way.
+    /// The fill walk's instantiation. The walk's boundary buffers live in
+    /// the pool either way, so per-push word compaction would improve no
+    /// committed transient — and it reads one extra touch per word-scale
+    /// site (the compacting read-out), measured on the walk's committed
+    /// families (the `width_circulation_cost` and memo modules of
+    /// `tests/meter.rs`).
     pub(super) fn new() -> Self {
         MinWeb {
             gap: Accumulator::new(),
@@ -229,7 +244,8 @@ impl<P> MinWeb<P> {
     /// A fresh web that stores each pushed boundary at machine width when
     /// the value fits ([`Boundary::Word`]).
     ///
-    /// The min-ticks instantiation: its deep committed shapes stack one
+    /// The min-ticks instantiation: its deep committed shapes (the
+    /// `skyline_min_ticks_*` envelope rows of `tests/meter.rs`) stack one
     /// unit-scale boundary per open range, and the inline word keeps that
     /// transient at one machine word per range instead of one live heap
     /// buffer.
@@ -240,19 +256,19 @@ impl<P> MinWeb<P> {
         }
     }
 
-    /// Whether any frame is armed (an emission has occurred inside an
+    /// Whether any range is armed (an emission has occurred inside an
     /// open range).
     pub(super) fn armed(&self) -> bool {
         self.armed > 0
     }
 
-    /// Whether any open frame is still pending (no emission has armed it):
+    /// Whether any open range is still pending (no emission has armed it):
     /// the next emission will arm.
     pub(super) fn has_pending(&self) -> bool {
         self.pending > 0
     }
 
-    /// Open `count` ranges: `count` more frames, each unarmed until the
+    /// Open `count` ranges: `count` more ranges, each unarmed until the
     /// next emission.
     pub(super) fn open(&mut self, count: usize) {
         self.pending += count;
@@ -260,7 +276,7 @@ impl<P> MinWeb<P> {
 
     /// Fold one consumed input step into the height side of `gap`.
     ///
-    /// `h` moved while every `m` stayed: exactly the innermost frame's
+    /// `h` moved while every `m` stayed: exactly the innermost range's
     /// `gap` shifts; the differences and followers are height-free.
     pub(super) fn fold_height(&mut self, negative: bool, magnitude: &Int) {
         if self.armed > 0 {
@@ -273,11 +289,11 @@ impl<P> MinWeb<P> {
     /// Monotone nesting makes the merge free — the parent's minimum already
     /// reflects every inner emission (propagation kept it live) — and the
     /// latent makes it O(1): a popped zero run decrements; a popped nonzero
-    /// boundary MOVES into the latent register (minting it, or dying
-    /// min-into-max into a live one), leaving `gap` and the followers
+    /// boundary MOVES into the latent register (minting it, or dying by
+    /// `merge_into_wider` into a live one), leaving `gap` and the followers
     /// untouched. Each active follower goes anchor-relative by its one-bit
     /// tag instead of absorbing a fold, so a close never touches a follower
-    /// digit. The last armed frame's close retires the web: `gap` and any
+    /// digit. The last armed range's close retires the web: `gap` and any
     /// latent drop unread (followers are already dead, so no surviving
     /// relation needs re-anchoring).
     ///
@@ -288,10 +304,10 @@ impl<P> MinWeb<P> {
             self.pending -= 1;
             return Close::Pending;
         }
-        debug_assert!(self.armed > 0, "closing an armed frame");
+        debug_assert!(self.armed > 0, "a non-pending close finds an armed range: every open range was counted in pending or armed");
         self.armed -= 1;
         if self.armed == 0 {
-            debug_assert!(self.diffs.is_empty(), "no differences without frames");
+            debug_assert!(self.diffs.is_empty(), "no differences without ranges");
             debug_assert!(
                 self.followers.iter().all(Option::is_none),
                 "followers die before their anchor web does"
@@ -314,7 +330,7 @@ impl<P> MinWeb<P> {
             Entry::Diff { boundary, payload } => {
                 // m widens from the child's to the parent's, the boundary
                 // lower; the anchor stays where it is and the boundary parks
-                // in the latent (`Λ += boundary` by min-into-max merge, or
+                // in the latent (`Λ += boundary` by `merge_into_wider`, or
                 // the mint move).
                 self.park(boundary);
                 Close::Parked(payload)
@@ -371,15 +387,15 @@ impl<P> MinWeb<P> {
 
     /// Retire the latent into the true minimum.
     ///
-    /// The anchor re-bases to `m` (`gap += Λ` by min-into-max buffer merge),
+    /// The anchor re-bases to `m` (`gap += Λ` by `merge_into_wider`),
     /// each tagged follower resolves by one fold of the dying latent (its
     /// death-event fan-out), and the tags clear. A no-op while no latent
     /// lives.
     ///
     /// Callers fund the death: a comparable-scale decision (the merge's
     /// near-cancellation), an emission whose output code the latent's width
-    /// widens, or a re-anchor riding one (the site close and recorder paths,
-    /// whose in-cycle case finds the latent already drained by the arm).
+    /// widens, or a re-anchor riding one — every caller resolves at a point
+    /// where an emission or a comparable-scale collapse prices the fold.
     pub(super) fn resolve_latent(&mut self) {
         let Some(latent) = self.latent.take() else {
             return;
@@ -413,6 +429,11 @@ impl<P> MinWeb<P> {
     /// comparable-scales collapse re-bases the anchor to `m` and the final
     /// re-test reads the plain sign. A `true` return leaves `gap` still
     /// holding `v − A` (negative) for the undercut that must follow.
+    ///
+    /// May retire the latent (a funded collapse): the web's *value* is
+    /// unchanged, its representation is not — unlike the fold-and-restore
+    /// readers ([`compare_above_vs`](Self::compare_above_vs),
+    /// [`bridge_add_gap`](Self::bridge_add_gap)), which restore exactly.
     pub(super) fn undercuts_here(&mut self) -> bool {
         // v − A = gap: at or above the anchor is at or above the minimum.
         if self.gap.sign() != Ordering::Less {
@@ -495,7 +516,7 @@ impl<P> MinWeb<P> {
         self.propagate(residue, on_die);
     }
 
-    /// Arm every pending frame at an emission `v = h` exactly: the
+    /// Arm every pending range at an emission `v = h` exactly: the
     /// anchor-relative offset is the dying `gap` itself, moved out whole
     /// with no fold at all, and a fresh zero seats the new anchor `A = v`.
     ///
@@ -503,7 +524,10 @@ impl<P> MinWeb<P> {
     /// read it (the pushed-above arm stacks it; an arming undercut hands it
     /// straight to `on_die` — [`push_boundary`](Self::push_boundary)).
     pub(super) fn arm_at_height(&mut self, payload: impl FnOnce() -> P, on_die: impl FnMut(P)) {
-        debug_assert!(self.pending > 0, "arming consumes pending frames");
+        debug_assert!(
+            self.pending > 0,
+            "an arm fires only while a pending range awaits it"
+        );
         let pending = core::mem::replace(&mut self.pending, 0);
         if self.armed == 0 {
             debug_assert!(
@@ -524,7 +548,7 @@ impl<P> MinWeb<P> {
         self.push_boundary(offset, pending, payload, on_die);
     }
 
-    /// Arm every pending frame at the emission `v = h − below`, moving
+    /// Arm every pending range at the emission `v = h − below`, moving
     /// `below` in as the new `gap`.
     ///
     /// The accumulator moves into the web — wide content is stored once and
@@ -537,7 +561,10 @@ impl<P> MinWeb<P> {
         payload: impl FnOnce() -> P,
         on_die: impl FnMut(P),
     ) {
-        debug_assert!(self.pending > 0, "arming consumes pending frames");
+        debug_assert!(
+            self.pending > 0,
+            "an arm fires only while a pending range awaits it"
+        );
         let pending = core::mem::replace(&mut self.pending, 0);
         if self.armed == 0 {
             debug_assert!(
@@ -561,7 +588,7 @@ impl<P> MinWeb<P> {
     }
 
     /// Arm bookkeeping shared by the arming paths, after `gap` is seated for
-    /// the new anchor `A = v` and `armed` counts the new frames.
+    /// the new anchor `A = v` and `armed` counts the new ranges.
     ///
     /// Folds the anchor-relative offset `offset = v − A_old` into each
     /// active follower (resolving set tags — the offset is exactly the
@@ -620,7 +647,7 @@ impl<P> MinWeb<P> {
     /// Zero runs pass whole in O(1); word-scale boundaries fold in O(1)
     /// outright; each wide difference the drop exceeds dies by one fold
     /// *into the residue* at the difference's own width — its payload
-    /// surrendered to `on_die` — and the stopping frame absorbs the one
+    /// surrendered to `on_die` — and the stopping range absorbs the one
     /// surviving fold: the residue's terminal death into the difference that
     /// outlasts it. Top-index domination decides each wide hop's direction
     /// before any fold, so the dying side always funds the fold that
@@ -634,7 +661,7 @@ impl<P> MinWeb<P> {
         loop {
             match self.diffs.pop() {
                 None => {
-                    // The outermost armed frame dropped; nothing is
+                    // The outermost armed range dropped; nothing is
                     // outward of it.
                     self.retire(residue);
                     break;
@@ -654,7 +681,7 @@ impl<P> MinWeb<P> {
                             zeros += 1;
                         }
                         Ordering::Equal => {
-                            // Exact meet: this frame's minimum now equals
+                            // Exact meet: this range's minimum now equals
                             // the new innermost one's.
                             on_die(payload);
                             self.retire(residue);
@@ -736,7 +763,7 @@ impl<P> MinWeb<P> {
                             break;
                         }
                         Ordering::Equal => {
-                            // Exact meet: this frame's minimum now equals
+                            // Exact meet: this range's minimum now equals
                             // the new innermost one's.
                             on_die(payload);
                             self.retire(diff);
@@ -762,8 +789,10 @@ impl<P> MinWeb<P> {
     /// instantiation compacts and the value fits, retiring its buffer; keep
     /// the accumulator otherwise.
     ///
-    /// The width test reads the digit count alone, so a wide difference is
-    /// never normalized just to learn it would not fit.
+    /// The width test reads the digit count alone — two digits cover a
+    /// `u64` at the accumulator's base-2^32 digit width, so anything wider
+    /// can never fit — and a wide difference is therefore never normalized
+    /// just to learn it would not fit.
     fn compact(&mut self, difference: Accumulator) -> Boundary {
         if self.compact_words && difference.digit_count() <= 2 {
             let (sign, magnitude) = difference.sign_magnitude();
@@ -776,7 +805,7 @@ impl<P> MinWeb<P> {
         Boundary::Wide(difference)
     }
 
-    /// Push `count` zero-difference frames, merging with a top run.
+    /// Push `count` zero-difference ranges, merging with a top run.
     fn push_zeros(&mut self, count: usize) {
         if count == 0 {
             return;
@@ -833,7 +862,7 @@ impl MinWeb<()> {
     /// Five paths, in order:
     ///
     /// 1. A zero offset delegates to [`emit_here`](Self::emit_here).
-    /// 2. Pending frames arm at `v` ([`arm_below`](Self::arm_below) with
+    /// 2. Pending ranges arm at `v` ([`arm_below`](Self::arm_below) with
     ///    `below = −offset`).
     /// 3. No latent and a word-scale offset: post-sign domination reads the
     ///    answer with no fold — a dominating-positive `gap` returns; a
@@ -912,13 +941,13 @@ impl MinWeb<()> {
 
     /// Record an emission at `v = h − below` where `below` arrives as a
     /// funded accumulator (a resolved memoized minimum), arming the pending
-    /// frame that must exist for it.
+    /// range that must exist for it.
     ///
     /// The accumulator moves into the web — it becomes the new `gap` — so
     /// wide content is stored once and read only at the arming boundary it
     /// prices.
     pub(super) fn emit_below_accum(&mut self, below: Accumulator) {
-        debug_assert!(self.pending > 0, "a raise arms its own node's frame");
+        debug_assert!(self.pending > 0, "a raise arms its own node's range");
         self.arm_below(below, || (), |()| ());
     }
 
@@ -930,8 +959,12 @@ impl MinWeb<()> {
     /// and restored, with the latent ladder deciding drops that land between
     /// the true minimum and the anchor (domination in O(1), or a funded
     /// collapse at comparable scales).
+    ///
+    /// May retire the latent (a funded collapse): the web's *value* is
+    /// unchanged, its representation is not — unlike the fold-and-restore
+    /// readers, which restore exactly.
     pub(super) fn compare_above(&mut self, above: &Signed) -> Ordering {
-        debug_assert!(self.armed > 0, "a raise compares against an armed frame");
+        debug_assert!(self.armed > 0, "a raise compares against an armed range");
         if self.latent.is_none() && above.magnitude.to_u64().is_some() {
             let (sign, decided) = self.gap.sign_dominates_word();
             if decided {
@@ -978,7 +1011,7 @@ impl MinWeb<()> {
         above: &Signed,
         arm_offset: &Accumulator,
     ) -> Ordering {
-        debug_assert!(self.armed > 0, "a raise compares against an armed frame");
+        debug_assert!(self.armed > 0, "a raise compares against an armed range");
         self.gap.sub_accum(arm_offset);
         fold_signed_int(&mut self.gap, above.negative, &above.magnitude);
         let sign = self.gap.sign();
@@ -987,17 +1020,18 @@ impl MinWeb<()> {
         sign
     }
 
-    /// Arm the pending frame at a minimum `arm_offset` above the anchor
+    /// Arm the pending range at a minimum `arm_offset` above the anchor
     /// (`v = A + arm_offset`, signed and dying here).
     ///
     /// The memo consumer's arming: the new `gap = gap_old − arm_offset`
     /// needs no read of the old web beyond `arm_offset`'s own width, and
     /// `arm_offset` recycles any parked latent — the true boundary `v − m`
     /// is `arm_offset + Λ`, realized by folding the narrow dying offset
-    /// min-into-max with the latent's buffer and pushing the merged buffer
+    /// into the latent's buffer (`merge_into_wider`) and pushing the merged
+    /// buffer
     /// (or, negated, propagating it as the undercut's residue).
     pub(super) fn arm_relative(&mut self, arm_offset: Accumulator) {
-        debug_assert!(self.pending > 0, "a raise arms its own node's frame");
+        debug_assert!(self.pending > 0, "a raise arms its own node's range");
         debug_assert!(self.armed > 0, "a relative arming needs an armed anchor");
         let pending = core::mem::replace(&mut self.pending, 0);
         self.gap.sub_accum(&arm_offset);
@@ -1038,7 +1072,9 @@ impl MinWeb<()> {
     /// magnitude (held digits exceed the value's width by at most the
     /// collapse slack), retiring the buffer.
     pub(super) fn materialize(&mut self, mut dying: Accumulator) -> Signed {
-        dying.sign();
+        // Collapse for an honest width before the read-out: `sign()` is
+        // called for its compaction side effect, the value unread.
+        let _sign = dying.sign();
         let (sign, magnitude) = dying.sign_magnitude();
         self.retire(dying);
         Signed::from_sign_magnitude(sign, magnitude)

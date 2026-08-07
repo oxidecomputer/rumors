@@ -1,24 +1,27 @@
-//! The skyline coding of a [`Version`]: preorder topology bits plus delta-coded
-//! absolute leaf heights.
+//! The skyline coding of a [`Version`]: preorder topology bits plus the
+//! absolute leaf heights, delta-coded.
 //!
 //! A [`Version`] is a step function over the unit id interval — a *skyline* —
-//! and each maximal constant run of it is a *plateau*: one leaf of the tree,
-//! spanning a dyadic interval of width `2^-depth`. Topology plus absolute
+//! and each maximal constant run of it is a plateau: one leaf of the tree,
+//! spanning a dyadic interval of width `2^-depth` (the `overlay` machinery
+//! module's cursor vocabulary mints the term). Topology plus absolute
 //! leaf heights determine the function completely. This module codes exactly
 //! that, as two interleaved streams in one bit string:
 //!
 //! - **Topology**: one preorder flag bit per node (`0` internal, `1` leaf).
 //!   Internal nodes carry no numbers, and a root-to-leaf descent is a
 //!   unary run — zero or more `0`s ended by the leaf's `1` — so a reader
-//!   takes a whole descent in one word-parallel unary read (the codec
-//!   cursors' shared vocabulary).
+//!   takes a whole descent in one word-parallel unary read (the `codec`
+//!   module's cursors share that vocabulary).
 //! - **Leaf payloads**, in-stream at each leaf position: the first leaf's
-//!   absolute height as `gamma(v1)`, every later leaf as
+//!   absolute height as `gamma(v1)` (this crate's gamma codes every
+//!   natural, zero included), every later leaf as
 //!   `zigzag-gamma(vi − vi−1)` over consecutive leaves in preorder. The
-//!   zigzag map is `k >= 0 -> 2k`, `k < 0 -> 2|k| − 1`; the mapped value is
+//!   zigzag map is `d >= 0 -> 2d`, `d < 0 -> 2|d| − 1`; the mapped value is
 //!   then gamma-coded by the same machinery as every stored integer
-//!   (`codec::encode_int`), so the code shape (`2k + 1` bits) and the
-//!   decoder's window fast path carry over unchanged.
+//!   (`codec::encode_int`), so the code shape (`2k + 1` bits for a
+//!   `k`-bit-position mantissa) and the decoder's window fast path carry
+//!   over unchanged.
 //!
 //! For *why* the payload code is gamma — the measured value distribution and
 //! the trade among the universal codes — see the
@@ -205,7 +208,9 @@ pub(crate) use admit::{validate_dominating_from, Admission};
 pub(crate) use decode::decode_bits;
 #[cfg(any(test, feature = "meter"))]
 pub(crate) use encode::encode_bits;
-pub(crate) use validate::{validate_bits, validate_prefix};
+#[cfg(any(test, feature = "meter"))]
+pub(crate) use validate::validate_bits;
+pub(crate) use validate::validate_prefix;
 // The wire decoder's from-cursor entry: reached from the borsh event leg.
 #[cfg(feature = "borsh")]
 pub(crate) use validate::validate_from;

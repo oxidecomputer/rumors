@@ -7812,14 +7812,17 @@ mod width_circulation_cost {
     /// Touch liveness floor on the pure comb's larger run, derived from
     /// the cycle's irreducible work — never from a measured basis.
     ///
-    /// Each of the comb's k − 1 close-reveal cycles must pay two touches
-    /// no correct arm can avoid: the recycle's fold of the arriving
-    /// offset with the parked latent boundary (a fold of an accumulator
-    /// operand touches at least one digit, a leased zero included) and
-    /// the merged boundary's sign read deciding the push trichotomy.
+    /// Each of the comb's k − 1 close-reveal cycles pays two touches the
+    /// arm-recycle mechanism cannot avoid: the recycle's fold of the
+    /// arriving offset with the parked latent boundary (a fold of an
+    /// accumulator operand touches at least one digit, a leased zero
+    /// included) and the merged boundary's sign read deciding the push
+    /// trichotomy.
     /// The wide plateau's own code folds into the running height once,
     /// at one touch per 64-bit limb. At (k, b) = (1,000, 2,048):
-    /// 2·(k − 1) + b/64 = 1,998 + 32.
+    /// 2·(k − 1) + b/64 = 1,998 + 32. A design that honestly does less
+    /// is a floor-premise finding — re-derive the premise before
+    /// trusting the trip.
     const PURE_COMB_TOUCH_FLOOR: u64 = 2_030;
 
     /// The pure comb's arm-move + close-pop cycle is flat in the
@@ -8005,15 +8008,20 @@ mod width_circulation_cost {
     /// derived from the cascade's irreducible work — never from a
     /// measured basis.
     ///
-    /// Per boundary, no correct walk can avoid: one fold of each of the
-    /// k − 1 consumed nonzero unit codes into the running height, one
-    /// sign read per arm deciding each of the k − 1 pushed boundaries'
-    /// trichotomy, and — at the cascade — one domination read plus one
-    /// dying fold per penetrated boundary (the difference dies into the
-    /// residue at its own width, at least one digit each). The wide
+    /// Four per-boundary charges the cascade mechanism cannot avoid —
+    /// two per boundary *created* (one fold of each of the k − 1
+    /// consumed nonzero unit codes into the running height, one sign
+    /// read per arm deciding each pushed boundary's trichotomy) and two
+    /// per boundary *penetrated* (one domination read plus one dying
+    /// fold per boundary the cascade consumes, the difference dying
+    /// into the residue at its own width, at least one digit each).
+    /// The two counts coincide at k − 1 here because the one cascade
+    /// penetrates every boundary. The wide
     /// cliff code folds into the running height once, at one touch per
     /// 64-bit limb. At (k, b) = (2,000, 4,096):
-    /// 4·(k − 1) + b/64 = 7,996 + 64.
+    /// 4·(k − 1) + b/64 = 7,996 + 64. A design that honestly does less
+    /// is a floor-premise finding — re-derive the premise before
+    /// trusting the trip.
     const ASCEND_CLIFF_TOUCH_FLOOR: u64 = 8_060;
 
     /// The undercut cascade is dying-digit-funded flat — touches grow

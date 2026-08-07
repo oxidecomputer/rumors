@@ -71,7 +71,10 @@ impl LeafWalk {
     ///
     /// # Panics
     ///
-    /// Panics if the stream is not a canonical skyline encoding.
+    /// The stream must be canonical. The violations this walk structurally
+    /// notices — truncation, malformation — panic; the rest walk silently
+    /// with an unspecified result (the contract of
+    /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
     pub(super) fn descend(&mut self, cursor: &mut DsiCursor<'_>) -> Option<usize> {
         if self.started {
             loop {
@@ -115,6 +118,15 @@ enum Direction {
 /// leaf-to-leaf movement, so the register starts at zero on it (extremum = h)
 /// whatever its coding. The finished offset's width is bounded by the scanned
 /// range's own content, which prices every later fold of it.
+///
+/// The two constructors' reset policies differ because their buffers'
+/// provenance differs, and the provenance is part of each constructor's
+/// contract. A pooled buffer is cleared in place when the pool retires it,
+/// so [`max`](Self::max)'s in-place re-zero pays a scan the pool discipline
+/// pays anyway and keeps the pool warm; an owned buffer drops in O(1), so
+/// [`min`](Self::min) replaces it whole rather than scan (and meter) every
+/// dead digit a wide swing left. Hand each constructor the provenance its
+/// doc names, or the stated costs invert.
 pub(super) struct Extremum {
     /// `extremum − h`, the running register.
     register: Accumulator,
@@ -231,7 +243,10 @@ pub(super) struct RegionSkip {
 ///
 /// # Panics
 ///
-/// Panics if the stream is not a canonical skyline encoding.
+/// The stream must be canonical. The violations this walk structurally
+/// notices — truncation, malformation — panic; the rest walk silently
+/// with an unspecified result (the contract of
+/// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
 pub(super) fn fold_region(
     walk: &mut LeafWalk,
     cursor: &mut DsiCursor<'_>,
@@ -266,20 +281,25 @@ pub(super) fn fold_region(
     last
 }
 
-/// Skip-scan the whole subtree at the cursor into a [`RegionSkip`]:
-/// [`skip_leaves`] over a fresh walk, with the net movement and the streaming
-/// minimum materialized.
+/// Block-scan the whole subtree at the cursor into a [`RegionSkip`] — every
+/// bit is still read and folded; only the per-leaf client handling is
+/// skipped: [`skip_leaves`] over a fresh walk, with the net movement and the
+/// streaming minimum materialized.
 ///
 /// # Panics
 ///
-/// Panics if the stream is not a canonical skyline encoding.
+/// The stream must be canonical. The violations this walk structurally
+/// notices — truncation, malformation — panic; the rest walk silently
+/// with an unspecified result (the contract of
+/// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
 pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip {
     let mut walk = LeafWalk::new();
     skip_leaves(&mut walk, cursor, first, None).expect("a subtree has at least one leaf")
 }
 
-/// Skip-scan the remaining leaves of a subtree whose walk is already open, or
-/// `None` when none remain (`pending` as in [`fold_region`]).
+/// Block-scan the remaining leaves of a subtree whose walk is already open —
+/// reading and folding every bit, as [`skip_region`] — or `None` when none
+/// remain (`pending` as in [`fold_region`]).
 ///
 /// The minimum is over the folded leaves alone: the first of them arms the
 /// fold, so its height — not the caller's last consumed one — is the range's
@@ -287,7 +307,10 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip
 ///
 /// # Panics
 ///
-/// Panics if the stream is not a canonical skyline encoding.
+/// The stream must be canonical. The violations this walk structurally
+/// notices — truncation, malformation — panic; the rest walk silently
+/// with an unspecified result (the contract of
+/// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
 pub(super) fn skip_leaves(
     walk: &mut LeafWalk,
     cursor: &mut DsiCursor<'_>,

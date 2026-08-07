@@ -41,7 +41,10 @@
 //! folded into at most one accumulator per pair it participates in — the
 //! probe's deltas into each live bound's pair, a bound's deltas into its own —
 //! and the per-interval sign reads ride the accumulator's amortized-O(1)
-//! collapse. `O(|v| + Σ|bound|)` for membership, `O(|lo| + |hi| + Σ|bound|)`
+//! collapse. The coverage walk additionally recomputes its endpoint-liveness
+//! flags and sweeps the settled flags once per interval — O(#bounds)
+//! bookkeeping absorbed by the same per-interval read loop. `O(|v| +
+//! Σ|bound|)` for membership, `O(|lo| + |hi| + Σ|bound|)`
 //! for coverage, against the composed sweeps' one probe decode per bound.
 
 use core::cmp::Ordering;
@@ -83,9 +86,10 @@ pub(crate) enum Demand {
 struct Pair {
     diff: Accumulator,
     directions: Directions,
-    /// Whether the pair still feeds a verdict: a settled pair stops folding and
-    /// reading (its stream may still advance for the other pair riding the same
-    /// cursor).
+    /// Whether the pair still feeds a verdict. A pair is *settled* — `live ==
+    /// false` — when a refutation fixed everything the verdict will ever need
+    /// from it: a settled pair stops folding and reading (its stream may
+    /// still advance for the other pair riding the same cursor).
     live: bool,
 }
 
@@ -93,8 +97,8 @@ impl Pair {
     /// Seed the pair from the two streams' absolute first heights.
     fn open(probe_first: &Int, bound_first: &Int) -> Pair {
         let mut diff = Accumulator::new();
-        super::super::signed::fold_signed_int(&mut diff, false, probe_first);
-        super::super::signed::fold_signed_int(&mut diff, true, bound_first);
+        super::super::signed::fold_signed_int(&mut diff, /* negative: */ false, probe_first);
+        super::super::signed::fold_signed_int(&mut diff, /* negative: */ true, bound_first);
         Pair {
             diff,
             directions: Directions::new(),
@@ -164,7 +168,8 @@ pub(crate) fn admits<'a>(
             let directions = side.pair.directions;
             match side.demand {
                 // A required direction refuted refutes membership: the walk's
-                // earliest bail.
+                // earliest bail. (Both required demands are inclusive —
+                // `After` is `bound <= probe`, equality admitted.)
                 Demand::After if !directions.ge => return false,
                 Demand::Before if !directions.le => return false,
                 // A hole's subtracting direction refuted satisfies the hole:
@@ -444,7 +449,8 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
         if empty {
             return Coverage::Empty;
         }
-        // Fullness: the bound must admit everything the segment covers. A
+        // Fullness: the bound must admit everything the segment covers
+        // (required demands inclusively: `After` admits equality). A
         // settled pair already recorded its refutation in `full_possible`; a
         // pair alive at exhaustion answers by its decided relation.
         let admits_all = match side.demand {

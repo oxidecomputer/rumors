@@ -437,19 +437,23 @@ fn merge(
     arena: &mut String,
     entries: &mut Vec<(usize, usize)>,
 ) -> Summary {
+    // The right child's entry leaf, relative to the left child's entry.
     let entry_step = signed_sum(
         left.span.0,
         left.span.1,
         right.incoming.0,
         &right.incoming.1,
     );
+    // The node's span: its last leaf is the right child's last.
     let span = signed_sum(
         entry_step.0,
         entry_step.1.clone(),
         right.span.0,
         &right.span.1,
     );
+    // The right child's floor.
     let right_floor = signed_sum(entry_step.0, entry_step.1, true, &right.drop);
+    // The lift: floor(right) − floor(left).
     let (lift_negative, lift) = signed_sum(right_floor.0, right_floor.1, false, &left.drop);
     let drop = if lift_negative {
         // The left child's root is the parent's preorder successor.

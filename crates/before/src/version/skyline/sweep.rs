@@ -241,10 +241,10 @@ pub(super) fn eq_exit(directions: Directions) -> ControlFlow<bool> {
 ///
 /// After each interval's sign fold, `exit` sees the surviving directions and
 /// may declare the question decided — the `Break` payload carries the verdict,
-/// so the earliest stop and its answer are one value (an early exit leaves the
-/// direction the question does not need wherever the folded prefix left it,
-/// which is why directions are never handed back early). At exhaustion `finish`
-/// maps the fully-swept directions.
+/// so the earliest stop and its answer are one value. A break carries `V`
+/// rather than the directions because the direction the question ignores may
+/// be stale at an early exit: only the fully-swept directions `finish` maps
+/// at exhaustion are all decided.
 fn sweep<V>(
     a_bits: &BitsSlice,
     b_bits: &BitsSlice,

@@ -17,7 +17,9 @@
 //!   parent flag truncated off the stream. The held leaf's own code is
 //!   untouched: its delta is against a predecessor outside the pair, and
 //!   the merged leaf has the same height and the same predecessor.
-//! - **Re-anchor** (the pair's right leaf is the merge of a whole
+//! - **Re-anchor** — the merged leaf adopts the left sibling's code, its
+//!   delta re-anchoring to that sibling's predecessor (the case: the
+//!   pair's right leaf is the merge of a whole
 //!   subtree): the merged leaf's zero delta says it equals the completed
 //!   left sibling leaf, so the pair truncates back over that sibling's
 //!   code — parent flag, leaf flag, code — and the sibling's code is
@@ -137,6 +139,9 @@ impl SkylineBuilder {
             && code.len() == ZERO_DELTA_CODE_BITS
         {
             self.out.truncate(self.out.len() - 1);
+            // Bare pops: a left-branch level carries no lens entry (only a
+            // completed left leaf records one), so unlike the flush loop's
+            // right-branch pops there is no lens to retire.
             self.path.pop();
             self.left_leaf.pop();
             self.held = Some(held);

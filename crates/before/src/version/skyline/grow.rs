@@ -572,6 +572,10 @@ pub(super) fn emit(
             let code = if emitted_in_chain {
                 gamma_code(&Base::ZERO)
             } else {
+                // The chain's first fresh leaf keeps the original code: same
+                // height, same predecessor — or the same absolute, when the
+                // chain opens the stream (nothing fed before it means the
+                // original code was the absolute first, and so is this one).
                 Code::from_slice(original)
             };
             out.leaf(path_depth + level + 1, code);

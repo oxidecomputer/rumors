@@ -213,7 +213,9 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
     directions.fold(sign);
 
     // The first interval opens each output with its winning side's absolute
-    // height; the capacity estimate is `emit`'s, per builder.
+    // height; the capacity estimate is `emit`'s, per builder. The `side`
+    // initializers are placeholders — the loop below seats each output's
+    // real opening side.
     let mut outputs = [
         Emission {
             pick: follow_min,
@@ -227,6 +229,8 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
         },
     ];
     for emission in &mut outputs {
+        // The sticky-tie seed `Side::A` is arbitrary: at a tie the two
+        // first heights are equal, so either side opens identically.
         emission.side = (emission.pick)(sign, Side::A);
         let first = match emission.side {
             Side::A => &a_first,
@@ -246,7 +250,13 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
         let depth = cursor_a.depth().max(cursor_b.depth());
         for emission in &mut outputs {
             let new_side = (emission.pick)(sign, emission.side);
-            let code = delta_code(&diff, emission.side, new_side, &step_a, &step_b);
+            let code = delta_code(
+                &diff,
+                emission.side,
+                new_side,
+                step_a.as_ref(),
+                step_b.as_ref(),
+            );
             emission.side = new_side;
             emission.out.leaf(depth, code);
         }
@@ -283,6 +293,8 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
     // reallocation, never correctness. The envelope rows (`tests/meter.rs`,
     // `skyline_join_*`/`skyline_meet_*`) pin the measured peak heap,
     // switch-heavy families included.
+    // The sticky-tie seed `Side::A` is arbitrary: at a tie the two first
+    // heights are equal, so either side opens the output identically.
     let mut side = pick(diff.sign(), Side::A);
     let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
     let first = match side {
@@ -297,7 +309,7 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
     while !(cursor_a.done() && cursor_b.done()) {
         let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
         let new_side = pick(diff.sign(), side);
-        let code = delta_code(&diff, side, new_side, &step_a, &step_b);
+        let code = delta_code(&diff, side, new_side, step_a.as_ref(), step_b.as_ref());
         side = new_side;
         out.leaf(cursor_a.depth().max(cursor_b.depth()), code);
     }
@@ -318,12 +330,12 @@ fn delta_code(
     diff: &Accumulator,
     side: Side,
     new_side: Side,
-    step_a: &Option<Step>,
-    step_b: &Option<Step>,
+    step_a: Option<&Step>,
+    step_b: Option<&Step>,
 ) -> Code {
     let step = match side {
-        Side::A => step_a.as_ref(),
-        Side::B => step_b.as_ref(),
+        Side::A => step_a,
+        Side::B => step_b,
     };
     if new_side == side {
         return match step {

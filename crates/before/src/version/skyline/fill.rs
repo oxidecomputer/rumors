@@ -77,18 +77,10 @@
 //! the unchanged branch's splice emit reads both streams once.
 //!
 //! Limb: accumulator digit touches are amortized linear in the two packed
-//! streams [measured: exponent 1.00 with flat constants on the matched spine,
-//! both wide × deep shortcut crosses, the memo families — distinct and shared
-//! minima, interleaved combs, the wide fan-out — the descending staircase, the
-//! close-reveal genre (k sibling sites sharing one wide minimum over a low
-//! floor, each site's node frame closing back into the floor frame between
-//! consecutive consumes: the reveal comb reads ×2.00 across a joint ×2.00
-//! doubling and the bare-frame pure comb reads flat per byte across a width
-//! doubling), and the undercut-cascade genre on both its axes (the staircase's
-//! narrow full-penetration drops and the ascending cliff's one wide residue
-//! through k − 1 nonzero unit differences, ×2.00 across a joint doubling) — the
-//! `width_circulation_cost` and memo modules of `tests/meter.rs` pin the
-//! families that separate this from every refuted discipline].
+//! streams [measured: exponent 1.00 with flat constants across the committed
+//! families — the `width_circulation_cost` and memo modules of
+//! `tests/meter.rs` name each family, state its shape, and pin the readings
+//! that separate this from every refuted discipline].
 //!
 //! The cost invariant conserves width — every touch is paid by a consumed
 //! input code, an emitted output code, or the death of the digits it reads —
@@ -189,6 +181,14 @@ const OUT_FOLLOWER: usize = 0;
 /// while the reference is watermark-carried; pre-scan-side the recording head,
 /// `min − m_ref` for the level it serves.
 const REL_FOLLOWER: usize = 1;
+
+// The slot constants index the web's follower array: a new follower means
+// widening `FOLLOWER_SLOTS` in `watermark.rs` beside its constant here, and
+// this binds the two files' rosters at compile time.
+const _: () = assert!(
+    OUT_FOLLOWER < super::watermark::FOLLOWER_SLOTS
+        && REL_FOLLOWER < super::watermark::FOLLOWER_SLOTS
+);
 
 /// Register one event on the version a skyline stream denotes, from the
 /// perspective of a packed id.
@@ -302,20 +302,20 @@ pub(super) fn fused_fill(event_bits: &BitsSlice, id: &crate::Party) -> FillOutco
         w_anchored: false,
         started: false,
         range_is_leaf: false,
-        stack: MinWeb::new(),
+        web: MinWeb::new(),
         memo: Memo::new(),
         relation: Relation::None,
         out: Out::verbatim(),
         probe: RouteProbe::new(id_bits.len()),
     };
     let mut reader = IdReader::root(id_bits);
-    walk.stack.open(1);
+    walk.web.open(1);
     walk.walk(&mut reader);
     if walk.w_anchored {
-        let follower = walk.stack.follower_take(OUT_FOLLOWER);
-        walk.stack.retire(follower);
+        let follower = walk.web.follower_take(OUT_FOLLOWER);
+        walk.web.retire(follower);
     }
-    walk.stack.close();
+    walk.web.close();
     debug_assert_eq!(
         walk.pos(),
         event_bits.len(),
@@ -361,7 +361,7 @@ struct FillWalk<'a> {
     /// `w_anchored`.
     gap: Accumulator,
     /// Whether the output delta is watermark-anchored: the last emission took
-    /// the tracked minimum, and `min − prev_out` rides the stack's
+    /// the tracked minimum, and `min − prev_out` rides the web's
     /// [`OUT_FOLLOWER`] instead of `gap`.
     w_anchored: bool,
     /// Whether any output leaf has been emitted (the first is coded absolute).
@@ -373,7 +373,7 @@ struct FillWalk<'a> {
     /// any code comparison.
     range_is_leaf: bool,
     /// The walk's range-minimum watermarks (the anchor web), payload-free.
-    stack: MinWeb<()>,
+    web: MinWeb<()>,
     /// Left-full minima computed ahead of the walk (the frame ledger).
     ///
     /// A fresh pre-scan records every interior left-full site it evaluates, and
@@ -398,6 +398,11 @@ struct FillWalk<'a> {
 /// The relation of the walk's ledger reference (`m_r`: the last consumed site's
 /// minimum, re-anchored to each closing site on the way out) to the walk's live
 /// state.
+///
+/// Invariant: [`Relation::Min`] holds exactly while the web's
+/// [`REL_FOLLOWER`] slot is occupied — the variant is the tag, the slot is
+/// the storage, and every transition sets or clears both together (the
+/// slot's `expect` is what a violation trips).
 enum Relation {
     /// No site is open or resolved (only a fresh scan's outermost site consumes
     /// in this state; its reference is the scan-entry height, which is the
@@ -406,7 +411,7 @@ enum Relation {
     /// `h − m_r`, folding input deltas: the reference is height-carried (the
     /// last raise took the scan-maximum side).
     Height(Accumulator),
-    /// `min − m_r` rides the stack's [`REL_FOLLOWER`]: the reference is
+    /// `min − m_r` rides the web's [`REL_FOLLOWER`]: the reference is
     /// watermark-carried (the last raise took the minimum side, or a site's
     /// close re-anchored from the walk's own web).
     Min,
@@ -421,7 +426,7 @@ impl FillWalk<'_> {
     /// node on [`Frames`] and enters a child) with an *ascend* phase (fold the
     /// completed child's inflation cost into the suspended node, resuming its
     /// remaining work — the right-full peek, the right child's walk, the site
-    /// close). Each child runs inside its own watermark frame
+    /// close). Each child runs inside its own watermark range
     /// ([`MinWeb::open`]/[`close`](MinWeb::close)), absent children as the
     /// inlined `fill(0, e) = e` copy at infeasible cost, so the arms,
     /// emissions, and route folds run in exactly the paired preorder the fill
@@ -429,6 +434,8 @@ impl FillWalk<'_> {
     /// folds read costs.
     fn walk(&mut self, id: &mut IdReader) {
         let mut frames = Frames::new();
+        // Derived state: always equal to `frames.len()` (the assert below),
+        // carried as a word so the hot loop never recounts a bit stack.
         let mut depth = 0usize;
         'descend: loop {
             debug_assert_eq!(depth, frames.len(), "one frame per open branch level");
@@ -496,9 +503,9 @@ impl FillWalk<'_> {
                         let raise = scan_min_from(self.event, self.pos(), self.first_read);
                         let value_offset = signed_max(&above, &raise);
                         self.emit_offset(depth + 1, value_offset);
-                        self.stack.open(1);
+                        self.web.open(1);
                         self.copy_subtree(depth + 1);
-                        self.stack.close();
+                        self.web.close();
                         break self.probe.join(key, Cost::FREE, Cost::MAX);
                     }
                     let outermost = self.pos() >= self.memo.covered_until;
@@ -514,19 +521,19 @@ impl FillWalk<'_> {
                         let scan_start = self.pos();
                         let mut scan = PreScan::new(self.event, scan_start, &mut self.memo);
                         let slot = scan.reserve(scan_start);
-                        scan.stack.open(1);
+                        scan.web.open(1);
                         let mut reader = IdReader::at(id.bits(), id.pos());
                         let end = scan.run(self.first_read, &mut reader);
                         scan.record(slot, 0);
-                        let relation = scan.stack.follower_take(REL_FOLLOWER);
-                        scan.stack.retire(relation);
-                        scan.stack.close();
+                        let relation = scan.web.follower_take(REL_FOLLOWER);
+                        scan.web.retire(relation);
+                        scan.web.close();
                         debug_assert!(scan.suspend.is_empty(), "every suspended level resolves");
                         self.memo.covered_until = end;
                     }
                     self.consume_site(&above, depth);
                     frames.push_site(key, outermost);
-                    self.stack.open(1);
+                    self.web.open(1);
                     depth += 1;
                     continue; // walk the right sibling range
                 }
@@ -535,7 +542,7 @@ impl FillWalk<'_> {
                 // is one `O(1)` peek on the way back up — no lookahead over the
                 // left id subtree.
                 frames.push_node(key, right);
-                self.stack.open(1);
+                self.web.open(1);
                 depth += 1;
                 if left {
                     continue; // descend into the left child
@@ -554,7 +561,12 @@ impl FillWalk<'_> {
                     let _ = cost; // the root's inflation cost has no parent fold
                     return;
                 };
-                self.stack.close();
+                // One open web range per `Frames` entry: every push above
+                // opened exactly one, and this single close retires the one
+                // belonging to the entry popped in this iteration — the
+                // absent-child copies open and close their own ranges
+                // locally, so they never reach here unbalanced.
+                self.web.close();
                 depth -= 1;
                 match top {
                     // A consume-site's sibling walk finished: close the
@@ -579,7 +591,7 @@ impl FillWalk<'_> {
                             // maximum.
                             id.skip();
                             let above = self.scan_max_consuming();
-                            if self.stack.compare_above(&above) == Ordering::Less {
+                            if self.web.compare_above(&above) == Ordering::Less {
                                 self.emit_at_min(depth + 1);
                             } else {
                                 self.emit_offset(depth + 1, above);
@@ -588,15 +600,15 @@ impl FillWalk<'_> {
                             cost = self.probe.join(key, cost, Cost::FREE);
                         } else if right {
                             frames.flip_to_await_right(cost);
-                            self.stack.open(1);
+                            self.web.open(1);
                             depth += 1;
                             continue 'descend; // walk the right child
                         } else {
                             // Absent right child: fill(0, er) in its own frame,
                             // infeasible for the route.
-                            self.stack.open(1);
+                            self.web.open(1);
                             self.copy_subtree(depth + 1);
-                            self.stack.close();
+                            self.web.close();
                             let key = frames.pop_await_left();
                             cost = self.probe.join(key, cost, Cost::MAX);
                         }
@@ -635,7 +647,7 @@ impl FillWalk<'_> {
             unzigzag(code)
         };
         fold_signed_int(&mut self.height, negative, &magnitude);
-        self.stack.fold_height(negative, &magnitude);
+        self.web.fold_height(negative, &magnitude);
         if !self.w_anchored {
             fold_signed_int(&mut self.gap, negative, &magnitude);
         }
@@ -656,7 +668,7 @@ impl FillWalk<'_> {
     /// leaves, so the batched fold is observationally the per-leaf sequence.
     fn fold_block(&mut self, net: &Signed) {
         fold_signed_int(&mut self.height, net.negative, &net.magnitude);
-        self.stack.fold_height(net.negative, &net.magnitude);
+        self.web.fold_height(net.negative, &net.magnitude);
         if !self.w_anchored {
             fold_signed_int(&mut self.gap, net.negative, &net.magnitude);
         }
@@ -684,7 +696,7 @@ impl FillWalk<'_> {
                 // Base: the outermost site's reference is the fresh scan's
                 // entry height, which is the walk's height right here — the
                 // relation starts at zero.
-                let relation = self.stack.lease();
+                let relation = self.web.lease();
                 self.consume_h_anchored(relation, link, above, depth);
             }
             Relation::Height(relation) => self.consume_h_anchored(relation, link, above, depth),
@@ -697,18 +709,18 @@ impl FillWalk<'_> {
                 // never the parked width. (Without the tag, f = m − m_r would
                 // gross the full anchor-to-floor gap into arm_offset at every
                 // consume.)
-                let mut arm_offset = self.stack.follower_take(REL_FOLLOWER);
+                let mut arm_offset = self.web.follower_take(REL_FOLLOWER);
                 arm_offset.negate();
                 if let Some(link) = link {
                     arm_offset.add_accum(&link);
-                    self.stack.retire(link);
+                    self.web.retire(link);
                 }
-                if self.stack.compare_above_vs(above, &arm_offset) == Ordering::Less {
+                if self.web.compare_above_vs(above, &arm_offset) == Ordering::Less {
                     // The minimum side: arm at m_s and emit there.
-                    self.stack.arm_relative(arm_offset);
+                    self.web.arm_relative(arm_offset);
                     self.emit_at_min(depth + 1);
-                    let zero = self.stack.lease();
-                    self.stack.follower_set(REL_FOLLOWER, zero);
+                    let zero = self.web.lease();
+                    self.web.follower_set(REL_FOLLOWER, zero);
                 } else {
                     // The relation re-anchors to m_s: the negated decision
                     // quantity is `A − m_s`, exactly the anchor-relative
@@ -719,7 +731,7 @@ impl FillWalk<'_> {
                     // that arm's fold — installed after, the relation goes
                     // stale by exactly the arm's delta.
                     arm_offset.negate();
-                    self.stack.follower_set(REL_FOLLOWER, arm_offset);
+                    self.web.follower_set(REL_FOLLOWER, arm_offset);
                     self.emit_offset(depth + 1, above.clone());
                 }
                 self.relation = Relation::Min;
@@ -743,7 +755,7 @@ impl FillWalk<'_> {
         fold_signed_int(&mut relation, above.negative, &above.magnitude);
         if let Some(link) = link {
             relation.sub_accum(&link);
-            self.stack.retire(link);
+            self.web.retire(link);
         }
         let sign = relation.sign();
         fold_signed_int(&mut relation, !above.negative, &above.magnitude);
@@ -756,26 +768,26 @@ impl FillWalk<'_> {
             // arming moves into the web.
             if !self.started {
                 // First output leaf, coded absolute: value = h − below.
-                let mut absolute = self.stack.lease();
+                let mut absolute = self.web.lease();
                 absolute.add_accum(&self.height);
                 absolute.sub_accum(&relation);
-                self.stack.emit_below_accum(relation);
-                let value = self.stack.materialize(absolute);
+                self.web.emit_below_accum(relation);
+                let value = self.web.materialize(absolute);
                 debug_assert!(!value.negative, "a raised height is a natural");
                 self.started = true;
                 self.out.leaf(depth + 1, gamma_code_int(&value.magnitude));
                 // prev_out = min: the output delta anchors to the
                 // watermark from the start.
-                let zero = self.stack.lease();
-                self.stack.follower_set(OUT_FOLLOWER, zero);
+                let zero = self.web.lease();
+                self.web.follower_set(OUT_FOLLOWER, zero);
                 self.w_anchored = true;
                 self.gap.reset();
             } else {
-                self.stack.emit_below_accum(relation);
+                self.web.emit_below_accum(relation);
                 self.emit_at_min(depth + 1);
             }
-            let zero = self.stack.lease();
-            self.stack.follower_set(REL_FOLLOWER, zero);
+            let zero = self.web.lease();
+            self.web.follower_set(REL_FOLLOWER, zero);
             self.relation = Relation::Min;
         } else {
             self.emit_offset(depth + 1, above.clone());
@@ -796,10 +808,10 @@ impl FillWalk<'_> {
     fn pop_site(&mut self, outermost: bool) {
         match core::mem::replace(&mut self.relation, Relation::None) {
             Relation::None => unreachable!("a consumed site keeps a relation"),
-            Relation::Height(relation) => self.stack.retire(relation),
+            Relation::Height(relation) => self.web.retire(relation),
             Relation::Min => {
-                let relation = self.stack.follower_take(REL_FOLLOWER);
-                self.stack.retire(relation);
+                let relation = self.web.follower_take(REL_FOLLOWER);
+                self.web.retire(relation);
             }
         }
         if !outermost {
@@ -808,9 +820,9 @@ impl FillWalk<'_> {
             // close retires here (its one death, funded by the mint the input's
             // re-widening climb paid for); the consume cycle's arm has already
             // drained it.
-            self.stack.resolve_latent();
-            let zero = self.stack.lease();
-            self.stack.follower_set(REL_FOLLOWER, zero);
+            self.web.resolve_latent();
+            let zero = self.web.lease();
+            self.web.follower_set(REL_FOLLOWER, zero);
             self.relation = Relation::Min;
         }
     }
@@ -838,7 +850,7 @@ impl FillWalk<'_> {
     /// uniqueness — so a verbatim walk records the match and skips the emission
     /// body outright.
     fn emit_step(&mut self, depth: usize, negative: bool, magnitude: Int) {
-        self.stack.emit_here();
+        self.web.emit_here();
         if self.out.note_match(self.pos()) {
             self.started = true;
             self.gap.reset();
@@ -855,15 +867,18 @@ impl FillWalk<'_> {
             self.out.leaf(depth, gamma_code_int(&magnitude));
             return;
         }
+        // Deliberately unread past this point: the step is already folded
+        // into the live gap, and the delta below re-derives the output code
+        // from the registers, not from the step.
         let _ = (negative, magnitude);
         let delta = if self.w_anchored {
             // d_out = h − prev_out = (min − prev_out) + (h − min): the anchor
             // switch's one bridge read of the surviving web, priced by this
             // emission's own code.
-            let mut out_delta = self.stack.follower_take(OUT_FOLLOWER);
-            self.stack.bridge_add_gap(&mut out_delta);
+            let mut out_delta = self.web.follower_take(OUT_FOLLOWER);
+            self.web.bridge_add_gap(&mut out_delta);
             self.w_anchored = false;
-            self.stack.materialize(out_delta)
+            self.web.materialize(out_delta)
         } else {
             // d_out = value − prev_out = gap. One collapse-then-read — the
             // common case (nothing consumed since the last emit) reads the
@@ -893,17 +908,20 @@ impl FillWalk<'_> {
     /// so a first leaf compares absolute against absolute). A value-reproducing
     /// raise is a match, never a divergence.
     fn emit_offset(&mut self, depth: usize, offset: Signed) {
-        self.stack.emit_offset(&offset);
+        self.web.emit_offset(&offset);
         if self.out.is_verbatim() {
             if self.range_is_leaf && offset.is_zero() {
-                if self.out.note_match(self.pos()) {
-                    self.started = true;
-                    self.gap.reset();
-                    return;
-                }
-            } else {
-                self.diverge();
+                // A value-reproducing emission on a verbatim walk always
+                // matches (the doc's argument), unlike `emit_step`'s
+                // unguarded call, where the bool genuinely discriminates.
+                let matched = self.out.note_match(self.pos());
+                debug_assert!(matched, "a verbatim walk records a value-reproducing raise");
+                let _ = matched;
+                self.started = true;
+                self.gap.reset();
+                return;
             }
+            self.diverge();
         }
         if !self.started {
             // First output leaf: materialize the absolute — its width is the
@@ -925,11 +943,11 @@ impl FillWalk<'_> {
             let delta = if self.w_anchored {
                 // d_out = (h + offset) − prev_out: the bridge read plus
                 // the priced offset.
-                let mut out_delta = self.stack.follower_take(OUT_FOLLOWER);
-                self.stack.bridge_add_gap(&mut out_delta);
+                let mut out_delta = self.web.follower_take(OUT_FOLLOWER);
+                self.web.bridge_add_gap(&mut out_delta);
                 fold_signed_int(&mut out_delta, offset.negative, &offset.magnitude);
                 self.w_anchored = false;
-                self.stack.materialize(out_delta)
+                self.web.materialize(out_delta)
             } else {
                 // d_out = (h + offset) − prev_out = gap + offset.
                 fold_signed_int(&mut self.gap, offset.negative, &offset.magnitude);
@@ -967,24 +985,24 @@ impl FillWalk<'_> {
         // height-anchored switch the resolve rides the dying divergence gap and
         // the code jointly. The consume path's arm has already drained the
         // register, so its in-cycle case pays nothing here.
-        self.stack.resolve_latent();
+        self.web.resolve_latent();
         let delta = if self.w_anchored {
             // d_out = min − prev_out: the follower verbatim — no read of the
             // wide web at all, the repeated-raise fast path.
-            let out_delta = self.stack.follower_take(OUT_FOLLOWER);
-            self.stack.materialize(out_delta)
+            let out_delta = self.web.follower_take(OUT_FOLLOWER);
+            self.web.materialize(out_delta)
         } else {
             // d_out = min − prev_out = (h − prev_out) − (h − min): the
             // height-to-watermark switch's one bridge read, priced by this
             // emission's own code.
-            let fresh = self.stack.lease();
+            let fresh = self.web.lease();
             let mut out_delta = core::mem::replace(&mut self.gap, fresh);
-            self.stack.bridge_sub_gap(&mut out_delta);
-            self.stack.materialize(out_delta)
+            self.web.bridge_sub_gap(&mut out_delta);
+            self.web.materialize(out_delta)
         };
         // prev_out = min now: the follower restarts at zero.
-        let zero = self.stack.lease();
-        self.stack.follower_set(OUT_FOLLOWER, zero);
+        let zero = self.web.lease();
+        self.web.follower_set(OUT_FOLLOWER, zero);
         self.w_anchored = true;
         self.gap.reset();
         self.out.leaf(
@@ -1007,6 +1025,13 @@ impl FillWalk<'_> {
     /// divergence gap); the watermark web absorbs each emission in amortized
     /// O(1).
     fn copy_subtree(&mut self, depth: usize) {
+        // Three regimes, selected in order: (1) a verbatim walk over a
+        // depth-2+ region block-scans it as one matched prefix extension;
+        // (2) otherwise the first leaf goes per-leaf through the emission
+        // machinery, and post-divergence a first leaf the builder still
+        // holds unmerged lets the rest splice wholesale
+        // (`continue_verbatim`); (3) any other shape feeds leaf by leaf.
+        //
         // The first descent's depth routes the region for free — its bits are
         // consumed either way. A depth under 2 (a lone leaf, or a leaf-first
         // pair whose left half is one leaf) stays per-leaf: under a finely
@@ -1027,7 +1052,7 @@ impl FillWalk<'_> {
             .expect("the descended leaf is pending");
             self.first_read = false;
             self.fold_block(&skip.net);
-            self.stack.emit_offset(&skip.min_from_exit);
+            self.web.emit_offset(&skip.min_from_exit);
             self.started = true;
             // The region's last leaf is the last emission: the gap closes
             // exactly, whatever it held at entry.
@@ -1052,7 +1077,7 @@ impl FillWalk<'_> {
             let rest_start = self.pos();
             if let Some(skip) = skip_leaves(&mut walk, &mut self.cursor, false, None) {
                 self.fold_block(&skip.net);
-                self.stack.emit_offset(&skip.min_from_exit);
+                self.web.emit_offset(&skip.min_from_exit);
                 // The region's last leaf is the last emission.
                 self.gap.reset();
                 self.out.continue_verbatim(
@@ -1084,7 +1109,7 @@ impl FillWalk<'_> {
         // exactly its first flag bit (`1` = leaf). An unmetered peek of the bit
         // the scan is about to read as its first flag.
         self.range_is_leaf = self.event[self.pos()];
-        let mut above = Extremum::max(self.stack.lease());
+        let mut above = Extremum::max(self.web.lease());
         let mut walk = LeafWalk::new();
         let first_leaf_depth = walk
             .descend(&mut self.cursor)
@@ -1113,7 +1138,7 @@ impl FillWalk<'_> {
             let net = Signed::from_sign_magnitude(net_sign, net_magnitude);
             self.fold_block(&net);
         }
-        let result = self.stack.materialize(above.into_offset());
+        let result = self.web.materialize(above.into_offset());
         debug_assert!(!result.negative, "the fold floors at zero");
         result
     }

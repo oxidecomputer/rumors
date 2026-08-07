@@ -123,8 +123,10 @@ impl Out {
 
     /// Append the next output plateau (the emission bodies' one sink).
     ///
-    /// Unreachable in a verbatim walk: matched emissions return before their
-    /// bodies, and diverging ones materialize first.
+    /// # Panics
+    ///
+    /// Panics on a verbatim walk — unreachable there: matched emissions
+    /// return before their bodies, and diverging ones materialize first.
     pub(super) fn leaf(&mut self, depth: usize, code: Code) {
         match self {
             Out::Built(builder) => builder.leaf(depth, code),
@@ -239,10 +241,14 @@ pub(super) struct RouteProbe {
     /// The recorded directions; allocated at the first record so a walk that
     /// diverges before any post-order fold pays nothing.
     route: Option<Route>,
-    /// The id stream's bit length (the route's key space).
+    /// The id stream's bit length (the route's key space), held so
+    /// [`take_route`](Self::take_route)'s never-recorded fallback can still
+    /// build a well-formed (empty, never-read) route.
     id_span: usize,
-    /// False once the walk diverges: every fold degenerates to the plain skip
-    /// and no direction is recorded.
+    /// False once the walk diverges: every fold degenerates to the plain
+    /// skip, no direction is recorded, and the dead folds return
+    /// [`Cost::MAX`] as a don't-care (the documented infeasible-region
+    /// constant, safe because a dead probe's costs are never read either).
     live: bool,
 }
 

@@ -48,7 +48,7 @@ pub(super) struct PreScan<'a, 'm> {
     /// cursor is untouched (the scan never consumes).
     cursor: codec::DsiCursor<'a>,
     /// The pre-scan's own range-minimum watermarks.
-    pub(super) stack: MinWeb<()>,
+    pub(super) web: MinWeb<()>,
     /// `h′ − h(scan entry)`, alive until the first virtual arming seeds the
     /// recording head.
     entry_net: Option<Accumulator>,
@@ -74,6 +74,12 @@ pub(super) struct PreScan<'a, 'm> {
     head_level: u32,
     /// Suspended outer levels, innermost last, LIFO by the site forest's
     /// nesting.
+    ///
+    /// Recorder invariants, jointly over the four fields above: `head_level
+    /// == 0` iff `first_slot.is_none()` (only the outermost level never
+    /// defers a first-child link), and `suspend.len() == head_level` (one
+    /// suspended record per outer level; the terminal case is asserted where
+    /// the walk drains the scan).
     pub(super) suspend: Vec<SuspendedLevel>,
 }
 
@@ -98,7 +104,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         PreScan {
             event,
             cursor: codec::DsiCursor::new_at(event, start),
-            stack: MinWeb::new(),
+            web: MinWeb::new(),
             entry_net: Some(Accumulator::new()),
             pending_relation: None,
             memo,
@@ -115,7 +121,11 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// The iterative twin of the fill walk: the descend phase resolves the
     /// range at the cursor or suspends its node on [`PreFrames`] and enters a
     /// child, and the ascend phase resumes suspended nodes as their children's
-    /// ranges complete. The stream cursor threads linearly (every range starts
+    /// ranges complete. One vocabulary caution against the twin file:
+    /// `level` here is *site-nesting* level (it moves only at site
+    /// open/close), not the fill walk's `depth` (tree depth, one per branch
+    /// node) — the two counters are different notions under near-synonymous
+    /// names. The stream cursor threads linearly (every range starts
     /// where the previous one ended), and `first` — whether the next payload is
     /// the stream's absolute first — flips false permanently at the first
     /// payload-consuming read, exactly the value the recursion threads per
@@ -177,10 +187,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
                         // fill(0, er): the leaves stay as they are, and the
                         // walk re-derives this raise from its own local scan —
                         // nothing is recorded.
-                        self.stack.open(1);
+                        self.web.open(1);
                         self.copy_range(false);
-                        self.stack.close();
-                        if self.stack.compare_above(&above) != Ordering::Less {
+                        self.web.close();
+                        if self.web.compare_above(&above) != Ordering::Less {
                             self.emit_offset(&above);
                         }
                         break;
@@ -188,12 +198,12 @@ impl<'a, 'm> PreScan<'a, 'm> {
                     let slot = self.reserve(site_pos);
                     frames.push_site(slot, collapse_start);
                     level += 1;
-                    self.stack.open(1);
+                    self.web.open(1);
                     continue; // walk the sibling range
                 }
                 // An ordinary node: the left child's range first.
                 frames.push_node(right);
-                self.stack.open(1);
+                self.web.open(1);
                 if left {
                     continue; // descend into the left child
                 }
@@ -208,7 +218,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 let Some(top) = frames.top() else {
                     return self.cursor.position();
                 };
-                self.stack.close();
+                self.web.close();
                 match top {
                     // A site's sibling range finished: record its ledger link,
                     // then decide its raise against the collapse maximum,
@@ -221,7 +231,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                         level -= 1;
                         self.record(slot, level);
                         let above = self.replay_max(collapse_start);
-                        if self.stack.compare_above(&above) != Ordering::Less {
+                        if self.web.compare_above(&above) != Ordering::Less {
                             self.emit_offset(&above);
                         }
                     }
@@ -235,20 +245,20 @@ impl<'a, 'm> PreScan<'a, 'm> {
                             // virtual value.
                             id.skip();
                             let above = self.max_range(false);
-                            if self.stack.compare_above(&above) != Ordering::Less {
+                            if self.web.compare_above(&above) != Ordering::Less {
                                 self.emit_offset(&above);
                             }
                             frames.pop_node();
                         } else if right {
                             frames.flip_to_await_right();
-                            self.stack.open(1);
+                            self.web.open(1);
                             continue 'descend; // walk the right child
                         } else {
                             // Absent right child: fill(0, er) in its own
                             // frame.
-                            self.stack.open(1);
+                            self.web.open(1);
                             self.copy_range(false);
-                            self.stack.close();
+                            self.web.close();
                             frames.pop_node();
                         }
                     }
@@ -271,17 +281,22 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// pass, never again here. Distinct sites' collapse ranges are disjoint, so
     /// the replays add one flat pass over those positions, never a nesting one.
     fn replay_max(&mut self, pos: usize) -> Signed {
+        // Re-derived by replay rather than parked per open site so frames
+        // stay word-free: parking the maximum would store one wide
+        // accumulator per open site-nesting level (the fill module doc's
+        // heap paragraph carries the trade).
+        //
         // The replay jumps back to the site's recorded range start, so it runs
         // on its own cursor; the scan's forward cursor stays where the sibling
         // walk left it.
         let mut cursor = codec::DsiCursor::new_at(self.event, pos);
-        let mut above = Extremum::max(self.stack.lease());
+        let mut above = Extremum::max(self.web.lease());
         let mut walk = LeafWalk::new();
         while walk.descend(&mut cursor).is_some() {
             let code = cursor.read_int().expect("canonical skyline bits");
             above.fold_zigzag(code);
         }
-        let result = self.stack.materialize(above.into_offset());
+        let result = self.web.materialize(above.into_offset());
         debug_assert!(!result.negative, "the fold floors at zero");
         result
     }
@@ -318,9 +333,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
         // by a nested site's close retires here (its one death), making every
         // head read below exact. The recording cycle's own arm has already
         // drained the register, so the sibling-chain case pays nothing.
-        self.stack.resolve_latent();
+        self.web.resolve_latent();
         debug_assert!(
-            !self.stack.latent_live(),
+            !self.web.latent_live(),
             "ledger links and suspends never snapshot a latent-relative quantity"
         );
         // A deeper level is complete iff the head still serves it: its forest
@@ -332,13 +347,15 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // A sibling record (the scan's outermost site records here too, as
             // the sibling of the entry-height pseudo-site): the head IS the
             // link, `m_s − m_prev`.
-            let mut head = self.stack.follower_take(REL_FOLLOWER);
+            let mut head = self.web.follower_take(REL_FOLLOWER);
             if head.sign() == Ordering::Equal {
-                self.stack.retire(head);
+                self.web.retire(head);
             } else {
                 if level > 0 {
                     // keeper: m_latest − m_first, one fold at the
                     // link's own width (its consume read prices it).
+                    // Level 0 never defers a first-child link, so its
+                    // keeper is never read — skip the fold.
                     self.keeper.add_accum(&head);
                 }
                 self.memo.set_link(slot, head);
@@ -347,8 +364,8 @@ impl<'a, 'm> PreScan<'a, 'm> {
             debug_assert!(self.head_level < level, "levels resolve LIFO");
             // This level's first site: suspend the outer head by
             // move — its value (m_s − m_ref(outer)) is immutable now.
-            let head = self.stack.follower_take(REL_FOLLOWER);
-            let keeper = core::mem::replace(&mut self.keeper, self.stack.lease());
+            let head = self.web.follower_take(REL_FOLLOWER);
+            let keeper = core::mem::replace(&mut self.keeper, self.web.lease());
             self.suspend.push(SuspendedLevel {
                 head,
                 keeper,
@@ -367,8 +384,8 @@ impl<'a, 'm> PreScan<'a, 'm> {
         // none is pending), and the raise is min-guarded (never below the
         // tracked minimum), so no arm fold can arrive between this install and
         // the emission.
-        let zero = self.stack.lease();
-        self.stack.follower_set(REL_FOLLOWER, zero);
+        let zero = self.web.lease();
+        self.web.follower_set(REL_FOLLOWER, zero);
     }
 
     /// Resolve the innermost suspended level.
@@ -380,7 +397,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         // chain_span := (min − m_last) + (m_last − m_first) = min − m_first;
         // the keeper dies into it (its buffer is re-armed for the outer level
         // below — nothing is minted per resolve).
-        let mut chain_span = self.stack.follower_take(REL_FOLLOWER);
+        let mut chain_span = self.web.follower_take(REL_FOLLOWER);
         chain_span.add_accum(&self.keeper);
         if chain_span.sign() != Ordering::Equal {
             // link(first) = m_first − m_parent = −chain_span: one clone at the
@@ -388,7 +405,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             let first_slot = self
                 .first_slot
                 .expect("a nested level's first site is recorded at its suspension");
-            let mut link = self.stack.lease();
+            let mut link = self.web.lease();
             link.add_accum(&chain_span);
             link.negate();
             self.memo.set_link(first_slot, link);
@@ -405,12 +422,12 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .expect("a deeper head level implies a suspended outer level");
         let mut resumed = outer.head;
         resumed.add_accum(&chain_span);
-        self.stack.retire(chain_span);
+        self.web.retire(chain_span);
         let dead = core::mem::replace(&mut self.keeper, outer.keeper);
-        self.stack.retire(dead);
+        self.web.retire(dead);
         self.first_slot = outer.first_slot;
         self.head_level = outer.level;
-        self.stack.follower_set(REL_FOLLOWER, resumed);
+        self.web.follower_set(REL_FOLLOWER, resumed);
     }
 
     /// Read one payload at the cursor, folding the step into the height side of
@@ -418,7 +435,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     fn payload(&mut self, first: bool) -> Signed {
         let code = self.cursor.read_int().expect("canonical skyline bits");
         let (negative, magnitude) = if first { (false, code) } else { unzigzag(code) };
-        self.stack.fold_height(negative, &magnitude);
+        self.web.fold_height(negative, &magnitude);
         if let Some(net) = &mut self.entry_net {
             fold_signed_int(net, negative, &magnitude);
         }
@@ -431,21 +448,21 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// A virtual emission at the current height.
     fn emit_here(&mut self) {
         self.seed_relation(None);
-        self.stack.emit_here();
+        self.web.emit_here();
         self.install_relation();
     }
 
     /// A virtual emission at `h′ + offset`.
     fn emit_offset(&mut self, offset: &Signed) {
         self.seed_relation(Some(offset));
-        self.stack.emit_offset(offset);
+        self.web.emit_offset(offset);
         self.install_relation();
     }
 
     /// Before the scan's first arming: seed the recording relation `rel = v −
     /// h(scan entry)` from the dying entry net.
     fn seed_relation(&mut self, offset: Option<&Signed>) {
-        if self.stack.armed() {
+        if self.web.armed() {
             return;
         }
         let mut relation = self
@@ -461,7 +478,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// After the arming emission: install the seeded relation.
     fn install_relation(&mut self) {
         if let Some(relation) = self.pending_relation.take() {
-            self.stack.follower_set(REL_FOLLOWER, relation);
+            self.web.follower_set(REL_FOLLOWER, relation);
         }
     }
 
@@ -490,8 +507,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         }
         let skip = skip_leaves(&mut walk, &mut self.cursor, first, Some(first_leaf_depth))
             .expect("the descended leaf is pending");
-        self.stack
-            .fold_height(skip.net.negative, &skip.net.magnitude);
+        self.web.fold_height(skip.net.negative, &skip.net.magnitude);
         if let Some(net) = &mut self.entry_net {
             fold_signed_int(net, skip.net.negative, &skip.net.magnitude);
         }
@@ -502,7 +518,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// exit as a nonnegative offset. No virtual emissions — the range's leaves
     /// vanish into the raise the caller decides.
     fn max_range(&mut self, first: bool) -> Signed {
-        let mut above = Extremum::max(self.stack.lease());
+        let mut above = Extremum::max(self.web.lease());
         let mut walk = LeafWalk::new();
         let first_leaf_depth = walk
             .descend(&mut self.cursor)
@@ -528,12 +544,12 @@ impl<'a, 'm> PreScan<'a, 'm> {
             );
             let (net_sign, net_magnitude) = net.sign_magnitude();
             let net = Signed::from_sign_magnitude(net_sign, net_magnitude);
-            self.stack.fold_height(net.negative, &net.magnitude);
+            self.web.fold_height(net.negative, &net.magnitude);
             if let Some(entry) = &mut self.entry_net {
                 fold_signed_int(entry, net.negative, &net.magnitude);
             }
         }
-        let result = self.stack.materialize(above.into_offset());
+        let result = self.web.materialize(above.into_offset());
         debug_assert!(!result.negative, "the fold floors at zero");
         result
     }

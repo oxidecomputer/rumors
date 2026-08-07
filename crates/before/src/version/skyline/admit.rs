@@ -13,9 +13,12 @@
 //! # Why the validator's height accumulator disappears
 //!
 //! The standalone validator ([`validate_from`](super::validate::validate_from))
-//! carries a running leaf height for its nonnegativity condition. Here the dominance verdict subsumes it: on every elementary
+//! carries a running leaf height for its nonnegativity condition. Here the
+//! dominance verdict subsumes it: on every elementary
 //! interval an accepted walk holds `height_hi >= height_lo >= 0` — the left
-//! inequality is the verdict itself, the right is `lo`'s own canonicality — so
+//! inequality is the verdict itself, the right is `lo`'s own canonicality,
+//! and the chain binds pointwise because this walk reads a sign on *every*
+//! elementary interval (nothing here block-skips) — so
 //! a stream whose height dips negative is always also non-dominating, and both
 //! facts reject as the same [`Decode::NotCanonical`] genre (a composite no
 //! encode produces). The fusion's saving is therefore structural, not
@@ -31,9 +34,9 @@
 //! [`CheckedCursor`] walks the untrusted stream, enforcing the validator's
 //! remaining obligations on the same reads — truncation as the cursor's own
 //! read errors, minimal topology as each internal node closes. The
-//! overlay-advance law is restated at this cursor pair (the placement walk's
-//! idiom — the generic law is infallible, the checked side's crossings are
-//! `Result`s), with the same step and fold order as
+//! overlay-advance law is restated at this cursor pair — restated rather
+//! than reused, because the generic law is infallible and the checked side's
+//! crossings are `Result`s — with the same step and fold order as
 //! [`advance_diff`](super::overlay::advance_diff), so the accumulator's write
 //! sequence — and with it the committed touch-meter readings — is the pair
 //! sweep's exactly. Once dominance is refuted the verdict is fixed, so `lo`'s
@@ -291,8 +294,8 @@ where
     // `a` operand, seeded and folded in the sweep's own order so the
     // accumulator traffic is identical).
     let mut diff = Accumulator::new();
-    super::signed::fold_signed_int(&mut diff, false, &lo_first);
-    super::signed::fold_signed_int(&mut diff, true, &hi_first);
+    super::signed::fold_signed_int(&mut diff, /* negative: */ false, &lo_first);
+    super::signed::fold_signed_int(&mut diff, /* negative: */ true, &hi_first);
     // Equality rides the same sign reads: the pair is equal exactly when no
     // elementary interval reads a strict `Less` (and none reads `Greater`,
     // which refutes outright) — canonical uniqueness then makes the verdict
@@ -335,8 +338,9 @@ where
 /// depth.
 ///
 /// The overlay-advance law ([`super::overlay::advance`]) restated at this
-/// cursor pair, the placement walk's idiom: the generic law is infallible and
-/// the checked side's crossings are `Result`s. Step and fold order are
+/// cursor pair — restated rather than reused, because the generic law is
+/// infallible and the checked side's crossings are `Result`s. Step and fold
+/// order are
 /// [`advance_diff`](super::overlay::advance_diff)'s — the deeper side first, `lo`
 /// (the `a` operand) first on ties — which keeps the difference's write
 /// sequence, and with it the committed touch-meter readings, identical to the

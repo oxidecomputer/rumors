@@ -34,6 +34,10 @@ use super::signed::{fold_signed_int, unzigzag};
 /// The stream must be exactly one canonical tree: a tree that completes before
 /// the last live bit is [`Decode::TrailingBits`]; everything else is
 /// [`validate_from`]'s contract.
+///
+/// Test- and meter-only: the production entries run [`validate_prefix`] and
+/// [`validate_from`], which leave the tail to their callers.
+#[cfg(any(test, feature = "meter"))]
 pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
     let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
@@ -88,6 +92,9 @@ where
         // the cursor's own `read_int` so a word-parallel cursor (the production
         // reader; the wire-side reader's window) takes its fast path.
         let code = cursor.read_int()?;
+        // The first leaf keeps `zero_delta` false even for a zero absolute
+        // payload: preorder puts it leftmost, so it is no ancestor's right
+        // child and the collapsible-pair check never reads its flag.
         let mut zero_delta = false;
         if seen_leaf {
             zero_delta = code.is_zero();

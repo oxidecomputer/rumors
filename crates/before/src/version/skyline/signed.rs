@@ -172,6 +172,11 @@ pub(super) fn fold_signed_int(acc: &mut Accumulator, negative: bool, magnitude: 
     }
 }
 
+/// The magnitude bound of the fused gamma fast path: `mag < 2^31` keeps the
+/// whole signed code inside the small-code word (`mag < 2^31` ⇒ mantissa
+/// `2·mag + 1 < 2^32` ⇒ `k <= 31` ⇒ code length `2k + 1 <= 63` bits).
+const GAMMA_SMALL_MAG_BOUND: u64 = 1 << 31;
+
 /// A value's gamma code as a payload-code value.
 pub(super) fn gamma_code(value: &Base) -> Code {
     codec::code_int(value)
@@ -197,7 +202,7 @@ pub(super) fn gamma_code_signed(negative: bool, magnitude: &Base) -> Code {
         "a negative delta has a nonzero magnitude"
     );
     if let Some(mag) = magnitude.to_u64() {
-        if mag < (1 << 31) {
+        if mag < GAMMA_SMALL_MAG_BOUND {
             // negative: gamma of `zigzag + 1 = (2m − 1) + 1 = 2m`;
             // positive: gamma of `2m + 1`. Either way the whole code is
             // that mantissa under its own leading zeros.
@@ -216,7 +221,7 @@ pub(super) fn gamma_code_signed(negative: bool, magnitude: &Base) -> Code {
 /// twin of [`gamma_code_signed`].
 pub(super) fn gamma_code_signed_int(negative: bool, magnitude: &Int) -> Code {
     match magnitude {
-        Int::Small(mag) if *mag < (1 << 31) => {
+        Int::Small(mag) if *mag < GAMMA_SMALL_MAG_BOUND => {
             debug_assert!(
                 !negative || *mag != 0,
                 "a negative delta has a nonzero magnitude"

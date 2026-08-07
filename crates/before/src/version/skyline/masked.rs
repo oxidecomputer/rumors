@@ -35,7 +35,8 @@
 //!   (reversed) where only `b` is owned.
 //! - Neither side owned: the interval compares `0` with `0` — no read.
 //!
-//! The single-owner reads are the trichotomy's zero-check: distinguishing `=`
+//! The single-owner reads are the comparison trichotomy's (`<`/`=`/`>`)
+//! zero-check: distinguishing `=`
 //! from `<` requires knowing whether the *other* operand has positive height
 //! outside the region, and the running `h` accumulator answers it without
 //! walking any skipped subtree twice. Each event delta folds into at most two
@@ -101,7 +102,8 @@ pub fn causal_cmp(
     b: &BitsSlice,
     b_mask: Option<&BitsSlice>,
 ) -> Option<Ordering> {
-    // At exhaustion every surviving combination is a verdict.
+    // At exhaustion every surviving combination is a verdict
+    // ([`Directions::relation`]'s map).
     Walk::open(a, a_mask, b, b_mask).run(order_exit, Directions::relation)
 }
 
@@ -178,12 +180,12 @@ impl<'a> Walk<'a> {
         // ownership case reads it otherwise, so feeding it would be pure waste.
         let height_a = b_mask.map(|_| {
             let mut height_a = Accumulator::new();
-            super::signed::fold_signed_int(&mut height_a, false, &a_first);
+            super::signed::fold_signed_int(&mut height_a, /* negative: */ false, &a_first);
             height_a
         });
         let height_b = a_mask.map(|_| {
             let mut height_b = Accumulator::new();
-            super::signed::fold_signed_int(&mut height_b, false, &b_first);
+            super::signed::fold_signed_int(&mut height_b, /* negative: */ false, &b_first);
             height_b
         });
         Walk {
@@ -376,7 +378,9 @@ impl CursorSet for Walk<'_> {
                 let (flip, step) = self.a.step();
                 fold(&mut self.diff, Side::A, step.negative, &step.magnitude);
                 if let Some(height_a) = &mut self.height_a {
-                    fold(height_a, Side::A, step.negative, &step.magnitude);
+                    // A height integrator accumulates its own side plainly:
+                    // the side orientation belongs to `D` alone.
+                    super::signed::fold_signed_int(height_a, step.negative, &step.magnitude);
                 }
                 flip
             }
@@ -391,9 +395,9 @@ impl CursorSet for Walk<'_> {
                 let (flip, step) = self.b.step();
                 fold(&mut self.diff, Side::B, step.negative, &step.magnitude);
                 if let Some(height_b) = &mut self.height_b {
-                    // `h_b` accumulates positively: the side orientation
-                    // belongs to `D` alone.
-                    fold(height_b, Side::A, step.negative, &step.magnitude);
+                    // A height integrator accumulates its own side plainly:
+                    // the side orientation belongs to `D` alone.
+                    super::signed::fold_signed_int(height_b, step.negative, &step.magnitude);
                 }
                 flip
             }

@@ -4,7 +4,9 @@
 //! Every fold here is a linear functional or a masking of the version's step
 //! function, so each rides the same machinery as the comparison sweep — one
 //! forward pass of its leaf cursors with the running height state on the
-//! cliff-immune [`Accumulator`] — plus the piece its own question needs:
+//! carry-cliff-immune [`Accumulator`] (amortized O(1) digit touches where a
+//! plain big integer pays each full carry) — plus the piece its own
+//! question needs:
 //!
 //! - [`rank`](fn@rank) integrates the step function: `Σ heightᵢ · 2^(−depthᵢ)`
 //!   over the leaves, telescoped through height *deltas* so no absolute
@@ -38,8 +40,8 @@
 //!   zero, and the absolute height is materialized only at ownership
 //!   transitions — where the emitted code itself is that height, so the
 //!   work is priced by the mandatory output (the comb × scattered-party
-//!   cross is Θ(teeth · magnitude) output from linear input, and this
-//!   sweep is I/O-linear on it).
+//!   cross is Θ(teeth · magnitude) output from linear input — one wide
+//!   height per comb tooth — and this sweep is I/O-linear on it).
 //!
 //! # The height split
 //!
@@ -51,10 +53,10 @@
 //! into anchored components folded narrow, with a relative freeze trigger
 //! that evicts stale wide drift at the first cheaper code. The rank fold and
 //! the pair co-sweep run the anchored-segment split, `h* = B + P + L` —
-//! *base*, *parked*, *live* — whose components the [`integral`] submodule
-//! mints and derives along with the discipline and its funding; the
-//! min_ticks fold runs the epoch-ledger form, `h = F + L` — *frozen* +
-//! *live* — (the `web` submodule).
+//! base, parked, live — whose components the [`integral`] submodule mints
+//! and derives along with the discipline and its funding; the min_ticks
+//! fold runs the epoch-ledger form, `h = F + L`, frozen plus live (the
+//! `web` submodule).
 //!
 //! # The pair co-sweep: distance, lag, and the rank order
 //!
@@ -92,25 +94,34 @@
 //! Derived, with the constants pinned by the `skyline_rank_*`,
 //! `skyline_min_ticks_*`, and `skyline_project_*` rows of the
 //! resource-envelope suite (`tests/meter.rs`): the cursor scan, decode, and
-//! fold bounds are the comparison sweep's.
+//! fold bounds are the comparison sweep's. The freeze machinery beneath the
+//! rank and pair charges is four structures — the live component, the
+//! segment mass, the promotion ledger, and the settle tree — the same map
+//! the [`integral`] submodule's doc opens with.
 //!
-//! Rank adds O(`L` digits) per leaf — bounded by the freeze allowance plus
-//! the width of the delta folded at the previous boundary, so each per-leaf
-//! add is paid by the code that set `L`'s width — plus the certified freeze
-//! work: a settle per freeze at the multiplication bound over the parked
-//! width and the segment's within-segment depth variation, a ledger entry
-//! once per wide arming, and one mass-balanced product-tree settle at the
-//! sweep's close. The [`integral`] submodule's doc carries the settle bounds:
-//! `O(M(|v|))` under every power-law tier of the backend's multiplication, at
-//! most one extra tree-depth factor past its quasilinear threshold, and
-//! `Ω(M(|v|))` mandatory for any fold that answers exactly. The freeze work's
-//! feeds open at the first freeze, so a sweep that never freezes — word-scale
-//! heights, the practical regime the `RANK_CONCURRENT` row gauges — pays the
-//! integral's own folds and nothing toward the settle machinery. The
-//! `skyline_flatness` module's freeze-position, promotion re-arm, and
-//! dense-suffix bands hold the many-freezes and many-armings genres flat, and
-//! the `ledger_wide_arming` and `answer_embedded_product` bands hold the wide
-//! × dense genres flat per byte in the fold's own traffic.
+//! Rank's charges, per the height split:
+//!
+//! - the per-leaf add: O(`L`) digits, bounded by the freeze allowance plus
+//!   the width of the delta folded at the previous boundary, so each add
+//!   is paid by the code that set `L`'s width;
+//! - the certified freeze work: a settle per freeze at the multiplication
+//!   bound over the parked width and the segment's within-segment depth
+//!   variation, a ledger entry once per wide arming, and one mass-balanced
+//!   product-tree settle at the sweep's close — the [`integral`]
+//!   submodule's doc carries the settle bounds: `O(M(|v|))` under every
+//!   power-law tier of the backend's multiplication, at most one extra
+//!   tree-depth factor past its quasilinear threshold, and `Ω(M(|v|))`
+//!   mandatory for any fold that answers exactly;
+//! - the practical regime: the freeze machinery's two feeds (segment mass
+//!   and position window) open at the first freeze, so a sweep that never
+//!   freezes — word-scale heights, the regime the `RANK_CONCURRENT` row
+//!   gauges — pays the integral's own folds and nothing toward the settle
+//!   machinery.
+//!
+//! The `skyline_flatness` module's freeze-position, promotion re-arm, and
+//! dense-suffix bands hold the many-freezes and many-armings genres flat,
+//! and the `ledger_wide_arming` and `answer_embedded_product` bands hold
+//! the wide × dense genres flat per byte in the fold's own traffic.
 //!
 //! Distance and lag (the `DISTANCE_*`/`LAG_*` rows, plus the
 //! `skyline_flatness` module's jump-pair and pair re-arm bands) add, per
@@ -127,7 +138,7 @@
 //! and the epoch ledger's one product per freeze at the evicted drift's width
 //! — the `web` submodule certifies every charge (the `skyline_flatness`
 //! module's pure-comb and reveal-comb bands hold the close-reveal genre flat
-//! in both width-denominated counters, touch and limb).
+//! in both the touch and limb counters).
 //!
 //! Projection adds one height materialization per ownership transition,
 //! priced by the code it emits. Transient state is the cursor paths, the
@@ -370,6 +381,9 @@ fn pair_fold(
         }
         // The freeze trigger, relative to this boundary's own codes: the widest
         // magnitude folded here is what funds the next interval's live add.
+        // The `1` is unreachable — the advance law always steps at least one
+        // side inside the loop — and kept only to stay total; the funded
+        // width is never fabricated.
         let funded = step_a
             .iter()
             .chain(step_b.iter())
