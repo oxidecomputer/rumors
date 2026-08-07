@@ -57,8 +57,10 @@
 //!
 //! Codecs and text (no wire format exists in the references; correctness is
 //! production-side canonicality/round-trip/strict-rejection pins), linearity
-//! and aliasing mechanics (`Clone` references cannot express them;
-//! compile-fail tests own them), `causally` (a definitional combinator over
+//! and aliasing mechanics (`Clone` references cannot express them; the
+//! compile-time pins own them — `static_assertions` beside the
+//! `Party`/`Clock` definitions and the join matrix, and the array-split
+//! `compile_fail` doctest twins), `causally` (a definitional combinator over
 //! the bound causal
 //! order), rank arithmetic (not a paper object; bound to the in-test
 //! alignment oracle), n-ary hand-back mechanics (value identity and order

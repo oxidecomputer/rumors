@@ -41,15 +41,11 @@ it fully clean before every commit.
 
 One-time setup: most of it provisions itself. `rust-toolchain.toml` names
 the stable toolchain of record along with the components and targets the
-gate shells out to — clippy, rustfmt, rust-src, and
-`wasm32-unknown-unknown` — and rustup installs them on the first cargo
-invocation, in the detached workspaces too. It is pinned rather than
-tracking current stable because the tree pins numbers derived from the
-compiler; the file's own comment carries that argument and the procedure
-for bumping it. rust-src is what lets rustc quote std source, which
-`before`'s trybuild snapshots do: without the sources installed, three
-compile-fail cases mismatch on the quoted lines alone while the
-guarantees they pin are perfectly intact.
+gate shells out to — clippy, rustfmt, and `wasm32-unknown-unknown` — and
+rustup installs them on the first cargo invocation, in the detached
+workspaces too. It is pinned rather than tracking current stable because
+the tree pins numbers derived from the compiler; the file's own comment
+carries that argument and the procedure for bumping it.
 
 What you install yourself: the nightly toolchain the gate's nightly legs
 name (`nightly_toolchain` in the justfile, pinned for the same reason),

@@ -33,9 +33,9 @@
 //!
 //! All three types derive `Clone`: a reference oracle needs cheap snapshots of
 //! "before" states for the property checks, and linearity (`!Clone` on
-//! `Party`/`Clock`) is a *type-level* guarantee checked against `before` by
-//! compile-fail tests — not a runtime semantic the differential harness
-//! exercises.
+//! `Party`/`Clock`) is a *type-level* guarantee pinned in `before` itself by
+//! the `static_assertions` pins beside the type definitions — not a runtime
+//! semantic the differential harness exercises.
 
 #![allow(missing_docs)] // A test/bench reference, not real public API, even when the
                         // `oracle` feature re-exports it (the crate warns on missing docs).

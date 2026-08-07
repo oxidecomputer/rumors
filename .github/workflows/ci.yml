@@ -53,16 +53,10 @@ jobs:
       - name: Install nightly toolchain (merged doctests and fuzz build)
         uses: dtolnay/rust-toolchain@nightly
 
-      # rust-src is here for the trybuild suite: several `.stderr` snapshots
-      # quote std source (core's `panic!` expansion, `BitOr::bitor`,
-      # `Into::into`), and rustc prints those lines only when the sources are
-      # installed. Without it three cases mismatch on the quoted lines alone,
-      # which invites a blessing that would degrade the snapshots rather than
-      # supply what they need.
       - name: Install stable toolchain (default)
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt, rust-src
+          components: clippy, rustfmt
           targets: wasm32-unknown-unknown
 
       # cargo-rdme carries a version because it is the only tool here whose

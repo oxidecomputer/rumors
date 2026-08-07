@@ -23,10 +23,9 @@
 # toolchain file carries one channel, and the tree needs both pinned.
 #
 # `components` and `targets` are what the gate shells out to, so a fresh
-# checkout provisions itself: rust-src lets rustc quote std source for
-# before's trybuild snapshots, and the wasm32 target builds the fuzz-fit
-# guest.
+# checkout provisions itself: clippy and rustfmt run on every gate, and
+# the wasm32 target builds the fuzz-fit guest.
 [toolchain]
 channel = "1.97.1"
-components = ["clippy", "rustfmt", "rust-src"]
+components = ["clippy", "rustfmt"]
 targets = ["wasm32-unknown-unknown"]
