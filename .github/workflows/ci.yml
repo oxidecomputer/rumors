@@ -158,13 +158,10 @@ jobs:
       - name: just supply-chain
         run: just supply-chain
 
-      # The board verdicts at both scales of record: at these scales the
-      # runner's exit code carries the red/green judgment, so a red board
-      # fails the job.
-      - name: just amp-board (verdicts, default scale)
-        run: just amp-board
-
-      - name: just amp-board-acceptance (verdicts, acceptance scale)
+      # The board's acceptance judgment: one invocation measures each
+      # cell's whole ladder and its exit code carries the red/green
+      # verdict, so a red board fails the job.
+      - name: just amp-board-acceptance (the board verdict)
         run: just amp-board-acceptance
 
       - name: just worst-cases-pin

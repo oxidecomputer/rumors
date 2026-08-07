@@ -13,7 +13,8 @@
 # wasm, bench builds, the fuzz-target build, the viz bundle), exactly as
 # GitHub CI builds them; `all` adds what CI cannot run (the fuzz smoke and the
 # formal tier). Neither sweep repeats the gate's instrument legs — the fuel
-# bands, the board pins, and surface totality run in `just gate`, and GitHub
+# bands, the board verdicts and pins, and surface totality run in `just
+# gate`, and GitHub
 # CI's `instruments` job re-runs the counter-based subset (the workflow file
 # says which legs stay local and why). The comment above each recipe states
 # what it verifies and why.
@@ -299,7 +300,7 @@ gate-streams:
     began=$SECONDS
     start_stream workspace     0 clippy clippy-default docs test-all
     start_stream doctest      10 doctest
-    start_stream board        10 worst-cases-pin
+    start_stream board        10 amp-board-acceptance worst-cases-pin
     start_stream wasm         10 fuzzfit fuelscape-test
     start_stream surface      10 surface-totality
     start_stream internal-docs 10 docs-internal
@@ -644,18 +645,28 @@ bench-judge-tripwire:
 # per-process allocator or a per-process global, so a reading is a
 # function of its cell alone: neither machine load nor the shard layout
 # that measured it can move one. AMP_BOARD_SHARDS overrides the count.
+#
+# A bare run (any single scale) is a debugging view whose verdicts never
+# bind; the verdict of record is the acceptance invocation below, which
+# measures each cell's whole ladder in one judgment. Optional scale
+# multiplies the input sizes, e.g. `just amp-board 4`.
 
-# Run the amplification board: the red-green resource-proportionality matrix over before's public operations.
+# Render the amplification board at one scale: a debugging view of the red-green matrix.
 amp-board *args:
     cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- {{ args }}
 
-# Acceptance is all green at BOTH the default scale and the acceptance
-# scale (board::ACCEPTANCE_SCALE, the segment-onset witness scale), one
-# run each: every judged quantity is a deterministic counter, so a second
-# run of the same scale reads the same board and acceptance needs no
-# repeated hand runs.
+# The board's one verdict of record: one invocation measures each cell's
+# whole ladder — two sizes at each of the two sampling scales
+# (board::DEFAULT_SCALE and board::LADDER_TOP_SCALE, the segment-onset
+# witness) — judges every constant and floor per size, fits each
+# exponent as one trend across the ladder, and exits nonzero on any red
+# cell. A red is an untriaged contradiction, resolved only by a cure or
+# an owner-declared model at the cell, so the gate's board stream fails
+# on any red. Every judged quantity is a deterministic counter, so a
+# second run reads the same board and acceptance needs no repeated hand
+# runs.
 
-# Run the amplification board at the acceptance scale.
+# Run the board's acceptance judgment: the whole measurement ladder, one verdict.
 amp-board-acceptance:
     cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- acceptance
 
@@ -707,17 +718,16 @@ surface-totality: surface-json
 # margin beside it. Honest scope: the maximum over the committed roster --
 # the claim that this is the true worst case is carried by the rustdoc
 # complexity sections and the asymptotics liveness pins, not by this
-# table. Runs at release, the
-# board's profile of record, at both scales of record (default and
-# acceptance), one table each.
+# table. Runs at release, the board's profile of record, one table per
+# sampling scale of the ladder.
 
-# Render the worst-case map: the argmax family per operation x currency, both scales of record.
+# Render the worst-case map: the argmax family per operation x currency, one table per sampling scale.
 worst-cases:
     cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- worst-cases
 
 # The map's rankings are pinned: a committed expectation table (the
 # WORST_RANKINGS const beside the fold) is entry-compared against the live
-# fold at both scales of record, so a ranking flip is caught in the gate,
+# fold at both of the ladder's sampling scales, so a ranking flip is caught in the gate,
 # never discovered by a reader. A flip is news: either a family
 # legitimately overtook (re-pin deliberately with a movement annotation) or
 # a code change made some shape relatively worse (investigate first).
@@ -734,7 +744,8 @@ worst-cases-pin:
 # wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
 # and the viz bundle, ordered cheap-first so failures surface early. GitHub CI
 # runs exactly this. Neither `ci` nor `all` runs the gate's instrument legs —
-# the fuel bands, the fuelscape pins, the board's ranking pin, and surface
+# the fuel bands, the fuelscape pins, the board's acceptance verdicts and
+# ranking pin, and surface
 # totality run in `just gate` (its recipe line is the
 # roster of record), pre-commit on a developer machine; GitHub CI's
 # `instruments` job re-runs the counter-based subset (board verdicts, the
