@@ -1868,7 +1868,7 @@ fn ranked_orders_equal_rank_concurrent_pairs_by_bytes() {
     assert_ne!(byte_order, Ordering::Equal, "distinct canonical bytes");
     assert_eq!(h.cmp(&p), byte_order, "rank ties order by version bytes");
     assert_eq!(p.cmp(&h), byte_order.reverse());
-    assert_eq!(h.to_rank(), p.to_rank(), "the ranks themselves still tie");
+    assert_eq!(h.rank(), p.rank(), "the ranks themselves still tie");
 }
 
 proptest! {

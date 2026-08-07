@@ -379,7 +379,7 @@ laws! {
     fn ranked_carries_own_rank {
         let ranked = Ranked::from(a);
         ranked.version() == a
-            && ranked.to_rank() == a.rank()
+            && ranked.rank() == a.rank()
             && Rank::from(ranked.clone()) == a.rank()
             && ranked.encode_rank() == a.rank().encode()
             && ranked.encode() == [a.rank().encode(), a.as_bytes().to_vec()].concat()
@@ -388,11 +388,11 @@ laws! {
             && hash_of(&ranked) == hash_of(a)
             && {
                 let owned = Ranked::from(a.clone()).into_owned();
-                owned.version() == a && owned.to_rank() == a.rank()
+                owned.version() == a && owned.rank() == a.rank()
             }
             && {
                 let method = a.ranked();
-                method.version() == a && method.to_rank() == a.rank()
+                method.version() == a && method.rank() == a.rank()
             }
     }
 
@@ -569,8 +569,8 @@ laws! {
         let want = rank_want.then_with(|| a.as_bytes().cmp(b.as_bytes()));
         let fused = ra.cmp(&rb) == want && rb.cmp(&ra) == want.reverse();
         let eq = (ra == rb) == (a == b);
-        let explicit = ra.to_rank().cmp(&rb.to_rank()) == rank_want
-            && (ra.to_rank() == b.rank()) == (rank_want == Ordering::Equal);
+        let explicit = ra.rank().cmp(&rb.rank()) == rank_want
+            && (ra.rank() == b.rank()) == (rank_want == Ordering::Equal);
         let extends = match a.partial_cmp(b) {
             Some(ord) => want == ord,
             None => true, // concurrent: rank or tiebreak orders them

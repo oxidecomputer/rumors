@@ -60,7 +60,7 @@ mod tests;
 /// let half = whole.fork();
 /// assert!(whole.is_disjoint(&half)); // the two halves share no region
 /// whole.join(half).unwrap();         // ... and reunite into the whole
-/// assert_eq!(whole.to_string(), "1");
+/// assert!(whole.is_seed());
 /// ```
 pub struct Party(codec::Bits);
 
@@ -102,7 +102,7 @@ impl Party {
     /// # Example
     ///
     /// ```
-    /// assert_eq!(before::Party::seed().to_string(), "1");
+    /// assert!(before::Party::seed().is_seed()); // the whole region, undivided
     /// ```
     pub fn seed() -> Self {
         // The seed id is exactly the 2-bit terminal tag `00` (the whole
@@ -161,7 +161,7 @@ impl Party {
     /// use before::{Party, Version};
     /// let mut v = Version::new();
     /// Party::seed().tick(&mut v);
-    /// assert_eq!(v.to_string(), "1");
+    /// assert!(v > Version::new()); // one event: strictly after the empty history
     /// ```
     pub fn tick(&self, version: &mut Version) {
         version.tick(self)
@@ -180,9 +180,14 @@ impl Party {
     ///
     /// ```
     /// use before::{Party, Version};
+    /// let p = Party::seed();
     /// let mut v = Version::new();
-    /// Party::seed().ticks(&mut v, 3u64);
-    /// assert_eq!(v.to_string(), "3");
+    /// p.ticks(&mut v, 3u64);
+    /// let mut w = Version::new();
+    /// for _ in 0..3 {
+    ///     p.tick(&mut w);
+    /// }
+    /// assert_eq!(v, w); // one call, same version as three sequential ticks
     /// ```
     pub fn ticks(&self, version: &mut Version, n: impl Into<Ticks>) {
         version.ticks(self, n)
@@ -208,8 +213,8 @@ impl Party {
     /// use before::Party;
     /// let mut p = Party::seed();
     /// let q = p.fork();
-    /// assert_eq!(p.to_string(), "(1, 0)");
-    /// assert_eq!(q.to_string(), "(0, 1)");
+    /// assert!(p.is_disjoint(&q)); // the halves share no region...
+    /// assert!(!p.is_seed() && !q.is_seed()); // ...and neither is the whole
     /// ```
     pub fn fork(&mut self) -> Party {
         let (keep, give) = self.view().split();
@@ -273,7 +278,7 @@ impl Party {
     /// let mut p = Party::seed();
     /// let q = p.fork();
     /// p.join(q).unwrap(); // the two halves reunite into the whole
-    /// assert_eq!(p.to_string(), "1");
+    /// assert!(p.is_seed());
     /// ```
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
         match self.view().sum(other.view()) {

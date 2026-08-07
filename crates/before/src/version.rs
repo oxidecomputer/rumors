@@ -103,7 +103,7 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// assert_eq!(before::Version::new().to_string(), "0");
+    /// assert!(before::Version::new().is_empty());
     /// ```
     pub fn new() -> Self {
         // The canonical empty version is exactly the 2-bit stream `11`
@@ -163,7 +163,7 @@ impl Version {
     /// use before::{Party, Version};
     /// let mut v = Version::new();
     /// v.tick(&Party::seed());
-    /// assert_eq!(v.to_string(), "1");
+    /// assert!(v > Version::new()); // one event: strictly after the empty history
     /// ```
     pub fn tick(&mut self, party: &Party) {
         *self = Version::from_bits(skyline::fill::tick(&self.0, party));
@@ -185,11 +185,15 @@ impl Version {
     /// let party = Party::seed();
     /// let mut v = Version::new();
     /// v.ticks(&party, 5u64);
-    /// assert_eq!(v.to_string(), "5");
+    /// let mut w = Version::new();
+    /// for _ in 0..5 {
+    ///     w.tick(&party);
+    /// }
+    /// assert_eq!(v, w); // one call, same version as five sequential ticks
     /// // One call skips forward by a count no iteration could reach.
     /// let wide: Ticks = "100000000000000000000000000".parse().unwrap();
-    /// v.ticks(&party, wide);
-    /// assert_eq!(v.to_string(), "100000000000000000000000005");
+    /// v.ticks(&party, wide.clone());
+    /// assert_eq!(v.min_ticks(), wide + Ticks::from(5u64));
     /// ```
     pub fn ticks(&mut self, party: &Party, n: impl Into<Ticks>) {
         let n = n.into();
@@ -243,11 +247,20 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// use before::{Ticks, Version};
+    /// use before::{Party, Ticks, Version};
     /// assert_eq!(Version::new().min_ticks(), Ticks::ZERO);
-    /// assert_eq!(Version::try_from(5).unwrap().min_ticks(), Ticks::from(5u64));
-    /// // Concurrency forces more ticks than the tallest path (1) suggests:
-    /// let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    /// let mut p = Party::seed();
+    /// let mut v = Version::new();
+    /// v.ticks(&p, 5u64);
+    /// assert_eq!(v.min_ticks(), Ticks::from(5u64));
+    /// // Two events on far-apart shares stay concurrent peaks: the floor
+    /// // counts both, though no single path through the version exceeds 1.
+    /// let mut q = p.fork();
+    /// let _ = p.fork(); // p keeps the leftmost quarter
+    /// let r = q.fork(); // r takes the rightmost quarter
+    /// let mut peaks = Version::new();
+    /// peaks.tick(&p);
+    /// peaks.tick(&r);
     /// assert_eq!(peaks.min_ticks(), Ticks::from(2u64));
     /// ```
     pub fn min_ticks(&self) -> Ticks {
@@ -302,11 +315,15 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// use before::{Ranked, Version};
-    /// let half: Version = "(0, 1, 0)".parse().unwrap();
-    /// let one = Version::try_from(1).unwrap();
+    /// use before::{Party, Ranked, Version};
+    /// let mut p = Party::seed();
+    /// let q = p.fork();
+    /// let mut half = Version::new();
+    /// half.tick(&p); // one share's event
+    /// let mut whole = half.clone();
+    /// whole.tick(&q); // the other share's event: causally later
     /// // Compare by rank; no Rank is materialized on either side.
-    /// assert!(half.ranked() < one.ranked());
+    /// assert!(half.ranked() < whole.ranked());
     /// // The method is exactly the borrowing view conversion.
     /// assert!(half.ranked() == Ranked::from(&half));
     /// assert_eq!(half.ranked().version(), &half);
@@ -1045,8 +1062,9 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// use before::Version;
-    /// let v = Version::try_from((1, 0, 1)).unwrap();
+    /// use before::{Party, Version};
+    /// let mut v = Version::new();
+    /// v.ticks(&Party::seed(), 5u64);
     /// assert_eq!(v.as_bytes(), v.encode().as_slice());
     /// ```
     pub fn as_bytes(&self) -> &[u8] {

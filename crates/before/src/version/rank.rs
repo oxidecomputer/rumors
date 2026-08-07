@@ -131,9 +131,10 @@
 //! bits actually read, so it can never outrun the exponent that stores it).
 
 use core::cmp::Ordering;
-use core::fmt;
+use core::fmt::{self, Debug, Display};
 use core::iter::Sum;
 use core::ops::{Add, AddAssign};
+use std::io::{self, Write};
 
 use suanpan::Accumulator;
 
@@ -172,19 +173,37 @@ use crate::error::Decode;
 /// let mut v = Version::new();
 /// let mut w = Version::new();
 /// // Tick `v` only once, by `p`:
-/// p.tick(v);
+/// p.tick(&mut v);
 /// // Tick `w` concurrently by `p` and `q`:
-/// p.tick(w);
-/// q.tick(w);
-/// // `w` out-ranks `v`, and so does its encoding:
-/// assert!(w > v);
-/// assert!(w.encode() > v.encode());
+/// p.tick(&mut w);
+/// q.tick(&mut w);
+/// // `w` out-ranks `v`, and the encoded ranks sort the same way:
+/// assert!(w.rank() > v.rank());
+/// assert!(w.rank().encode() > v.rank().encode());
 /// ```
 ///
 /// As a consequence, [`Rank`] and [`Ranked`] may be used to provide a
 /// deterministic causal ordering to keys in an external data store which only
 /// understands lexicographic ordering. See also the documentation for
 /// [`Ranked`] for a fuller discussion.
+///
+/// # Complexity
+///
+/// **A rank's representation never is larger than the version it measures, and
+/// often is exponentially smaller.** In-memory size and encoded size are both,
+/// within small constant factors, at most the length of the rank's binary
+/// expansion, which we'll write `‖r‖`. Notably, `‖r‖` is at most linear in the
+/// size of the originating version.
+///
+/// Consequentially, you won't go wrong reasoning through the space and time
+/// costs of [`Rank`]s in terms of the space and time costs of the [`Version`]s
+/// whence they are derived: a [`Rank`] is only ever smaller and cheaper. When
+/// you see complexity claims denominated in `‖r‖`, it's safe to substitute
+/// `|v|`, the size of the [`Version`] `v` such that `r = v.rank()`.
+///
+/// In brief: comparison, equality, hashing, and cloning are linear in the
+/// in-memory size. Addition and subtraction are `O(‖a‖ + ‖b‖)`.
+/// Serialization/deserialization is linear in the bytes produced or read.
 ///
 /// # Relationship to [`min_ticks`](Version::min_ticks)
 ///
@@ -201,12 +220,12 @@ use crate::error::Decode;
 /// let mut v = Version::new();
 /// let mut w = Version::new();
 /// // Tick `v` only once, by `p`:
-/// p.tick(v);
+/// p.tick(&mut v);
 /// // Tick `w` concurrently by `p` and `q`:
-/// p.tick(w);
-/// q.tick(w);
+/// p.tick(&mut w);
+/// q.tick(&mut w);
 /// // The two versions have equal `min_ticks` but ordered `rank`s:
-/// assert_eq!(v.min_tick(), w.min_tick());
+/// assert_eq!(v.min_ticks(), w.min_ticks());
 /// assert!(v.rank() < w.rank());
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -241,9 +260,8 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖self‖ + ‖rhs‖)`, the operands' numeric sizes (see [the
-    /// type's note](Rank#complexity)); a [`None`] or zero result costs
-    /// only the comparison, which allocates nothing.
+    /// `O(‖self‖ + ‖other‖)`, the operands' numeric sizes; a [`None`] or zero
+    /// result costs only the comparison, which allocates nothing.
     ///
     /// # Example
     ///
@@ -254,92 +272,46 @@ impl Rank {
     /// assert_eq!(five.checked_sub(&three).unwrap().to_string(), "2");
     /// assert!(three.checked_sub(&five).is_none()); // 3 - 5 has no nonnegative value
     /// ```
-    pub fn checked_sub(&self, rhs: &Rank) -> Option<Rank> {
+    pub fn checked_sub(&self, other: &Rank) -> Option<Rank> {
         // The ordering pre-check rides the class-first comparison, so the
         // `None` and zero arms cost no alignment at all; only a strictly
         // positive difference aligns to the common exponent and subtracts, and
         // that transient is the output's own value content.
-        match self.cmp(rhs) {
+        match self.cmp(other) {
             Ordering::Less => None,
             Ordering::Equal => Some(Rank::ZERO),
             Ordering::Greater => {
-                let e = self.exp.max(rhs.exp);
+                let e = self.exp.max(other.exp);
                 let a = self.num.clone() << (e - self.exp);
-                let b = rhs.num.clone() << (e - rhs.exp);
+                let b = other.num.clone() << (e - other.exp);
                 Some(Rank::from_raw(a - &b, e))
             }
         }
     }
 
-    /// Encodes this rank into its canonical byte form, whose
-    /// **byte-wise lexicographic order equals [`Ord`] on ranks**:
-    /// `encode(a) < encode(b)` as byte strings exactly when `a < b`.
+    /// Encodes this rank into its canonical byte form, whose **byte-wise
+    /// lexicographic order equals [`Ord`] on ranks**.
     ///
-    /// The reach-for-it use is a **causal-ordering key in a sorted KV
-    /// store**: store each entry under its version's rank encoding
-    /// (plus any rank-tiebreak suffix — the encoding is prefix-safe,
-    /// so a suffix can never flip the order between distinct ranks)
-    /// and a plain key iteration delivers causes before effects, with
-    /// no rank-aware comparator on the store's side. Equal ranks are
-    /// never causally ordered (see [`Rank`]), so entries colliding on
-    /// the rank prefix are concurrent or identical, and any
-    /// deterministic tiebreak — the version's
-    /// [`as_bytes`](crate::Version::as_bytes), a content hash — is
-    /// causally safe. Reach for this form when rank-*class* semantics
-    /// are the point (rank-equal versions sharing a key prefix under a
-    /// tiebreak of your own); where the version itself should be the
-    /// tiebreak and the key should determine the value,
-    /// [`Ranked::encode`](crate::Ranked::encode) is the ready-made
-    /// composite.
+    /// The reason this encoding is crafted this way is to support
+    /// **causal-ordering keys in a sorted KV store**: store each entry under
+    /// its version's rank encoding, so a plain key iteration delivers causes
+    /// before effects, with no rank-aware comparator on the store's side.
     ///
-    /// The encoding is canonical and bijective: [`decode`](Rank::decode)
-    /// accepts exactly the byte strings this method produces, and equal
-    /// ranks encode byte-identically (distinct ranks never collide).
-    /// The format itself — the prefix-ascending integral code, the
-    /// group-framed fraction, the self-delimiting close that makes the
-    /// streams prefix-free — is the module's business; callers need
-    /// only the law above.
+    /// Equal ranks never result from causally ordered [`Version`]s, so entries
+    /// colliding on the rank prefix are concurrent or identical, and any
+    /// deterministic tiebreak is causally safe. [`Ranked`] provides a canonical
+    /// composite key for causally ordering [`Version`]s, which uses the
+    /// [`Version`]'s own representation as the tiebreak.
     ///
-    /// # There is no numerator–exponent serialization
-    ///
-    /// Deliberately. A rank is stored as `num · 2⁻ᵉˣᵖ`, and that pair
-    /// is exponentially denser than this order-preserving form (the
-    /// rank `2⁻ᵏ` costs a few bytes as a pair but `k` bits here): a
-    /// library exposing both a compact pair codec and this expansion
-    /// would hand any decoder of the pair form a decompression bomb.
-    /// Only the lexicographic form is a wire format; the pair form
-    /// never leaves memory ([`Display`](fmt::Display) renders the pair
-    /// for humans, and nothing parses it back).
-    ///
-    /// # Cost, and where it is bounded
-    ///
-    /// The output is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits — one bit
-    /// per integral bit, nine bits per eight fractional digits (the
-    /// framing that keeps distinct ranks' encodings prefix-free, which
-    /// is what suffix safety costs). Every rank *reachable from this
-    /// crate's public constructors* keeps that linear in what the
-    /// caller already paid \[derived, and pinned per family by
-    /// `rank_encoding_size_is_provenance_linear`\]: a fold's rank
-    /// ([`Version::rank`](crate::Version::rank),
-    /// [`distance`](crate::Version::distance),
-    /// [`lag`](crate::Version::lag)) has numerator width and exponent
-    /// each linear in the version's packed bits (the measured worst
-    /// committed family — a lone wide counter, whose stored gamma code
-    /// pays the width twice where this encoding pays it once — encodes
-    /// at ~0.56 bits per packed input bit); sums and
-    /// differences of such ranks stay linear in their operands'
-    /// content; and [`decode`](Rank::decode) yields ranks linear in
-    /// the bytes it read. In-memory arithmetic *can* mint a rank whose
-    /// encoding is exponentially larger than the pair it is stored as
-    /// — the caller who folds a deep version pays the version's size
-    /// first, so the expansion never outruns what its producer already
-    /// held.
+    /// More generally, the encoding of a [`Rank`] is suffix-safe: for any set
+    /// of [`Rank`]s, arbitrary suffixes may be appended to any or all of them,
+    /// and their lexicographic ordering will not change. This means [`Rank`] is
+    /// safe to use generically as one part of *any* composite key, not merely
+    /// when composed with [`Version`] as it is in [`Ranked`].
     ///
     /// # Complexity
     ///
-    /// `O(‖self‖)` time and space; the output is at most
-    /// `9⁄8 · ‖self‖ + O(log ‖self‖)` bits (see [the type's
-    /// note](Rank#complexity) for the numeric-size denomination).
+    /// `O(‖self‖)` time and space.
     ///
     /// # Example
     ///
@@ -356,12 +328,8 @@ impl Rank {
     }
 
     /// Encodes this rank to an arbitrary writer: exactly
-    /// [`encode`](Rank::encode)'s canonical bytes, without handing the
-    /// caller the intermediate `Vec`.
-    ///
-    /// The stream is bit-packed, so the bytes are assembled in one
-    /// internal buffer and delivered to the writer in a single
-    /// `write_all` — the writer sees exactly what `encode` returns.
+    /// [`encode`](Rank::encode)'s canonical bytes, without handing the caller
+    /// the intermediate `Vec`.
     ///
     /// # Errors
     ///
@@ -370,9 +338,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖self‖)` time and space; the output is at most
-    /// `9⁄8 · ‖self‖ + O(log ‖self‖)` bits (see [the type's
-    /// note](Rank#complexity) for the numeric-size denomination).
+    /// `O(‖self‖)` time and space.
     ///
     /// # Example
     ///
@@ -383,40 +349,35 @@ impl Rank {
     /// rank.encode_to(&mut buf).unwrap();
     /// assert_eq!(buf, rank.encode());
     /// ```
-    pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+    pub fn encode_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(&encode_parts(&self.num, self.exp))
     }
 
-    /// Decodes a rank from a reader of canonical
-    /// [`encode`](Rank::encode) bytes, strictly rejecting everything
-    /// else.
+    /// Decodes a rank from a reader of canonical [`encode`](Rank::encode)
+    /// bytes, strictly rejecting everything else.
     ///
-    /// Total over arbitrary input: every byte string either decodes to
-    /// the one rank that encodes to it, or is rejected — no accepted
-    /// input re-encodes differently, so byte equality on encodings is
-    /// rank equality. The result's in-memory size is linear in the
-    /// bytes read (`k` input bits produce a rank of numeric size
-    /// `O(k)`), so no input is a decompression bomb in either
-    /// direction.
+    /// # Decoded size
+    ///
+    /// The serialized representation of a [`Rank`] is at most `9⁄8 · ‖r‖ +
+    /// O(log ‖r‖)` bits: one bit per integral bit, nine bits per eight
+    /// fractional bits (this is required to keep distinct ranks' encodings
+    /// prefix-free, providing the above generalized suffix-safety).
     ///
     /// # Errors
     ///
-    /// [`Decode::Truncated`] when the stream ends inside the integral
-    /// header, its mantissa, or the fraction (a group or its
-    /// continuation bit); [`Decode::TrailingBits`] when the byte
-    /// string is not the minimal packing of its content (bytes past
-    /// the stream's own, a set bit in the padding, or an all-zero
-    /// final fraction group — the one spelling a trailing-zero
-    /// fraction could take); [`Decode::NotCanonical`] when the stream
-    /// carries content past the format's representation bound (an
-    /// integral mantissa of `2⁶⁴` or more bits — reachable only
-    /// through inputs of 2 EiB or more); [`Decode::Io`] when the
-    /// reader itself fails.
+    /// - [`Decode::Truncated`] when the stream ends inside the integral header,
+    ///    its mantissa, or the fraction (a group or its continuation bit);
+    /// - [`Decode::TrailingBits`] when the byte string is not the minimal packing
+    ///   of its content (bytes past the stream's own, a set bit in the padding,
+    ///   or an all-zero final fraction group;
+    /// - [`Decode::NotCanonical`] when otherwise valid content exceeds the type's
+    ///   representation bound (an integral mantissa of `2⁶⁴` or more bits, effectively
+    ///   unreachable, since it can only be hit by reading inputs of 2 EiB or more);
+    /// - [`Decode::Io`] when the reader itself fails.
     ///
     /// # Complexity
     ///
-    /// `O(n)`, `n` the bytes read, accepted or rejected: one pass over the
-    /// stream, and a result linear in it.
+    /// `O(n)`, with `n` the bytes read, whether accepted or rejected.
     ///
     /// # Example
     ///
@@ -428,7 +389,7 @@ impl Rank {
     /// let padded = [key.clone(), vec![0]].concat();
     /// assert!(matches!(Rank::decode(&padded[..]), Err(Decode::TrailingBits)));
     /// ```
-    pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Rank, Decode> {
+    pub fn decode<R: io::Read>(mut reader: R) -> Result<Rank, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
         decode_bytes(&buf)
@@ -437,11 +398,10 @@ impl Rank {
     /// The rank's value content in bits: `bits(num) + exp`.
     ///
     /// The meter denominator of record for `Rank` operands, which have no
-    /// packed encoding to charge against: the numerator's bit width plus
-    /// the exponent bounds the information the value carries, and every
-    /// public construction path emits ranks whose content is linear in the
-    /// packed bits it read, so a cost linear in this quantity is linear in
-    /// wire terms too.
+    /// packed encoding to charge against: the numerator's bit width plus the
+    /// exponent bounds the information the value carries, and every public
+    /// construction path emits ranks whose content is linear in the packed bits
+    /// it read, so a cost linear in this quantity is linear in wire terms too.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn content_bits(&self) -> u64 {
         self.num.bits() + self.exp
@@ -449,20 +409,28 @@ impl Rank {
 
     /// The stored parts `(numerator, exponent)`.
     ///
-    /// The fused encode's hand-off from a rank fold's output to the
-    /// canonical emission ([`encode_parts`]), and the raw normalized
-    /// form the reference computations and differential oracles
-    /// re-derive order and arithmetic from.
+    /// The fused encode's hand-off from a rank fold's output to the canonical
+    /// emission ([`encode_parts`]), and the raw normalized form the reference
+    /// computations and differential oracles re-derive order and arithmetic
+    /// from.
+    ///
+    /// It is **VERY IMPORTANT** that these not be exposed together, with the
+    /// `from_raw` constructor, as this creates an affordance for constructing
+    /// exponential serialization-size bombs.
     pub(crate) fn raw_parts(&self) -> (&Base, u64) {
         (&self.num, self.exp)
     }
 
-    /// Normalize raw fold output `num · 2⁻ᵉˣᵖ` into canonical form: strip
-    /// the factors of two shared by numerator and denominator, and pin zero
-    /// to exponent zero, so structural equality is value equality.
+    /// Normalize raw fold output `num · 2⁻ᵉˣᵖ` into canonical form: strip the
+    /// factors of two shared by numerator and denominator, and pin zero to
+    /// exponent zero, so structural equality is value equality.
     ///
-    /// `pub(crate)` for the reference computations (the oracle's tree fold,
-    /// the semantic oracle's Riemann sum), which produce the same raw form.
+    /// `pub(crate)` for the reference computations (the oracle's tree fold, the
+    /// semantic oracle's Riemann sum), which produce the same raw form.
+    ///
+    /// It is **VERY IMPORTANT** that these not be exposed, together with the
+    /// `raw_parts` destructor, as this creates an affordance for constructing
+    /// exponential serialization-size bombs.
     pub(crate) fn from_raw(num: Base, exp: u64) -> Self {
         match num.trailing_zeros() {
             None => Rank {
@@ -480,12 +448,12 @@ impl Rank {
     }
 }
 
-/// Emit the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ` (the
-/// module doc carries the format and the order argument).
+/// Emit the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ` (the module doc
+/// carries the format and the order argument).
 ///
-/// `pub(crate)` alongside [`Rank::encode`] so the ranked view's fused
-/// emission can emit straight from its rank fold's
-/// `(numerator, exponent)` output, with no walk beyond the fold's own.
+/// `pub(crate)` alongside [`Rank::encode`] so the ranked view's fused emission
+/// can emit straight from its rank fold's `(numerator, exponent)` output, with
+/// no walk beyond the fold's own.
 pub(crate) fn encode_parts(num: &Base, exp: u64) -> Vec<u8> {
     // The integral part, biased so zero has a (smallest) codeword:
     // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1.
@@ -513,8 +481,8 @@ pub(crate) fn encode_parts(num: &Base, exp: u64) -> Vec<u8> {
     // The fraction: the binary expansion (expansion bit `j`, counting
     // from the binary point, is the numerator's bit `exp − j`) in
     // groups of eight, each opened by a set continuation bit, the last
-    // zero-padded; a clear bit closes the stream. Normalization (an
-    // odd numerator whenever exp > 0) puts the expansion's final set
+    // zero-padded; a clear bit closes the stream. Normalization (an odd
+    // numerator whenever exp > 0) puts the expansion's final set
     // bit inside the last group, which keeps the padding recoverable
     // and the group order numeric (the module doc's argument).
     for g in 0..groups {
@@ -527,14 +495,14 @@ pub(crate) fn encode_parts(num: &Base, exp: u64) -> Vec<u8> {
     sink.into_bytes()
 }
 
-/// The width of one fraction group: the expansion rides in byte-sized
-/// groups, each opened by a continuation bit, so the fraction costs
-/// nine bits per eight expansion bits plus the one closing bit.
+/// The width of one fraction group: the expansion rides in byte-sized groups,
+/// each opened by a continuation bit, so the fraction costs nine bits per eight
+/// expansion bits plus the one closing bit.
 const FRACTION_GROUP_BITS: u64 = 8;
 
 /// Parse one canonical stream from the whole input (strictly:
-/// [`Rank::decode`]'s contract): the stream itself, then padding to
-/// the byte boundary and not a byte more.
+/// [`Rank::decode`]'s contract): the stream itself, then padding to the byte
+/// boundary and not a byte more.
 fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
     let mut iter = bytes.iter();
     let rank = decode_stream(|| iter.next().copied().ok_or(Decode::Truncated))?;
@@ -546,8 +514,8 @@ fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
     Ok(rank)
 }
 
-/// A byte-at-a-time source dressed as an MSB-first bit reader: one
-/// byte buffered, refilled strictly on demand.
+/// A byte-at-a-time source dressed as an MSB-first bit reader: one byte
+/// buffered, refilled strictly on demand.
 struct BitSource<F> {
     next_byte: F,
     current: u8,
@@ -567,18 +535,17 @@ impl<F: FnMut() -> Result<u8, Decode>> BitSource<F> {
     }
 }
 
-/// Parse one canonical stream from a byte-at-a-time source, consuming
-/// exactly the bytes the stream spans.
+/// Parse one canonical stream from a byte-at-a-time source, consuming exactly
+/// the bytes the stream spans.
 ///
-/// The stream is self-delimiting (the fraction's close bit), so the
-/// parse never asks for a byte past the one holding the close bit —
-/// which is what lets a rank compose inside a larger stream (the
-/// `borsh` boundary): the bytes after it belong to the next field.
-/// Every allocation is fed by bits actually read, never by a width a
-/// header merely claims, so no small input can provoke a large
-/// buffer. Strictness is [`Rank::decode`]'s except whole-input
-/// minimality — a caller that owns the input's end rejects leftover
-/// bytes itself ([`decode_bytes`]).
+/// The stream is self-delimiting (the fraction's close bit), so the parse never
+/// asks for a byte past the one holding the close bit — which is what lets a
+/// rank compose inside a larger stream (the `borsh` boundary): the bytes after
+/// it belong to the next field. Every allocation is fed by bits actually read,
+/// never by a width a header merely claims, so no small input can provoke a
+/// large buffer. Strictness is [`Rank::decode`]'s except whole-input minimality
+/// — a caller that owns the input's end rejects leftover bytes itself
+/// ([`decode_bytes`]).
 pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Result<Rank, Decode> {
     let mut src = BitSource {
         next_byte,
@@ -591,9 +558,9 @@ pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Re
         rho += 1;
     }
     if rho >= 64 {
-        // The format bound: an integral width of 2⁶⁴ or more bits
-        // exceeds both the numerator this crate can hold and any input
-        // under 2 EiB (the mantissa alone would need 2⁶⁴ − 1 bits).
+        // The format bound: an integral width of 2⁶⁴ or more bits exceeds both
+        // the numerator this crate can hold and any input under 2 EiB (the
+        // mantissa alone would need 2⁶⁴ − 1 bits).
         return Err(Decode::NotCanonical);
     }
     // w's bits below its (implied) leading bit: ρ of them, so w < 2⁶⁴.
@@ -601,18 +568,17 @@ pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Re
     for _ in 0..rho {
         w = w << 1 | u64::from(src.bit()?);
     }
-    // The biased integral m: its implied leading bit, then w − 1
-    // stream bits, sunk MSB-first and unbiased at materialization.
+    // The biased integral m: its implied leading bit, then w − 1 stream bits,
+    // sunk MSB-first and unbiased at materialization.
     let mut mantissa = BitSink::new();
     mantissa.push(true);
     for _ in 0..w - 1 {
         mantissa.push(src.bit()?);
     }
     let integral = mantissa.into_base() - &Base::from(1u8);
-    // The fraction's groups, each opened by a set continuation bit;
-    // the stream's one clear closing bit ends the loop. Group bytes
-    // stay plain `u8`s until the single width-metered materialization
-    // below.
+    // The fraction's groups, each opened by a set continuation bit; the
+    // stream's one clear closing bit ends the loop. Group bytes stay plain
+    // `u8`s until the single width-metered materialization below.
     let mut groups: Vec<u8> = Vec::new();
     loop {
         if !src.bit()? {
@@ -624,15 +590,15 @@ pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Re
         }
         groups.push(group);
     }
-    // Strict minimal packing within the final byte: the bits after
-    // the close bit are padding and must be zero.
+    // Strict minimal packing within the final byte: the bits after the close
+    // bit are padding and must be zero.
     if src.used < 8 && src.current & (0xFF >> src.used) != 0 {
         return Err(Decode::TrailingBits);
     }
-    // The final group carries the expansion's last set bit
-    // (normalization: the expansion never ends in zero), so an
-    // all-zero final group is pure padding — non-minimal packing —
-    // and its trailing zeros locate the fraction's true depth.
+    // The final group carries the expansion's last set bit (normalization: the
+    // expansion never ends in zero), so an all-zero final group is pure padding
+    // — non-minimal packing — and its trailing zeros locate the fraction's true
+    // depth.
     let (frac_len, pad) = match groups.last() {
         None => (0, 0),
         Some(0) => return Err(Decode::TrailingBits),
@@ -644,10 +610,10 @@ pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Re
             )
         }
     };
-    // The fraction's depth needs no bound of its own: every expansion
-    // bit was read from the stream, so `frac_len` never exceeds the
-    // input's own bit count and always fits the u64 exponent — an
-    // input long enough to overflow it cannot be allocated.
+    // The fraction's depth needs no bound of its own: every expansion bit was
+    // read from the stream, so `frac_len` never exceeds the input's own bit
+    // count and always fits the u64 exponent — an input long enough to overflow
+    // it cannot be allocated.
     let exp = frac_len;
     let num = if frac_len == 0 {
         integral
@@ -700,9 +666,9 @@ impl BitSink {
         self.bytes
     }
 
-    /// The pushed bits as a magnitude, MSB-first: the final byte's
-    /// zero padding is stripped by one shift, and the materialization
-    /// rides the width-metered assembly ([`Base::from_be_bytes`]).
+    /// The pushed bits as a magnitude, MSB-first: the final byte's zero padding
+    /// is stripped by one shift, and the materialization rides the
+    /// width-metered assembly ([`Base::from_be_bytes`]).
     fn into_base(self) -> Base {
         let pad = if self.used == 0 { 0 } else { 8 - self.used };
         Base::from_be_bytes(&self.bytes) >> u32::from(pad)
@@ -711,19 +677,18 @@ impl BitSink {
 
 impl Ord for Rank {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Class first: `bits(num) − exp` is `floor(log2 value) + 1`, so
-        // unequal classes order the values in O(1) — value ranges
-        // `[2^(c−1), 2^c)` at distinct `c` never overlap. A class tie
-        // means the two numerators' bit strings are already MSB-aligned
-        // as binary fractions, and the streamed window comparison settles
-        // them without materializing an alignment shift; its
-        // longer-string-wins tail rule is sound because normalization
-        // keeps numerators odd (the longer string ends in a set bit). The
-        // order is exact at any magnitude — a false tie here would let a
-        // consumer deliver an effect before its cause. Zero (the one
+        // Class first: `bits(num) − exp` is `floor(log2 value) + 1`, so unequal
+        // classes order the values in O(1) — value ranges `[2^(c−1), 2^c)` at
+        // distinct `c` never overlap. A class tie means the two numerators' bit
+        // strings are already MSB-aligned as binary fractions, and the streamed
+        // window comparison settles them without materializing an alignment
+        // shift; its longer-string-wins tail rule is sound because
+        // normalization keeps numerators odd (the longer string ends in a set
+        // bit). The order is exact at any magnitude — a false tie here would
+        // let a consumer deliver an effect before its cause. Zero (the one
         // even-numerator form, pinned to exponent zero) is settled before
-        // classes: its class value would collide with genuine
-        // `(0, 1]`-range ranks.
+        // classes: its class value would collide with genuine `(0, 1]`-range
+        // ranks.
         match (self.num.bits() == 0, other.num.bits() == 0) {
             (true, true) => return Ordering::Equal,
             (true, false) => return Ordering::Less,
@@ -752,17 +717,15 @@ impl PartialOrd for Rank {
 // reference forms mirror [`Base`]'s own `Add` matrix so callers need not place
 // borrows by hand.
 
-/// Adds two ranks: the exact sum of the two areas.
+/// Adds two ranks.
 ///
-/// Rank addition is *measure* arithmetic, not history arithmetic: areas
-/// add, histories join. Its meaning comes from the rank being a valuation
-/// on the version lattice — `rank(a | b) + rank(a & b) == rank(a) +
-/// rank(b)` — which is what makes
-/// [`distance`](crate::Version::distance) a metric and lets its directed
-/// halves recombine (`a.lag(b) + b.lag(a) == a.distance(b)`). Use `+` to
-/// aggregate measures — a total replication backlog across peers, a
-/// budget consumed so far — never to combine histories; that is the
-/// version join `|`.
+/// Rank addition is *measure* arithmetic, not history arithmetic: areas add,
+/// histories join. Its meaning comes from the rank being a valuation on the
+/// version lattice: `(a | b).rank() + (a & b).rank() == a.rank() + b.rank()`.
+/// This is what makes [`distance`](crate::Version::distance) a metric and lets
+/// its directed halves recombine (`a.lag(b) + b.lag(a) == a.distance(b)`). Use
+/// `+` to aggregate measures (a total replication backlog across peers, a
+/// budget consumed so far) not to combine histories.
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {
@@ -823,15 +786,14 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// Sum ranks through one raw accumulator with a single final
 /// normalization.
 ///
-/// The accumulator holds the running numerator at the largest exponent
-/// seen so far: a summand at a smaller exponent is digit-routed in at the
-/// exponent gap (O(its own limbs), independent of the gap), and a summand
-/// raising the maximum rescales the accumulator once, O(held digits) —
-/// paid by the exponent the summand itself carries. Nothing renormalizes
-/// per element, so a high-exponent summand costs its own width once
-/// instead of once per later element, and the result is the identical
-/// [`Rank`] the pairwise fold produces (one exact value, one shared
-/// normalization at the end).
+/// The accumulator holds the running numerator at the largest exponent seen so
+/// far: a summand at a smaller exponent is digit-routed in at the exponent gap
+/// (O(its own limbs), independent of the gap), and a summand raising the
+/// maximum rescales the accumulator once, O(held digits) — paid by the exponent
+/// the summand itself carries. Nothing renormalizes per element, so a
+/// high-exponent summand costs its own width once instead of once per later
+/// element, and the result is the identical [`Rank`] the pairwise fold produces
+/// (one exact value, one shared normalization at the end).
 fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
     let mut acc = Accumulator::new();
     let mut exp = 0u64;
@@ -860,7 +822,7 @@ impl Default for Rank {
 }
 
 /// Renders as the exact rational: the numerator alone when integral,
-/// `num/2^exp` otherwise.
+/// `num/2` if `exp = 1`, `num/2^exp` otherwise.
 ///
 /// # Example
 ///
@@ -868,20 +830,21 @@ impl Default for Rank {
 /// use before::Version;
 /// assert_eq!(Version::try_from(5).unwrap().rank().to_string(), "5");
 /// let half: Version = "(0, 1, 0)".parse().unwrap();
-/// assert_eq!(half.rank().to_string(), "1/2^1");
+/// assert_eq!(half.rank().to_string(), "1/2");
 /// ```
-impl fmt::Display for Rank {
+impl Display for Rank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.exp {
-            0 => fmt::Display::fmt(&self.num, f),
+            0 => Display::fmt(&self.num, f),
+            1 => write!(f, "{}/2", self.num),
             exp => write!(f, "{}/2^{}", self.num, exp),
         }
     }
 }
 
 /// The same format as `Display`.
-impl fmt::Debug for Rank {
+impl Debug for Rank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        <Self as fmt::Display>::fmt(self, f)
+        <Self as Display>::fmt(self, f)
     }
 }

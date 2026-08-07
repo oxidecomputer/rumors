@@ -70,7 +70,9 @@ impl Clock {
     /// # Example
     ///
     /// ```
-    /// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
+    /// let clock = before::Clock::seed();
+    /// assert!(clock.party().is_seed());    // the whole region...
+    /// assert!(clock.version().is_empty()); // ...with no events yet
     /// ```
     pub fn seed() -> Self {
         Self::from_parts(Party::seed(), Version::new())
@@ -87,7 +89,8 @@ impl Clock {
     ///
     /// ```
     /// let mut clock = before::Clock::seed();
-    /// assert_eq!(clock.tick().to_string(), "1");
+    /// let start = clock.version().clone();
+    /// assert!(*clock.tick() > start); // one event: strictly later
     /// ```
     pub fn tick(&mut self) -> &Version {
         self.version.tick(&self.party);
@@ -109,8 +112,9 @@ impl Clock {
     /// # Example
     ///
     /// ```
+    /// use before::Ticks;
     /// let mut clock = before::Clock::seed();
-    /// assert_eq!(clock.ticks(1_000_000u64).to_string(), "1000000");
+    /// assert_eq!(clock.ticks(1_000_000u64).min_ticks(), Ticks::from(1_000_000u64));
     /// ```
     pub fn ticks(&mut self, n: impl Into<Ticks>) -> &Version {
         self.version.ticks(&self.party, n);
@@ -203,7 +207,7 @@ impl Clock {
     /// let b = a.fork();
     /// // `a` and `b` are disjoint halves, so they rejoin into the whole.
     /// a.join(b).unwrap();
-    /// assert_eq!(a.party().to_string(), "1");
+    /// assert!(a.party().is_seed());
     /// ```
     pub fn join(&mut self, other: Clock) -> Result<&Version, Clock> {
         let (other_party, other_version) = other.into_parts();
@@ -241,7 +245,7 @@ impl Clock {
     /// let mut parent = Clock::seed();
     /// let children: Vec<Clock> = parent.forks(3).collect();
     /// parent.join_all(children).unwrap(); // reabsorb the three children
-    /// assert_eq!(parent.party().to_string(), "1"); // the whole seed region again
+    /// assert!(parent.party().is_seed()); // the whole seed region again
     /// ```
     #[allow(clippy::result_large_err)]
     pub fn join_all<I: IntoIterator<Item = Clock>>(
@@ -428,8 +432,9 @@ impl Clock {
     ///
     /// ```
     /// let mut clock = before::Clock::seed();
+    /// let start = clock.version().clone();
     /// let msg = clock.send().clone(); // tick, then hand the version to a peer
-    /// assert_eq!(msg.to_string(), "1");
+    /// assert!(msg > start); // the send is itself an event
     /// ```
     pub fn send(&mut self) -> &Version {
         self.tick()
@@ -508,7 +513,8 @@ impl Clock {
     /// ```
     /// use before::{Clock, Party, Version};
     /// let clock = Clock::from_parts(Party::seed(), Version::new());
-    /// assert_eq!(clock.to_string(), "(1, 0)");
+    /// assert!(clock.party().is_seed());
+    /// assert!(clock.version().is_empty());
     /// ```
     pub fn from_parts(party: Party, version: Version) -> Self {
         Clock { party, version }
@@ -527,8 +533,8 @@ impl Clock {
     /// ```
     /// use before::Clock;
     /// let (party, version) = Clock::seed().into_parts();
-    /// assert_eq!(party.to_string(), "1");
-    /// assert_eq!(version.to_string(), "0");
+    /// assert!(party.is_seed());
+    /// assert!(version.is_empty());
     /// ```
     pub fn into_parts(self) -> (Party, Version) {
         (self.party, self.version)
@@ -543,7 +549,7 @@ impl Clock {
     /// # Example
     ///
     /// ```
-    /// assert_eq!(before::Clock::seed().party().to_string(), "1");
+    /// assert!(before::Clock::seed().party().is_seed());
     /// ```
     pub fn party(&self) -> &Party {
         &self.party
@@ -558,7 +564,7 @@ impl Clock {
     /// # Example
     ///
     /// ```
-    /// assert_eq!(before::Clock::seed().version().to_string(), "0");
+    /// assert!(before::Clock::seed().version().is_empty());
     /// ```
     pub fn version(&self) -> &Version {
         &self.version
@@ -665,7 +671,9 @@ impl Clock {
     /// ```
     /// use before::Clock;
     /// let bytes = Clock::seed().encode();
-    /// assert_eq!(Clock::decode(&bytes[..]).unwrap().to_string(), "(1, 0)");
+    /// let clock = Clock::decode(&bytes[..]).unwrap();
+    /// assert!(clock.party().is_seed());
+    /// assert!(clock.version().is_empty());
     /// ```
     pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
