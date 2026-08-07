@@ -276,7 +276,7 @@ impl Accumulator {
     /// amortized `O(|delta|)`.
     pub fn add_magnitude<M: Magnitude>(&mut self, delta: &M) {
         match delta.to_word() {
-            Some(n) => self.add_u64(n),
+            Some(word) => self.add_u64(word),
             None => self.add_wide(delta.as_wide()),
         }
     }
@@ -291,7 +291,7 @@ impl Accumulator {
     /// amortized `O(|delta|)`.
     pub fn sub_magnitude<M: Magnitude>(&mut self, delta: &M) {
         match delta.to_word() {
-            Some(n) => self.sub_u64(n),
+            Some(word) => self.sub_u64(word),
             None => self.sub_wide(delta.as_wide()),
         }
     }
@@ -365,7 +365,7 @@ impl Accumulator {
     pub fn add_magnitude_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
-            Some(n) => self.add_shifted_word(n, false, shift),
+            Some(word) => self.add_shifted_word(word, false, shift),
             None => self.add_wide_shl(delta.as_wide(), shift),
         }
     }
@@ -390,7 +390,7 @@ impl Accumulator {
     pub fn sub_magnitude_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
-            Some(n) => self.add_shifted_word(n, true, shift),
+            Some(word) => self.add_shifted_word(word, true, shift),
             None => self.sub_wide_shl(delta.as_wide(), shift),
         }
     }

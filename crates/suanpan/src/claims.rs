@@ -14,9 +14,9 @@
 //!   like any other committed data.
 //! - **Claim ↔ evidence**: every claim either names committed `#[test]`
 //!   witnesses (checked to exist, by name, in their files — suanpan's own
-//!   touch-metered pins, plus the `accum_streams` digit-touch bands that
-//!   live beside the consumer in `before/tests/meter.rs`) or carries a
-//!   mechanism-based exclusion reason.
+//!   touch-metered pins, plus the `accum_streams` digit-touch bands
+//!   committed in the sibling meter suite the [`BANDS`] path names) or
+//!   carries a mechanism-based exclusion reason.
 //! - **Totality**: the extracted `pub fn` surface plus the family rows
 //!   ([`FAMILY_SURFACE`]) equals the roster's op set exactly, both
 //!   directions, so a new public operation fails here until its cost
@@ -93,7 +93,9 @@ pub(crate) const FAMILY_SURFACE: &[&str] = &[
 /// Suanpan's own touch-metered pins.
 const OWN: &str = "src/accumulator/tests/metered.rs";
 
-/// The digit-touch stream bands committed beside the consumer.
+/// The digit-touch stream bands committed in the sibling meter suite —
+/// the one workspace-relative path in the roster; the binding tests
+/// resolve it from the manifest directory.
 const BANDS: &str = "../before/tests/meter.rs";
 
 /// Shorthand for a word-scale operation with no table row, excluded

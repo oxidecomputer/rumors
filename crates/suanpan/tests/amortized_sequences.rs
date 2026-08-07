@@ -16,8 +16,8 @@
 //! instrument ever flips sign under load. (The dual parking attack —
 //! the value held at a full-width carry boundary with `±1` oscillation
 //! across the cliff — is the committed `accum_comb_touches_flat` band
-//! in `before`'s meter suite, which drives the same trajectory with
-//! sign reads interleaved.)
+//! in the sibling meter suite the claims roster's `BANDS` path names,
+//! which drives the same trajectory with sign reads interleaved.)
 //!
 //! The tripwire is the mixed second difference over a 2×2 (n, d) grid:
 //! zero for any additive `a·n + b·d` cost, a quarter of the top cell
@@ -27,32 +27,32 @@
 
 use suanpan::{touch_meter, Accumulator, UBig};
 
-fn touches(f: impl FnOnce()) -> u64 {
+fn touches(metered: impl FnOnce()) -> u64 {
     touch_meter::reset();
-    f();
+    metered();
     touch_meter::touches()
 }
 
 /// Total touches for the wide sign-flip oscillation.
-fn s1(n: usize, d_bits: u64) -> u64 {
+fn s1(rounds: usize, d_bits: u64) -> u64 {
     let one = UBig::from(1u8);
-    let mut a = Accumulator::new();
-    a.sub_u64(1);
+    let mut acc = Accumulator::new();
+    acc.sub_u64(1);
     touches(|| {
-        for _ in 0..n {
-            a.add_wide_shl(&one, d_bits);
-            assert_eq!(a.sign(), std::cmp::Ordering::Greater);
-            a.sub_wide_shl(&one, d_bits);
-            assert_eq!(a.sign(), std::cmp::Ordering::Less);
+        for _ in 0..rounds {
+            acc.add_wide_shl(&one, d_bits);
+            assert_eq!(acc.sign(), std::cmp::Ordering::Greater);
+            acc.sub_wide_shl(&one, d_bits);
+            assert_eq!(acc.sign(), std::cmp::Ordering::Less);
         }
     })
 }
 
 /// The no-product tripwire over the 2x2 grid.
-fn assert_no_product(name: &str, t: [u64; 4]) {
-    let mixed = t[3] as f64 - t[2] as f64 - t[1] as f64 + t[0] as f64;
-    let bound = 0.10 * t[3] as f64;
-    eprintln!("MEASURED {name}: grid {t:?} mixed {mixed:.0} bound {bound:.0}");
+fn assert_no_product(name: &str, grid: [u64; 4]) {
+    let mixed = grid[3] as f64 - grid[2] as f64 - grid[1] as f64 + grid[0] as f64;
+    let bound = 0.10 * grid[3] as f64;
+    eprintln!("MEASURED {name}: grid {grid:?} mixed {mixed:.0} bound {bound:.0}");
     assert!(
         mixed.abs() <= bound,
         "{name}: mixed second difference {mixed:.0} exceeds {bound:.0} — \

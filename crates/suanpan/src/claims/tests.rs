@@ -219,16 +219,16 @@ fn cost_table_rows_bind_to_the_roster() {
             .iter()
             .enumerate()
             .filter(|(_, (ops, _))| ops.contains(&locator))
-            .map(|(i, _)| i)
+            .map(|(index, _)| index)
             .collect();
         match hits.as_slice() {
-            [i] => {
-                matched[*i] = true;
-                if rows[*i].1 != want {
+            [index] => {
+                matched[*index] = true;
+                if rows[*index].1 != want {
                     errors.push(format!(
                         "{}: the table row's cost cell drifted from the roster\n    \
                          want: {want}\n    got:  {}",
-                        claim.op, rows[*i].1
+                        claim.op, rows[*index].1
                     ));
                 }
             }
@@ -243,12 +243,12 @@ fn cost_table_rows_bind_to_the_roster() {
             )),
         }
     }
-    for (i, hit) in matched.iter().enumerate() {
+    for (index, hit) in matched.iter().enumerate() {
         if !hit {
             errors.push(format!(
                 "table row with no claim naming it (add table_cost to its claims, or \
                  retire the row): {:?}",
-                rows[i].0
+                rows[index].0
             ));
         }
     }
@@ -264,7 +264,7 @@ fn cost_table_rows_bind_to_the_roster() {
 ///
 /// A renamed or deleted instrument orphans the claims that leaned on it
 /// by name — including the `accum_streams` digit-touch bands committed
-/// beside the consumer in before's meter suite.
+/// in the sibling meter suite the [`BANDS`](super::BANDS) path names.
 #[test]
 fn cited_witnesses_exist() {
     let mut errors = Vec::new();
