@@ -14,12 +14,10 @@
 //! One `LeafCursor` per event stream and one `IdLeafCursor` per mask (an
 //! unmasked side simply has no id cursor — its ownership is everywhere). All
 //! current leaves and regions contain the sweep point, so they nest by depth,
-//! and the overlay's boundary bookkeeping generalizes verbatim: the
-//! deepest cursor advances, and every other cursor whose depth reaches the
-//! advanced cursor's flip level advances in the same step (tied boundaries
-//! close to one shared flip level; the walk debug-asserts it at every tie).
-//! Nothing recurses, and the transient state is the cursors' path bits plus
-//! three accumulators.
+//! and the walk advances by the overlay-advance law at arity four
+//! ([`advance_set`]; this walk contributes only its slot roster and what each
+//! slot's step folds). Nothing recurses, and the transient state is the
+//! cursors' path bits plus three accumulators.
 //!
 //! # The integrators
 //!
@@ -75,6 +73,12 @@
 //! against the recursive oracle's composed projection-and-compare. The resource
 //! envelopes are the meter rows named above.
 
+// The module doc names crate-private machinery by intra-doc link so a rename
+// cannot rot the prose (the internal doc build resolves every link); on the
+// public build those links render as plain code spans — the items are private —
+// which this allow accepts.
+#![allow(rustdoc::private_intra_doc_links)]
+
 use core::cmp::Ordering;
 use core::ops::ControlFlow;
 
@@ -82,7 +86,9 @@ use suanpan::Accumulator;
 
 use crate::codec::BitsSlice;
 
-use super::overlay::{fold, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side};
+use super::overlay::{
+    advance_set, fold, CursorSet, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side,
+};
 use super::sweep::{eq_exit, order_exit, Directions};
 
 /// The causal order of two projected skylines, `None` for concurrent.
@@ -123,7 +129,7 @@ pub fn eq(
     b_mask: Option<&BitsSlice>,
 ) -> bool {
     // Surviving both directions to exhaustion is equality.
-    Walk::open(a, a_mask, b, b_mask).run(eq_exit, |dirs| dirs.le && dirs.ge)
+    Walk::open(a, a_mask, b, b_mask).run(eq_exit, |directions| directions.le && directions.ge)
 }
 
 /// The cursor set and integrators of one masked comparison.
@@ -132,18 +138,30 @@ struct Walk<'a> {
     a: LeafCursor<'a>,
     /// The left side's id cursor; `None` means the side is unmasked
     /// (owned everywhere).
-    am: Option<IdLeafCursor<'a>>,
+    a_mask: Option<IdLeafCursor<'a>>,
     /// The right event stream's leaf cursor.
     b: LeafCursor<'a>,
-    /// The right side's id cursor, as `am`.
-    bm: Option<IdLeafCursor<'a>>,
+    /// The right side's id cursor, as `a_mask`.
+    b_mask: Option<IdLeafCursor<'a>>,
     /// `D = h_a − h_b`, the both-owned intervals' sign source.
     diff: Accumulator,
     /// `h_a`, maintained only when `b` is masked (the only case that reads it:
     /// `a` owned alone compares `h_a` against zero).
-    ha: Option<Accumulator>,
+    height_a: Option<Accumulator>,
     /// `h_b`, maintained only when `a` is masked, dually.
-    hb: Option<Accumulator>,
+    height_b: Option<Accumulator>,
+}
+
+/// The walk's cursor slots, named for [`CursorSet`]'s numbered vocabulary.
+impl Walk<'_> {
+    /// The left event stream's slot.
+    const A: usize = 0;
+    /// The left mask's slot.
+    const A_MASK: usize = 1;
+    /// The right event stream's slot.
+    const B: usize = 2;
+    /// The right mask's slot.
+    const B_MASK: usize = 3;
 }
 
 impl<'a> Walk<'a> {
@@ -164,24 +182,24 @@ impl<'a> Walk<'a> {
         } = OpenedPair::open(a_bits, b_bits);
         // Each height integrator exists only if the *other* side is masked: no
         // ownership case reads it otherwise, so feeding it would be pure waste.
-        let ha = b_mask.map(|_| {
-            let mut ha = Accumulator::new();
-            super::signed::fold_signed_int(&mut ha, false, &a_first);
-            ha
+        let height_a = b_mask.map(|_| {
+            let mut height_a = Accumulator::new();
+            super::signed::fold_signed_int(&mut height_a, false, &a_first);
+            height_a
         });
-        let hb = a_mask.map(|_| {
-            let mut hb = Accumulator::new();
-            super::signed::fold_signed_int(&mut hb, false, &b_first);
-            hb
+        let height_b = a_mask.map(|_| {
+            let mut height_b = Accumulator::new();
+            super::signed::fold_signed_int(&mut height_b, false, &b_first);
+            height_b
         });
         Walk {
             a,
-            am: a_mask.map(IdLeafCursor::open),
+            a_mask: a_mask.map(IdLeafCursor::open),
             b,
-            bm: b_mask.map(IdLeafCursor::open),
+            b_mask: b_mask.map(IdLeafCursor::open),
             diff,
-            ha,
-            hb,
+            height_a,
+            height_b,
         }
     }
 
@@ -200,34 +218,42 @@ impl<'a> Walk<'a> {
         exit: impl Fn(Directions) -> ControlFlow<V>,
         finish: impl FnOnce(Directions) -> V,
     ) -> V {
-        let mut dirs = Directions::new();
+        let mut directions = Directions::new();
         loop {
             // One fold per elementary interval: the ownership case picks which
             // integrator's sign is the projected difference's.
-            let owned_a = self.am.as_ref().is_none_or(IdLeafCursor::owned);
-            let owned_b = self.bm.as_ref().is_none_or(IdLeafCursor::owned);
+            let owned_a = self.a_mask.as_ref().is_none_or(IdLeafCursor::owned);
+            let owned_b = self.b_mask.as_ref().is_none_or(IdLeafCursor::owned);
             let sign = match (owned_a, owned_b) {
                 (true, true) => self.diff.sign(),
                 (true, false) => {
                     // `h′_b = 0`: the interval's sign is `sign(h_a)`, the
                     // trichotomy's zero-check on the unmasked side.
-                    let s = self.ha.as_mut().expect("a masked `b` maintains h_a").sign();
-                    debug_assert_ne!(s, Ordering::Less, "heights are nonnegative");
-                    s
+                    let height_sign = self
+                        .height_a
+                        .as_mut()
+                        .expect("a masked `b` maintains h_a")
+                        .sign();
+                    debug_assert_ne!(height_sign, Ordering::Less, "heights are nonnegative");
+                    height_sign
                 }
                 (false, true) => {
-                    let s = self.hb.as_mut().expect("a masked `a` maintains h_b").sign();
-                    debug_assert_ne!(s, Ordering::Less, "heights are nonnegative");
-                    s.reverse()
+                    let height_sign = self
+                        .height_b
+                        .as_mut()
+                        .expect("a masked `a` maintains h_b")
+                        .sign();
+                    debug_assert_ne!(height_sign, Ordering::Less, "heights are nonnegative");
+                    height_sign.reverse()
                 }
                 (false, false) => Ordering::Equal, // 0 vs 0
             };
-            dirs.fold(sign);
-            if let ControlFlow::Break(verdict) = exit(dirs) {
+            directions.fold(sign);
+            if let ControlFlow::Break(verdict) = exit(directions) {
                 return verdict;
             }
             if self.done() {
-                return finish(dirs);
+                return finish(directions);
             }
             self.advance();
         }
@@ -240,8 +266,19 @@ impl<'a> Walk<'a> {
     fn done(&self) -> bool {
         self.a.done()
             && self.b.done()
-            && self.am.as_ref().is_none_or(PlateauCursor::done)
-            && self.bm.as_ref().is_none_or(PlateauCursor::done)
+            && self.a_mask.as_ref().is_none_or(PlateauCursor::done)
+            && self.b_mask.as_ref().is_none_or(PlateauCursor::done)
+    }
+
+    /// The deepest current depth among every cursor slot but `slot`: the block
+    /// consume's bound — a boundary whose flip level exceeds it is crossed by
+    /// `slot`'s cursor alone.
+    fn others_deepest(&self, slot: usize) -> usize {
+        self.priority()
+            .filter(|&other| other != slot)
+            .map(|other| self.depth(other))
+            .max()
+            .expect("the walk has more than one cursor slot")
     }
 
     /// Consume every boundary run the verdict cannot see, as blocks.
@@ -262,28 +299,27 @@ impl<'a> Walk<'a> {
     /// [`done`](Self::done) before applying the advance law.
     fn block_skip(&mut self) {
         loop {
-            let depths = self.depths();
-            if self.am.as_ref().is_some_and(|m| !m.owned())
-                && self.a.peek_flip() > depths[1].max(depths[2]).max(depths[3])
+            let a_bound = self.others_deepest(Self::A);
+            if self.a_mask.as_ref().is_some_and(|mask| !mask.owned())
+                && self.a.peek_flip() > a_bound
             {
                 let mut net = Accumulator::new();
-                self.a
-                    .skip_deeper(depths[1].max(depths[2]).max(depths[3]), &mut net);
+                self.a.skip_deeper(a_bound, &mut net);
                 self.diff.add_accum(&net);
-                if let Some(ha) = &mut self.ha {
-                    ha.add_accum(&net);
+                if let Some(height_a) = &mut self.height_a {
+                    height_a.add_accum(&net);
                 }
                 continue;
             }
-            if self.bm.as_ref().is_some_and(|m| !m.owned())
-                && self.b.peek_flip() > depths[0].max(depths[1]).max(depths[3])
+            let b_bound = self.others_deepest(Self::B);
+            if self.b_mask.as_ref().is_some_and(|mask| !mask.owned())
+                && self.b.peek_flip() > b_bound
             {
                 let mut net = Accumulator::new();
-                self.b
-                    .skip_deeper(depths[0].max(depths[1]).max(depths[3]), &mut net);
+                self.b.skip_deeper(b_bound, &mut net);
                 self.diff.sub_accum(&net);
-                if let Some(hb) = &mut self.hb {
-                    hb.add_accum(&net);
+                if let Some(height_b) = &mut self.height_b {
+                    height_b.add_accum(&net);
                 }
                 continue;
             }
@@ -291,20 +327,8 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Advance the overlay one boundary: the deepest cursor steps, and every
-    /// other cursor whose depth reaches the flip level steps in the same round
-    /// (its boundary tied).
-    ///
-    /// The overlay-advance law ([`super::overlay::advance`]) at full arity,
-    /// stated over [`PlateauCursor`]: overlapping dyadic intervals nest, so the
-    /// deepest cursor's plateau ends first, and a shallower cursor's end ties
-    /// exactly when the flip level rises to or above its depth (tied sides
-    /// close to one shared flip level, debug-asserted here exactly as there).
-    /// The loop below restates the law at this arity — the advance rule and its
-    /// tie assert are the law's; only the arity, and the slot dispatch below (a
-    /// static match over the concrete cursor types), are this walk's. A cursor
-    /// at depth zero (a single-leaf stream, or no mask at all) never steps: a
-    /// flip level is at least one.
+    /// Advance the overlay one boundary by the overlay-advance law
+    /// ([`advance_set`]), after consuming any verdict-invisible runs as blocks.
     fn advance(&mut self) {
         self.block_skip();
         if self.done() {
@@ -312,64 +336,73 @@ impl<'a> Walk<'a> {
             // folds in the caller's next round.
             return;
         }
-        let depths = self.depths();
-        let deepest = (0..4)
-            .max_by_key(|&i| depths[i])
-            .expect("four cursor slots");
-        let flip = self.step(deepest);
-        for (i, &depth) in depths.iter().enumerate() {
-            if i != deepest && depth >= flip {
-                let tied = self.step(i);
-                debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
-            }
+        advance_set(self);
+    }
+}
+
+/// The masked walk's slot roster for the overlay-advance law
+/// ([`advance_set`]).
+///
+/// Priority `[B_MASK, B, A_MASK, A]`: among equally-deep cursors the pick
+/// falls on the later operand's streams first, masks before events. The pick
+/// order is pinned by the committed `masked_cmp_*` readings
+/// (`tests/meter.rs`); the only accumulator two slots share is `diff` (`A` and
+/// `B` both fold into it), so among the tie-break's remaining freedom only the
+/// `A`/`B` relative step order moves a committed reading.
+impl CursorSet for Walk<'_> {
+    fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
+        [Self::B_MASK, Self::B, Self::A_MASK, Self::A].into_iter()
+    }
+
+    /// An absent mask reads zero: one all-owned region over the whole
+    /// interval, which never steps.
+    fn depth(&self, slot: usize) -> usize {
+        match slot {
+            Self::A => self.a.depth(),
+            Self::A_MASK => self.a_mask.as_ref().map_or(0, PlateauCursor::depth),
+            Self::B => self.b.depth(),
+            Self::B_MASK => self.b_mask.as_ref().map_or(0, PlateauCursor::depth),
+            _ => unreachable!("four cursor slots"),
         }
     }
 
-    /// Every cursor slot's current depth; an absent mask reads zero (one
-    /// all-owned region over the whole interval, which never steps).
-    fn depths(&self) -> [usize; 4] {
-        [
-            self.a.depth(),
-            self.am.as_ref().map_or(0, PlateauCursor::depth),
-            self.b.depth(),
-            self.bm.as_ref().map_or(0, PlateauCursor::depth),
-        ]
-    }
-
-    /// Step one cursor slot past its current leaf or region, folding an event
-    /// delta into the integrators that watch it, and return the flip level for
-    /// the caller's tie test.
+    /// An event slot's step folds its delta into the integrators that watch
+    /// that side; a mask slot's step folds nothing.
+    ///
+    /// The watchers are `diff` always, plus the side's height integrator when
+    /// present. A mask crossing carries no delta — ownership is per-region
+    /// state read between boundaries.
     fn step(&mut self, slot: usize) -> usize {
         match slot {
-            0 => {
+            Self::A => {
                 let (flip, step) = self.a.step();
                 fold(&mut self.diff, Side::A, step.negative, &step.magnitude);
-                if let Some(ha) = &mut self.ha {
-                    fold(ha, Side::A, step.negative, &step.magnitude);
+                if let Some(height_a) = &mut self.height_a {
+                    fold(height_a, Side::A, step.negative, &step.magnitude);
                 }
                 flip
             }
-            1 => {
-                self.am
+            Self::A_MASK => {
+                self.a_mask
                     .as_mut()
-                    .expect("slot 1 is the present a-mask")
+                    .expect("an absent mask reads depth zero and never steps")
                     .step()
                     .0
             }
-            2 => {
+            Self::B => {
                 let (flip, step) = self.b.step();
                 fold(&mut self.diff, Side::B, step.negative, &step.magnitude);
-                if let Some(hb) = &mut self.hb {
+                if let Some(height_b) = &mut self.height_b {
                     // `h_b` accumulates positively: the side orientation
                     // belongs to `D` alone.
-                    fold(hb, Side::A, step.negative, &step.magnitude);
+                    fold(height_b, Side::A, step.negative, &step.magnitude);
                 }
                 flip
             }
-            3 => {
-                self.bm
+            Self::B_MASK => {
+                self.b_mask
                     .as_mut()
-                    .expect("slot 3 is the present b-mask")
+                    .expect("an absent mask reads depth zero and never steps")
                     .step()
                     .0
             }

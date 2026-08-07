@@ -9,10 +9,13 @@
 //!
 //! The machinery is crate-private, in three layers. [`PlateauCursor`] is the
 //! cursor vocabulary: one dyadic tiling, yielded plateau by plateau, each
-//! boundary carrying the cursor's own crossing payload. The generic
-//! [`advance`] is the overlay-advance law over two such cursors, stated (and
-//! debug-asserted) once; the boundary bookkeeping below is its correctness
-//! argument. Above them sit the two cursor instances — [`LeafCursor`] walks a
+//! boundary carrying the cursor's own crossing payload. The overlay-advance
+//! law is stated (and debug-asserted) in exactly two generic faces — the
+//! binary [`advance`], which hands each crossing to the caller's fold, and the
+//! N-ary [`advance_set`] over a walk's whole [`CursorSet`], which folds
+//! crossings inside each slot's step; the boundary bookkeeping below is their
+//! shared correctness argument. Above them sit the two cursor instances —
+//! [`LeafCursor`] walks a
 //! skyline stream, its crossings the signed height deltas ([`Step`]);
 //! [`IdLeafCursor`] walks a packed id stream, whose ownership is per-region
 //! state read between boundaries — and the pair-difference algebra every
@@ -191,6 +194,79 @@ pub(crate) fn advance<A: PlateauCursor, B: PlateauCursor>(
             );
             fold(Crossed::B(&crossing_b));
             (Some(crossing_a), Some(crossing_b))
+        }
+    }
+}
+
+/// A fixed roster of cursors advancing under one overlay — the state a walk at
+/// arity N hands to [`advance_set`].
+///
+/// Each cursor occupies a numbered *slot*; the set names its slots and answers
+/// for them. Where [`PlateauCursor`] carries one cursor and yields its
+/// crossings for the caller to fold, a `CursorSet` keeps the folding inside:
+/// [`step`](Self::step) both moves the slot's cursor and applies its crossing
+/// to the walk's own accumulators, so the driver never sees a crossing type.
+///
+/// An absent or dropped slot reads depth zero and is never stepped: a walk
+/// that is not exhausted has a live cursor strictly below the root, so the
+/// pick always lands on a live slot, and a tied step requires depth at or
+/// above a flip level, which is at least one.
+pub(crate) trait CursorSet {
+    /// Every slot, in priority order — the one sequence serving both of the
+    /// law's tie-breaks: the pick takes the *first* slot in priority order
+    /// achieving the maximum depth, and tied slots step in priority order.
+    ///
+    /// The order is contract, not convenience: a walk whose slots share an
+    /// accumulator commits its digit writes in step order, so the committed
+    /// touch-meter readings pin each walk's sequence (each impl documents
+    /// which identities pin its own). The iterator is owned (`'static`) — a
+    /// const-shaped array or index range, never allocated per round — so the
+    /// driver can hold it across the mutable steps.
+    fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static;
+
+    /// The slot's current plateau depth: its interval has width `2^-depth`.
+    /// An absent or dropped slot reads zero.
+    fn depth(&self, slot: usize) -> usize;
+
+    /// Step the slot past its plateau, folding its crossing into the walk's
+    /// own algebra; returns the flip level.
+    fn step(&mut self, slot: usize) -> usize;
+}
+
+/// Advance an overlay walk of N cursors one boundary — the overlay-advance law
+/// at arity N: the deepest slot steps, and every other slot whose depth
+/// reaches the flip level steps in the same round.
+///
+/// The module doc's boundary bookkeeping is the correctness argument,
+/// unchanged at higher arity: every current leaf or region contains the sweep
+/// point, so all the intervals nest by depth — the deepest slot's plateau ends
+/// first, and a shallower slot's end ties exactly when the flip level rises to
+/// or above its depth. Tied sides close to one shared flip level,
+/// debug-asserted here at every tie. The set's single
+/// [`priority`](CursorSet::priority) sequence fixes both tie-breaks: which of
+/// several equally-deep slots is picked, and the order tied slots step in.
+///
+/// This is the law's arity-N, fold-internal face: each crossing is folded
+/// inside [`CursorSet::step`], and nothing is returned. [`advance`] beside it
+/// is the same law's arity-2, crossing-explicit face — it hands each crossing
+/// to the caller's fold and returns the pair, which emission and the pair
+/// integrals need.
+pub(crate) fn advance_set(set: &mut impl CursorSet) {
+    let priority = set.priority();
+    let mut deepest: Option<(usize, usize)> = None;
+    for slot in priority.clone() {
+        let depth = set.depth(slot);
+        // Strict: the first slot in priority order achieving the maximum.
+        if deepest.is_none_or(|(_, max)| depth > max) {
+            deepest = Some((slot, depth));
+        }
+    }
+    let (deepest, _) = deepest.expect("a cursor set has at least one slot");
+    let flip = set.step(deepest);
+    for slot in priority {
+        if slot != deepest && set.depth(slot) >= flip {
+            let tied = set.step(slot);
+            debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
         }
     }
 }

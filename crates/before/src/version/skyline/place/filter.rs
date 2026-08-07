@@ -5,10 +5,11 @@
 //! version with a [`Demand`] on its relation to a probe. Composed from the pair
 //! sweep, evaluating a query would decode the probe once per bound; these walks
 //! decode every stream exactly once, maintaining one running difference per
-//! (probe, bound) pair, in the placement walk's idiom ([`place`](super)): the
-//! overlay advance restates the generic binary law at this arity, each pair's
-//! accumulator sees exactly the write sequence its pair sweep would commit, and
-//! the verdict hooks are branch-only.
+//! (probe, bound) pair, in the placement walk's idiom ([`place`](super)): each
+//! walk advances by the overlay-advance law ([`advance_set`]), contributing
+//! only its slot roster and what each slot's step folds; each pair's
+//! accumulator sees exactly the write sequence its pair sweep would commit,
+//! and the verdict hooks are branch-only.
 //!
 //! # Early exit
 //!
@@ -50,7 +51,7 @@ use suanpan::Accumulator;
 use crate::causally::Coverage;
 use crate::codec::{BitsSlice, Int};
 
-use super::super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
+use super::super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::super::sweep::Directions;
 
 /// What a query demands of the relation between the probe and one bound stream,
@@ -81,7 +82,7 @@ pub(crate) enum Demand {
 /// directions.
 struct Pair {
     diff: Accumulator,
-    dirs: Directions,
+    directions: Directions,
     /// Whether the pair still feeds a verdict: a settled pair stops folding and
     /// reading (its stream may still advance for the other pair riding the same
     /// cursor).
@@ -96,19 +97,19 @@ impl Pair {
         super::super::signed::fold_signed_int(&mut diff, true, bound_first);
         Pair {
             diff,
-            dirs: Directions::new(),
+            directions: Directions::new(),
             live: true,
         }
     }
 
     /// Fold this interval's sign into the surviving directions.
     fn read(&mut self) {
-        self.dirs.fold(self.diff.sign());
+        self.directions.fold(self.diff.sign());
     }
 
     /// The relation the completed sweep decided, as the causal order.
     fn relation(&self) -> Option<Ordering> {
-        self.dirs.relation()
+        self.directions.relation()
     }
 }
 
@@ -159,19 +160,19 @@ pub(crate) fn admits<'a>(
         for slot in &mut sides {
             let Some(side) = slot else { continue };
             side.pair.read();
-            let dirs = side.pair.dirs;
+            let directions = side.pair.directions;
             match side.demand {
                 // A required direction refuted refutes membership: the walk's
                 // earliest bail.
-                Demand::After if !dirs.ge => return false,
-                Demand::Before if !dirs.le => return false,
+                Demand::After if !directions.ge => return false,
+                Demand::Before if !directions.le => return false,
                 // A hole's subtracting direction refuted satisfies the hole:
                 // drop its cursor, its stream is never scanned further.
-                Demand::NotBefore | Demand::NotStrictlyBefore if !dirs.le => {
+                Demand::NotBefore | Demand::NotStrictlyBefore if !directions.le => {
                     *slot = None;
                     live -= 1;
                 }
-                Demand::NotAfter | Demand::NotStrictlyAfter if !dirs.ge => {
+                Demand::NotAfter | Demand::NotStrictlyAfter if !directions.ge => {
                     *slot = None;
                     live -= 1;
                 }
@@ -187,7 +188,10 @@ pub(crate) fn admits<'a>(
         if exhausted {
             break;
         }
-        advance(&mut probe, &mut sides);
+        advance_set(&mut MemberCursors {
+            probe: &mut probe,
+            sides: &mut sides,
+        });
     }
 
     // Exhaustion: dominations confirm. A required side reaching here kept its
@@ -202,59 +206,67 @@ pub(crate) fn admits<'a>(
     })
 }
 
-/// Advance the membership overlay one boundary.
+/// The membership walk's cursor roster for the overlay-advance law
+/// ([`advance_set`]): the probe's cursor and every bound side, borrowed for
+/// one advance round.
+struct MemberCursors<'w, 'a> {
+    probe: &'w mut LeafCursor<'a>,
+    sides: &'w mut [Option<BoundSide<'a>>],
+}
+
+impl MemberCursors<'_, '_> {
+    /// The probe stream's slot; bound `i` occupies slot `i + 1`.
+    const PROBE: usize = 0;
+}
+
+/// The membership walk's slot roster.
 ///
-/// The deepest cursor steps, and every other cursor whose depth reaches the
-/// flip level steps in the same round — the placement walk's advance restated
-/// at this arity, the probe winning depth ties (it is every pair's first
-/// operand, so it steps first).
-fn advance<'a>(probe: &mut LeafCursor<'a>, sides: &mut [Option<BoundSide<'a>>]) {
-    fn step_bound(side: &mut BoundSide<'_>) -> usize {
-        let (flip, step) = side.cursor.step();
-        if side.pair.live {
-            fold(&mut side.pair.diff, Side::B, step.negative, &step.magnitude);
-        }
-        flip
+/// Priority `[PROBE, bound 0, bound 1, …]`: the probe steps first on every
+/// tie — it is every pair's first operand, and the binary law's equal-depth
+/// arm steps its first operand first — which is what keeps each pair's
+/// accumulator write sequence identical to its pair sweep's (the placement
+/// identity rows in `tests/meter.rs` pin the single-bound identity). The
+/// bounds' order among themselves moves no committed reading: no two bounds
+/// share an accumulator.
+impl CursorSet for MemberCursors<'_, '_> {
+    fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
+        0..self.sides.len() + 1
     }
-    fn fold_probe<'a>(step: &Step, sides: &mut [Option<BoundSide<'a>>]) {
-        for side in sides.iter_mut().flatten() {
-            if side.pair.live {
-                fold(&mut side.pair.diff, Side::A, step.negative, &step.magnitude);
-            }
+
+    /// A dropped (satisfied-hole) bound reads zero and never steps.
+    fn depth(&self, slot: usize) -> usize {
+        match slot {
+            Self::PROBE => self.probe.depth(),
+            _ => self.sides[slot - 1]
+                .as_ref()
+                .map_or(0, |side| side.cursor.depth()),
         }
     }
 
-    let deepest_bound = sides
-        .iter()
-        .enumerate()
-        .filter_map(|(slot, side)| side.as_ref().map(|side| (slot, side.cursor.depth())))
-        .max_by_key(|&(_, depth)| depth);
-    let (flip, stepped) = match deepest_bound {
-        Some((slot, depth)) if probe.depth() < depth => {
-            let side = sides[slot].as_mut().expect("the deepest slot is live");
-            (step_bound(side), Some(slot))
-        }
-        _ => {
-            let (flip, step) = probe.step();
-            fold_probe(&step, sides);
-            (flip, None)
-        }
-    };
-    if stepped.is_some() && probe.depth() >= flip {
-        let (tied, step) = probe.step();
-        debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
-        fold_probe(&step, sides);
-    }
-    for (slot, side) in sides.iter_mut().enumerate() {
-        if stepped == Some(slot) {
-            continue;
-        }
-        let Some(side) = side else {
-            continue;
-        };
-        if side.cursor.depth() >= flip {
-            let tied = step_bound(side);
-            debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
+    /// The probe's step folds its crossing into every live pair as the `A`
+    /// operand; a bound's step folds into its own pair as the `B` operand
+    /// (skipped for a settled pair, whose stream advances unread).
+    fn step(&mut self, slot: usize) -> usize {
+        match slot {
+            Self::PROBE => {
+                let (flip, step) = self.probe.step();
+                for side in self.sides.iter_mut().flatten() {
+                    if side.pair.live {
+                        fold(&mut side.pair.diff, Side::A, step.negative, &step.magnitude);
+                    }
+                }
+                flip
+            }
+            _ => {
+                let side = self.sides[slot - 1]
+                    .as_mut()
+                    .expect("an absent side reads depth zero and never steps");
+                let (flip, step) = side.cursor.step();
+                if side.pair.live {
+                    fold(&mut side.pair.diff, Side::B, step.negative, &step.magnitude);
+                }
+                flip
+            }
         }
     }
 }
@@ -326,13 +338,13 @@ pub(crate) fn coverage<'a>(
                 // — is a refutation: the earliest bail, the verdict a pruning
                 // walk wants fastest.
                 Demand::After => {
-                    if !side.hi.dirs.ge {
+                    if !side.hi.directions.ge {
                         return Coverage::Empty;
                     }
                     // Admitting everything needs `floor <= lo`; its refutation
                     // settles the lo pair (not Full, not this bound's emptiness
                     // — that reads the hi pair).
-                    if side.lo.live && !side.lo.dirs.ge {
+                    if side.lo.live && !side.lo.directions.ge {
                         full_possible = false;
                         side.lo.live = false;
                     }
@@ -340,10 +352,10 @@ pub(crate) fn coverage<'a>(
                 // The ceiling dually: admitting nothing is a refutation on the
                 // segment's minimum.
                 Demand::Before => {
-                    if !side.lo.dirs.le {
+                    if !side.lo.directions.le {
                         return Coverage::Empty;
                     }
-                    if side.hi.live && !side.hi.dirs.le {
+                    if side.hi.live && !side.hi.directions.le {
                         full_possible = false;
                         side.hi.live = false;
                     }
@@ -353,18 +365,18 @@ pub(crate) fn coverage<'a>(
                 // provably misses the minimum — both pairs settle by
                 // refutation, and a hole settled both ways drops its stream.
                 Demand::NotBefore | Demand::NotStrictlyBefore => {
-                    if side.hi.live && !side.hi.dirs.le {
+                    if side.hi.live && !side.hi.directions.le {
                         side.hi.live = false;
                     }
-                    if side.lo.live && !side.lo.dirs.le {
+                    if side.lo.live && !side.lo.directions.le {
                         side.lo.live = false;
                     }
                 }
                 Demand::NotAfter | Demand::NotStrictlyAfter => {
-                    if side.lo.live && !side.lo.dirs.ge {
+                    if side.lo.live && !side.lo.directions.ge {
                         side.lo.live = false;
                     }
-                    if side.hi.live && !side.hi.dirs.ge {
+                    if side.hi.live && !side.hi.directions.ge {
                         side.hi.live = false;
                     }
                 }
@@ -389,7 +401,13 @@ pub(crate) fn coverage<'a>(
         if exhausted {
             break;
         }
-        advance_span((&mut lo, lo_live), (&mut hi, hi_live), &mut sides);
+        advance_set(&mut SpanCursors {
+            lo: &mut lo,
+            lo_live,
+            hi: &mut hi,
+            hi_live,
+            sides: &mut sides,
+        });
     }
 
     finish(&sides, full_possible)
@@ -441,108 +459,98 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
     }
 }
 
-/// Advance the coverage overlay one boundary: [`advance`]'s law with two probe
-/// endpoints.
+/// The coverage walk's cursor roster for the overlay-advance law
+/// ([`advance_set`]): both probe endpoints' cursors, their live flags, and
+/// every bound side, borrowed for one advance round.
+struct SpanCursors<'w, 'a> {
+    lo: &'w mut LeafCursor<'a>,
+    /// Whether any pair still reads the `lo` endpoint; a settled endpoint's
+    /// stream is never scanned further.
+    lo_live: bool,
+    hi: &'w mut LeafCursor<'a>,
+    /// Whether any pair still reads the `hi` endpoint, as `lo_live`.
+    hi_live: bool,
+    sides: &'w mut [Option<SpanSide<'a>>],
+}
+
+impl SpanCursors<'_, '_> {
+    /// The `hi` endpoint's slot.
+    const HI: usize = 0;
+    /// The `lo` endpoint's slot; bound `i` occupies slot `i + 2`.
+    const LO: usize = 1;
+}
+
+/// The coverage walk's slot roster.
 ///
-/// The deepest cursor steps, tied cursors step in the same round, probe
-/// endpoints win depth ties over bounds (each is its pairs' first operand), and
-/// `hi` wins a tie with `lo` (deterministically; the two never share a pair, so
-/// the order moves no accumulator reading).
-fn advance_span<'a>(
-    (lo, lo_live): (&mut LeafCursor<'a>, bool),
-    (hi, hi_live): (&mut LeafCursor<'a>, bool),
-    sides: &mut [Option<SpanSide<'a>>],
-) {
-    fn step_bound(side: &mut SpanSide<'_>) -> usize {
-        let (flip, step) = side.cursor.step();
-        for pair in [&mut side.lo, &mut side.hi] {
-            if pair.live {
-                fold(&mut pair.diff, Side::B, step.negative, &step.magnitude);
-            }
-        }
-        flip
+/// Priority `[HI, LO, bound 0, bound 1, …]`: probe endpoints step first on
+/// every tie (each is its pairs' first operand, and the binary law's
+/// equal-depth arm steps its first operand first), which is what keeps each
+/// pair's accumulator write sequence identical to its pair sweep's. `hi`
+/// before `lo` and the bounds' order among themselves move no committed
+/// reading: no two of those cursors share an accumulator.
+impl CursorSet for SpanCursors<'_, '_> {
+    fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
+        0..self.sides.len() + 2
     }
-    fn fold_lo<'a>(step: &Step, sides: &mut [Option<SpanSide<'a>>]) {
-        for side in sides.iter_mut().flatten() {
-            if side.lo.live {
-                fold(&mut side.lo.diff, Side::A, step.negative, &step.magnitude);
+
+    /// A settled probe endpoint or dropped bound reads zero and never steps.
+    fn depth(&self, slot: usize) -> usize {
+        match slot {
+            Self::HI => {
+                if self.hi_live {
+                    self.hi.depth()
+                } else {
+                    0
+                }
             }
-        }
-    }
-    fn fold_hi<'a>(step: &Step, sides: &mut [Option<SpanSide<'a>>]) {
-        for side in sides.iter_mut().flatten() {
-            if side.hi.live {
-                fold(&mut side.hi.diff, Side::A, step.negative, &step.magnitude);
+            Self::LO => {
+                if self.lo_live {
+                    self.lo.depth()
+                } else {
+                    0
+                }
             }
+            _ => self.sides[slot - 2]
+                .as_ref()
+                .map_or(0, |side| side.cursor.depth()),
         }
     }
 
-    let bound_depth = sides
-        .iter()
-        .flatten()
-        .map(|side| side.cursor.depth())
-        .max()
-        .unwrap_or(0);
-    let lo_depth = if lo_live { lo.depth() } else { 0 };
-    let hi_depth = if hi_live { hi.depth() } else { 0 };
-
-    // Deepest wins; probes beat bounds on ties, `hi` beats `lo`.
-    enum Deepest {
-        Hi,
-        Lo,
-        Bound,
-    }
-    let deepest = if hi_live && hi_depth >= lo_depth && hi_depth >= bound_depth {
-        Deepest::Hi
-    } else if lo_live && lo_depth >= bound_depth {
-        Deepest::Lo
-    } else {
-        Deepest::Bound
-    };
-    let (flip, stepped_bound) = match deepest {
-        Deepest::Hi => {
-            let (flip, step) = hi.step();
-            fold_hi(&step, sides);
-            (flip, None)
-        }
-        Deepest::Lo => {
-            let (flip, step) = lo.step();
-            fold_lo(&step, sides);
-            (flip, None)
-        }
-        Deepest::Bound => {
-            let slot = sides
-                .iter()
-                .enumerate()
-                .filter_map(|(slot, side)| side.as_ref().map(|side| (slot, side.cursor.depth())))
-                .max_by_key(|&(_, depth)| depth)
-                .map(|(slot, _)| slot)
-                .expect("a bound is deepest only when one is live");
-            let side = sides[slot].as_mut().expect("the deepest slot is live");
-            (step_bound(side), Some(slot))
-        }
-    };
-    // Tied cursors close to the shared flip level, probes first.
-    if !matches!(deepest, Deepest::Hi) && hi_live && hi.depth() >= flip {
-        let (tied, step) = hi.step();
-        debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
-        fold_hi(&step, sides);
-    }
-    if !matches!(deepest, Deepest::Lo) && lo_live && lo.depth() >= flip {
-        let (tied, step) = lo.step();
-        debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
-        fold_lo(&step, sides);
-    }
-    for (slot, side) in sides.iter_mut().enumerate() {
-        if stepped_bound == Some(slot) {
-            continue;
-        }
-        let Some(side) = side else {
-            continue;
-        };
-        if side.cursor.depth() >= flip {
-            let tied = step_bound(side);
-            debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
+    /// An endpoint's step folds its crossing into its own live pairs as the
+    /// `A` operand; a bound's step folds into both its live pairs as the `B`
+    /// operand (settled pairs advance unread).
+    fn step(&mut self, slot: usize) -> usize {
+        match slot {
+            Self::HI => {
+                let (flip, step) = self.hi.step();
+                for side in self.sides.iter_mut().flatten() {
+                    if side.hi.live {
+                        fold(&mut side.hi.diff, Side::A, step.negative, &step.magnitude);
+                    }
+                }
+                flip
+            }
+            Self::LO => {
+                let (flip, step) = self.lo.step();
+                for side in self.sides.iter_mut().flatten() {
+                    if side.lo.live {
+                        fold(&mut side.lo.diff, Side::A, step.negative, &step.magnitude);
+                    }
+                }
+                flip
+            }
+            _ => {
+                let side = self.sides[slot - 2]
+                    .as_mut()
+                    .expect("an absent side reads depth zero and never steps");
+                let (flip, step) = side.cursor.step();
+                for pair in [&mut side.lo, &mut side.hi] {
+                    if pair.live {
+                        fold(&mut pair.diff, Side::B, step.negative, &step.magnitude);
+                    }
+                }
+                flip
+            }
         }
     }
 }

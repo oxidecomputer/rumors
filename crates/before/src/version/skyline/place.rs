@@ -14,15 +14,10 @@
 //! # The walk
 //!
 //! One [`LeafCursor`] per present stream. All current leaves contain the sweep
-//! point, so they nest by depth, and the overlay's boundary bookkeeping
-//! generalizes verbatim (the [`masked`](super::masked) walk's
-//! precedent): the deepest cursor advances, and every other cursor whose depth
-//! reaches the advanced cursor's flip level advances in the same step, tied
-//! boundaries closing to one shared flip level (debug-asserted at every tie).
-//! The generic [`advance`](super::overlay::advance) law is binary, so — exactly
-//! as the masked walk does at arity four — the loop here restates the law at
-//! this arity rather than instantiating it; the advance rule and its tie assert
-//! are the law's, and only the slot dispatch is this walk's.
+//! point, so they nest by depth, and the walk advances by the overlay-advance
+//! law at arity three ([`advance_set`], the [`masked`](super::masked) walk's
+//! precedent); this walk contributes only its slot roster ([`Cursors`]) and
+//! what each slot's step folds.
 //!
 //! Per bound, the walk maintains the running difference `D = height_probe −
 //! height_bound` on the cliff-immune [`Accumulator`] and folds its sign once
@@ -128,7 +123,7 @@ use suanpan::Accumulator;
 use crate::causally::{Dominance, Endpoint, Placement, Precedence};
 use crate::codec::{BitsSlice, Int};
 
-use super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
+use super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::sweep::Directions;
 
 /// A side's disposition when a verdict hook leaves the walk running: keep
@@ -179,6 +174,14 @@ impl<'a> BoundSide<'a> {
     fn relation(&self) -> Option<Ordering> {
         self.directions.relation()
     }
+
+    /// Step this bound past its plateau, folding its crossing into its own
+    /// difference as the `B` operand; returns the flip level.
+    fn step(&mut self) -> usize {
+        let (flip, step) = self.cursor.step();
+        fold(&mut self.diff, Side::B, step.negative, &step.magnitude);
+        flip
+    }
 }
 
 /// Place a probe stream against an ordered span's endpoint streams at full
@@ -198,8 +201,8 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
     /// `Concurrent(Start)` vs `Concurrent(Both)` needs the other endpoint's
     /// relation; when the refuted side was the last one standing, both
     /// endpoints have refuted and the verdict is fixed.
-    fn on_side(dirs: Directions, other_live: bool) -> ControlFlow<Placement, Fate> {
-        if dirs.le || dirs.ge {
+    fn on_side(directions: Directions, other_live: bool) -> ControlFlow<Placement, Fate> {
+        if directions.le || directions.ge {
             ControlFlow::Continue(Fate::Sweep)
         } else if other_live {
             ControlFlow::Continue(Fate::Drop)
@@ -248,8 +251,8 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
         // `lo <= probe` refuted is the whole verdict — the probe dominates not
         // even the start, whatever the end relation: the family's earliest
         // bail.
-        |dirs, _| {
-            if dirs.ge {
+        |directions, _| {
+            if directions.ge {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Break(Dominance::Before)
@@ -258,8 +261,8 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
         // `hi <= probe` refuted takes `Dominance::After` off the table, and the
         // verdict now rides the start relation alone — the end stream is never
         // scanned further.
-        |dirs, _| {
-            if dirs.ge {
+        |directions, _| {
+            if directions.ge {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Continue(Fate::Drop)
@@ -302,8 +305,8 @@ pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> P
         // `probe <= lo` refuted takes `Precedence::Before` off the table, and
         // the verdict now rides the end relation alone — the start stream is
         // never scanned further.
-        |dirs, _| {
-            if dirs.le {
+        |directions, _| {
+            if directions.le {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Continue(Fate::Drop)
@@ -312,8 +315,8 @@ pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> P
         // `probe <= hi` refuted is the whole verdict — the probe precedes not
         // even the end, whatever the start relation: the dominance bail,
         // mirrored.
-        |dirs, _| {
-            if dirs.le {
+        |directions, _| {
+            if directions.le {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Break(Precedence::After)
@@ -356,16 +359,16 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
         Some(hi),
         // `lo <= probe` refuted: the probe is below or beside the
         // start — outside the segment, whatever the end relation.
-        |dirs, _| {
-            if dirs.ge {
+        |directions, _| {
+            if directions.ge {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Break(false)
             }
         },
         // `probe <= hi` refuted: the probe is above or beside the end.
-        |dirs, _| {
-            if dirs.le {
+        |directions, _| {
+            if directions.le {
                 ControlFlow::Continue(Fate::Sweep)
             } else {
                 ControlFlow::Break(false)
@@ -404,114 +407,118 @@ fn walk<V>(
     if start.is_none() && end.is_none() {
         return finish(None, None);
     }
-    let (mut probe, probe_first) = LeafCursor::open(probe);
-    let mut start = start.map(|bits| BoundSide::open(bits, &probe_first));
-    let mut end = end.map(|bits| BoundSide::open(bits, &probe_first));
+    let (probe, probe_first) = LeafCursor::open(probe);
+    let mut set = Cursors {
+        probe,
+        start: start.map(|bits| BoundSide::open(bits, &probe_first)),
+        end: end.map(|bits| BoundSide::open(bits, &probe_first)),
+    };
 
     loop {
         // One read per live bound per elementary interval, end first — a fixed
         // order, so every question's accumulator traffic is identical (the
         // committed meter rows pin the write sequences).
-        if let Some(side) = &mut end {
+        if let Some(side) = &mut set.end {
             side.read();
-            match on_end(side.directions, start.is_some()) {
+            match on_end(side.directions, set.start.is_some()) {
                 ControlFlow::Continue(Fate::Sweep) => {}
-                ControlFlow::Continue(Fate::Drop) => end = None,
+                ControlFlow::Continue(Fate::Drop) => set.end = None,
                 ControlFlow::Break(verdict) => return verdict,
             }
         }
-        if let Some(side) = &mut start {
+        if let Some(side) = &mut set.start {
             side.read();
-            match on_start(side.directions, end.is_some()) {
+            match on_start(side.directions, set.end.is_some()) {
                 ControlFlow::Continue(Fate::Sweep) => {}
-                ControlFlow::Continue(Fate::Drop) => start = None,
+                ControlFlow::Continue(Fate::Drop) => set.start = None,
                 ControlFlow::Break(verdict) => return verdict,
             }
         }
-        let exhausted = probe.done()
-            && start.as_ref().is_none_or(|side| side.cursor.done())
-            && end.as_ref().is_none_or(|side| side.cursor.done());
+        let exhausted = set.probe.done()
+            && set.start.as_ref().is_none_or(|side| side.cursor.done())
+            && set.end.as_ref().is_none_or(|side| side.cursor.done());
         if exhausted {
             break;
         }
-        advance(&mut probe, &mut start, &mut end);
+        advance_set(&mut set);
     }
 
     finish(
-        start.as_ref().map(BoundSide::relation),
-        end.as_ref().map(BoundSide::relation),
+        set.start.as_ref().map(BoundSide::relation),
+        set.end.as_ref().map(BoundSide::relation),
     )
 }
 
-/// Advance the overlay one boundary: the deepest cursor steps, and every other
-/// cursor whose depth reaches the flip level steps in the same round.
+/// The placement walk's cursor roster: the probe stream's cursor and the two
+/// optional bound sides, advancing under the overlay-advance law
+/// ([`advance_set`]).
+struct Cursors<'a> {
+    probe: LeafCursor<'a>,
+    /// The span's minimum endpoint; `None` when absent or dropped.
+    start: Option<BoundSide<'a>>,
+    /// The span's maximum endpoint, as `start`.
+    end: Option<BoundSide<'a>>,
+}
+
+/// The walk's cursor slots, named for [`CursorSet`]'s numbered vocabulary.
+impl Cursors<'_> {
+    /// The probe stream's slot.
+    const PROBE: usize = 0;
+    /// The start bound's slot.
+    const START: usize = 1;
+    /// The end bound's slot.
+    const END: usize = 2;
+
+    /// Step one bound slot; a dropped or absent side never steps (its depth
+    /// reads zero, and every flip level is at least one).
+    fn step_bound(side: &mut Option<BoundSide<'_>>) -> usize {
+        side.as_mut()
+            .expect("an absent side reads depth zero and never steps")
+            .step()
+    }
+}
+
+/// The placement walk's slot roster for the overlay-advance law
+/// ([`advance_set`]).
 ///
-/// The overlay-advance law ([`super::overlay::advance`]) restated at this
-/// arity, the masked walk's idiom.
-///
-/// Slot order puts the probe last so it wins depth ties and steps first (the
-/// binary law's equal-depth arm steps its first operand first, and the probe is
-/// every pair's first operand), keeping each accumulator's write sequence — and
-/// with it the committed touch-meter readings of the one-bound degenerate walk
-/// — identical to the pair sweep's.
-fn advance<'a>(
-    probe: &mut LeafCursor<'a>,
-    start: &mut Option<BoundSide<'a>>,
-    end: &mut Option<BoundSide<'a>>,
-) {
-    /// An absent (or dropped) side never steps: depth zero, like the masked
-    /// walk's absent mask.
-    fn depth(side: &Option<BoundSide<'_>>) -> usize {
-        side.as_ref().map_or(0, |side| side.cursor.depth())
+/// Priority `[PROBE, START, END]`: the probe steps first on every tie — it is
+/// every pair's first operand, and the binary law's equal-depth arm steps its
+/// first operand first — keeping each accumulator's write sequence, and with
+/// it the committed touch-meter readings of the one-bound degenerate walk,
+/// identical to the pair sweep's (the placement identity rows in
+/// `tests/meter.rs` pin the identity). The start/end order among themselves
+/// moves no committed reading: the two bounds share no accumulator.
+impl CursorSet for Cursors<'_> {
+    fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
+        [Self::PROBE, Self::START, Self::END].into_iter()
     }
 
-    // Fold one probe crossing into every live difference, positively: the probe
-    // is the `A` side of both pairs.
-    fn fold_probe<'a>(
-        step: &Step,
-        start: &mut Option<BoundSide<'a>>,
-        end: &mut Option<BoundSide<'a>>,
-    ) {
-        for side in [start, end].into_iter().flatten() {
-            fold(&mut side.diff, Side::A, step.negative, &step.magnitude);
+    /// An absent or dropped side reads zero, like the masked walk's absent
+    /// mask.
+    fn depth(&self, slot: usize) -> usize {
+        match slot {
+            Self::PROBE => self.probe.depth(),
+            Self::START => self.start.as_ref().map_or(0, |side| side.cursor.depth()),
+            Self::END => self.end.as_ref().map_or(0, |side| side.cursor.depth()),
+            _ => unreachable!("three cursor slots"),
         }
     }
 
-    // Step one bound side, folding its crossing into its own difference as the
-    // `B` operand; returns the flip level for the tie test.
-    fn step_bound(side: &mut BoundSide<'_>) -> usize {
-        let (flip, step) = side.cursor.step();
-        fold(&mut side.diff, Side::B, step.negative, &step.magnitude);
-        flip
-    }
-
-    let depths = [depth(start), depth(end), probe.depth()];
-    // Last maximum wins: the probe (slot 2) steps first on any tie involving
-    // it.
-    let deepest = (0..3)
-        .max_by_key(|&slot| depths[slot])
-        .expect("three cursor slots");
-
-    let flip = match deepest {
-        0 => step_bound(start.as_mut().expect("slot 0 is the present start")),
-        1 => step_bound(end.as_mut().expect("slot 1 is the present end")),
-        _ => {
-            let (flip, step) = probe.step();
-            fold_probe(&step, start, end);
-            flip
-        }
-    };
-    if deepest != 2 && depths[2] >= flip {
-        let (tied, step) = probe.step();
-        debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
-        fold_probe(&step, start, end);
-    }
-    for (slot, side) in [(0, start), (1, end)] {
-        if slot != deepest && depths[slot] >= flip {
-            if let Some(side) = side {
-                let tied = step_bound(side);
-                debug_assert_eq!(tied, flip, "tied boundaries close to one shared flip level");
+    /// The probe's step folds its crossing into every live difference as the
+    /// `A` operand (the probe is every pair's first operand); a bound's step
+    /// folds into its own difference as the `B` operand.
+    fn step(&mut self, slot: usize) -> usize {
+        match slot {
+            Self::PROBE => {
+                let (flip, step) = self.probe.step();
+                for side in [&mut self.start, &mut self.end].into_iter().flatten() {
+                    fold(&mut side.diff, Side::A, step.negative, &step.magnitude);
+                }
+                flip
             }
+            Self::START => Self::step_bound(&mut self.start),
+            Self::END => Self::step_bound(&mut self.end),
+            _ => unreachable!("three cursor slots"),
         }
     }
 }
