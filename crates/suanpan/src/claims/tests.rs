@@ -73,7 +73,7 @@ fn crate_root() -> PathBuf {
 fn fn_bodies(source: &str) -> BTreeMap<String, String> {
     let lines: Vec<&str> = source.lines().collect();
     let mut bodies = BTreeMap::new();
-    for (i, line) in lines.iter().enumerate() {
+    for (def_line, line) in lines.iter().enumerate() {
         let trimmed = line.trim_start();
         let Some(rest) = trimmed
             .strip_prefix("fn ")
@@ -85,9 +85,9 @@ fn fn_bodies(source: &str) -> BTreeMap<String, String> {
         let mut depth = 0i64;
         let mut opened = false;
         let mut end = None;
-        for (j, body_line) in lines.iter().enumerate().skip(i) {
-            for c in body_line.chars() {
-                match c {
+        for (scan_line, body_line) in lines.iter().enumerate().skip(def_line) {
+            for character in body_line.chars() {
+                match character {
                     '{' => {
                         depth += 1;
                         opened = true;
@@ -97,12 +97,12 @@ fn fn_bodies(source: &str) -> BTreeMap<String, String> {
                 }
             }
             if opened && depth <= 0 {
-                end = Some(j);
+                end = Some(scan_line);
                 break;
             }
         }
         let end = end.unwrap_or_else(|| panic!("fn {name}: body never closes its braces"));
-        bodies.insert(name.to_owned(), lines[i..=end].join("\n"));
+        bodies.insert(name.to_owned(), lines[def_line..=end].join("\n"));
     }
     bodies
 }
@@ -126,7 +126,9 @@ fn calls_helper(body: &str, name: &str) -> bool {
     while let Some(pos) = body[from..].find(&needle) {
         let at = from + pos;
         let before = body[..at].chars().next_back();
-        if !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.') {
+        if !before.is_some_and(|character| {
+            character.is_alphanumeric() || character == '_' || character == '.'
+        }) {
             return true;
         }
         from = at + needle.len();
@@ -277,7 +279,7 @@ fn cited_witnesses_exist() {
                 for (file, witness) in *pairs {
                     let path = crate_root().join(file);
                     let text = std::fs::read_to_string(&path)
-                        .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+                        .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()));
                     let fns = test_fns(&text);
                     assert!(
                         !fns.is_empty(),
@@ -345,12 +347,12 @@ fn cited_witnesses_reach_their_operations() {
             let bodies = bodies_by_file.entry(file).or_insert_with(|| {
                 let path = crate_root().join(file);
                 let text = std::fs::read_to_string(&path)
-                    .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+                    .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()));
                 fn_bodies(&text)
             });
             let exempt = REACH_EXEMPT
                 .iter()
-                .find(|(op, w, _)| op == &claim.op && w == witness);
+                .find(|(op, cited, _)| op == &claim.op && cited == witness);
             let reached = reaches(bodies, witness, method);
             match (reached, exempt) {
                 // The strengthened binding: the witness drives the op.

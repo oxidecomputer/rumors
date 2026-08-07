@@ -16,9 +16,9 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 static TOUCHES: AtomicU64 = AtomicU64::new(0);
 
-/// Add `n` digit touches to the counter.
-pub(crate) fn record(n: u64) {
-    TOUCHES.fetch_add(n, Ordering::Relaxed);
+/// Add `count` digit touches to the counter.
+pub(crate) fn record(count: u64) {
+    TOUCHES.fetch_add(count, Ordering::Relaxed);
 }
 
 /// The digit touches recorded since process start or the last

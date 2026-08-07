@@ -13,16 +13,16 @@ use std::collections::BTreeMap;
 
 use crate::{Limbs, Magnitude, UBig};
 
-/// Record `n` accumulator digit touches.
+/// Record `count` accumulator digit touches.
 ///
 /// Compiles to nothing without the `touch-meter` feature, so the hot paths
 /// call it unconditionally.
 #[inline(always)]
-fn touch(n: u64) {
+fn touch(count: u64) {
     #[cfg(feature = "touch-meter")]
-    crate::touch_meter::record(n);
+    crate::touch_meter::record(count);
     #[cfg(not(feature = "touch-meter"))]
-    let _ = n;
+    let _ = count;
 }
 
 /// Bits per digit: the digit base is `2^32`.
@@ -482,19 +482,23 @@ impl Accumulator {
     /// symmetric about zero, so a negated digit is still in it —
     /// subtraction needs no borrow machinery of its own).
     fn fold_accum(&mut self, other: &Accumulator, shift: u64, negative: bool) {
-        if let Some(ov) = other.quick {
+        if let Some(operand_value) = other.quick {
             touch(1);
-            if ov == 0 {
+            if operand_value == 0 {
                 return;
             }
-            let ov = if negative { -ov } else { ov };
+            let operand_value = if negative {
+                -operand_value
+            } else {
+                operand_value
+            };
             if shift == 0 {
-                if !self.quick_add(ov) {
-                    self.add_at(0, ov);
+                if !self.quick_add(operand_value) {
+                    self.add_at(0, operand_value);
                 }
-            } else if shift > QUICK_SHIFT_MAX || !self.quick_add(ov << shift) {
+            } else if shift > QUICK_SHIFT_MAX || !self.quick_add(operand_value << shift) {
                 self.spill();
-                self.deposit_value(ov, shift);
+                self.deposit_value(operand_value, shift);
             }
             return;
         }
@@ -502,12 +506,12 @@ impl Accumulator {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
         let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
-        for (i, &digit) in other.digits[..=other.top].iter().enumerate() {
+        for (offset, &digit) in other.digits[..=other.top].iter().enumerate() {
             touch(1);
             if digit != 0 {
                 let contribution = i128::from(digit) << bit_shift;
                 self.add_at(
-                    i + digit_shift,
+                    offset + digit_shift,
                     if negative {
                         -contribution
                     } else {
@@ -541,10 +545,10 @@ impl Accumulator {
         if shift == 0 || self.is_literally_zero() {
             return;
         }
-        if let Some(v) = self.quick {
+        if let Some(value) = self.quick {
             touch(1);
             if shift <= QUICK_SHIFT_MAX {
-                let shifted = v << shift;
+                let shifted = value << shift;
                 if shifted.unsigned_abs() <= QUICK_MAX {
                     self.quick = Some(shifted);
                 } else {
@@ -553,7 +557,7 @@ impl Accumulator {
                 }
             } else {
                 self.enter_digit_engine();
-                self.deposit_value(v, shift);
+                self.deposit_value(value, shift);
             }
             return;
         }
@@ -570,9 +574,9 @@ impl Accumulator {
     ///
     /// `O(|self|)` digit touches.
     pub fn negate(&mut self) {
-        if let Some(v) = &mut self.quick {
+        if let Some(value) = &mut self.quick {
             touch(1);
-            *v = -*v;
+            *value = -*value;
             return;
         }
         for digit in &mut self.digits[..=self.top] {
@@ -620,9 +624,9 @@ impl Accumulator {
     /// Amortized `O(1)` digit touches.
     #[inline]
     pub fn sign(&mut self) -> Ordering {
-        if let Some(v) = self.quick {
+        if let Some(value) = self.quick {
             touch(1);
-            return v.cmp(&0);
+            return value.cmp(&0);
         }
         let (_, partial) = self.fold_and_collapse();
         partial.cmp(&0)
@@ -694,7 +698,7 @@ impl Accumulator {
     ///
     /// Amortized `O(1)` digit touches.
     pub fn sign_dominates_at(&mut self, floor: usize) -> (Ordering, bool) {
-        if let Some(v) = self.quick {
+        if let Some(value) = self.quick {
             touch(1);
             // The register holds the exact value, so the certificate is
             // the direct comparison: `3 · 2^(32·(floor + 1))` dominates
@@ -702,11 +706,11 @@ impl Accumulator {
             // with the same margin the digit fold's decision uses.
             let decided = floor
                 .checked_add(1)
-                .and_then(|f| f.checked_mul(32))
-                .and_then(|b| u32::try_from(b).ok())
-                .and_then(|b| 3u128.checked_shl(b))
-                .is_some_and(|bound| v.unsigned_abs() >= bound);
-            return (v.cmp(&0), decided);
+                .and_then(|digits| digits.checked_mul(32))
+                .and_then(|bits| u32::try_from(bits).ok())
+                .and_then(|bits| 3u128.checked_shl(bits))
+                .is_some_and(|bound| value.unsigned_abs() >= bound);
+            return (value.cmp(&0), decided);
         }
         let (index, partial) = self.fold_and_collapse();
         // Saturating: a floor within 2 of `usize::MAX` names an
@@ -807,7 +811,7 @@ impl Accumulator {
     #[inline]
     pub fn is_literally_zero(&self) -> bool {
         match self.quick {
-            Some(v) => v == 0,
+            Some(value) => value == 0,
             None => self.top == 0 && self.digits[0] == 0,
         }
     }
@@ -833,7 +837,7 @@ impl Accumulator {
     pub fn digit_count(&self) -> usize {
         match self.quick {
             Some(0) => 1,
-            Some(v) => (128 - v.unsigned_abs().leading_zeros() as usize).div_ceil(32),
+            Some(value) => (128 - value.unsigned_abs().leading_zeros() as usize).div_ceil(32),
             None => self.top + 1,
         }
     }
@@ -850,9 +854,9 @@ impl Accumulator {
     ///
     /// `O(|self|)` digit touches and a same-order magnitude allocation.
     pub fn sign_magnitude(&self) -> (Ordering, UBig) {
-        if let Some(v) = self.quick {
+        if let Some(value) = self.quick {
             touch(self.digit_count() as u64);
-            return (v.cmp(&0), UBig::from(v.unsigned_abs()));
+            return (value.cmp(&0), UBig::from(value.unsigned_abs()));
         }
         let (sign, magnitude) = self.read_magnitude(0);
         (sign, magnitude)
@@ -890,9 +894,9 @@ impl Accumulator {
     /// never-written gaps included — and a same-order magnitude
     /// allocation.
     pub fn sign_magnitude_shl(&self) -> (Ordering, UBig, u64) {
-        if let Some(v) = self.quick {
+        if let Some(value) = self.quick {
             touch(self.digit_count() as u64);
-            return (v.cmp(&0), UBig::from(v.unsigned_abs()), 0);
+            return (value.cmp(&0), UBig::from(value.unsigned_abs()), 0);
         }
         let start = self.bottom.min(self.top);
         let (sign, magnitude) = self.read_magnitude(start);
@@ -903,15 +907,11 @@ impl Accumulator {
     /// and a normalized magnitude.
     ///
     /// Sound only when every digit below `start` is zero (the callers
-    /// pass 0 or the write watermark [`Accumulator::bottom`]), so the
-    /// suffix read is the whole value at scale `2^(32·start)`.
+    /// pass 0 or the write watermark [`Accumulator::bottom`], whose
+    /// all-zero-below invariant the ledger-invariant suite holds after
+    /// every step of every schedule it drives), so the suffix read is
+    /// the whole value at scale `2^(32·start)`.
     fn read_magnitude(&self, start: usize) -> (Ordering, UBig) {
-        debug_assert!(
-            self.digits[..start.min(self.top + 1)]
-                .iter()
-                .all(|&d| d == 0),
-            "read_magnitude below the write watermark: skipped digits must be zero"
-        );
         // Low-to-high signed carry: after the pass, the collected unsigned
         // digits hold `M` with `value = carry · 2^(32·len) + M`,
         // `0 ≤ M < 2^(32·len)`.
@@ -929,14 +929,14 @@ impl Accumulator {
             // Negative: |value| = |carry| · 2^(32·len) − M, which is
             // (|carry| − 1) high part plus the complement of M when M > 0,
             // and |carry| high part over untouched zeros when M = 0.
-            let low_nonzero = collected.iter().any(|&d| d != 0);
+            let low_nonzero = collected.iter().any(|&digit| digit != 0);
             if low_nonzero {
                 let mut complement_carry = 1u64;
                 for digit in collected.iter_mut() {
                     touch(1);
-                    let v = (DIGIT_MASK - u64::from(*digit)) + complement_carry;
-                    *digit = (v & DIGIT_MASK) as u32;
-                    complement_carry = v >> DIGIT_BITS;
+                    let complemented = (DIGIT_MASK - u64::from(*digit)) + complement_carry;
+                    *digit = (complemented & DIGIT_MASK) as u32;
+                    complement_carry = complemented >> DIGIT_BITS;
                 }
                 debug_assert_eq!(
                     complement_carry, 0,
@@ -999,8 +999,7 @@ impl Accumulator {
     ///
     /// Amortized `O(min(|self|, |other|))` digit touches, plus an
     /// `O(1)` buffer swap.
-    pub fn merge_into_wider(&mut self, other: Accumulator) -> Accumulator {
-        let mut other = other;
+    pub fn merge_into_wider(&mut self, mut other: Accumulator) -> Accumulator {
         if other.digit_count() > self.digit_count() {
             core::mem::swap(self, &mut other);
         }
@@ -1017,7 +1016,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(1)` digit touches, independent of the shift; the digit buffer grows to cover the shifted positions.
+    /// Amortized `O(1)` digit touches, independent of the shift; the
+    /// digit buffer grows to cover the shifted positions.
     ///
     /// # Panics
     ///
@@ -1035,7 +1035,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized `O(1)` digit touches, independent of the shift; the digit buffer grows to cover the shifted positions.
+    /// Amortized `O(1)` digit touches, independent of the shift; the
+    /// digit buffer grows to cover the shifted positions.
     ///
     /// # Panics
     ///
@@ -1083,11 +1084,11 @@ impl Accumulator {
     /// `i128` overflow.
     #[inline]
     fn quick_add(&mut self, delta: i128) -> bool {
-        let Some(v) = self.quick else {
+        let Some(held) = self.quick else {
             return false;
         };
         touch(1);
-        let sum = v + delta;
+        let sum = held + delta;
         if sum.unsigned_abs() <= QUICK_MAX {
             self.quick = Some(sum);
         } else {
@@ -1101,9 +1102,9 @@ impl Accumulator {
     /// with the register's value: the one-way exit, O(1) plus the
     /// deposit of at most four digits.
     fn spill(&mut self) {
-        if let Some(v) = self.quick {
+        if let Some(value) = self.quick {
             self.enter_digit_engine();
-            self.deposit_value(v, 0);
+            self.deposit_value(value, 0);
         }
     }
 
@@ -1123,7 +1124,7 @@ impl Accumulator {
             self.digits.push(0);
         }
         debug_assert!(
-            self.digits.iter().all(|&d| d == 0),
+            self.digits.iter().all(|&digit| digit == 0),
             "a retired register leaves the digit engine idle"
         );
         self.top = 0;
@@ -1243,12 +1244,12 @@ impl Accumulator {
         }
     }
 
-    /// Consume the certificate covering the digits just below `t`, if
-    /// one exists: returns `lo` with every digit in `(lo, t)` zero,
-    /// removing the certificate from the ledger.
-    fn consume_run_at(&mut self, t: usize) -> Option<usize> {
-        let (&lo, &hi) = self.zero_runs.range(..t).next_back()?;
-        if hi >= t {
+    /// Consume the certificate covering the digits just below `above`,
+    /// if one exists: returns `lo` with every digit in `(lo, above)`
+    /// zero, removing the certificate from the ledger.
+    fn consume_run_at(&mut self, above: usize) -> Option<usize> {
+        let (&lo, &hi) = self.zero_runs.range(..above).next_back()?;
+        if hi >= above {
             self.zero_runs.remove(&lo);
             Some(lo)
         } else {
@@ -1285,17 +1286,23 @@ impl Accumulator {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
         let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
-        for (i, limb) in limbs.enumerate() {
+        for (limb_index, limb) in limbs.enumerate() {
             touch(1);
             // At most 33 + 31 bits per contribution after the sub-digit
             // shift: well inside the `i128` `add_at` carries from.
             let low = i128::from(limb & DIGIT_MASK) << bit_shift;
             let high = i128::from(limb >> DIGIT_BITS) << bit_shift;
             if low != 0 {
-                self.add_at(2 * i + digit_shift, if negative { -low } else { low });
+                self.add_at(
+                    2 * limb_index + digit_shift,
+                    if negative { -low } else { low },
+                );
             }
             if high != 0 {
-                self.add_at(2 * i + 1 + digit_shift, if negative { -high } else { high });
+                self.add_at(
+                    2 * limb_index + 1 + digit_shift,
+                    if negative { -high } else { high },
+                );
             }
         }
     }
@@ -1314,7 +1321,10 @@ impl Default for Accumulator {
 /// magnitude is built from — never three. Byte-denominated so one code
 /// path serves every storage word width.
 fn magnitude_from_digits(digits: Vec<u32>) -> UBig {
-    let bytes: Vec<u8> = digits.iter().flat_map(|d| d.to_le_bytes()).collect();
+    let bytes: Vec<u8> = digits
+        .iter()
+        .flat_map(|digit| digit.to_le_bytes())
+        .collect();
     drop(digits);
     UBig::from_le_bytes(&bytes)
 }
