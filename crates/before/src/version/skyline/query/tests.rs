@@ -889,7 +889,7 @@ mod adequacy {
     use crate::codec::{Base, BitsSlice, Int};
     use crate::meter::registry::Shape;
     use crate::version::skyline::encode;
-    use crate::version::skyline::sweep::{fold, LeafCursor, PlateauCursor, Side};
+    use crate::version::skyline::overlay::{fold, LeafCursor, PlateauCursor, Side};
     use crate::Rank;
 
     use crate::version::skyline::signed::fold_signed_int;
@@ -1009,7 +1009,7 @@ mod adequacy {
     // · (2^S − position) = P · 2^S − P · position` is sound; only its cost
     // class is not.
 
-    use crate::version::skyline::sweep::advance_diff;
+    use crate::version::skyline::overlay::advance_diff;
 
     /// The anchored-segment integral with the span-reading promotion.
     ///

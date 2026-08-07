@@ -341,14 +341,14 @@ use core::cmp::Ordering;
 
 use suanpan::{Accumulator, Limbs, UBig};
 
-use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsSlice, Int, SliceCursor};
+use crate::codec::{self, Base, BitsMut, BitsSlice, Int};
 use crate::Rank;
 
 use super::build::SkylineBuilder;
-use super::signed::{fold_signed, fold_signed_int, gamma_code_int, signed_sum_int};
-use super::sweep::{
-    advance, advance_diff, fold, Crossed, LeafCursor, OpenedPair, PlateauCursor, Side,
+use super::overlay::{
+    advance, advance_diff, fold, Crossed, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
+use super::signed::{fold_signed, fold_signed_int, gamma_code_int, signed_sum_int};
 use super::walk::LeafWalk;
 
 /// The live accumulator's tolerated width overshoot, in base-2^32 digits, over
@@ -704,7 +704,7 @@ fn pair_integral(
 /// module doc's pair-co-sweep section). The contract is that σ depends on
 /// nothing but the sign — so σ is constant on intervals of constant `D`-sign,
 /// which is what prices every orientation change at the boundary that moved the
-/// sign. Each caller's closure is monomorphized, the [`super::sweep::advance`]
+/// sign. Each caller's closure is monomorphized, the [`super::overlay::advance`]
 /// / [`crate::fold::balanced_try_fold`] spelling for an open algebra over one
 /// fixed walk.
 ///
@@ -1575,146 +1575,6 @@ fn absolute_height(height: &mut Accumulator) -> Base {
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
     let (_, magnitude) = height.sign_magnitude();
     Base::from(magnitude)
-}
-
-/// A cursor at the current constant-ownership region of a packed id stream.
-///
-/// The id-side mirror of the skyline [`LeafCursor`]: the same root-to-leaf path
-/// bits and the same flip bookkeeping, entering every overlay through
-/// [`PlateauCursor`] with a state payload (owned or not, read between
-/// boundaries) instead of a height delta. Absent children in the packed form
-/// are unowned regions, so the cursor synthesizes an empty leaf wherever a
-/// present-child flag is clear without consuming stream bits; exhaustion is
-/// therefore tracked by the path's left-branch count (zero means the current
-/// leaf is the preorder last), not by stream position.
-///
-/// Shared with the masked comparison co-walk ([`super::masked`]), which runs
-/// the advance law at full arity against up to two of these cursors.
-pub(super) struct IdLeafCursor<'a> {
-    cursor: SliceCursor<'a>,
-    /// Root-to-leaf branch directions, root first.
-    path: BitStack,
-    /// Parallel to `path`: whether each level's right child is present in the
-    /// stream (a clear flag is a synthetic unowned leaf).
-    right_present: BitStack,
-    /// Left-branch levels still open; zero exactly at the final leaf.
-    lefts: usize,
-    /// Whether the current leaf's region is owned.
-    owned: bool,
-}
-
-impl<'a> IdLeafCursor<'a> {
-    /// Open a packed id stream at its first constant region.
-    ///
-    /// The empty stream is the empty id — one unowned region over the whole
-    /// interval — mirroring the packed coding, where absence *is* the empty
-    /// region.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the stream is not a canonical packed id.
-    pub(super) fn open(bits: &'a BitsSlice) -> Self {
-        let mut this = IdLeafCursor {
-            cursor: SliceCursor::new(bits, 0),
-            path: BitStack::new(),
-            right_present: BitStack::new(),
-            lefts: 0,
-            owned: false,
-        };
-        if !bits.is_empty() {
-            this.descend();
-        }
-        this
-    }
-
-    /// Whether the current region is owned by the id.
-    pub(super) fn owned(&self) -> bool {
-        self.owned
-    }
-
-    /// Descend from the cursor to the next stored region in preorder, extending
-    /// the path with a left branch per internal node passed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the stream is not a canonical packed id.
-    fn descend(&mut self) {
-        loop {
-            // The two tag-bit reads below record themselves through the
-            // cursor's recording `read_bit`: no separate tag record, or every
-            // 2-bit tag would count twice.
-            let left = self.cursor.read_bit().expect("canonical id bits");
-            let right = self.cursor.read_bit().expect("canonical id bits");
-            if !left && !right {
-                // The full leaf: an owned terminal region.
-                self.owned = true;
-                return;
-            }
-            self.path.push(false);
-            self.lefts += 1;
-            self.right_present.push(right);
-            if !left {
-                // The absent left child: a synthetic unowned region.
-                self.owned = false;
-                return;
-            }
-        }
-    }
-}
-
-impl PlateauCursor for IdLeafCursor<'_> {
-    /// An id boundary carries no payload: ownership is the *current* region's
-    /// state, read between boundaries ([`owned`](IdLeafCursor::owned)), never a
-    /// crossing delta.
-    type Crossing = ();
-
-    /// The current region's depth: its interval has width `2^-depth`.
-    fn depth(&self) -> usize {
-        self.path.len()
-    }
-
-    /// Whether the current region is the stream's last (its interval ends at
-    /// the unit interval's right edge).
-    fn done(&self) -> bool {
-        self.lefts == 0
-    }
-
-    /// Advance past the current region to the next: the flip level's depth for
-    /// the law's tie test, and the empty crossing.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the stream is not a canonical packed id. Never called on a
-    /// final region (the overlay stops when both cursors are done).
-    fn step(&mut self) -> (usize, ()) {
-        loop {
-            match self.path.pop() {
-                Some(true) => {
-                    self.right_present.pop();
-                    continue;
-                }
-                Some(false) => break,
-                None => unreachable!(
-                    "the advanced cursor is never at its final region: an all-right path means the stream is consumed"
-                ),
-            }
-        }
-        self.lefts -= 1;
-        self.path.push(true);
-        let flip = self.path.len();
-        if self
-            .right_present
-            .last()
-            .expect("a flipped level recorded its right-child flag")
-        {
-            self.descend();
-        } else {
-            // The absent right child: one synthetic unowned region at the
-            // flip level itself.
-            self.owned = false;
-        }
-        (flip, ())
-    }
 }
 
 /// The maximum leaf depth of a skyline stream: one topology-only pre-scan,

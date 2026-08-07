@@ -26,7 +26,7 @@ use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
-use crate::version::skyline::sweep::{LeafCursor, PlateauCursor, Step};
+use crate::version::skyline::overlay::{LeafCursor, PlateauCursor, Step};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Version};
 

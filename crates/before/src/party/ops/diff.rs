@@ -46,7 +46,7 @@
 
 use crate::codec::{BitsMut, BitsSlice};
 use crate::idbits::IdReader;
-use crate::version::skyline::sweep::{self, PlateauCursor};
+use crate::version::skyline::overlay::{self, PlateauCursor};
 
 use super::build::IdSkylineBuilder;
 
@@ -104,7 +104,7 @@ impl IdReader<'_> {
 }
 
 /// Advance the overlay walk one boundary — the overlay-advance law
-/// ([`sweep::advance`]) over two boolean cursors — then settle any subtree
+/// ([`overlay::advance`]) over two boolean cursors — then settle any subtree
 /// either cursor stepped into against the other side.
 ///
 /// The law steps the deeper cursor, and the other in the same round exactly on
@@ -118,7 +118,7 @@ fn advance(a: &mut IdLeafCursor, b: &mut IdLeafCursor) {
     // The crossings settle only after the whole boundary is crossed — a settle
     // reads and moves *both* cursors — so the fold callback has nothing to do
     // and the positional returns carry the flags.
-    match sweep::advance(a, b, |_| {}) {
+    match overlay::advance(a, b, |_| {}) {
         (Some(a_entering), Some(b_entering)) => settle_pair(a, b, a_entering, b_entering),
         (Some(true), None) => settle_a(a, b),
         (None, Some(true)) => settle_b(a, b),

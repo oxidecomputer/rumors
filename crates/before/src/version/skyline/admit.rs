@@ -34,7 +34,7 @@
 //! overlay-advance law is restated at this cursor pair (the placement walk's
 //! idiom — the generic law is infallible, the checked side's crossings are
 //! `Result`s), with the same step and fold order as
-//! [`advance_diff`](super::sweep::advance_diff), so the accumulator's write
+//! [`advance_diff`](super::overlay::advance_diff), so the accumulator's write
 //! sequence — and with it the committed touch-meter readings — is the pair
 //! sweep's exactly. Once dominance is refuted the verdict is fixed, so `lo`'s
 //! cursor and the difference are dropped and the walk completes the strict
@@ -57,8 +57,8 @@ use suanpan::Accumulator;
 use crate::codec::{BitCursor, BitsMut, BitsSlice, Int};
 use crate::error::Decode;
 
+use super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
 use super::signed::unzigzag;
-use super::sweep::{fold, LeafCursor, PlateauCursor, Side, Step};
 
 /// A validating leaf cursor over one untrusted skyline stream.
 ///
@@ -331,10 +331,10 @@ where
 /// steps in the same round exactly when the flip level rises to or above its
 /// depth.
 ///
-/// The overlay-advance law ([`super::sweep::advance`]) restated at this cursor
-/// pair, the placement walk's idiom: the generic law is infallible and the
-/// checked side's crossings are `Result`s. Step and fold order are
-/// [`advance_diff`](super::sweep::advance_diff)'s — the deeper side first, `lo`
+/// The overlay-advance law ([`super::overlay::advance`]) restated at this
+/// cursor pair, the placement walk's idiom: the generic law is infallible and
+/// the checked side's crossings are `Result`s. Step and fold order are
+/// [`advance_diff`](super::overlay::advance_diff)'s — the deeper side first, `lo`
 /// (the `a` operand) first on ties — which keeps the difference's write
 /// sequence, and with it the committed touch-meter readings, identical to the
 /// pair sweep's.

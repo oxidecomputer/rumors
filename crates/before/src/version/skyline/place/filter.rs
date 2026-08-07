@@ -50,7 +50,8 @@ use suanpan::Accumulator;
 use crate::causally::Coverage;
 use crate::codec::{BitsSlice, Int};
 
-use super::super::sweep::{fold, Directions, LeafCursor, PlateauCursor, Side, Step};
+use super::super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
+use super::super::sweep::Directions;
 
 /// What a query demands of the relation between the probe and one bound stream,
 /// in the probe-first orientation (`le` is `probe <= bound`).

@@ -6,20 +6,20 @@
 //! one walk per bound — the probe stream decoded once per bound. This module
 //! fuses them: one overlay walk over the probe and both bound streams, each
 //! decoded once, maintaining one running difference per bound. The
-//! pair-difference algebra is [`sweep`](super::sweep)'s
-//! ([`OpenedPair`](super::sweep::OpenedPair) seeds a difference the same way;
+//! pair-difference algebra is [`overlay`](super::overlay)'s
+//! ([`OpenedPair`](super::overlay::OpenedPair) seeds a difference the same way;
 //! [`fold`] orients every crossing); only the arity and the verdict vocabulary
 //! are this walk's.
 //!
 //! # The walk
 //!
 //! One [`LeafCursor`] per present stream. All current leaves contain the sweep
-//! point, so they nest by depth, and the comparison sweep's boundary
-//! bookkeeping generalizes verbatim (the [`masked`](super::masked) walk's
+//! point, so they nest by depth, and the overlay's boundary bookkeeping
+//! generalizes verbatim (the [`masked`](super::masked) walk's
 //! precedent): the deepest cursor advances, and every other cursor whose depth
 //! reaches the advanced cursor's flip level advances in the same step, tied
 //! boundaries closing to one shared flip level (debug-asserted at every tie).
-//! The generic [`advance`](super::sweep::advance) law is binary, so — exactly
+//! The generic [`advance`](super::overlay::advance) law is binary, so — exactly
 //! as the masked walk does at arity four — the loop here restates the law at
 //! this arity rather than instantiating it; the advance rule and its tie assert
 //! are the law's, and only the slot dispatch is this walk's.
@@ -88,7 +88,7 @@
 //!
 //! # Cost
 //!
-//! Derived, mirroring [`sweep`](super::sweep)'s argument stream by stream:
+//! Derived, mirroring [`overlay`](super::overlay)'s argument stream by stream:
 //! every topology bit of every present stream is read at most once, every path
 //! bit pushed and popped at most once, and every leaf payload decoded once and
 //! folded into at most two accumulators (a constant factor over the pair sweep,
@@ -128,7 +128,8 @@ use suanpan::Accumulator;
 use crate::causally::{Dominance, Endpoint, Placement, Precedence};
 use crate::codec::{BitsSlice, Int};
 
-use super::sweep::{fold, Directions, LeafCursor, PlateauCursor, Side, Step};
+use super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
+use super::sweep::Directions;
 
 /// A side's disposition when a verdict hook leaves the walk running: keep
 /// sweeping its stream, or drop its cursor — the side's relation is decided as
@@ -445,8 +446,8 @@ fn walk<V>(
 /// Advance the overlay one boundary: the deepest cursor steps, and every other
 /// cursor whose depth reaches the flip level steps in the same round.
 ///
-/// The overlay-advance law ([`super::sweep::advance`]) restated at this arity,
-/// the masked walk's idiom.
+/// The overlay-advance law ([`super::overlay::advance`]) restated at this
+/// arity, the masked walk's idiom.
 ///
 /// Slot order puts the probe last so it wins depth ties and steps first (the
 /// binary law's equal-depth arm steps its first operand first, and the probe is

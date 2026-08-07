@@ -169,6 +169,9 @@ pub mod fill;
 pub mod grow;
 pub mod literal;
 pub mod masked;
+// The overlay cursors and the advance law: crate-private walk machinery shared
+// by every merge; pub for its module doc's place in the meter-feature rustdoc.
+pub mod overlay;
 pub mod query;
 mod signed;
 pub mod sweep;

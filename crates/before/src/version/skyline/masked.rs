@@ -6,15 +6,15 @@
 //! Comparing a projection therefore never needs the projected stream as an
 //! object — it is a pointwise question over the overlay of up to four packed
 //! streams (each side's event stream plus its optional id mask), and this
-//! module answers it in one fused merge, the [`sweep`](super::sweep) machinery
-//! generalized from two cursors to the full cursor set.
+//! module answers it in one fused merge, the [`overlay`](super::overlay)
+//! machinery generalized from two cursors to the full cursor set.
 //!
 //! # The walk
 //!
 //! One `LeafCursor` per event stream and one `IdLeafCursor` per mask (an
 //! unmasked side simply has no id cursor — its ownership is everywhere). All
 //! current leaves and regions contain the sweep point, so they nest by depth,
-//! and the comparison sweep's boundary bookkeeping generalizes verbatim: the
+//! and the overlay's boundary bookkeeping generalizes verbatim: the
 //! deepest cursor advances, and every other cursor whose depth reaches the
 //! advanced cursor's flip level advances in the same step (tied boundaries
 //! close to one shared flip level; the walk debug-asserts it at every tie).
@@ -82,10 +82,8 @@ use suanpan::Accumulator;
 
 use crate::codec::BitsSlice;
 
-use super::query::IdLeafCursor;
-use super::sweep::{
-    eq_exit, fold, order_exit, Directions, LeafCursor, OpenedPair, PlateauCursor, Side,
-};
+use super::overlay::{fold, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side};
+use super::sweep::{eq_exit, order_exit, Directions};
 
 /// The causal order of two projected skylines, `None` for concurrent.
 ///
@@ -297,7 +295,7 @@ impl<'a> Walk<'a> {
     /// other cursor whose depth reaches the flip level steps in the same round
     /// (its boundary tied).
     ///
-    /// The overlay-advance law ([`super::sweep::advance`]) at full arity,
+    /// The overlay-advance law ([`super::overlay::advance`]) at full arity,
     /// stated over [`PlateauCursor`]: overlapping dyadic intervals nest, so the
     /// deepest cursor's plateau ends first, and a shallower cursor's end ties
     /// exactly when the flip level rises to or above its depth (tied sides

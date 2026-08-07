@@ -3,7 +3,7 @@
 //!
 //! Join is pointwise `max` and meet pointwise `min` over the unit id interval,
 //! so both ride the comparison sweep's merge walk unchanged (the
-//! [`sweep`](super::sweep) module doc carries the boundary bookkeeping): two
+//! [`overlay`](super::overlay) module doc carries the boundary bookkeeping): two
 //! leaf cursors over the overlay partition, one running signed difference `D =
 //! height_a − height_b` on the cliff-immune [`Accumulator`]. What emission adds
 //! is an output leaf per elementary interval — depth `max` of the two cursor
@@ -76,8 +76,9 @@ use suanpan::Accumulator;
 use crate::codec::{BitsMut, BitsSlice, Code, Int};
 
 use super::build::SkylineBuilder;
+use super::overlay::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
 use super::signed::{gamma_code_int, gamma_code_signed_int, signed_sum_int};
-use super::sweep::{advance_diff, Directions, OpenedPair, PlateauCursor, Side, Step};
+use super::sweep::Directions;
 
 /// The join (pointwise max) of the versions two skyline streams denote, as a
 /// canonical skyline stream.
