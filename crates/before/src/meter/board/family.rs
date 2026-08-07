@@ -124,8 +124,19 @@ const PURE_COMB_BASE: usize = 1_000;
 ///
 /// The cascade runs at ~4 touches per input byte on the cured fold direction —
 /// the leveled control's constant — so the base sits at the pure-comb level for
-/// comparable work.
-const ASCEND_CLIFF_BASE: usize = 1_000;
+/// comparable work. The base is a multiple of 32 deliberately (992 = 31 ×
+/// 32): the family's rank exponent is `s − 1`, and `rank_sum` lands its small
+/// summands at bit remainder `exp mod 32` (an honest amortized-O(1) constant
+/// that flips with the remainder — the freeze-position base's derivation
+/// carries the mechanism); `32 | s` pins the remainder at 31 at every ladder
+/// point, so the exponent trend compares like against like across the whole
+/// ladder. Among the multiples of 32 the base sits just below the 1024-bit
+/// magnitude boundary: the tick walk's certificate buffers round their
+/// capacity at powers of two, the ×2 ladder preserves the base's position
+/// inside that period at every point, and the position just below a boundary
+/// samples the rounding at its efficient edge — a base just above one
+/// samples the same work at nearly double the held capacity.
+const ASCEND_CLIFF_BASE: usize = 992;
 
 /// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops` row:
 /// small, so the pair's cost is carried entirely by the mismatch.

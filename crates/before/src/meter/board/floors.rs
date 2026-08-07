@@ -16,7 +16,10 @@
 //!   cell from the operands wherever the contract admits an early exit:
 //!   the comparison rows floor at the root codes exactly when their pair
 //!   is concurrent (a comparable pair must certify dominance over every
-//!   region, so it keeps the full floor).
+//!   region, so it keeps the full floor), and the one-directional
+//!   membership row floors at the root codes whenever the query admits
+//!   its probe (one witness decides; only refusal certifies every
+//!   region — [`membership_floors`]).
 //!   Not-applicable is reserved for operations
 //!   whose contract is a wholesale byte move or compare (encode, hash,
 //!   same-form equality) or whose operands have no packed stream at all
@@ -681,6 +684,56 @@ pub(super) fn comparison_floors(v: &Version, w: &Version, packed_bytes: usize) -
             segments: seg_ceiling_only(),
             scan: scan_touch(),
             touch: na(NA_TOUCH_CONCURRENT_OPERANDS),
+        }
+    }
+}
+
+/// Touch NA on the membership row where the query admits the probe: one
+/// witness event outside the bound decides the answer, so no delta-fold count
+/// is forced.
+const NA_TOUCH_ONE_WITNESS: &str = "the query admits the probe: one witness event outside the \
+     bound decides it, so no delta-fold count is forced";
+
+/// The membership row's floors (`causally::since(v).contains(w)`), derived
+/// from the shape of the answer the question forces (outside any
+/// measurement).
+///
+/// Membership asks one direction only — is `w` covered by `v`? — so unlike
+/// the two-directional comparison rows ([`comparison_floors`], where any
+/// comparable pair must be certified to the end), the floors fork on the
+/// verdict, one universal premise with no per-family carve-outs:
+///
+/// - **The query admits `w`** (`w` is *not* covered: `v < w` or the pair is
+///   concurrent). The answer is decidable from one witness event of `w`
+///   outside `v`, wherever the streams place it, so only the root-codes scan
+///   floor binds and no touch is forced. Committed families that happen to
+///   place the witness deep read honest larger scans; the floor states the
+///   minimum a conforming walk could do, never the typical.
+/// - **The query refuses `w`** (`w ≤ v`, strictly). Refusal certifies
+///   coverage over every region of `w`: the full-examination scan floor and
+///   the per-overlay-boundary touch floor ([`touch_pair_fold`]'s premise)
+///   bind.
+/// - **An equal pair** is answerable by canonical byte identity without any
+///   metered stream work, as on the comparison rows, so neither floor binds.
+pub(super) fn membership_floors(v: &Version, w: &Version, packed_bytes: usize) -> Floors {
+    if v == w {
+        return Floors {
+            heap: na(NA_HEAP_IN_PLACE),
+            limb: na(NA_LIMB_NOT_FORCED),
+            segments: seg_ceiling_only(),
+            scan: na(NA_SCAN_EQ_BYTES),
+            touch: na(NA_TOUCH_EQUAL_PAIR),
+        };
+    }
+    if v.partial_cmp(w) == Some(Ordering::Greater) {
+        walk_floors(packed_bytes, touch_pair_fold(v, w))
+    } else {
+        Floors {
+            heap: na(NA_HEAP_IN_PLACE),
+            limb: na(NA_LIMB_NOT_FORCED),
+            segments: seg_ceiling_only(),
+            scan: scan_touch(),
+            touch: na(NA_TOUCH_ONE_WITNESS),
         }
     }
 }

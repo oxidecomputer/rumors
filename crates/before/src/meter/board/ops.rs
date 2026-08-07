@@ -29,17 +29,17 @@ use super::family::{
 };
 use super::floors::{
     clock_overlap_floors, comparison_floors, heap_materializes, id_rejection_floors, limb_stream,
-    limb_wide, masked_cmp_floors, na, rejection_floors, scan_examines, scan_touch,
-    seg_ceiling_only, sync_floors, text_rejection_floors, tick_walk_floors, touch_delta_fold,
-    touch_fold_first_merges, touch_pair_fold, touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES,
-    NA_HEAP_IN_PLACE, NA_LIMB_DEPENDENCY, NA_LIMB_ID_TREE, NA_LIMB_NARROW, NA_LIMB_NOT_FORCED,
-    NA_LIMB_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_RANK_BYTES,
-    NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW, NA_TOUCH_ID_TREE,
-    NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC,
-    NA_TOUCH_REJECTION, NA_TOUCH_RENDER_SUMMARIES, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF,
-    WHY_LIMB_RANK_DECODE, WHY_LIMB_RANK_ENCODE, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM,
-    WHY_SCAN_EXAMINES, WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED, WHY_SCAN_REJECT_END,
-    WHY_TOUCH_RANK_SUM,
+    limb_wide, masked_cmp_floors, membership_floors, na, rejection_floors, scan_examines,
+    scan_touch, seg_ceiling_only, sync_floors, text_rejection_floors, tick_walk_floors,
+    touch_delta_fold, touch_fold_first_merges, touch_pair_fold, touch_wide_stream, walk_floors,
+    NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE, NA_LIMB_DEPENDENCY, NA_LIMB_ID_TREE, NA_LIMB_NARROW,
+    NA_LIMB_NOT_FORCED, NA_LIMB_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM,
+    NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW,
+    NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION,
+    NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_REJECTION, NA_TOUCH_RENDER_SUMMARIES, NA_TOUCH_SEED_RAISE,
+    WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_DECODE, WHY_LIMB_RANK_ENCODE, WHY_LIMB_RANK_PAIR,
+    WHY_LIMB_RANK_SUM, WHY_SCAN_EXAMINES, WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED,
+    WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
 };
 use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_clock, radix_units_party,
@@ -1108,8 +1108,11 @@ pub(super) fn ops() -> Vec<Op> {
             name: "causally_contains",
             group: OpGroup::Version,
             prepare: |f| {
+                // Membership is one-directional, so the floors fork on
+                // the verdict, not on comparability (the constructor's
+                // doc carries the derivation).
                 let (v, w, n) = f.version_pair()?;
-                let floors = comparison_floors(&v, &w, n);
+                let floors = membership_floors(&v, &w, n);
                 Some(Cell::new(n, floors, move || {
                     let hit = causally::since(&v).contains(&w);
                     (hit, v, w)

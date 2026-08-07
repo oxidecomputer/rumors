@@ -359,12 +359,18 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
 /// jump-write (at most half the held digit positions; the bound verified
 /// against the ledger code) — so the tick walk's live certificate state is
 /// honest `Θ(input)` work-state with a large constant, intended and modeled,
-/// not amplification. Measured (release, both acceptance scales): 123.8 → 125.9
-/// B per input byte at heap exponent 1.00 — a constant, not a class; the
-/// ceiling is the worst reading ×1.25, rounded up (owner-ratified, conditional
-/// on exactly this flat-constant profile). A reading over it is a genuine
+/// not amplification. The per-entry footprint prices the accumulator's
+/// word-backed quick register alongside its digit state — the trade that
+/// buys the tick walk's word-scale fast path — with the certificate
+/// buffers' capacity rounded at powers of two, sampled at the position
+/// inside that period the family base fixes for every ladder point (the
+/// base's own doc carries the choice). Measured (release, across the
+/// ladder's two sampling scales): 179.0 → 181.1 B per input byte at heap
+/// exponent 1.00 — a constant, not a class; the ceiling is the worst
+/// reading ×1.25, rounded up (owner-ratified, conditional on exactly this
+/// flat-constant profile). A reading over it is a genuine
 /// certificate-memory regression on the one shape that defeats consumption.
-pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 158.0;
+pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 227.0;
 
 /// The ascending-cliff `version_min_ticks` cell's family-stated heap ceiling,
 /// in bytes per packed input byte (judged in place of
@@ -374,14 +380,16 @@ pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 158.0;
 /// Derivation: the exact fold's anchor web holds one live reign record per
 /// simultaneously-open minimum, and the ascending cliff is the one committed
 /// shape that defeats batching — `Θ(k)` minima stay open at once, so the fold
-/// legitimately holds `Θ(k)` live reign records (~119 B each, the state that
-/// keeps the fold's *exponent* linear) at a flat per-byte constant: intended
-/// and modeled, not amplification. Measured (release, both acceptance scales):
-/// 138.7 → 141.3 B per input byte at heap exponent 1.00 — a constant, not a
-/// class; the ceiling is the worst reading ×1.25, rounded up (owner-ratified,
-/// conditional on exactly this flat-constant profile). A reading over it is a
-/// genuine reign-state regression on the one shape that defeats batching.
-pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 177.0;
+/// legitimately holds `Θ(k)` live reign records (the state that keeps the
+/// fold's *exponent* linear, each pricing its accumulators' word-backed
+/// quick registers alongside their digit state) at a flat per-byte constant:
+/// intended and modeled, not amplification. Measured (release, across the
+/// ladder's two sampling scales): 194.8 → 197.5 B per input byte at heap
+/// exponent 1.00 — a constant, not a class; the ceiling is the worst
+/// reading ×1.25, rounded up (owner-ratified, conditional on exactly this
+/// flat-constant profile). A reading over it is a genuine reign-state
+/// regression on the one shape that defeats batching.
+pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 247.0;
 
 /// The mirror-wide display pair's declared render model: the limb *exponent*
 /// ceiling, judged in place of [`MAX_SCALING_EXPONENT`].
