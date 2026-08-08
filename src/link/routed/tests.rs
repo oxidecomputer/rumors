@@ -141,6 +141,16 @@ fn establishment_connects_control_and_streams() {
     });
 }
 
+/// `local_addr` is the advertised name given at construction, the name
+/// peers dial this endpoint at; callers need it back for policies like
+/// dial tiebreaks.
+#[test]
+fn local_addr_is_the_constructed_name() {
+    let net = MemoryNet::new();
+    let (a, _incoming, _router) = endpoint(&net, "a", Config::default());
+    assert_eq!(*a.local_addr(), MemoryName::new("a"));
+}
+
 /// A stream connection quoting a token no live link owns is dropped:
 /// the dialer observes end-of-stream, and no link's queue sees the
 /// connection.
