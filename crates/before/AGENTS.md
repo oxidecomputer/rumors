@@ -11,9 +11,9 @@ oracle, function-space oracle, exhaustive small-scope, algebraic laws).
 ## Commands
 
 The workspace `justfile` (repo root) is the source of truth for verification;
-`just gate` before every commit, `just all` for the full sweep (which is what
-builds this crate's feature matrix and fuzz targets). For a `-p before`-scoped
-inner loop:
+`just gate` before every commit (it compiles this crate's fuzz targets, which
+no workspace-wide build reaches), `just all` for the full sweep (this crate's
+feature matrix and the libFuzzer smoke). For a `-p before`-scoped inner loop:
 
 - Test: `cargo nextest run -p before --all-features`
 - Lint: `cargo clippy -p before --all-targets --all-features -- -D warnings`

@@ -9,13 +9,12 @@
 # The gate runs every check a commit must pass: build-free lints first,
 # then every building leg concurrently (see the comment above `gate` for
 # the stream grouping and why parallelism cannot move a verdict).
-# `ci` builds the artifacts the gate doesn't reach (the feature matrix,
-# wasm, bench builds, the fuzz-target build, the viz bundle), exactly as
-# GitHub CI builds them; `all` adds what CI cannot run (the fuzz smoke and the
-# formal tier). Neither sweep repeats the gate's instrument legs — the fuel
-# bands, the board verdicts and pins, and surface totality run in `just
-# gate`, and GitHub
-# CI's `instruments` job re-runs the counter-based subset (the workflow file
+# `ci` builds the artifacts the gate doesn't reach (the feature matrix, wasm,
+# bench builds, the viz bundle), exactly as GitHub CI builds them; `all` adds
+# what CI cannot run (the fuzz smoke and the formal tier). Neither sweep
+# repeats the gate's instrument legs — the fuel bands, the board verdicts
+# and pins, and surface totality run in `just gate`, and GitHub CI's
+# `instruments` job re-runs the counter-based subset (the workflow file
 # says which legs stay local and why). The comment above each recipe states
 # what it verifies and why.
 
@@ -189,6 +188,25 @@ readme-check:
     ./tools/readme self-test
     ./tools/readme check
 
+# This catches broken intra-doc links. AGENTS.md calls the rustdoc the
+# documentation of record, so it's load-bearing and part of the gate.
+
+# Build the rustdoc with warnings denied.
+docs:
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+
+# The public build above never renders private items, so a stale intra-doc
+# link inside a private module sails through it. This pass documents private
+# items too. It cannot replace `docs`: with private items rendered, the
+# `private_intra_doc_links` lint (public docs linking to a private item) no
+# longer fires, so each pass catches a class the other cannot. A separate
+# target dir keeps the two from invalidating each other's fingerprints, which
+# would otherwise re-doc the whole workspace twice on every gate.
+
+# Build the rustdoc including private items, warnings denied.
+docs-internal:
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
+
 # The supply-chain leg, two build-free checks over the committed lockfiles.
 # cargo-audit sweeps every lockfile in the repository — the root workspace
 # and each detached workspace (fuzz, fuzzfit, fuelscape, surfacecheck) —
@@ -215,6 +233,22 @@ supply-chain:
     cargo audit --file crates/before/surfacecheck/Cargo.lock
     cargo deny --workspace check bans
 
+# The fuzz targets live in a detached workspace (crates/before/fuzz), so no
+# workspace-wide build reaches them and nothing but this leg holds them to
+# the API they assert against. It is a gate leg rather than a sweep leg
+# because the drift it catches is caused by ordinary refactors — a rename in
+# `before` breaks a fuzz target in the same commit that lands it, and a
+# compile is seconds of gate time. Only the build: the libFuzzer smoke is
+# poor per-commit spend and runs at `just all` cadence.
+# Needs cargo-fuzz: `cargo install cargo-fuzz`.
+
+# Build the libFuzzer targets (nightly). The fmt line is the detached
+# workspace's formatting leg: the root `cargo fmt --all` cannot reach it.
+[working-directory("crates/before/fuzz")]
+fuzz-build:
+    cargo fmt --check
+    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
+
 # The gate runs in two tiers. First `gate-lints`, sequential and
 # build-free, because a formatting slip must not cost four minutes to
 # learn about. Then `gate-streams`, which is every leg that builds
@@ -235,7 +269,7 @@ supply-chain:
 # preserving the fail-fast ordering within it. Every other leg already
 # writes a directory nothing else touches — the nightly doctest target,
 # the private-items doc target, the rustdoc-JSON target, and the detached
-# fuzzfit/fuelscape/surfacecheck workspaces — and that is exactly what
+# fuzz/fuzzfit/fuelscape/surfacecheck workspaces — and that is exactly what
 # lets them overlap. `fuzzfit` and `fuelscape-test` share one stream
 # because both build the same wasm guest.
 #
@@ -302,6 +336,7 @@ gate-streams:
     start_stream doctest      10 doctest
     start_stream board        10 amp-board-acceptance worst-cases-pin
     start_stream wasm         10 fuzzfit fuelscape-test
+    start_stream fuzz         10 fuzz-build
     start_stream surface      10 surface-totality
     start_stream internal-docs 10 docs-internal
     start_stream audit        10 supply-chain
@@ -354,40 +389,11 @@ wasm-check:
 viz:
     ./crates/before-viz/build.sh
 
-# This catches broken intra-doc links. AGENTS.md calls the rustdoc the
-# documentation of record, so it's load-bearing and part of the gate.
-
-# Build the rustdoc with warnings denied.
-docs:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-
-# The public build above never renders private items, so a stale intra-doc
-# link inside a private module sails through it. This pass documents private
-# items too. It cannot replace `docs`: with private items rendered, the
-# `private_intra_doc_links` lint (public docs linking to a private item) no
-# longer fires, so each pass catches a class the other cannot. A separate
-# target dir keeps the two from invalidating each other's fingerprints, which
-# would otherwise re-doc the whole workspace twice on every gate.
-
-# Build the rustdoc including private items, warnings denied.
-docs-internal:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
-
 # The only build that exercises the bench/release profile; benches otherwise rot silently.
 
 # Compile (don't run) the criterion benches.
 bench-build:
     {{ justfile_directory() }}/tools/memwatch cargo bench --workspace --no-run
-
-# The fuzz targets live in a detached workspace (crates/before/fuzz) precisely
-# so the ordinary gate never compiles them: without this recipe they rot invisibly.
-
-# Build the libFuzzer targets (nightly). The fmt line is the detached
-# workspace's formatting leg: the root `cargo fmt --all` cannot reach it.
-[working-directory("crates/before/fuzz")]
-fuzz-build:
-    cargo fmt --check
-    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) and the `before::laws` law collection are asserted inline in the

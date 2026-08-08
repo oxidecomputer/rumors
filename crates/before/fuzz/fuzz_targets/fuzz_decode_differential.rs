@@ -19,8 +19,9 @@
 //! The arms:
 //!
 //!   - `Span::decode` (the fused parse-and-validate) vs the composed
-//!     spelling: carve the meet as a self-delimiting prefix, decode the
-//!     join from the rest, then validate the pair with `Span::new`.
+//!     spelling: carve the lower bound as a self-delimiting prefix, decode
+//!     the upper bound from the rest, then validate the pair with
+//!     `Span::new`.
 //!   - `Ranked::decode` (the fused key decode) vs the composed spelling:
 //!     carve the rank stream, decode the version from the rest, then
 //!     cross-check the rank against the version's own fold.
@@ -119,10 +120,10 @@ enum Stage {
 
 /// The composed counterpart of `Span::decode`.
 ///
-/// Carve the meet as a self-delimiting prefix (the borsh reader path,
-/// the public spelling of "parse one version and stop"), decode the
-/// join from the remainder (`Version::decode`'s whole-input contract),
-/// then validate the pair with `Span::new`.
+/// Carve the lower bound as a self-delimiting prefix (the borsh reader
+/// path, the public spelling of "parse one version and stop"), decode the
+/// upper bound from the remainder (`Version::decode`'s whole-input
+/// contract), then validate the pair with `Span::new`.
 fn span_composed(data: &[u8]) -> Result<(Version, Version), (Stage, Genre)> {
     let mut reader = data;
     let lo = <Version as BorshDeserialize>::deserialize_reader(&mut reader)
@@ -138,11 +139,11 @@ fn span_composed(data: &[u8]) -> Result<(Version, Version), (Stage, Genre)> {
 ///
 /// Genre agreement is exact except for the one documented divergence
 /// (`Span::decode`'s Errors contract): the fused admission walk carries
-/// no height accumulator — the dominance verdict subsumes it — so a join
-/// whose running height dips negative *and* which is structurally
-/// defective later in the stream reports the structural genre, where
-/// component-wise decoding reports the dip (`NotCanonical`) it meets
-/// first. A `Second`-stage `NotCanonical` therefore admits a fused
+/// no height accumulator — the dominance verdict subsumes it — so an
+/// upper bound whose running height dips negative *and* which is
+/// structurally defective later in the stream reports the structural
+/// genre, where component-wise decoding reports the dip (`NotCanonical`)
+/// it meets first. A `Second`-stage `NotCanonical` therefore admits a fused
 /// `Truncated`/`TrailingBits`; every other stage-genre pair must match
 /// exactly, and in particular a `Pair`-stage rejection (both components
 /// well-formed, the pair crossed or concurrent) must be fused
@@ -153,8 +154,8 @@ fn span_differential(data: &[u8]) {
     match span_composed(data) {
         Ok((lo, hi)) => {
             let span = fused.expect("composed span accepts: fused decode must accept");
-            assert_eq!(span.meet(), &lo, "fused and composed meets disagree");
-            assert_eq!(span.join(), &hi, "fused and composed joins disagree");
+            assert_eq!(span.lo(), &lo, "fused and composed lower bounds disagree");
+            assert_eq!(span.hi(), &hi, "fused and composed upper bounds disagree");
             assert_eq!(span.encode(), data, "accepted span re-encodes to its input");
         }
         Err((stage, composed)) => {
