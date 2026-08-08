@@ -28,13 +28,14 @@ operation model and how it maps to the paper.
 
 | Scenario           | Population | Final size (this crate) | Paper (Appendix A encoding) |
 |--------------------|-----------:|------------------------:|-----------------------------|
-| Data, 100k iters   |        128 |                ~3128 B  | "< 2900 B" (chart ~3000–4000) |
+| Data, 100k iters   |        128 |                ~3262 B  | "< 2900 B" (chart ~3000–4000) |
 | Data               |          4 |                  ~14 B  | ~13–15 B                    |
-| Process, 25k iters |        128 |                 ~137 B  | "slightly above 170 B"      |
+| Process, 25k iters |        128 |                 ~146 B  | "slightly above 170 B"      |
 | Process            |          4 |                   ~8 B  | ~5–7 B                      |
 
 The curve shapes — rapid early growth then stabilization with a faint
-logarithmic creep — reproduce the paper's result. Absolute byte counts differ
-because this crate's packed encoding is more compact than Appendix A's; the gap
-is widest in the process/static case, which is dominated by event-component
-growth where our encoding wins most.
+logarithmic creep — reproduce the paper's result. On absolute byte counts,
+the process/static case runs well below the paper's (event-component growth
+dominates there, and this crate's packed event coding is where it wins); the
+data/dynamic case lands within the paper's charted band, slightly above its
+quoted floor.

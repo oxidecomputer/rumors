@@ -21,6 +21,9 @@ use crate::Clock;
 pub(crate) enum Op {
     /// Advance member `i`.
     Tick(usize),
+    /// Advance member `i` by `n` events in one fused call (small `n`:
+    /// the oracle applier iterates it literally).
+    Ticks(usize, u8),
     /// Split member `i`, appending the child.
     Fork(usize),
     /// `i` sends (ticks, emits its version); `j` receives it.
@@ -34,6 +37,7 @@ pub(crate) enum Op {
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
         (0usize..8).prop_map(Op::Tick),
+        (0usize..8, 0u8..=6).prop_map(|(i, n)| Op::Ticks(i, n)),
         (0usize..8).prop_map(Op::Fork),
         (0usize..8, 0usize..8).prop_map(|(a, b)| Op::Send(a, b)),
         (0usize..8, 0usize..8).prop_map(|(a, b)| Op::Sync(a, b)),
@@ -43,7 +47,14 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 
 /// A trace of up to 30 ops over a population that starts as a single seed clock.
 pub(crate) fn world_strategy() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec(op_strategy(), 0..30)
+    world_strategy_up_to(30)
+}
+
+/// A trace of up to `max_ops` ops over a population that starts as a single
+/// seed clock, for suites that need histories deeper than [`world_strategy`]'s
+/// default cap.
+pub(crate) fn world_strategy_up_to(max_ops: usize) -> impl Strategy<Value = Vec<Op>> {
+    prop::collection::vec(op_strategy(), 0..max_ops)
 }
 
 /// Apply a trace to a fresh oracle population.
@@ -53,6 +64,14 @@ pub(crate) fn run(ops: &[Op]) -> Vec<oracle::Clock> {
         let n = cs.len();
         match *op {
             Op::Tick(i) => cs[i % n].tick(),
+            // The oracle side is the literal iteration, so every
+            // downstream differential holds the impl's fused call to n
+            // sequential reference ticks.
+            Op::Ticks(i, k) => {
+                for _ in 0..k {
+                    cs[i % n].tick();
+                }
+            }
             Op::Fork(i) => {
                 let child = cs[i % n].fork();
                 cs.push(child);
@@ -96,6 +115,9 @@ pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
     match *op {
         Op::Tick(i) => {
             imp[i % n].tick();
+        }
+        Op::Ticks(i, k) => {
+            imp[i % n].ticks(u64::from(k));
         }
         Op::Fork(i) => {
             let child = imp[i % n].fork();

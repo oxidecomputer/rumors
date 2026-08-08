@@ -1,88 +1,18 @@
 //! Leaf iterators over the untyped tree: a shared frontier walk and its two
 //! shells, [`Iter`] (the unfiltered, exact-size walk) and [`Range`]
-//! (the walk filtered to a causal [`RangeBounds<Version>`] range).
+//! (the walk filtered to a causal [`causally::Query`]).
 //!
 //! A child module of [`node`](super) so the walk can match on the parent's
 //! private [`Children`] variants and path-compression internals directly.
 
-use std::cmp::Ordering;
 use std::collections::VecDeque;
-use std::ops::{Bound, RangeBounds, RangeFull};
 
 use tinyvec::ArrayVec;
 
-use crate::{Version, message::Message};
+use crate::causally::{Coverage, Polarity, Query};
+use crate::{Version, causally, message::Message};
 
 use super::{Children, Node};
-
-/// A causal range's bound pair, resolved for one subtree check.
-///
-/// On the partially ordered [`Version`]s, a range denotes a *difference of
-/// causal down-sets*: keep the leaves contained in the end bound, subtract
-/// the leaves contained in the start bound. [`Range`] states the per-bound
-/// semantics; the checks below resolve them against a subtree's memoized
-/// version bounds.
-struct Bounds<'a> {
-    start: Bound<&'a Version>,
-    end: Bound<&'a Version>,
-}
-
-impl Bounds<'_> {
-    /// Whether *no* leaf of a subtree with the given memoized version
-    /// bounds can pass.
-    ///
-    /// Holds when every leaf falls inside the subtracted start down-set (each
-    /// is at most the node's ceiling), or none falls inside the kept end
-    /// down-set (each is at least the node's floor, and containment composes
-    /// through `<=`). Conservative in the right direction: `false` merely
-    /// means the walk must look deeper.
-    fn prunes<T>(&self, node: &Node<T>) -> bool {
-        let below_start = match self.start {
-            Bound::Unbounded => false,
-            Bound::Excluded(start) => node.ceiling() <= start,
-            Bound::Included(start) => node.ceiling() < start,
-        };
-        let beyond_end = || match self.end {
-            Bound::Unbounded => false,
-            Bound::Included(end) => matches!(
-                node.floor().partial_cmp(end),
-                None | Some(Ordering::Greater)
-            ),
-            Bound::Excluded(end) => matches!(
-                node.floor().partial_cmp(end),
-                None | Some(Ordering::Equal | Ordering::Greater)
-            ),
-        };
-        below_start || beyond_end()
-    }
-
-    /// Whether *every* leaf of a subtree with the given memoized version
-    /// bounds passes: the node's floor already escapes the subtracted start
-    /// down-set, and its ceiling is already contained in the kept end
-    /// down-set.
-    ///
-    /// For a leaf — whose floor and ceiling are both its version —
-    /// prune-or-promote is exhaustive: an unpruned leaf always passes.
-    fn promotes<T>(&self, node: &Node<T>) -> bool {
-        let clears_start = match self.start {
-            Bound::Unbounded => true,
-            Bound::Excluded(start) => matches!(
-                node.floor().partial_cmp(start),
-                None | Some(Ordering::Greater)
-            ),
-            Bound::Included(start) => matches!(
-                node.floor().partial_cmp(start),
-                None | Some(Ordering::Equal | Ordering::Greater)
-            ),
-        };
-        clears_start
-            && match self.end {
-                Bound::Unbounded => true,
-                Bound::Included(end) => node.ceiling() <= end,
-                Bound::Excluded(end) => node.ceiling() < end,
-            }
-    }
-}
 
 /// One pending subtree in a walk's frontier.
 struct Frame<'a, T> {
@@ -100,10 +30,10 @@ struct Frame<'a, T> {
 
 /// The shared frontier engine beneath [`Iter`] and [`Range`]: a lazy
 /// depth-first walk over a subtree's live leaves, filtered by a causal
-/// [`RangeBounds<Version>`] range.
+/// [`Query`].
 ///
-/// See [`Range`] for the per-bound semantics; [`RangeFull`] is the unfiltered
-/// walk and never touches a version. The walk yields each leaf's reconstructed
+/// [`Iter`] passes [`causally::all`], whose one root classification
+/// promotes the whole walk. The walk yields each leaf's reconstructed
 /// 32-byte path [`Key`], its [`Version`], and a borrowed handle to its
 /// [`Message`].
 ///
@@ -116,17 +46,17 @@ struct Frame<'a, T> {
 /// [`Prefix`](crate::tree::typed::Prefix)), so the only allocation the walk
 /// ever makes is the frontier deque itself.
 ///
-/// A popped subtree is resolved against the range by its memoized
-/// [`ceiling`](Node::ceiling)/[`floor`](Node::floor) before it is entered:
-/// a subtree that cannot contain a passing leaf is pruned whole
-/// ([`Bounds::prunes`]), one whose every leaf must pass is promoted
-/// ([`Bounds::promotes`]; its descendants skip the version comparisons), and
-/// only subtrees genuinely straddling a bound are descended undecided. For a
-/// leaf the prune-or-promote dichotomy is exhaustive, so the walk never
-/// compares versions leaf-by-leaf.
+/// A popped subtree is classified before it is entered: one
+/// [`coverage`](Query::coverage) verdict over its memoized
+/// [`span`](Node::span) prunes it whole ([`Empty`](Coverage::Empty)),
+/// promotes it ([`Full`](Coverage::Full); its descendants skip the
+/// version comparisons), or descends it undecided
+/// ([`Partial`](Coverage::Partial)). A leaf's span is coincident, so
+/// its verdict degenerates to membership and prune-or-promote is
+/// exhaustive: the walk never compares versions leaf-by-leaf.
 ///
 /// [`Key`]: crate::tree::key::Key
-struct Walk<'a, T, R> {
+struct Walk<'a, T, P: Polarity> {
     /// Pending [`Frame`]s, held in ascending key order front-to-back.
     ///
     /// Forward steps consume the front, backward steps the back; a branch is
@@ -140,21 +70,22 @@ struct Walk<'a, T, R> {
     /// Seeded from the root's [`Node::len`], decremented once per
     /// yielded leaf and by a pruned subtree's whole count. Exploding a branch
     /// into its children preserves it (a branch's `len` is the sum of its
-    /// children's). With [`RangeFull`] nothing is ever pruned, so this is
-    /// exact — what lets [`Iter`] be an [`ExactSizeIterator`]; with any other
-    /// range it is an upper bound.
+    /// children's). Under [`causally::all`] nothing is ever pruned, so this
+    /// is exact — what lets [`Iter`] be an [`ExactSizeIterator`]; under any
+    /// other query it is an upper bound.
     remaining: usize,
-    /// The causal range filter; [`RangeFull`] for the unfiltered [`Iter`].
-    range: R,
+    /// The causal query filter; [`causally::all`] for the unfiltered
+    /// [`Iter`].
+    query: Query<'a, P>,
 }
 
-impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
-    fn new(node: Option<&'a Node<T>>, path: &[u8], range: R) -> Self {
+impl<'a, T, P: Polarity> Walk<'a, T, P> {
+    fn new(node: Option<&'a Node<T>>, path: &[u8], query: Query<'a, P>) -> Self {
         match node {
             None => Self {
                 frames: VecDeque::new(),
                 remaining: 0,
-                range,
+                query,
             },
             Some(node) => {
                 let mut buf = ArrayVec::new();
@@ -166,7 +97,7 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
                         passes: false,
                     }]),
                     remaining: node.len(),
-                    range,
+                    query,
                 }
             }
         }
@@ -190,19 +121,17 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
         } else {
             self.frames.pop_front()
         } {
-            // Resolve this subtree against the range, unless an ancestor was
-            // already promoted.
-            let passes = passes || {
-                let bounds = Bounds {
-                    start: self.range.start_bound(),
-                    end: self.range.end_bound(),
+            // Classify this subtree against the query, unless an ancestor
+            // was already promoted.
+            let passes = passes
+                || match self.query.coverage(node.span()) {
+                    Coverage::Empty => {
+                        self.remaining -= node.len();
+                        continue 'frontier;
+                    }
+                    Coverage::Full => true,
+                    Coverage::Partial => false,
                 };
-                if bounds.prunes(node) {
-                    self.remaining -= node.len();
-                    continue 'frontier;
-                }
-                bounds.promotes(node)
-            };
             // The compressed prefix sits above this node's level and is stored
             // shallowest-last, so replay it shallowest-first to extend the path.
             for &byte in node.inner.prefix.iter().rev() {
@@ -210,10 +139,9 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
             }
             match &node.inner.children {
                 Children::Leaf { message, .. } => {
-                    // A leaf's floor and ceiling are both its version, so the
-                    // prune/promote dichotomy above is exhaustive: reaching
-                    // here means it passes.
-                    debug_assert!(passes, "an unpruned leaf passes its range");
+                    // A leaf's span is coincident, so its coverage verdict is
+                    // never Partial: reaching here means it passes.
+                    debug_assert!(passes, "an unpruned leaf passes its query");
                     debug_assert_eq!(
                         path.len(),
                         32,
@@ -284,7 +212,7 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
 ///
 /// [`Key`]: crate::tree::key::Key
 pub struct Iter<'a, T> {
-    walk: Walk<'a, T, RangeFull>,
+    walk: Walk<'a, T, causally::Neutral>,
 }
 
 impl<'a, T> Iter<'a, T> {
@@ -303,14 +231,14 @@ impl<'a, T> Iter<'a, T> {
     /// `path.len()` plus the height of `node` must therefore be 32.
     pub(crate) fn within(node: &'a Node<T>, path: &[u8]) -> Self {
         Self {
-            walk: Walk::new(Some(node), path, ..),
+            walk: Walk::new(Some(node), path, causally::all()),
         }
     }
 
     /// The empty iterator, for a tree with no root.
     pub(crate) fn empty() -> Self {
         Self {
-            walk: Walk::new(None, &[], ..),
+            walk: Walk::new(None, &[], causally::all()),
         }
     }
 }
@@ -338,29 +266,14 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
 
 impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
-/// The leaf walk filtered to a causal [`RangeBounds<Version>`] range.
+/// The leaf walk filtered to a causal [`Query`].
 ///
-/// A leaf with version `v` is yielded iff it is contained in the range's end
-/// bound and *not* contained in its start bound — a difference of causal
-/// down-sets. Per bound kind:
-///
-/// - start [`Unbounded`](Bound::Unbounded): nothing subtracted;
-///   [`Excluded(s)`](Bound::Excluded): leaves with `v <= s` are subtracted;
-///   [`Included(s)`](Bound::Included): leaves with `v < s` are subtracted
-///   (`s` itself survives).
-/// - end [`Unbounded`](Bound::Unbounded): everything kept;
-///   [`Included(e)`](Bound::Included): leaves with `v <= e` are kept;
-///   [`Excluded(e)`](Bound::Excluded): leaves with `v < e` are kept.
-///
-/// A start bound of either kind keeps versions *concurrent* to it
-/// (subtraction removes only the bound's causal past — "everything since"
-/// must not drop other parties' concurrent leaves), while an end bound of
-/// either kind drops them (keeping demands containment).
-///
-/// Subtrees wholly outside the range are pruned by their memoized version
-/// bounds without being entered, so a walk over a small causal delta against
-/// a large tree costs work proportional to the delta (plus the pruning
-/// frontier), not the tree.
+/// A leaf is yielded iff the query [`contains`](Query::contains) its
+/// version. Subtrees wholly outside the query are pruned by one
+/// [`coverage`](Query::coverage) verdict over their memoized version
+/// bounds without being entered, so a walk over a small causal delta
+/// against a large tree costs work proportional to the delta (plus
+/// the pruning frontier), not the tree.
 ///
 /// Same item shape and ordering guarantees as [`Iter`] — in particular,
 /// iteration order is key order, *not* causal order: filtering by versions
@@ -368,21 +281,21 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 /// [`ExactSizeIterator`]: how many leaves pass is unknown until they are
 /// visited, so [`size_hint`](Iterator::size_hint) reports only an upper
 /// bound.
-pub struct Range<'a, T, R> {
-    walk: Walk<'a, T, R>,
+pub struct Range<'a, T, P: Polarity> {
+    walk: Walk<'a, T, P>,
 }
 
-impl<'a, T, R: RangeBounds<Version>> Range<'a, T, R> {
+impl<'a, T, P: Polarity> Range<'a, T, P> {
     /// Iterate the leaves of the (possibly absent) height-32 root `node`
-    /// whose versions fall within the causal `range`.
-    pub(crate) fn root(node: Option<&'a Node<T>>, range: R) -> Self {
+    /// whose versions the causal `query` admits.
+    pub(crate) fn root(node: Option<&'a Node<T>>, query: Query<'a, P>) -> Self {
         Self {
-            walk: Walk::new(node, &[], range),
+            walk: Walk::new(node, &[], query),
         }
     }
 }
 
-impl<'a, T, R: RangeBounds<Version>> Iterator for Range<'a, T, R> {
+impl<'a, T, P: Polarity> Iterator for Range<'a, T, P> {
     type Item = (crate::tree::key::Key, &'a Version, &'a Message<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -396,7 +309,7 @@ impl<'a, T, R: RangeBounds<Version>> Iterator for Range<'a, T, R> {
     }
 }
 
-impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
+impl<'a, T, P: Polarity> DoubleEndedIterator for Range<'a, T, P> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.walk.step(true)
     }
@@ -417,14 +330,13 @@ impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
 /// only the current path's ancestors; everything already walked past is
 /// released.
 ///
-/// Same range semantics as the borrowing walk (see [`Range`] for the
-/// per-bound rules) and the same prune/promote logic ([`Bounds::prunes`] /
-/// [`Bounds::promotes`]); forward-only, since its consumers are subscription
-/// drains.
+/// Same query semantics and prune/promote/descend classification as the
+/// borrowing walk (see [`Range`]); forward-only, since its consumers are
+/// subscription drains.
 /// Yields each passing leaf as an owned [`Leaf`] handle alongside its
 /// reconstructed [`Key`](crate::tree::key::Key), which is what lets a caller
 /// lend `&Version` / `&Arc<T>` out of a leaf it keeps.
-pub struct RangeOwned<T, R> {
+pub struct RangeOwned<T, P: Polarity> {
     /// The not-yet-visited root, consumed by the first advance.
     start: Option<Node<T>>,
     /// The descent spine: index 0 is the root's level, the last entry is the
@@ -435,9 +347,9 @@ pub struct RangeOwned<T, R> {
     /// as the walk descends and ascends; a leaf is yielded exactly when it
     /// reaches 32 bytes.
     path: ArrayVec<[u8; 32]>,
-    /// The causal range filter (owned, e.g. a `(Bound<Version>,
-    /// Bound<Version>)` pair).
-    range: R,
+    /// The causal query filter, its bounds settled owned so the walk
+    /// carries no lifetime.
+    query: Query<'static, P>,
 }
 
 /// One level of a [`RangeOwned`] walk's descent spine.
@@ -493,11 +405,11 @@ impl<T> Leaf<T> {
     }
 }
 
-impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
-    /// Walk the leaves of the (possibly absent) height-32 root `node` whose
-    /// versions fall within the causal `range`.
-    pub(crate) fn root(node: Option<Node<T>>, range: R) -> Self {
-        Self::within(node, &[], range)
+impl<T, P: Polarity> RangeOwned<T, P> {
+    /// Walk the leaves of the (possibly absent) height-32 root `node`
+    /// whose versions the causal `query` admits.
+    pub(crate) fn root(node: Option<Node<T>>, query: Query<'static, P>) -> Self {
+        Self::within(node, &[], query)
     }
 
     /// Walk the leaves of a subtree rooted below the top of the tree.
@@ -507,7 +419,7 @@ impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
     /// each leaf still reconstructs a full 32-byte
     /// [`Key`](crate::tree::key::Key). `path.len()` plus the height of
     /// `node` must therefore be 32.
-    pub(crate) fn within(node: Option<Node<T>>, path: &[u8], range: R) -> Self {
+    pub(crate) fn within(node: Option<Node<T>>, path: &[u8], query: Query<'static, P>) -> Self {
         let mut buf = ArrayVec::new();
         buf.extend_from_slice(path);
         Self {
@@ -517,12 +429,12 @@ impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
             // allocation.
             spine: Vec::with_capacity(32),
             path: buf,
-            range,
+            query,
         }
     }
 
-    /// Advance to the next passing leaf. The same prune/promote resolution
-    /// as the borrowing walk, with the leaf handed out by value.
+    /// Advance to the next passing leaf. The same classification as the
+    /// borrowing walk, with the leaf handed out by value.
     pub(crate) fn next(&mut self) -> Option<(crate::tree::key::Key, Leaf<T>)> {
         loop {
             // Obtain the next unvisited node — the initial root, or the next
@@ -567,19 +479,17 @@ impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
                 },
             };
 
-            // Resolve this subtree against the range, unless an ancestor was
-            // already promoted.
-            let passes = inherited || {
-                let bounds = Bounds {
-                    start: self.range.start_bound(),
-                    end: self.range.end_bound(),
+            // Classify this subtree against the query, unless an ancestor
+            // was already promoted.
+            let passes = inherited
+                || match self.query.coverage(node.span()) {
+                    Coverage::Empty => {
+                        self.path.truncate(rollback);
+                        continue;
+                    }
+                    Coverage::Full => true,
+                    Coverage::Partial => false,
                 };
-                if bounds.prunes(&node) {
-                    self.path.truncate(rollback);
-                    continue;
-                }
-                bounds.promotes(&node)
-            };
 
             // Replay the compressed prefix, shallowest byte first.
             for &byte in node.inner.prefix.iter().rev() {
@@ -597,10 +507,10 @@ impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
                 continue;
             }
 
-            // A leaf: by the prune/promote exhaustiveness argument on the
-            // borrowing walk, an unpruned leaf always passes. Yield it and
-            // roll the path back to its parent.
-            debug_assert!(passes, "an unpruned leaf passes its range");
+            // A leaf: its coincident span makes the coverage verdict
+            // membership itself, never Partial, so an unpruned leaf always
+            // passes. Yield it and roll the path back to its parent.
+            debug_assert!(passes, "an unpruned leaf passes its query");
             debug_assert_eq!(
                 self.path.len(),
                 32,

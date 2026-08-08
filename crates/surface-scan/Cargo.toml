@@ -1,0 +1,12 @@
+[package]
+name = "surface-scan"
+version = "0.1.0"
+edition = "2021"
+description = "Line-discipline source scanners for public-surface totality and witness-existence tests — the workspace's shared test machinery."
+license = "MPL-2.0"
+# Workspace-internal test machinery: consumed only as a dev-dependency by
+# the crates whose totality and evidence tests it feeds, never shipped in
+# a production dependency graph.
+publish = false
+
+[dependencies]

@@ -2,7 +2,7 @@ use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{Version, message::Message};
+use crate::{Version, causally, message::Message};
 
 use super::hash::Hash;
 use super::height::{self, Height, S, Z};
@@ -170,6 +170,25 @@ impl<T, H: Height> Node<T, H> {
         self.inner.floor()
     }
 
+    /// This subtree's version bounds as one causal span: the memoized
+    /// `[floor, ceiling]` pair, borrowed (see [`untyped::Node::span`]).
+    pub fn span(&self) -> causally::Span<'_> {
+        self.inner.span()
+    }
+
+    /// How much of this subtree's memoized `[floor, ceiling]` bounds
+    /// `probe` dominates: the deletion-honoring classifiers' verdict,
+    /// answered from the memos without descending.
+    ///
+    /// A branch answers through its stored bounds span — ordered by
+    /// construction, so no validating comparison is paid at any
+    /// classification — and a leaf's coincident bounds collapse the
+    /// question to one containment check (see
+    /// [`untyped::Node::dominance`]).
+    pub fn dominance(&self, probe: &Version) -> causally::Dominance {
+        self.inner.dominance(probe)
+    }
+
     /// Get the number of leaves under this node.
     pub fn len(&self) -> usize {
         self.inner.len()
@@ -248,7 +267,8 @@ impl<T, H: Height> Node<T, H> {
     where
         T: Send + Sync,
     {
-        let mut walk = untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), ..);
+        let mut walk =
+            untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), causally::all());
         std::iter::from_fn(move || {
             walk.next().map(|(key, leaf)| {
                 (
@@ -370,29 +390,27 @@ impl<T> Node<T, height::Root> {
     }
 
     /// Freeze a fully-owned walk over the leaves of the (possibly absent)
-    /// root `node` whose versions fall within the causal `range`.
+    /// root `node` whose versions the causal `query` admits.
     ///
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
     /// across awaits (see [`untyped::RangeOwned`]).
-    pub fn range_owned<R>(node: Option<&Self>, range: R) -> untyped::RangeOwned<T, R>
-    where
-        R: std::ops::RangeBounds<Version>,
-    {
-        untyped::RangeOwned::root(node.map(|node| node.inner.clone()), range)
+    pub fn range_owned<P: causally::Polarity>(
+        node: Option<&Self>,
+        query: causally::Query<'static, P>,
+    ) -> untyped::RangeOwned<T, P> {
+        untyped::RangeOwned::root(node.map(|node| node.inner.clone()), query)
     }
 
     /// Lazily iterate the live leaves of the (possibly absent) root `node`
-    /// whose versions fall within the causal `range`.
+    /// whose versions the causal `query` admits.
     ///
-    /// A leaf is yielded iff its version is contained in the range's end bound
-    /// and *not* contained in its start bound (see [`untyped::Range`] for the
-    /// per-bound semantics). Subtrees wholly outside the range are pruned by
-    /// their memoized version bounds without being entered.
-    pub fn range<R>(node: Option<&Self>, range: R) -> untyped::Range<'_, T, R>
-    where
-        R: std::ops::RangeBounds<Version>,
-    {
-        untyped::Range::root(node.map(|node| &node.inner), range)
+    /// Subtrees wholly outside the query are pruned by their memoized
+    /// version bounds without being entered (see [`untyped::Range`]).
+    pub fn range<'a, P: causally::Polarity>(
+        node: Option<&'a Self>,
+        query: causally::Query<'a, P>,
+    ) -> untyped::Range<'a, T, P> {
+        untyped::Range::root(node.map(|node| &node.inner), query)
     }
 
     /// The observable hash of a possibly-absent root.

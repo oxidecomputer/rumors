@@ -2,7 +2,8 @@
 members = [
     "crates/before",
     "crates/before-viz",
-    "crates/rumormill",
+    "crates/surface-scan",
+    "crates/suanpan",
 ]
 
 [package]
@@ -17,6 +18,18 @@ readme = "README.md"
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+# Keep `cargo bench` from compiling the library itself as a libtest bench
+# harness. That auto-target rebuilds the whole crate — every `#[cfg(test)]`
+# module included — at opt-level 3 in a single rustc invocation, and its
+# codegen peak is the heaviest compile in the workspace (it trips the
+# memwatch per-process ceiling). The harness would run nothing: stable Rust
+# has no bench items, and every real benchmark is a `harness = false`
+# criterion target below. The test modules keep their coverage through the
+# dev-profile test runs; `cargo bench` still builds this library once, as
+# the ordinary rlib the criterion targets link against.
+bench = false
 
 [features]
 # Test-only introspection and deterministic scheduling infrastructure.
@@ -34,6 +47,12 @@ conformance = []
 # crate's own tests always see it as streaming's behavioral oracle,
 # independent of this feature.)
 protocol-v1 = []
+# Lights `before`'s deterministic resource counters for this crate's own
+# metering tests (the branch bound memos' fold-cost comparison). Test-only
+# and off by default, in `before`'s limb-meter idiom: the counters add an
+# atomic bump per operation, so they stay out of the default test and
+# bench builds and are lit by `--all-features` runs (the gate's test-all).
+meter = ["before/limb-meter", "before/scan-meter"]
 
 [dependencies]
 before = { path = "crates/before", features = ["borsh"] }
@@ -79,6 +98,18 @@ ratatui = "0.30"
 
 [profile.dev]
 debug = "line-tables-only"
+
+# The test suite spends most of its time inside these two crates' kernels
+# (the skyline walks and the bignum arithmetic), so optimizing them cuts
+# test execution while leaving every other crate's compile untouched.
+# `debug-assertions` stays on, as the dev profile grants: the envelope
+# suite's limb, scan, and touch pins count work the `debug_assert!`
+# comparisons perform, and those are what `--release` would remove.
+[profile.dev.package.before]
+opt-level = 2
+
+[profile.dev.package.suanpan]
+opt-level = 2
 
 # Profiling the benches needs symbolicated stacks; line tables are enough
 # for samply/Instruments without the compile-time cost of full debug info.

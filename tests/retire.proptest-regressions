@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc b49b3a9ac32c51cae73fbac4e36f9882a827d76eaf757fe1db5c3e4aa380bd72 # shrinks to a_actions = [], b_actions = []
 cc f63e981a4e7979519ac37ccb1ac2e1f16d85925cb8b50228079c1d673e708005 # shrinks to n = 1
+cc bd881b84d18a66dbcbf4bd9b32eaf874c5b98c7d5937838f0751358a0e24a9fd # shrinks to a_actions = [Insert(9740232827584776276), Insert(2126237831924016963), Insert(17015821123309633268), Insert(2443676286792058187), Insert(0), Insert(10332487317102611808), Insert(62969888838393)], b_actions = [Insert(0), Insert(339988254), Insert(1341544395), Insert(3233214299506785220), Insert(0), Insert(31123), Insert(1415539174)]

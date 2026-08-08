@@ -24,7 +24,7 @@ use std::pin::Pin;
 use futures::{Stream, stream};
 
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
         mirror::streaming::convert::Convert,
@@ -63,7 +63,8 @@ where
     /// regardless, so its price is one pointer at every argument; a
     /// backend without an always-resident tree must charge everything its
     /// `Node` values own — at minimum the hash, the child table, and the
-    /// two version bounds its [`Node`] accessors return by reference.
+    /// two endpoints of the bounds span [`Node::span`] borrows from the
+    /// node.
     ///
     /// A leaf is priced at `children = 0`: what its handle keeps resident
     /// after [`Leaf::leaf`] has had its chance to persist the payload.
@@ -159,11 +160,45 @@ pub trait Node<T: Send + Sync + 'static> {
     /// The height of the node above the leaf level.
     type Height: Height;
 
-    /// The maximum version of any node under this one.
-    fn ceiling(&self) -> &Version;
-
-    /// The minimum version of any node under this one.
-    fn floor(&self) -> &Version;
+    /// The node's version bounds as one causal span: the floor (the
+    /// minimum version of any node under this one) as the span's meet,
+    /// the ceiling (the maximum) as its join.
+    ///
+    /// The trait's whole version-bounds obligation lives here. The
+    /// deletion-honoring filter classifies subtrees by asking the span
+    /// [`dominance`](causally::Span::dominance) directly, without
+    /// descending: [`After`](causally::Dominance::After) iff the
+    /// ceiling is within the probe's causal past (everything under the
+    /// node is already known there),
+    /// [`Before`](causally::Dominance::Before) iff the probe dominates
+    /// not even the floor (the whole subtree is unknown), and
+    /// [`Between`](causally::Dominance::Between) otherwise (mixed, so
+    /// the filter descends). Single-endpoint consumers — bound pricing,
+    /// containment checks, leaf-version reads — take
+    /// [`lo`](causally::Span::lo) or [`hi`](causally::Span::hi)
+    /// off the same span.
+    ///
+    /// The span's ordering — `floor <= ceiling`, which every honest
+    /// meet/join pair over one leaf set satisfies — is the
+    /// implementor's obligation, priced at *construction* rather than
+    /// per read: the in-memory backend stores each branch's memoized
+    /// bounds as one [`causally::Span`], ordered by construction, and
+    /// answers by reborrowing it
+    /// ([`causally::Span::reborrow`]). A backend reading bounds back
+    /// from its own storage validates the pair once at node load: bounds
+    /// stored as the span's canonical bytes load through
+    /// [`causally::Span::decode`] — one pass that parses both endpoints
+    /// and proves them ordered, rejecting corrupt bytes and crossed
+    /// pairs alike as the load-time storage corruption they are — and
+    /// bounds held as two already-decoded versions validate through
+    /// [`causally::Span::new`], surfacing
+    /// [`Crossed`](causally::Crossed) the same way. Either way the
+    /// backend answers thereafter by reborrowing the span it validated.
+    /// A violated ordering is not a detected fault: every verdict read
+    /// off the span becomes unspecified, which here means silently
+    /// wrong reconciliation — news withheld or re-sent — so the check
+    /// belongs at the load seam, where it is paid once.
+    fn span(&self) -> causally::Span<'_>;
 
     /// The merkle hash of this node.
     fn hash(&self) -> Hash;
@@ -297,8 +332,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Root<B, T> {
     /// The root node's [`version_bytes`](Node::version_bytes) aggregate
     /// — leaf versions and every interior ceiling and floor — or zero
     /// when empty. The first read materializes it: every branch's
-    /// ceiling and floor memo is forced tree-wide, `O(#branches)` bound
-    /// joins, once per tree lineage — the memos are shared through the
+    /// bounds memo is forced tree-wide, `O(#branches)` bound
+    /// folds, once per tree lineage — the memos are shared through the
     /// node handles across snapshots, and a mutation invalidates only
     /// its own spine. A fully converged pair pays this once, at
     /// greeting time.

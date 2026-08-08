@@ -1,0 +1,31 @@
+# Configuration for the duplicate-dependency sweep (`just supply-chain`,
+# which runs `cargo deny check bans`). Scope: the root workspace's full
+# feature-and-target closure — exactly the graph Cargo.lock records. The
+# detached workspaces (fuzz, fuzzfit, fuelscape, surfacecheck) are
+# dev-tooling with their own lockfiles and are covered by the advisory
+# leg only: a duplicated dependency there costs one extra compile of a
+# tool, never a shipped byte.
+
+[graph]
+all-features = true
+
+# A crate resolved at two versions compiles twice, doubles its audit
+# surface, and can smuggle two incompatible copies of one type through
+# the public API. New duplicates are refused; each tolerated duplicate
+# below carries the reason it cannot currently converge, and the sweep
+# shrinks as upstreams converge (deny warns on any skip entry that no
+# longer matches).
+[bans]
+multiple-versions = "deny"
+# Every entry names the holdout that keeps the old line alive; a skip whose
+# old line disappears from the lock turns into an unmatched-skip warning,
+# so stale entries name themselves. Requirements match the tolerated minor
+# line only: a third version of any of these still fails the check.
+skip = [
+    # embed-doc-image (the doc-images rustdoc feature) has not moved to
+    # the current base64.
+    { name = "base64", version = "0.13" },
+    # embed-doc-image (the pin above) and wezterm-dynamic-derive
+    # (before-viz's terminal layer) are still on syn 1.
+    { name = "syn", version = "1" },
+]

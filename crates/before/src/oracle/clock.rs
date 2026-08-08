@@ -7,11 +7,8 @@ use crate::codec::Base;
 use super::{OverlapError, Party, Version};
 
 /// The reference [`Clock`](crate::Clock): the paper's recursive trees,
-/// mirroring the optimized type's API one-to-one so the differential tests
-/// can drive both with the same script.
-///
-/// Contracts live on the real type; this one is deliberately naive (and
-/// `Clone`, so tests can branch histories the linear type forbids).
+/// mirroring the optimized type's API one-to-one so the differential tests can
+/// drive both with the same script.
 #[derive(Clone, Debug)]
 pub struct Clock {
     party: Party,
@@ -39,9 +36,6 @@ impl Clock {
         self.version.clone()
     }
 
-    /// `version() / party()`: this clock's own contribution to its version
-    /// (the history within the region it owns). The reference for
-    /// [`Clock::own_version`](crate::Clock::own_version).
     pub fn own_version(&self) -> Version {
         self.version() / self.party()
     }
@@ -66,6 +60,50 @@ impl Clock {
                 Ok(())
             }
             Err(op) => Err(Clock::from_parts(op, ov)),
+        }
+    }
+
+    pub fn join_all(&mut self, inputs: impl IntoIterator<Item = Clock>) -> Result<(), Vec<Clock>> {
+        let mut overlapping = Vec::new();
+        let mut stack: Vec<(Clock, u32)> = Vec::new();
+        for other in inputs {
+            if !self.party.is_disjoint(other.party()) {
+                overlapping.push(other);
+                continue;
+            }
+            let mut merged = Some(other);
+            let mut weight = 0u32;
+            while stack.last().is_some_and(|(_, w)| *w == weight) {
+                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
+                match top.join(merged.take().expect("the operand is held while merging up")) {
+                    Ok(()) => {
+                        merged = Some(top);
+                        weight += 1;
+                    }
+                    Err(back) => {
+                        stack.push((top, weight));
+                        if weight == 0 {
+                            overlapping.push(back);
+                        } else {
+                            stack.push((back, weight));
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(merged) = merged {
+                stack.push((merged, weight));
+            }
+        }
+        for (group, _) in stack {
+            if let Err(back) = self.join(group) {
+                overlapping.push(back);
+            }
+        }
+        if overlapping.is_empty() {
+            Ok(())
+        } else {
+            Err(overlapping)
         }
     }
 

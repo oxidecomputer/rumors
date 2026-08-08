@@ -14,8 +14,8 @@
 //! of a given small depth are few, so total enumeration is cheap, yet it
 //! deterministically reaches the edge shapes random sampling under-hits — a
 //! `grow` tie at the very root, an empty-child spine corner, the `close_node`
-//! truncate-adjacency boundary, the `is_disjoint`/`compare` overlap arms, the
-//! concurrent (`None`) verdict.
+//! truncate-adjacency boundary, the `is_disjoint`/`covers`/`compare` overlap
+//! arms, the concurrent (`None`) verdict.
 //!
 //! The id and event depth bounds are **decoupled**, because the two corpora
 //! grow at very different rates: an id node branches binary (leaves `0`/`1`),
@@ -27,16 +27,40 @@
 //!
 //! Each corpus is lowered to its impl form once and the pair loops *borrow* it
 //! (not re-lowering both operands per pair), and the cross-products run on a
-//! `rayon` pool. Two variants:
+//! `rayon` pool. Every check exercises the public ops (see the test module
+//! doc). An operation absent from this module's own check set is not
+//! necessarily outside the small scope: the kernel test suites import the
+//! corpus and run their own operation-specific sweeps over it (the skyline
+//! query, sweep, emit, fill, grow, and text suites all do — e.g. the pair
+//! queries' `exhaustive_small_scope_pairs_agree`). Two variants:
 //!
-//! - [`exhaustive_small`] runs in the normal gate at [`ID_SMALL_DEPTH`] /
-//!   [`EV_SMALL_DEPTH`] (256 ids, 691 events); the full op cross-product is well
-//!   under a second.
+//! - [`exhaustive_small`] runs every check in the normal gate at
+//!   [`ID_SMALL_DEPTH`] / [`EV_SMALL_DEPTH`] (256 ids, 691 events); the full op
+//!   cross-product is well under a second.
 //!
 //! - [`exhaustive_deep`] is `#[ignore]`d and runs at [`ID_DEEP_DEPTH`] /
-//!   [`EV_DEEP_DEPTH`] (65536 ids, 691 events); the `O(corpus²)` id pair-product
-//!   dominates — ~4.5 minutes on a 16-core M4 Max. See its doc comment for how to
+//!   [`EV_DEEP_DEPTH`] (65536 ids, 691 events), where the `O(corpus²)` id
+//!   pair-product (~4.3 billion pairs) dominates — hour-scale even trimmed to
+//!   the verdict legs; its doc comment carries the measured state and how to
 //!   run it.
+//!
+//! The deep variant runs the *verdict* pair legs (`is_disjoint`, `covers` —
+//! borrowed operands, no allocation) and `tick` with the brute-force
+//! grow-minimality pin (the pin's irreplaceable value: `grow`'s DP held to the
+//! global optimum over all 65536 deep ids). The *structural* pair legs
+//! (`join`, `without`) run at the small bound only: each builds a result tree
+//! per pair — plus the oracle's boxed clones and the lowering for the
+//! structural compare — which prices at roughly seven eighths of the pair
+//! worker (measured on a stride-sampled quarter of the deep corpus,
+//! aarch64-apple-darwin, 16 cores, release: the difference leg
+//! ~66 and the join leg ~12 of a ~91 ns/pair wall worker), and at the full
+//! corpus the allocate-per-pair legs additionally contend the allocator
+//! across the pool — all to re-check structure the small scope already pins
+//! exhaustively. What deep deliberately does not re-check — `join`/`without`
+//! result *structure* on ids deeper than [`ID_SMALL_DEPTH`] — is covered by
+//! the sampled differentials: the arbitrary-tree strategies reach the same
+//! depth 4 with committed regression seeds, and the op-trace histories
+//! compose the public ops far past it.
 
 #[cfg(test)]
 mod tests;
@@ -60,9 +84,10 @@ pub(crate) const EV_SMALL_DEPTH: usize = 2;
 
 /// Inclusive id depth bound for the `#[ignore]`d deep enumeration: 65536 ids.
 ///
-/// The id cross-product is `O(corpus²)` (~4.3 billion pairs); with the
-/// per-tree precompute and `rayon` it runs in ~4.5 minutes on a 16-core M4
-/// Max. See [`tests::exhaustive_deep`].
+/// The id cross-product is `O(corpus²)` (~4.3 billion pairs); the leg split
+/// above holds this bound to the non-allocating verdict legs plus `tick`,
+/// and the verdict pair product still dominates, hour-scale. The measured
+/// state lives on [`tests::exhaustive_deep`].
 pub(crate) const ID_DEEP_DEPTH: usize = 4;
 
 /// Inclusive event depth bound for the deep enumeration. Stays at 691 events:

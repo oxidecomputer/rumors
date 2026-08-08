@@ -13,27 +13,27 @@ version frame: 29 bytes
   0000: 00 00 00 19 02 00 00 00
   0008: 00 00 00 00 01 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 30
+  0018: 00 00 00 00 b8
 listing frame: 42 bytes
   0000: 00 00 00 26 02 00 00 00
-  0008: 02 15 35 b0 cc 60 58 0e
-  0010: 9b fd c4 cb e6 c6 cb 06
-  0018: 14 b8 28 92 c8 a1 8f 84
-  0020: eb 48 b0 4f 30 49 e3 63
-  0028: 65 12
+  0008: 51 0d cf 9a 1c f8 9f 02
+  0010: 0b be aa fc f3 7b fd be
+  0018: 1e be 6a fa 3e d7 e9 92
+  0020: a6 0f d6 dc a6 17 60 b8
+  0028: 50 5e
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a 20 05 00 00 00 68 65
+    0008: 0a a8 05 00 00 00 68 65
     0010: 6c 6c 6f
   frame 1: Supply(End)
     0000: 77 00 00 00 0e 00 00 00
-    0008: 0a 30 05 00 00 00 77 6f
+    0008: 0a b8 05 00 00 00 77 6f
     0010: 72 6c 64
   frame 2: End(Stream)
     0000: 99
 trailing frame: 6 bytes
-  0000: 00 00 00 01 40 2e
+  0000: 00 00 00 01 48 2e
 
 direction B -> A
 preamble: 25 bytes
@@ -46,7 +46,7 @@ version frame: 29 bytes
   0000: 00 00 00 19 00 00 00 00
   0008: 00 00 00 00 00 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 40
+  0018: 00 00 00 00 e0
 listing frame: 8 bytes
   0000: 00 00 00 04 00 00 00 00
 trailing frame: 1 bytes

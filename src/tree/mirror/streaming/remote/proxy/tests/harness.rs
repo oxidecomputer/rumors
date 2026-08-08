@@ -401,6 +401,30 @@ fn rewritten(
     .into_link()
 }
 
+/// Whether the left tree wins the initiator election against the right,
+/// mirroring the session's role election exactly (the smaller exchanged
+/// set initiates, canonical version bytes break ties).
+///
+/// Role-sensitive tests arrange their corrupt or faulted side through
+/// this predicate rather than through any byte-order proxy: which side
+/// initiates is a function of live counts and canonical version bytes,
+/// both of which move whenever the wire coding or a fixture's content
+/// addresses do.
+pub fn left_initiates(left: &TreeRoot<()>, right: &TreeRoot<()>) -> bool {
+    let len = |root: &TreeRoot<()>| {
+        root.root
+            .as_ref()
+            .map(|node| node.len() as u64)
+            .unwrap_or_default()
+    };
+    crate::tree::mirror::streaming::message::initiates(
+        len(left),
+        &left.ceiling,
+        len(right),
+        &right.ceiling,
+    )
+}
+
 /// Reconcile while mutating at most one data-stream frame on each side.
 pub async fn reconcile_scripted(
     left: TreeRoot<()>,

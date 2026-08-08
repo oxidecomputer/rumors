@@ -89,9 +89,11 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
         IoOperation::Connect => {
             matches!(error, RemoteError::Send(SendError::Connect { .. }))
         }
-        // A destroyed incoming stream surfaces from the receiver that
-        // provably needed it, after the parked accept driver deposits the
-        // cause.
+        // A destroyed incoming stream surfaces as the dead supply itself:
+        // the accept driver deposits the cause and the session terminal
+        // attaches it at selection, outranking any racing consequence (a
+        // write or flush failing on the torn transport), so the surface is
+        // schedule-independent.
         IoOperation::Accept => {
             matches!(error, RemoteError::Stream(StreamError::SupplyClosed { .. }))
         }
@@ -236,9 +238,7 @@ proptest! {
             let error = endpoint_error(&outcome, fail_left)?;
             prop_assert!(
                 has_expected_surface(error, operation),
-                "fault on {:?} surfaced as {:?}",
-                operation,
-                error
+                "{operation:?}/{unit:?} surfaced as {error:?}",
             );
             prop_assert_eq!(injected(error), Some(expected_fault));
             // The unfaulted counterparty either fails on the cut it
@@ -287,7 +287,17 @@ fn every_transport_fault_surface_is_reachable() {
     ];
 
     for (operation, unit) in variants {
-        let (left, right) = stacked_pair();
+        // The faulted (left) side must be the elected responder: the
+        // Accept surface's mechanism — a destroyed incoming stream
+        // surfacing from the receiver that provably needed it — requires
+        // the faulted endpoint to be the one awaiting the initiator's
+        // opening supply streams.
+        let (a, b) = stacked_pair();
+        let (left, right) = if harness::left_initiates(&a, &b) {
+            (b, a)
+        } else {
+            (a, b)
+        };
         let fault = IoFault {
             operation,
             after: 0,

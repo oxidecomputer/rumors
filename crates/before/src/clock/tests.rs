@@ -2,15 +2,202 @@
 
 use proptest::prelude::*;
 
-use super::Batch;
 use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::deep_left_spine_party;
+use crate::testing::generators::{
+    arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
+};
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::{error::Parse, Clock, Party, Version};
+
+/// Build one organic history's clock population, deterministically
+/// reproducible from the same ops.
+fn world_clocks(ops: &[Op]) -> Vec<Clock> {
+    let mut clocks = vec![Clock::seed()];
+    for op in ops {
+        step_impl(&mut clocks, op);
+    }
+    clocks
+}
+
+proptest! {
+    /// The balanced `join_all` is the sequential fold on clocks.
+    ///
+    /// Over one organic history's pairwise-disjoint clocks, folding the rest
+    /// into any member returns `Ok` with exactly the clock (party and version
+    /// both) the sequential `join`-per-input reference produces, in both input
+    /// orders.
+    #[test]
+    fn join_all_matches_the_sequential_fold(ops in world_strategy(), i in 0usize..64, reverse in any::<bool>()) {
+        let mut reference_pool = world_clocks(&ops);
+        let n = reference_pool.len();
+        let mut reference = reference_pool.remove(i % n);
+        if reverse {
+            reference_pool.reverse();
+        }
+        for c in reference_pool {
+            reference.join(c).expect("one world's clocks are pairwise disjoint");
+        }
+
+        let mut pool = world_clocks(&ops);
+        let mut acc = pool.remove(i % n);
+        if reverse {
+            pool.reverse();
+        }
+        acc.join_all(pool).expect("one world's clocks are pairwise disjoint");
+        prop_assert_eq!(acc, reference);
+    }
+}
+
+// ───────────────────── the fold's up-front index, differentially ─────────────────────
+//
+// `Clock::join_all`'s up-front overlap test runs against a per-call index of
+// the fixed accumulator's party; the index is a performance mechanism only, so
+// every observable outcome — the hand-back vector (contents *and* order) and
+// the accumulator's final party and version — must be exactly what the
+// documented discipline decides. The recursive oracle's `join_all`
+// (`oracle::Clock`) is that discipline's reference spelling. The id-level seam
+// and the adversarial party mixes are pinned in `party/tests.rs`; these
+// differentials pin the clock fold carrying versions through the same
+// decisions.
+
+/// On forked and aliased clock populations, the production fold and the
+/// recursive oracle agree.
+///
+/// With no overlap anywhere — a forked clock population reuniting after
+/// concurrent ticks — both return the same merged version and rebuild equal
+/// accumulators; with the accumulator's own region duplicated among the inputs,
+/// both hand back exactly the duplicate.
+#[test]
+fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
+    let population = |duplicate: bool| {
+        let mut acc = Clock::seed();
+        let mut children: Vec<Clock> = acc.forks(4).collect();
+        for (n, child) in children.iter_mut().enumerate() {
+            for _ in 0..n {
+                child.tick();
+            }
+        }
+        if duplicate {
+            let dup = Clock::from_parts(acc.party().dangerously_alias(), acc.version().clone());
+            children.insert(2, dup);
+        }
+        (acc, children)
+    };
+    let (acc, children) = population(false);
+    assert_join_all_matches_recursive_oracle(acc, children);
+    let (acc, children) = population(true);
+    assert_join_all_matches_recursive_oracle(acc, children);
+}
+
+/// A group retained on the stack by a failed weight-1 combine — the over-full
+/// counter slot — keeps coalescing with later inputs exactly as the recursive
+/// oracle says, versions riding along.
+///
+/// The clock twin of the party suite's deterministic witness for the fold's
+/// hand-back-retention arm (`fold.rs`, the failed-combine path whose newer
+/// group has already coalesced): feed order [a, b, alias(a), c, d, e] over
+/// pairwise-disjoint forks retains alias∪c on the stack at the failed weight-1
+/// combine, then coalesces d∪e into it, so the hand-back is the four-input
+/// group and the accumulator absorbs only a∪b — with each input carrying a
+/// distinct ticked version, so the clock fold's version merges ride the same
+/// decisions.
+#[test]
+fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
+    let mut acc = Clock::seed();
+    let mut children: Vec<Clock> = acc.forks(5).collect();
+    for (n, child) in children.iter_mut().enumerate() {
+        for _ in 0..=n {
+            child.tick();
+        }
+    }
+    let e = children.pop().expect("five forks");
+    let d = children.pop().expect("five forks");
+    let c = children.pop().expect("five forks");
+    let b = children.pop().expect("five forks");
+    let a = children.pop().expect("five forks");
+    let alias = Clock::from_parts(a.party().dangerously_alias(), a.version().clone());
+    assert_join_all_matches_recursive_oracle(acc, vec![a, b, alias, c, d, e]);
+}
+
+/// Run the production clock fold and the recursive oracle's `join_all` over one
+/// input population and assert identical outcomes, compared over logical trees.
+///
+/// Identical outcomes: the same `Ok`/`Err` verdict — the returned version
+/// lowering to the oracle accumulator's — the same hand-back vector (contents
+/// *and* order, element-wise over `to_oracle_clock`), and accumulators (party
+/// and version both) lowering to the same oracle trees.
+fn assert_join_all_matches_recursive_oracle(mut acc: Clock, inputs: Vec<Clock>) {
+    let lift = |c: &Clock| {
+        let (p, v) = to_oracle_clock(c);
+        oracle::Clock::from_parts(p, v)
+    };
+    let mut oracle_acc = lift(&acc);
+    let oracle_inputs: Vec<oracle::Clock> = inputs.iter().map(lift).collect();
+    let new = acc.join_all(inputs).cloned();
+    let reference = oracle_acc.join_all(oracle_inputs);
+    match (new, reference) {
+        (Ok(version), Ok(())) => assert_eq!(
+            to_oracle_version(&version),
+            oracle_acc.version(),
+            "the production fold and the oracle fold must return the same merged version"
+        ),
+        (Err(back), Err(oracle_back)) => {
+            let back: Vec<_> = back.iter().map(to_oracle_clock).collect();
+            let oracle_back: Vec<_> = oracle_back
+                .into_iter()
+                .map(oracle::Clock::into_parts)
+                .collect();
+            assert_eq!(
+                back, oracle_back,
+                "the production fold and the oracle fold must hand back the same clocks \
+                 in the same order"
+            );
+        }
+        (new, reference) => panic!(
+            "the production fold and the oracle fold must agree on the verdict: \
+             {new:?} vs {reference:?}"
+        ),
+    }
+    assert_eq!(
+        to_oracle_clock(&acc),
+        (oracle_acc.party().clone(), oracle_acc.version()),
+        "the production fold and the oracle fold must leave the same accumulator"
+    );
+}
+
+proptest! {
+    /// The production clock `join_all` decides exactly as the recursive
+    /// oracle's `join_all` over arbitrary normal-form mixes.
+    ///
+    /// An arbitrary accumulator against clocks drawn with repetition from an
+    /// arbitrary pool of party × version pairs — mixed sizes, duplicates, and
+    /// every overlap disposition arise from the draws — with identical
+    /// hand-backs (contents and order) and accumulators lowering to the same
+    /// oracle trees.
+    #[test]
+    fn join_all_matches_the_recursive_oracle(
+        oacc in (arb_oracle_party_nonempty(), arb_oracle_version()),
+        (pool, picks) in proptest::collection::vec(
+            (arb_oracle_party_nonempty(), arb_oracle_version()),
+            1..5,
+        )
+        .prop_flat_map(|pool| {
+            let len = pool.len();
+            (Just(pool), proptest::collection::vec(0..len, 0..10))
+        }),
+    ) {
+        let lower = |(p, v): &(oracle::Party, oracle::Version)| {
+            Clock::from_parts(from_oracle_party(p), from_oracle_version(v))
+        };
+        let acc = lower(&oacc);
+        let inputs: Vec<Clock> = picks.iter().map(|&i| lower(&pool[i])).collect();
+        assert_join_all_matches_recursive_oracle(acc, inputs);
+    }
+}
 
 proptest! {
     /// The clock observers match the oracle's: `has_seen` is `msg <= version`,
@@ -42,7 +229,7 @@ proptest! {
         let n = cs.len();
         let oc = &cs[i % n];
         let ic = from_oracle_clock(oc);
-        prop_assert_eq!(to_oracle_version(&ic.own_version()), oc.own_version());
+        prop_assert_eq!(to_oracle_version(&ic.own_version().to_version()), oc.own_version());
     }
 }
 
@@ -54,10 +241,9 @@ proptest! {
     /// impl parties stay pairwise disjoint.
     ///
     /// Pairwise disjointness means `join`/`sync` never error in correct usage.
-    /// Agreement is by structural lowering — `to_oracle_clock`
-    /// rebuilds the oracle's tree shape from the impl's internal packed bits —
-    /// not via the byte codec, which the per-trace round-trip below exercises
-    /// separately.
+    /// Agreement is by structural lowering — `to_oracle_clock` rebuilds the
+    /// oracle's tree shape from the impl's internal packed bits — not via the
+    /// byte codec, which the per-trace round-trip below exercises separately.
     #[test]
     fn master_differential(ops in world_strategy()) {
         let mut ora: Vec<oracle::Clock> = vec![oracle::Clock::seed()];
@@ -70,6 +256,15 @@ proptest! {
                     let i = i % n;
                     ora[i].tick();
                     imp[i].tick();
+                }
+                Op::Ticks(i, k) => {
+                    let i = i % n;
+                    // The oracle iterates; the impl's one fused call must
+                    // land on the same structure.
+                    for _ in 0..k {
+                        ora[i].tick();
+                    }
+                    imp[i].ticks(u64::from(k));
                 }
                 Op::Fork(i) => {
                     let i = i % n;
@@ -131,9 +326,10 @@ proptest! {
             }
         }
 
-        // Per-trace codec exercise: every live clock round-trips through decode∘encode
-        // and stays structurally identical (also confirms each encoding is canonical,
-        // since `decode` strictly rejects non-normal-form input).
+        // Per-trace codec exercise: every live clock round-trips through
+        // decode∘encode and stays structurally identical (also confirms each
+        // encoding is canonical, since `decode` strictly rejects
+        // non-normal-form input).
         for m in &imp {
             let back = Clock::decode(&m.encode()[..]).expect("impl encodings are canonical");
             prop_assert_eq!(to_oracle_clock(&back), to_oracle_clock(m));
@@ -191,51 +387,15 @@ proptest! {
 
 // ───────────────────────────── protocol semantics ─────────────────────────────
 
+// The protocol-shape laws (fork preserves the version, peeks are stable, an
+// own-message receive is a bare tick, send/recv advance strictly) live in
+// `crate::laws` and are driven by the algebraic-laws suite; this file keeps the
+// oracle differentials.
+
 proptest! {
-    /// `fork` preserves the version on both halves.
-    #[test]
-    fn fork_preserves_version(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let mut c = from_oracle_clock(&cs[i % n]);
-        let before = c.version().clone();
-        let child = c.fork();
-        prop_assert!(c.version() == before);
-        prop_assert!(child.version() == before);
-    }
-
-    /// `version()` (peek) does not advance the clock; the returned `Version`
-    /// equals the clock's own and repeated peeks are stable.
-    #[test]
-    fn peek_does_not_advance(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let c = from_oracle_clock(&cs[i % n]);
-        let before = c.encode();
-        let v1 = c.version();
-        let v2 = c.version();
-        prop_assert!(v1 == v2);
-        prop_assert_eq!(c.encode(), before);
-    }
-
-    /// `receive(msg)` with `msg <= self` (here `msg == self.version()`) equals a
-    /// bare `tick`: an own-message receive is benign, and the party is unchanged.
-    #[test]
-    fn own_receive_is_tick(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let mut received = from_oracle_clock(&cs[i % n]);
-        let mut ticked = from_oracle_clock(&cs[i % n]);
-        let own = received.version().clone();
-        received.recv(&own);
-        ticked.tick();
-        prop_assert!(received.version() == ticked.version());
-        prop_assert!(received.party() == ticked.party());
-    }
-
-    /// After `a.sync(&mut b)`: both end at the oracle's result, their versions are
-    /// equal, their parties are disjoint, and re-joining the two parties recovers the
-    /// pre-sync merged party.
+    /// After `a.sync(&mut b)`: both end at the oracle's result, their versions
+    /// are equal, their parties are disjoint, and re-joining the two parties
+    /// recovers the pre-sync merged party.
     #[test]
     fn sync(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -243,9 +403,9 @@ proptest! {
         if n < 2 {
             return Ok(());
         }
-        // Derive two distinct members directly rather than rejecting collisions —
-        // small populations collide often, and `prop_assume` would blow the reject
-        // cap under a high case count (see the oracle `sync` test).
+        // Derive two distinct members directly rather than rejecting collisions
+        // — small populations collide often, and `prop_assume` would blow the
+        // reject cap under a high case count (see the oracle `sync` test).
         let i = i % n;
         let j = (i + 1 + j % (n - 1)) % n;
 
@@ -281,7 +441,8 @@ proptest! {
 
     /// The heterogeneous joins `Version|Version`, `Clock|Version`, and
     /// `Version|Clock` all match the oracle. The latter two encode the
-    /// anonymous-as-party-0 identity: the version merges, the party is untouched.
+    /// anonymous-as-party-0 identity: the version merges, the party is
+    /// untouched.
     #[test]
     fn heterogeneous_joins(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -308,13 +469,11 @@ proptest! {
         prop_assert_eq!(to_oracle_clock(&got_vc), (vcp.clone(), vcv.clone()));
     }
 
-    /// Assigning forms. The `Clock` assigning / batch join surfaces merge the
-    /// version and leave the party untouched, matching the oracle —
-    /// complementing the by-value `Clock | Version` above.
+    /// Assigning forms. The `Clock` assigning join surfaces merge the version
+    /// and leave the party untouched, matching the oracle — complementing the
+    /// by-value `Clock | Version` above.
     ///
-    /// Covers `Clock |= Version`, the `From<&mut Clock>` batch conversion, the
-    /// `clock::Batch |= &Version` operator (committed on drop), and the
-    /// `clock::Batch::party` accessor.
+    /// Covers `Clock |= Version` and `Clock |= &Version`.
     #[test]
     fn clock_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -331,99 +490,84 @@ proptest! {
         assign |= from_oracle_version(&msg_oracle);
         prop_assert_eq!(to_oracle_clock(&assign), (ep.clone(), ev.clone()));
 
-        // `clock::Batch |= &Version`, over a batch built via `From<&mut Clock>`,
-        // committed on drop. The `party` accessor reflects the unchanged party
-        // mid-session.
+        // `Clock |= &Version`.
         let msg = from_oracle_version(&msg_oracle);
-        let mut batched = from_oracle_clock(&cs[i]);
-        {
-            let mut batch: Batch = (&mut batched).into();
-            batch |= &msg;
-            prop_assert_eq!(to_oracle_party(batch.party()), ep.clone());
-        }
-        prop_assert_eq!(to_oracle_clock(&batched), (ep.clone(), ev.clone()));
+        let mut assign_ref = from_oracle_clock(&cs[i]);
+        assign_ref |= &msg;
+        prop_assert_eq!(to_oracle_clock(&assign_ref), (ep.clone(), ev.clone()));
     }
 }
 
-// ───────────────────────── batch equivalence / laziness ─────────────────────────
-
 proptest! {
-    /// A batch of ops equals the same ops applied as value-level calls.
+    /// `sync_all` reconciles one world's clocks: afterwards every participant
+    /// holds the join of all the pre-sync versions, the re-shared parties are
+    /// pairwise disjoint, and re-joining them recovers the pre-sync merged
+    /// party.
+    ///
+    /// The byte-level pin to the composed spelling (`join_all` then the
+    /// balanced re-share) is the `sync_all_is_join_all_then_forks` law; this
+    /// differential samples the contract's invariants over organic
+    /// populations, whose shares are not fork families of the receiver.
     #[test]
-    fn batch_equals_value_level(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn sync_all_reconciles_one_world(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
-        let (i, j) = (i % n, j % n);
-        let msg = from_oracle_version(&cs[j].version());
+        let i = i % n;
 
-        let mut batched = from_oracle_clock(&cs[i]);
-        {
-            let mut b = batched.batch();
-            b.tick();
-            b.join_version(&msg);
-            b.tick();
+        // Pre-sync expectations on the oracle side: the version every
+        // participant must end with, and the merged party the re-split shares
+        // must recover.
+        let expected = cs
+            .iter()
+            .map(|c| c.version())
+            .reduce(|a, b| a | b)
+            .expect("a world holds at least the seed clock");
+        let mut merged = cs[0].party().clone();
+        for c in &cs[1..] {
+            merged
+                .join(c.party().clone())
+                .expect("one world's parties are pairwise disjoint");
         }
 
-        let mut value_level = from_oracle_clock(&cs[i]);
-        value_level.tick();
-        value_level |= msg.clone();
-        value_level.tick();
+        // Impl sync_all: member `i` is the receiver, the rest the others.
+        let mut others: Vec<Clock> = cs.iter().map(from_oracle_clock).collect();
+        let mut receiver = others.remove(i);
+        let returned = receiver
+            .sync_all(others.iter_mut())
+            .expect("one world's clocks are pairwise disjoint")
+            .clone();
 
-        prop_assert!(batched.version() == value_level.version());
-        prop_assert!(batched.party() == value_level.party());
-    }
-
-    /// A batch with no event arithmetic (created-and-dropped, or fork-only)
-    /// leaves the version unchanged — the working form is never materialized.
-    #[test]
-    fn no_arith_batch_preserves_version(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let mut c = from_oracle_clock(&cs[i % n]);
-
-        let before = c.version().clone();
-        {
-            let _b = c.batch();
+        // Every participant carries the merged version, the returned
+        // reference included.
+        prop_assert_eq!(to_oracle_version(&returned), expected.clone());
+        for c in core::iter::once(&receiver).chain(&others) {
+            prop_assert_eq!(to_oracle_version(c.version()), expected.clone());
         }
-        prop_assert!(c.version() == before);
 
-        let before_fork = c.version().clone();
-        {
-            let mut b = c.batch();
-            let _child = b.fork();
+        // The re-shared parties are pairwise disjoint and re-join to the
+        // pre-sync merged party.
+        let all: Vec<&Clock> = core::iter::once(&receiver).chain(&others).collect();
+        for (x, a) in all.iter().enumerate() {
+            for b in &all[x + 1..] {
+                prop_assert!(a.party().is_disjoint(b.party()));
+            }
         }
-        prop_assert!(c.version().clone() == before_fork);
-    }
-
-    /// The commit happens on drop, and mid-batch comparison already reflects
-    /// the uncommitted tick: `batch.version()` equals the post-tick value
-    /// before drop, and the underlying clock equals it after drop.
-    #[test]
-    fn commit_on_drop(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let mut c = from_oracle_clock(&cs[i % n]);
-
-        let expected = {
-            let mut e = from_oracle_clock(&cs[i % n]);
-            e.tick();
-            e.version().clone()
-        };
-
-        let mut b = c.batch();
-        b.tick();
-        prop_assert!(b.version() == expected);
-        drop(b);
-        prop_assert!(c.version() == expected);
+        let mut rejoined = receiver.party().dangerously_alias();
+        for c in &others {
+            rejoined
+                .join(c.party().dangerously_alias())
+                .expect("re-split shares are disjoint");
+        }
+        prop_assert!(rejoined == from_oracle_party(&merged));
     }
 }
 
 // ───────────────────────── normal-form invariant ─────────────────────────
 
 proptest! {
-    /// Every value produced by every op is in canonical normal form, checked after
-    /// every step of a seed-derived impl-only trace (lowered to oracle trees, which
-    /// carry the `is_normal` predicate).
+    /// Every value produced by every op is in canonical normal form, checked
+    /// after every step of a seed-derived impl-only trace (lowered to oracle
+    /// trees, which carry the `is_normal` predicate).
     #[test]
     fn ops_preserve_normal_form(ops in world_strategy()) {
         let mut imp = vec![Clock::seed()];
@@ -441,21 +585,24 @@ proptest! {
 // ───────────────────────── encoded_bits ↔ encode ─────────────────────────
 
 proptest! {
-    /// `encoded_bits` is the pre-final-pad bit length of `encode`: for every live
-    /// clock (and its party and version), `encode().len()` is `encoded_bits()`
-    /// rounded up to whole bytes.
+    /// `encoded_bits` is the pre-padding bit length of `encode`: for every
+    /// live clock (and its party and version), `encode().len()` is
+    /// `encoded_bits()` plus the final marker bit, rounded up to whole
+    /// bytes.
     ///
-    /// A `Clock` byte-concatenates its party and version (each byte-aligned),
-    /// so its bit length is the *byte-aligned* party length plus the version's
-    /// own bit length — the party's padding lies between the two parts.
+    /// A `Clock` byte-concatenates its party and version (each
+    /// marker-padded and byte-aligned), so its bit length is the
+    /// *byte-aligned* party length plus the version's own bit length —
+    /// the party's padding lies between the two parts, and only the
+    /// version's final marker is left uncounted.
     #[test]
     fn encoded_bits_matches_encode_len(ops in world_strategy()) {
         for oc in &run(&ops) {
             let c = from_oracle_clock(oc);
             let (p, v) = (c.party(), c.version());
-            prop_assert_eq!(c.encode().len(), c.encoded_bits().div_ceil(8));
-            prop_assert_eq!(p.encode().len(), p.encoded_bits().div_ceil(8));
-            prop_assert_eq!(v.encode().len(), v.encoded_bits().div_ceil(8));
+            prop_assert_eq!(c.encode().len(), (c.encoded_bits() + 1).div_ceil(8));
+            prop_assert_eq!(p.encode().len(), (p.encoded_bits() + 1).div_ceil(8));
+            prop_assert_eq!(v.encode().len(), (v.encoded_bits() + 1).div_ceil(8));
             prop_assert_eq!(c.encode().len(), p.encode().len() + v.encode().len());
         }
     }
@@ -464,18 +611,18 @@ proptest! {
 // ───────────────────────────── robustness ─────────────────────────────
 
 /// Deep structures (a depth-100k id spine, and the deep event tree a tick
-/// builds over it) survive every public op, the codec, and the `Debug`
-/// printer with no stack overflow.
+/// builds over it) survive every public op, the codec, and the `Debug` printer
+/// with no stack overflow.
 ///
-/// Each traversal recurses, but
-/// [`crate::recurse`] grows the stack onto the heap before a deep input can
-/// overflow it.
-/// Beyond the single-clock ops (tick, fork, join, partial_cmp,
-/// `|`, encode, decode, Debug), this drives the composite ops on deep
-/// structures: `sync` between two deep clocks, `send`/`recv` of a deep
-/// version, and version comparison and concurrency at depth. Impl-only: the
-/// recursive oracle cannot build or even drop a tree this deep (oracle
-/// agreement at bounded depth is the master differential harness's job).
+/// Every library walk is iterative — depth lives on explicit heap and bit
+/// stacks, never the call stack — and this test is the depth-100k proof of that
+/// claim (the hard rule in the crate's AGENTS.md names it as such). Beyond the
+/// single-clock ops (tick, fork, join, partial_cmp, `|`, encode, decode,
+/// Debug), this drives the composite ops on deep structures: `sync` between two
+/// deep clocks, `send`/`recv` of a deep version, and version comparison and
+/// concurrency at depth. Impl-only: the recursive oracle cannot build or even
+/// drop a tree this deep (oracle agreement at bounded depth is the master
+/// differential harness's job).
 #[test]
 fn deep_tree_stack_safety() {
     const DEPTH: usize = 100_000;
@@ -487,14 +634,15 @@ fn deep_tree_stack_safety() {
     let decoded = Clock::decode(&bytes[..]).expect("deep id encodes to canonical bytes");
     assert_eq!(decoded.encode(), bytes);
 
-    // Ticks build, then refine, a deep event tree (unpack / fill / grow / repack).
+    // Ticks build, then refine, a deep event tree (fill, then the grow fallback,
+    // on the stored stream).
     clock.tick();
     clock.tick();
 
-    // Snapshot this deep version before the clock advances further. Used below to
-    // drive the shared join/meet `combine` recursion against a *distinct* deep
-    // version: equal operands short-circuit on `trivially_eq` before recursing,
-    // so only distinct ones exercise the depth-100k descent.
+    // Snapshot this deep version before the clock advances further. Used below
+    // to drive the skyline join/meet sweep against a *distinct* deep version:
+    // equal operands short-circuit on `codec::canonical_eq`'s byte compare at
+    // the top of join/meet, so only distinct ones reach the full-length sweep.
     let early = clock.version().clone();
 
     // Observing ops over the deep version do not overflow.
@@ -517,12 +665,13 @@ fn deep_tree_stack_safety() {
     let msg = clock.send().clone();
     clock.recv(&msg);
 
-    // A join and a meet of two *distinct* deep versions drive the shared
-    // `combine` recursion (the `|`/`&` walk) at full depth. `early` predates the
-    // `send`/`recv` ticks, so `early < clock.version()`: their meet (GLB) is the
-    // older `early`, their join (LUB) the newer current version. The operands
-    // differ, so neither short-circuits on `trivially_eq` — the depth-100k
-    // descent is genuinely exercised, not skipped.
+    // A join and a meet of two *distinct* deep versions drive the skyline
+    // join/meet sweep (the `|`/`&` walk) over the full deep encoding. `early`
+    // predates the `send`/`recv` ticks, so `early < clock.version()`: their
+    // meet (GLB) is the older `early`, their join (LUB) the newer current
+    // version. The operands are distinct and non-empty, so neither the
+    // `codec::canonical_eq` nor the empty-operand fast path fires — the
+    // full-length sweep is genuinely exercised, not skipped.
     let current = clock.version().clone();
     assert!(early.clone() & current.clone() == early);
     assert!(early | current.clone() == current);
@@ -561,6 +710,116 @@ fn deep_tree_stack_safety() {
 
     // The recursive Debug pretty-printer must not overflow either.
     assert!(!format!("{clock:?}").is_empty());
+}
+
+/// The query folds and causal-interval walks survive depth 100k.
+///
+/// Driven here: rank, distance, lag, `Ranked` ordering, the `Rank` wire
+/// round-trip at a 100k exponent, span hulls (pair and n-ary), `Span`
+/// validation, decode, placement, and dominance, the span algebra (all four
+/// operators, the n-ary door, the quotient view), query membership and
+/// coverage, and projection through a deep id.
+///
+/// `deep_tree_stack_safety` above proves the clock ops at this depth; this is
+/// the same proof for the surfaces it does not drive — every one an iterative
+/// walk whose depth lives on explicit heap or bit stacks, exercised here at a
+/// depth no program stack could carry.
+#[test]
+fn deep_tree_query_and_causal_stack_safety() {
+    use crate::causally;
+    use crate::Rank;
+
+    const DEPTH: usize = 100_000;
+    let party = deep_left_spine_party(DEPTH);
+    let mut clock = Clock::from_parts(party, Version::new());
+    clock.tick();
+    let early = clock.version().clone();
+    clock.tick();
+    let late = clock.version().clone();
+
+    // Query folds at depth: the single-stream rank integral and the
+    // fused pair co-sweeps (distance, lag, the Ranked signed compare).
+    let r_early = early.rank();
+    let r_late = late.rank();
+    assert!(r_early < r_late);
+    let d = early.distance(&late);
+    assert_eq!(early.lag(&late) + late.lag(&early), d);
+    assert!(early.ranked() < late.ranked());
+
+    // The Rank wire form round-trips at a 100k-deep exponent.
+    let bytes = r_late.encode();
+    assert_eq!(Rank::decode(&bytes[..]).expect("canonical rank"), r_late);
+
+    // Span hulls (pair and n-ary), the fused decode/admit walk, and the
+    // 3-stream placement walks.
+    let span = early.span(&late);
+    assert_eq!(span.lo(), &early);
+    assert_eq!(span.hi(), &late);
+    let span_bytes = span.encode();
+    let decoded = causally::Span::decode(&span_bytes[..]).expect("canonical span");
+    assert_eq!(decoded.lo(), &early);
+    let validated = causally::Span::new(&early, &late).expect("early <= late");
+    let _ = validated.place(&early);
+    let _ = validated.dominance(&late);
+    let hull = early.span_all([late.clone()]);
+    assert_eq!(hull.hi(), &late);
+
+    // The span algebra at depth: each operator's legs run the join and meet
+    // kernels over the deep endpoints, the n-ary door drives the balanced
+    // fold's combine arms, and the quotient view runs the masked co-walks —
+    // every constituent iterative, pinned here at the door.
+    let head = causally::Span::new(&early, &early).expect("coincident");
+    assert_eq!(&head + &span, span);
+    assert_eq!(&head * &span, Some(head.clone()));
+    assert_eq!(&head | &span, span);
+    assert_eq!(&head & &span, head);
+    assert_eq!(head.union_all([&span, &hull]), span);
+    let view = &span / clock.party();
+    let _ = view.place(&early);
+    assert_eq!(view.to_span(), span);
+
+    // Query classification: the fused multi-bound filter walks, and the
+    // coverage clamp's lattice legs, over the deep streams.
+    let query = causally::since(&early) & causally::before(&late);
+    assert!(query.contains(&late));
+    let _ = query.coverage(span.reborrow());
+
+    // Projection through the deep id (the masked walk), materialized.
+    let own = &late / clock.party();
+    assert_eq!(own.to_version(), late);
+}
+
+/// The text mirror and the tick-floor fold survive depth 100k: a deep clock
+/// renders to paper notation and parses back equal, and `min_ticks` runs its
+/// epoch-ledger/min-web walk over the deep event tree.
+///
+/// `codec::tests::deep_id_text_roundtrip` proves the *id* text parser at this
+/// depth; the event tree's text walk is a separate parser (its parked-stack
+/// frames live in `version::skyline::text`), and nothing else drives it or
+/// `min_ticks` past proptest depths. Both are iterative walks on explicit heap
+/// stacks, exercised here at a depth no program stack could carry.
+#[test]
+fn deep_tree_text_and_min_ticks_stack_safety() {
+    const DEPTH: usize = 100_000;
+    let party = deep_left_spine_party(DEPTH);
+    let mut clock = Clock::from_parts(party, Version::new());
+    clock.tick();
+    let version = clock.version().clone();
+
+    // The version text mirror: render the deep event tree, parse it
+    // back, and land on the same version.
+    let text = version.to_string();
+    let parsed: Version = text.parse().expect("a deep rendered version parses");
+    assert_eq!(parsed, version);
+
+    // The clock text mirror carries both deep components at once.
+    let text = clock.to_string();
+    let parsed: Clock = text.parse().expect("a deep rendered clock parses");
+    assert_eq!(parsed.version(), &version);
+
+    // The tick floor: one tick raised one leaf, so the minimal
+    // construction is that single tick.
+    assert_eq!(version.min_ticks(), crate::Ticks::from(1u64));
 }
 
 proptest! {
@@ -904,6 +1163,75 @@ proptest! {
         let c3: Clock = ciborium::de::from_reader(&b[..]).unwrap();
         prop_assert_eq!(c3.encode(), c.encode());
     }
+
+    /// The serde byte payload is exactly the canonical encoding.
+    ///
+    /// Each type serializes to the same stream as its own `encode()` bytes
+    /// handed to the format as a plain byte sequence, so the wire form is
+    /// `encode()` with nothing added, reordered, or wrapped — the serde mirror
+    /// of the borsh `bytes == as_bytes` pin, witnessed through postcard, whose
+    /// byte-sequence framing is a length prefix plus the raw bytes.
+    #[test]
+    fn serde_bytes_pin_the_canonical_encoding(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let p = from_oracle_party(cs[i % n].party());
+        let v = from_oracle_version(&cs[i % n].version());
+        let c = from_oracle_clock(&cs[i % n]);
+
+        prop_assert_eq!(
+            postcard::to_allocvec(&p).unwrap(),
+            postcard::to_allocvec(&p.encode()).unwrap(),
+        );
+        prop_assert_eq!(
+            postcard::to_allocvec(&v).unwrap(),
+            postcard::to_allocvec(&v.encode()).unwrap(),
+        );
+        prop_assert_eq!(
+            postcard::to_allocvec(&c).unwrap(),
+            postcard::to_allocvec(&c.encode()).unwrap(),
+        );
+    }
+
+    /// Serde deserialization runs the strict `decode` validator: a
+    /// non-canonical payload is rejected, never silently accepted.
+    ///
+    /// The serde mirror of the borsh strict-reject leg, for all three types and
+    /// through both deserialization paths.
+    #[test]
+    fn serde_rejects_non_canonical(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let p = from_oracle_party(cs[i % n].party());
+        let v = from_oracle_version(&cs[i % n].version());
+        let c = from_oracle_clock(&cs[i % n]);
+
+        // Append a spurious whole zero byte: canonical padding is < 8 bits, so
+        // `decode` rejects it, and serde must surface that rejection through
+        // both the binary (typed-bytes) and the self-describing (number-array)
+        // paths.
+        let mut party_body = p.encode();
+        party_body.push(0x00);
+        prop_assume!(Party::decode(&party_body[..]).is_err());
+        let mut version_body = v.encode();
+        version_body.push(0x00);
+        prop_assume!(Version::decode(&version_body[..]).is_err());
+        let mut clock_body = c.encode();
+        clock_body.push(0x00);
+        prop_assume!(Clock::decode(&clock_body[..]).is_err());
+
+        let postcard_frame =
+            |body: &Vec<u8>| postcard::to_allocvec(body).expect("byte vectors serialize");
+        prop_assert!(postcard::from_bytes::<Party>(&postcard_frame(&party_body)).is_err());
+        prop_assert!(postcard::from_bytes::<Version>(&postcard_frame(&version_body)).is_err());
+        prop_assert!(postcard::from_bytes::<Clock>(&postcard_frame(&clock_body)).is_err());
+
+        let json_frame =
+            |body: &Vec<u8>| serde_json::to_vec(body).expect("byte vectors serialize");
+        prop_assert!(serde_json::from_slice::<Party>(&json_frame(&party_body)).is_err());
+        prop_assert!(serde_json::from_slice::<Version>(&json_frame(&version_body)).is_err());
+        prop_assert!(serde_json::from_slice::<Clock>(&json_frame(&clock_body)).is_err());
+    }
 }
 
 // ───────────────────────────── borsh (feature-gated) ─────────────────────────────
@@ -928,9 +1256,9 @@ proptest! {
         prop_assert_eq!(c2.encode(), c.encode());
     }
 
-    /// The borsh payload is exactly the canonical in-memory representation,
-    /// and the representation is self-delimiting, so two concatenated values
-    /// decode back in order.
+    /// The borsh payload is exactly the canonical in-memory representation, and
+    /// the representation is self-delimiting, so two concatenated values decode
+    /// back in order.
     #[test]
     fn borsh_frames_as_canonical_bytes(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -950,8 +1278,8 @@ proptest! {
         prop_assert_eq!(b, v);
     }
 
-    /// Deserialization runs the strict `decode` validator: a frame whose body is
-    /// not a canonical encoding is rejected rather than silently accepted.
+    /// Deserialization runs the strict `decode` validator: a frame whose body
+    /// is not a canonical encoding is rejected rather than silently accepted.
     #[test]
     fn borsh_rejects_non_canonical(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -964,5 +1292,263 @@ proptest! {
         body.push(0x00);
         prop_assume!(Version::decode(&body[..]).is_err());
         prop_assert!(borsh::from_slice::<Version>(&body).is_err());
+    }
+}
+
+// ───────────────────── orbit pins: iterated-operation size trajectories ─────────────────────
+//
+// A per-call cost bound does not preclude compounding: an operation linear in
+// its input can feed itself an ever-larger input, so the size trajectory of
+// *iterated* operation is its own pin surface. These orbits are fully
+// deterministic (fixed populations, fixed arithmetic schedules, no randomness
+// in any operation), so every trajectory below is pinned by exact measured
+// numbers, asserted across the whole orbit — shape over point: tuning any one
+// round cannot pass. The two scenario orbits transcribe the ITC 2008 paper's §6
+// experiment (also reproduced statistically by
+// `examples/space_consumption.rs`): the paper's observed shape — rapid early
+// growth, then stabilization with a minor logarithmic component — is here a
+// committed criterion, not a chart.
+
+/// Build the scenario orbits' fixed population: `n` clocks balanced- forked
+/// from one seed, deterministically.
+fn orbit_population(n: usize) -> Vec<Clock> {
+    let mut clocks = vec![Clock::seed()];
+    let children: Vec<Clock> = clocks[0].forks(n as u64 - 1).collect();
+    clocks.extend(children);
+    clocks
+}
+
+/// Max over each octave `[2^i, 2^(i+1))` of a per-round trajectory (`traj[k -
+/// 1]` is the reading after round `k`), starting at octave `[4, 8)`: the
+/// resolution the scenario orbits' bands are pinned at.
+fn octave_maxima(traj: &[usize]) -> Vec<usize> {
+    let mut maxima = Vec::new();
+    let mut hi = 8usize;
+    while hi <= traj.len() {
+        maxima.push(*traj[hi / 2..hi].iter().max().expect("octaves are nonempty"));
+        hi *= 2;
+    }
+    maxima
+}
+
+/// The fork+join round-trip orbit is byte-stationary.
+///
+/// Forking a child off a clock and immediately joining it back returns the
+/// clock byte-identical to its resting encoding, every round — iterated
+/// re-partitioning of an idle region mints nothing, with no transient and no
+/// ratchet [measured: identity at all 256 rounds].
+///
+/// Liveness floor: mid-round the encoding must differ from the resting one (the
+/// fork really split the party), so the identity is a round trip, not a no-op.
+/// Budget: 256 rounds, microseconds.
+#[test]
+fn fork_join_round_trip_orbit_is_byte_stationary() {
+    let mut c = Clock::seed();
+    let resting = c.encode();
+    for k in 1u32..=256 {
+        let child = c.fork();
+        assert_ne!(
+            c.encode(),
+            resting,
+            "round {k}: the fork must split the resting party"
+        );
+        c.join(child).expect("a clock's own fork is disjoint");
+        assert_eq!(
+            c.encode(),
+            resting,
+            "round {k}: the round trip must return the clock byte-identical"
+        );
+    }
+}
+
+/// The fork+tick+join round-trip orbit grows only the counter's code width.
+///
+/// Forking a child, ticking it once, and joining it back leaves the party
+/// byte-identical to the seed every round, and the version — a fixed two-leaf
+/// scaffold holding one counter at the child's leaf, `(0, 0, k)` exactly —
+/// reads exactly `7 + 2·⌊log2 k⌋` encoded bits after round k: the k accumulated
+/// events cost one gamma code's width (2 bits per doubling), never a ratcheting
+/// tree [measured: exact at all 512 rounds].
+///
+/// Liveness floor: the exact form at `k = 512` is the floor — a round trip that
+/// dropped events would read a smaller counter. Budget: 512 rounds,
+/// milliseconds.
+#[test]
+fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
+    let mut c = Clock::seed();
+    let seed_party = c.party().encode();
+    for k in 1usize..=512 {
+        let mut child = c.fork();
+        child.tick();
+        c.join(child).expect("a clock's own fork is disjoint");
+        assert_eq!(
+            c.party().encode(),
+            seed_party,
+            "round {k}: the party must return to the seed"
+        );
+        assert_eq!(
+            c.version().encoded_bits(),
+            7 + 2 * k.ilog2() as usize,
+            "version bits after round {k}"
+        );
+    }
+    let expected: Version = "(0, 0, 512)".parse().expect("test literals parse");
+    assert_eq!(
+        c.version(),
+        &expected,
+        "the orbit's whole history is one counter at the child's leaf"
+    );
+}
+
+/// The paper's dynamic (churn) scenario reaches a bounded steady state.
+///
+/// Over a population held at 8 by one fork, one tick, one anonymous version
+/// exchange, and one retiring join per round on a fixed arithmetic schedule,
+/// the population's maximum id size plateaus in a fixed band — the octave
+/// maxima climb through a transient and then sit flat at 132–134 bits, tail
+/// octaves no higher than the plateau's first — and its maximum version size
+/// grows only with the counters' code widths: per-octave growth bounded by a
+/// constant that is itself shrinking (65 → 48 → 42 bits per doubling over the
+/// tail), logarithmic in the round count, never per round. Both trajectories
+/// are pinned exactly at octave resolution [measured: the two arrays below,
+/// 4096 rounds].
+///
+/// Liveness floor: the population count is asserted every round and the pinned
+/// arrays are strictly positive and rising through the transient — a scenario
+/// that stopped forking, ticking, or joining would flatten them. Budget: 4096
+/// rounds over ≤ 470-bit values, well under a second.
+#[test]
+fn churn_orbit_sizes_reach_a_bounded_band() {
+    const N: usize = 8;
+    const ROUNDS: usize = 4096;
+    let mut clocks = orbit_population(N);
+    let mut party_max = Vec::with_capacity(ROUNDS);
+    let mut version_max = Vec::with_capacity(ROUNDS);
+    for r in 0..ROUNDS {
+        // fork: a new peer joins, population N -> N + 1.
+        let parent = r % clocks.len();
+        let child = clocks[parent].fork();
+        clocks.push(child);
+        // event: one peer records an internal event.
+        let who = (r * 3 + 1) % clocks.len();
+        clocks[who].tick();
+        // anonymous exchange: one peer's version joined by another.
+        let s = (r * 5 + 2) % clocks.len();
+        let mut t = (r * 7 + 3) % clocks.len();
+        if t == s {
+            t = (t + 1) % clocks.len();
+        }
+        let peeked = clocks[s].version().clone();
+        clocks[t] |= peeked;
+        // retire: a donor's id is joined back into a survivor, N + 1 -> N.
+        let donor = clocks.swap_remove((r * 11 + 5) % clocks.len());
+        let survivor = (r * 13 + 7) % clocks.len();
+        clocks[survivor]
+            .join(donor)
+            .expect("clocks forked from one seed are disjoint");
+        assert_eq!(clocks.len(), N, "round {r}: churn holds the population");
+        party_max.push(
+            clocks
+                .iter()
+                .map(|c| c.party().encoded_bits())
+                .max()
+                .expect("the population is nonempty"),
+        );
+        version_max.push(
+            clocks
+                .iter()
+                .map(|c| c.version().encoded_bits())
+                .max()
+                .expect("the population is nonempty"),
+        );
+    }
+
+    let party_octaves = octave_maxima(&party_max);
+    assert_eq!(
+        party_octaves,
+        [20, 26, 42, 70, 92, 100, 122, 134, 132, 132],
+        "max id bits per octave: transient, then a flat band"
+    );
+    let plateau = party_octaves[7];
+    assert!(
+        party_octaves[8..].iter().all(|&m| m <= plateau),
+        "id sizes must not creep past the plateau's first octave"
+    );
+
+    let version_octaves = octave_maxima(&version_max);
+    assert_eq!(
+        version_octaves,
+        [24, 58, 102, 126, 176, 226, 270, 335, 383, 425],
+        "max version bits per octave: growth per doubling, not per round"
+    );
+    for w in version_octaves[6..].windows(2) {
+        assert!(
+            w[1] - w[0] <= 65,
+            "tail version growth must stay a bounded step per doubling"
+        );
+    }
+}
+
+/// The paper's static scenario stabilizes at the causal-history bound.
+///
+/// A fixed set of 8 peers recording one internal event and one anonymous
+/// version exchange per round on a fixed arithmetic schedule keeps every id
+/// byte-identical forever (messages carry no id), and the population's maximum
+/// version size is monotone nondecreasing and grows exactly 8 bits per doubling
+/// of the round count — the eight counters' gamma widths, 1 bit each per
+/// doubling — reading exactly `8·i − 4` bits over the octave ending at round
+/// `2^i`, flat per round, logarithmic in total [measured: exact at octave
+/// resolution, 4096 rounds].
+///
+/// Liveness floor: the closed form's equality at every octave is the floor —
+/// peers that stopped ticking or exchanging would read short. Budget: 4096
+/// rounds over ≤ 100-bit versions, well under a second.
+#[test]
+fn static_orbit_ids_freeze_and_versions_grow_log() {
+    const N: usize = 8;
+    const ROUNDS: usize = 4096;
+    let mut clocks = orbit_population(N);
+    let resting_ids: Vec<Vec<u8>> = clocks.iter().map(|c| c.party().encode()).collect();
+    let mut version_max = Vec::with_capacity(ROUNDS);
+    for r in 0..ROUNDS {
+        // internal event on one peer.
+        clocks[r % N].tick();
+        // anonymous exchange: one peer's version joined by another.
+        let s = (r * 3 + 1) % N;
+        let mut t = (r * 5 + 2) % N;
+        if t == s {
+            t = (t + 1) % N;
+        }
+        let peeked = clocks[s].version().clone();
+        clocks[t] |= peeked;
+        for (c, resting) in clocks.iter().zip(&resting_ids) {
+            assert_eq!(
+                &c.party().encode(),
+                resting,
+                "round {r}: a static peer's id must stay byte-identical"
+            );
+        }
+        version_max.push(
+            clocks
+                .iter()
+                .map(|c| c.version().encoded_bits())
+                .max()
+                .expect("the population is nonempty"),
+        );
+    }
+
+    assert!(
+        version_max.windows(2).all(|w| w[1] >= w[0]),
+        "the shared causal history only accumulates"
+    );
+    let octaves = octave_maxima(&version_max);
+    assert_eq!(octaves[0], 22, "the transient octave [4, 8)");
+    for (j, &m) in octaves.iter().enumerate().skip(1) {
+        let i = j + 3; // octave j ends at round 2^(j + 3)
+        assert_eq!(
+            m,
+            8 * i - 4,
+            "max version bits over the octave ending at 2^{i}"
+        );
     }
 }

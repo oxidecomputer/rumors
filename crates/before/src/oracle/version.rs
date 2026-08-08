@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
+use std::sync::Arc;
 
 use crate::codec::Base;
 
@@ -11,15 +12,20 @@ type Cost = (u32, u32); // (#expansions, depth), lexicographic
 
 /// Event component.
 ///
-/// Bases are arbitrary-precision `Base` (`num_bigint::BigUint`), matching the
-/// implementation's working form, so large-base differentials lower losslessly
-/// — there is no `u64` truncation point. Literal/`u64` construction still works
-/// via `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the
+/// Bases are the arbitrary-precision `Base`, matching the implementation's leaf
+/// payloads, so large-base differentials lower losslessly — there is no `u64`
+/// truncation point. Literal/`u64` construction still works via
+/// `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the
 /// [`From<u64>`](Version) conversion.
+///
+/// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
+/// paper's subtree-preserving cases (`shift` rebuilding only a root, `grow`
+/// keeping the sibling it didn't inflate) share structure instead of
+/// deep-copying, which keeps every oracle walk linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {
     Leaf(Base),
-    Node(Base, Box<Version>, Box<Version>),
+    Node(Base, Arc<Version>, Arc<Version>),
 }
 
 impl From<u64> for Version {
@@ -33,8 +39,6 @@ impl Version {
         Version::Leaf(Base::ZERO)
     }
 
-    /// Build a leaf from any `u64`/`Base`. Keeps literal construction ergonomic now
-    /// that the base is arbitrary-precision.
     pub(crate) fn leaf(n: impl Into<Base>) -> Version {
         Version::Leaf(n.into())
     }
@@ -69,7 +73,7 @@ impl Version {
         let r = r.debase(&m);
         match (&l, &r) {
             (Version::Leaf(a), Version::Leaf(b)) if a == b => Version::Leaf(n + m + a),
-            _ => Version::Node(n + m, Box::new(l), Box::new(r)),
+            _ => Version::Node(n + m, Arc::new(l), Arc::new(r)),
         }
     }
 
@@ -118,11 +122,6 @@ impl Version {
     }
 
     /// Meet (GLB) of two event trees, offset-threaded.
-    ///
-    /// The order-theoretic dual of [`join_off`](Self::join_off): pointwise
-    /// *minimum* in place of maximum, identical structure otherwise (a leaf
-    /// still broadcasts as the constant `(n, 0, 0)` to both of the other side's
-    /// children).
     fn meet_off(&self, so: &Base, other: &Version, oo: &Base) -> Version {
         if let (Version::Leaf(sn), Version::Leaf(on)) = (self, other) {
             return Version::Leaf((so + sn).min(oo + on));
@@ -190,16 +189,16 @@ impl Version {
     /// `self / id` — the part of the version contributed within `id`'s region,
     /// zero everywhere `id` does not own. The reference for the impl's quotient
     /// [`Version / &Party`](crate::Version).
-    fn project(&self, id: &Party) -> Version {
+    pub(crate) fn project(&self, id: &Party) -> Version {
         self.project_off(id, &Base::ZERO)
     }
 
     /// The minimum number of [`tick`](Self::tick)s that could have produced this
-    /// version: the sum of every base in the event tree, saturating at
-    /// [`u64::MAX`]. The reference for
+    /// version: the sum of every base in the event tree, exact at any
+    /// magnitude. The reference for
     /// [`Version::min_ticks`](crate::Version::min_ticks).
-    pub fn min_ticks(&self) -> u64 {
-        self.base_total().to_u64_saturating()
+    pub fn min_ticks(&self) -> crate::Ticks {
+        crate::Ticks(self.base_total())
     }
 
     /// The sum of every base in the event tree (node bases plus leaf values).
@@ -220,7 +219,7 @@ impl Version {
 
     /// The raw `(numerator, exponent)` area fold, in subtree-relative units
     /// (this subtree's interval has width 1).
-    fn rank_raw(&self) -> (Base, u32) {
+    fn rank_raw(&self) -> (Base, u64) {
         match self {
             Version::Leaf(n) => (n.clone(), 0),
             Version::Node(n, l, r) => {
@@ -264,12 +263,12 @@ impl Version {
                 let (er2, cr) = er.grow(&Party::Leaf(true));
                 if cl < cr {
                     (
-                        Version::Node(n.clone(), Box::new(el2), er.clone()),
+                        Version::Node(n.clone(), Arc::new(el2), er.clone()),
                         (cl.0, cl.1 + 1),
                     )
                 } else {
                     (
-                        Version::Node(n.clone(), el.clone(), Box::new(er2)),
+                        Version::Node(n.clone(), el.clone(), Arc::new(er2)),
                         (cr.0, cr.1 + 1),
                     )
                 }
@@ -278,8 +277,8 @@ impl Version {
             (Party::Node(..), Version::Leaf(n)) => {
                 let expanded = Version::Node(
                     n.clone(),
-                    Box::new(Version::leaf(0u64)),
-                    Box::new(Version::leaf(0u64)),
+                    Arc::new(Version::leaf(0u64)),
+                    Arc::new(Version::leaf(0u64)),
                 );
                 let (e2, c) = expanded.grow(id);
                 (e2, (c.0 + 1, c.1))
@@ -288,13 +287,13 @@ impl Version {
                 if il.is_empty() {
                     let (er2, cr) = er.grow(ir);
                     (
-                        Version::Node(n.clone(), el.clone(), Box::new(er2)),
+                        Version::Node(n.clone(), el.clone(), Arc::new(er2)),
                         (cr.0, cr.1 + 1),
                     )
                 } else if ir.is_empty() {
                     let (el2, cl) = el.grow(il);
                     (
-                        Version::Node(n.clone(), Box::new(el2), er.clone()),
+                        Version::Node(n.clone(), Arc::new(el2), er.clone()),
                         (cl.0, cl.1 + 1),
                     )
                 } else {
@@ -302,12 +301,12 @@ impl Version {
                     let (er2, cr) = er.grow(ir);
                     if cl < cr {
                         (
-                            Version::Node(n.clone(), Box::new(el2), er.clone()),
+                            Version::Node(n.clone(), Arc::new(el2), er.clone()),
                             (cl.0, cl.1 + 1),
                         )
                     } else {
                         (
-                            Version::Node(n.clone(), el.clone(), Box::new(er2)),
+                            Version::Node(n.clone(), el.clone(), Arc::new(er2)),
                             (cr.0, cr.1 + 1),
                         )
                     }
@@ -351,8 +350,40 @@ impl Version {
         self.normalized()
     }
 
+    /// The meet (GLB) of every version in `iter`, or [`None`] for an empty
+    /// iterator.
+    ///
+    /// The reference for [`Version::meet_all`](crate::Version::meet_all),
+    /// whose differential feeds the production door's `{receiver} ∪ items`
+    /// family here as one list.
+    ///
+    /// The sequential fold of the binary meet; `None` because the
+    /// meet-semilattice has no identity (no version dominates all others) —
+    /// the same missing top that makes the production door seed its fold
+    /// with the receiver.
+    pub fn meet_all(iter: impl IntoIterator<Item = Version>) -> Option<Version> {
+        iter.into_iter().reduce(|acc, v| acc & v)
+    }
+
     pub fn tick(&mut self, party: &Party) {
         *self = self.event(party);
+    }
+
+    /// `n` sequential [`tick`](Self::tick)s, literally iterated.
+    ///
+    /// The paper has no fused form, so the reference for
+    /// [`Version::ticks`](crate::Version::ticks) is the definitionally
+    /// honest loop — `O(n · tree)`, fit for small `n` only (the module
+    /// doc's operating envelope; each differential suite caps the counts
+    /// it hands this side, and wide-`n` coverage lives impl-side on
+    /// composition laws and closed forms).
+    pub fn ticks(&mut self, party: &Party, n: impl Into<crate::Ticks>) {
+        let mut left = n.into().0;
+        let one = Base::from(1u8);
+        while left != Base::ZERO {
+            self.tick(party);
+            left -= &one;
+        }
     }
 
     pub fn is_normal(&self) -> bool {
@@ -421,10 +452,12 @@ impl BitAndAssign<Version> for Version {
 }
 
 // `/`/`/=` project a `Version` onto a `Party`'s region (the quotient),
-// mirroring the impl's `Div<&Party> for Version`. Unlike the impl, the oracle
-// `Party` is `Clone`, so the borrow is incidental — but the surface is kept
-// identical (a borrowed party) so the operator reads the same in differential
-// tests.
+// materialized eagerly: the oracle is the *other side* of the impl's
+// projection differentials — the reference the impl's lazy view
+// (`OwnVersion`) and its `to_version()` materialization are both pinned
+// against — so it stays a plain projected `Version`, never a view. The
+// oracle `Party` is `Clone`, so the borrowed party is incidental; the
+// by-value and assign forms survive here for the oracle's own ergonomics.
 impl Div<&Party> for &Version {
     type Output = Version;
     fn div(self, party: &Party) -> Version {

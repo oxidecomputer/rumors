@@ -39,15 +39,19 @@ it fully clean before every commit.
 
 ## Contributing a change
 
-One-time setup: everything `just gate` shells out to is a stable Rust
-toolchain (1.85 or later, for edition 2024) with clippy, rustfmt, and
-rust-src, a nightly toolchain (merged doctests), `just`, `cargo-nextest`,
-`cargo-rdme`, and python3 with bash (the `tools/` linters). `just ci`
-additionally wants the `wasm32-unknown-unknown` target, `wasm-pack`,
-`cargo-fuzz`, and node/npm. rust-src is what lets rustc quote std source,
-which `before`'s trybuild snapshots do: without the sources installed, three
-compile-fail cases mismatch on the quoted lines alone while the guarantees
-they pin are perfectly intact.
+One-time setup: most of it provisions itself. `rust-toolchain.toml` names
+the stable toolchain of record along with the components and targets the
+gate shells out to — clippy, rustfmt, and `wasm32-unknown-unknown` — and
+rustup installs them on the first cargo invocation, in the detached
+workspaces too. It is pinned rather than tracking current stable because
+the tree pins numbers derived from the compiler; the file's own comment
+carries that argument and the procedure for bumping it.
+
+What you install yourself: the nightly toolchain the gate's nightly legs
+name (`nightly_toolchain` in the justfile, pinned for the same reason),
+`just`, `cargo-nextest`, `cargo-rdme`, and python3 with bash (the
+`tools/` linters). `just ci` additionally wants `wasm-pack`,
+`cargo-fuzz`, and node/npm.
 
 1. Iterate with the inner loop: `just check`, `just test <filter>`,
    `just clippy`, `just fmt`.
@@ -126,6 +130,12 @@ they pin are perfectly intact.
   which means a new protocol version, never a mutation of an existing one.
   To re-accept deliberately: `just test-all`, then `cargo insta review`
   (install: `cargo install cargo-insta`), then commit the updated
-  `tests/snapshots/*.snap`.
+  `tests/snapshots/*.snap`. One sanctioned exception for tamper sweeps
+  attributing snapshot history: the bookmark `frame_non_trivial` pin
+  (`src/bookmark/format/`) is a ratified *fixture re-pin* — its fixture
+  deliberately carries nested versions so the pin exercises real skyline
+  payload bytes, and the format is attested unchanged by the untouched
+  `frame_empty` pin and the round-trip/corruption suite. Attribute that
+  pin's history to the fixture, never to a protocol change.
 - Redaction leaves no tombstones: deletion-honoring rides on version bounds.
   When reasoning about it, think version ceilings/floors, not markers.

@@ -1,0 +1,84 @@
+# The population atlas: a detached dev-tool workspace, the same idiom as
+# crates/before/fuzzfit — the empty `[workspace]` table keeps this crate out
+# of the parent workspace, so ordinary workspace builds never compile it and
+# wasmtime (pulled in through the fuzzfit harness, whose wasm driver this
+# crate reuses) stays out of the production crates' dependency graph. The
+# gate reaches it only through the `just fuelscape-*` recipes by name.
+[workspace]
+
+[package]
+name = "before-fuelscape"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+# The subject under audit: the samplers target its packed codecs, and the
+# `meter` feature exposes the committed adversarial family generators the
+# renders overlay as marked points. The deterministic native counters
+# (`scan-meter`/`limb-meter`) feed the spanbands discriminator, which
+# measures work natively per sampled pair; the fuel pipeline never reads
+# them (the guest is a separate wasm build).
+before = { path = "../before", features = ["meter", "scan-meter", "limb-meter"] }
+# Read beside `before`'s counters: the accumulator digit-touch meter the
+# `limb-meter` feature lights (`suanpan/touch-meter`), read directly as
+# `suanpan::touch_meter` — `before` re-exports no reader for it.
+suanpan = { path = "../suanpan", features = ["touch-meter"] }
+# The fuel apparatus of record: the fuzzfit harness's wasmtime driver runs
+# one public operation per guest call under deterministic instruction-count
+# fuel. Reused whole rather than duplicated, so the atlas and the band
+# enforcement read the same currency from the same guest.
+fuzzfit-harness = { path = "../before/fuzzfit/harness" }
+# One progress bar per in-flight panel plus a run total, so an operator
+# can watch a long survey; bars draw only on a tty, so nohup logs keep
+# the plain per-panel lines.
+indicatif = "0.18"
+
+# Exact-integer counting tables and proportional choice: uniform sampling
+# is arithmetic over exact counts, never floats.
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+# Deterministic per-cell seed streams; the same documented-portable
+# generator the fuzzfit harness and the parent crate's sweeps use.
+rand = "0.8"
+rand_chacha = "0.3"
+# Host-side fan-out across sampling cells; every cell's RNG is seeded from
+# (op, size, sample index), so parallel order cannot change any draw.
+rayon = "1"
+# SVG rendering only: the bitmap backend would pull font rasterization and
+# image codecs this tool has no use for.
+plotters = { version = "0.3", default-features = false, features = [
+    "svg_backend",
+    "line_series",
+] }
+# The dump format: one well-formed JSON document per operation, read back
+# by the re-render mode and directly by downstream document tooling
+# (typst's `json()` loader) with no converter. serde already rides in
+# this graph through the wasmtime driver; serde_json adds only its two
+# tiny number formatters over the cost of hand-rolling a strict parser.
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: the loader's grid verification compares stored f64
+# axis domains and medians bit-for-bit against a recomputation, so JSON
+# number parsing must be exact to the last ULP, not merely close.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+# The grid math (log2 bin geometry) must produce identical bits on every
+# host: a dump commits its HeatGrid, and the loader re-derives it
+# bit-for-bit wherever the dump is opened. Platform math libraries
+# disagree by an ulp at bin boundaries; libm's pure-Rust kernels do not.
+libm = "0.2"
+
+[dev-dependencies]
+proptest = "1"
+
+# The sampler is an allocation storm — a fresh wasmtime store per sample
+# for measurement hygiene, big-integer temporaries per rejection draw —
+# and the system allocator's global lock convoys the worker pool
+# (measured on illumos at 192 workers: ~45% USR, the rest lock-blocked,
+# ~30 cores effective). mimalloc's per-thread heaps remove the convoy;
+# fuel readings are unaffected (the meter counts guest instructions,
+# not host time). Its C runtime faults on illumos (startup segfault,
+# measured on ox-east-1), so the dependency is gated off there — an
+# illumos launcher preloads libumem, the platform's own per-CPU
+# allocator, for the same relief with no code.
+[target.'cfg(not(target_os = "illumos"))'.dependencies]
+mimalloc = "0.1"

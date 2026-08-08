@@ -21,6 +21,10 @@ use crate::{Version, message::Message};
 use super::{local, mirror, remote};
 use crate::tree::mirror::handshake::{self, Intent};
 
+// clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+// fallback-TLS lowering (illumos among the gate's targets) and denies
+// initializers that already sit in `const` blocks; the allow keeps
+// `-D warnings` honest on every platform the gate runs.
 thread_local! {
     /// One current-thread tokio runtime per test thread, initialized lazily on
     /// first use.
@@ -28,6 +32,7 @@ thread_local! {
     /// Cargo's test harness gives each test its own thread, and
     /// proptest cases within a test run sequentially on that thread, so a
     /// single runtime per thread serves every case without contention.
+    #[allow(clippy::missing_const_for_thread_local)]
     static RT: OnceCell<Runtime> = const { OnceCell::new() };
 }
 

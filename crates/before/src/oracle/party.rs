@@ -1,9 +1,17 @@
 //! The oracle id component: [`Party`] as the paper's plain recursive tree.
 
+use std::sync::Arc;
+
+/// An id tree, exactly as the paper defines it.
+///
+/// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
+/// paper's subtree-preserving cases (`split` handing each half of a two-sided
+/// node to one fork, whole) share structure instead of deep-copying, which
+/// keeps every oracle walk linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Party {
     Leaf(bool),
-    Node(Box<Party>, Box<Party>),
+    Node(Arc<Party>, Arc<Party>),
 }
 
 impl Party {
@@ -11,12 +19,11 @@ impl Party {
         Party::Leaf(true)
     }
 
-    // `pub(crate)` so the test-support shape builders can construct normal-form ids.
     pub(crate) fn node(l: Party, r: Party) -> Party {
         match (&l, &r) {
             (Party::Leaf(false), Party::Leaf(false)) => Party::Leaf(false),
             (Party::Leaf(true), Party::Leaf(true)) => Party::Leaf(true),
-            _ => Party::Node(Box::new(l), Box::new(r)),
+            _ => Party::Node(Arc::new(l), Arc::new(r)),
         }
     }
 
@@ -68,10 +75,11 @@ impl Party {
         match (self, other) {
             (Party::Leaf(false), b) => b,
             (a, Party::Leaf(false)) => a,
-            (Party::Node(l1, r1), Party::Node(l2, r2)) => {
-                Party::node((*l1).sum(*l2), (*r1).sum(*r2))
-            }
-            _ => Party::Leaf(true), // overlap: unreachable (callers check disjointness)
+            (Party::Node(l1, r1), Party::Node(l2, r2)) => Party::node(
+                Arc::unwrap_or_clone(l1).sum(Arc::unwrap_or_clone(l2)),
+                Arc::unwrap_or_clone(r1).sum(Arc::unwrap_or_clone(r2)),
+            ),
+            _ => unreachable!("party overlap"),
         }
     }
 
@@ -90,6 +98,50 @@ impl Party {
         Ok(())
     }
 
+    pub fn join_all(&mut self, inputs: impl IntoIterator<Item = Party>) -> Result<(), Vec<Party>> {
+        let mut overlapping = Vec::new();
+        let mut stack: Vec<(Party, u32)> = Vec::new();
+        for other in inputs {
+            if !self.is_disjoint(&other) {
+                overlapping.push(other);
+                continue;
+            }
+            let mut merged = Some(other);
+            let mut weight = 0u32;
+            while stack.last().is_some_and(|(_, w)| *w == weight) {
+                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
+                match top.join(merged.take().expect("the operand is held while merging up")) {
+                    Ok(()) => {
+                        merged = Some(top);
+                        weight += 1;
+                    }
+                    Err(back) => {
+                        stack.push((top, weight));
+                        if weight == 0 {
+                            overlapping.push(back);
+                        } else {
+                            stack.push((back, weight));
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(merged) = merged {
+                stack.push((merged, weight));
+            }
+        }
+        for (group, _) in stack {
+            if let Err(back) = self.join(group) {
+                overlapping.push(back);
+            }
+        }
+        if overlapping.is_empty() {
+            Ok(())
+        } else {
+            Err(overlapping)
+        }
+    }
+
     pub fn is_disjoint(&self, other: &Party) -> bool {
         match (self, other) {
             (Party::Leaf(false), _) | (_, Party::Leaf(false)) => true,
@@ -98,12 +150,6 @@ impl Party {
         }
     }
 
-    /// Whether `self`'s owned region contains all of `other`'s (`self ⊇
-    /// other`).
-    ///
-    /// The asymmetric companion of [`is_disjoint`](Self::is_disjoint): where
-    /// disjointness asks whether two regions *share nothing*, this asks whether
-    /// one region *subsumes* the other.
     pub fn covers(&self, other: &Party) -> bool {
         match (self, other) {
             // Nothing to cover: every region contains the empty region.
@@ -119,9 +165,6 @@ impl Party {
         }
     }
 
-    /// The region complement `1 \ self`: the share `self` does *not* own. Flips
-    /// each leaf and recurses; `node` renormalizes (a complemented normal tree
-    /// is already normal).
     fn complement(&self) -> Party {
         match self {
             Party::Leaf(b) => Party::Leaf(!*b),
@@ -129,12 +172,6 @@ impl Party {
         }
     }
 
-    /// The region difference `self \ other`: the part of `self` that `other`
-    /// does not own.
-    ///
-    /// May be the empty `Leaf(false)` (when `other` covers `self`). The reference
-    /// for [`Party::without`](crate::Party::without), which maps that empty result
-    /// to `None`.
     pub fn without(&self, other: &Party) -> Party {
         match (self, other) {
             // diff(0, _) = 0 and diff(_, 1) = 0: nothing of `self` survives.

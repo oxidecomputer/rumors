@@ -1,20 +1,21 @@
 //! Balanced n-way fork for [`Clock`]: [`Clock::forks`] and its [`Forks`]
 //! iterator, plus the consuming [`From<Clock>`](From) for `[Clock; N]` static
 //! split.
-//!
-//! A clock splits exactly as its [`Party`] does — see [`party::Forks`] for the
-//! lazy, minimal-depth partition — with every share carrying a clone of the
-//! clock's [`Version`], the same rule as [`Clock::fork`].
 
 use crate::{party, Clock, Party, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
 ///
-/// Yields exactly `n` disjoint clocks, each pairing one balanced [`Party`]
-/// share with a clone of the parent's [`Version`]. The clock it borrows keeps
-/// the residual party share and its version, and is never left empty; party
-/// shares not taken before the iterator drops are rejoined into it (its version
-/// untouched).
+/// Yields exactly `n` disjoint clocks, each pairing one structurally balanced
+/// [`Party`] with a clone of the parent's [`Version`]. The clock it borrows
+/// keeps the residual share of all unconsumed parties, and is never left empty;
+/// party shares not taken before the iterator drops are rejoined into it.
+///
+/// # Complexity
+///
+/// A full drain costs `O(|c| + n (|c| + log n))`, with `|c|` the borrowed
+/// clock's size in bytes. Each `next` costs its own share's portion of this
+/// total cost; an early drop rejoins in `O(|c| log n)`.
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.
@@ -26,7 +27,7 @@ pub struct Forks<'a> {
 impl<'a> Forks<'a> {
     /// Borrow `clock` and reserve `n` balanced child clocks. The public entry
     /// point is [`Clock::forks`].
-    pub(super) fn new(clock: &'a mut Clock, n: usize) -> Self {
+    pub(super) fn new(clock: &'a mut Clock, n: u64) -> Self {
         let Clock { party, version } = clock;
         let version: &Version = version; // the children only read it, to clone
         Forks {
@@ -60,8 +61,29 @@ impl ExactSizeIterator for Forks<'_> {}
 /// balanced [`Party`] share (see [`From<Party>`](Party) for `[Party; N]`) with
 /// a clone of the clock's [`Version`].
 ///
-/// `N` must be at least 1, for the same reason as the [`Party`] split: a clock
-/// owns a nonempty party and cannot vanish into zero shares.
+/// # The `N >= 1` bound
+///
+/// A clock owns a nonempty party and cannot vanish into zero shares, so `N`
+/// must be at least 1 — the same bound as the [`Party`] split, enforced the
+/// same way at compile time: the zero-length split is rejected when the
+/// conversion is built, while the same spelling at any nonzero arity compiles
+/// and runs.
+///
+/// ```
+/// use before::Clock;
+/// let _children: [Clock; 1] = Clock::seed().into();
+/// ```
+///
+/// ```compile_fail,E0080
+/// use before::Clock;
+/// let _children: [Clock; 0] = Clock::seed().into();
+/// ```
+///
+/// # Complexity
+///
+/// `O(|clock| + N (|clock| + log N))`.
+///
+/// # Example
 ///
 /// ```
 /// use before::Clock;
@@ -71,6 +93,10 @@ impl ExactSizeIterator for Forks<'_> {}
 /// ```
 impl<const N: usize> From<Clock> for [Clock; N] {
     fn from(clock: Clock) -> [Clock; N] {
+        // Fires at monomorphization, making `N == 0` a build error — before the
+        // delegated party split's own `N >= 1` assert would. The paired
+        // doctests above pin it: the `compile_fail` twin must be rejected while
+        // its identical-but-for-arity sibling compiles.
         const { assert!(N >= 1, "a `Clock` cannot split into zero shares") }
         let (party, version) = clock.into_parts();
         let parties: [Party; N] = party.into();

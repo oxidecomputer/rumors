@@ -1,5 +1,5 @@
 use crate::tree::{Leaf, RangeOwned};
-use crate::{Key, Version};
+use crate::{Key, Version, causally};
 use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -81,7 +81,7 @@ pub(super) enum Channel<T> {
 /// One in-progress pass: the frozen walk over its snapshot, and the
 /// snapshot's ceiling to absorb into the checkpoint when the walk drains.
 struct Pass<T> {
-    walk: RangeOwned<T, (std::ops::Bound<Version>, std::ops::Bound<Version>)>,
+    walk: RangeOwned<T, causally::Down>,
     ceiling: Version,
 }
 
@@ -108,10 +108,7 @@ impl<T> UnorderedMessages<T> {
         if pass.is_none() {
             let inner = rx.borrow_and_update();
             *pass = Some(Pass {
-                walk: inner.tree.range_owned((
-                    std::ops::Bound::Excluded(checkpoint.clone()),
-                    std::ops::Bound::Unbounded,
-                )),
+                walk: inner.tree.range_owned(causally::since(checkpoint.clone())),
                 ceiling: inner.tree.latest().clone(),
             });
         }

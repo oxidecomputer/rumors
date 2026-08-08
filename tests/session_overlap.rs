@@ -10,8 +10,8 @@
 //! the set the schedule's history prescribes. The symptom they exist to
 //! catch is silent divergence — a message nobody redacted vanishing, or
 //! peers converging on different sets — regardless of which layer's
-//! defect produces it. The discovering incident was a dependency fault
-//! (`imbl` issue 161) whose only visible face was exactly that symptom.
+//! defect produces it: the discovering incident's only visible face was
+//! exactly that symptom.
 
 mod common;
 
@@ -70,11 +70,10 @@ fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Key, 
 /// converged outcome must always be exactly the original set minus the
 /// one redacted message: one deliberate deletion, no collateral.
 ///
-/// Discovering incident: `imbl` issue 161 — an upstream map-diff fault
-/// whose downstream symptom was precisely an innocent leaf silently
-/// deleted under this overlap, at 2 of the 25 sweep positions. The sweep
-/// is total, so any regression with the same *symptom* fails here no
-/// matter which layer produces it.
+/// The discovering incident's symptom was precisely an innocent leaf
+/// silently deleted under this overlap, at 2 of the 25 sweep positions.
+/// The sweep is total, so any regression with the same *symptom* fails
+/// here no matter which layer produces it.
 #[test]
 fn overlapped_install_never_loses_innocent_messages() {
     const MESSAGES: u64 = 25;

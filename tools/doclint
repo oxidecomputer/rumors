@@ -18,7 +18,9 @@
 # belongs below a blank `///` line where it becomes body prose that never
 # reaches the summary. This applies to both outer (`///`) and inner (`//!`)
 # doc comments — a module's first paragraph is the summary the *parent* listing
-# shows for it.
+# shows for it. The one exemption is the crate root's own module doc: a crate
+# root has no parent listing, so its opening paragraph is the crate's
+# front-page lede, not a summary cell, and carries no one-liner budget.
 #
 # Usage:
 #   doclint PATH...        # lint every .rs file under each PATH (file or dir)
@@ -35,6 +37,12 @@ from pathlib import Path
 # (a single sentence over two or three wrapped lines) and stays; the threshold
 # catches the multi-sentence paragraphs above it.
 MAX_SUMMARY_CHARS = 220
+
+# Files whose leading `//!` block is a *crate* module doc, exempt from the
+# summary budget (no parent listing renders it). Only the run that opens the
+# file — before any item — is the crate doc; later `//!` runs, and module
+# files everywhere else, stay in scope.
+CRATE_ROOT_NAMES = {"lib.rs", "main.rs"}
 
 # A doc-comment line is `///` or `//!` followed by end-of-line or a non-slash
 # character. The non-slash guard excludes `////…` separator rules, which
@@ -69,9 +77,16 @@ def violations(path):
     lines = path.read_text(encoding="utf-8").splitlines()
     i = 0
     n = len(lines)
+    # True until the first line that is neither blank, a comment, nor an
+    # inner attribute: a `//!` run seen while this holds is the file's own
+    # module doc, which for a crate root is exempt (see CRATE_ROOT_NAMES).
+    prelude = True
     while i < n:
-        marker = doc_marker(lines[i].lstrip())
+        stripped = lines[i].lstrip()
+        marker = doc_marker(stripped)
         if marker is None:
+            if stripped and not stripped.startswith(("#!", "//")):
+                prelude = False
             i += 1
             continue
 
@@ -80,6 +95,8 @@ def violations(path):
         # blank doc line. A fenced code block can hold blank lines that are not
         # paragraph breaks, so track fence state while scanning.
         start = i
+        crate_doc = prelude and marker == "//!" and path.name in CRATE_ROOT_NAMES
+        prelude = False
         summary = []
         in_fence = False
         paragraph_open = True
@@ -95,7 +112,7 @@ def violations(path):
                     summary.append(content)
             i += 1
 
-        if rendered_length(summary) > MAX_SUMMARY_CHARS:
+        if not crate_doc and rendered_length(summary) > MAX_SUMMARY_CHARS:
             yield (start + 1, summary)
 
 
@@ -109,6 +126,15 @@ def main(argv):
     roots = [Path(a) for a in argv[1:]]
     if not roots:
         print("usage: doclint PATH...", file=sys.stderr)
+        return 2
+
+    # A nonexistent root would match no files and read as a clean sweep, so a
+    # renamed or relocated directory would silently vacate its lint coverage
+    # forever. A missing root is a usage error, never a pass.
+    missing = [root for root in roots if not root.exists()]
+    if missing:
+        for root in missing:
+            print(f"doclint: no such file or directory: {root}", file=sys.stderr)
         return 2
 
     found = False

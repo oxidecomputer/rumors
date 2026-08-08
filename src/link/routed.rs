@@ -128,13 +128,15 @@
 //! let a_listener = TcpListener::bind("127.0.0.1:0").await?;
 //! let a_addr = a_listener.local_addr()?;
 //! let (_a, mut a_incoming, a_router) =
-//!     Endpoint::new(TcpListen(a_listener), a_addr, TcpDial, Config::default());
+//!     Endpoint::new(TcpListen(a_listener), a_addr, TcpDial, Config::default())
+//!         .expect("an unscoped loopback name is routable");
 //! tokio::spawn(a_router);
 //!
 //! let b_listener = TcpListener::bind("127.0.0.1:0").await?;
 //! let b_addr = b_listener.local_addr()?;
 //! let (b, _b_incoming, b_router) =
-//!     Endpoint::new(TcpListen(b_listener), b_addr, TcpDial, Config::default());
+//!     Endpoint::new(TcpListen(b_listener), b_addr, TcpDial, Config::default())
+//!         .expect("an unscoped loopback name is routable");
 //! tokio::spawn(b_router);
 //!
 //! // b initiates; a's application receives the other end.
@@ -166,8 +168,8 @@ mod stream;
 #[cfg(test)]
 mod tests;
 
-pub use endpoint::{Config, Endpoint, Incoming, LinkError, LinkInfo, RoutedLink};
-pub use header::{Addr, MAX_ADDR_LEN, Token};
+pub use endpoint::{Config, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, RoutedLink};
+pub use header::{Addr, MAX_ADDR_LEN, Token, Unencodable};
 pub use stream::{StreamAcceptor, StreamConnector};
 
 /// A byte-stream connection the adapter can route: one per link stream.

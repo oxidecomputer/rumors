@@ -11,7 +11,7 @@ use futures::{StreamExt, stream as futures_stream};
 
 use super::{Charged, Measure, check, ledger};
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
         mirror::streaming::{
@@ -212,12 +212,8 @@ where
     type Backend = Materializing;
     type Height = H;
 
-    fn ceiling(&self) -> &Version {
-        self.inner.ceiling()
-    }
-
-    fn floor(&self) -> &Version {
-        self.inner.floor()
+    fn span(&self) -> causally::Span<'_> {
+        self.inner.span()
     }
 
     fn hash(&self) -> Hash {

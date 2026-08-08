@@ -84,7 +84,7 @@ where
                     // check: its ceiling is a memoized bound, so the cost
                     // is one read per supplied subtree — at worst the
                     // memo's first forcing, linear in the nodes received.
-                    _ if !contained(node.ceiling(), self.their_version) => {
+                    _ if !contained(node.span().hi(), self.their_version) => {
                         return violation(Violation::UncontainedSupply);
                     }
                     _ => {

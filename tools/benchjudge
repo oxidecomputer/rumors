@@ -1,0 +1,1065 @@
+#!/usr/bin/env python3
+"""Judge time-scaling exponents over the board benches' criterion medians.
+
+The amplification board (before::meter::board) judges deterministic
+counters and liveness floors only, so its output is byte-identical under
+any machine load. The implementation-agnostic witness for *time* — work in
+plain machine words that no counter column can see — is judged here
+instead, where timing belongs to a harness built for it: criterion owns
+warmup, sampling, and outlier rejection, and this tool is plain
+deterministic arithmetic over criterion's saved estimates.
+
+The pipeline (`just bench-judge`): run `benches/board.rs` at two scales
+with `--save-baseline` per scale, each run writing a denominator sidecar
+(a configuration stamp plus one object per cell ID — the board's
+denominator bytes at that scale, read back from actual results, and the
+cell's ceiling class); then, per cell, fit
+
+    e = ln(median_hi / median_lo) / ln(denom_hi / denom_lo)
+
+and hold every judged cell to ITS OWN ceiling: `general` cells (the
+board) to MAX_WALL_SCALING_EXPONENT, `text` cells (the wide-display
+pair) to MAX_TEXT_SCALING_EXPONENT — derivations at the constants. The
+ceiling class is a property of the cell, declared in bench code where
+the cell is defined (`benches/common/sidecar.rs`, `Ceiling`); the roster
+below carries only expectations, so misfiling a cell's roster class can
+never change the ceiling it is judged at. The fit is the board's own
+scaling-exponent form (board.rs `exponent()`: log of the measurement
+ratio over log of the denominator-bytes ratio) at the general ceiling
+that moved here with the leg — the same convention, not a new one. A
+cell is judged only when its larger-scale median reaches
+MIN_JUDGED_MEDIAN_NANOS (derivation at the constant); sub-floor cells
+are enumerated as SKIP, never judged. Output is a red/green table in the
+board's style (red rows first); exit is nonzero on any red (or, in
+roster mode, on any roster violation).
+
+Input-error discipline: exit 2, with the offending cell or file named,
+never a scored verdict and never a silent skip. Input errors are a
+malformed or mismatched pipeline, and scoring one would launder it into a
+judgment: a nonpositive median at either scale, a non-finite (NaN or
+infinite) median, a missing median in a saved estimate, a malformed
+sidecar or roster, mismatched sidecar stamps or ceiling classes, and a
+roster whose pinned configuration is not the invocation's. (The board's
+zero-count clamps have no analogue here because a criterion median is a
+positive float, so none of these is ever a score.)
+
+Sidecar stamps: each sidecar carries the configuration of the bench run
+that wrote it — the resolved scale, the profile, the sampling mode, and
+the source tip (`BOARD_BENCH_TIP`, the recipes pass `git rev-parse
+HEAD`). The judge refuses (exit 2) two sidecars whose profiles, sampling
+modes, or tips disagree, a scale pair that does not grow, any stamp
+that disagrees with `--tip`, and two sidecars disagreeing on any cell's
+ceiling class: a leftover baseline from an interrupted or older run, or
+a sidecar rewritten at a different scale than the saved medians, is a
+mismatch, never a silent re-score.
+
+Profiles: criterion benches build under cargo's bench profile
+(optimized), and the judged medians, this tool's records, and the roster
+are all optimized-profile numbers; the amplification board's counter
+records are dev-profile numbers — each artifact pins its own profile.
+Verdicts are profile-sensitive, so the harness stamps the profile it
+observed (`dev` under debug assertions, `optimized` otherwise) and the
+judge refuses a roster pinned to a different one.
+
+Roster mode (`--roster FILE`): the committed expected-verdict roster —
+the board-side sibling of the gate's expected-failure test roster, same
+membership-by-name philosophy — makes the judge enforce a *fixed* verdict
+map instead of all-green, so `just all` stays meaningful while owned reds
+await their cures. The file pins the configuration it was recorded under
+(profile, sampling — a single mode or a list when the expectations hold
+under several, scale pair; mismatch is exit 2) and lists cells in two
+expectation classes — never a ceiling, which only the sidecar assigns:
+
+  - "red": must be judged and must read RED at the cell's own ceiling.
+    Reading GREEN is a verdict-flip or liveness signal (exit 1, cell
+    named): either the cure landed (re-baseline deliberately) or the
+    pipeline stopped seeing the work — for the schoolbook display
+    tripwire, a red expectation at its text ceiling, green means the
+    tripwire has gone dark. Reading SKIP is likewise a violation —
+    drifting out of judgment is a change, not a pass.
+  - "boundary": must be judged; either verdict is accepted while the
+    fitted exponent stays within the fit-noise band of the cell's own
+    ceiling (fit_noise_band, derivation there). Outside the band the
+    cell has genuinely moved and the roster entry is stale (exit 1).
+    Reading SKIP is a violation, as above.
+
+Any unrostered cell reading RED is a violation (exit 1). Unrostered cells
+may drift between GREEN and SKIP freely — both are non-red, and
+near-floor cells cross the judgment floor with machine noise. A roster
+naming a cell the run does not contain is an input error (exit 2), as is
+a roster carrying any member beyond the two classes, `configuration`,
+and `notes` — in particular, a roster inventing a ceiling-selection
+class refuses instead of judging.
+
+Usage:
+    benchjudge --criterion-dir DIR --lo NAME --hi NAME \\
+        --denoms-lo FILE --denoms-hi FILE \\
+        [--roster FILE | --expect-red] [--tip HASH]
+    benchjudge --self-test
+
+`--expect-red` inverts the bottom line for tripwire runs (`just
+bench-judge-tripwire`): exit 0 iff at least one judged cell is red.
+
+`--self-test` (run at the head of every bench-judge recipe) pins the
+judging arithmetic AND the exit contract end-to-end: it invokes `main` on
+synthetic criterion trees and asserts the exit codes themselves — 0 on
+all-green, 1 on a red, 1 on a dark tripwire, 1 on each roster violation,
+2 on each input error — so a judge that stops failing cannot pass its own
+self-test. It pins the two ceiling-laundering attacks shut: a roster
+claiming a general cell as a text class is an input error, and the
+schoolbook tripwire rostered plain `red` still fails when its exponent
+fits under its own text ceiling.
+"""
+
+import argparse
+import contextlib
+import io
+import json
+import math
+import sys
+from pathlib import Path
+
+# The ceiling on every general-class cell's fitted time exponent.
+# Generous so scheduler noise on a linear cell cannot trip it, impassable
+# for a quadratic's ~2.0.
+MAX_WALL_SCALING_EXPONENT = 1.3
+
+# The ceiling on the text-conversion cells (sidecar ceiling class
+# "text", the wide-display pair): rendering a wide magnitude to decimal
+# is honestly superlinear — divide-and-conquer conversion is ~O(n^1.5) —
+# so the general ceiling would read the honest class red. This ceiling separates
+# the honest class from the schoolbook (quadratic) class it replaces the
+# retired wall-ratio canary in catching. Placement is derived from the
+# measured classes at the wide-display pair's widths (128k -> 512k bits,
+# n_io span x4.0, quick mode, bench profile): the crate's
+# divide-and-conquer render fitted e 1.47 and the schoolbook renderer
+# fitted e 1.99, and each sits more than twice the fit-noise band at this
+# ceiling (TEXT_FIT_NOISE_EXPONENT_BAND ~ 0.088, so 2x ~ 0.175) away from
+# it: 1.7 - 1.47 = 0.23 and 1.99 - 1.7 = 0.29. Resolution alone can
+# therefore never move either class across the ceiling.
+MAX_TEXT_SCALING_EXPONENT = 1.7
+
+# Criterion's own resolution: its smallest timed unit is one batch of at
+# least one iteration, read with a pair of monotonic-clock samples — two
+# timer reads (~25 ns each) against a tick no coarser than ~42 ns on the
+# deployed hosts (the 24 MHz Apple Silicon timebase) bound the per-batch
+# measurement error at ~100 ns. Not a number invented here: it is the
+# harness's floor, restated.
+CRITERION_TIMER_ERROR_NANOS = 100
+
+# The judged (larger-scale) median must dominate the timer error by this
+# factor. The floor binds the hi median only — the lo median is
+# deliberately unfloored, because a hi-side floor already excludes cells
+# too small to time and a lo-side floor would evict real judged coverage
+# (benign rows, the dense projection, and the cliff fork all judge from
+# lo medians of 2-10 us). The honest resolution bound under that choice
+# is FIT_NOISE_EXPONENT_BAND, below.
+RESOLUTION_DOMINANCE_FACTOR = 100
+
+# The judgment floor: cells whose larger-scale median sits below this are
+# enumerated but never judged. Derived, not calibrated:
+# CRITERION_TIMER_ERROR_NANOS x RESOLUTION_DOMINANCE_FACTOR = 10 us.
+MIN_JUDGED_MEDIAN_NANOS = CRITERION_TIMER_ERROR_NANOS * RESOLUTION_DOMINANCE_FACTOR
+
+# The scale pair's nominal denominator span: the acceptance scale is x4, and
+# the judged families' denominator bytes grow at least in proportion
+# (most spans measure ~4.0; the cliff comb's measures ~x15). Under the
+# worst-case model below, a span wider than nominal WIDENS the band: the
+# ceiling-fitted cell's lo median scales down as span^ceiling (its hi
+# median sits at the judgment floor), so the lo-side relative error grows
+# as span^ceiling — faster than the ln(span) divisor dampens the pull
+# (general ceiling: ~0.052 at x4, ~0.156 at x15; and once span^ceiling
+# reaches RESOLUTION_DOMINANCE_FACTOR the worst-case lo median falls to
+# the timer error and the model bounds nothing). The derived band
+# constants below are therefore exact at the nominal span and an
+# underestimate for a wider-span cell: a boundary-roster expectation on a
+# cell whose measured span exceeds the nominal must re-derive its band at
+# that cell's own span, not lean on these constants.
+NOMINAL_DENOMINATOR_SPAN = 4.0
+
+# How far timer resolution alone can pull a fitted exponent that sits at
+# `ceiling` — the fit-noise band around that ceiling. Derived, not
+# calibrated: a judged cell has median_hi >= the floor, so the hi-side
+# relative error is at most 1/RESOLUTION_DOMINANCE_FACTOR (1%); a cell
+# fitted AT the ceiling across the nominal x4 span has
+# median_lo >= floor / 4^ceiling, so its lo-side relative error is at
+# most 4^ceiling / RESOLUTION_DOMINANCE_FACTOR. Worst one-direction pull:
+#   ( ln(1 + 0.01) + ln(1 / (1 - 4^ceiling / 100)) ) / ln 4.
+# Only near-ceiling cells matter for a verdict, so this is the operative
+# bound: a cell whose true exponent sits farther than the band from the
+# ceiling cannot be flipped by resolution.
+def fit_noise_band(ceiling):
+    """The resolution-derived exponent band around `ceiling` (see above)."""
+    return (
+        math.log1p(1.0 / RESOLUTION_DOMINANCE_FACTOR)
+        - math.log1p(
+            -(NOMINAL_DENOMINATOR_SPAN**ceiling) / RESOLUTION_DOMINANCE_FACTOR
+        )
+    ) / math.log(NOMINAL_DENOMINATOR_SPAN)
+
+
+# The band at the default ceiling (~0.052), the boundary class's
+# acceptance width.
+FIT_NOISE_EXPONENT_BAND = fit_noise_band(MAX_WALL_SCALING_EXPONENT)
+
+# The band at the text ceiling (~0.088): 4^1.7 is a deeper lo-side reach,
+# so the band is wider. The text ceiling's derivation (at the constant)
+# holds each measured conversion class more than twice this band away.
+TEXT_FIT_NOISE_EXPONENT_BAND = fit_noise_band(MAX_TEXT_SCALING_EXPONENT)
+
+# The stamp fields a sidecar must carry, and the vocabularies of the two
+# enumerated ones (the profile vocabulary is the harness's observable:
+# debug assertions on = dev, off = optimized).
+STAMP_FIELDS = ("scale", "profile", "sampling", "tip")
+PROFILES = ("dev", "optimized")
+SAMPLINGS = ("quick", "record")
+
+# The ceiling classes a sidecar cell may declare, mapped to their
+# ceilings. The class rides the sidecar — declared in bench code where
+# the cell is defined — so no roster edit can reassign a ceiling.
+CEILINGS = {
+    "general": MAX_WALL_SCALING_EXPONENT,
+    "text": MAX_TEXT_SCALING_EXPONENT,
+}
+
+
+class JudgeError(Exception):
+    """A malformed input: bad estimates, sidecars, stamps, or roster."""
+
+
+def checked_median(name, side, value):
+    """Validate one cell's median: positive and finite, or an input error."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise JudgeError(f"{name}: {side} median is not a number ({value!r})")
+    if not math.isfinite(value):
+        raise JudgeError(f"{name}: {side} median is not finite ({value})")
+    if value <= 0:
+        raise JudgeError(f"{name}: {side} median is not positive ({value})")
+    return value
+
+
+def checked_denominators(name, denom_lo, denom_hi):
+    """Reject a denominator pair that fails to grow across the scale pair."""
+    if denom_lo <= 0 or denom_hi <= denom_lo:
+        raise JudgeError(
+            f"{name}: denominator bytes must grow across the scales, "
+            f"got {denom_lo} -> {denom_hi}"
+        )
+
+
+def fit_exponent(median_lo, median_hi, denom_lo, denom_hi, name):
+    """The board's scaling-exponent fit over one cell's two medians."""
+    checked_denominators(name, denom_lo, denom_hi)
+    return math.log(median_hi / median_lo) / math.log(denom_hi / denom_lo)
+
+
+def judge_cells(cells):
+    """Judge `(name, median_lo, median_hi, denom_lo, denom_hi, ceiling)` rows.
+
+    `ceiling` is a CEILINGS key, the class the cell's sidecar declares.
+    Returns `(verdict, name, exponent, ceiling, row)` tuples where verdict
+    is one of GREEN, RED, SKIP; the exponent is None for SKIP (a sub-floor
+    median has no judged exponent). Malformed medians — nonpositive or
+    non-finite at either scale — and malformed denominator pairs — flat or
+    shrinking across the scales — raise JudgeError before any floor
+    comparison: an input error is never laundered into a sub-floor SKIP.
+    """
+    rows = []
+    for name, median_lo, median_hi, denom_lo, denom_hi, ceiling in cells:
+        if ceiling not in CEILINGS:
+            raise JudgeError(
+                f"{name}: ceiling class must be one of {tuple(CEILINGS)}, "
+                f"got {ceiling!r}"
+            )
+        median_lo = checked_median(name, "lo", median_lo)
+        median_hi = checked_median(name, "hi", median_hi)
+        checked_denominators(name, denom_lo, denom_hi)
+        if median_hi < MIN_JUDGED_MEDIAN_NANOS:
+            # Raw nanoseconds on both sides: `nanos` rounds a just-sub-floor
+            # median up to the floor's own rendering, and a row must never
+            # assert a value is below a floor it appears to equal.
+            rows.append(
+                (
+                    "SKIP",
+                    name,
+                    None,
+                    ceiling,
+                    f"SKIP  {label(name)}  hi median {int(median_hi)}ns below "
+                    f"the {MIN_JUDGED_MEDIAN_NANOS}ns judgment floor",
+                )
+            )
+            continue
+        exponent = fit_exponent(median_lo, median_hi, denom_lo, denom_hi, name)
+        verdict = "GREEN" if exponent <= CEILINGS[ceiling] else "RED"
+        rows.append(
+            (
+                verdict,
+                name,
+                exponent,
+                ceiling,
+                f"{verdict:<5} {label(name)}  e {exponent:5.2f}  "
+                f"ceil {CEILINGS[ceiling]}  "
+                f"n {denom_lo}->{denom_hi} B  "
+                f"median {nanos(median_lo)}->{nanos(median_hi)}",
+            )
+        )
+    return rows
+
+
+def label(name):
+    """Pad a cell ID into the board's op/family column widths."""
+    op, _, family = name.partition("/")
+    return f"{op:<24} {family:<12}"
+
+
+def nanos(value):
+    """Format a nanosecond reading compactly (ns/us/ms/s)."""
+    for unit, scale in (("s", 1e9), ("ms", 1e6), ("us", 1e3)):
+        if value >= scale:
+            return f"{value / scale:.2f}{unit}"
+    return f"{value:.0f}ns"
+
+
+def read_sidecar(path):
+    """Read a denominator sidecar: its stamp and its per-cell entries."""
+    try:
+        sidecar = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as error:
+        raise JudgeError(f"{path}: cannot read the sidecar: {error}") from error
+    except json.JSONDecodeError as error:
+        raise JudgeError(f"{path}: the sidecar is not JSON: {error}") from error
+    if not isinstance(sidecar, dict) or set(sidecar) != {"stamp", "cells"}:
+        raise JudgeError(
+            f"{path}: expected a JSON object with exactly a `stamp` and a "
+            f"`cells` member"
+        )
+    stamp = sidecar["stamp"]
+    if not isinstance(stamp, dict) or set(stamp) != set(STAMP_FIELDS):
+        raise JudgeError(f"{path}: the stamp must carry exactly {STAMP_FIELDS}")
+    scale = stamp["scale"]
+    if (
+        isinstance(scale, bool)
+        or not isinstance(scale, (int, float))
+        or not math.isfinite(scale)
+        or scale <= 0
+    ):
+        raise JudgeError(f"{path}: stamp scale must be a positive number, got {scale!r}")
+    if stamp["profile"] not in PROFILES:
+        raise JudgeError(f"{path}: stamp profile must be one of {PROFILES}")
+    if stamp["sampling"] not in SAMPLINGS:
+        raise JudgeError(f"{path}: stamp sampling must be one of {SAMPLINGS}")
+    if stamp["tip"] is not None and not isinstance(stamp["tip"], str):
+        raise JudgeError(f"{path}: stamp tip must be a string or null")
+    cells = sidecar["cells"]
+    if not isinstance(cells, dict) or not cells:
+        raise JudgeError(f"{path}: expected a nonempty cells object")
+    for name, entry in cells.items():
+        if not isinstance(entry, dict) or set(entry) != {
+            "denominator_bytes",
+            "ceiling",
+        }:
+            raise JudgeError(
+                f"{path}: {name}: expected exactly a `denominator_bytes` and "
+                f"a `ceiling` member"
+            )
+        denom = entry["denominator_bytes"]
+        if isinstance(denom, bool) or not isinstance(denom, int) or denom <= 0:
+            raise JudgeError(
+                f"{path}: {name}: denominator bytes must be a positive "
+                f"integer, got {denom!r}"
+            )
+        if entry["ceiling"] not in CEILINGS:
+            raise JudgeError(
+                f"{path}: {name}: ceiling class must be one of "
+                f"{tuple(CEILINGS)}, got {entry['ceiling']!r}"
+            )
+    return stamp, cells
+
+
+def cross_check_stamps(stamp_lo, stamp_hi, tip):
+    """Refuse sidecars from different runs, trees, or configurations."""
+    for field in ("profile", "sampling", "tip"):
+        if stamp_lo[field] != stamp_hi[field]:
+            raise JudgeError(
+                f"the two sidecars disagree on {field}: "
+                f"{stamp_lo[field]!r} vs {stamp_hi[field]!r} "
+                f"(a leftover baseline from another run?)"
+            )
+    if stamp_lo["scale"] >= stamp_hi["scale"]:
+        raise JudgeError(
+            f"the scale pair must grow: lo stamped {stamp_lo['scale']}, "
+            f"hi stamped {stamp_hi['scale']}"
+        )
+    if tip is not None:
+        for side, stamp in (("lo", stamp_lo), ("hi", stamp_hi)):
+            if stamp["tip"] != tip:
+                raise JudgeError(
+                    f"the {side} sidecar is stamped tip {stamp['tip']!r}, not the "
+                    f"invocation's {tip!r}: a leftover baseline from another tree"
+                )
+
+
+def read_median(criterion_dir, name, baseline):
+    """Read one cell's median point estimate (ns) from a saved baseline."""
+    op, _, family = name.partition("/")
+    path = Path(criterion_dir, op, family, baseline, "estimates.json")
+    if not path.is_file():
+        raise JudgeError(f"{name}: no saved estimates at {path}")
+    try:
+        estimates = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise JudgeError(f"{name}: cannot read estimates at {path}: {error}") from error
+    try:
+        return estimates["median"]["point_estimate"]
+    except (TypeError, KeyError) as error:
+        raise JudgeError(
+            f"{name}: estimates at {path} carry no median point estimate"
+        ) from error
+
+
+def load_cells(criterion_dir, lo, hi, denoms_lo_path, denoms_hi_path, tip):
+    """Assemble the judged rows from the two baselines and two sidecars."""
+    stamp_lo, cells_lo = read_sidecar(denoms_lo_path)
+    stamp_hi, cells_hi = read_sidecar(denoms_hi_path)
+    cross_check_stamps(stamp_lo, stamp_hi, tip)
+    if cells_lo.keys() != cells_hi.keys():
+        difference = sorted(cells_lo.keys() ^ cells_hi.keys())
+        raise JudgeError(f"the two sidecars disagree on the cell set: {difference}")
+    for name in cells_lo:
+        if cells_lo[name]["ceiling"] != cells_hi[name]["ceiling"]:
+            raise JudgeError(
+                f"the two sidecars disagree on {name}'s ceiling class: "
+                f"{cells_lo[name]['ceiling']!r} vs {cells_hi[name]['ceiling']!r} "
+                f"(a leftover baseline from another run?)"
+            )
+    cells = [
+        (
+            name,
+            read_median(criterion_dir, name, lo),
+            read_median(criterion_dir, name, hi),
+            cells_lo[name]["denominator_bytes"],
+            cells_hi[name]["denominator_bytes"],
+            cells_lo[name]["ceiling"],
+        )
+        for name in cells_lo
+    ]
+    return (stamp_lo, stamp_hi), cells
+
+
+def load_roster(path):
+    """Read the expected-verdict roster: pinned configuration and classes.
+
+    The only classes are the two expectations, `red` and `boundary`; any
+    other member is an input error — a roster cannot mint a class, and in
+    particular cannot mint one that selects a ceiling (ceilings ride the
+    sidecar). The configuration's `sampling` pin is a single mode or a
+    list of modes the expectations hold under.
+    """
+    try:
+        roster = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as error:
+        raise JudgeError(f"{path}: cannot read the roster: {error}") from error
+    except json.JSONDecodeError as error:
+        raise JudgeError(f"{path}: the roster is not JSON: {error}") from error
+    classes = ("red", "boundary")
+    if not isinstance(roster, dict) or not {"configuration", "red", "boundary"} <= set(
+        roster
+    ) <= {"configuration", "notes", *classes}:
+        raise JudgeError(
+            f"{path}: expected a JSON object with `configuration`, `red`, "
+            f"`boundary`, and optionally `notes`"
+        )
+    configuration = roster["configuration"]
+    wanted = {"profile", "sampling", "scale_lo", "scale_hi"}
+    if not isinstance(configuration, dict) or set(configuration) != wanted:
+        raise JudgeError(f"{path}: the configuration must pin exactly {sorted(wanted)}")
+    sampling = configuration["sampling"]
+    samplings = sampling if isinstance(sampling, list) else [sampling]
+    if not samplings or any(mode not in SAMPLINGS for mode in samplings):
+        raise JudgeError(
+            f"{path}: the sampling pin must be one of {SAMPLINGS} or a "
+            f"nonempty list of them, got {sampling!r}"
+        )
+    for cls in classes:
+        names = roster[cls]
+        if not isinstance(names, list) or not all(
+            isinstance(name, str) for name in names
+        ):
+            raise JudgeError(f"{path}: `{cls}` must be a list of cell IDs")
+    overlap = sorted(set(roster["red"]) & set(roster["boundary"]))
+    if overlap:
+        raise JudgeError(f"{path}: cells rostered both red and boundary: {overlap}")
+    return roster
+
+
+def check_roster_configuration(roster_path, configuration, stamp_lo, stamp_hi):
+    """Refuse a roster whose pinned configuration is not this invocation's.
+
+    The sampling pin may be a list — the expectations are exponent-class
+    expectations, which can hold under several sampling regimes — and the
+    stamped mode must then be a member; every other pin is exact.
+    """
+    sampling = configuration["sampling"]
+    samplings = sampling if isinstance(sampling, list) else [sampling]
+    if stamp_lo["sampling"] not in samplings:
+        raise JudgeError(
+            f"{roster_path}: the roster pins sampling = {sampling!r} but this "
+            f"run is stamped {stamp_lo['sampling']!r}: the roster's "
+            f"expectations were recorded under a different configuration"
+        )
+    pins = (
+        ("profile", configuration["profile"], stamp_lo["profile"]),
+        ("scale_lo", configuration["scale_lo"], stamp_lo["scale"]),
+        ("scale_hi", configuration["scale_hi"], stamp_hi["scale"]),
+    )
+    for field, pinned, actual in pins:
+        if pinned != actual:
+            raise JudgeError(
+                f"{roster_path}: the roster pins {field} = {pinned!r} but this "
+                f"run is stamped {actual!r}: the roster's expectations were "
+                f"recorded under a different configuration"
+            )
+
+
+def roster_violations(roster, rows):
+    """The named roster violations in `rows`, in row order.
+
+    Every rostered cell must be judged with its class's expectation at the
+    cell's own ceiling — the roster never selects a ceiling; any
+    unrostered RED is a violation. A rostered cell absent from the run
+    entirely is an input error, not a violation: the run and the roster
+    describe different boards.
+    """
+    red = set(roster["red"])
+    boundary = set(roster["boundary"])
+    names = {name for _, name, _, _, _ in rows}
+    missing = sorted((red | boundary) - names)
+    if missing:
+        raise JudgeError(f"the roster names cells this run does not contain: {missing}")
+    violations = []
+    for verdict, name, exponent, ceiling, _ in rows:
+        if name in red:
+            if verdict == "GREEN":
+                violations.append(
+                    f"{name}: rostered red read GREEN (e {exponent:.2f} at its "
+                    f"{CEILINGS[ceiling]} ceiling): a cured cell or a "
+                    f"verdict-flip/liveness signal; re-baseline the roster "
+                    f"deliberately"
+                )
+            elif verdict == "SKIP":
+                violations.append(
+                    f"{name}: rostered red fell below the judgment floor: "
+                    f"drifting out of judgment is a change, not a pass"
+                )
+        elif name in boundary:
+            band = fit_noise_band(CEILINGS[ceiling])
+            if verdict == "SKIP":
+                violations.append(
+                    f"{name}: rostered boundary fell below the judgment floor: "
+                    f"drifting out of judgment is a change, not a pass"
+                )
+            elif abs(exponent - CEILINGS[ceiling]) > band:
+                violations.append(
+                    f"{name}: rostered boundary fitted e {exponent:.2f}, outside "
+                    f"the +-{band:.3f} fit-noise band around its "
+                    f"{CEILINGS[ceiling]} ceiling: the cell has "
+                    f"genuinely moved; re-roster it deliberately"
+                )
+        elif verdict == "RED":
+            violations.append(
+                f"{name}: unrostered cell read RED (e {exponent:.2f} at its "
+                f"{CEILINGS[ceiling]} ceiling)"
+            )
+    return violations
+
+
+def render(rows, out):
+    """Print the verdict table, red rows first, and the bottom line."""
+    print(
+        "bench-judge: time-scaling exponents over criterion medians "
+        "(the amplification board's time leg)",
+        file=out,
+    )
+    print(
+        f"green iff fitted exponent <= the cell's declared ceiling (general "
+        f"{MAX_WALL_SCALING_EXPONENT}, text {MAX_TEXT_SCALING_EXPONENT}; the "
+        f"sidecar declares each) against the board's denominator bytes; "
+        f"judged once the larger-scale median reaches "
+        f"{nanos(MIN_JUDGED_MEDIAN_NANOS)} ({RESOLUTION_DOMINANCE_FACTOR} x the "
+        f"~{CRITERION_TIMER_ERROR_NANOS} ns per-batch timer error)",
+        file=out,
+    )
+    print(file=out)
+    # Red rows first (the board's convention), then green, then sub-floor;
+    # cell order within a verdict stays the sidecar's (board row order).
+    order = ("RED", "GREEN", "SKIP")
+    for wanted in order:
+        for verdict, _, _, _, line in rows:
+            if verdict == wanted:
+                print(line, file=out)
+    counts = {verdict: 0 for verdict in order}
+    for verdict, _, _, _, _ in rows:
+        counts[verdict] += 1
+    print(file=out)
+    print(
+        f"bench-judge: {counts['GREEN']} green / {counts['RED']} red / "
+        f"{counts['SKIP']} sub-floor ({len(rows)} cells)",
+        file=out,
+    )
+    return counts
+
+
+def self_test():
+    """Pin the judging arithmetic and the exit contract end-to-end."""
+    import tempfile
+
+    floor = MIN_JUDGED_MEDIAN_NANOS
+
+    def verdicts(cells):
+        return [(verdict, name) for verdict, name, _, _, _ in judge_cells(cells)]
+
+    # A linear cell reads green: medians scale with the denominator.
+    assert verdicts([("op/linear", 1e6, 4e6, 1000, 4000, "general")]) == [
+        ("GREEN", "op/linear")
+    ]
+    # A quadratic reads red: medians scale with the denominator squared.
+    assert verdicts([("op/quad", 1e6, 16e6, 1000, 4000, "general")]) == [
+        ("RED", "op/quad")
+    ]
+    # A sub-floor cell is skipped, never judged, even at a quadratic ratio.
+    assert verdicts([("op/tiny", floor / 32, floor / 2, 1000, 4000, "general")]) == [
+        ("SKIP", "op/tiny")
+    ]
+    # A just-sub-floor median renders in raw nanoseconds: the compact
+    # formatter would round it up to the floor's own rendering, and a row
+    # must never assert a value is below a floor it appears to equal.
+    [(_, _, _, _, row)] = judge_cells(
+        [("op/near", floor / 32, floor - 1, 1000, 4000, "general")]
+    )
+    assert f"{floor - 1}ns below the {floor}ns judgment floor" in row, row
+    # The general ceiling binds tightly: a hair under 1.3 green, over red.
+    under = floor * 4 ** (MAX_WALL_SCALING_EXPONENT - 0.01)
+    over = floor * 4 ** (MAX_WALL_SCALING_EXPONENT + 0.01)
+    assert verdicts([("op/under", floor, under, 1000, 4000, "general")]) == [
+        ("GREEN", "op/under")
+    ]
+    assert verdicts([("op/over", floor, over, 1000, 4000, "general")]) == [
+        ("RED", "op/over")
+    ]
+    # The text ceiling binds the same way on a text-class cell — and the
+    # same shapes read the other verdict under the other class, so the
+    # ceiling is demonstrably the cell's, not the run's.
+    text_under = floor * 4 ** (MAX_TEXT_SCALING_EXPONENT - 0.01)
+    text_over = floor * 4 ** (MAX_TEXT_SCALING_EXPONENT + 0.01)
+    assert verdicts([("op/t_under", floor, text_under, 1000, 4000, "text")]) == [
+        ("GREEN", "op/t_under")
+    ]
+    assert verdicts([("op/t_over", floor, text_over, 1000, 4000, "text")]) == [
+        ("RED", "op/t_over")
+    ]
+    assert verdicts([("op/t_under", floor, text_under, 1000, 4000, "general")]) == [
+        ("RED", "op/t_under")
+    ]
+    # The denominator, not the scale knob, is the fit's base: a family whose
+    # bytes grow x16 across a x4 knob (the cliff genre) reads its honest
+    # linear exponent against those bytes.
+    assert verdicts([("op/cliff", 1e6, 16e6, 1000, 16000, "general")]) == [
+        ("GREEN", "op/cliff")
+    ]
+    # The committed tripwire's measured shape (benches/tripwire.rs via
+    # `just bench-judge-tripwire`, quick mode: the machine-word
+    # quadratic every board counter reads zero on — medians 239.39 us ->
+    # 3.84 ms across n 512 -> 2048): red on the fitted exponent, ~2.0
+    # against the 1.3 ceiling.
+    rows = judge_cells(
+        [("tripwire_unmetered_quadratic/quadratic", 239.39e3, 3.84e6, 512, 2048, "general")]
+    )
+    [(verdict, _, exponent, _, _)] = rows
+    assert verdict == "RED" and 1.8 <= exponent <= 2.2, rows
+    # The committed schoolbook display tripwire's measured shape
+    # (benches/board.rs `display_schoolbook/hugeleaf`, quick mode:
+    # medians 27.80 ms -> 440.09 ms across n_io
+    # 70533 -> 282129 B) fits above the text ceiling by more than twice
+    # the text fit-noise band, while the honest divide-and-conquer render
+    # at the same widths (`version_display_wide/hugeleaf`, medians
+    # 1.17 ms -> 8.93 ms) fits below it by more than the same margin —
+    # the separation the text ceiling's placement rests on. Both cells
+    # declare the text class in the board bench's sidecar, so the verdicts
+    # read that separation directly: schoolbook RED, honest render GREEN.
+    rows = judge_cells(
+        [
+            ("display_schoolbook/hugeleaf", 27.7975e6, 440.0891e6, 70533, 282129, "text"),
+            ("version_display_wide/hugeleaf", 1.1670e6, 8.9303e6, 70533, 282129, "text"),
+        ]
+    )
+    [(sb_verdict, _, sb_e, _, _), (dc_verdict, _, dc_e, _, _)] = rows
+    assert sb_verdict == "RED", rows
+    assert sb_e - MAX_TEXT_SCALING_EXPONENT > 2 * TEXT_FIT_NOISE_EXPONENT_BAND, rows
+    assert dc_verdict == "GREEN", rows
+    assert MAX_TEXT_SCALING_EXPONENT - dc_e > 2 * TEXT_FIT_NOISE_EXPONENT_BAND, rows
+    # Malformed inputs are errors, never scores and never sub-floor skips:
+    # a shrinking or flat denominator — including on a sub-floor cell, where
+    # the judgment floor must not outrank denominator validation into a
+    # silent SKIP; a nonpositive median at either scale (the hi side must
+    # NOT fall through to SKIP); a NaN or infinite median at either scale;
+    # an unknown ceiling class.
+    for bad in [
+        ("op/shrunk", 1e6, 4e6, 4000, 1000, "general"),
+        ("op/flat", 1e6, 4e6, 1000, 1000, "general"),
+        ("op/shrunk_subfloor", floor / 32, floor / 2, 4000, 1000, "general"),
+        ("op/flat_subfloor", floor / 32, floor / 2, 1000, 1000, "general"),
+        ("op/lo_negative", -1.0, 4e6, 1000, 4000, "general"),
+        ("op/lo_zero", 0.0, 4e6, 1000, 4000, "general"),
+        ("op/hi_negative", 1e6, -5.0, 1000, 4000, "general"),
+        ("op/hi_zero", 1e6, 0.0, 1000, 4000, "general"),
+        ("op/lo_nan", float("nan"), 4e6, 1000, 4000, "general"),
+        ("op/hi_nan", 1e6, float("nan"), 1000, 4000, "general"),
+        ("op/hi_inf", 1e6, float("inf"), 1000, 4000, "general"),
+        ("op/hi_not_a_number", 1e6, "4e6", 1000, 4000, "general"),
+        ("op/bad_ceiling", 1e6, 4e6, 1000, 4000, "text_green"),
+    ]:
+        try:
+            judge_cells([bad])
+        except JudgeError:
+            pass
+        else:
+            raise AssertionError(f"expected a JudgeError for {bad}")
+
+    # The exit contract, end-to-end: build synthetic criterion trees and
+    # assert what `main` RETURNS, so a judge that stops failing (the
+    # `return 0 on red` mutation) cannot pass its own self-test.
+
+    def stamp(scale, profile="optimized", sampling="quick", tip="selftest"):
+        return {"scale": scale, "profile": profile, "sampling": sampling, "tip": tip}
+
+    def exit_code(root, lo_sidecar, hi_sidecar, *extra):
+        argv = [
+            "benchjudge",
+            "--criterion-dir",
+            str(root),
+            "--lo",
+            "lo",
+            "--hi",
+            "hi",
+            "--denoms-lo",
+            str(lo_sidecar),
+            "--denoms-hi",
+            str(hi_sidecar),
+            *extra,
+        ]
+        with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stderr(io.StringIO()):
+                return main(argv)
+
+    def write_pair(root, cells, stamp_lo=None, stamp_hi=None, ceilings=None):
+        """cells: name -> (median_lo, median_hi); x4 denominator span.
+
+        `ceilings` maps cell names to non-"general" classes; per side,
+        it may also map a name to a (lo_class, hi_class) pair to write
+        DISAGREEING sidecars.
+        """
+        ceilings = ceilings or {}
+        for name, (median_lo, median_hi) in cells.items():
+            for baseline, median in (("lo", median_lo), ("hi", median_hi)):
+                op, _, family = name.partition("/")
+                cell_dir = Path(root, op, family, baseline)
+                cell_dir.mkdir(parents=True, exist_ok=True)
+                (cell_dir / "estimates.json").write_text(
+                    json.dumps({"median": {"point_estimate": median}}),
+                    encoding="utf-8",
+                )
+        def ceiling_for(name, side):
+            declared = ceilings.get(name, "general")
+            if isinstance(declared, tuple):
+                return declared[side]
+            return declared
+        paths = {}
+        for side, (baseline, denom, st) in enumerate(
+            (
+                ("lo", 1000, stamp_lo or stamp(1.0)),
+                ("hi", 4000, stamp_hi or stamp(4.0)),
+            )
+        ):
+            path = Path(root, f"denoms-{baseline}.json")
+            path.write_text(
+                json.dumps(
+                    {
+                        "stamp": st,
+                        "cells": {
+                            name: {
+                                "denominator_bytes": denom,
+                                "ceiling": ceiling_for(name, side),
+                            }
+                            for name in cells
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths[baseline] = path
+        return paths
+
+    def judged(cells, *extra, stamp_lo=None, stamp_hi=None, roster=None, ceilings=None):
+        with tempfile.TemporaryDirectory() as root:
+            paths = write_pair(
+                root, cells, stamp_lo=stamp_lo, stamp_hi=stamp_hi, ceilings=ceilings
+            )
+            if roster is not None:
+                roster_path = Path(root, "roster.json")
+                roster_path.write_text(json.dumps(roster), encoding="utf-8")
+                extra = (*extra, "--roster", str(roster_path))
+            return exit_code(root, paths["lo"], paths["hi"], *extra)
+
+    linear = (floor * 10.0, floor * 40.0)
+    quadratic = (floor * 10.0, floor * 160.0)
+    at_ceiling = (floor * 10.0, floor * 10.0 * 4**MAX_WALL_SCALING_EXPONENT)
+    sub_floor = (floor / 32, floor / 2)
+
+    # Exit 0 on all-green.
+    assert judged({"op/a": linear, "op/b": linear}) == 0
+    # Exit 1 on a red in normal mode: the `return 0 on red` mutation dies here.
+    assert judged({"op/a": linear, "op/quad": quadratic}) == 1
+    # Exit 1 when a tripwire run judges no red: the tripwire has gone dark.
+    assert judged({"op/a": linear}, "--expect-red") == 1
+    # Exit 0 when the tripwire run reads its red.
+    assert judged({"op/quad": quadratic}, "--expect-red") == 0
+    # Exit 2 on input errors, end-to-end: a zero hi median, a negative hi
+    # median, a NaN median, a missing median key, a missing baseline.
+    assert judged({"op/a": (floor * 10.0, 0.0)}) == 2
+    assert judged({"op/a": (floor * 10.0, -5.0)}) == 2
+    assert judged({"op/a": (float("nan"), floor * 40.0)}) == 2
+    with tempfile.TemporaryDirectory() as root:
+        paths = write_pair(root, {"op/a": linear})
+        estimates = Path(root, "op", "a", "hi", "estimates.json")
+        estimates.write_text(json.dumps({"mean": {"point_estimate": 1.0}}))
+        assert exit_code(root, paths["lo"], paths["hi"]) == 2
+        estimates.unlink()
+        assert exit_code(root, paths["lo"], paths["hi"]) == 2
+    # Exit 2 on stamp mismatches: disagreeing tips, a non-growing scale
+    # pair, a profile mismatch, and an invocation tip the sidecars predate.
+    assert judged({"op/a": linear}, stamp_hi=stamp(4.0, tip="other")) == 2
+    assert judged({"op/a": linear}, stamp_hi=stamp(1.0)) == 2
+    assert judged({"op/a": linear}, stamp_hi=stamp(4.0, profile="dev")) == 2
+    assert judged({"op/a": linear}, "--tip", "newer") == 2
+    assert judged({"op/a": linear}, "--tip", "selftest") == 0
+    # Exit 2 when the two sidecars disagree on a cell's ceiling class: a
+    # sidecar rewritten with another class is a mismatch, never a re-score.
+    assert judged({"op/a": linear}, ceilings={"op/a": ("general", "text")}) == 2
+
+    def roster(red=(), boundary=(), sampling="quick", **extra_classes):
+        return {
+            "configuration": {
+                "profile": "optimized",
+                "sampling": sampling,
+                "scale_lo": 1.0,
+                "scale_hi": 4.0,
+            },
+            "red": list(red),
+            "boundary": list(boundary),
+            **{cls: list(names) for cls, names in extra_classes.items()},
+        }
+
+    # Roster mode: exit 0 iff the verdict map matches the roster exactly.
+    assert judged({"op/quad": quadratic, "op/a": linear}, roster=roster(["op/quad"])) == 0
+    # A rostered red reading GREEN is a verdict-flip/liveness signal: exit 1.
+    assert judged({"op/quad": linear}, roster=roster(["op/quad"])) == 1
+    # A rostered red drifting below the judgment floor is a violation.
+    assert judged({"op/quad": sub_floor}, roster=roster(["op/quad"])) == 1
+    # An unrostered red is a violation.
+    assert judged({"op/quad": quadratic}, roster=roster()) == 1
+    # A boundary cell may read either verdict within the fit-noise band...
+    assert judged({"op/edge": at_ceiling}, roster=roster(boundary=["op/edge"])) == 0
+    over_band = (floor * 10.0, floor * 10.0 * 4**2.0)
+    under_band = (floor * 10.0, floor * 40.0)
+    # ...but not a verdict outside it (the cell genuinely moved)...
+    assert judged({"op/edge": over_band}, roster=roster(boundary=["op/edge"])) == 1
+    assert judged({"op/edge": under_band}, roster=roster(boundary=["op/edge"])) == 1
+    # ...and never a sub-floor skip.
+    assert judged({"op/edge": sub_floor}, roster=roster(boundary=["op/edge"])) == 1
+    # A boundary expectation on a text-class cell uses the band around the
+    # TEXT ceiling: at the text ceiling it holds, well under it the cell
+    # has genuinely moved.
+    at_text_ceiling = (floor * 10.0, floor * 10.0 * 4**MAX_TEXT_SCALING_EXPONENT)
+    dc_shape = (floor * 10.0, floor * 10.0 * 4**1.5)
+    school_shape = (floor * 10.0, floor * 10.0 * 4**2.0)
+    assert (
+        judged(
+            {"op/t": at_text_ceiling},
+            roster=roster(boundary=["op/t"]),
+            ceilings={"op/t": "text"},
+        )
+        == 0
+    )
+    assert (
+        judged(
+            {"op/t": dc_shape},
+            roster=roster(boundary=["op/t"]),
+            ceilings={"op/t": "text"},
+        )
+        == 1
+    )
+    # Unrostered cells drift between GREEN and SKIP freely: both non-red.
+    assert judged({"op/a": linear, "op/tiny": sub_floor}, roster=roster()) == 0
+    # A text-class cell is judged at the text ceiling by its SIDECAR
+    # declaration: the honest divide-and-conquer shape (e ~1.5) is green
+    # with no roster entry at all, and the schoolbook shape is an
+    # unrostered red.
+    assert judged({"op/dc": dc_shape}, roster=roster(), ceilings={"op/dc": "text"}) == 0
+    assert (
+        judged(
+            {"op/school": school_shape}, roster=roster(), ceilings={"op/school": "text"}
+        )
+        == 1
+    )
+    # LAUNDERING PIN (the ceiling-class review's demonstrated attack):
+    # a roster cannot claim a general cell as text — there is no roster
+    # class that selects a ceiling, and a roster minting one is an input
+    # error, never a judgment. The superlinear general cell stays red.
+    assert judged({"op/dc": dc_shape}, roster=roster(text_green=["op/dc"])) == 2
+    assert judged({"op/dc": dc_shape}, roster=roster(["op/dc"])) == 0  # honest: red owned
+    assert judged({"op/dc": dc_shape}, roster=roster()) == 1  # honest: red blocks
+    # LAUNDERING PIN (the review's second attack): the schoolbook tripwire
+    # rostered plain `red` is still judged at its own TEXT ceiling, so the
+    # renderer regressing under it (e ~1.5: the tripwire gone dark) is a
+    # violation — moving the cell between roster classes can never lower
+    # the bar its red expectation means.
+    assert (
+        judged(
+            {"op/school": school_shape},
+            roster=roster(["op/school"]),
+            ceilings={"op/school": "text"},
+        )
+        == 0
+    )
+    assert (
+        judged(
+            {"op/school": dc_shape},
+            roster=roster(["op/school"]),
+            ceilings={"op/school": "text"},
+        )
+        == 1
+    )
+    # A rostered-red text cell drifting below the judgment floor is a
+    # violation like any other.
+    assert (
+        judged(
+            {"op/school": sub_floor},
+            roster=roster(["op/school"]),
+            ceilings={"op/school": "text"},
+        )
+        == 1
+    )
+    # A roster pinned to a different configuration is refused: exit 2.
+    assert judged({"op/a": linear}, roster=roster(sampling="record")) == 2
+    # The sampling pin may list every mode the expectations hold under:
+    # the same roster then serves quick and record invocations, while a
+    # mode outside the list (or outside the vocabulary) still refuses.
+    both_modes = ["quick", "record"]
+    assert judged({"op/a": linear}, roster=roster(sampling=both_modes)) == 0
+    assert (
+        judged(
+            {"op/a": linear},
+            roster=roster(sampling=both_modes),
+            stamp_lo=stamp(1.0, sampling="record"),
+            stamp_hi=stamp(4.0, sampling="record"),
+        )
+        == 0
+    )
+    assert (
+        judged(
+            {"op/a": linear},
+            roster=roster(sampling=["quick"]),
+            stamp_lo=stamp(1.0, sampling="record"),
+            stamp_hi=stamp(4.0, sampling="record"),
+        )
+        == 2
+    )
+    assert judged({"op/a": linear}, roster=roster(sampling=["quick", "typo"])) == 2
+    assert judged({"op/a": linear}, roster=roster(sampling=[])) == 2
+    # A roster naming a cell the run does not contain is an input error.
+    assert judged({"op/a": linear}, roster=roster(["op/gone"])) == 2
+    # A cell rostered in both classes is an input error.
+    assert (
+        judged(
+            {"op/quad": quadratic},
+            roster=roster(red=["op/quad"], boundary=["op/quad"]),
+        )
+        == 2
+    )
+
+
+def main(argv):
+    if argv[1:] == ["--self-test"]:
+        self_test()
+        return 0
+    parser = argparse.ArgumentParser(
+        prog="benchjudge", description=__doc__.splitlines()[0]
+    )
+    parser.add_argument("--criterion-dir", required=True)
+    parser.add_argument("--lo", required=True, help="smaller-scale baseline name")
+    parser.add_argument("--hi", required=True, help="larger-scale baseline name")
+    parser.add_argument("--denoms-lo", required=True)
+    parser.add_argument("--denoms-hi", required=True)
+    parser.add_argument(
+        "--tip",
+        help="the source tip of this invocation; both sidecars must be stamped with it",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--roster",
+        help="roster mode: enforce this committed expected-verdict roster",
+    )
+    mode.add_argument(
+        "--expect-red",
+        action="store_true",
+        help="tripwire mode: succeed iff at least one judged cell is red",
+    )
+    args = parser.parse_args(argv[1:])
+    try:
+        stamps, cells = load_cells(
+            args.criterion_dir,
+            args.lo,
+            args.hi,
+            args.denoms_lo,
+            args.denoms_hi,
+            args.tip,
+        )
+        roster = None
+        if args.roster is not None:
+            roster = load_roster(args.roster)
+            check_roster_configuration(
+                args.roster, roster["configuration"], stamps[0], stamps[1]
+            )
+        rows = judge_cells(cells)
+        violations = None if roster is None else roster_violations(roster, rows)
+    except JudgeError as error:
+        print(f"benchjudge: {error}", file=sys.stderr)
+        return 2
+    counts = render(rows, sys.stdout)
+    if args.expect_red:
+        if counts["RED"] == 0:
+            print(
+                "benchjudge: --expect-red: no judged cell read red; "
+                "the tripwire has gone dark",
+                file=sys.stderr,
+            )
+            return 1
+        return 0
+    if violations is not None:
+        if violations:
+            print(file=sys.stdout)
+            for violation in violations:
+                print(f"benchjudge: roster violation: {violation}", file=sys.stdout)
+            return 1
+        print(
+            f"benchjudge: roster {args.roster} satisfied "
+            f"({len(roster['red'])} expected red, "
+            f"{len(roster['boundary'])} boundary)",
+            file=sys.stdout,
+        )
+        return 0
+    return 1 if counts["RED"] > 0 else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

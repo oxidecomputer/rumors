@@ -15,6 +15,7 @@ use crate::tree::{
         Backend, Leaf,
         protocol::{BoxResponses, Responses},
         remote::{
+            adapter::{DecodeError, EncodeError},
             codec::{Origin, RunBudget, Speaker},
             proxy::{Error, send_or_cancel},
             streams::{AcceptDriver, FirstStreamError, StreamError},
@@ -162,16 +163,28 @@ where
     /// is. The accept driver and the incoming error route resolve only to
     /// errors, so neither can preempt a completion.
     ///
-    /// One refinement on protocol *failure*: a supply failure the accept
-    /// driver deposited was observed in a strictly earlier poll wave, so a
-    /// protocol error found beside it is the dead transport's symptom
-    /// (writes to a peer that already tore down, decodes of severed
-    /// streams). The terminal then reports the supply failure as the
-    /// session's cause: a queued [`StreamError::SupplyClosed`] from the
-    /// stream that provably needed the supply (which the biased order may
-    /// have left unreceived), or the deposit still in its slot, at
-    /// direction granularity. The deposit cannot be lost between the two —
-    /// a report that loses the one-slot race puts its claimed source back.
+    /// One refinement on protocol *failure*: a dead stream supply is
+    /// reported as the session's cause even when one of its consequences
+    /// (a write to a peer that already tore down, a decode of a severed
+    /// stream) wins the selection. The accept driver deposits the supply
+    /// failure's I/O detail in the same poll that observes it, and this
+    /// terminal is the deposit's sole consumer, so a consequence caused by
+    /// this process's own cut always finds the deposit already in place.
+    /// On a real transport the peer's cut arrives from outside, so the
+    /// supply failure and a consequence can become ready in the same wave
+    /// with the consequence ahead in the biased order; one final poll of
+    /// the accept driver then flushes the ready failure into the slot.
+    /// That poll never waits — the driver either deposits and parks or is
+    /// pending — so the session still imposes no deadline of its own (the
+    /// link contract's liveness posture). The failure is surfaced at the
+    /// finest granularity available: the selected error or a queued
+    /// [`StreamError::SupplyClosed`] the biased order never received
+    /// names the stream that provably needed the supply; the deposit
+    /// alone is attributed at direction granularity. Typed backend errors
+    /// are exempt from the outranking: the local store failing is
+    /// independent of the transport, so a dead supply cannot have caused
+    /// it, and it surfaces as itself (the attribution contract on
+    /// [`Error`]).
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
@@ -190,20 +203,48 @@ where
             let mut protocol = pin!(Box::pin(complete(tasks, finish)));
             let mut accept = pin!(accept.run());
             let mut stream_errors = pin!(errors.first());
-            tokio::select! {
+            let outcome = tokio::select! {
                 biased;
                 output = &mut protocol => output,
                 error = &mut stream_errors => Err(Error::Stream(error)),
                 error = &mut accept => Err(Error::Accept(error)),
+            };
+            match &outcome {
+                // A violation resolved the accept arm: the driver is
+                // complete and must not be polled again, and a violating
+                // driver never deposited (it returns instead of parking).
+                Ok(_) | Err(Error::Accept(_)) => {}
+                Err(_) => {
+                    // Flush a supply failure that became ready in the
+                    // selected wave but sat behind the biased order; a
+                    // single poll either deposits-and-parks or returns
+                    // pending, never waits.
+                    let _ = futures::poll!(accept.as_mut());
+                }
             }
+            outcome
         };
         match outcome {
             Ok(output) => Ok((output, control_read, control_write)),
             // The causal supply failure outranks its own symptoms wherever
-            // it ended up: a queued `SupplyClosed` report the biased poll
-            // never received (stream granularity), else the deposit still
-            // in its slot (direction granularity), else the protocol error
-            // really is the cause.
+            // it landed: the selected report or a queued `SupplyClosed` the
+            // biased poll never received (stream granularity), else the
+            // deposit still in its slot (direction granularity), else the
+            // protocol error really is the cause.
+            Err(Error::Stream(StreamError::SupplyClosed { origin, source })) => {
+                Err(Error::Stream(StreamError::SupplyClosed {
+                    origin,
+                    source: source.or_else(|| errors.take_supply_failure()),
+                }))
+            }
+            // A typed backend error is the local store's own failure: the
+            // supply cannot have caused it, so it is never outranked — it
+            // surfaces from the failing operation itself, as `Error`'s
+            // attribution contract promises.
+            Err(
+                error @ (Error::Encode(EncodeError::Backend(_))
+                | Error::Decode(DecodeError::Backend(_))),
+            ) => Err(error),
             Err(error) => match errors.queued_supply_closed() {
                 Some(supply) => Err(Error::Stream(supply)),
                 None => match errors.take_supply_failure() {

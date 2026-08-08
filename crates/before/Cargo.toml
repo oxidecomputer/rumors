@@ -2,27 +2,20 @@
 name = "before"
 version = "0.1.0"
 edition = "2021"
-description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed BitVec storage, transient fixed-width working form, linear-typed API."
+description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed bit-stream storage, transient fixed-width working form, linear-typed API."
 license = "MPL-2.0"
 readme = "README.md"
 
 [dependencies]
 bitvec = "1"
-num-bigint = "0.4.6"
-# Stack-growth guard for the recursive traversals: recurse natively on shallow
-# trees; grow the stack onto the heap before a deep one can overflow. The crate
-# stays `#![forbid(unsafe_code)]`; the platform stack manipulation lives here.
-stacker = "0.1"
-# Inline-capacity stacks for the iterative tree parsers (`codec/tree.rs`):
-# real trees fit the inline frames, deeper ones spill to the heap. Default
-# features only — no `union`/unchecked APIs — so the no-unsafe policy holds.
-smallvec = "1.15"
+bytes = "1"
+dashu-int = { version = "0.5", default-features = false, features = ["std"] }
+suanpan = { path = "../suanpan" }
+dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
+static_assertions = "1.1"
 thiserror = "2"
 serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
 borsh = { version = "1", optional = true }
-# Base64-embeds the space-consumption diagram into the crate-level rustdoc at
-# doc-build time (see `lib.rs`). Doc-only and gated behind `doc-images`, so a
-# normal `cargo build` never pulls it.
 embed-doc-image = { version = "0.1", optional = true }
 
 [dev-dependencies]
@@ -30,27 +23,16 @@ proptest = "1"
 serde_json = "1"
 criterion = "0.5"
 rand = "0.8"
-# Binary (non-self-describing) and self-describing serde formats, exercised by the
-# binary-serde round-trip tests: `postcard` emits a typed bytes value via `serialize_bytes`;
-# `ciborium` is a self-describing CBOR codec. Together they guard the binary serde path
-# that `serde_json` alone never reaches.
-postcard = { version = "1", features = ["use-std"] }
+rand_chacha = "0.3"
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 ciborium = "0.2"
-# Compile-fail tests pinning the linearity guarantees (`Party`/`Clock` `!Clone`,
-# by-value `BitOr`).
-trybuild = "1"
-# Snapshot tests where a literal expected value is clearer inline than maintained by hand.
+stacker = "0.1"
+peak_alloc = "0.3"
 insta = "1"
-# Parallelizes the exhaustive small-scope cross-products (the `exhaustive` module)
-# and, in the `space_consumption` example, the independent simulation runs.
 rayon = "1"
-# Progress bars for the long-running `space_consumption` example.
-indicatif = "0.17"
-# Self-dependency that turns on the `oracle` feature for benches (and tests): a
-# recognized Cargo idiom so `cargo bench` builds the lib with the oracle exposed
-# without needing `--features oracle`. Dev-dependency cycles are explicitly allowed,
-# and dev-dependencies never affect a normal `cargo build`, so production stays clean.
-before = { path = ".", features = ["oracle"] }
+indicatif = "0.18"
+before = { path = ".", features = ["oracle", "meter"] }
+surface-scan = { path = "../surface-scan" }
 
 [features]
 default = []
@@ -59,9 +41,73 @@ borsh = ["dep:borsh"]
 # Renders the space-consumption diagram in the crate-level rustdoc. Doc-only;
 # `cargo doc --all-features` (the `just docs` gate) turns it on.
 doc-images = ["dep:embed-doc-image"]
-# Re-exports the reference oracle (`src/oracle.rs`) as `before::oracle`, so the benchmark
-# suite can time it against the optimized implementation. Bench/test-only.
+# Re-exports the reference oracle (`src/oracle.rs`) as `before::oracle`, so the
+# benchmark suite can time it against the optimized implementation.
+# Bench/test-only.
 oracle = []
+# Exposes the adversarial input generators and deterministic resource meters
+# (`src/meter.rs`) as `before::meter`, so the metering test binaries can build
+# worst-case inputs and read the counters they envelope, and the public
+# operation surface roster (`src/surface.rs`) as `before::surface`, so external
+# instrument crates can bind their coverage to the rows the surface-coverage
+# suite enforces totality over. Bench/test-only.
+meter = []
+# Exposes the named algebraic-law predicates (`src/laws.rs`) as `before::laws`,
+# so the fuzz workspace can drive the same law collection the in-tree proptests
+# assert. Test/fuzz-only.
+laws = []
+# Counts big-integer limb-scale work (operand limbs per `Base` operation:
+# arithmetic, comparison, equality, and hashing; plus one value-width record per
+# decoded wide-gamma value) into a process-global counter read via
+# `before::meter`, and lights the accumulator's digit-touch counter
+# (`suanpan/touch-meter`, read via `suanpan::touch_meter`) beside it.
+# Arithmetic-width blowups are invisible to node-count and heap meters; this one
+# sees them. Additive and off by default: it adds one relaxed atomic bump per
+# `Base` operation, so it stays out of the bench builds (deliberately not in the
+# self-dev-dependency above) and is lit by `--all-features` runs and the
+# metering envelopes that assert it.
+limb-meter = ["meter", "suanpan/touch-meter"]
+# Counts packed-stream bits scanned and written (id tag reads and skip steps,
+# id-builder bit writes and splice lengths, event topology cursor advances and
+# gamma code-skips, every validator/decoder bit cursor) into a process-global
+# counter read via `before::meter`. Traversal work over the packed forms is
+# invisible to the heap, segment, and limb meters when it allocates nothing,
+# recurses nothing, and does no `Base` arithmetic — the id-side walks are
+# exactly that — so this is the column that sees it. Additive and off by
+# default, in the `limb-meter` idiom: one relaxed atomic bump per primitive, out
+# of the bench builds, lit by `--all-features` runs and the metering suites that
+# assert it.
+scan-meter = ["meter"]
+
+[lints.rust]
+# The allocation-strategy bench (`benches/presize.rs`) compiles alternative
+# arms into library sites through this cfg, one value per site arm; each
+# seam's comment names its site. RUSTFLAGS-only by design — registering it
+# here guarantees no cargo feature can ever select an arm, and `deny` fails
+# the build of any seam or bench that queries an arm missing from this
+# roster, so the roster cannot drift from the code. (It cannot see a
+# mistyped RUSTFLAGS value nothing queries; the `bench-alloc-ab` recipe
+# validates the arm name at invocation for exactly that hole.)
+unexpected_cfgs = { level = "deny", check-cfg = [
+    'cfg(before_alloc_ab, values("projection_growth", "projection_shrink", "display_growth"))',
+] }
+
+# The board example judges limb, scan, and touch work against pinned
+# floors and ceilings; built without the counter features those columns
+# read `off` and every one of their verdicts silently renders green.
+# Requiring the features makes the unfeatured invocation a loud cargo
+# error instead of a board that looks judged and isn't.
+[[example]]
+name = "amp_board"
+required-features = ["limb-meter", "scan-meter"]
+
+# The integer-code corpus study walks the board's shape bundles, which live
+# behind the meter surface. Measure-only: it re-parses stored streams and
+# prices candidate codes closed-form on the histograms; it reads no
+# counters, so the base `meter` feature is enough.
+[[example]]
+name = "code_study"
+required-features = ["meter"]
 
 [[bench]]
 name = "party"
@@ -73,4 +119,20 @@ harness = false
 
 [[bench]]
 name = "clock"
+harness = false
+
+[[bench]]
+name = "amplify"
+harness = false
+
+[[bench]]
+name = "board"
+harness = false
+
+[[bench]]
+name = "tripwire"
+harness = false
+
+[[bench]]
+name = "presize"
 harness = false

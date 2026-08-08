@@ -1,11 +1,12 @@
 //! Input generators for the property tests, in two families:
 //!
 //! - **Adversarial deep shapes** ([`Shape`], [`shape_party`]/[`shape_version`],
-//!   the stress-pair builders, [`deep_left_spine_party`]) — the deep, unbalanced
+//!   [`skip_stress_pair`], [`deep_left_spine_party`]) — the deep, unbalanced
 //!   trees that are the worst case for any traversal locating a right child by
-//!   re-scanning its left subtree. Each is parameterized by a `scale` knob linear
-//!   in the node count, so the complexity proptests can build at `scale` and `4 *
-//!   scale` and assert near-linear step growth.
+//!   re-scanning its left subtree. Each is parameterized by a `scale` knob
+//!   linear in the node count, so the deep differentials can drive real depth
+//!   at chosen sizes. (Asymptotic traversal cost itself is enforced elsewhere:
+//!   the amplification board's scan column and the fuzzfit fuel bands.)
 //!
 //! - **Arbitrary normal-form** ([`arb_base`], [`arb_oracle_party`],
 //!   [`arb_oracle_version`]) — random recursive shapes with random base
@@ -16,6 +17,11 @@
 //!
 //! All trees are built via the oracle's normalizing constructors (`O(1)` per
 //! node), then lowered to the impl with [`super::bridge`].
+//!
+//! A different instrument entirely from `crate::meter`'s generators: those
+//! are hand-derived worst-case *encodings* with closed-form sizes, built
+//! for the resource-envelope pins and the amplification board; these are
+//! proptest strategies over random inputs.
 
 use proptest::prelude::*;
 
@@ -46,7 +52,7 @@ pub(crate) enum Shape {
     Bushy,
 }
 
-/// A random deep shape for the complexity proptests.
+/// A random deep shape for the deep-operand differentials.
 pub(crate) fn arb_shape() -> impl Strategy<Value = Shape> {
     prop_oneof![
         Just(Shape::LeftSpine),
@@ -88,6 +94,18 @@ fn bushy_party(lo: usize, leaves: usize) -> oracle::Party {
     P::node(bushy_party(lo, half), bushy_party(lo + half, leaves - half))
 }
 
+/// A bushy id rooted beside one owned terminal: `(bushy(scale), 1)`.
+///
+/// The expansion-heavy shape: the bushy left subtree makes the tick
+/// walk's route fold weigh two feasible children at every branch, while
+/// the right terminal is the cheapest inflation at every scale — so the
+/// splice's chosen path (and its one skip of the whole off-path bushy
+/// subtree) is scale-independent.
+pub(crate) fn bushy_expand_party(scale: usize) -> Party {
+    use oracle::Party as P;
+    from_oracle_party(&P::node(bushy_party(0, scale + 1), P::Leaf(true)))
+}
+
 /// Build a normal-form event tree of `shape` sized linearly in `scale`.
 ///
 /// The spines have `scale` internal nodes (`2*scale + 1` nodes total); the
@@ -121,10 +139,8 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
 /// the `scale` levels `a`'s left `0`-leaf aligns against `b`'s left *subtree*,
 /// so that subtree is skipped once. The pair is disjoint (`a` owns only its
 /// deepest-right tip, `b` owns its left subtrees and deepest-left tip), so the
-/// walk runs to completion (no early `false`) and the cumulative skip cost is
-/// measured. Both ids are linear in `scale`. With a *bounded* skip the total is
-/// `O(scale)`; an *unbounded* (rescanning) skip would be `O(scale²)` — which
-/// the linear-scaling assertion would catch.
+/// walk runs to completion (no early `false`) and every level's skip is
+/// exercised. Both ids are linear in `scale`.
 pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
     use oracle::Party as P;
     // A 2-leaf subtree `(1, 0)`: a small node that owns its left half.
@@ -142,38 +158,6 @@ pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
     let mut a = P::seed();
     for _ in 0..scale {
         a = P::node(P::Leaf(false), a);
-    }
-    (from_oracle_party(&a), from_oracle_party(&b))
-}
-
-/// Build a *covering* "staircase" id pair `(a, b)` with `a ⊇ b`, driving the
-/// bounded lazy-skip in `covers` to its worst case: `Θ(scale)` distinct skips,
-/// each over a small subtree.
-///
-/// The covering analogue of [`skip_stress_pair`]: `b` is a right-spine whose
-/// every left child is a small owned subtree `(1, 0)`; `a` is a right-spine
-/// whose every left child is the *full* `1` leaf. At every level `a`'s left `1`
-/// leaf dominates `b`'s left subtree, so that subtree is skipped once, and the
-/// full leaf covers it — so the walk runs to completion (no early `false`) and
-/// the cumulative skip cost is measured. The shared empty deepest-right tip
-/// keeps both spines in normal form (no `(1, 1)` node collapses). With a
-/// *bounded* skip the total is `O(scale)`; an *unbounded* (rescanning) skip
-/// would be `O(scale²)`.
-pub(crate) fn covers_stress_pair(scale: usize) -> (Party, Party) {
-    use oracle::Party as P;
-    // A 2-leaf subtree `(1, 0)`: a small node that owns its left half.
-    let owned_left = || P::node(P::seed(), P::Leaf(false));
-    // `b`: right-spine, each left child a small owned subtree, deepest-right tip
-    // empty.
-    let mut b = P::Leaf(false);
-    for _ in 0..scale {
-        b = P::node(owned_left(), b);
-    }
-    // `a`: right-spine, each left child the full `1` leaf (covering `b`'s left
-    // subtree), deepest-right tip empty (so the `(1, 0)` spine never collapses).
-    let mut a = P::Leaf(false);
-    for _ in 0..scale {
-        a = P::node(P::seed(), a);
     }
     (from_oracle_party(&a), from_oracle_party(&b))
 }
@@ -213,9 +197,9 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 /// children take no bits), and the deep-left tip is a terminal (`00`). The
 /// result `(((…(1, 0)…), 0), 0)` is normal form (no node has two terminal
 /// children). Built with a flat loop: no recursion at any depth, in the builder
-/// or in `Drop` (the packed form is a flat `BitVec`).
+/// or in `Drop` (the packed forms are flat buffers).
 pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
-    let mut bits = codec::Bits::with_capacity(2 * depth + 2);
+    let mut bits = codec::BitsMut::with_capacity(2 * depth + 2);
     for _ in 0..depth {
         bits.push(true); // Left-only tag `10`: left child present ...
         bits.push(false); //   ... right child absent
@@ -249,7 +233,12 @@ const ARB_NODES: u32 = 16;
 /// Mixes a dense small range (where collapses and `one_zero` corners live) with
 /// values straddling `u64::MAX`, so a generated event tree can have
 /// root-to-leaf path sums that would overflow `u64`. The big-value arms are
-/// built from `u128`/shifted `BigUint` literals, well beyond `u64`.
+/// built from `u128` conversions and shifted powers, well beyond `u64`. The
+/// `2^64`-aligned arm produces small nonzero multiples of `2^64`: values (and
+/// differences of two draws — the fused tick's raise offsets) whose low limb
+/// is exactly zero, the class a limb-truncated value comparison misreads as
+/// zero. The fill flag's full-width worked witnesses pin that comparison
+/// pointwise; this arm keeps the class under ongoing generator mass.
 pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
     prop_oneof![
         6 => (0u64..6).prop_map(codec::Base::from),
@@ -257,6 +246,7 @@ pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
         1 => (u64::MAX - 4..=u64::MAX).prop_map(codec::Base::from),
         1 => any::<u128>().prop_map(|n| codec::Base::from(n) + codec::Base::from(u64::MAX)),
         1 => (0u32..96).prop_map(|k| (codec::Base::from(1u8) << k) + codec::Base::from(1u8)),
+        1 => (1u64..8).prop_map(|k| codec::Base::from(k) << 64u32),
     ]
 }
 
@@ -292,4 +282,133 @@ pub(crate) fn arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
     leaf.prop_recursive(ARB_DEPTH, ARB_NODES, 2, |inner| {
         (arb_base(), inner.clone(), inner).prop_map(|(n, l, r)| oracle::Version::node(n, l, r))
     })
+}
+
+// ───────────────────────── variadic-law families ─────────────────────────
+
+/// A list arity for the variadic law drivers, swept past every
+/// structural boundary of the balanced binary counter every n-ary fold
+/// runs on ([`crate::fold`]).
+///
+/// The counter's behavior over `k` inputs changes only at these
+/// boundaries, derived from its structure:
+///
+/// - `k = 0` and `k = 1`: the identity and lone-input short-circuits —
+///   no combine runs at all;
+/// - `k = 2`: the first in-counter combine, of two raw inputs (the leaf
+///   arm);
+/// - `k = 3`: the first closing-drain combine (the drain performs
+///   `popcount(k) - 1` combines, so it first runs here), pairing a
+///   merged group with a lone raw input;
+/// - `k = 4`: the first merged–merged combine — two weight-1 groups
+///   carrying inside the counter — the arm beyond every fixed arity-3
+///   law signature;
+/// - `k = 6`: the first *drain* combine of two merged groups (surviving
+///   weights 2 and 1);
+/// - `k = 2^j` and `k = 2^j + 1`: each octave carries one weight deeper
+///   (a chain of `j` in-counter combines), then leaves a lone raw input
+///   under the deep group for the drain.
+///
+/// Every combine-arm *genre* the folds dispatch on (leaf,
+/// merged–input, merged–merged; in-counter and drain) is reachable by
+/// `k = 6`. The band `0..=9` covers each genre plus the first full
+/// octave boundary (8, 9); the band `15..=17` crosses the next octave
+/// (15 = 0b1111 drains four groups through three combines, 16 carries
+/// to a single weight-4 group, 17 leaves a lone input under it), so
+/// behavior keyed to a particular *weight* rather than a genre still
+/// meets two octaves of weights.
+pub(crate) fn arb_fold_arity() -> impl Strategy<Value = usize> {
+    prop_oneof![
+        3 => 0usize..=9,
+        1 => 15usize..=17,
+    ]
+}
+
+/// A small pool of arbitrary versions with the empty version always
+/// present.
+///
+/// Variadic-law lists are built by *indexing* into a pool this small,
+/// so repeats and shared-structure elements arise naturally at every
+/// arity. Repeats matter: repeated raw inputs coalesce into counter
+/// groups that each carry information their partners lack in both
+/// lattice directions, so an arm that drops or misreads a merged
+/// operand loses a fresh input and diverges — where lattice-derived
+/// items would be absorbed and leave the misread invisible. The empty
+/// version keeps the folds' `O(1)` identity short-circuits under mass.
+fn arb_version_pool() -> impl Strategy<Value = Vec<oracle::Version>> {
+    proptest::collection::vec(arb_oracle_version(), 1..=3).prop_map(|mut pool| {
+        pool.push(oracle::Version::new());
+        pool
+    })
+}
+
+/// Draws from `pool` for one receiver and a boundary-swept
+/// ([`arb_fold_arity`]) list of items.
+fn family_picks<T: Clone + core::fmt::Debug>(pool: Vec<T>) -> impl Strategy<Value = (T, Vec<T>)> {
+    (
+        any::<prop::sample::Index>(),
+        arb_fold_arity()
+            .prop_flat_map(|arity| proptest::collection::vec(any::<prop::sample::Index>(), arity)),
+    )
+        .prop_map(move |(receiver, picks)| {
+            (
+                pool[receiver.index(pool.len())].clone(),
+                picks
+                    .into_iter()
+                    .map(|pick| pool[pick.index(pool.len())].clone())
+                    .collect(),
+            )
+        })
+}
+
+/// A pool-indexed version family — a receiver and a boundary-swept
+/// list of items — for the variadic version-law drivers.
+///
+/// The receiver is drawn from the same pool as the items, so
+/// receiver-repeats (an input aliasing the fold's seed) arise
+/// naturally too. Arity per [`arb_fold_arity`]; pool per
+/// [`arb_version_pool`].
+pub(crate) fn arb_version_family() -> impl Strategy<Value = (oracle::Version, Vec<oracle::Version>)>
+{
+    arb_version_pool().prop_flat_map(family_picks)
+}
+
+/// A pool-indexed party family — a receiver and a boundary-swept list
+/// of items — for the variadic party-law drivers.
+///
+/// The pool holds live (non-anonymous) parties only, the admissible
+/// inputs of every party law. Repeats are *aliases* — regions
+/// overlapping byte-identically — which is exactly the input class the
+/// fallible folds' rejection paths exist for, so pool indexing keeps
+/// the refusal arm under mass at every arity.
+pub(crate) fn arb_party_family() -> impl Strategy<Value = (oracle::Party, Vec<oracle::Party>)> {
+    proptest::collection::vec(arb_oracle_party_nonempty(), 1..=3).prop_flat_map(family_picks)
+}
+
+/// A pool-indexed clock family — a receiver and a boundary-swept list
+/// of items, each a canonical party/version pairing — for the variadic
+/// clock-law drivers.
+///
+/// Parties and versions are drawn from independent small pools and
+/// paired combinatorially (every canonical pairing is a valid clock,
+/// including ones no op sequence reaches); party repeats give aliased
+/// clocks for the refusal arm, and the version pool's empty element
+/// keeps fresh-line clocks under mass.
+pub(crate) fn arb_clock_family() -> impl Strategy<
+    Value = (
+        (oracle::Party, oracle::Version),
+        Vec<(oracle::Party, oracle::Version)>,
+    ),
+> {
+    (
+        proptest::collection::vec(arb_oracle_party_nonempty(), 1..=3),
+        arb_version_pool(),
+    )
+        .prop_flat_map(|(parties, versions)| {
+            let pool: Vec<(oracle::Party, oracle::Version)> = parties
+                .iter()
+                .flat_map(|p| versions.iter().map(move |v| (p.clone(), v.clone())))
+                .collect();
+            family_picks(pool)
+        })
 }

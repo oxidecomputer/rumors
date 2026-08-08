@@ -63,7 +63,7 @@ mod key;
 mod traverse;
 pub(crate) mod typed;
 
-use crate::{Version, message::Message, tree::typed::Node};
+use crate::{Version, causally, message::Message, tree::typed::Node};
 
 pub use key::Key;
 pub use typed::hash::MERKLE_HASH_LEN;
@@ -311,42 +311,39 @@ impl<T> Tree<T> {
         )
     }
 
-    /// Freezes a fully-owned walk over the live leaves whose versions fall
-    /// within the causal `range`.
+    /// Freezes a fully-owned walk over the live leaves whose versions the
+    /// causal `query` admits.
     ///
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
     /// across awaits and in long-lived state, pinning only its unvisited
-    /// frontier.
-    pub fn range_owned<R>(&self, range: R) -> RangeOwned<T, R>
-    where
-        R: std::ops::RangeBounds<Version>,
-    {
-        typed::node::Root::range_owned(self.root.root.as_ref(), range)
+    /// frontier. The query's bounds are settled owned
+    /// ([`Query::into_owned`](causally::Query::into_owned)), so the walk
+    /// carries no lifetime.
+    pub fn range_owned<'q, P: causally::Polarity>(
+        &self,
+        query: impl Into<causally::Query<'q, P>>,
+    ) -> RangeOwned<T, P> {
+        typed::node::Root::range_owned(self.root.root.as_ref(), query.into().into_owned())
     }
 
-    /// Lazily iterates the live leaves whose versions fall within the causal
-    /// `range`.
+    /// Lazily iterates the live leaves whose versions the causal `query`
+    /// admits.
     ///
-    /// A leaf is yielded iff its version is contained in the
-    /// range's end bound and *not* contained in its start bound — a
-    /// difference of causal down-sets (see
-    /// [`untyped::Range`](typed::untyped::Range) for the
-    /// per-bound semantics). Subtrees wholly outside the range are pruned by
-    /// their memoized version bounds without being entered, so iterating a
-    /// small delta against a large tree costs work proportional to the delta
-    /// (plus the pruning frontier), not the tree.
+    /// Subtrees wholly outside the query are pruned by their memoized
+    /// version bounds without being entered, so iterating a small delta
+    /// against a large tree costs work proportional to the delta (plus the
+    /// pruning frontier), not the tree.
     ///
     /// Unlike [`iter`](Self::iter), not an [`ExactSizeIterator`]: how many
     /// leaves pass is unknown until they are visited.
-    pub fn range<R>(
-        &self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    pub fn range<'q, P: causally::Polarity>(
+        &'q self,
+        query: impl Into<causally::Query<'q, P>>,
+    ) -> impl DoubleEndedIterator<Item = (Key, &'q Version, &'q Arc<T>)> + Send + Sync
     where
         T: Send + Sync,
-        R: std::ops::RangeBounds<Version> + Send + Sync,
     {
-        typed::node::Root::range(self.root.root.as_ref(), range)
+        typed::node::Root::range(self.root.root.as_ref(), query.into())
             // The shared walk yields the full `&Message<T>`; the public
             // contract hands out only the `&Arc<T>` value, a cheap projection
             // of it.
@@ -411,22 +408,17 @@ impl<T> Tree<T> {
         // deletion-honoring inference, which cannot distinguish "forgot it"
         // from "never had it" when versions are equal. An empty batch is a
         // complete no-op.
-        let mut new_version = self.latest().clone();
-
-        // Hold one version `Batch` open across the whole run: each `tick`
-        // advances the materialized working form in place, and `snapshot` reads
-        // the per-action committed version that keys the leaf. This pays the
-        // unpack cost once for the batch rather than once per action — a bare
-        // `Version::tick` opens and drops its own batch (an unpack and a repack)
-        // on every call. The reactions flow into `react` lazily; the whole
+        // The running version, advanced in place per action; each action
+        // clones the post-tick value as the committed version that keys
+        // its leaf. The reactions flow into `react` lazily; the whole
         // chain materializes only once, at the traversal's radix sort.
-        let mut batch = new_version.batch();
+        let mut new_version = self.latest().clone();
         self.react(actions.into_iter().map(|action| {
             // Advance the version. It must be unique for every action
             // applied to the tree; otherwise the mirror protocol
             // wrongly early-aborts when versions compare equal.
-            batch.tick(party);
-            let version = batch.snapshot();
+            new_version.tick(party);
+            let version = new_version.clone();
 
             // Convert unversioned, unlocalized actions into reactions
             // independent of our party and current version. The key is
@@ -566,7 +558,12 @@ impl<T> Tree<T> {
 pub(crate) mod meter {
     use std::cell::Cell;
 
+    // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+    // fallback-TLS lowering (illumos among the gate's targets) and denies
+    // initializers that already sit in `const` blocks; the allow keeps
+    // `-D warnings` honest on every platform the gate runs.
     thread_local! {
+        #[allow(clippy::missing_const_for_thread_local)]
         static ROOT_HASH_READS: Cell<u64> = const { Cell::new(0) };
     }
 

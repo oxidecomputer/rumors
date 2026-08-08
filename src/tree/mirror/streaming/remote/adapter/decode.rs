@@ -534,8 +534,14 @@ enum Skeleton<H: Height> {
 pub(super) mod fan_probe {
     use std::cell::Cell;
 
+    // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+    // fallback-TLS lowering (illumos among the gate's targets) and denies
+    // initializers that already sit in `const` blocks; the allow keeps
+    // `-D warnings` honest on every platform the gate runs.
     thread_local! {
+        #[allow(clippy::missing_const_for_thread_local)]
         static RESIDENT: Cell<usize> = const { Cell::new(0) };
+        #[allow(clippy::missing_const_for_thread_local)]
         static PEAK: Cell<usize> = const { Cell::new(0) };
     }
 

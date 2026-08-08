@@ -1,7 +1,7 @@
 //! `Version` benchmarks: the optimized implementation against the naive
 //! recursive oracle, on the same randomized event trees (see `common`).
 //!
-//! Includes the batch-vs-single-op comparison that motivates the working form,
+//! Includes the repeated-tick comparison (impl vs oracle over `k` ticks),
 //! plus the impl-only byte codec.
 
 use before::{Party, Version};
@@ -65,49 +65,41 @@ fn bench_tick(c: &mut Criterion) {
     g.finish();
 }
 
-/// The headline of the working form: applying `k` ticks.
+/// Repeated mutation: applying `k` ticks — fused and per-tick.
 ///
-/// The impl can `batch()` them (one unpack/repack amortized over all `k`);
-/// without a batch each tick unpacks and repacks on its own; the oracle has
-/// no working form and re-normalizes each tick. Tree size is fixed; `k` is
-/// the axis.
-fn bench_batch(c: &mut Criterion) {
+/// The fused series is one `ticks(k)` call (two walks at most, whatever
+/// `k`); the per-tick series applies each tick through the fill splice,
+/// paying the unpack/repack per call; the oracle re-normalizes each
+/// tick. Tree size is fixed; `k` is the axis, so the fused series must
+/// read flat where the iterated series scale with `k`.
+fn bench_k_ticks(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/k_ticks");
     let mut r = rng(2);
     const TREE: usize = 64;
     let (bytes, iparty, oversion, oparty) = version_and_party(&mut r, TREE);
     for &k in &[1usize, 4, 16, 64] {
-        g.bench_with_input(BenchmarkId::new("before/batched", k), &bytes, |b, bytes| {
+        g.bench_with_input(BenchmarkId::new("before", k), &bytes, |b, bytes| {
             b.iter_batched(
                 || Version::decode(&bytes[..]).unwrap(),
                 |mut v| {
-                    {
-                        let mut batch = v.batch();
-                        for _ in 0..k {
-                            batch.tick(&iparty);
-                        }
+                    for _ in 0..k {
+                        v.tick(&iparty);
                     }
                     black_box(v)
                 },
                 BatchSize::SmallInput,
             );
         });
-        g.bench_with_input(
-            BenchmarkId::new("before/unbatched", k),
-            &bytes,
-            |b, bytes| {
-                b.iter_batched(
-                    || Version::decode(&bytes[..]).unwrap(),
-                    |mut v| {
-                        for _ in 0..k {
-                            v.tick(&iparty);
-                        }
-                        black_box(v)
-                    },
-                    BatchSize::SmallInput,
-                );
-            },
-        );
+        g.bench_with_input(BenchmarkId::new("before/fused", k), &bytes, |b, bytes| {
+            b.iter_batched(
+                || Version::decode(&bytes[..]).unwrap(),
+                |mut v| {
+                    v.ticks(&iparty, k as u64);
+                    black_box(v)
+                },
+                BatchSize::SmallInput,
+            );
+        });
         g.bench_with_input(BenchmarkId::new("oracle", k), &oversion, |b, oversion| {
             b.iter_batched(
                 || oversion.clone(),
@@ -223,12 +215,67 @@ fn bench_codec(c: &mut Criterion) {
     g.finish();
 }
 
+/// The ownership-hole regime: a party owning a vanishing custody
+/// fraction of a fully-received version (`common::hole_pair`), the
+/// small-custody-peer shape the ownership-gated walks serve.
+///
+/// Consumers on the same pair: `tick`, the projection
+/// (`OwnVersion::to_version`), masked equality of equal projections
+/// in distinct buffers (a full co-walk, no early exit), and the
+/// asymmetric masked equality against the flat materialization. No
+/// oracle row: the regime's anchor is the same pair on the plain
+/// walks above.
+fn bench_hole(c: &mut Criterion) {
+    let mut g = c.benchmark_group("version/hole");
+    let mut r = rng(1);
+    for &n in SIZES {
+        let plan = common::plan(&mut r, n, 1);
+        let (party, version) = common::hole_pair(&plan);
+        let bytes = version.encode();
+        g.bench_with_input(BenchmarkId::new("tick", n), &bytes, |b, bytes| {
+            b.iter_batched(
+                || Version::decode(&bytes[..]).unwrap(),
+                |mut v| {
+                    v.tick(&party);
+                    black_box(v)
+                },
+                BatchSize::SmallInput,
+            );
+        });
+        g.bench_with_input(BenchmarkId::new("project", n), &version, |b, v| {
+            b.iter(|| black_box((v / &party).to_version()));
+        });
+        let (party2, version2) = common::hole_pair(&plan);
+        g.bench_with_input(
+            BenchmarkId::new("masked_eq", n),
+            &(&version, &version2),
+            |b, (v, v2)| {
+                b.iter(|| black_box((*v / &party) == (*v2 / &party2)));
+            },
+        );
+        // The asymmetric form: the projection against its own (small)
+        // materialization — one deep masked side against a shallow
+        // plain one, the shape whose interior boundaries the masked
+        // walk consumes alone.
+        let projected = (&version / &party).to_version();
+        g.bench_with_input(
+            BenchmarkId::new("masked_eq_flat", n),
+            &(&version, &projected),
+            |b, (v, w)| {
+                b.iter(|| black_box((*v / &party) == **w));
+            },
+        );
+    }
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_tick,
-    bench_batch,
+    bench_k_ticks,
     bench_merge,
     bench_partial_cmp,
-    bench_codec
+    bench_codec,
+    bench_hole
 );
 criterion_main!(benches);

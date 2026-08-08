@@ -8,7 +8,7 @@ use futures::Stream;
 use tokio::sync::watch;
 
 use crate::tree::Leaf;
-use crate::{Key, Version};
+use crate::{Key, Version, causally};
 
 use super::unordered::{Channel, TryNext};
 
@@ -82,10 +82,7 @@ impl<T> CausalMessages<T> {
         let (mut walk, ceiling) = {
             let inner = rx.borrow_and_update();
             (
-                inner.tree.range_owned((
-                    std::ops::Bound::Excluded(ingested.clone()),
-                    std::ops::Bound::Unbounded,
-                )),
+                inner.tree.range_owned(causally::since(ingested.clone())),
                 inner.tree.latest().clone(),
             )
         };

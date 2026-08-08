@@ -34,11 +34,12 @@
 //! # Encoding note
 //!
 //! The paper sizes stamps with the Appendix A bit encoding. This crate uses its
-//! own canonical packed encoding ([`Clock::encode`]), which is slightly more
-//! compact. We deliberately measure *ours*: the absolute byte counts here run a
-//! little below the paper's, but the curve shapes — rapid early growth followed
-//! by stabilization with only a faint logarithmic creep — reproduce the paper's
-//! qualitative result, which is the point of the experiment.
+//! own canonical packed encoding ([`Clock::encode`]). We deliberately measure
+//! *ours*: the byte counts here run below the paper's in the process/static
+//! regime and within the paper's charted band in the data/dynamic regime, and
+//! the curve shapes — rapid early growth followed by stabilization with only a
+//! faint logarithmic creep — reproduce the paper's qualitative result, which is
+//! the point of the experiment.
 //!
 //! # Output
 //!

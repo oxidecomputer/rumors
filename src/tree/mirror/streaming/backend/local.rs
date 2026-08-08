@@ -6,7 +6,7 @@ use async_stream::try_stream;
 use futures::{StreamExt, future, stream};
 
 use crate::{
-    Version,
+    Version, causally,
     message::Message,
     tree::{
         self,
@@ -37,12 +37,12 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
         self.hash()
     }
 
-    fn ceiling(&self) -> &Version {
-        self.ceiling()
-    }
-
-    fn floor(&self) -> &Version {
-        self.floor()
+    // Answered by reborrowing the branch's stored bounds span (a leaf's
+    // bounds coincide at its version), so the ordering the trait
+    // obligates is carried by construction — no per-read validation
+    // anywhere in this backend.
+    fn span(&self) -> causally::Span<'_> {
+        self.span()
     }
 
     fn len(&self) -> usize {

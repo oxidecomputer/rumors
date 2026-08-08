@@ -73,16 +73,12 @@ fn party_of(label: impl AsRef<[u8]>) -> before::Party {
     crate::tree::arb::nth_party(idx(label))
 }
 
-/// Build the [`Version`] a party reaches after `ticks` events: tick its
-/// disjoint party `ticks` times from the empty version.
+/// Build the [`Version`] a party reaches after `ticks` events: advance
+/// its disjoint party by the whole count from the empty version.
 fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     let p = party_of(party);
     let mut v = Version::new();
-    let mut batch = v.batch();
-    for _ in 0..ticks {
-        batch.tick(&p);
-    }
-    drop(batch);
+    v.ticks(&p, ticks);
     v
 }
 
@@ -736,7 +732,7 @@ proptest! {
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.latest().clone();
-            recorded.batch().tick(&party_of(&a_id));
+            recorded.tick(&party_of(&a_id));
             tree_a.act(&party_of("A"), [insert_action(value.clone())]);
             a_events.push(insert_at(recorded, &a_id, scalar, value.clone()));
         }
@@ -746,7 +742,7 @@ proptest! {
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.latest().clone();
-            recorded.batch().tick(&party_of(&b_id));
+            recorded.tick(&party_of(&b_id));
             tree_b.act(&party_of("B"), [insert_action(value.clone())]);
             b_events.push(insert_at(recorded, &b_id, scalar, value.clone()));
         }
@@ -850,26 +846,24 @@ fn owned<T>((key, version, value): (Key, &Version, &Arc<T>)) -> (Key, Version, A
 proptest! {
     /// The walk machinery's correctness core, differentially.
     ///
-    /// For arbitrary
-    /// divergent trees and an arbitrary causal bound pair (every `Bound`
-    /// kind, over versions sampled from both trees' leaves and ceilings plus
-    /// genesis — so dominated, dominating, equal, and concurrent bounds all
-    /// occur), `Tree::range` yields exactly the leaves that
-    /// `before::causally`'s membership predicate admits from the unfiltered
-    /// walk — the prune/promote shortcuts are pure optimization — in
-    /// ascending key order; and the frozen spine walk (`Tree::freeze`)
-    /// yields the identical sequence. Two independent implementations of
-    /// the same partial-order semantics checking each other.
+    /// For arbitrary divergent trees and a causal query built over bound
+    /// versions sampled from both trees' leaves and ceilings plus genesis
+    /// — so dominated, dominating, equal, concurrent, and crossed bound
+    /// pairs all occur, and every form in the query vocabulary is driven
+    /// at each polarity — `Tree::range` yields exactly the leaves whose
+    /// versions the query `contains`, from the unfiltered walk: the
+    /// coverage prune/promote shortcuts are pure optimization. The yield
+    /// is in ascending key order, and the frozen spine walk
+    /// (`Tree::range_owned`) yields the identical sequence. Two
+    /// independent implementations of the same query semantics checking
+    /// each other.
     #[test]
     fn range_and_freeze_match_the_naive_filter(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
         start_sel in any::<prop::sample::Index>(),
         end_sel in any::<prop::sample::Index>(),
-        start_kind in 0u8..3,
-        end_kind in 0u8..3,
+        form in 0usize..12,
     ) {
-        use std::ops::Bound;
-
         let tree = Tree { root: a };
         let other = Tree { root: b };
 
@@ -884,49 +878,57 @@ proptest! {
         candidates.extend(tree.iter().map(|(_, v, _)| v.clone()));
         candidates.extend(other.iter().map(|(_, v, _)| v.clone()));
 
-        let pick = |sel: &prop::sample::Index, kind: u8| match kind {
-            0 => Bound::Unbounded,
-            1 => Bound::Included(candidates[sel.index(candidates.len())].clone()),
-            _ => Bound::Excluded(candidates[sel.index(candidates.len())].clone()),
-        };
-        let start = pick(&start_sel, start_kind);
-        let end = pick(&end_sel, end_kind);
+        let s = &candidates[start_sel.index(candidates.len())];
+        let e = &candidates[end_sel.index(candidates.len())];
 
-        // Ground truth: compose the equivalent `causally` range and filter
-        // the unfiltered walk by its membership predicate.
-        let admits = |version: &Version| {
-            let mut range = crate::causally::all();
-            match &start {
-                Bound::Included(s) => range = range.not_before(s),
-                Bound::Excluded(s) => range = range.since(s),
-                Bound::Unbounded => {}
+        /// One walk-vs-filter check: `Tree::range` and `Tree::range_owned`
+        /// against the query's own membership over the unfiltered walk.
+        fn check<P: causally::Polarity>(
+            tree: &Tree<()>,
+            query: &causally::Query<'_, P>,
+        ) -> Result<(), TestCaseError> {
+            let naive: Vec<_> = tree
+                .iter()
+                .filter(|(_, version, _)| query.contains(version))
+                .map(owned)
+                .collect();
+
+            let ranged: Vec<_> = tree.range(query).map(owned).collect();
+            prop_assert_eq!(&ranged, &naive, "range must equal the naive filter");
+            prop_assert!(
+                ranged.windows(2).all(|pair| pair[0].0 < pair[1].0),
+                "range yields ascending keys",
+            );
+
+            let mut frozen = tree.range_owned(query);
+            let mut thawed = Vec::new();
+            while let Some((key, leaf)) = frozen.next() {
+                thawed.push((key, leaf.version().clone(), leaf.value().clone()));
             }
-            match &end {
-                Bound::Included(e) => range = range.known_at(e),
-                Bound::Excluded(e) => range = range.before(e),
-                Bound::Unbounded => {}
-            }
-            range.contains(version)
-        };
-        let naive: Vec<_> = tree
-            .iter()
-            .filter(|(_, version, _)| admits(version))
-            .map(owned)
-            .collect();
-
-        let ranged: Vec<_> = tree.range((start.clone(), end.clone())).map(owned).collect();
-        prop_assert_eq!(&ranged, &naive, "range must equal the naive filter");
-        prop_assert!(
-            ranged.windows(2).all(|pair| pair[0].0 < pair[1].0),
-            "range yields ascending keys",
-        );
-
-        let mut frozen = tree.range_owned((start, end));
-        let mut thawed = Vec::new();
-        while let Some((key, leaf)) = frozen.next() {
-            thawed.push((key, leaf.version().clone(), leaf.value().clone()));
+            prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
+            Ok(())
         }
-        prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
+
+        // The query vocabulary at every polarity, over the sampled bound
+        // pair. Reversed and concurrent pairs are meaningful queries (some
+        // empty, some the anti-entropy delta), so every form is total.
+        match form {
+            // Neutral: the pure inclusive interval forms.
+            0 => check(&tree, &causally::all())?,
+            1 => check(&tree, &causally::after(s).into())?,
+            2 => check(&tree, &causally::before(e).into())?,
+            3 => check(&tree, &(causally::after(s) & causally::before(e)))?,
+            4 => check(&tree, &causally::Query::from(s))?,
+            // Down-polar: subtracted down-sets.
+            5 => check(&tree, &causally::since(s))?,
+            6 => check(&tree, &causally::delta(s, e))?,
+            7 => check(&tree, &causally::strictly_after(s))?,
+            // Up-polar: subtracted up-sets.
+            8 => check(&tree, &causally::until(e))?,
+            9 => check(&tree, &causally::toward(s, e))?,
+            10 => check(&tree, &causally::strictly_before(e))?,
+            _ => check(&tree, &(causally::before(e).or_concurrent()))?,
+        }
     }
 
     /// The unfiltered walk is exact and reversible, and the point lookup
@@ -1152,6 +1154,68 @@ proptest! {
         let changed = tree.join(Tree { root: b });
         prop_assert_eq!(changed, tree.hash() != before);
     }
+
+    /// The changed flag stays exact through deep divergent descent.
+    ///
+    /// The pairs' paths share a drawn-length spine (the constructed
+    /// analogue of a hash-prefix collision), driving the merge's divergent
+    /// arm at every level down to the split, where content-addressed pairs
+    /// scatter at the root fan and never descend. Zero novelty widths are
+    /// drawn too, so subset, identical, and ceiling-only merges — the
+    /// flag's `false` arm — are sampled at depth alongside the gains.
+    #[test]
+    fn join_changed_flag_tracks_the_root_hash_at_depth(
+        (a, b) in crate::tree::arb::arb_deep_divergent_pair(),
+    ) {
+        let mut tree = Tree { root: a };
+        let before = tree.hash();
+        let changed = tree.join(Tree { root: b });
+        prop_assert_eq!(changed, tree.hash() != before);
+    }
+}
+
+/// The changed-flag biconditional at full depth, on the three shapes that
+/// decide it.
+///
+/// Gain in both directions and deletion honoring at depth report changed;
+/// the subtle no-op — merging a strict subset with concurrent versions —
+/// runs the divergent descent over the whole 31-byte shared prefix and
+/// must still report unchanged.
+#[test]
+fn deep_divergent_join_changed_flag_is_exact() {
+    // Gain in both directions.
+    let (a, b, expected) = crate::tree::arb::leaf_parent_dispute_pair();
+    for (receiver, counter) in [(a.clone(), b.clone()), (b, a.clone())] {
+        let mut tree = Tree { root: receiver };
+        let before = tree.hash();
+        let changed = tree.join(Tree { root: counter });
+        assert_eq!(changed, tree.hash() != before, "deep gain is biconditional");
+        assert!(changed, "a deep gain must report changed");
+    }
+
+    // The deep no-op: the receiver already holds everything the
+    // counterparty has, so the full-depth divergent descent nets nothing.
+    let mut tree = Tree { root: expected };
+    let before = tree.hash();
+    let changed = tree.join(Tree { root: a });
+    assert_eq!(
+        changed,
+        tree.hash() != before,
+        "a deep subset merge is biconditional"
+    );
+    assert!(!changed, "a subset merge must report unchanged");
+
+    // Deletion honoring at depth.
+    let (a, b, _survivor) = crate::tree::arb::leaf_parent_redaction_pair();
+    let mut tree = Tree { root: a };
+    let before = tree.hash();
+    let changed = tree.join(Tree { root: b });
+    assert_eq!(
+        changed,
+        tree.hash() != before,
+        "a deep redaction drop is biconditional"
+    );
+    assert!(changed, "deletion honoring must report changed");
 }
 
 /// A ceiling-only join reports unchanged.
@@ -1282,4 +1346,111 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
         fresh.get(&key).is_some(),
         "the escaped leaf re-plants into a fresh replica",
     );
+}
+
+/// The pair-hull traffic mix at the tree's bounds-memo door, in
+/// `before`'s span-ladder rung counters.
+///
+/// Which span-ladder rung a memo's pair hull takes decides which kernel
+/// regime the tree pays — a comparable pair is handed back at one
+/// comparison sweep, only a concurrent pair reaches the emitting walk —
+/// and the mix is a property of the workload's versions, not of the
+/// kernel. The door's traffic is the fringe regime's: a fringe memo's
+/// `span_all` leaf combines read sibling leaf versions, whose relation
+/// tracks the writers'. (An interior memo folds its children's spans
+/// through the union's per-endpoint legs, which construct totally and
+/// never enter the pair-hull ladder.) The counters are process-global
+/// and meaningful one scenario per process (nextest's model).
+#[cfg(feature = "meter")]
+mod span_door_traffic {
+    use before::meter;
+    use bytes::Bytes;
+
+    use super::{Tree, insert_action, party_of};
+
+    /// One writer's batch of distinct payloads, tagged so no two
+    /// workloads' leaves collide by content.
+    fn batch(writer: &str, round: usize, count: usize) -> impl Iterator<Item = Bytes> + use<> {
+        let writer = writer.to_owned();
+        (0..count).map(move |i| Bytes::from(format!("{writer}-{round}-{i}")))
+    }
+
+    /// The four rung cells of one measured workload run.
+    fn cells(work: impl FnOnce()) -> (u64, u64, u64, u64) {
+        meter::reset_span_traffic();
+        work();
+        let read = meter::span_traffic();
+        (read.equal, read.empty, read.comparable, read.concurrent)
+    }
+
+    /// A single-writer tree never presents a concurrent pair at the
+    /// bounds-memo door.
+    ///
+    /// One party's versions form a chain, every bound folded from a
+    /// chain stays on it, and the door's traffic is entirely
+    /// fast-path (comparable or coincident), zero emissions.
+    #[test]
+    fn single_writer_bounds_never_emit() {
+        let (equal, empty, comparable, concurrent) = cells(|| {
+            let mut tree: Tree<Bytes> = Tree::new();
+            for round in 0..8 {
+                tree.act(&party_of("A"), batch("a", round, 64).map(insert_action));
+                tree.warm_caches();
+            }
+        });
+        eprintln!(
+            "MEASURED span_door_single_writer: equal={equal} empty={empty} \
+             comparable={comparable} concurrent={concurrent}"
+        );
+        assert!(
+            comparable > 0,
+            "a warmed single-writer tree folds bounds through the comparable rung"
+        );
+        assert_eq!(
+            concurrent, 0,
+            "one party's versions form a chain: no memo pair is ever concurrent"
+        );
+    }
+
+    /// Divergent writers split the door's traffic between the fast
+    /// paths and the emitting walk.
+    ///
+    /// Fringe combines of concurrent leaf versions reach the
+    /// emitting walk, while same-writer sibling runs stay on the
+    /// fast paths — both rungs read live on one merged four-writer
+    /// tree, incremental rounds included.
+    #[test]
+    fn merged_writers_split_the_door() {
+        let (equal, empty, comparable, concurrent) = cells(|| {
+            let mut merged: Tree<Bytes> = Tree::new();
+            for label in ["A", "B", "C", "D"] {
+                let mut tree: Tree<Bytes> = Tree::new();
+                for round in 0..4 {
+                    tree.act(&party_of(label), batch(label, round, 32).map(insert_action));
+                }
+                tree.warm_caches();
+                merged.join(tree);
+            }
+            merged.warm_caches();
+            // Incremental rounds on the merged tree: acts invalidate
+            // ancestor memos, so re-warming re-folds them against the
+            // merged population.
+            for round in 100..104 {
+                merged.act(&party_of("A"), batch("a", round, 32).map(insert_action));
+                merged.warm_caches();
+            }
+        });
+        eprintln!(
+            "MEASURED span_door_merged_writers: equal={equal} empty={empty} \
+             comparable={comparable} concurrent={concurrent}"
+        );
+        assert!(
+            comparable > 0,
+            "same-writer sibling leaves form chains: the comparable rung stays live"
+        );
+        assert!(
+            concurrent > 0,
+            "divergent writers' sibling leaves are concurrent: the emitting rung stays live"
+        );
+    }
 }
