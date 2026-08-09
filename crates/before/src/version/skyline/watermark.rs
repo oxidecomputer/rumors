@@ -903,7 +903,7 @@ impl MinWeb<()> {
                 // drop dwarfs the offset. Residue = m − v = −gap − offset.
                 let mut residue = core::mem::take(&mut self.gap);
                 residue.negate();
-                fold_signed_int(&mut residue, offset.sign, &offset.magnitude);
+                fold_signed_int(&mut residue, offset.sign.negate(), &offset.magnitude);
                 for follower in self.followers.iter_mut().flatten() {
                     follower.sub_accum(&residue);
                 }

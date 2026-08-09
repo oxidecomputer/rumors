@@ -380,6 +380,28 @@ fn flag_compares_offsets_at_full_width() {
     assert_tick(&v, &p);
 }
 
+/// A dominated undercut's residue carries the emission's offset at the
+/// documented polarity: the tracked minimum drops to exactly `v = h + offset`,
+/// so a raise reading that minimum later emits the true value.
+///
+/// The driven path: the left-full raise diverges the walk, the copied sibling
+/// region climbs beyond `u64` and returns, and the region's block-minimum
+/// emission then arrives with a word-scale negative offset against a
+/// wide-negative anchor gap — the watermark web's scale-disparate undercut,
+/// whose residue is `m − v = −gap − offset`. Folding the offset into that
+/// residue with the opposite polarity would leave a phantom `2·|offset|`
+/// boundary on the difference stack, and the enclosing range's minimum — read
+/// by the root's right-full raise — would come out low by exactly that:
+/// wrong tick output, caught here against the recursive oracle.
+#[test]
+fn dominated_undercut_residue_carries_its_offset() {
+    let p: Party = "((1, 0), 1)".parse().expect("test party literals parse");
+    let v: Version = "(0, (0, 0, (3, (0, 237684487543081243156783562749, 0), 1)), 0)"
+        .parse()
+        .expect("test version literals parse");
+    assert_tick(&v, &p);
+}
+
 /// The version that is `1` on the leftmost `2^-depth` interval and `0`
 /// everywhere else: `depth` nested nodes, all bases zero, the single 1-leaf at
 /// the bottom left.
