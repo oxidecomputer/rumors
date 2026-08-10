@@ -249,12 +249,19 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// class is `O(D log k)`: every input passes through `O(log k)` joins, and each
 /// join level re-scans the operands it merges, so scan work per input byte
 /// grows by a constant per level — never flat, at any implementation of the
-/// balanced reduction. Derivation of the constant: the fold cells read 9.1–10.0
-/// scan bits per byte per level across both sampling scales and both committed
-/// populations \[measured in release: the benign control at k = 512 reads 100.1
-/// bits/B over 10 levels, at k = 2048 reads 116.9 over 12\]; 12 leaves the
-/// worst honest reading ~20% headroom while a fold whose per-level constant
-/// regresses by a third still reads red.
+/// balanced reduction. Derivation of the constant: per-level readings vary
+/// widely with population and arity — the committed fold cells span ~0.8–9.5
+/// scan bits per byte per level, each divided by its own cell's `log2(2k)` —
+/// and the binding calibration is the heaviest honest per-level reader, the
+/// party fold's benign control: 94.6 bits/B over 10 levels at the ladder's
+/// base scale (k = 512) and 109.8 over 12 at its top (k = 2048), 9.46 and
+/// 9.15 per level \[measured in release, the acceptance ladder at both
+/// sampling scales; the party overlap populations ride their declared
+/// per-input search allowance on top of the fold model, so they are outside
+/// this per-level arithmetic\]. 12 leaves that worst honest reading ~27%
+/// headroom — the family-stated ceilings' ×1.25 margin convention at a round
+/// constant — while a fold whose per-level constant regresses by a third
+/// still reads red.
 pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 
 /// The scan bits one metered `IdIndex` table probe records: one `u32` table
