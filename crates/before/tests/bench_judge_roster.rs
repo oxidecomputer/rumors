@@ -83,7 +83,9 @@ fn roster_schema_carries_expectations_only() {
 }
 
 /// The sidecar's text-ceiling set is exactly the conversion-dominated
-/// display cells: the judge-only wide-display pair (`version_display_wide`
+/// display cells.
+///
+/// Those are the judge-only wide-display pair (`version_display_wide`
 /// and `display_schoolbook`) and the *hugeleaf display pair* of board rows
 /// (`version_display` and `clock_display`), whose declared render model
 /// lives at the set's declaration site.

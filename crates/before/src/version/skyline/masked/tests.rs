@@ -13,8 +13,10 @@ use crate::version::skyline::validate_bits;
 use super::{causal_cmp, eq};
 
 /// A canonicality violation the walk does not structurally notice sweeps
-/// silently: a collapsible-sibling-pair stream — which the validator rejects
-/// as [`Decode::NotCanonical`] — flows through [`causal_cmp`] and [`eq`]
+/// silently.
+///
+/// A collapsible-sibling-pair stream — which the validator rejects as
+/// [`Decode::NotCanonical`] — flows through [`causal_cmp`] and [`eq`]
 /// without panicking. The verdict is unspecified by contract, so the pin
 /// asserts only that the calls return; what it protects is the Panics
 /// sections' split between the structurally-noticed violations (truncation,

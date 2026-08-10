@@ -1656,10 +1656,11 @@ fn deep_id_text_roundtrip() {
 // ──────────────────────────── stamp text split ────────────────────────────
 
 proptest! {
-    /// Clock text parsing never panics on any input: stamp texts of arbitrary
-    /// paren nesting depth — balanced, over-closed, or under-closed, with a
-    /// comma placed at any depth or absent — always draw a graceful `Ok`/`Err`
-    /// verdict from `Clock::from_str`.
+    /// Clock text parsing never panics on any input.
+    ///
+    /// Stamp texts of arbitrary paren nesting depth — balanced, over-closed,
+    /// or under-closed, with a comma placed at any depth or absent — always
+    /// draw a graceful `Ok`/`Err` verdict from `Clock::from_str`.
     ///
     /// The assertion is the call itself: proptest reports any panic as a
     /// failure, so every generated text exercising the split scanner's depth
@@ -1687,10 +1688,12 @@ proptest! {
     }
 }
 
-/// A paren nesting deeper than `i32::MAX` is rejected gracefully: 2³¹ + 1
-/// opening parens fed through `Clock::from_str` return `Parse::Syntax` (no
-/// top-level comma), never a panic, pinning the split scanner's depth counter
-/// as wide enough for any physically representable input.
+/// A paren nesting deeper than `i32::MAX` is rejected gracefully.
+///
+/// 2³¹ + 1 opening parens fed through `Clock::from_str` return
+/// `Parse::Syntax` (no top-level comma), never a panic, pinning the split
+/// scanner's depth counter as wide enough for any physically representable
+/// input.
 ///
 /// Ignored because the witness string alone costs ~2 GiB of memory; run it
 /// deliberately with `--run-ignored all`.
