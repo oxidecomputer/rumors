@@ -833,7 +833,8 @@ laws! {
     /// Laws over a triple of versions.
     ///
     /// Associativity, the least/greatest bound laws, both distributive laws,
-    /// transitivity (constructed and incidental), the triangle inequality, and
+    /// transitivity (constructed and incidental), the metric and quasi-metric
+    /// triangle inequalities with `lag`'s monotonicities, and
     /// the [`causally`] query and placement laws: conjunction as pointwise
     /// intersection across every atomic operand pairing and every typed `&`
     /// form, coverage's sound arms and its point degeneracy to membership, the
@@ -906,6 +907,43 @@ laws! {
     /// lives on a *distributive* lattice.
     fn distance_triangle_inequality {
         a.distance(c) <= a.distance(b) + b.distance(c)
+    }
+
+    /// The directed triangle inequality: `a.lag(c) <= a.lag(b) + b.lag(c)` —
+    /// the quasi-metric law for the directed half of `distance`.
+    ///
+    /// Holds by rank's modularity ([`rank_is_a_valuation`]) plus
+    /// monotonicity: `rank(a|b) + rank(b|c) == rank(a|b|c) + rank((a|b) &
+    /// (b|c)) >= rank(a|c) + rank(b)`, and subtracting `rank(a) + rank(b)`
+    /// from both sides leaves the lags.
+    fn lag_triangle_inequality {
+        a.lag(c) <= a.lag(b) + b.lag(c)
+    }
+
+    /// `lag` is monotone in the message: a larger message leaves at least as
+    /// much to learn.
+    ///
+    /// Constructed on `b <= b | c` (so the comparable pair exists on every
+    /// call), and incidentally whenever the operands happen to compare —
+    /// `b <= c ⟹ a.lag(b) <= a.lag(c)`, by the join's monotonicity under
+    /// the rank valuation.
+    fn lag_monotone_in_the_message {
+        let constructed = a.lag(b) <= a.lag(&(b | c));
+        let incidental = !le(b, c) || a.lag(b) <= a.lag(c);
+        constructed && incidental
+    }
+
+    /// `lag` is antitone in the receiver: learning more leaves less to
+    /// learn.
+    ///
+    /// Constructed on `a <= a | c`, and incidentally whenever the operands
+    /// happen to compare — `a <= a' ⟹ a'.lag(b) <= a.lag(b)`, by rank's
+    /// modularity applied to `u = a | b`, `v = a'` (the meet `(a|b) & a'`
+    /// dominates `a`, so the gap can only shrink).
+    fn lag_antitone_in_the_receiver {
+        let constructed = (a | c).lag(b) <= a.lag(b);
+        let incidental = !le(a, c) || c.lag(b) <= a.lag(b);
+        constructed && incidental
     }
 
     /// Conjunction is pointwise intersection, commutatively, across every
