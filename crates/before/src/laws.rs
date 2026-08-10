@@ -838,8 +838,9 @@ laws! {
     /// intersection across every atomic operand pairing and every typed `&`
     /// form, coverage's sound arms and its point degeneracy to membership, the
     /// segment-query/span-placement tie, the nine-way [`Span::place`] verdict
-    /// as a pure transcription of the two endpoint comparisons, and its
-    /// coarsening to `dominance`.
+    /// as a pure transcription of the two endpoint comparisons, its
+    /// coarsening to `dominance`, and the span operators' associativity in
+    /// both of the span algebra's lattices.
     pub static VERSION_TRIPLE: (a: &Version, b: &Version, c: &Version);
 
     /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
@@ -1367,6 +1368,82 @@ laws! {
         // coincident span at their versions' meet.
         let bc = b & c;
         (b.span(b) & c.span(c)) == bc.span(&bc)
+    }
+
+    /// `+` (the containment join) is associative: `(s + t) + u == s + (t + u)`.
+    ///
+    /// Componentwise the version lattice's meet on the lows and join on the
+    /// his, each associative, so both association orders build the same span
+    /// — the associativity half of the containment lattice the span docs
+    /// claim.
+    fn span_union_associative {
+        for s in &operand_spans(a, b) {
+            for t in &operand_spans(b, c) {
+                for u in &operand_spans(a, c) {
+                    if (&(s + t) + u) != (s + &(t + u)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// `*` (the containment meet) is associative over outcomes: both
+    /// association orders agree in definedness and, where defined, in value.
+    ///
+    /// Both orders are defined exactly when the joint condition
+    /// `lo_s | lo_t | lo_u <= hi_s & hi_t & hi_u` holds — the joint condition
+    /// implies every pairwise one (the pairwise join is below the joint join,
+    /// the pairwise meet above the joint meet), so neither order can fail an
+    /// inner intersection where the other survives; the same shape as
+    /// [`join_associative_outcomes`] on the partial monoid.
+    fn span_intersect_associative_outcomes {
+        for s in &operand_spans(a, b) {
+            for t in &operand_spans(b, c) {
+                for u in &operand_spans(a, c) {
+                    let left = (s * t).and_then(|st| &st * u);
+                    let right = (t * u).and_then(|tu| s * &tu);
+                    if left != right {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// `|` (the pointwise join) is associative: `(s | t) | u == s | (t | u)`.
+    ///
+    /// Componentwise the version join on both endpoint pairs, so span `|`
+    /// inherits its associativity — the associativity half of the pointwise
+    /// lattice the span docs claim.
+    fn span_join_associative {
+        for s in &operand_spans(a, b) {
+            for t in &operand_spans(b, c) {
+                for u in &operand_spans(a, c) {
+                    if (&(s | t) | u) != (s | &(t | u)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// `&` (the pointwise meet) is associative: `(s & t) & u == s & (t & u)`,
+    /// the dual of [`span_join_associative`].
+    fn span_meet_associative {
+        for s in &operand_spans(a, b) {
+            for t in &operand_spans(b, c) {
+                for u in &operand_spans(a, c) {
+                    if (&(s & t) & u) != (s & &(t & u)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 }
 
