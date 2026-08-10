@@ -466,7 +466,8 @@ impl<'a, 'm> PreScan<'a, 'm> {
         if first_leaf_depth < 2 {
             // A tiny range (the first descent's depth routes for free):
             // per-leaf virtual emissions are cheaper than a block summary's
-            // fixed cost.
+            // fixed cost. The `tick_copy_hole` envelope pins the block side
+            // engaging on deep ranges.
             let _ = self.payload(first);
             self.emit_here();
             while walk.descend(&mut self.cursor).is_some() {

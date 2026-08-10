@@ -114,6 +114,17 @@ const HOLE_STAIR_DEPTH: usize = 2_000;
 /// unowned.
 const HOLE_ID_DEPTH: usize = 8;
 
+/// Site count of the sub-scan hole pairs: enough deep-region crossings
+/// that the sub-scans' per-leaf/block routing dominates the envelope,
+/// split evenly between the two lead depths (the routing boundary's two
+/// sides).
+const SCAN_HOLE_UNITS: usize = 16;
+
+/// Descending steps per sub-scan hole region: deep enough that rerouting
+/// one lead's regions alone from block summaries to per-leaf freight
+/// moves the pinned columns past their ceilings.
+const SCAN_HOLE_STEPS: usize = 128;
+
 /// Spine depth of the min_ticks ascending-cliff scenario: enough
 /// simultaneously stacked nonzero boundary differences that per-boundary
 /// transient memory dominates the envelope.
@@ -537,6 +548,75 @@ fn tick_ownership_comb_envelope() {
         "tick_ownership_comb",
         input,
         &query_env::TICK_OWNERSHIP_COMB,
+        || v.tick(&p),
+    );
+    drop(v);
+}
+
+/// Ticking the collapse-hole pair (deep descending collapse ranges under
+/// left-full sites with absent siblings) stays within an envelope the
+/// per-leaf consuming max scan exceeds.
+///
+/// Each unit's fully-owned range is crossed exactly once, by the walk's
+/// consuming max scan at its descend arm, and the crossing must ride the
+/// block summary: the touch ceiling sits below what per-leaf register
+/// freight over the same ranges reads, and the scan column holds every
+/// folded bit still read.
+#[test]
+fn tick_collapse_hole_envelope() {
+    let (ev, id) = Shape::CollapseHole.packed_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    query_metered(
+        "tick_collapse_hole",
+        input,
+        &query_env::TICK_COLLAPSE_HOLE,
+        || v.tick(&p),
+    );
+    drop(v);
+}
+
+/// Ticking the copy-hole pair (deep descending absent-child ranges inside
+/// one covering pre-scan) stays within an envelope the per-leaf sub-scan
+/// mechanism exceeds.
+///
+/// Each unit's untouched range is copied once by the pre-scan, and the
+/// copy must ride the block summary — one net movement and one watermark
+/// emission per range, never a virtual emission per leaf: the touch
+/// ceiling sits below the per-leaf mechanism's reading, and the scan
+/// column holds every folded bit still read.
+#[test]
+fn tick_copy_hole_envelope() {
+    let (ev, id) = Shape::CopyHole.packed_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    query_metered("tick_copy_hole", input, &query_env::TICK_COPY_HOLE, || {
+        v.tick(&p)
+    });
+    drop(v);
+}
+
+/// Ticking the raise-hole pair (deep descending raised ranges under
+/// right-full sites) stays within an envelope the per-leaf consuming max
+/// scan exceeds.
+///
+/// Each unit's fully-owned right range is crossed exactly once, by the
+/// walk's consuming max scan at its ascend arm, and the crossing must
+/// ride the block summary: the touch ceiling sits below the per-leaf
+/// mechanism's reading, and the scan column holds every folded bit still
+/// read.
+#[test]
+fn tick_raise_hole_envelope() {
+    let (ev, id) = Shape::RaiseHole.packed_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    query_metered(
+        "tick_raise_hole",
+        input,
+        &query_env::TICK_RAISE_HOLE,
         || v.tick(&p),
     );
     drop(v);
@@ -6187,6 +6267,9 @@ mod query_env {
     // walk the tick also paid.
     pub const TICK_OWNERSHIP_HOLE: QueryEnvelope = query_envelope(3_647, 0, 0, 37_585, 7_563, 0, 4_537); // 2_917, 0, 0, 30_068, 6_050 (the ownership-gated block scan: unowned staircase runs fold as one net-and-minimum summary each); the leaf-by-leaf mechanism reads touches 12_023 on this family, above the ceiling — the skip must engage for the pin to hold, and the scan column holds every skipped bit still read
     pub const TICK_OWNERSHIP_COMB: QueryEnvelope = query_envelope(59_575, 0, 0, 498_774, 156_275, 0, 93_765); // 47_660, 0, 0, 399_019, 125_020: readings identical to the ungated per-leaf walk's on this family (single-leaf regions everywhere, so the block gate never opens and may cost nothing when closed)
+    pub const TICK_COLLAPSE_HOLE: QueryEnvelope = query_envelope(2_748, 0, 0, 14_368, 8_125, 0, 4_875); // 2_198, 0, 0, 11_494, 6_500 (the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing); rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
+    pub const TICK_COPY_HOLE: QueryEnvelope = query_envelope(1_733, 0, 18, 53_302, 15_615, 10, 9_369); // 1_386, 0, 14, 42_641, 12_492 (the pre-scan copies each untouched range as one net movement and one watermark emission); rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
+    pub const TICK_RAISE_HOLE: QueryEnvelope = query_envelope(2_660, 0, 0, 13_543, 8_030, 0, 4_818); // 2_128, 0, 0, 10_834, 6_424 (the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing); rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
     pub const TICK_EXPAND_SPINE: QueryEnvelope = query_envelope(435_435, 0, 5, 2_187_519, 0, 3, 0);// 348_364, 0, 500_012, 1_750_015, 3 (an empty version's tick folds one word-scale payload: near-zero accumulator work); re-pinned to the new readings (limb 4, scan 1_750_015, touches 0, heap 348_348): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work
     pub const TICK_EXPAND_CROSS: QueryEnvelope = query_envelope(611_210, 0, 5, 3_593_782, 156_260, 3, 93_756); // 488_989, 0, 750_010, 2_875_025, 250_013; re-pinned to the new readings (limb 250_006, scan 2_875_025, touches 125_008, heap 488_984): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 4, scan 2_875_025, touches 125_008, heap 488_968): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     // The version-pair rows: the public

@@ -174,7 +174,8 @@ pub(super) fn designed(kind: FamilyId, group: OpGroup) -> bool {
         | FamilyId::DescendingRaises
         | FamilyId::MaskDrift
         | FamilyId::MeetShade
-        | FamilyId::ArmingTrain => unreachable!(
+        | FamilyId::ArmingTrain
+        | FamilyId::ScanHole => unreachable!(
             "{kind:?} is envelope-only in the registry: the bench mirror derives its \
              subset from the board roster alone"
         ),

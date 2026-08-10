@@ -9,11 +9,12 @@ use suanpan::UBig;
 
 use super::{
     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
-    cliff_comb, cliff_fan, concurrent_pair, dense, dense_suffix, dense_suffix_mate,
-    dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position, harmonic, hugeleaf,
-    id_spine, jump_comb, jump_pair, lone_freeze, mask_drift_quadruple, mask_drift_triple,
-    plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate,
-    scattered_id, tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Packed,
+    cliff_comb, cliff_fan, collapse_hole, concurrent_pair, copy_hole, dense, dense_suffix,
+    dense_suffix_mate, dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position,
+    harmonic, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze, mask_drift_quadruple,
+    mask_drift_triple, plateau_puncture, plateau_puncture_factors, promotion_rearm,
+    promotion_rearm_mate, raise_hole, scattered_id, tooth_tail, weight_comb, wide_arming,
+    wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -723,6 +724,42 @@ fn mask_drift_quadruple_decodes_canonically_and_realizes_less() {
             .partial_cmp(&(&v2 / &p2).to_version()),
         "the fused verdict is the materialized verdict"
     );
+}
+
+/// One hole region's closed-form bit length: `4·lead + 2(m − 1) +
+/// Σ_{v=1}^{m} 2·bitlen(v + 1)` (the wrapper and staircase structure plus
+/// each descending step's gamma-coded leaf).
+fn hole_region_bits(lead: usize, m: usize) -> usize {
+    4 * lead + 2 * (m - 1) + (1..=m).map(|v| 2 * bitlen(v + 1)).sum::<usize>()
+}
+
+/// The summed region bits of one hole pair's `k` units, leads alternating
+/// 2, 3 across units (even `k`, so exactly half each).
+fn hole_regions_bits(k: usize, m: usize) -> usize {
+    (k / 2) * (hole_region_bits(2, m) + hole_region_bits(3, m))
+}
+
+/// The three sub-scan hole pairs are canonical normal form — event and id
+/// sides alike — at their closed-form bit lengths.
+///
+/// The event closed forms are each pair's per-unit structure plus the
+/// alternating-lead region sum ([`hole_regions_bits`]); the id closed
+/// forms are `6k` (collapse), `2k + 6` (copy), and `4k + 4` (raise). The
+/// sizes cover the minimal pair and a deep-region pair.
+#[test]
+fn hole_pairs_decode_canonically_at_predicted_lengths() {
+    for (k, m) in [(2, 1), (4, 33)] {
+        let regions = hole_regions_bits(k, m);
+        let (ev, id) = collapse_hole(k, m);
+        check_version(&ev, 6 * k + 2 + regions);
+        check_party(&id, 6 * k);
+        let (ev, id) = copy_hole(k, m);
+        check_version(&ev, 6 + 2 * k + regions);
+        check_party(&id, 2 * k + 6);
+        let (ev, id) = raise_hole(k, m);
+        check_version(&ev, 2 * k + 2 + regions);
+        check_party(&id, 4 * k + 4);
+    }
 }
 
 /// The leaf count of a stored version's skyline stream, by one iterative

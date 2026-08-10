@@ -700,6 +700,212 @@ fn staircase(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// Append one *hole region*: a right-leaning staircase of `m + 1` leaves
+/// descending `m, m − 1, …, 0` by unit steps, entered through `lead − 1`
+/// zero-base wrapper levels so its first leaf sits at depth exactly `lead`.
+///
+/// The engagement unit of the sub-scan hole pairs ([`collapse_hole`],
+/// [`copy_hole`], [`raise_hole`]): the fused fill's sub-scans route a range
+/// on its first descent's depth — per-leaf below depth 2, one block summary
+/// at or above it — and this region is built to make the block side the
+/// only cheap answer. The staircase body undercuts at every step, so a
+/// per-leaf pass pays the walk's full register freight (and, on the
+/// emitting scans, one watermark undercut) per leaf where the block summary
+/// folds the whole range into one net movement and one streaming extremum;
+/// the `lead` knob (2 or 3) places the routing decision on each side of the
+/// depth-2 boundary, so the pairs alternating it keep every reroute of the
+/// boundary — in either direction — measurable. In the stored skyline
+/// coding the staircase's steps are unit deltas: the region's cost currency
+/// scales with its leaf count, not its value widths.
+///
+/// Layout: `lead − 1` × (`1 · γ(0)`) (the wrappers), `1 · γ(0)` (the
+/// staircase root), `0 · γ(m)` (the top step), `m − 1` × (`1 · γ(0) · 0 ·
+/// γ(v)`) for `v = m − 1, …, 1` (the descending spine), `0 · γ(0)` (the
+/// terminal step), then `lead − 1` × (`0 · γ(0)`) (each wrapper's trailing
+/// floor leaf). `4·lead + 2(m − 1) + Σ_{v=1}^{m} 2·bitlen(v + 1)` bits.
+/// Min-lifted normal form holds at every node (every subtree bottoms at
+/// its zero floor), and no sibling leaf pair is equal.
+fn hole_region(bits: &mut BitsMut, lead: usize, m: usize) {
+    debug_assert!(lead >= 2, "a hole region's block routing needs depth 2+");
+    debug_assert!(m >= 1, "a hole region needs at least one descending step");
+    for _ in 0..lead - 1 {
+        bits.push(true); // wrapper node: its floor leaf trails the region
+        codec::encode_int(bits, &Base::ZERO);
+    }
+    bits.push(true); // the staircase root
+    codec::encode_int(bits, &Base::ZERO);
+    ev_leaf(bits, m as u64); // the top step: the region's first leaf
+    for v in (1..m).rev() {
+        bits.push(true); // each spine node ...
+        codec::encode_int(bits, &Base::ZERO);
+        ev_leaf(bits, v as u64); // ... steps its left leaf one down
+    }
+    ev_leaf(bits, 0); // the terminal step: the region minimum
+    for _ in 0..lead - 1 {
+        ev_leaf(bits, 0); // each wrapper's trailing floor leaf
+    }
+}
+
+/// The collapse-hole pair `CH(k, m)`: `k` left-full sites with absent
+/// right siblings down a right spine, each collapsing one deep hole
+/// region at the walk's descend arm.
+///
+/// Returns `(event, id)`. Each unit's id node fully owns its left child —
+/// a [`hole_region`] (leads alternating 2, 3 across units) — and lacks
+/// its right one, so the walk's consuming max scan crosses the deep range
+/// exactly once and nothing else does: an absent sibling launches no
+/// pre-scan, and no covering left-full site exists anywhere. The pair
+/// that concentrates `FillWalk::scan_max_consuming`'s routing at the
+/// descend arm on deep ranges, where the committed tick families feed it
+/// only leaf-scale ones (the `tick_collapse_hole` envelope pins the
+/// readings); [`raise_hole`] is its ascend-arm dual.
+///
+/// Event layout, per unit: `1 · γ(0)` (spine node), `1 · γ(0)` (site
+/// node), the hole region, `0 · γ(0)` (the absent-side sibling leaf);
+/// after all `k` units, `0 · γ(0)` (the trailing no-stake leaf). Id
+/// layout, per unit: `11` (`10` at the last unit's spine node), `10 · 00`
+/// (the site: full left child, absent right). `6k` id bits.
+///
+/// # Panics
+///
+/// Panics if `k` is not an even count of at least 2 (the lead alternation
+/// needs equal halves), or if `m == 0`.
+fn collapse_hole(k: usize, m: usize) -> (Packed, Packed) {
+    assert!(
+        k >= 2 && k.is_multiple_of(2),
+        "the collapse hole needs an even unit count"
+    );
+    assert!(m >= 1, "the collapse hole needs a nonzero region size");
+    let mut ev = BitsMut::new();
+    for i in 0..k {
+        ev.push(true); // spine node
+        codec::encode_int(&mut ev, &Base::ZERO);
+        ev.push(true); // the unit's site node
+        codec::encode_int(&mut ev, &Base::ZERO);
+        hole_region(&mut ev, 2 + (i % 2), m); // the collapse range
+        ev_leaf(&mut ev, 0); // the site's absent-side sibling leaf
+    }
+    ev_leaf(&mut ev, 0); // the spine's trailing no-stake leaf
+    let mut id = BitsMut::new();
+    for i in 0..k {
+        id.push(true); // spine node: the unit hangs left ...
+        id.push(i + 1 < k); // ... and the spine continues (absent at the end)
+        id.push(true); // the unit's site: left full ...
+        id.push(false); // ... with its right sibling absent
+        id.push(false); // the full collapse child
+        id.push(false);
+    }
+    (Packed::from_bits(ev), Packed::from_bits(id))
+}
+
+/// The copy-hole pair `CO(k, m)`: `k` absent-child hole regions down a
+/// right spine, inside one covering pre-scan.
+///
+/// Returns `(event, id)`. The id's root is a left-full site over a
+/// single-leaf collapse range (launching the covering fresh pre-scan);
+/// each unit's id node then has an absent left child over a deep
+/// [`hole_region`] (leads alternating 2, 3), terminated by an owned tip
+/// over one tail leaf. Per unit the pre-scan copies the untouched range
+/// once — its virtual emissions are the recorded currency — so the pair
+/// concentrates `PreScan::copy_range` on deep ranges (the walk's own copy
+/// of the same ranges rides the block regime the `tick_ownership_hole`
+/// envelope already pins; the `tick_copy_hole` envelope pins this pair's
+/// readings). The fill here is the identity, so the tick is the walk plus
+/// one grow splice.
+///
+/// Event layout: `1 · γ(0) · 0 · γ(0)` (the root site and its collapsed
+/// leaf), then per unit `1 · γ(0)` (spine node) and the hole region as its
+/// left child; after all `k` units, `0 · γ(0)` (the owned tail leaf). Id
+/// layout: `11 · 00` (the root site), `01` per unit (left absent, spine
+/// continues right), `00` (the owned tail tip). `2k + 6` id bits.
+///
+/// # Panics
+///
+/// Panics if `k` is not an even count of at least 2, or if `m == 0`.
+fn copy_hole(k: usize, m: usize) -> (Packed, Packed) {
+    assert!(
+        k >= 2 && k.is_multiple_of(2),
+        "the copy hole needs an even unit count"
+    );
+    assert!(m >= 1, "the copy hole needs a nonzero region size");
+    let mut ev = BitsMut::new();
+    ev.push(true); // the root site's node
+    codec::encode_int(&mut ev, &Base::ZERO);
+    ev_leaf(&mut ev, 0); // its collapsed left leaf
+    for i in 0..k {
+        ev.push(true); // spine node
+        codec::encode_int(&mut ev, &Base::ZERO);
+        hole_region(&mut ev, 2 + (i % 2), m); // the absent-child range
+    }
+    ev_leaf(&mut ev, 0); // the owned tail leaf
+    let mut id = BitsMut::new();
+    id.push(true); // the root site: left full ...
+    id.push(true); // ... over the spine
+    id.push(false); // the full collapsed child
+    id.push(false);
+    for _ in 0..k {
+        id.push(false); // left absent over the hole region ...
+        id.push(true); // ... the spine continues right
+    }
+    id.push(false); // the owned tail tip
+    id.push(false);
+    (Packed::from_bits(ev), Packed::from_bits(id))
+}
+
+/// The raise-hole pair `RH(k, m)`: `k` right-full sites up a left chain,
+/// each raising over one deep hole region at the walk's ascend arm.
+///
+/// Returns `(event, id)`. A left-leaning chain of `k` id nodes each
+/// carries a fully-owned *right* child over a deep [`hole_region`] (leads
+/// alternating 2, 3), so the right-full shortcut arm fires on the way
+/// back up at every level and the walk's consuming max scan crosses each
+/// deep range exactly once — no left-full site exists anywhere, so no
+/// pre-scan runs and nothing else reads the regions. The pair that
+/// concentrates `FillWalk::scan_max_consuming`'s routing at the ascend
+/// arm on deep ranges (the `tick_raise_hole` envelope pins the readings);
+/// [`collapse_hole`] is its descend-arm dual.
+///
+/// Event layout: `k` × (`1 · γ(0)`) (the left chain), `0 · γ(0)` (the
+/// chain's bottom leaf), then the `k` hole regions, innermost first (each
+/// chain node's right child, closed in preorder on the way out). Id
+/// layout: `11` per chain node, `10 · 00` (the bottom's minimal non-full
+/// id), then `00` per chain node's full right child, innermost first.
+/// `4k + 4` id bits.
+///
+/// # Panics
+///
+/// Panics if `k` is not an even count of at least 2, or if `m == 0`.
+fn raise_hole(k: usize, m: usize) -> (Packed, Packed) {
+    assert!(
+        k >= 2 && k.is_multiple_of(2),
+        "the raise hole needs an even unit count"
+    );
+    assert!(m >= 1, "the raise hole needs a nonzero region size");
+    let mut ev = BitsMut::new();
+    for _ in 0..k {
+        ev.push(true); // each chain node: its region trails in preorder
+        codec::encode_int(&mut ev, &Base::ZERO);
+    }
+    ev_leaf(&mut ev, 0); // the chain's bottom leaf
+    for i in (0..k).rev() {
+        hole_region(&mut ev, 2 + (i % 2), m); // each node's raised right child
+    }
+    let mut id = BitsMut::new();
+    for _ in 0..k {
+        id.push(true); // chain node: the chain continues left ...
+        id.push(true); // ... and its right child is full
+    }
+    id.push(true); // the bottom's minimal non-full id ...
+    id.push(false);
+    id.push(false); // ... its owned tip
+    id.push(false);
+    for _ in 0..k {
+        id.push(false); // each chain node's full right child, innermost first
+        id.push(false);
+    }
+    (Packed::from_bits(ev), Packed::from_bits(id))
+}
+
 /// The memo-chain event `Q(k, distinct)`: a right-leaning spine of `k`
 /// single-leaf left-full sites, `~(14k + 9)` bits distinct (γ(j) codes), `13k +
 /// 9` shared.

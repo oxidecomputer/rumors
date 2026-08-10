@@ -237,6 +237,12 @@ pub enum Shape {
     /// The masked-comparison correlated quadruple `MQ(k, n)`:
     /// [`Shape::packed_quadruple`]`(k, n)`.
     MaskDriftQuadruple,
+    /// The collapse-hole pair `CH(k, m)`: [`Shape::packed_pair`]`(k, m)`.
+    CollapseHole,
+    /// The copy-hole pair `CO(k, m)`: [`Shape::packed_pair`]`(k, m)`.
+    CopyHole,
+    /// The raise-hole pair `RH(k, m)`: [`Shape::packed_pair`]`(k, m)`.
+    RaiseHole,
 }
 
 /// A registered constructor's signature class, binding one [`Shape`] to
@@ -340,6 +346,9 @@ impl Shape {
             Shape::MeetShade => Builder::Versions2(super::meet_shade),
             Shape::MaskDriftTriple => Builder::Triple2(super::mask_drift_triple),
             Shape::MaskDriftQuadruple => Builder::Quad2(super::mask_drift_quadruple),
+            Shape::CollapseHole => Builder::Pair2(super::collapse_hole),
+            Shape::CopyHole => Builder::Pair2(super::copy_hole),
+            Shape::RaiseHole => Builder::Pair2(super::raise_hole),
         }
     }
 
@@ -897,6 +906,23 @@ pub enum FamilyId {
     /// The arming-train family `AT(n, w, g, alternate)`: the product tree's
     /// level-ratio probe, three fixed-width points in two sign schedules.
     ArmingTrain,
+    /// The sub-scan hole pairs `CH(k, m)` / `CO(k, m)` / `RH(k, m)`: deep
+    /// collapse and absent-child ranges each crossed by exactly one
+    /// sub-scan.
+    ///
+    /// The fused fill's sub-scans route each range on its first descent's
+    /// depth: per-leaf below depth 2, one block summary at or above it. On
+    /// every committed tick family those ranges are leaf-scale, so the
+    /// routing is invisible there; these pairs make a single sub-scan
+    /// cross deep descending staircase regions (leads alternating across
+    /// the depth-2 boundary), undiluted by any second crossing, so the
+    /// block summary is the only reading that fits under the pinned
+    /// envelopes and any reroute of the boundary moves a committed column.
+    /// The collapse and raise pairs concentrate the walk's consuming max
+    /// scan at its two arms (descend-site collapse, ascend-site raise;
+    /// neither launches a pre-scan); the copy pair concentrates the
+    /// pre-scan's untouched-range copy under one covering scan.
+    ScanHole,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -992,7 +1018,7 @@ impl FamilyId {
     /// Every registered family, in the roster order of record: the
     /// board columns first, in render order, then the envelope-only
     /// probe families.
-    pub const ALL: [FamilyId; 47] = [
+    pub const ALL: [FamilyId; 48] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1040,6 +1066,7 @@ impl FamilyId {
         FamilyId::MaskDrift,
         FamilyId::MeetShade,
         FamilyId::ArmingTrain,
+        FamilyId::ScanHole,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1094,6 +1121,7 @@ impl FamilyId {
             FamilyId::MaskDrift => 44,
             FamilyId::MeetShade => 45,
             FamilyId::ArmingTrain => 46,
+            FamilyId::ScanHole => 47,
         }
     }
 
@@ -1711,6 +1739,24 @@ impl FamilyId {
                 ]),
                 denominator: "packed input bytes; three fixed-width points (level ratio, \
                               not a two-scale fit)",
+                closed_form: None,
+            },
+            FamilyId::ScanHole => FamilySpec {
+                name: "scan-hole",
+                shapes: &[Shape::CollapseHole, Shape::CopyHole, Shape::RaiseHole],
+                coverage: Coverage::EnvelopeOnly {
+                    reason: "kernel-seam engagement probes for the fused fill's sub-scan \
+                             block routing; their enforcement home is the absolute tick \
+                             envelope rows, whose ceilings sit below the per-leaf \
+                             mechanism's readings",
+                    decided: "2026-08-10",
+                },
+                bands: Bands::Unbanded {
+                    reason: "absolute tick envelope rows in tests/meter.rs pin the block \
+                             scans engaging; no two-point flatness claim is committed",
+                    decided: "2026-08-10",
+                },
+                denominator: PACKED,
                 closed_form: None,
             },
         }

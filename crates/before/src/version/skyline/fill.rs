@@ -1089,6 +1089,9 @@ impl FillWalk<'_> {
         if first_leaf_depth < 2 {
             // A tiny range (the first descent's depth routes for free): the
             // per-leaf fold is cheaper than a block summary's fixed cost.
+            // The `tick_collapse_hole` and `tick_raise_hole` envelopes pin
+            // the block side engaging on deep ranges, one per arm of this
+            // scan (descend-site collapse, ascend-site raise).
             let step = self.consume_payload();
             above.fold(step.sign, &step.magnitude);
             while walk.descend(&mut self.cursor).is_some() {
