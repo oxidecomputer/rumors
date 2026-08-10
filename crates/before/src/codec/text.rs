@@ -189,7 +189,9 @@ pub(crate) fn parse_clock_str(s: &str) -> Result<(BitsMut, &str), Parse> {
         return Err(Parse::Syntax);
     }
     let inner = &t[1..t.len() - 1];
-    let mut depth: i32 = 0;
+    // i64 cannot overflow: depth moves by at most one per input byte, and an
+    // allocation holds at most `isize::MAX` (< 2⁶³) bytes.
+    let mut depth: i64 = 0;
     let mut split = None;
     for (k, &c) in inner.as_bytes().iter().enumerate() {
         match c {

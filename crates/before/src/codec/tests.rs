@@ -1652,3 +1652,54 @@ fn deep_id_text_roundtrip() {
     let parsed: Party = text.parse().expect("a deep rendered id parses");
     assert_eq!(parsed, party);
 }
+
+// ──────────────────────────── stamp text split ────────────────────────────
+
+proptest! {
+    /// Clock text parsing never panics on any input: stamp texts of arbitrary
+    /// paren nesting depth — balanced, over-closed, or under-closed, with a
+    /// comma placed at any depth or absent — always draw a graceful `Ok`/`Err`
+    /// verdict from `Clock::from_str`.
+    ///
+    /// The assertion is the call itself: proptest reports any panic as a
+    /// failure, so every generated text exercising the split scanner's depth
+    /// counter must return, never abort.
+    #[test]
+    fn clock_text_deep_nesting_never_panics(
+        opens in 1usize..3_000,
+        closes in 0usize..3_000,
+        comma_at in proptest::option::of(0usize..3_000),
+        core in prop_oneof![Just(""), Just("1, 0"), Just("0"), Just(",")],
+    ) {
+        let mut s = String::from("(");
+        for i in 0..opens {
+            if comma_at == Some(i) {
+                s.push(',');
+            }
+            s.push('(');
+        }
+        s.push_str(core);
+        for _ in 0..closes {
+            s.push(')');
+        }
+        s.push(')');
+        let _ = s.parse::<Clock>();
+    }
+}
+
+/// A paren nesting deeper than `i32::MAX` is rejected gracefully: 2³¹ + 1
+/// opening parens fed through `Clock::from_str` return `Parse::Syntax` (no
+/// top-level comma), never a panic, pinning the split scanner's depth counter
+/// as wide enough for any physically representable input.
+///
+/// Ignored because the witness string alone costs ~2 GiB of memory; run it
+/// deliberately with `--run-ignored all`.
+#[test]
+#[ignore = "allocates ~2 GiB to push the depth counter past i32::MAX"]
+fn clock_text_split_survives_two_gib_of_parens() {
+    use crate::error::Parse;
+    const OPENS: usize = (1 << 31) + 1;
+    let mut s = "(".repeat(OPENS);
+    s.push(')');
+    assert!(matches!(s.parse::<Clock>(), Err(Parse::Syntax)));
+}
