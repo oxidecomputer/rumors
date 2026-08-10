@@ -345,6 +345,53 @@ fn accumulator_operand_rows_cost_the_operand() {
     }
 }
 
+/// `merge_into_wider` on a digit-count tie reads `other` — the
+/// documented tie routing ("on a tie, `other` is the one read and
+/// `self`'s buffer keeps the sum"), observable in the exact counts.
+///
+/// Two tied-width operands with different interior-zero populations:
+/// the fold pays one read per operand digit up to its top plus one
+/// deposit per *nonzero* operand digit, so which operand is read is
+/// visible whenever their nonzero counts differ. Here `other` is
+/// dense and `self` carries interior zeros — 6 touches at the
+/// 3-digit tie (3 reads + 3 deposits) and 10 at the 5-digit tie
+/// (5 + 5); a swap on the tie would read the zero-bearing buffer and
+/// undercount. The sum and the drained buffer's pool contract are
+/// asserted alongside.
+#[test]
+fn merge_tie_reads_the_operand() {
+    // (self limbs, other limbs, tied digit count, expected touches):
+    // `self` spells its value with interior zero digits, `other` is
+    // dense, and both settle the same top digit index.
+    let ties: [(&[u64], &[u64], usize, u64); 2] = [
+        // self digits [5, 0, 7]; other digits [1, 2, 3].
+        (&[5, 7], &[(2 << 32) | 1, 3], 3, 6),
+        // self digits [5, 0, 0, 0, 7]; other digits [1, 2, 3, 4, 5].
+        (&[5, 0, 7], &[(2 << 32) | 1, (4 << 32) | 3, 5], 5, 10),
+    ];
+    for (self_limbs, other_limbs, tied_count, expected) in ties {
+        let mut receiver = Accumulator::new();
+        receiver.add_wide(&from_limbs(self_limbs));
+        let mut operand = Accumulator::new();
+        operand.add_wide(&from_limbs(other_limbs));
+        assert_eq!(receiver.digit_count(), tied_count, "the tie premise");
+        assert_eq!(operand.digit_count(), tied_count, "the tie premise");
+        touch_meter::reset();
+        let mut drained = receiver.merge_into_wider(operand);
+        assert_eq!(
+            touch_meter::touches(),
+            expected,
+            "a {tied_count}-digit tie reads the dense `other`: one read \
+             per operand digit plus one deposit per nonzero operand digit"
+        );
+        let (sign, magnitude) = receiver.sign_magnitude();
+        assert_eq!(sign, Ordering::Greater);
+        assert_eq!(magnitude, from_limbs(self_limbs) + from_limbs(other_limbs));
+        drained.reset();
+        assert!(drained.is_literally_zero(), "the pool contract holds");
+    }
+}
+
 /// The per-call O(held digits) rows read exact totals at 64 and 128
 /// held digits, and `shl`'s total is independent of the shift.
 ///
