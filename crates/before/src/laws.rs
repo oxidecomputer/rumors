@@ -2624,6 +2624,25 @@ laws! {
     fn disjoint_projections_share_nothing {
         !p.is_disjoint(q) || ((v / p).to_version() & (v / q).to_version()).is_empty()
     }
+
+    /// Projection is additive over any without-carved decomposition of a
+    /// region: when `r = p \ q` and `inner = p \ r` both survive, they
+    /// partition `p`'s region, and `(v/r) | (v/inner) == v / p`.
+    ///
+    /// [`projection_additive_over_fork`] states additivity for the balanced
+    /// fork geometry; the ragged region pairs `without` carves are that
+    /// law's negative space, and overlapping arbitrary parties keep both
+    /// remainders inhabited under mass. Vacuous only when `q` covers `p`
+    /// (no outer remainder) or is disjoint from it (no inner part).
+    fn projection_additive_over_carved_regions {
+        let Some(r) = p.dangerously_alias().without(q) else {
+            return true; // q covers p: no outer remainder to carve
+        };
+        let Some(inner) = p.dangerously_alias().without(&r) else {
+            return true; // r == p (q disjoint from p): no inner part
+        };
+        ((v / &r).to_version() | (v / &inner).to_version()) == (v / p)
+    }
 }
 
 // ──────────────────── Version × Version × Party × Party ────────────────────
