@@ -1,0 +1,115 @@
+# cargo-mutants configuration: the exclusion roster of proven-equivalent
+# and performance-genre mutants.
+#
+# Every entry is a mutant that survives the before+suanpan suites for a
+# reason that is not a test gap: either the mutation is provably
+# value-equivalent (its discriminating input class is empty), or it moves
+# only work — routing between extensionally equal paths inside the meters'
+# deliberate headroom band. Killing a work-only mutant through the meter
+# suite would derive thresholds from mutants, converting deliberate slack
+# into an implementation pin; such mutants are excluded here instead, each
+# with its genre and the proof or rationale of record.
+#
+# Regex discipline: patterns match the names `cargo mutants --list`
+# prints. Most entries avoid line numbers, anchoring on file, operator
+# pattern, and function, so they survive line drift. Where the same
+# operator pattern occurs twice in one function and only one occurrence is
+# equivalent, the entry pins file:line:col; a pinned entry fails open on
+# drift (the equivalent survivor reappears as MISSED — re-verify the site
+# and re-pin), but before trusting a pinned entry after edits to its file,
+# confirm the pinned line still names the intended expression.
+#
+# Deliberately absent: sweep::eq_exit's `||`-guard mutant and
+# integral::meter_product's tap deletion. Those survivors mark real
+# instrument gaps (an undriven documented early exit; a meter tap with no
+# liveness floor) and stay visible until their owning instruments land.
+
+exclude_re = [
+    # --- suanpan::accumulator ---
+
+    # Proven equivalent: read_magnitude's final carry has magnitude at
+    # most 3 (bound derived in the comment at the site), so each high-part
+    # drain emits its whole value in its first digit and the mutated shift
+    # direction has an empty discriminating class.
+    "accumulator\\.rs.*: replace >>= with <<= in Accumulator::read_magnitude",
+
+    # Proven equivalent: at value 0 the digit loop never runs, so the sign
+    # flag the boundary feeds is unread.
+    "accumulator\\.rs.*: replace < with <= in Accumulator::deposit_value",
+
+    # Performance genre, owner-declared benign fast path: the identity
+    # guard routes cost and representation only (the comment at the site
+    # carries the argument), and no honest meter band can price a zero
+    # shift without pinning the representation.
+    "accumulator\\.rs.*: replace \\|\\| with && in Accumulator::shl",
+
+    # --- before::version::skyline::watermark ---
+
+    # Performance genre: propagate's dwarf-domination fast arms fold and
+    # retire exactly what the total fold-then-sign path folds and retires;
+    # the engagement thresholds, probe floors, and sign guards route cost
+    # between extensionally equal paths, verified value-equivalent under
+    # mutation with all meters lit.
+    "watermark\\.rs.*: replace \\+ with \\* in MinWeb<P>::propagate",
+    "watermark\\.rs.*: replace - with \\+ in MinWeb<P>::propagate",
+    "watermark\\.rs.*: replace - with / in MinWeb<P>::propagate",
+    "watermark\\.rs.*: replace && with \\|\\| in MinWeb<P>::propagate",
+    # Line-pinned: the dual arm's same-shaped guard mutants are killed, so
+    # these two entries name the equivalent occurrence exactly.
+    "watermark\\.rs:736:43: replace >= with < in MinWeb<P>::propagate",
+    "watermark\\.rs:742:44: replace == with != in MinWeb<P>::propagate",
+
+    # Performance genre: the undercut decision's scale probes read
+    # domination at a floor index; a shifted floor changes which side of
+    # the fast/total split answers, not the answer, verified
+    # value-equivalent under mutation with all meters lit.
+    "watermark\\.rs.*: replace - with (\\+|/) in MinWeb<P>::decide_undercut_through_latent",
+
+    # Performance genre: an unarmed range's gap is re-based on arming, so
+    # folding height into it early is a dead store.
+    "watermark\\.rs.*: replace > with >= in MinWeb<P>::fold_height",
+
+    # Performance genre: compact_words selects the inline-word boundary
+    # representation; the heap fallback is value-identical, and the
+    # min-ticks envelope rows bound its cost.
+    #
+    # Known tool gap: cargo-mutants 27.1.0 never applies name filters to
+    # delete-field mutants (visit_expr_struct pushes them past
+    # allows_mutant), so this entry is presently inert and the compacting
+    # survivor still lists as MISSED. The pattern matches the printed name
+    # and engages when the filter gap closes upstream.
+    "watermark\\.rs.*: delete field compact_words from struct MinWeb expression in MinWeb<P>::compacting",
+
+    # Performance genre: retire recycles a dying accumulator into the
+    # allocation pool; skipping it costs allocations, never values.
+    "watermark\\.rs.*: replace MinWeb<P>::retire with \\(\\)",
+
+    # --- before::version::skyline::fill / prescan ---
+
+    # Performance genre, line-pinned (record's completeness guard above it
+    # shares the operator pattern and is killed): level 0 never defers a
+    # first-child link, so its keeper is never read and the keeper fold is
+    # skippable work.
+    "prescan\\.rs:325:26: replace > with >= in PreScan<'a, 'm>::record",
+
+    # Performance genre: the tiny-range boundary trios route between
+    # per-leaf emission and block summary, extensionally equal by the
+    # block-fold argument; proven value-equivalent (all five boundary
+    # mutations pass the full all-features suite simultaneously) with
+    # touch movement inside the deliberate meter band.
+    "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::copy_range",
+    "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::skip_collapse",
+    "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::max_range",
+    "fill\\.rs.*: replace < with (<=|==|>) in FillWalk<'_>::scan_max_consuming",
+
+    # --- before::version::skyline::masked ---
+
+    # Performance genre, within the stated cost envelope on every
+    # committed shape (block consumption is value-identical to per-boundary
+    # folds; the win is depth-flat block skips on long masked runs, which
+    # no committed shape concentrates). An engagement-shape family whose
+    # regions concentrate the per-leaf/block gap would make these killable
+    # honestly; delete both entries when one lands.
+    "masked\\.rs.*: replace != with == in Walk<'a>::others_deepest",
+    "masked\\.rs.*: replace Walk<'a>::block_skip with \\(\\)",
+]
