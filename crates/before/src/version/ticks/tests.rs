@@ -63,12 +63,14 @@ proptest! {
         prop_assert_eq!(parsed, n);
     }
 
-    /// Addition is commutative and monotone, `ZERO` is the identity, and `Sum`
-    /// equals the pairwise fold — the naturals' laws on the opaque carrier.
+    /// Addition is commutative, associative, and monotone, `ZERO` is the
+    /// identity, and `Sum` equals the pairwise fold — the naturals' laws on
+    /// the opaque carrier.
     #[test]
     fn addition_behaves_like_the_naturals(a in any::<u128>(), b in any::<u128>(), c in any::<u128>()) {
         let (ta, tb, tc) = (Ticks::from(a), Ticks::from(b), Ticks::from(c));
         prop_assert_eq!(&ta + &tb, &tb + &ta);
+        prop_assert_eq!(&(&ta + &tb) + &tc, &ta + &(&tb + &tc));
         prop_assert_eq!(&ta + &Ticks::ZERO, ta.clone());
         prop_assert!(&ta + &tb >= ta);
         let summed: Ticks = [ta.clone(), tb.clone(), tc.clone()].into_iter().sum();
