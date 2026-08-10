@@ -95,8 +95,12 @@ use super::sweep::{eq_exit, order_exit, Directions};
 ///
 /// # Panics
 ///
-/// Panics if an event operand is not a canonical skyline stream or a mask
-/// operand is not a canonical packed id.
+/// Every operand must be canonical — event operands canonical skyline streams
+/// (run [`validate`](fn@super::validate) first on untrusted bytes), mask
+/// operands canonical packed ids. The violations the walk structurally notices
+/// (truncation, malformation) panic; the rest (a collapsible sibling pair, a
+/// delta driving the running height negative) sweep silently, and the verdict
+/// is then unspecified.
 pub fn causal_cmp(
     a: &BitsSlice,
     a_mask: Option<&BitsSlice>,
@@ -118,7 +122,8 @@ pub fn causal_cmp(
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand, exactly as [`causal_cmp`] does.
+/// [`causal_cmp`]'s contract exactly: canonical operands required, structural
+/// violations panic, the rest yield an unspecified verdict.
 pub fn eq(
     a: &BitsSlice,
     a_mask: Option<&BitsSlice>,
@@ -411,3 +416,6 @@ impl CursorSet for Walk<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -103,16 +103,22 @@ fn exhaustive_small_scope_renders_and_parses_identically() {
 /// The kernel's grammar decisions are pinned on a deterministic accept/reject
 /// corpus.
 ///
-/// Each accepted text yields the value's canonical skyline stream, and each
-/// rejected text yields the *stated* error variant — the expectation lives in
-/// the table, not in another run of the same kernel.
+/// Each accepted text yields the value's canonical skyline stream — asserted
+/// against the validator directly, not inferred from the value agreement —
+/// and each rejected text yields the *stated* error variant; the expectation
+/// lives in the table, not in another run of the same kernel.
 #[test]
 fn parse_corpus_pins_the_grammar_decisions() {
     // Accepted: value-preserving leading zeros and whitespace leniency.
     for text in ["007", " ( 1 , 0 , 2 ) ", "(1, 2, (0, (1, 0, 2), 0))"] {
         let v: Version = text.parse().expect("the public entry accepts");
+        let enc = parse(text).expect("the kernel accepts the corpus's accepted texts");
+        assert!(
+            super::super::validate_bits(&enc).is_ok(),
+            "an accepted parse must build a canonical skyline stream: {text:?}"
+        );
         assert_eq!(
-            parse(text).expect("the kernel accepts the corpus's accepted texts"),
+            enc,
             super::super::encode(&v),
             "an accepted parse yields the value's canonical skyline stream"
         );
@@ -160,10 +166,14 @@ const MUTATION_ALPHABET: &[u8] = b"0123456789(), x";
 /// Each case deletes, inserts, replaces, or truncates one point of a rendered
 /// generator-family text. The public entry routes to the kernel, so the
 /// agreement legs pin entry plumbing and determinism — never panicking, and
-/// deciding every mutant one way — while the kernel's internal validator gate
-/// makes every accepted mutant's stream canonical. The hand-stated corpus above
-/// pins known grammar decisions by variant; this sweep is its generated
-/// regression sibling over [`REJECT_PARITY_FUZZ_CASES`] mutants at the fixed
+/// deciding every mutant one way — and every accepted mutant's stream is
+/// asserted canonical against the validator directly. That leg is what covers
+/// the acceptance frontier the mutants explore: the builder collapses equal
+/// sibling leaves unconditionally, and the render↔parse inverse pair and the
+/// transcoder differential pin canonicality, but only over rendered texts of
+/// canonical values. The hand-stated corpus above pins known grammar decisions
+/// by variant; this sweep is its generated regression sibling over
+/// [`REJECT_PARITY_FUZZ_CASES`] mutants at the fixed
 /// [`REJECT_PARITY_FUZZ_SEED`].
 #[test]
 fn mutated_texts_hold_reject_parity_through_the_public_entry() {
@@ -201,11 +211,17 @@ fn mutated_texts_hold_reject_parity_through_the_public_entry() {
         }
         let mutated = String::from_utf8(bytes).expect("ASCII mutations of ASCII text stay UTF-8");
         match (mutated.parse::<Version>(), parse(&mutated)) {
-            (Ok(v), Ok(enc)) => assert_eq!(
-                enc,
-                super::super::encode(&v),
-                "an accepted mutant {mutated:?} must land both entries on one stored stream"
-            ),
+            (Ok(v), Ok(enc)) => {
+                assert!(
+                    super::super::validate_bits(&enc).is_ok(),
+                    "an accepted mutant {mutated:?} must build a canonical skyline stream"
+                );
+                assert_eq!(
+                    enc,
+                    super::super::encode(&v),
+                    "an accepted mutant {mutated:?} must land both entries on one stored stream"
+                );
+            }
             (Err(public), Err(kernel)) => assert_eq!(
                 kernel, public,
                 "reject parity on {mutated:?}: the public entry must relay the kernel's error"
