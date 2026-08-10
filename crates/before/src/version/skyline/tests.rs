@@ -5,9 +5,15 @@
 //! walk over the packed construction language with its own zigzag map), and the
 //! decoder (validation plus wrap). Length agreement pins every built stream
 //! against the sizer; the round-trip pins the stream against the decoder
-//! through canonical uniqueness; the reject corpus and the mutation sweeps pin
-//! the validator's strictness — every non-canonical spelling is rejected, so
-//! acceptance implies the stream is *the* canonical encoding of its value.
+//! through canonical uniqueness; the reject corpus — the planted collapsible
+//! pairs included — pins the validator's strictness: every non-canonical
+//! spelling is rejected. On the accept side, decode adopts accepted bytes as
+//! storage verbatim and `Eq` is byte equality, so the mutation sweeps re-derive
+//! each accepted mutant through the oracle bridge into a fresh canonical
+//! encoding that must spell the adopted bytes — the one comparison a lax
+//! validator can fail — which is what makes acceptance imply the stream is
+//! *the* canonical encoding of its value (the meter board's decode-defect ops
+//! pin the same rejection genre deterministically at gate tier).
 
 use std::collections::BTreeSet;
 
@@ -91,6 +97,77 @@ fn rejects_zero_right_sibling_delta() {
     push_leaf(&mut bits, 5); // gamma(5): the first leaf, absolute
     push_leaf(&mut bits, 0); // zigzag(0) = 0 -> gamma(0): equal sibling
     assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
+}
+
+/// A collapsible sibling pair whose closing ancestor is NOT the root —
+/// root(leaf 5, node(leaf 5, leaf 5)), the pair closing one level down — is
+/// rejected as [`Decode::NotCanonical`].
+///
+/// The point tripwire beside the planted-pair family below: a validator
+/// weakened to judge pairs only at root-level closes would accept this stream
+/// as a second spelling of the constant-5 function, breaking the byte-`Eq` =
+/// causal-equality identity.
+#[test]
+fn rejects_non_root_collapsible_pair() {
+    let mut bits = BitsMut::new();
+    bits.push(false); // root: internal
+    push_leaf(&mut bits, 5); // gamma(5): the first leaf, absolute
+    bits.push(false); // right child: internal
+    push_leaf(&mut bits, 0); // zigzag(0): leaf 5 again, non-sibling (legal)
+    push_leaf(&mut bits, 0); // zigzag(0): its equal sibling — the pair
+    assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
+}
+
+/// The `(flag, end)` bit positions of every leaf code in a stored stream: the
+/// leaf's topology flag and the position just past its payload code, in
+/// preorder.
+fn leaf_code_ranges(bits: &BitsMut) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    let mut pending = 1usize;
+    while pending > 0 {
+        pending -= 1;
+        let leaf = bits[pos];
+        pos += 1;
+        if !leaf {
+            pending += 2;
+            continue;
+        }
+        let (_, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        out.push((pos - 1, next));
+        pos = next;
+    }
+    assert_eq!(pos, bits.len(), "a stored stream is exactly one tree");
+    out
+}
+
+proptest! {
+    /// Splitting any single leaf of a canonical stream into an equal-sibling
+    /// zero-delta pair — the collapsible pair, planted at a proptest-chosen
+    /// preorder position — is rejected as [`Decode::NotCanonical`].
+    ///
+    /// Generalizes the hand-pinned pair rejects beyond the root-sibling
+    /// position: the planted node closes at an arbitrary ancestor depth, so a
+    /// validator weakened to judge pairs only at particular closes reads red
+    /// here. The suffix rides verbatim — the planted sibling's zero delta
+    /// leaves the running height unchanged, so every later delta stays valid
+    /// and the stream stays well-formed; only canonicality breaks.
+    #[test]
+    fn planted_collapsible_pairs_are_rejected_at_every_leaf(
+        t in generators::arb_oracle_version(),
+        leaf_seed in any::<prop::sample::Index>(),
+    ) {
+        let bits = stream_of(&from_oracle_version(&t));
+        let leaves = leaf_code_ranges(&bits);
+        let (flag, end) = leaves[leaf_seed.index(leaves.len())];
+        let mut planted = BitsMut::with_capacity(bits.len() + 4);
+        planted.extend_from_bitslice(&bits[..flag]);
+        planted.push(false); // the chosen leaf's position becomes internal
+        planted.extend_from_bitslice(&bits[flag..end]); // left child: the old leaf
+        push_leaf(&mut planted, 0); // right child: zigzag(0), the equal sibling
+        planted.extend_from_bitslice(&bits[end..]);
+        prop_assert!(matches!(validate_bits(&planted), Err(Decode::NotCanonical)));
+    }
 }
 
 /// A zero delta between non-sibling consecutive leaves is a canonical shape:
@@ -335,9 +412,15 @@ proptest! {
 
 // ─── single-bit mutation sweeps ─────────────────────────────────────────────
 
-/// Assert one mutated stream never aliases its origin: it is rejected, or it
-/// decodes to a different version whose canonical encoding is the mutated
-/// stream itself.
+/// Assert one mutated stream never aliases its origin: it is rejected, or its
+/// decoded value, re-derived through the oracle bridge into a fresh canonical
+/// encoding, spells exactly the mutated stream.
+///
+/// The re-derivation is the accept side's whole strength: decode *adopts* the
+/// accepted bytes as storage verbatim and `Eq` is byte equality, so comparing
+/// the decoded version's own stream against the mutated bytes would hold under
+/// any validator behavior. Only an independently rebuilt encoding can convict
+/// a validator that accepted a non-canonical spelling.
 fn assert_mutation_never_aliases(v: &Version, bits: &BitsMut, flip: usize) {
     let mut mutated = bits.clone();
     let old = mutated[flip];
@@ -350,10 +433,12 @@ fn assert_mutation_never_aliases(v: &Version, bits: &BitsMut, flip: usize) {
                 "a single-bit mutation decoded back to the same version: \
                  two spellings of one value were both accepted"
             );
+            let canon = from_oracle_version(&to_oracle_version(&w));
             assert_eq!(
-                stream_of(&w),
+                stream_of(&canon),
                 mutated,
-                "an accepted stream must be the canonical encoding of its value"
+                "an accepted stream must be the canonical encoding of its value: \
+                 the oracle re-derivation spells it differently"
             );
         }
     }

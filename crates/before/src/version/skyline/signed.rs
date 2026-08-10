@@ -353,3 +353,6 @@ pub(super) fn signed_max(x: &Signed, y: &Signed) -> Signed {
         x.clone()
     }
 }
+
+#[cfg(test)]
+mod tests;

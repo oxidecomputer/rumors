@@ -486,7 +486,12 @@ impl<'a> IdLeafCursor<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if the stream is not a canonical packed id.
+    /// The stream must be a canonical packed id. The one violation this walk
+    /// structurally notices — truncation (the stream exhausting mid-descent) —
+    /// panics; the rest (a collapsible pair of full children, bits past the
+    /// walked tree) walk silently with unspecified ownership readings (the
+    /// mask-operand contract of [`causal_cmp`](super::masked::causal_cmp),
+    /// stated once there).
     pub(super) fn open(bits: &'a BitsSlice) -> Self {
         let mut this = IdLeafCursor {
             cursor: SliceCursor::new(bits, 0),
@@ -511,7 +516,11 @@ impl<'a> IdLeafCursor<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if the stream is not a canonical packed id.
+    /// The stream must be a canonical packed id. The one violation this walk
+    /// structurally notices — truncation (the stream exhausting mid-descent) —
+    /// panics; the rest walk silently with unspecified ownership readings (the
+    /// mask-operand contract of [`causal_cmp`](super::masked::causal_cmp),
+    /// stated once there).
     fn descend(&mut self) {
         loop {
             // The two tag-bit reads below record themselves through the
@@ -558,8 +567,12 @@ impl PlateauCursor for IdLeafCursor<'_> {
     ///
     /// # Panics
     ///
-    /// Panics if the stream is not a canonical packed id. Never called on a
-    /// final region (the overlay stops when both cursors are done).
+    /// The stream must be a canonical packed id. The one violation this walk
+    /// structurally notices — truncation (the stream exhausting mid-descent) —
+    /// panics; the rest walk silently with unspecified ownership readings (the
+    /// mask-operand contract of [`causal_cmp`](super::masked::causal_cmp),
+    /// stated once there). Never called on a final region (the overlay stops
+    /// when both cursors are done).
     fn step(&mut self) -> (usize, ()) {
         loop {
             match self.path.pop() {

@@ -426,10 +426,16 @@ proptest! {
     /// boundary emit byte-identically, validate, and re-derive pointwise: the
     /// switch-delta arithmetic is exercised at spilled widths in both
     /// directions.
+    ///
+    /// The 29..=34 band puts deterministic mass on output deltas around the
+    /// fused signed-gamma coder's fast-path magnitude bound at `2^31` (the
+    /// guard in `skyline::signed`), so a guard or mantissa error at that seam
+    /// reads red under this family's oracle rather than only under random
+    /// exploration.
     #[test]
     fn wide_grid_pairs_emit_identically(
-        ma in prop_oneof![1usize..=8, 60usize..=68, 190usize..=200],
-        mb in prop_oneof![1usize..=8, 60usize..=68, 190usize..=200],
+        ma in prop_oneof![1usize..=8, 29usize..=34, 60usize..=68, 190usize..=200],
+        mb in prop_oneof![1usize..=8, 29usize..=34, 60usize..=68, 190usize..=200],
         pa in prop_oneof![Just(1usize), Just(2), Just(4)],
         pb in prop_oneof![Just(1usize), Just(2), Just(4)],
         phase in 0usize..=3,

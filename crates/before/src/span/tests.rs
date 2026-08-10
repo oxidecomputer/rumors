@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use proptest::prelude::*;
 
 use super::*;
-use crate::testing::bridge::from_oracle_version;
+use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::generators::arb_oracle_version;
 use crate::Clock;
 
@@ -753,9 +753,13 @@ proptest! {
     /// A single-bit mutation of a valid composite never aliases it.
     ///
     /// The mutated bytes are rejected, or they decode to a *different* span
-    /// whose canonical encoding is the mutated composite itself — the
-    /// span-level face of the components' mutation sweeps, crossing the seam
-    /// and both padding regions that only the composite has.
+    /// whose endpoint values, re-derived through the oracle bridge into a
+    /// fresh composite, encode exactly the mutated bytes — the span-level face
+    /// of the components' mutation sweeps, crossing the seam and both padding
+    /// regions that only the composite has. The re-derivation is the accept
+    /// side's whole strength: decode adopts accepted bytes and `Eq` is byte
+    /// equality, so only an independently rebuilt composite can convict an
+    /// admission walk that accepted a non-canonical spelling.
     #[test]
     fn span_single_bit_mutations_never_alias(
         oa in arb_oracle_version(),
@@ -776,9 +780,14 @@ proptest! {
                     "a single-bit mutation decoded back to the same span: \
                      two spellings of one value were both accepted"
                 );
+                // The admitted endpoints dominate (`lo <= hi`), so their hull
+                // is exactly `(lo, hi)` rebuilt from scratch.
+                let canon = from_oracle_version(&to_oracle_version(mutant.lo()))
+                    .span(&from_oracle_version(&to_oracle_version(mutant.hi())));
                 prop_assert_eq!(
-                    mutant.encode(), bytes,
-                    "an accepted composite must be the canonical encoding of its span"
+                    canon.encode(), bytes,
+                    "an accepted composite must be the canonical encoding of its span: \
+                     the oracle re-derivation encodes it differently"
                 );
             }
         }
