@@ -7,11 +7,6 @@ use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::generators::arb_oracle_version;
 use crate::Clock;
 
-/// `a <= b` under the impl causal order (`None` means concurrent, so not
-/// ordered).
-fn le(a: &Version, b: &Version) -> bool {
-    matches!(a.partial_cmp(b), Some(Ordering::Less | Ordering::Equal))
-}
 /// The span witness fixture: an alice chain `a[0] < ... < a[4]` and `b1`
 /// concurrent to every version of it.
 fn span_fixtures() -> ([Version; 5], Version) {
@@ -236,25 +231,12 @@ fn span_derives_the_hull() {
     // Owned items feed the n-ary door (the Borrow calling convention).
     assert_eq!(a1.span_all([a2.clone()]), flat);
 }
-proptest! {
-    /// The span gate's family claim, differentially against `partial_cmp`:
-    /// `Span::new` admits exactly the pairs the causal order deems ordered, and
-    /// on every admitted pair the trusted door builds the identical span.
-    #[test]
-    fn span_gate_admits_exactly_the_ordered(
-        lo in arb_oracle_version(),
-        hi in arb_oracle_version(),
-    ) {
-        let lo = from_oracle_version(&lo);
-        let hi = from_oracle_version(&hi);
-        let admitted = Span::new(&lo, &hi);
-        prop_assert_eq!(
-            admitted.is_ok(),
-            le(&lo, &hi),
-            "the gate admits exactly the ordered pairs"
-        );
-    }
-}
+// The span gate's family claim (`Span::new` admits exactly the ordered
+// pairs, endpoints preserved exactly) is the
+// `span_gate_admits_exactly_the_ordered` law in `crate::laws`, driven over
+// arbitrary normal forms, organic op-trace populations, and the fuzz
+// target's decoded values.
+
 // ───────────────────────────── the span wire form ─────────────────────────────
 
 /// Committed witnesses, one per rejection genre the span wire decode can reach.

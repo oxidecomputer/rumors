@@ -683,7 +683,16 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     causally_row("causally::Query::contains"),
     causally_row("causally::Query::coverage"),
     causally_row("causally::Query::into_owned"),
-    span_row("Span::new"),
+    SurfaceRow {
+        op: "Span::new",
+        prod_tree: Leg::Law("span_gate_admits_exactly_the_ordered"),
+        prod_fs: Leg::Excluded(
+            "the validating constructor over the bound causal order: acceptance \
+             is the order verdict (partial_cmp, bound on all three legs), and \
+             the law pins the gate and the admitted endpoints alike",
+        ),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the law pins the gate"),
+    },
     SurfaceRow {
         op: "Span::at",
         prod_tree: Leg::Law("at_is_the_coincident_hull"),

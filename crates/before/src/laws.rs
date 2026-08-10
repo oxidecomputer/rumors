@@ -66,6 +66,7 @@ use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
 
 use crate::causally::{self, Coverage, Dominance, Endpoint, Placement, Precedence, Query, Span};
+use crate::error::Crossed;
 use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 
 /// A named law: the name a failure reports, and the predicate that must
@@ -614,6 +615,21 @@ laws! {
         let (ra, rb) = (Ranked::from(a), Ranked::from(b));
         let (ea, eb) = (ra.encode(), rb.encode());
         ea.cmp(&eb) == ra.cmp(&rb) && (ea == eb) == (ra == rb)
+    }
+
+    /// [`Span::new`] admits exactly the ordered pairs, and builds exactly the
+    /// pair it was given.
+    ///
+    /// The gate is the causal order itself: `Span::new(a, b)` is `Ok` ⟺
+    /// `a <= b` (concurrent and strictly reversed pairs alike are refused,
+    /// with the payload-free [`Crossed`] as the whole verdict), and an
+    /// admitted span's endpoints are byte-identical to the arguments — the
+    /// validating door adds nothing and reorders nothing.
+    fn span_gate_admits_exactly_the_ordered {
+        match Span::new(a, b) {
+            Ok(span) => le(a, b) && span.lo() == a && span.hi() == b,
+            Err(Crossed) => !le(a, b),
+        }
     }
 
     /// `place` against the degenerate span `[v, v]` is pairwise comparison
