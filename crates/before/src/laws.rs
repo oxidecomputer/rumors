@@ -368,7 +368,8 @@ laws! {
     ///
     /// Every entry views the same version (both `From` constructors and
     /// the `Version::ranked` method spelling), `rank` (and the `From`
-    /// materialization, and the fused `encode_rank`) realize exactly
+    /// materialization, and the fused `encode_rank` through both its
+    /// entries — the view's and `Version::encode_rank`) realize exactly
     /// `Version::rank`'s value, the composite `encode` is the rank
     /// encoding followed by the version's canonical bytes,
     /// `decode ∘ encode` is the identity exactly (same version, equal
@@ -384,6 +385,7 @@ laws! {
             && ranked.rank() == a.rank()
             && Rank::from(ranked.clone()) == a.rank()
             && ranked.encode_rank() == a.rank().encode()
+            && a.encode_rank() == a.rank().encode()
             && ranked.encode() == [a.rank().encode(), a.as_bytes().to_vec()].concat()
             && Ranked::decode(&ranked.encode()[..])
                 .is_ok_and(|decoded| decoded.version() == a && decoded == ranked)

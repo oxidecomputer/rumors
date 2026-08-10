@@ -274,11 +274,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version::encode_rank",
-        prod_tree: Leg::Excluded(
-            "the identical fused rank-only emission as Ranked::encode_rank, \
-             entered from the version; its doctest pins the emission back to \
-             Version::rank through strict Rank::decode",
-        ),
+        prod_tree: Leg::Law("ranked_carries_own_rank"),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; see the Ranked::encode_rank row",
         ),
