@@ -299,6 +299,66 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
     assert_eq!(spliced.finish(), per_leaf);
 }
 
+/// The held-leaf predicate reads the most recent leaf's surviving depth, and
+/// nothing else.
+///
+/// False at every depth before any leaf arrives (nothing is held, whatever
+/// the path length), true at exactly the fed depth after an unmerged leaf,
+/// false at every other depth. Both conjuncts are load-bearing. The fresh-builder probe at depth 0 —
+/// where the empty path's length *equals* the probed depth — fails any
+/// reading that holds on either conjunct alone, and the off-depth probes
+/// fail a reading that ignores the depth.
+#[test]
+fn held_at_reads_the_held_leafs_depth() {
+    let builder = SkylineBuilder::with_capacity(64);
+    assert!(!builder.held_at(0), "no leaf is held before the first feed");
+    assert!(!builder.held_at(1), "no leaf is held at any depth");
+    let mut builder = SkylineBuilder::with_capacity(64);
+    builder.leaf(2, gamma(3));
+    assert!(builder.held_at(2), "the fed leaf is held at its own depth");
+    assert!(
+        !builder.held_at(0),
+        "a held leaf answers only its own depth"
+    );
+    assert!(
+        !builder.held_at(1),
+        "a held leaf answers only its own depth"
+    );
+    assert!(
+        !builder.held_at(3),
+        "a held leaf answers only its own depth"
+    );
+}
+
+/// A merge moves the held leaf's depth: after an absorb the merged leaf is
+/// held one level up — no longer at the depth it was fed — and a cascade
+/// walks it further, one level per merged pair.
+#[test]
+fn held_at_follows_merges_upward() {
+    // Absorb: `(5, 5)` at depth 1 merges to the held depth-0 leaf.
+    let mut builder = SkylineBuilder::with_capacity(64);
+    builder.leaf(1, gamma(5));
+    assert!(builder.held_at(1), "the left leaf is held where it was fed");
+    builder.leaf(1, delta(Sign::Positive, 0));
+    assert!(
+        builder.held_at(0),
+        "the absorbed pair is held at its parent"
+    );
+    assert!(!builder.held_at(1), "the fed depth no longer holds a leaf");
+    // Cascade: four equal depth-2 leaves collapse pairwise to depth 0.
+    let mut builder = SkylineBuilder::with_capacity(64);
+    builder.leaf(2, gamma(7));
+    builder.leaf(2, delta(Sign::Positive, 0));
+    assert!(
+        builder.held_at(1),
+        "the first pair's merge is held at depth 1"
+    );
+    builder.leaf(1, delta(Sign::Positive, 0));
+    assert!(builder.held_at(0), "the cascade ends held at the root");
+    assert!(!builder.held_at(1), "the cascade vacated the mid depth");
+    assert!(!builder.held_at(2), "the cascade vacated the fed depth");
+}
+
 /// The collapse recognition's coupling pin: the zero delta's payload code is
 /// exactly `ZERO_DELTA_CODE_BITS` bits, and every nonzero delta's is wider.
 ///
