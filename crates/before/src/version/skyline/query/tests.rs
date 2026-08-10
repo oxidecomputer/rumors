@@ -833,6 +833,81 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
     }
 }
 
+/// The settle-product tap ([`meter_product`]'s recording inside
+/// [`charge_digits`]) is alive: on the wide-arming close's own operands, the
+/// limb window records at least the mechanism floor, at two operand scales.
+///
+/// Deliberate internal-entry pin, decided here: the tap's recording is a few
+/// percent of any public fold's limb column (the fold's own metered `Base`
+/// arithmetic dominates), so no public-surface floor can sit above the
+/// tap-dark residue without banning honest work — the seam window, where the
+/// backend products are the only width-scale recording, is the one place the
+/// tap's liveness is a testable number. The flatness bands this tap feeds
+/// (`ledger_wide_arming`, `answer_embedded_product`, `tests/meter.rs`) bound
+/// their limb columns only from above, so every one of them stays green with
+/// the tap deleted; this floor is what fails instead.
+///
+/// The floor is derived per boundary from a universal premise, never from
+/// readings. Premise: the settle delegates each cluster's product whole to
+/// the backend (the `integral` module doc's settle bound), and the tap prices
+/// every backend product by both operands' and the product's limb widths. On
+/// the wide-arming family's close-time operands — the parked arming climb
+/// `2^(32w)` as the factor, the trailing gap spine's dense `w`-digit window
+/// as the mass — at least one backend product carries the full factor, so a
+/// lit tap records at least
+///
+/// `limbs(factor) + limbs(product) + limbs(mass) ≥ 2·⌈(32w + 1)/64⌉ + 1`
+///
+/// (the product is at least as wide as the factor because the mass is
+/// nonzero, and the nonzero mass side records at least one limb). Parked
+/// width Θ(w) therefore implies Ω(w) recorded limbs from settle products
+/// alone, and the floor is asserted at both scales so the linear growth is
+/// pinned, not just one point. The constant reads the operand widths alone;
+/// re-derive it only if the delegation shape itself changes.
+#[cfg(feature = "limb-meter")]
+#[test]
+fn settle_product_tap_is_alive_on_the_wide_arming_close() {
+    use suanpan::{Accumulator, UBig};
+
+    use crate::codec::Base;
+    use crate::meter::{limb_ops, reset_limb_ops};
+    use crate::version::skyline::signed::Sign;
+
+    for w in [500usize, 1_000] {
+        // The wide-arming close's operands by construction: the parked
+        // component is the family's one arming climb, the mass its dense
+        // trailing window (unit digits at consecutive indices, one cluster).
+        let factor = Base::from(UBig::ONE << (32 * w));
+        let digits: Vec<(u64, i64)> = (0..w as u64).map(|i| (i, 1)).collect();
+        // The per-boundary mechanism floor: 2·limbs(factor) + 1.
+        let floor = 2 * (32 * w as u64 + 1).div_ceil(64) + 1;
+        let mut total = Accumulator::new();
+        reset_limb_ops();
+        super::integral::charge_digits(&mut total, Sign::Positive, &factor, &digits);
+        let recorded = limb_ops();
+        eprintln!("MEASURED settle_product_tap w={w}: recorded={recorded} floor={floor}");
+        assert!(
+            recorded >= floor,
+            "the settle window at parked width {w} digits records {recorded} \
+             limbs, under the {floor}-limb mechanism floor: the settle-product \
+             tap is not watching the backend products, and every limb ceiling \
+             it feeds is passing vacuously"
+        );
+        // The value leg: a charge that recorded enough while computing the
+        // wrong integer proves nothing, so hold the window to the exact
+        // product `factor × Σᵢ 2^(32·i)`.
+        let mass_bytes: Vec<u8> = (0..w * 4).map(|i| u8::from(i % 4 == 0)).collect();
+        let mut expected = Accumulator::new();
+        expected.add_wide(&(UBig::from_le_bytes(&mass_bytes) * &factor.0));
+        expected.sub_accum(&total);
+        assert_eq!(
+            expected.sign(),
+            core::cmp::Ordering::Equal,
+            "the metered charge must spell exactly factor × mass"
+        );
+    }
+}
+
 /// Dense committed factors drive one settle product through the public rank at
 /// each backend multiplication-tier boundary, exact against the recursive
 /// oracle and the closed form.

@@ -356,7 +356,10 @@ pub(super) fn clusters(
 /// an unfunded gap, would push this very tap superlinear. The backend's
 /// internal cost per product is its multiplication bound, which the public `#
 /// Complexity` claims carry. Compiles to nothing without the `limb-meter`
-/// feature.
+/// feature. The tap's own liveness is pinned: the sibling tests' seam-window
+/// floor (`settle_product_tap_is_alive_on_the_wide_arming_close`) holds the
+/// recording to a per-boundary mechanism minimum, so a dark tap fails there
+/// instead of letting every limb ceiling it feeds pass vacuously.
 #[inline(always)]
 fn meter_product(factor: &UBig, part: &UBig, product: &UBig) {
     #[cfg(feature = "limb-meter")]
