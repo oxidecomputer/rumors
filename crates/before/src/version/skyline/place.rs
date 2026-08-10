@@ -1,19 +1,19 @@
-//! The placement co-walk: one probe stream against one or two bound streams, in
-//! a single fused merge, generic over its verdict.
+//! The placement co-walk: one probe stream against a span's two bound streams,
+//! in a single fused merge, generic over its verdict.
 //!
-//! `causally`'s placement questions compare one version against up to two bound
-//! versions. Composed from the pair sweep ([`sweep`](super::sweep)), that costs
-//! one walk per bound — the probe stream decoded once per bound. This module
-//! fuses them: one overlay walk over the probe and both bound streams, each
-//! decoded once, maintaining one running difference per bound. The
-//! pair-difference algebra is [`overlay`](super::overlay)'s
+//! `causally`'s placement questions compare one version against a span's two
+//! bound versions. Composed from the pair sweep ([`sweep`](super::sweep)),
+//! that costs one walk per bound — the probe stream decoded once per bound.
+//! This module fuses them: one overlay walk over the probe and both bound
+//! streams, each decoded once, maintaining one running difference per bound.
+//! The pair-difference algebra is [`overlay`](super::overlay)'s
 //! ([`OpenedPair`](super::overlay::OpenedPair) seeds a difference the same way;
 //! [`fold`] orients every crossing); only the arity and the verdict vocabulary
 //! are this walk's.
 //!
 //! # The walk
 //!
-//! One [`LeafCursor`] per present stream. All current leaves contain the sweep
+//! One [`LeafCursor`] per stream. All current leaves contain the sweep
 //! point, so they nest by depth, and the walk advances by the overlay-advance
 //! law at arity three ([`advance_set`], the [`masked`](super::masked) walk's
 //! precedent); this walk contributes only its slot roster ([`Cursors`]) and
@@ -26,9 +26,9 @@
 //! that orientation everywhere: the probe is every pair's `a` operand. A probe
 //! crossing folds into both differences; a bound crossing folds into its own.
 //! Each accumulator therefore sees exactly the write sequence the corresponding
-//! pair sweep would commit, which is what keeps the one-bound degenerate walk's
-//! meter readings identical to [`causal_cmp`](super::sweep::causal_cmp)'s (the
-//! resource pins in `tests/meter.rs`'s placement rows hold the identity).
+//! pair sweep would commit — the identity the resource pins in
+//! `tests/meter.rs`'s placement rows rest on, pricing each fused walk against
+//! its pair-sweep composition.
 //!
 //! # Verdict closures
 //!
@@ -84,18 +84,17 @@
 //! # Cost
 //!
 //! Derived, mirroring [`overlay`](super::overlay)'s argument stream by stream:
-//! every topology bit of every present stream is read at most once, every path
+//! every topology bit of every stream is read at most once, every path
 //! bit pushed and popped at most once, and every leaf payload decoded once and
 //! folded into at most two accumulators (a constant factor over the pair sweep,
 //! paid only by the probe's own deltas). Scan, decode, and stack work are
-//! linear in the present streams' bits — `O(|v| + |s| + |e|)` against the
+//! linear in the streams' bits — `O(|v| + |s| + |e|)` against the
 //! two-walk composition's `O(2|v| + |s| + |e|)` — and the per-interval sign
 //! reads ride the accumulator's amortized-O(1) collapse ([`suanpan`]'s
 //! argument, unchanged). The verdict hooks are branch-only: no question adds
 //! stream, decode, or accumulator work, so the relational pins in
-//! `tests/meter.rs` hold every question to the same identities — the fused walk
-//! to the composition minus one probe scan, and the one-bound degenerate form
-//! to the pair sweep byte for byte.
+//! `tests/meter.rs` hold every question to the same identity — the fused walk
+//! to the composition minus one probe scan.
 //!
 //! # Testing
 //!
@@ -207,15 +206,15 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
     }
     walk(
         probe,
-        Some(lo),
-        Some(hi),
+        lo,
+        hi,
         on_side,
         on_side,
-        // A dropped side is a decided concurrency (the walk is always given
-        // both endpoint streams), and so is the total non-canonical
-        // `Some(None)` corner — `flatten` folds the two, soundly per `walk`'s
-        // obligation: `on_side` drops only at a both-directions refutation,
-        // exactly the relation the `Concurrent` arms below read a `None` as.
+        // A dropped side is a decided concurrency, and so is the total
+        // non-canonical `Some(None)` corner — `flatten` folds the two, soundly
+        // per `walk`'s obligation: `on_side` drops only at a both-directions
+        // refutation, exactly the relation the `Concurrent` arms below read a
+        // `None` as.
         |lo, hi| match (lo.flatten(), hi.flatten()) {
             (Some(Ordering::Less), _) => Placement::Before,
             (Some(Ordering::Equal), Some(Ordering::Equal)) => Placement::At(Endpoint::Both),
@@ -243,8 +242,8 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
 pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Dominance {
     walk(
         probe,
-        Some(lo),
-        Some(hi),
+        lo,
+        hi,
         // `lo <= probe` refuted is the whole verdict — the probe dominates not
         // even the start, whatever the end relation: the family's earliest
         // bail.
@@ -300,8 +299,8 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
 pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Precedence {
     walk(
         probe,
-        Some(lo),
-        Some(hi),
+        lo,
+        hi,
         // `probe <= lo` refuted takes `Precedence::Before` off the table, and
         // the verdict now rides the end relation alone — the start stream is
         // never scanned further.
@@ -358,8 +357,8 @@ pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> P
 pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> bool {
     walk(
         probe,
-        Some(lo),
-        Some(hi),
+        lo,
+        hi,
         // `lo <= probe` refuted: the probe is below or beside the
         // start — outside the segment, whatever the end relation.
         |directions, _| {
@@ -386,8 +385,8 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
     )
 }
 
-/// The placement walk: sweep the probe against the present bound streams,
-/// folding each elementary interval's signs and letting the verdict hooks act.
+/// The placement walk: sweep the probe against the two bound streams, folding
+/// each elementary interval's signs and letting the verdict hooks act.
 ///
 /// `on_start` and `on_end` see their side's surviving [`Directions`] after its
 /// sign fold, plus whether the other side still sweeps: `Break` carries a
@@ -395,8 +394,8 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
 /// [`Fate`]. The hooks act only on refutations — which are permanent — so an
 /// early break or drop never moves a verdict the completed sweep would have
 /// reached. `finish` maps the decided relations at exhaustion: `None` for a
-/// side absent or dropped, `Some(None)` for a side refuted in both directions
-/// at the last interval (unreachable on canonical inputs — every caller keeps
+/// dropped side, `Some(None)` for a side refuted in both directions at the
+/// last interval (unreachable on canonical inputs — every caller keeps
 /// the arm total so a non-canonical sweep stays a silent unspecified verdict,
 /// per the panics contract).
 ///
@@ -408,20 +407,17 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
 /// point carries the per-verdict argument at its closures.
 fn walk<V>(
     probe: &BitsSlice,
-    start: Option<&BitsSlice>,
-    end: Option<&BitsSlice>,
+    start: &BitsSlice,
+    end: &BitsSlice,
     on_start: impl Fn(Directions, bool) -> ControlFlow<V, Fate>,
     on_end: impl Fn(Directions, bool) -> ControlFlow<V, Fate>,
     finish: impl FnOnce(Option<Option<Ordering>>, Option<Option<Ordering>>) -> V,
 ) -> V {
-    if start.is_none() && end.is_none() {
-        return finish(None, None);
-    }
     let (probe, probe_first) = LeafCursor::open(probe);
     let mut set = Cursors {
         probe,
-        start: start.map(|bits| BoundSide::open(bits, &probe_first)),
-        end: end.map(|bits| BoundSide::open(bits, &probe_first)),
+        start: Some(BoundSide::open(start, &probe_first)),
+        end: Some(BoundSide::open(end, &probe_first)),
     };
 
     loop {
@@ -462,11 +458,11 @@ fn walk<V>(
 }
 
 /// The placement walk's cursor roster: the probe stream's cursor and the two
-/// optional bound sides, advancing under the overlay-advance law
+/// droppable bound sides, advancing under the overlay-advance law
 /// ([`advance_set`]).
 struct Cursors<'a> {
     probe: LeafCursor<'a>,
-    /// The span's minimum endpoint; `None` when absent or dropped.
+    /// The span's minimum endpoint; `None` once a verdict hook drops it.
     start: Option<BoundSide<'a>>,
     /// The span's maximum endpoint, as `start`.
     end: Option<BoundSide<'a>>,
@@ -481,11 +477,11 @@ impl Cursors<'_> {
     /// The end bound's slot.
     const END: usize = 2;
 
-    /// Step one bound slot; a dropped or absent side never steps (its depth
-    /// reads zero, and every flip level is at least one).
+    /// Step one bound slot; a dropped side never steps (its depth reads zero,
+    /// and every flip level is at least one).
     fn step_bound(side: &mut Option<BoundSide<'_>>) -> usize {
         side.as_mut()
-            .expect("an absent side reads depth zero and never steps")
+            .expect("a dropped side reads depth zero and never steps")
             .step()
     }
 }
@@ -495,18 +491,16 @@ impl Cursors<'_> {
 ///
 /// Priority `[PROBE, START, END]`: the probe steps first on every tie — it is
 /// every pair's first operand, and the binary law's equal-depth arm steps its
-/// first operand first — keeping each accumulator's write sequence, and with it
-/// the committed touch-meter readings of the one-bound degenerate walk,
-/// identical to the pair sweep's (the placement identity rows in
-/// `tests/meter.rs` pin the identity). The start/end order among themselves
-/// moves no committed reading: the two bounds share no accumulator.
+/// first operand first — keeping each accumulator's write sequence identical
+/// to its pair sweep's (the placement identity rows in `tests/meter.rs` pin
+/// each fused walk against its composed sweeps). The start/end order among
+/// themselves moves no committed reading: the two bounds share no accumulator.
 impl CursorSet for Cursors<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         [Self::PROBE, Self::START, Self::END].into_iter()
     }
 
-    /// An absent or dropped side reads zero, like the masked walk's absent
-    /// mask.
+    /// A dropped side reads zero, like the masked walk's absent mask.
     fn depth(&self, slot: usize) -> usize {
         match slot {
             Self::PROBE => self.probe.depth(),
