@@ -436,7 +436,8 @@ laws! {
     /// `distance`/`lag` metric laws, [`Ranked`]'s total order and its
     /// lexicographic key encoding, the degenerate-span identity tying span
     /// placement back to pairwise comparison, the pair span's definitional pin,
-    /// and the span wire form's round-trip.
+    /// the span wire form's round-trip, and the version encoding's
+    /// prefix-freedom.
     pub static VERSION_PAIR: (a: &Version, b: &Version);
 
     /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
@@ -576,6 +577,21 @@ laws! {
     /// `Eq` is canonical-byte equality: `a == b ⟺ encode(a) == encode(b)`.
     fn version_eq_iff_bytes_eq {
         (a == b) == (a.encode() == b.encode())
+    }
+
+    /// Version canonical byte encodings are prefix-free: distinct versions'
+    /// `as_bytes` are never byte prefixes of one another.
+    ///
+    /// The property the composite [`Ranked`] key's suffix safety rests on for
+    /// its version component, pinned directly rather than inferred from the
+    /// stream being bit-self-delimiting: a strict bit-prefix that were itself
+    /// canonical would make the longer stream carry live bits past a complete
+    /// tree, which the strict decoder rejects — this pins that argument's
+    /// conclusion.
+    fn version_encoding_is_prefix_free {
+        a == b
+            || (!a.as_bytes().starts_with(b.as_bytes())
+                && !b.as_bytes().starts_with(a.as_bytes()))
     }
 
     /// `Eq`/`Hash` coherence: equal versions hash equally.
@@ -1169,6 +1185,33 @@ laws! {
             for probe in [a, b, c, &meet] {
                 let inside = matches!(span.place(probe), Placement::At(_) | Placement::Between);
                 if q.contains(probe) != inside {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Span composite encodings are prefix-free: distinct spans' encodings
+    /// are never byte prefixes of one another.
+    ///
+    /// Pinned directly on the composite (it rides the components'
+    /// prefix-freedom, but the pin is on the composite itself, never
+    /// inferred). Prefix-freedom is what lets one composite self-delimit
+    /// inside a larger stream: the borsh leg reads exactly one span and
+    /// leaves the next field's bytes unread. The quantified spans share
+    /// endpoints across the two operand families, so byte-prefix-adjacent
+    /// composites (equal meets under differing joins) arise on every call.
+    fn span_encoding_is_prefix_free {
+        let mut spans = operand_spans(a, b);
+        spans.extend(operand_spans(b, c));
+        for (i, x) in spans.iter().enumerate() {
+            for y in &spans[i + 1..] {
+                if x == y {
+                    continue;
+                }
+                let (ex, ey) = (x.encode(), y.encode());
+                if ex.starts_with(&ey) || ey.starts_with(&ex) {
                     return false;
                 }
             }

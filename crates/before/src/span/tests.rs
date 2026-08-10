@@ -437,32 +437,13 @@ proptest! {
         }
     }
 
-    /// The span composite is prefix-free: distinct spans' encodings are never
-    /// byte prefixes of one another.
-    ///
-    /// Pinned directly on the composite (it rides the components' committed
-    /// prefix-freedom, but the pin is on the composite itself, never inferred).
-    /// Prefix-freedom is what lets one composite self-delimit inside a larger
-    /// stream: the borsh leg reads exactly one span and leaves the next field's
-    /// bytes unread.
-    #[test]
-    fn span_encoding_is_prefix_free(
-        oa in arb_oracle_version(),
-        ob in arb_oracle_version(),
-        oc in arb_oracle_version(),
-        od in arb_oracle_version(),
-    ) {
-        let x = from_oracle_version(&oa).span(&from_oracle_version(&ob));
-        let y = from_oracle_version(&oc).span(&from_oracle_version(&od));
-        if x != y {
-            let (ex, ey) = (x.encode(), y.encode());
-            prop_assert!(
-                !ex.starts_with(&ey) && !ey.starts_with(&ex),
-                "prefix-free: {:02x?} vs {:02x?}", ex, ey
-            );
-        }
-    }
 }
+
+// Span-composite prefix-freedom is the `span_encoding_is_prefix_free` law in
+// `laws::VERSION_TRIPLE`, quantified over the operand-span families (whose
+// shared endpoints make byte-prefix-adjacent composites on every call) and
+// driven over arbitrary normal forms, organic op-trace populations, and the
+// fuzz target's decoded values.
 
 /// Structural genres outrank the pair verdict on multiply-defective composites,
 /// exactly as decoding the components would order them.

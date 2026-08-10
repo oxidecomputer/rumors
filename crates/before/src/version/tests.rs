@@ -1891,29 +1891,11 @@ fn ranked_fused_walk_survives_deep_cancellation() {
 
 // ─────────────────────── the composite ranked key ───────────────────────
 
-proptest! {
-    /// Version canonical byte encodings are prefix-free: distinct versions'
-    /// `as_bytes` are never byte prefixes of one another.
-    ///
-    /// The property the composite `Ranked` key's suffix safety rests on for its
-    /// version component, pinned directly rather than inferred from the stream
-    /// being bit-self-delimiting: a strict bit-prefix that were itself
-    /// canonical would make the longer stream carry live bits past a complete
-    /// tree, which the strict decoder rejects — this pins that argument's
-    /// conclusion over arbitrary normal-form pairs.
-    #[test]
-    fn version_encoding_is_prefix_free(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-        let a = from_oracle_version(&oa);
-        let b = from_oracle_version(&ob);
-        if a != b {
-            prop_assert!(
-                !a.as_bytes().starts_with(b.as_bytes())
-                    && !b.as_bytes().starts_with(a.as_bytes()),
-                "prefix-free: {} vs {}", a, b
-            );
-        }
-    }
-}
+// Version-encoding prefix-freedom is the `version_encoding_is_prefix_free`
+// law in `laws::VERSION_PAIR`, driven over arbitrary normal forms, organic
+// op-trace populations, and the fuzz target's decoded values — exactly the
+// population where a prefix-aliasing bug would live. The growth-seam
+// witnesses below stay: extreme depth past any generator's reach.
 
 /// Committed witnesses for version-encoding prefix-freedom at the growth seam:
 /// chains where one version's stream extends another's structure — the shapes
@@ -1973,9 +1955,10 @@ proptest! {
     ///
     /// Rank-unequal pairs are decided inside the rank component (its own
     /// committed prefix-freedom), and rank-equal pairs fall through
-    /// byte-identical rank prefixes to the version component (prefix-free
-    /// above) — this pins the composition of the two arguments over arbitrary
-    /// normal-form pairs with arbitrary suffix bytes on both keys.
+    /// byte-identical rank prefixes to the version component (prefix-free by
+    /// the `version_encoding_is_prefix_free` law) — this pins the composition
+    /// of the two arguments over arbitrary normal-form pairs with arbitrary
+    /// suffix bytes on both keys.
     #[test]
     fn ranked_composite_encoding_is_suffix_safe(
         oa in arb_oracle_version(),
