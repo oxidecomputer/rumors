@@ -240,10 +240,18 @@ impl<P> MinWeb<P> {
     /// A fresh web that stores each pushed boundary at machine width when
     /// the value fits ([`Boundary::Word`]).
     ///
-    /// The min-ticks instantiation: its deep committed shapes (the
-    /// `skyline_min_ticks_*` envelope rows of `tests/meter.rs`) stack one
-    /// unit-scale boundary per open range, and the inline word keeps that
-    /// transient at one machine word per range instead of one live heap buffer.
+    /// The min-ticks instantiation. Compaction pays exactly where nonzero
+    /// boundaries stack, in two currencies: per-boundary transient storage
+    /// (an inline word per stacked difference instead of an accumulator
+    /// entry) and undercut propagation (a residue consumes each word
+    /// boundary by one O(1) fold instead of an accumulator-width hop). The
+    /// measured basis is the boundary-stacking row — the
+    /// `skyline_min_ticks_ascend` envelope of `tests/meter.rs`, whose shape
+    /// holds one nonzero unit difference per open range simultaneously:
+    /// un-compacted storage reads ×1.41 that row's pinned peak heap and
+    /// ×2.0 its pinned touches, over both ceilings. Shapes whose stacked
+    /// differences are all zero runs (the committed dense and comb rows)
+    /// never store a boundary, so compaction is invisible there.
     pub(super) fn compacting() -> Self {
         MinWeb {
             compact_words: true,

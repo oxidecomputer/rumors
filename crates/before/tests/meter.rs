@@ -114,6 +114,16 @@ const HOLE_STAIR_DEPTH: usize = 2_000;
 /// unowned.
 const HOLE_ID_DEPTH: usize = 8;
 
+/// Spine depth of the min_ticks ascending-cliff scenario: enough
+/// simultaneously stacked nonzero boundary differences that per-boundary
+/// transient memory dominates the envelope.
+const ASCEND_STACK_DEPTH: usize = 2_000;
+
+/// Leaf magnitude (bits) of the min_ticks ascending-cliff scenario: wide
+/// enough that the plateau rides the frozen component, word-scale enough
+/// that every stacked boundary difference is a compaction candidate.
+const ASCEND_STACK_MAGNITUDE_BITS: usize = 64;
+
 /// Owned-fragment count of the alternating-ownership comb scenario,
 /// interleaving one owned leaf and one absent gap per level down the
 /// alternating spine.
@@ -6157,6 +6167,7 @@ mod query_env {
     pub const TICKS_MIRROR_WIDE: QueryEnvelope = query_envelope(39_506, 0, 723, 220_048, 72_582, 433, 43_548); // 31_605 -> 31_701 (pre-existing drift) -> 31_989 (the zero-run ledger's map nodes; the older ceiling stands), 0, 40_580, 184_036, 122_060 (second-walk fill branch, as the nested-wide row); re-pinned to the new readings (limb 24_572, scan 184_036, touches 86_059, heap 31_877): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 578, scan 184_036, touches 86_059, heap 31_877): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal); re-pinned (limb 578, scan 176_038, touches 58_065, heap 31_877): the pre-scan records minima only — the walk owns every left-full raise decision, so the per-site collapse re-read and raise-mirror folds leave the scan and touch columns
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope = query_envelope(30_720, 0, 5, 468_758, 312_508, 3, 187_504); // 24_576, 0, 500_002 -> 250_006 (the anchor-web fold: the per-close signed offset compare is gone), 375_006, 125_005 -> 250_008 (every delta folds into two accumulators - the live height and the web's gap - so the touch column doubles while the quadratic minima circulation leaves; heap and scan byte-identical across the rewrite); re-pinned (limb 4, scan 375_006, touches 250_006, heap 24_576): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope = query_envelope(3_530, 0, 180, 17_923, 12_000, 108, 7_200); // 49_752 -> 2_592 -> 3_168 (the anchor-web fold's 19x drop, then the zero-run ledger's map nodes measured at the cure-round merge; the older ceiling stands) -> 3_448 (the accumulator's quick register: one idle i128 per pooled accumulator; work columns unmoved), 8_258 -> 6_284, 70_962 -> 10_619 (the anchor-web fold: the comb's wide F-relative pending offsets and their per-close folds are epoch-ledger counts now, touches 6.7x down; scan byte-identical), 0, 14_338; re-pinned (limb 144, scan 14_338, touches 9_600, heap 3_320): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    pub const SKYLINE_MIN_TICKS_ASCEND: QueryEnvelope = query_envelope(553_660, 0, 33, 12_823, 20_044, 19, 12_026); // 442_928, 0, 26, 10_258, 16_035 (the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads 623_408 heap (×1.41) and 32_027 touches (×2.0), over both ceilings)
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (single-record id tags), 35_939
     pub const FOLD_VERSION_SCATTER: QueryEnvelope = query_envelope(323, 0, 0, 330_913, 61_429, 0, 36_857); // 73_216 -> 390 -> 294 (the at-rest form is codec::Bits, the wire bytes in a length-carrying container) -> 390 (the borrow-shaped fold face: the counter stack's entries carry the operand-form tag, ~8 B per level; work columns byte-identical) -> 309 (the Bytes-backed at-rest form: the fold's lone-group settle and adoption arms clone by refcount), 0, 690_310 -> 253_904 (sequential 14_281_732) -> 253_902 (pre-existing drift), 163_866 -> 264_730, 0 -> 50_677 (operations route to the skyline kernels); re-pinned to the new readings (limb 111_586, scan 264_730, touches 49_143, heap 282): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 0, scan 264_730, touches 49_143, heap 258): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       780,        0,         0,   322_068,         0, 0, 0); // 336 -> 624 (the Bytes-backed at-rest form: one refcount control block per frozen stream live in the fold's groups; work columns byte-identical), 0, 0, 292_432 -> 257_654 (join_all answers its up-front tests through a per-call id index; the 292_432 was a mid-round reading, the C2 flag-day commit itself reads 276_044) (sequential 3_284_952), 0
@@ -6433,6 +6444,51 @@ fn skyline_min_ticks_cliff_envelope() {
     assert!(
         r.to_string().len() > 20,
         "the comb's floor exceeds any machine word: the wide arm is live"
+    );
+    assert_eq!(
+        r.to_string(),
+        v.min_ticks().to_string(),
+        "the kernel must match the packed fold"
+    );
+}
+
+/// The min_ticks kernel on the ascending cliff stays within its
+/// envelope — the boundary-stacking case, and the committed basis for
+/// the anchor web's per-boundary word compaction.
+///
+/// The ascending spine arms every open range one above its parent's
+/// minimum, so the web holds `ASCEND_STACK_DEPTH − 1` nonzero unit
+/// boundary differences simultaneously at the terminal cliff — the one
+/// committed min_ticks shape where per-boundary transient storage is
+/// the envelope. The heap and touch ceilings are what the compacting
+/// instantiation buys: each word-scale difference is stored inline
+/// instead of as an accumulator entry, and the terminal cliff's
+/// undercut consumes each one by an O(1) word fold instead of an
+/// accumulator hop. With compaction deleted the same body reads ×1.41
+/// the pinned heap and ×2.0 the pinned touches \[measured under the
+/// live swap, same harness\] — over both ceilings, so this row is the
+/// measured basis `MinWeb::compacting` cites.
+#[test]
+fn skyline_min_ticks_ascend_envelope() {
+    let p = Shape::AscendCliff.packed2(ASCEND_STACK_DEPTH, ASCEND_STACK_MAGNITUDE_BITS);
+    let v = version_of(&p);
+    let enc = skyline_of(&p);
+    let r = query_metered(
+        "skyline_min_ticks_ascend",
+        enc.as_raw_slice().len(),
+        &query_env::SKYLINE_MIN_TICKS_ASCEND,
+        || meter::skyline::query::min_ticks(&enc),
+    );
+    // The family's closed form: k leaves at 2^b + i over spine minima
+    // all zero (the terminal cliff), so min_ticks = k·2^b + k(k+1)/2.
+    let k = ASCEND_STACK_DEPTH;
+    let expected = dashu_int::UBig::from(k as u64)
+        * (dashu_int::UBig::ONE << ASCEND_STACK_MAGNITUDE_BITS)
+        + dashu_int::UBig::from((k * (k + 1) / 2) as u64);
+    assert_eq!(
+        r.to_string(),
+        expected.to_string(),
+        "min_ticks disagrees with the ascending cliff's closed form"
     );
     assert_eq!(
         r.to_string(),
