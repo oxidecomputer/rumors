@@ -376,11 +376,20 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
                 ControlFlow::Break(false)
             }
         },
-        // Both watched directions survived to exhaustion: membership
-        // holds exactly when both decided relations admit the probe.
+        // Both watched directions survived to exhaustion, and the hooks
+        // break on any refutation before the exhaustion check runs — so
+        // reaching this arm IS the membership verdict, on any input. The
+        // assertion keeps that control-flow argument loud: a hook or loop
+        // change that ever admits a refuted sweep here fails debug builds
+        // at the seam instead of silently walking full streams to re-derive
+        // (or corrupt) the verdict.
         |lo, hi| {
-            matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Greater))
-                && matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Less))
+            debug_assert!(
+                matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Greater))
+                    && matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Less)),
+                "contains' hooks break on refutation, so exhaustion admits the probe"
+            );
+            true
         },
     )
 }
