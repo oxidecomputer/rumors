@@ -18,8 +18,7 @@ use rand::SeedableRng;
 use super::{
     descend, diff, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
     lift_ev, lift_id, meet, min_ticks, project, rank, seed_id, sum, Dyadic, Event, FunctionClock,
-    Id,
-    GRID_N,
+    Id, GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
