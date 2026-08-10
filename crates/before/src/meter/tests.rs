@@ -4,15 +4,16 @@
 use crate::codec;
 use crate::{Party, Version};
 
+use proptest::prelude::*;
 use suanpan::UBig;
 
 use super::{
-    alt_spine, arming_train, bigroot, bitlen, cancelling_chain, cliff_comb, cliff_fan,
-    concurrent_pair, dense, dense_suffix, dense_suffix_mate, freeze_parade, freeze_position,
-    harmonic, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze, mask_drift_quadruple,
-    mask_drift_triple, plateau_puncture, plateau_puncture_factors, promotion_rearm,
-    promotion_rearm_mate, scattered_id, tooth_tail, weight_comb, wide_arming, wide_tooth_comb,
-    Packed,
+    alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
+    cliff_comb, cliff_fan, concurrent_pair, dense, dense_suffix, dense_suffix_mate, freeze_parade,
+    freeze_position, harmonic, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze,
+    mask_drift_quadruple, mask_drift_triple, plateau_puncture, plateau_puncture_factors,
+    promotion_rearm, promotion_rearm_mate, scattered_id, tooth_tail, weight_comb, wide_arming,
+    wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -1310,5 +1311,28 @@ fn meet_shade_is_the_dominated_carrier() {
             dense(d).version(),
             "the shades dominate the carrier everywhere: the meet is the carrier"
         );
+    }
+}
+
+proptest! {
+    /// The ascending-cliff band guard admits exactly the documented frontier.
+    ///
+    /// At every width `b`, the boundary knob `k = 2^b − 2` — the deepest leaf's
+    /// gamma code exactly filling the width-`b` band (`k + 2 = 2^b`) — builds a
+    /// canonical family member through both callers at the closed-form
+    /// `k(2b + 4) + 2` bits, while the first knob past the band, `k = 2^b − 1`
+    /// (`k + 2 > 2^b`), panics as both callers' contracts state.
+    #[test]
+    fn ascend_cliff_band_guard_admits_exactly_the_documented_frontier(b in 2usize..=16) {
+        let boundary = (1usize << b) - 2;
+        let builds: [fn(usize, usize) -> Packed; 2] = [ascend_cliff, ascend_cliff_plateau];
+        for build in builds {
+            check_version(&build(boundary, b), boundary * (2 * b + 4) + 2);
+            let past = std::panic::catch_unwind(|| build(boundary + 1, b));
+            prop_assert!(
+                past.is_err(),
+                "k + 2 > 2^b must panic: the ascent leaves the width-b code band"
+            );
+        }
     }
 }

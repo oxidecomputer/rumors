@@ -1329,9 +1329,10 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Packed {
     assert!(k >= 1, "the ascending cliff needs at least one spine node");
     assert!(b >= 1, "the ascending cliff needs a nonzero magnitude");
     // Every leaf's gamma code must stay 2b + 1 bits: γ(n) codes
-    // m = n + 1, so the deepest leaf needs 2^b + k + 1 < 2^(b+1).
+    // m = n + 1, so the deepest leaf needs 2^b + k + 1 < 2^(b+1),
+    // i.e. k + 1 < 2^b.
     assert!(
-        b >= usize::BITS as usize || (k + 2) >> b == 0,
+        b >= usize::BITS as usize || (k + 1) >> b == 0,
         "the ascent must stay inside the width-b code band"
     );
     let wide = pow2(b);
