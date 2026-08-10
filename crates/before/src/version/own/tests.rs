@@ -14,7 +14,7 @@ use super::OwnVersion;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, versions, world_strategy};
-use crate::{oracle, Clock, Party, Version};
+use crate::{oracle, Clock, Version};
 
 /// The oracle's composed verdict for `(v / p) ⋚ w`: materialize the projection
 /// on the recursive trees, then compare.
@@ -131,14 +131,9 @@ fn from_impl_is_to_version() {
     assert_eq!(view, via_from); // the copy still compares after the move
 }
 
-/// The seed-party view is the identity view: `(&v / &seed)` compares
-/// equal to `v` itself in both directions.
-#[test]
-fn seed_view_is_identity() {
-    let mut c = Clock::seed();
-    c.tick();
-    let seed = Party::seed();
-    let v = c.version();
-    assert_eq!(v / &seed, *v);
-    assert_eq!(*v, v / &seed);
-}
+// The seed-party view as the identity view is law-pinned:
+// `laws::VERSION_SOLO::seed_projection_is_identity` (the view compares equal
+// to the version) and `laws::VERSION_PAIR_PARTY::
+// own_version_seed_mask_coherence` (the seed mask changes no verdict), with
+// both comparison directions covered by own_version_cmp_matches_materialized
+// — all driven on the three law populations.

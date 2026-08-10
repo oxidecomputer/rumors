@@ -19,42 +19,13 @@ const DEEP_SCALE: usize = 64;
 
 // ───────────────────────────── the join fold ─────────────────────────────
 
-/// Build one organic history's party population, deterministically
-/// reproducible from the same ops.
-fn world_parties(ops: &[crate::testing::optrace::Op]) -> Vec<Party> {
-    run(ops)
-        .iter()
-        .map(|c| from_oracle_party(c.party()))
-        .collect()
-}
-
-proptest! {
-    /// The balanced `join_all` is the sequential fold on parties.
-    ///
-    /// Over one organic history's pairwise-disjoint parties, folding the rest
-    /// into any member returns `Ok` with exactly the party the sequential
-    /// `join`-per-input reference produces, in both input orders.
-    #[test]
-    fn join_all_matches_the_sequential_fold(ops in world_strategy(), i in 0usize..64, reverse in any::<bool>()) {
-        let mut reference_pool = world_parties(&ops);
-        let n = reference_pool.len();
-        let mut reference = reference_pool.remove(i % n);
-        if reverse {
-            reference_pool.reverse();
-        }
-        for p in reference_pool {
-            reference.join(p).expect("one world's parties are pairwise disjoint");
-        }
-
-        let mut pool = world_parties(&ops);
-        let mut acc = pool.remove(i % n);
-        if reverse {
-            pool.reverse();
-        }
-        acc.join_all(pool).expect("one world's parties are pairwise disjoint");
-        prop_assert_eq!(acc, reference);
-    }
-}
+// The balanced `join_all` against the sequential pair joins is the
+// `laws::PARTY_AND_LIST` acceptance law
+// (party_join_all_accepts_iff_family_pairwise_disjoint: an accepted fold
+// equals the sequential joins) together with
+// party_join_all_reunites_forks_at_any_width, driven at boundary-band
+// arities and every feed order over the organic, arbitrary, and
+// fuzz-decoded populations.
 
 /// Aliased inputs stay best-effort: a duplicated share collides on its way in
 /// and is handed back whole (nothing panics, nothing is dropped), while the

@@ -39,32 +39,12 @@ proptest! {
     }
 }
 
-proptest! {
-    /// The order laws on impl versions directly: reflexive, antisymmetric,
-    /// transitive; `==` ⇔ `Some(Equal)`; concurrency ⇔ `None`.
-    #[test]
-    fn order_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let (a, b, c) = (
-            from_oracle_version(&vs[i % n]),
-            from_oracle_version(&vs[j % n]),
-            from_oracle_version(&vs[k % n]),
-        );
-
-        prop_assert_eq!(a.partial_cmp(&a), Some(Ordering::Equal)); // reflexive
-        if le(&a, &b) && le(&b, &a) {
-            prop_assert!(a == b); // antisymmetric
-        }
-        if le(&a, &b) && le(&b, &c) {
-            prop_assert!(le(&a, &c)); // transitive
-        }
-        prop_assert_eq!(a == b, a.partial_cmp(&b) == Some(Ordering::Equal));
-        let concurrent = !le(&a, &b) && !le(&b, &a);
-        prop_assert_eq!(concurrent, a.partial_cmp(&b).is_none());
-    }
-}
+// The order laws (reflexivity, antisymmetry, transitivity, `==` ⟺
+// `Some(Equal)`, concurrency ⟺ `None`) are `laws::VERSION_SOLO` /
+// `VERSION_PAIR` / `VERSION_TRIPLE` entries (order_reflexive,
+// order_antisymmetric, order_transitive_incidental and _constructed,
+// eq_iff_cmp_equal, concurrent_iff_incomparable, partial_cmp_is_dual),
+// driven over these op-trace populations and two more.
 
 /// Assert one comparison-matrix cell agrees with `expected`.
 ///
@@ -610,19 +590,6 @@ proptest! {
 }
 
 proptest! {
-    /// `is_empty` ⟺ `v == Version::new()`, over arbitrary normal-form trees.
-    ///
-    /// Pins the O(1) two-bit emptiness test to the definitional comparison `v
-    /// == Version::new()`; `arb_oracle_version` generates the empty leaf too,
-    /// so both arms are exercised.
-    #[test]
-    fn is_empty_iff_new(ov in arb_oracle_version()) {
-        let v = from_oracle_version(&ov);
-        prop_assert_eq!(v.is_empty(), v == Version::new());
-    }
-}
-
-proptest! {
     /// `|` (merge / LUB) on arbitrary unrelated event trees agrees with the
     /// oracle's `join`, structurally. Exercises the join's arm selection on
     /// shapes the op pipeline never builds, with large bases threaded
@@ -945,74 +912,15 @@ proptest! {
         let n = vs.len();
         prop_assert_eq!(from_oracle_version(&vs[i % n]).rank(), vs[i % n].rank());
     }
-
-    /// The contract that makes `rank` a causal rank, on causally *related*
-    /// versions (an op-trace world is full of comparable pairs).
-    ///
-    /// Strictly ordered versions have strictly ordered ranks, in the same
-    /// direction, and equal versions have equal ranks. Concurrent pairs are
-    /// unconstrained.
-    #[test]
-    fn rank_strictly_monotone_in_histories(ops in world_strategy()) {
-        let vs: Vec<Version> = versions(&run(&ops)).iter().map(from_oracle_version).collect();
-        for a in &vs {
-            for b in &vs {
-                match a.partial_cmp(b) {
-                    Some(Ordering::Less) => prop_assert!(
-                        a.rank() < b.rank(),
-                        "{a} < {b} but rank {} >= {}", a.rank(), b.rank(),
-                    ),
-                    Some(Ordering::Greater) => prop_assert!(
-                        a.rank() > b.rank(),
-                        "{a} > {b} but rank {} <= {}", a.rank(), b.rank(),
-                    ),
-                    Some(Ordering::Equal) => prop_assert_eq!(a.rank(), b.rank()),
-                    None => {} // concurrent: no constraint
-                }
-            }
-        }
-    }
-
-    /// The same contract on arbitrary normal-form pairs (uncoupled from the
-    /// op-trace generator's causally related shapes), plus the join probe.
-    ///
-    /// `a | b` dominates each side, so its rank dominates each side's, with
-    /// equality exactly when that side already contained the other.
-    #[test]
-    fn rank_strictly_monotone_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-        let a = from_oracle_version(&oa);
-        let b = from_oracle_version(&ob);
-        match a.partial_cmp(&b) {
-            Some(Ordering::Less) => prop_assert!(a.rank() < b.rank()),
-            Some(Ordering::Greater) => prop_assert!(a.rank() > b.rank()),
-            Some(Ordering::Equal) => prop_assert_eq!(a.rank(), b.rank()),
-            None => {}
-        }
-        let joined = &a | &b;
-        for side in [&a, &b] {
-            if joined == *side {
-                prop_assert_eq!(joined.rank(), side.rank());
-            } else {
-                prop_assert!(joined.rank() > side.rank(), "the join strictly grew");
-            }
-        }
-    }
-
-    /// Every `tick`, on any live clock in any causal history, strictly
-    /// increases the rank: a tick adds an event the version did not contain.
-    #[test]
-    fn tick_strictly_increases_rank(ops in world_strategy(), i in 0usize..64) {
-        let mut imp = vec![Clock::seed()];
-        for op in &ops {
-            step_impl(&mut imp, op);
-        }
-        let n = imp.len();
-        let c = &mut imp[i % n];
-        let before = c.version().rank();
-        c.tick();
-        prop_assert!(before < c.version().rank());
-    }
 }
+
+// Strict rank monotonicity on the causal order is the
+// `laws::VERSION_PAIR::rank_strictly_monotone` law on all three law
+// populations; the join probe (the join's rank strictly grows past a side
+// unless that side already contained the other) is its composition with
+// `merge_is_upper_bound` and `order_absorbing`, and tick-increases-rank the
+// composition with `laws::VERSION_PARTY::tick_strictly_advances` — each leg
+// executed by the law drivers on the same populations.
 
 /// The alignment oracle for `Rank` order: shift both numerators to the
 /// common exponent and compare — the definitionally correct order the
@@ -1628,64 +1536,13 @@ proptest! {
 
 // ─────────────────────────────── the join fold ───────────────────────────────
 
-/// Build one organic history's version population.
-fn world_versions(ops: &[Op]) -> Vec<Version> {
-    let mut clocks = vec![crate::Clock::seed()];
-    for op in ops {
-        step_impl(&mut clocks, op);
-    }
-    clocks.iter().map(|c| c.version().clone()).collect()
-}
-
-proptest! {
-    /// The balanced join folds are the sequential fold on versions.
-    ///
-    /// Over organic version populations in both orders, `join_all` fed owned
-    /// items, `join_all` fed references, both `Sum` forms, and both
-    /// `FromIterator` forms all return exactly the left fold's join — the
-    /// reduction changes the grouping, the borrowing changes the operand form,
-    /// and the receiver seeding changes the entry, never the value.
-    #[test]
-    fn join_all_equals_the_sequential_fold(ops in world_strategy()) {
-        let pool = world_versions(&ops);
-        let reference = pool
-            .iter()
-            .fold(Version::new(), |acc, v| acc | v);
-        if let Some((first, rest)) = pool.split_first() {
-            prop_assert_eq!(&first.join_all(rest.iter().cloned()), &reference);
-            prop_assert_eq!(&first.join_all(rest), &reference);
-        }
-        if let Some((last, front)) = pool.split_last() {
-            prop_assert_eq!(&last.join_all(front.iter().rev()), &reference);
-        }
-        prop_assert_eq!(&pool.clone().into_iter().sum::<Version>(), &reference);
-        prop_assert_eq!(&pool.iter().sum::<Version>(), &reference);
-        prop_assert_eq!(&pool.clone().into_iter().collect::<Version>(), &reference);
-        prop_assert_eq!(&pool.iter().collect::<Version>(), &reference);
-    }
-}
-
-proptest! {
-    /// The balanced `meet_all` is the sequential fold on versions.
-    ///
-    /// Over organic version populations in both orders, `meet_all` fed owned
-    /// items and `meet_all` fed references both return exactly the left fold of
-    /// `&` from the receiver — the reduction changes the grouping and the
-    /// borrowing changes the operand form, never the value — and the receiver
-    /// itself at zero items, the seed the identityless meet folds from.
-    #[test]
-    fn meet_all_equals_the_sequential_fold(ops in world_strategy()) {
-        let pool = world_versions(&ops);
-        if let Some((first, rest)) = pool.split_first() {
-            let reference = rest.iter().fold(first.clone(), |acc, v| acc & v);
-            prop_assert_eq!(first.meet_all(rest.iter().cloned()), reference.clone());
-            prop_assert_eq!(first.meet_all(rest), reference.clone());
-            let (last, front) = pool.split_last().expect("the pool is nonempty");
-            prop_assert_eq!(last.meet_all(front.iter().rev()), reference);
-            prop_assert_eq!(&first.meet_all(Vec::<Version>::new()), first);
-        }
-    }
-}
+// The n-ary fold doors against the sequential pair fold — `join_all`,
+// `meet_all`, both `Sum` forms, both `FromIterator` forms, in every feed
+// order — are the `laws::VERSION_LIST` / `VERSION_AND_LIST` fold laws
+// (version_sum_is_the_sequential_pair_fold, version_sum_is_order_invariant,
+// join_all_is_the_sequential_pair_fold, meet_all_is_the_sequential_pair_fold,
+// fold_all_is_rotation_invariant), driven at boundary-band arities over the
+// organic, arbitrary, and fuzz-decoded populations.
 
 proptest! {
     /// `meet_all` matches the recursive oracle's fold over arbitrary
@@ -1803,28 +1660,14 @@ proptest! {
         }
     }
 
-    /// The fused `Ranked` comparison is the materialized rank order
-    /// completed by the version-byte tiebreak, differentially.
-    ///
-    /// Over arbitrary normal-form version pairs, the one-walk signed co-sweep
-    /// with its tiebreak answers exactly what two independent rank folds, a
-    /// `Rank` comparison, and a byte comparison answer, in both argument orders
-    /// — and the fused rank-only encode emits `Rank::encode`'s bytes
-    /// byte-for-byte.
-    #[test]
-    fn ranked_fused_walk_matches_materialized(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-        let a = from_oracle_version(&oa);
-        let b = from_oracle_version(&ob);
-        let want = a
-            .rank()
-            .cmp(&b.rank())
-            .then_with(|| a.as_bytes().cmp(b.as_bytes()));
-        let (ra, rb) = (Ranked::from(&a), Ranked::from(&b));
-        prop_assert_eq!(ra.cmp(&rb), want, "fused disagrees: {} vs {}", a, b);
-        prop_assert_eq!(rb.cmp(&ra), want.reverse(), "antisymmetry: {} vs {}", b, a);
-        prop_assert_eq!(ra.encode_rank(), a.rank().encode(), "fused encode: {}", a);
-    }
 }
+
+// The fused Ranked comparison against the materialized rank-then-bytes order
+// (both argument orders) is the `laws::VERSION_PAIR::
+// ranked_orders_by_rank_then_bytes` law, and the fused rank-only encode
+// against `Rank::encode` over the materialized rank is a clause of
+// `laws::VERSION_SOLO::ranked_carries_own_rank` — both driven on all three
+// law populations, a strict superset of the arbitrary pairs alone.
 
 /// The staircase: one new unit plateau per level over the given core, mass
 /// leaning left (`(0, t, 1)`) or right (`(0, 1, t)`).

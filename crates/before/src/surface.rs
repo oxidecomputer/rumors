@@ -322,7 +322,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version::join_all",
-        prod_tree: Leg::Trans("join_all_equals_the_sequential_fold"),
+        prod_tree: Leg::Trans("join_all_is_the_sequential_pair_fold"),
         prod_fs: Leg::Excluded(
             "n-ary pointwise-max realization not adopted; the operation stays bound \
              on its prod↔tree leg — ratified by owner",
@@ -1051,7 +1051,7 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version Sum / FromIterator (owned and borrowed)",
-        prod_tree: Leg::Trans("join_all_equals_the_sequential_fold"),
+        prod_tree: Leg::Trans("version_sum_is_the_sequential_pair_fold"),
         prod_fs: Leg::Excluded(
             "n-ary pointwise-max realization not adopted; the operation stays bound \
              on its prod↔tree leg — ratified by owner",

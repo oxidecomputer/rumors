@@ -13,44 +13,13 @@ use crate::testing::generators::{
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::{error::Parse, Clock, Party, Version};
 
-/// Build one organic history's clock population, deterministically
-/// reproducible from the same ops.
-fn world_clocks(ops: &[Op]) -> Vec<Clock> {
-    let mut clocks = vec![Clock::seed()];
-    for op in ops {
-        step_impl(&mut clocks, op);
-    }
-    clocks
-}
-
-proptest! {
-    /// The balanced `join_all` is the sequential fold on clocks.
-    ///
-    /// Over one organic history's pairwise-disjoint clocks, folding the rest
-    /// into any member returns `Ok` with exactly the clock (party and version
-    /// both) the sequential `join`-per-input reference produces, in both input
-    /// orders.
-    #[test]
-    fn join_all_matches_the_sequential_fold(ops in world_strategy(), i in 0usize..64, reverse in any::<bool>()) {
-        let mut reference_pool = world_clocks(&ops);
-        let n = reference_pool.len();
-        let mut reference = reference_pool.remove(i % n);
-        if reverse {
-            reference_pool.reverse();
-        }
-        for c in reference_pool {
-            reference.join(c).expect("one world's clocks are pairwise disjoint");
-        }
-
-        let mut pool = world_clocks(&ops);
-        let mut acc = pool.remove(i % n);
-        if reverse {
-            pool.reverse();
-        }
-        acc.join_all(pool).expect("one world's clocks are pairwise disjoint");
-        prop_assert_eq!(acc, reference);
-    }
-}
+// The balanced `join_all` against the sequential pair joins is the
+// `laws::CLOCK_AND_LIST` acceptance law
+// (clock_join_all_accepts_iff_parties_pairwise_disjoint: an accepted fold
+// equals the sequential joins on both components) together with
+// clock_join_all_reunites_forks_at_any_width, driven at boundary-band
+// arities and every feed order over the organic, arbitrary, and
+// fuzz-decoded populations.
 
 // ───────────────────── the fold's up-front index, differentially ─────────────────────
 //
@@ -584,29 +553,11 @@ proptest! {
 
 // ───────────────────────── encoded_bits ↔ encode ─────────────────────────
 
-proptest! {
-    /// `encoded_bits` is the pre-padding bit length of `encode`: for every
-    /// live clock (and its party and version), `encode().len()` is
-    /// `encoded_bits()` plus the final marker bit, rounded up to whole
-    /// bytes.
-    ///
-    /// A `Clock` byte-concatenates its party and version (each
-    /// marker-padded and byte-aligned), so its bit length is the
-    /// *byte-aligned* party length plus the version's own bit length —
-    /// the party's padding lies between the two parts, and only the
-    /// version's final marker is left uncounted.
-    #[test]
-    fn encoded_bits_matches_encode_len(ops in world_strategy()) {
-        for oc in &run(&ops) {
-            let c = from_oracle_clock(oc);
-            let (p, v) = (c.party(), c.version());
-            prop_assert_eq!(c.encode().len(), (c.encoded_bits() + 1).div_ceil(8));
-            prop_assert_eq!(p.encode().len(), (p.encoded_bits() + 1).div_ceil(8));
-            prop_assert_eq!(v.encode().len(), (v.encoded_bits() + 1).div_ceil(8));
-            prop_assert_eq!(c.encode().len(), p.encode().len() + v.encode().len());
-        }
-    }
-}
+// `encoded_bits` against `encode().len()` is one law per type
+// (version_/party_/clock_encoded_bits_matches_encode_len in `crate::laws`),
+// and the clock length's additivity over its parts is the byte-concatenation
+// law encode_frames_party_then_version — all driven on the three law
+// populations.
 
 // ───────────────────────────── robustness ─────────────────────────────
 
@@ -974,28 +925,10 @@ fn worked_example() {
 
 // ───────────────────── Display / FromStr / TryFrom (paper notation) ─────────────────────
 
-proptest! {
-    /// `Display` then `FromStr` round-trips for every type, and the printed
-    /// form is the canonical paper notation (re-parsing yields the same value).
-    #[test]
-    fn display_fromstr_roundtrip(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let p = from_oracle_party(cs[i % n].party());
-        let v = from_oracle_version(&cs[i % n].version());
-        let c = from_oracle_clock(&cs[i % n]);
-
-        let ps = p.to_string();
-        prop_assert_eq!(ps.parse::<Party>().expect("Display is valid paper notation"), p);
-
-        let vs = v.to_string();
-        prop_assert_eq!(vs.parse::<Version>().expect("Display is valid paper notation"), v);
-
-        let cstr = c.to_string();
-        let cparsed: Clock = cstr.parse().expect("Display is valid paper notation");
-        prop_assert_eq!(cparsed.encode(), c.encode());
-    }
-}
+// `FromStr ∘ Display == id` is one law per type
+// (version_/party_/clock_text_roundtrip in `crate::laws`), driven on the
+// three law populations; the *rendering* pin — Display is the paper's
+// notation exactly — stays below.
 
 /// Display renders the paper's notation exactly (id `0/1/(l, r)`, event `n/(n,
 /// e1, e2)`, stamp `(i, e)`), matching the paper's §5 examples.
