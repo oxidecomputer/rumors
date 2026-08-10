@@ -23,6 +23,8 @@
 //! for the resource-envelope pins and the amplification board; these are
 //! proptest strategies over random inputs.
 
+mod tests;
+
 use proptest::prelude::*;
 
 use crate::codec;
@@ -68,15 +70,26 @@ pub(crate) fn arb_shape() -> impl Strategy<Value = Shape> {
 /// Splitting an odd count unevenly gives leaves at varying depths. Recursive
 /// over a `O(log)` depth (test-only; the impl is iterative).
 fn bushy_version(lo: u64, leaves: usize) -> oracle::Version {
+    bushy_version_with(lo, leaves, &|k| k.into())
+}
+
+/// [`bushy_version`] with the leaf base drawn from `leaf_base` per leaf
+/// number, so a caller can graft a wide value onto one leaf while keeping
+/// every base distinct.
+fn bushy_version_with(
+    lo: u64,
+    leaves: usize,
+    leaf_base: &impl Fn(u64) -> codec::Base,
+) -> oracle::Version {
     use oracle::Version as V;
     if leaves <= 1 {
-        return V::leaf(lo);
+        return V::leaf(leaf_base(lo));
     }
     let half = leaves / 2;
     V::node(
         0u64,
-        bushy_version(lo, half),
-        bushy_version(lo + half as u64, leaves - half),
+        bushy_version_with(lo, half, leaf_base),
+        bushy_version_with(lo + half as u64, leaves - half, leaf_base),
     )
 }
 
@@ -119,6 +132,66 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
     let mut t = V::leaf(0u64);
     for k in 1..=scale as u64 {
         let leaf = V::leaf(k);
+        t = match shape {
+            Shape::LeftSpine => V::node(0u64, t, leaf),
+            Shape::RightSpine => V::node(0u64, leaf, t),
+            Shape::Zigzag if k % 2 == 0 => V::node(0u64, t, leaf),
+            Shape::Zigzag => V::node(0u64, leaf, t),
+            Shape::Bushy => unreachable!("handled above"),
+        };
+    }
+    from_oracle_version(&t)
+}
+
+/// Build [`shape_version`]'s tree with one leaf raised by `wide`, at the tip
+/// or at an interior position halfway up. Requires `scale ≥ 1`.
+///
+/// The tip is the spines' deepest leaf and the bushy shape's first; the
+/// interior position is the spines' mid-level off-spine leaf and the bushy
+/// shape's middle leaf.
+///
+/// The deep-operand differentials draw `wide` from [`arb_base`], so a walk's
+/// suspended-ancestor state and pre-scan latents carry genuinely wide values
+/// across real depth — the conjunction that neither the depth-capped
+/// arbitrary trees nor the small-valued deep shapes reach on their own.
+/// Raising one distinct counter by `wide` keeps every leaf base distinct, so
+/// the shape and size survive normalization unchanged.
+pub(crate) fn shape_version_wide(
+    shape: Shape,
+    scale: usize,
+    wide: &codec::Base,
+    at_tip: bool,
+) -> Version {
+    use oracle::Version as V;
+    debug_assert!(scale >= 1, "a scale-0 shape has nowhere to put the leaf");
+    if let Shape::Bushy = shape {
+        let wide_at = if at_tip {
+            0
+        } else {
+            (scale as u64).div_ceil(2)
+        };
+        let leaf_base = |k: u64| {
+            if k == wide_at {
+                wide.clone() + k
+            } else {
+                k.into()
+            }
+        };
+        return from_oracle_version(&bushy_version_with(0, scale + 1, &leaf_base));
+    }
+    let mid = (scale as u64).div_ceil(2);
+    let mut t = V::leaf(if at_tip {
+        wide.clone()
+    } else {
+        codec::Base::from(0u64)
+    });
+    for k in 1..=scale as u64 {
+        let base = if !at_tip && k == mid {
+            wide.clone() + k
+        } else {
+            codec::Base::from(k)
+        };
+        let leaf = V::leaf(base);
         t = match shape {
             Shape::LeftSpine => V::node(0u64, t, leaf),
             Shape::RightSpine => V::node(0u64, leaf, t),
@@ -238,7 +311,14 @@ const ARB_NODES: u32 = 16;
 /// differences of two draws — the fused tick's raise offsets) whose low limb
 /// is exactly zero, the class a limb-truncated value comparison misreads as
 /// zero. The fill flag's full-width worked witnesses pin that comparison
-/// pointwise; this arm keeps the class under ongoing generator mass.
+/// pointwise; this arm keeps the class under ongoing generator mass. The
+/// genuinely-wide arm — a small odd multiplier shifted anywhere in `0..512`
+/// bits — puts many-limb magnitudes with arbitrary limb positions under
+/// ongoing mass, so kernel guards that first activate past two limbs
+/// (digit-count clearances, carry chains beyond the second limb, first-word
+/// reads on wide top digits) are inside every random differential's sampled
+/// universe, not beyond it. [`tests::generator_classes_stay_under_mass`]
+/// pins each of these classes alive.
 pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
     prop_oneof![
         6 => (0u64..6).prop_map(codec::Base::from),
@@ -247,6 +327,7 @@ pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
         1 => any::<u128>().prop_map(|n| codec::Base::from(n) + codec::Base::from(u64::MAX)),
         1 => (0u32..96).prop_map(|k| (codec::Base::from(1u8) << k) + codec::Base::from(1u8)),
         1 => (1u64..8).prop_map(|k| codec::Base::from(k) << 64u32),
+        1 => (0u64..4, 0u32..512).prop_map(|(j, k)| codec::Base::from(2 * j + 1) << k),
     ]
 }
 

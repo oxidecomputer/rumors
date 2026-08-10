@@ -17,13 +17,15 @@ use rand::SeedableRng;
 
 use super::{
     descend, diff, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
-    lift_ev, lift_id, meet, min_ticks, project, rank, sum, Dyadic, Event, FunctionClock, Id,
+    lift_ev, lift_id, meet, min_ticks, project, rank, seed_id, sum, Dyadic, Event, FunctionClock,
+    Id,
     GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::optrace::MAX_TRACE_OPS;
 use crate::testing::optrace::{world_strategy, Op};
 use crate::Clock;
 
@@ -109,7 +111,8 @@ fn replay(
                     let (lo, hi) = (i.min(j), i.max(j));
                     let d_im = im[i].party().is_disjoint(im[j].party());
                     let d_or = or[i].party().is_disjoint(or[j].party());
-                    let d_se = disjoint(&se[i].id, &se[j].id, GRID_N);
+                    let g = se[i].id.res_ceiling().max(se[j].id.res_ceiling());
+                    let d_se = disjoint(&se[i].id, &se[j].id, g);
                     assert!(
                         d_im == d_or && d_or == d_se,
                         "sync disjointness disagreement"
@@ -120,7 +123,7 @@ fn replay(
                         let (a, b) = or.split_at_mut(hi);
                         assert!(a[lo].sync(&mut b[0]).is_ok());
                         let (a, b) = se.split_at_mut(hi);
-                        assert!(a[lo].sync(&mut b[0], GRID_N, rng).is_ok());
+                        assert!(a[lo].sync(&mut b[0], rng).is_ok());
                     }
                 }
             }
@@ -130,7 +133,8 @@ fn replay(
                     if i != j {
                         let d_im = im[i].party().is_disjoint(im[j].party());
                         let d_or = or[i].party().is_disjoint(or[j].party());
-                        let d_se = disjoint(&se[i].id, &se[j].id, GRID_N);
+                        let g = se[i].id.res_ceiling().max(se[j].id.res_ceiling());
+                        let d_se = disjoint(&se[i].id, &se[j].id, g);
                         assert!(
                             d_im == d_or && d_or == d_se,
                             "join disjointness disagreement"
@@ -142,7 +146,7 @@ fn replay(
                             let v = or.remove(j);
                             assert!(or[i2].join(v).is_ok());
                             let v = se.remove(j);
-                            assert!(se[i2].join(v, GRID_N).is_ok());
+                            assert!(se[i2].join(v).is_ok());
                         }
                     }
                 }
@@ -410,9 +414,9 @@ proptest! {
         let mut advanced = false;
         for k in 0..(1u64 << g) {
             let x = Dyadic::grid(k, g);
-            let (vb, va) = (before(x), after(x));
+            let (vb, va) = (before.at(x), after.at(x));
             prop_assert!(va >= vb, "event decreased a sample");
-            if !id(x) {
+            if !id.at(x) {
                 prop_assert!(va == vb, "event grew where the id owns nothing");
             }
             if va > vb {
@@ -459,7 +463,7 @@ fn embedding_matches_paper_worked_value() {
         )),
     );
     let f = lift_ev(e);
-    let got: Vec<Base> = (0..8).map(|k| f(Dyadic::grid(k, 3))).collect();
+    let got: Vec<Base> = (0..8).map(|k| f.at(Dyadic::grid(k, 3))).collect();
     let want: Vec<Base> = [3u64, 3, 3, 3, 2, 4, 1, 1]
         .into_iter()
         .map(Base::from)
@@ -480,10 +484,10 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
         Arc::new(V::Leaf(9u64.into())),
     ));
     // Two finer-than-needed points inside [0,1/2) agree; two inside [1/2,1) agree.
-    assert_eq!(f(Dyadic::grid(1, 4)), Base::from(7u64)); // 1/16
-    assert_eq!(f(Dyadic::grid(7, 4)), Base::from(7u64)); // 7/16
-    assert_eq!(f(Dyadic::grid(9, 4)), Base::from(9u64)); // 9/16
-    assert_eq!(f(Dyadic::grid(15, 4)), Base::from(9u64)); // 15/16
+    assert_eq!(f.at(Dyadic::grid(1, 4)), Base::from(7u64)); // 1/16
+    assert_eq!(f.at(Dyadic::grid(7, 4)), Base::from(7u64)); // 7/16
+    assert_eq!(f.at(Dyadic::grid(9, 4)), Base::from(9u64)); // 9/16
+    assert_eq!(f.at(Dyadic::grid(15, 4)), Base::from(9u64)); // 15/16
 }
 
 // ───────────────────────── known-bad references, held convicted ─────────────────────────
@@ -647,7 +651,13 @@ fn worked_value_anchor_convicts_the_mirrored_embedding() {
 /// This covers *both* the oracle's tree depth and the function space's probed
 /// resolution — the random `fork` refines up to two levels per call (vs. the
 /// paper's one), so its resolution can run ahead of the oracle's, and it is the
-/// binding constraint. Pins that headroom.
+/// binding constraint.
+///
+/// The structural guarantee lives in [`GRID_N`]'s derivation from the op cap
+/// (one level per op at most, so every in-support trace stays under); this
+/// sweep is the distributional canary over sampled traces, and
+/// [`fork_chain_raises_resolution_one_level_per_fork`] pins the derivation's
+/// growth-rate premise deterministically on the worst in-support schedule.
 ///
 /// Single seed, matching the keystone: forking one lineage repeatedly is the
 /// worst case for per-lineage resolution growth, so a single seed bounds it.
@@ -688,4 +698,57 @@ fn grid_cap_is_never_reached() {
         "op-trace reached resolution {observed} ≥ GRID_N {GRID_N}; raise GRID_N so the scans \
          stay fully faithful",
     );
+}
+
+/// The grid derivation's premise, met with equality on its worst schedule:
+/// a same-lineage fork chain raises resolution exactly one level per fork,
+/// with both halves nonempty, strictly below the derived [`GRID_N`].
+///
+/// A run of consecutive `Fork(0)`s is inside `world_strategy`'s support but
+/// beyond any sampled sweep's reach (a 10-long chain has ~1e-10 mass per
+/// trace), so the fastest in-support resolution growth is pinned here
+/// deterministically: each fork of a single-piece lineage bisects at its
+/// midpoint, one level finer. If the rate ever exceeded one level per fork,
+/// or a ceiling clamp resurfaced and handed one child an empty half, the
+/// equality or the nonemptiness read here goes red long before the canary
+/// sweep could sample it. The chain stops at 16 — past any resolution the
+/// sampled sweeps reach, still cheap to probe (the probe scans
+/// `2^resolution` centers) — while the full in-support schedule is covered
+/// by construction: [`GRID_N`] is derived from the op cap, and this test
+/// asserts the derivation clears the deepest in-support bisection level.
+#[test]
+fn fork_chain_raises_resolution_one_level_per_fork() {
+    // The derivation's arithmetic: the deepest in-support bisection level is
+    // the op cap itself (resolution strictly below the cap, bisection one
+    // finer), and the ceiling must clear it.
+    assert!(
+        u32::try_from(MAX_TRACE_OPS).expect("small cap") <= GRID_N,
+        "the grid ceiling no longer clears the deepest in-support bisection"
+    );
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut kept = FunctionClock::seed();
+    for k in 1..=16u32 {
+        let child = kept.fork(&mut rng);
+        assert!(k < GRID_N, "the chain itself must stay inside the grid");
+        assert_eq!(
+            id_res(&kept.id),
+            k,
+            "kept half's resolution after fork {k}: exactly one level per fork"
+        );
+        assert_eq!(
+            id_res(&child.id),
+            k,
+            "split-off half's resolution after fork {k}: exactly one level per fork"
+        );
+        // Nonempty halves: an empty id is disjoint from the seed id (which
+        // owns everything); a live one is not.
+        assert!(
+            !disjoint(&kept.id, &seed_id(), k + 1),
+            "the kept half went empty at fork {k}"
+        );
+        assert!(
+            !disjoint(&child.id, &seed_id(), k + 1),
+            "the split-off half went empty at fork {k}"
+        );
+    }
 }

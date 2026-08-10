@@ -45,14 +45,25 @@ fn op_strategy() -> impl Strategy<Value = Op> {
     ]
 }
 
-/// A trace of up to 30 ops over a population that starts as a single seed clock.
+/// The default trace-length cap: [`world_strategy`] draws strictly fewer ops
+/// than this.
+///
+/// Consumers that size a resource to the deepest reachable history derive
+/// from this constant rather than transcribing it (the semantic oracle
+/// derives its comparison-grid ceiling
+/// [`super::semantic_oracle::GRID_N`] from it, so a cap change cannot
+/// silently outgrow the grid).
+pub(crate) const MAX_TRACE_OPS: usize = 30;
+
+/// A trace of fewer than [`MAX_TRACE_OPS`] ops over a population that starts
+/// as a single seed clock.
 pub(crate) fn world_strategy() -> impl Strategy<Value = Vec<Op>> {
-    world_strategy_up_to(30)
+    world_strategy_up_to(MAX_TRACE_OPS)
 }
 
-/// A trace of up to `max_ops` ops over a population that starts as a single
-/// seed clock, for suites that need histories deeper than [`world_strategy`]'s
-/// default cap.
+/// A trace of fewer than `max_ops` ops over a population that starts as a
+/// single seed clock, for suites that need histories deeper than
+/// [`world_strategy`]'s default cap.
 pub(crate) fn world_strategy_up_to(max_ops: usize) -> impl Strategy<Value = Vec<Op>> {
     prop::collection::vec(op_strategy(), 0..max_ops)
 }

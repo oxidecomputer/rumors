@@ -922,6 +922,34 @@ proptest! {
     }
 }
 
+proptest! {
+    /// Deep and wide together: every deep shape at swept depths 8..=128,
+    /// carrying one [`generators::arb_base`]-drawn leaf at the tip or an
+    /// interior node, ticks byte-identical to the iterated public tick.
+    ///
+    /// The conjunction no other family reaches: the depth-capped arbitrary
+    /// trees carry wide values only at small depth, and the deterministic
+    /// deep shapes carry only small distinct counters — so a guard needing
+    /// deep suspension state (the fill walk's ancestor bit stacks, the
+    /// pre-scan's memoized latents) *and* word-scale arithmetic at once
+    /// would sit outside every sampled universe. Here the wide leaf rides a
+    /// real spine, at the tip (inside the deepest suspended range) and at an
+    /// interior node (crossing every open range on the way up), under
+    /// ongoing generator mass.
+    #[test]
+    fn deep_and_wide_ticks_match_iterated(
+        ev_shape in generators::arb_shape(),
+        id_shape in generators::arb_shape(),
+        depth in 8usize..=128,
+        wide in generators::arb_base(),
+        at_tip in any::<bool>(),
+    ) {
+        let v = generators::shape_version_wide(ev_shape, depth, &wide, at_tip);
+        let p = generators::shape_party(id_shape, depth);
+        check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7]);
+    }
+}
+
 /// The shape corpus at depth: the crux differential over the adversarial deep
 /// shapes crossed with the shape parties, `n` to 1000.
 ///
@@ -988,10 +1016,12 @@ fn ticks_from_empty_is_the_counter() {
 
 /// Wide-`n` self-consistency, beyond any iterative reference: `ticks` is a
 /// monoid action — `ticks(a + b) = ticks(b) ∘ ticks(a)` — at `n` around
-/// `2^100`.
+/// `2^100`, over every shape pair at depths swept 5 to 128.
 ///
 /// A small-tail cross-check `ticks(big + 1) = tick ∘ ticks(big)` seams the wide
-/// arm to the ground-truth single tick.
+/// arm to the ground-truth single tick. The swept depths carry the wide-`n`
+/// arithmetic across real suspension depth — the deterministic deep-and-wide
+/// leg beside [`deep_and_wide_ticks_match_iterated`]'s sampled family.
 #[test]
 fn ticks_composes_at_wide_n() {
     use generators::{shape_party, shape_version, Shape};
@@ -1002,20 +1032,22 @@ fn ticks_composes_at_wide_n() {
         Shape::Zigzag,
         Shape::Bushy,
     ];
-    for ev_shape in shapes {
-        let v = shape_version(ev_shape, 5);
-        for id_shape in shapes {
-            let p = shape_party(id_shape, 5);
-            // ticks(2^101) == ticks(2^100) twice.
-            let both = ticks_version(&v, &p, &(big.clone() + &big));
-            let half = ticks_version(&v, &p, &big);
-            let again = ticks_version(&half, &p, &big);
-            assert_eq!(both, again, "wide composition diverged");
-            // ticks(2^100 + 1) == tick() after ticks(2^100).
-            let plus_one = ticks_version(&v, &p, &(big.clone() + 1u64));
-            let mut stepped = half.clone();
-            stepped.tick(&p);
-            assert_eq!(plus_one, stepped, "wide-plus-one seam diverged");
+    for scale in [5usize, 8, 32, 128] {
+        for ev_shape in shapes {
+            let v = shape_version(ev_shape, scale);
+            for id_shape in shapes {
+                let p = shape_party(id_shape, scale);
+                // ticks(2^101) == ticks(2^100) twice.
+                let both = ticks_version(&v, &p, &(big.clone() + &big));
+                let half = ticks_version(&v, &p, &big);
+                let again = ticks_version(&half, &p, &big);
+                assert_eq!(both, again, "wide composition diverged");
+                // ticks(2^100 + 1) == tick() after ticks(2^100).
+                let plus_one = ticks_version(&v, &p, &(big.clone() + 1u64));
+                let mut stepped = half.clone();
+                stepped.tick(&p);
+                assert_eq!(plus_one, stepped, "wide-plus-one seam diverged");
+            }
         }
     }
 }

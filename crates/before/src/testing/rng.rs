@@ -6,6 +6,7 @@
 //! This module is the one home for that randomness, so no test carries its
 //! own generator.
 
+use proptest::test_runner::{RngAlgorithm, TestRng};
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -20,4 +21,22 @@ use rand_chacha::ChaCha8Rng;
 pub(crate) fn word_stream(seed: u64) -> impl FnMut() -> u64 {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     move || rng.next_u64()
+}
+
+/// A deterministic proptest RNG from a fixed seed, for sweeps that sample a
+/// proptest strategy as a corpus rather than running it as a property.
+///
+/// The 32 seed bytes are expanded from [`word_stream`], so the portability
+/// argument above carries over; the ChaCha algorithm choice makes the
+/// `TestRng` itself value-stable too. What a seed names here is the corpus
+/// *up to the strategy's own draw pattern*: a proptest major bump may reshape
+/// how strategies consume randomness, and is a deliberate
+/// corpus-regeneration event exactly like a `rand_core` bump.
+pub(crate) fn strategy_rng(seed: u64) -> TestRng {
+    let mut words = word_stream(seed);
+    let mut bytes = [0u8; 32];
+    for chunk in bytes.chunks_exact_mut(8) {
+        chunk.copy_from_slice(&words().to_le_bytes());
+    }
+    TestRng::from_seed(RngAlgorithm::ChaCha, &bytes)
 }

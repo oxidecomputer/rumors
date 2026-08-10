@@ -6,9 +6,10 @@
 //! oracle" is blind to a bug the two share. This module shares no code and no
 //! structure with that recursion: a stamp's id *is* its characteristic function
 //! `⟦i⟧: [0,1) → {0,1}` and its event *is* its step function `⟦e⟧: [0,1) → ℕ₀`
-//! ([`Id`]/[`Event`], boxed closures over dyadic rationals), and every ITC
-//! operation is a closure combinator (§2-3). It is a deliberately inefficient,
-//! one-to-one transcription of §4.
+//! ([`Id`]/[`Event`], shared closures over dyadic rationals, each carrying a
+//! structural ceiling on its resolution), and every ITC operation is a
+//! closure combinator (§2-3). It is a deliberately inefficient, one-to-one
+//! transcription of §4.
 //!
 //! ## Cross-check by replay
 //!
@@ -55,19 +56,27 @@ use rand::Rng;
 
 use crate::codec::Base;
 use crate::oracle;
+use crate::testing::optrace;
 
 /// Grid exponent ceiling for the comparison and resolution scans: a scan
 /// samples `2^g` points with `g` the resolution actually in hand
 /// ([`id_res`]/[`ev_res`]), and this caps `g`.
 ///
-/// Set well above the resolution
-/// the tests reach (arbitrary generators cap at 4; a single-seed op trace
-/// tops out near 7, since the random `fork` only deepens at the paper's
-/// rate), so it never bites. The headroom is required for correctness:
-/// `fork` bisects an indivisible piece one level finer, so a piece at
-/// resolution `GRID_N` could not be split.
-/// [`tests::grid_cap_is_never_reached`] pins it.
-pub(crate) const GRID_N: u32 = 10;
+/// Derived from the op-trace cap, so it clears every in-support trace by
+/// construction: resolution starts at zero (the seed owns all of `[0,1)`)
+/// and grows only when [`fork`] bisects an indivisible piece — at most one
+/// level per op — so a trace of fewer than
+/// [`optrace::MAX_TRACE_OPS`] ops keeps every resolution strictly below
+/// `MAX_TRACE_OPS`, and both the bisection and the one extra level the
+/// comparison scans add stay within `MAX_TRACE_OPS` itself; the `+ 2` is
+/// margin beyond that. `fork` asserts the ceiling rather than
+/// clamping to it, so an out-of-derivation trace fails loudly instead of
+/// splitting off an empty half. [`tests::grid_cap_is_never_reached`] sweeps
+/// the growth-rate premise distributionally, and the deterministic fork
+/// chain beside it pins the rate with equality on the worst in-support
+/// schedule. Replaying a generator deeper than [`optrace::world_strategy`]
+/// against the function space requires rederiving this ceiling first.
+pub(crate) const GRID_N: u32 = optrace::MAX_TRACE_OPS as u32 + 2;
 
 // ───────────────────────────── dyadic points ─────────────────────────────
 
@@ -108,7 +117,8 @@ impl PartialOrd for Dyadic {
 }
 impl Ord for Dyadic {
     /// Compare `a/2^p` and `b/2^q` by cross-multiplication: `a·2^q` vs `b·2^p`
-    /// (exponents are small in tests, so `u128` never overflows).
+    /// (exponents stay within a level of [`GRID_N`], so `u128` never
+    /// overflows).
     fn cmp(&self, other: &Self) -> Ordering {
         let lhs = (self.num as u128) << other.exp;
         let rhs = (other.num as u128) << self.exp;
@@ -118,25 +128,85 @@ impl Ord for Dyadic {
 
 // ───────────────────────────── the function space ─────────────────────────────
 
-/// A party's characteristic function `⟦i⟧: [0,1) → {0,1}`.
-pub(crate) type Id = Rc<dyn Fn(Dyadic) -> bool>;
-/// A version's step function `⟦e⟧: [0,1) → ℕ₀`.
-pub(crate) type Event = Rc<dyn Fn(Dyadic) -> Base>;
+/// A party's characteristic function `⟦i⟧: [0,1) → {0,1}`, carrying a
+/// structural ceiling on its resolution.
+///
+/// The ceiling is the finest dyadic level at which the closure can change
+/// value, propagated by every constructor (a combinator takes the max of its
+/// operands'; [`fork`] emits its dealing level; a lifted tree its depth). The
+/// resolution probe ([`id_res`]) scans exhaustively at the ceiling, so it
+/// reports the *true* — possibly collapsed — resolution at `2^ceiling` cost
+/// rather than a flat `2^GRID_N`. The scan cannot soundly stop earlier than
+/// a known ceiling: a region owning a single cell at a fine level is
+/// invisible to every coarser sample row, so no adaptive sampling scheme can
+/// certify it has seen the finest boundary.
+#[derive(Clone)]
+pub(crate) struct Id {
+    f: Rc<dyn Fn(Dyadic) -> bool>,
+    /// The finest dyadic level at which the function can change value.
+    res_ceiling: u32,
+}
+
+impl Id {
+    /// Wrap a closure that never changes value below dyadic level `ceiling`.
+    fn new(ceiling: u32, f: impl Fn(Dyadic) -> bool + 'static) -> Id {
+        Id {
+            f: Rc::new(f),
+            res_ceiling: ceiling,
+        }
+    }
+
+    /// Evaluate `⟦i⟧` at `x`.
+    pub(crate) fn at(&self, x: Dyadic) -> bool {
+        (self.f)(x)
+    }
+
+    /// The structural resolution ceiling: a scan at this level resolves the
+    /// function exactly, so it is the grid for a comparison against this id.
+    pub(crate) fn res_ceiling(&self) -> u32 {
+        self.res_ceiling
+    }
+}
+
+/// A version's step function `⟦e⟧: [0,1) → ℕ₀`, carrying a structural ceiling
+/// on its resolution (see [`Id`]).
+#[derive(Clone)]
+pub(crate) struct Event {
+    f: Rc<dyn Fn(Dyadic) -> Base>,
+    /// The finest dyadic level at which the function can change value.
+    res_ceiling: u32,
+}
+
+impl Event {
+    /// Wrap a closure that never changes value below dyadic level `ceiling`.
+    fn new(ceiling: u32, f: impl Fn(Dyadic) -> Base + 'static) -> Event {
+        Event {
+            f: Rc::new(f),
+            res_ceiling: ceiling,
+        }
+    }
+
+    /// Evaluate `⟦e⟧` at `x`.
+    pub(crate) fn at(&self, x: Dyadic) -> Base {
+        (self.f)(x)
+    }
+}
 
 /// `⟦seed⟧`: owns all of `[0,1)`.
 pub(crate) fn seed_id() -> Id {
-    Rc::new(|_| true)
+    Id::new(0, |_| true)
 }
 
 /// `⟦Version::new()⟧`: the zero function.
 pub(crate) fn new_ev() -> Event {
-    Rc::new(|_| Base::ZERO)
+    Event::new(0, |_| Base::ZERO)
 }
 
 /// Id union `⟦i1⟧ + ⟦i2⟧` (used by `join`/`sum`; operands must be disjoint for
 /// a valid id).
 pub(crate) fn sum(a: Id, b: Id) -> Id {
-    Rc::new(move |x| a(x) || b(x))
+    let ceiling = a.res_ceiling.max(b.res_ceiling);
+    Id::new(ceiling, move |x| a.at(x) || b.at(x))
 }
 
 /// Id difference `⟦i1⟧ \ ⟦i2⟧`: the region `a` owns that `b` does not, pointwise
@@ -146,7 +216,8 @@ pub(crate) fn sum(a: Id, b: Id) -> Id {
 /// — total (overlap is the point) and possibly empty (the all-`false` function,
 /// when `b` covers `a`).
 pub(crate) fn diff(a: Id, b: Id) -> Id {
-    Rc::new(move |x| a(x) && !b(x))
+    let ceiling = a.res_ceiling.max(b.res_ceiling);
+    Id::new(ceiling, move |x| a.at(x) && !b.at(x))
 }
 
 /// Event projection `⟦e⟧ / ⟦i⟧`: keep the value where `i` owns the region, zero
@@ -154,13 +225,15 @@ pub(crate) fn diff(a: Id, b: Id) -> Id {
 ///
 /// The function-space realization of the quotient [`Version / &Party`](crate::Version).
 pub(crate) fn project(e: Event, i: Id) -> Event {
-    Rc::new(move |x| if i(x) { e(x) } else { Base::ZERO })
+    let ceiling = e.res_ceiling.max(i.res_ceiling);
+    Event::new(ceiling, move |x| if i.at(x) { e.at(x) } else { Base::ZERO })
 }
 
 /// Event least-upper-bound `⟦e1⟧ ⊔ ⟦e2⟧`: pointwise max.
 pub(crate) fn join(a: Event, b: Event) -> Event {
-    Rc::new(move |x| {
-        let (va, vb) = (a(x), b(x));
+    let ceiling = a.res_ceiling.max(b.res_ceiling);
+    Event::new(ceiling, move |x| {
+        let (va, vb) = (a.at(x), b.at(x));
         if va >= vb {
             va
         } else {
@@ -172,8 +245,9 @@ pub(crate) fn join(a: Event, b: Event) -> Event {
 /// Event greatest-lower-bound `⟦e1⟧ ⊓ ⟦e2⟧`: pointwise min. The dual of
 /// [`join`]; the meet that the crate exposes as `Version::&`.
 pub(crate) fn meet(a: Event, b: Event) -> Event {
-    Rc::new(move |x| {
-        let (va, vb) = (a(x), b(x));
+    let ceiling = a.res_ceiling.max(b.res_ceiling);
+    Event::new(ceiling, move |x| {
+        let (va, vb) = (a.at(x), b.at(x));
         if va <= vb {
             va
         } else {
@@ -218,23 +292,28 @@ fn cell_at(x: Dyadic, level: u32) -> usize {
 pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
     let level = id_res(i);
     let owned = owned_cells(i, level);
-    // Per-cell bump, indexed by cell at the id's resolution: each owned cell
-    // `0..=3`, with the first owned cell forced `1..=3` so `f·i ▷ 0`. Non-owned
-    // cells stay `0` (and are gated out).
-    let mut bump = vec![0u64; 1 << level];
-    for (n, &c) in owned.iter().enumerate() {
-        bump[c] = if n == 0 {
-            rng.gen_range(1..=3) // first owned cell: strictly positive
-        } else {
-            rng.gen_range(0..=3) // any other owned cell: 0 leaves it untouched (partial inflation)
-        };
-    }
-    let bump = Rc::new(bump);
+    // Per-cell bump, keyed by cell index at the id's resolution: each owned
+    // cell `0..=3`, with the first owned cell forced `1..=3` so `f·i ▷ 0`.
+    // Non-owned cells carry no entry (and are gated out), so the table's size
+    // is the owned piece count, never the grid's.
+    let bump: std::collections::HashMap<usize, u64> = owned
+        .iter()
+        .enumerate()
+        .map(|(n, &c)| {
+            let amount = if n == 0 {
+                rng.gen_range(1..=3) // first owned cell: strictly positive
+            } else {
+                rng.gen_range(0..=3) // any other owned cell: 0 leaves it untouched (partial inflation)
+            };
+            (c, amount)
+        })
+        .collect();
+    let ceiling = e.res_ceiling.max(level);
     let i = i.clone();
-    Rc::new(move |x| {
-        let v = e(x);
-        if i(x) {
-            v + Base::from(bump[cell_at(x, level)])
+    Event::new(ceiling, move |x| {
+        let v = e.at(x);
+        if i.at(x) {
+            v + Base::from(bump.get(&cell_at(x, level)).copied().unwrap_or(0))
         } else {
             v
         }
@@ -257,8 +336,10 @@ pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
 /// on the bisection of an indivisible piece — exactly the paper's rate (≤ 1
 /// level per fork). That is the one concession to a *finite* comparison grid:
 /// an arbitrary cut of an indivisible interval would need ever-finer dyadic
-/// points, which a fixed grid cannot resolve over a long trace.
-/// [`tests::grid_cap_is_never_reached`] guards the headroom. (Both halves
+/// points, which a fixed grid cannot resolve over a long trace. The bisection
+/// asserts [`GRID_N`], which the derivation from the op cap keeps clear of
+/// every in-support trace; [`tests::grid_cap_is_never_reached`] sweeps that
+/// headroom distributionally. (Both halves
 /// nonempty is stronger than §4 — which permits the empty `peek` split — but a
 /// child handed an empty id could never advance, diverging from the impl; the
 /// replay needs both children live.)
@@ -269,26 +350,34 @@ pub(crate) fn fork(i: &Id, rng: &mut StdRng) -> (Id, Id) {
     let level = if owned_cells(i, res).len() >= 2 {
         res
     } else {
-        (res + 1).min(GRID_N)
+        assert!(
+            res < GRID_N,
+            "fork would bisect below the comparison grid (resolution {res}, ceiling {GRID_N}): \
+             the trace is deeper than the derivation from the op cap covers"
+        );
+        res + 1
     };
     let owned = owned_cells(i, level);
     let (lo, hi) = (owned[0], *owned.last().expect("fork of an empty id"));
-    // `left[c]` decides each owned piece independently, then `lo` is pinned
-    // left and `hi` right so both halves are nonempty (`lo != hi`, the region
-    // having ≥ 2 pieces at `level`).
-    let mut left = vec![false; 1 << level];
-    for &c in &owned {
-        left[c] = rng.gen();
-    }
-    left[lo] = true;
-    left[hi] = false;
+    // `left` decides each owned piece independently (keyed by cell index at
+    // `level`; unowned cells carry no entry and are gated out), then `lo` is
+    // pinned left and `hi` right so both halves are nonempty (`lo != hi`, the
+    // region having ≥ 2 pieces at `level`).
+    let mut left: std::collections::HashMap<usize, bool> =
+        owned.iter().map(|&c| (c, rng.gen())).collect();
+    left.insert(lo, true);
+    left.insert(hi, false);
     let left = Rc::new(left);
     let il = i.clone();
     let right_mask = left.clone();
     let ir = i.clone();
     (
-        Rc::new(move |x| il(x) && left[cell_at(x, level)]),
-        Rc::new(move |x| ir(x) && !right_mask[cell_at(x, level)]),
+        Id::new(level, move |x| {
+            il.at(x) && left.get(&cell_at(x, level)).copied().unwrap_or(false)
+        }),
+        Id::new(level, move |x| {
+            ir.at(x) && !right_mask.get(&cell_at(x, level)).copied().unwrap_or(false)
+        }),
     )
 }
 
@@ -299,7 +388,7 @@ pub(crate) fn fork(i: &Id, rng: &mut StdRng) -> (Id, Id) {
 /// sample per cell decides it.
 fn owned_cells(i: &Id, level: u32) -> Vec<usize> {
     (0..(1u64 << level))
-        .filter(|&k| i(Dyadic::center(k, level)))
+        .filter(|&k| i.at(Dyadic::center(k, level)))
         .map(|k| k as usize)
         .collect()
 }
@@ -307,36 +396,40 @@ fn owned_cells(i: &Id, level: u32) -> Vec<usize> {
 /// The resolution of an id: the finest dyadic level at which `⟦i⟧` actually
 /// changes value (`0` if constant).
 ///
-/// Probed from the function, not tracked — so
-/// a `sum` that recombines into a coarser region (e.g. two halves back to the
-/// whole `[0,1)`) reports its *true*, collapsed resolution, keeping the
-/// comparison grid no finer than necessary.
+/// Probed from the function, not read off the tracked ceiling — so a `sum`
+/// that recombines into a coarser region (e.g. two halves back to the whole
+/// `[0,1)`) reports its *true*, collapsed resolution, keeping the comparison
+/// grid no finer than necessary. The scan runs at the ceiling, where every
+/// cell is constant, so it is exact and costs `2^ceiling` rather than
+/// `2^GRID_N`.
 pub(crate) fn id_res(i: &Id) -> u32 {
-    let samples: Vec<bool> = (0..(1u64 << GRID_N))
-        .map(|k| i(Dyadic::center(k, GRID_N)))
+    let ceiling = i.res_ceiling;
+    let samples: Vec<bool> = (0..(1u64 << ceiling))
+        .map(|k| i.at(Dyadic::center(k, ceiling)))
         .collect();
-    resolution(&samples)
+    resolution(&samples, ceiling)
 }
 
 /// The resolution of an event step function (see [`id_res`]).
 pub(crate) fn ev_res(e: &Event) -> u32 {
-    let samples: Vec<Base> = (0..(1u64 << GRID_N))
-        .map(|k| e(Dyadic::center(k, GRID_N)))
+    let ceiling = e.res_ceiling;
+    let samples: Vec<Base> = (0..(1u64 << ceiling))
+        .map(|k| e.at(Dyadic::center(k, ceiling)))
         .collect();
-    resolution(&samples)
+    resolution(&samples, ceiling)
 }
 
-/// Finest boundary level present in a row of `2^GRID_N` cell samples: the
+/// Finest boundary level present in a row of `2^level` cell samples: the
 /// deepest level at which two adjacent cells disagree (`0` if all equal).
 ///
 /// The
-/// boundary between cells `k-1` and `k` sits at level `GRID_N − v₂(k)`, so the
+/// boundary between cells `k-1` and `k` sits at level `level − v₂(k)`, so the
 /// finest disagreement is the resolution.
-fn resolution<T: PartialEq>(samples: &[T]) -> u32 {
+fn resolution<T: PartialEq>(samples: &[T], level: u32) -> u32 {
     let mut res = 0;
     for k in 1..samples.len() {
         if samples[k] != samples[k - 1] {
-            res = res.max(GRID_N - (k as u32).trailing_zeros());
+            res = res.max(level - (k as u32).trailing_zeros());
         }
     }
     res
@@ -345,15 +438,19 @@ fn resolution<T: PartialEq>(samples: &[T]) -> u32 {
 // ───────────────────────────── embedding (tree → function) ─────────────────────────────
 
 /// `⟦i⟧` for an oracle id tree (with [`lift_ev`], the only places a tree is
-/// read). Descends by the §4 recursion: at a node the left child owns
-/// `[0,½)` (argument `2x`), the right `[½,1)` (argument `2x−1`).
+/// read).
+///
+/// Descends by the §4 recursion: at a node the left child owns `[0,½)`
+/// (argument `2x`), the right `[½,1)` (argument `2x−1`). The tree's depth is
+/// the lifted function's resolution ceiling: a leaf's constant value spans
+/// its whole interval.
 pub(crate) fn lift_id(t: oracle::Party) -> Id {
-    Rc::new(move |x| eval_id(&t, x))
+    Id::new(id_depth(&t), move |x| eval_id(&t, x))
 }
 
 /// `⟦e⟧` for an oracle event tree: base values accumulate down the path.
 pub(crate) fn lift_ev(t: oracle::Version) -> Event {
-    Rc::new(move |x| eval_ev(&t, x))
+    Event::new(ev_depth(&t), move |x| eval_ev(&t, x))
 }
 
 fn eval_id(t: &oracle::Party, mut x: Dyadic) -> bool {
@@ -427,7 +524,7 @@ pub(crate) fn ev_order(a: &Event, b: &Event, g: u32) -> Option<Ordering> {
     let (mut le, mut ge) = (true, true);
     for k in 0..(1u64 << g) {
         let x = Dyadic::grid(k, g);
-        match a(x).cmp(&b(x)) {
+        match a.at(x).cmp(&b.at(x)) {
             Ordering::Less => ge = false,
             Ordering::Greater => le = false,
             Ordering::Equal => {}
@@ -450,7 +547,7 @@ pub(crate) fn id_order(a: &Id, b: &Id, g: u32) -> Option<Ordering> {
     let (mut le, mut ge) = (true, true);
     for k in 0..(1u64 << g) {
         let x = Dyadic::grid(k, g);
-        let (oa, ob) = (a(x), b(x));
+        let (oa, ob) = (a.at(x), b.at(x));
         if ob && !oa {
             le = false; // b owns a point a does not: ¬(a ⊇ b)
         }
@@ -468,7 +565,7 @@ pub(crate) fn id_order(a: &Id, b: &Id, g: u32) -> Option<Ordering> {
 pub(crate) fn disjoint(a: &Id, b: &Id, g: u32) -> bool {
     !(0..(1u64 << g)).any(|k| {
         let x = Dyadic::grid(k, g);
-        a(x) && b(x)
+        a.at(x) && b.at(x)
     })
 }
 
@@ -492,7 +589,7 @@ pub(crate) fn min_ticks(e: &Event, g: u32) -> Base {
         // Every value here is `≥ off` (a containing cell's running minimum), so
         // the `Base` subtraction never underflows.
         let vals: Vec<Base> = (start..start + span)
-            .map(|j| e(Dyadic::grid(j, g)) - off)
+            .map(|j| e.at(Dyadic::grid(j, g)) - off)
             .collect();
         let local = vals
             .iter()
@@ -522,7 +619,7 @@ pub(crate) fn min_ticks(e: &Event, g: u32) -> Base {
 pub(crate) fn rank(e: &Event, g: u32) -> crate::Rank {
     let mut total = Base::ZERO;
     for k in 0..(1u64 << g) {
-        total += &e(Dyadic::grid(k, g));
+        total += &e.at(Dyadic::grid(k, g));
     }
     crate::Rank::from_raw(total, u64::from(g))
 }
@@ -569,9 +666,11 @@ impl FunctionClock {
         }
     }
 
-    /// Absorb a disjoint clock; on overlap return it unchanged. `g` resolves the disjointness
-    /// scan.
-    pub(crate) fn join(&mut self, other: FunctionClock, g: u32) -> Result<(), FunctionClock> {
+    /// Absorb a disjoint clock; on overlap return it unchanged. The
+    /// disjointness scan runs at the ids' tracked ceilings, which resolve
+    /// both exactly.
+    pub(crate) fn join(&mut self, other: FunctionClock) -> Result<(), FunctionClock> {
+        let g = self.id.res_ceiling().max(other.id.res_ceiling());
         if disjoint(&self.id, &other.id, g) {
             self.id = sum(self.id.clone(), other.id);
             self.ev = join(self.ev.clone(), other.ev);
@@ -581,13 +680,11 @@ impl FunctionClock {
         }
     }
 
-    /// Reconcile two clocks: merge events to their LUB, union ids, re-split the union.
-    pub(crate) fn sync(
-        &mut self,
-        other: &mut FunctionClock,
-        g: u32,
-        rng: &mut StdRng,
-    ) -> Result<(), ()> {
+    /// Reconcile two clocks: merge events to their LUB, union ids, re-split
+    /// the union. The disjointness scan runs at the ids' tracked ceilings,
+    /// which resolve both exactly.
+    pub(crate) fn sync(&mut self, other: &mut FunctionClock, rng: &mut StdRng) -> Result<(), ()> {
+        let g = self.id.res_ceiling().max(other.id.res_ceiling());
         if disjoint(&self.id, &other.id, g) {
             let merged = join(self.ev.clone(), other.ev.clone());
             let (left, right) = fork(&sum(self.id.clone(), other.id.clone()), rng);
