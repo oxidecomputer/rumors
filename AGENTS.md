@@ -76,10 +76,12 @@ and node/npm.
 - When the claim is a family (a boundary, an ordering, a schedule), state
   it as a proptest invariant; the shrunk counterexample then rides along
   as a committed seed. A point regression may stay a unit test.
-- A failing proptest writes a seed file automatically: under
-  `proptest-regressions/<module path>.txt` for `src/` tests, and next to
-  the binary for `tests/` suites. Commit every seed file that appears,
-  wherever it appears; never strip one from a diff.
+- A failing proptest writes a seed file automatically (under
+  `proptest-regressions/<module path>.txt` for `src/` tests, next to the
+  binary for `tests/` suites) — unless the failure was reproduced by a
+  seed already committed for that file, which replays first and owes no
+  new entry. Commit every seed file that appears, wherever it appears;
+  never strip one from a diff.
 
 # Writing style
 
