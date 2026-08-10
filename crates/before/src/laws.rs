@@ -2435,8 +2435,9 @@ laws! {
 
 laws! {
     /// Laws over two versions and a live party: projection as a lattice
-    /// homomorphism, its monotonicity in the version, and `ticks` as a
-    /// monoid action at the wide counts the operands' tick floors supply.
+    /// homomorphism, its monotonicity in the version, its metric short-map
+    /// property, and `ticks` as a monoid action at the wide counts the
+    /// operands' tick floors supply.
     pub static VERSION_PAIR_PARTY: (a: &Version, b: &Version, p: &Party);
 
     /// Projection is a homomorphism of the join: `(a | b) / p == (a/p) | (b/p)`
@@ -2453,6 +2454,21 @@ laws! {
     fn projection_meet_homomorphism {
         let met = a & b;
         (&met / p) == ((a / p).to_version() & (b / p).to_version())
+    }
+
+    /// Projection is a short map (1-Lipschitz) for the metric quantities:
+    /// masking both operands to one region can only shrink `distance` and
+    /// `lag` — `d(a/p, b/p) <= d(a, b)` and `lag(a/p, b/p) <= lag(a, b)`.
+    ///
+    /// The projection homomorphism family's metric member: a region carries
+    /// `rank(v) == rank(v/p) + rank(v/p̄)` (disjoint regions carve disjoint
+    /// histories, and projection is additive over a region split), so the
+    /// whole metric splits into the in-region part plus the complement's,
+    /// each nonnegative — subtracting across a mask never inflates. At the
+    /// seed party both sides are equal.
+    fn projection_is_a_short_map {
+        let (pa, pb) = ((a / p).to_version(), (b / p).to_version());
+        pa.distance(&pb) <= a.distance(b) && pa.lag(&pb) <= a.lag(b)
     }
 
     /// Projection is monotone in the version: on the constructed comparable
