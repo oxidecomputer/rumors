@@ -403,59 +403,12 @@ proptest! {
     }
 }
 
-proptest! {
-    /// [`Version::join`] is the spelled form of `|`: equal to the operator on
-    /// every pair (equality on `Version` is canonical byte equality), so the
-    /// named method inherits the operator matrix's differential coverage.
-    #[test]
-    fn join_method_is_the_operator(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-        prop_assert!(a.join(&b) == &a | &b);
-    }
-}
-
-proptest! {
-    /// [`Version::meet`] is the spelled form of `&`, dual to
-    /// [`join_method_is_the_operator`]: equal to the operator on every pair, so
-    /// the named method inherits the operator matrix's differential coverage.
-    #[test]
-    fn meet_method_is_the_operator(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-        prop_assert!(a.meet(&b) == &a & &b);
-    }
-}
-
-proptest! {
-    /// The full `^` (BitXor) matrix over owned and borrowed `Version` operands
-    /// equals [`Version::span`]: every cell is the same pair hull, endpoints
-    /// and all.
-    ///
-    /// The hull itself is law-pinned (`span_is_the_pair_hull` in
-    /// `crate::laws`); this matrix pins each operator cell's delegation to it.
-    #[test]
-    fn span_operator_matrix_is_the_method(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-        let expected = a.span(&b);
-
-        // Version × Version (four reference forms).
-        prop_assert!(a.clone() ^ b.clone() == expected);
-        prop_assert!(&a ^ b.clone() == expected);
-        prop_assert!(a.clone() ^ &b == expected);
-        prop_assert!(&a ^ &b == expected);
-    }
-}
+// The method spellings of `|`, `&`, and `^` (`Version::join`, `Version::meet`,
+// and the four-cell `^` matrix against `Version::span`) are laws
+// (`join_method_is_the_operator`, `meet_method_is_the_operator`,
+// `span_operator_matrix_is_the_method` in `crate::laws`), driven over
+// arbitrary normal forms, these op-trace populations, and the fuzz target's
+// decoded values.
 
 proptest! {
     /// Lattice identity for join, byte-identical: `0 | v == v == v | 0`.

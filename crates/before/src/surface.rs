@@ -934,9 +934,9 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Trans("span_operator_matrix_is_the_method"),
         prod_fs: Leg::Excluded(
             "the operator spelling of Version::span, whose row carries the hull's \
-             dispositions; the matrix test pins every cell's delegation",
+             dispositions; the matrix law pins every cell's delegation",
         ),
-        tree_fs: Leg::Excluded("see the prod↔fs reason; the matrix test pins the delegation"),
+        tree_fs: Leg::Excluded("see the prod↔fs reason; the matrix law pins the delegation"),
     },
     SurfaceRow {
         op: "Span + Span (Add, owned and borrowed — the containment join)",

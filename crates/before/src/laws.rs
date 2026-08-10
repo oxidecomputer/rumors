@@ -469,6 +469,34 @@ laws! {
         (a & &(a | b)) == *a && (a | &(a & b)) == *a
     }
 
+    /// [`Version::join`] is the spelled form of `|`: equal to the operator on
+    /// every pair (equality on `Version` is canonical byte equality), so the
+    /// named method inherits the operator's differential and law coverage.
+    fn join_method_is_the_operator {
+        a.join(b) == (a | b)
+    }
+
+    /// [`Version::meet`] is the spelled form of `&`, dual to
+    /// [`join_method_is_the_operator`]: equal to the operator on every pair,
+    /// so the named method inherits the operator's differential and law
+    /// coverage.
+    fn meet_method_is_the_operator {
+        a.meet(b) == (a & b)
+    }
+
+    /// The full `^` (BitXor) matrix over owned and borrowed operands equals
+    /// [`Version::span`]: every cell is the same pair hull, endpoints and all.
+    ///
+    /// The hull itself is pinned by [`span_is_the_pair_hull`]; this law pins
+    /// each operator cell's delegation to it.
+    fn span_operator_matrix_is_the_method {
+        let expected = a.span(b);
+        (a.clone() ^ b.clone()) == expected
+            && (a ^ b.clone()) == expected
+            && (a.clone() ^ b) == expected
+            && (a ^ b) == expected
+    }
+
     /// Antisymmetry: `a <= b && b <= a ⟹ a == b` (mutually dominating versions
     /// denote the same history, so their canonical bytes coincide).
     fn order_antisymmetric {
