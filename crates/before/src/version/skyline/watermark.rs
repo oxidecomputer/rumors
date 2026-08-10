@@ -165,8 +165,6 @@ enum Entry<P> {
 
 /// What [`MinWeb::close`] popped, for the client to dispatch on.
 pub(super) enum Close<P> {
-    /// The closed range was still pending: no emission ever armed it.
-    Pending,
     /// The last armed range closed and the web retired.
     Retired,
     /// The popped record was a zero run: the parent range's minimum equals
@@ -289,6 +287,12 @@ impl<P> MinWeb<P> {
 
     /// Close the innermost range, merging its minimum into its parent.
     ///
+    /// **Callers close only armed ranges**: every range a client opens is
+    /// armed by an emission before its close arrives — both sweeps emit
+    /// inside every range they open, since a closing node's leaves have all
+    /// been consumed — so no pending range is ever open at a close
+    /// (debug-asserted below).
+    ///
     /// Monotone nesting makes the merge free — the parent's minimum already
     /// reflects every inner emission (propagation kept it live) — and the
     /// latent makes it O(1): a popped zero run decrements; a popped nonzero
@@ -302,14 +306,17 @@ impl<P> MinWeb<P> {
     ///
     /// The outcome carries the popped payload where one was stacked
     /// ([`Close::Parked`]). The fill walk discards the whole outcome — not
-    /// just the payload — while the min-ticks fold dispatches on all four
+    /// just the payload — while the min-ticks fold dispatches on all three
     /// arms.
     pub(super) fn close(&mut self) -> Close<P> {
-        if self.pending > 0 {
-            self.pending -= 1;
-            return Close::Pending;
-        }
-        debug_assert!(self.armed > 0, "a non-pending close finds an armed range: every open range was counted in pending or armed");
+        debug_assert_eq!(
+            self.pending, 0,
+            "callers close only armed ranges: an emission armed every open range before its close"
+        );
+        debug_assert!(
+            self.armed > 0,
+            "a close finds an armed range: every open range was armed before it closes"
+        );
         self.armed -= 1;
         if self.armed == 0 {
             debug_assert!(self.diffs.is_empty(), "no differences without ranges");

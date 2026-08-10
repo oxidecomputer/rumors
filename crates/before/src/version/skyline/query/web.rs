@@ -241,14 +241,11 @@ impl ReignWeb {
     /// the inner record dies by its one settle, and the last close settles the
     /// final record as the web retires.
     pub(super) fn close(&mut self, total: &mut Accumulator, ledger: &mut EpochLedger) {
-        // The reigning record counts this close on every live outcome — the
-        // increment rides each arm, after the dispatch, so the impossible
-        // `Pending` state counts nothing rather than crediting an unarmed
-        // frame's close to a record that never reigned over it.
+        // The reigning record counts this close on every outcome — the
+        // increment rides each arm, after the dispatch, because each arm
+        // hands the record off differently (kept, taken, replaced) and the
+        // count must land on the record that reigned over this close.
         match self.web.close() {
-            Close::Pending => {
-                debug_assert!(false, "a closing range's leaves have all arrived");
-            }
             Close::ZeroRun => {
                 self.winner
                     .as_mut()

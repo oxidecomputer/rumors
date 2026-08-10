@@ -13,10 +13,12 @@
 //! remaining gates to the same polarity discipline at the only seam that can
 //! reach them.
 //!
-//! One seam contract also lives only here: closing a range no emission ever
-//! armed consumes exactly its pending slot ([`Close::Pending`]). Both walks
-//! happen to emit inside every range they open, so no packed stream drives
-//! this arm.
+//! The close seam's precondition — callers close only armed ranges — is
+//! debug-asserted at [`MinWeb::close`]; the proptest family here drives the
+//! legal batch schedule directly at the seam: `n` ranges armed by one
+//! emission close one by one, each consuming exactly one range record, with
+//! the outer range's tracked minimum exactly where its arming emission put
+//! it throughout.
 
 use core::cmp::Ordering;
 
@@ -139,53 +141,50 @@ fn dominated_latent_annihilates_into_the_undercut_residue() {
 }
 
 proptest! {
-    /// Closing a range no emission ever armed consumes exactly its pending
-    /// slot ([`Close::Pending`]): the web neither retires early, disturbs an
-    /// armed range's tracked minimum, nor miscounts the ranges left open.
+    /// A batch of `n` ranges armed by one emission closes range by range,
+    /// each close consuming exactly one range record.
+    ///
+    /// The records consumed are `n − 1` zero-run entries, then the one
+    /// stacked boundary parking; throughout, the outer range stays armed
+    /// with its tracked minimum exactly where its own arming emission put
+    /// it.
     #[test]
-    fn pending_closes_consume_exactly_one_pending_slot(n in 1usize..40) {
-        // A fresh web: every close of a never-armed range reports it
-        // pending, and the last one leaves the web drained on both counts.
-        let mut web: MinWeb<()> = MinWeb::new();
-        web.open(n);
-        for _ in 0..n {
-            prop_assert!(
-                matches!(web.close(), Close::Pending),
-                "a never-armed range closes as pending"
-            );
-        }
-        prop_assert!(!web.has_pending(), "the pending closes balance the opens");
-        prop_assert!(!web.armed(), "no emission ever armed the fresh web");
-
-        // An armed web: pending closes spend no armed range and leave the
-        // tracked minimum exactly where the arming emission put it.
+    fn batch_armed_closes_consume_exactly_one_range_record(n in 1usize..40) {
         let mut web: MinWeb<()> = MinWeb::new();
         web.open(1);
-        web.emit_here(); // arms at v = 0
+        web.emit_here(); // the outer range arms at v = 0
         web.fold_height(Sign::Positive, &Int::Small(7)); // h = 7
         web.open(n);
-        for _ in 0..n {
-            prop_assert!(
-                matches!(web.close(), Close::Pending),
-                "a never-armed range closes as pending under an armed one"
-            );
+        web.emit_here(); // all n inner ranges arm at v = 7: one boundary, n − 1 zeros
+        for i in 0..n {
+            if i < n - 1 {
+                prop_assert!(
+                    matches!(web.close(), Close::ZeroRun),
+                    "a batch-armed inner range closes as one zero-run entry"
+                );
+            } else {
+                prop_assert!(
+                    matches!(web.close(), Close::Parked(())),
+                    "the batch's last close pops the one stacked boundary"
+                );
+            }
         }
-        prop_assert!(!web.has_pending(), "the pending closes balance the opens");
-        prop_assert!(web.armed(), "the armed range survives its inner pending closes");
+        prop_assert!(!web.has_pending(), "the arming emission left nothing pending");
+        prop_assert!(web.armed(), "the outer range survives its inner ranges' closes");
         prop_assert_eq!(
             web.compare_above(&below(7)),
             Ordering::Equal,
-            "the probe at the armed minimum reads exact"
+            "the probe at the outer minimum reads exact"
         );
         prop_assert_eq!(
             web.compare_above(&below(6)),
             Ordering::Greater,
-            "a probe above the armed minimum reads above"
+            "a probe above the outer minimum reads above"
         );
         prop_assert_eq!(
             web.compare_above(&below(8)),
             Ordering::Less,
-            "a probe below the armed minimum reads below"
+            "a probe below the outer minimum reads below"
         );
     }
 }
