@@ -2480,7 +2480,8 @@ laws! {
     /// `checked_sub` as the partial inverse defined exactly on domination, the
     /// order's duality, and cross-path normalization (value-equal ranks built
     /// along different operation paths are one structural value, equal under
-    /// `Eq` and `Hash`).
+    /// `Eq` and `Hash`). The wire form's laws ride the same group: the codec
+    /// round-trip, byte order equal to `Ord`, and prefix-freedom.
     pub static RANK_TRIPLE: (a: &Rank, b: &Rank, c: &Rank);
 
     /// Addition is commutative: `a + b == b + a`.
@@ -2543,6 +2544,31 @@ laws! {
     /// The total order is its own dual: `cmp(a, b)` is `cmp(b, a)` reversed.
     fn rank_cmp_antisymmetric(a, b, _c) {
         a.cmp(b) == b.cmp(a).reverse()
+    }
+
+    /// `decode ∘ encode == id`, and the round-tripped rank re-encodes to the
+    /// same bytes (the wire form is a section of canonical bytes).
+    fn rank_codec_roundtrip(a, _b, _c) {
+        let bytes = a.encode();
+        Rank::decode(&bytes[..]).is_ok_and(|decoded| decoded == *a && decoded.encode() == bytes)
+    }
+
+    /// THE LAW of the rank wire form: byte-wise lexicographic order on
+    /// canonical encodings equals `Ord` on the ranks — ties included, so byte
+    /// equality on encodings is exactly `Eq`.
+    fn rank_lex_order(a, b, _c) {
+        a.encode().cmp(&b.encode()) == a.cmp(b)
+    }
+
+    /// Rank encodings are prefix-free: distinct ranks' encodings are never
+    /// byte prefixes of one another — what lets one encoding self-delimit
+    /// inside a composite key, and byte order stay rank order under any
+    /// appended tiebreak.
+    fn rank_encoding_prefix_free(a, b, _c) {
+        a == b || {
+            let (ea, eb) = (a.encode(), b.encode());
+            !ea.starts_with(&eb) && !eb.starts_with(&ea)
+        }
     }
 
     /// Value-equal ranks built along different operation paths — pairwise

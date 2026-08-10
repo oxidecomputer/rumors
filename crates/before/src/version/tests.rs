@@ -1313,38 +1313,12 @@ fn rank_encoding_known_values() {
     }
 }
 
-proptest! {
-    /// THE LAW on adversarial in-memory ranks: byte-wise lexicographic order on
-    /// canonical encodings equals `Ord` on the ranks.
-    ///
-    /// Over pairs mixing far-apart magnitude classes, forced class ties, and
-    /// exact duplicates — and every encoding round-trips exactly.
-    #[test]
-    fn rank_lex_encoding_orders_like_ord(sa in any::<u64>(), sb in any::<u64>(), dup in any::<bool>()) {
-        let a = seeded_rank(sa);
-        let b = if dup { a.clone() } else { seeded_rank(sb) };
-        let (ea, eb) = (a.encode(), b.encode());
-        prop_assert_eq!(ea.cmp(&eb), a.cmp(&b), "lex order disagrees: {} vs {}", a, b);
-        prop_assert_eq!(&super::Rank::decode(&ea[..]).unwrap(), &a);
-        prop_assert_eq!(&super::Rank::decode(&eb[..]).unwrap(), &b);
-    }
-
-    /// THE LAW on rank-bearing versions: two versions' rank encodings
-    /// compare byte-wise exactly as the ranks compare.
-    ///
-    /// Over arbitrary normal-form version pairs — so the encodings order
-    /// causally related versions cause-first when used as KV keys — and every
-    /// encoding round-trips.
-    #[test]
-    fn rank_lex_encoding_orders_versions(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-        let a = from_oracle_version(&oa).rank();
-        let b = from_oracle_version(&ob).rank();
-        let (ea, eb) = (a.encode(), b.encode());
-        prop_assert_eq!(ea.cmp(&eb), a.cmp(&b), "lex order disagrees: {} vs {}", a, b);
-        prop_assert_eq!(&super::Rank::decode(&ea[..]).unwrap(), &a);
-        prop_assert_eq!(&super::Rank::decode(&eb[..]).unwrap(), &b);
-    }
-}
+// THE LAW of the rank wire form (byte order == `Ord`, the codec round-trip,
+// and prefix-freedom) lives in `laws::RANK_TRIPLE` (`rank_lex_order`,
+// `rank_codec_roundtrip`, `rank_encoding_prefix_free`): the roster drivers
+// run it on version-derived ranks over the organic, arbitrary, and
+// fuzz-decoded populations, and `rank_triple_laws_on_seeded_ranks` above
+// keeps the adversarial spilled-magnitude regime driving the same group.
 
 /// The exhaustive small-scope sweep over **every** byte string of zero, one,
 /// and two bytes.
