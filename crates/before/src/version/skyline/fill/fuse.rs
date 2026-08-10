@@ -53,22 +53,25 @@ use super::super::walk::LeafWalk;
 use super::DeltaReg;
 
 /// The [`PopStack`] encoding of one deferred route-DP quantity (a [`Cost`]
-/// component, or an expansion chain's distance): 0 = infeasible (a `u32::MAX`
-/// component), else the value + 1.
-pub(super) fn encode_cost_component(component: u32) -> u64 {
-    if component == u32::MAX {
+/// component, or an expansion chain's distance): 0 = infeasible (a
+/// [`Cost::INFEASIBLE`] component), else the value + 1.
+///
+/// The + 1 is in range because feasible components saturate at
+/// [`Cost::CEILING`], one below the sentinel.
+pub(super) fn encode_cost_component(component: u64) -> u64 {
+    if component == Cost::INFEASIBLE {
         0
     } else {
-        u64::from(component) + 1
+        component + 1
     }
 }
 
 /// Invert [`encode_cost_component`].
-pub(super) fn decode_cost_component(encoded: u64) -> u32 {
+pub(super) fn decode_cost_component(encoded: u64) -> u64 {
     if encoded == 0 {
-        u32::MAX
+        Cost::INFEASIBLE
     } else {
-        (encoded - 1) as u32
+        encoded - 1
     }
 }
 
@@ -281,7 +284,7 @@ impl RouteProbe {
         let cheaper = if chose_left { left } else { right };
         Cost {
             expansions: cheaper.expansions,
-            depth: cheaper.depth.saturating_add(1),
+            depth: Cost::deepen(cheaper.depth, Cost::CEILING),
         }
     }
 
@@ -310,12 +313,12 @@ impl RouteProbe {
             return Cost::MAX;
         }
         let left_cost = if left {
-            self.expand_subtree(id)
+            self.expand_subtree(id, Cost::CEILING)
         } else {
             Cost::MAX
         };
         let right_cost = if right {
-            self.expand_subtree(id)
+            self.expand_subtree(id, Cost::CEILING)
         } else {
             Cost::MAX
         };
@@ -323,8 +326,8 @@ impl RouteProbe {
         self.route().record(key, chose_left);
         let cheaper = if chose_left { left_cost } else { right_cost };
         Cost {
-            expansions: cheaper.expansions.saturating_add(1),
-            depth: cheaper.depth.saturating_add(1),
+            expansions: Cost::deepen(cheaper.expansions, Cost::CEILING),
+            depth: Cost::deepen(cheaper.depth, Cost::CEILING),
         }
     }
 
@@ -348,8 +351,12 @@ impl RouteProbe {
     /// Every internal node costs one expansion and one depth whichever child it
     /// descends, so its cost is `(k, k)` for `k` the distance to its nearest
     /// owned terminal ([`Cost::MAX`] where no child is present — unreachable in
-    /// normal form, kept total); the fold records the direction at every
-    /// internal node's id key and leaves `id` just past the subtree.
+    /// normal form, kept total). Feasible distances saturate at `ceiling`
+    /// ([`Cost::CEILING`] in production, [`Cost::deepen`]'s contract), so an
+    /// arbitrarily deep feasible chain stays strictly below the infeasible
+    /// sentinel and the recorded route never turns into an absent child; the
+    /// fold records the direction at every internal node's id key and leaves
+    /// `id` just past the subtree.
     ///
     /// Iterative, with the suspended ancestors held as bits — one phase bit and
     /// one right-presence bit per frame, key deltas and the deferred left
@@ -357,7 +364,7 @@ impl RouteProbe {
     /// transient per level, not a machine-word frame (the same discipline as
     /// the walk's other bit stacks); the depth-recursion guard is unneeded
     /// because nothing recurses.
-    fn expand_subtree(&mut self, id: &mut IdReader) -> Cost {
+    pub(super) fn expand_subtree(&mut self, id: &mut IdReader, ceiling: u64) -> Cost {
         // Phase per frame: false = the left child's distance is outstanding,
         // true = the right child's.
         let mut phase = BitStack::new();
@@ -365,8 +372,8 @@ impl RouteProbe {
         let mut values = PopStack::new();
         let mut keys = DeltaReg::new();
         // `None`: enter the subtree at the cursor; `Some(distance)`: rise with
-        // a computed distance (`u32::MAX` infeasible).
-        let mut rise: Option<u32> = None;
+        // a computed distance ([`Cost::INFEASIBLE`] for an absent child).
+        let mut rise: Option<u64> = None;
         loop {
             let mut distance = match rise.take() {
                 Some(distance) => distance,
@@ -387,7 +394,7 @@ impl RouteProbe {
                             }
                             // Left absent: rise its infeasibility into the
                             // frame just pushed.
-                            u32::MAX
+                            Cost::INFEASIBLE
                         }
                         IdNode::Empty => unreachable!("a present id child is a real node"),
                     }
@@ -397,7 +404,7 @@ impl RouteProbe {
             loop {
                 match phase.last() {
                     None => {
-                        return if distance == u32::MAX {
+                        return if distance == Cost::INFEASIBLE {
                             Cost::MAX
                         } else {
                             Cost {
@@ -414,7 +421,7 @@ impl RouteProbe {
                         if right_present.last().expect("one presence bit per frame") {
                             break;
                         }
-                        distance = u32::MAX;
+                        distance = Cost::INFEASIBLE;
                     }
                     Some(true) => {
                         // Both children measured: pick, record, fold.
@@ -432,7 +439,7 @@ impl RouteProbe {
                         } else {
                             right_distance
                         };
-                        distance = nearer.saturating_add(1);
+                        distance = Cost::deepen(nearer, ceiling);
                     }
                 }
             }

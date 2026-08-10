@@ -186,19 +186,22 @@ fn rec(
 /// Pick the cheaper child, record the direction, and fold the branch cost — one
 /// expansion and one depth per expansion-chain level, one depth otherwise —
 /// exactly as the fused walk's fold does.
+///
+/// Component steps included ([`Cost::deepen`]: infeasibility propagates,
+/// feasible components saturate strictly below the infeasible sentinel).
 fn combine(route: &mut Route, expand: bool, key: usize, left: Cost, right: Cost) -> Cost {
     let left_chosen = left < right;
     route.record(key, left_chosen);
     let m = if left_chosen { left } else { right };
     if expand {
         Cost {
-            expansions: m.expansions.saturating_add(1),
-            depth: m.depth.saturating_add(1),
+            expansions: Cost::deepen(m.expansions, Cost::CEILING),
+            depth: Cost::deepen(m.depth, Cost::CEILING),
         }
     } else {
         Cost {
             expansions: m.expansions,
-            depth: m.depth.saturating_add(1),
+            depth: Cost::deepen(m.depth, Cost::CEILING),
         }
     }
 }

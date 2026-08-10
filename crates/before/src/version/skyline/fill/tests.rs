@@ -25,6 +25,7 @@ use proptest::prelude::*;
 use rayon::prelude::*;
 
 use crate::codec::Base;
+use crate::idbits::IdReader;
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
 use crate::testing::bridge::{
@@ -37,6 +38,8 @@ use crate::testing::{generators, optrace};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Version};
 
+use super::super::grow::Cost;
+use super::fuse::RouteProbe;
 use super::{fused_fill, tick, ticks, FillOutcome};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
@@ -795,6 +798,115 @@ fn tick_deep_orbits_stay_banded() {
             "alternating orbit: {} bits at tick {k} (two-tick size {b2})",
             e.len(),
         );
+    }
+}
+
+// ───────────── the route DP's saturation ceiling ─────────────
+//
+// The expansion DP saturates feasible distances at a ceiling strictly below
+// the infeasible sentinel (`Cost::CEILING` < `Cost::INFEASIBLE`), so a
+// feasible chain of any length still compares feasible and the recorded route
+// always turns into a present child. The ceiling is a parameter of the rise
+// loop exactly so these tests can scale it into constructible range: reaching
+// the production ceiling honestly would take more id levels than any physical
+// encoding can hold.
+
+/// The party owning exactly the region at the end of `path`: one internal id
+/// node per direction (the off-path sibling absent), a full terminal below.
+///
+/// Built as a text literal — the parser is iterative — so the id shares no
+/// construction with the DP under test. The packing is depth-first with
+/// absent children unencoded, so the chain's level-`i` 2-bit tag sits at bit
+/// `2·i` — the route key the expansion DP records level `i`'s direction at.
+fn direction_chain(path: &[bool]) -> Party {
+    let mut text = "1".to_string();
+    for &left in path.iter().rev() {
+        text = if left {
+            format!("({text}, 0)")
+        } else {
+            format!("(0, {text})")
+        };
+    }
+    text.parse().expect("the chain literal is normal form")
+}
+
+/// Run the expansion DP over `path`'s direction chain at `ceiling` and assert
+/// the saturation contract.
+///
+/// The cost must be the chain's distance saturated at the ceiling — strictly
+/// feasible, never [`Cost::MAX`] — and the route must turn into the present
+/// child at every level.
+///
+/// A rise loop that saturated feasible distances *into* the infeasible
+/// sentinel would instead compare the chain equal to its absent sibling,
+/// record the tie to the right, and send the splice emit into the absent
+/// child (a debug panic, an id-cursor desync in release) — the corner the
+/// strict sub-sentinel ceiling closes by construction.
+fn assert_chain_saturation(path: &[bool], ceiling: u64) {
+    let p = direction_chain(path);
+    let bits = p.as_bits();
+    let mut probe = RouteProbe::new(bits.len());
+    let mut id = IdReader::root(bits);
+    let cost = probe.expand_subtree(&mut id, ceiling);
+    assert_eq!(id.pos(), bits.len(), "the DP consumes exactly the subtree");
+    assert!(
+        cost < Cost::MAX,
+        "a feasible chain must never read infeasible (depth {}, ceiling {ceiling})",
+        path.len(),
+    );
+    let distance = (path.len() as u64).min(ceiling);
+    assert_eq!(
+        cost,
+        Cost {
+            expansions: distance,
+            depth: distance,
+        },
+        "the chain's distance saturates at the ceiling, feasibly",
+    );
+    let route = probe.take_route();
+    for (level, &left) in path.iter().enumerate() {
+        assert_eq!(
+            route.dirs()[2 * level],
+            left,
+            "the route at level {level} must turn into the present child",
+        );
+    }
+}
+
+/// The scaled-sentinel witness: at a rise-loop ceiling of 7, a feasible
+/// left-only chain one past the bound (distance 8) saturates to 7 and stays
+/// feasible.
+///
+/// The route turns into the present child at every level, and chains around
+/// that distance tick byte-identically to the oracle at the production
+/// ceiling.
+#[test]
+fn chain_one_past_the_ceiling_stays_feasible() {
+    const SCALED_CEILING: u64 = 7;
+    assert_chain_saturation(&[true; 8], SCALED_CEILING);
+    // End to end at the production ceiling: the same chain family around the
+    // scaled bound, grown over a leaf, against the recursive oracle.
+    let leaf: Version = "5".parse().expect("test literals parse");
+    for depth in [7, 8, 9] {
+        assert_tick(&leaf, &direction_chain(&vec![true; depth]));
+    }
+}
+
+proptest! {
+    /// Feasible expansion chains never alias into the infeasible sentinel at
+    /// any rise-loop ceiling.
+    ///
+    /// Direction chains of arbitrary depth and orientation, crossed with
+    /// ceilings the chains can reach and pass: the DP's cost is the distance
+    /// saturated at the ceiling — feasible by construction — and the recorded
+    /// route turns into the present child at every level, the invariant whose
+    /// violation would route the splice emit into an absent id child.
+    #[test]
+    fn expansion_chains_saturate_strictly_feasible(
+        path in proptest::collection::vec(any::<bool>(), 1..=64),
+        ceiling in 1u64..=32,
+    ) {
+        assert_chain_saturation(&path, ceiling);
     }
 }
 

@@ -29,8 +29,13 @@ use std::sync::Arc;
 use crate::oracle;
 
 /// The inflation cost the paper assigns: `(expansions, depth)`, lexicographic.
-/// Matches the oracle's `Cost` and the impl's `grow::Cost`.
-pub(crate) type GrowCost = (u32, u32);
+///
+/// Matches the oracle's `Cost` and the impl's `grow::Cost` component width.
+/// Deliberately unchecked exact arithmetic, no saturation and no infeasible
+/// sentinel: infeasibility is structural here (an empty enumeration /
+/// [`None`]), and depths are bounded by the enumerated test trees, so the
+/// brute force stays an independent witness of the DPs' saturating folds.
+pub(crate) type GrowCost = (u64, u64);
 
 /// Every feasible single-region inflation of `(id, e)`, each paired with its true
 /// `(expansions, depth)` cost.

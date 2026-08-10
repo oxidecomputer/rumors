@@ -103,20 +103,54 @@ use super::walk::LeafWalk;
 /// strictly cheaper). The fold itself rides the fused tick walk (`fill::fuse`);
 /// this module owns the vocabulary because the [`Route`] the fold records is
 /// the emit's input.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct Cost {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Cost {
     /// Leaf-to-node expansions along the inflation path.
-    pub(super) expansions: u32,
+    pub(super) expansions: u64,
     /// The inflation site's depth below the walked root.
-    pub(super) depth: u32,
+    pub(super) depth: u64,
 }
 
 impl Cost {
+    /// The infeasible component sentinel: both [`MAX`](Self::MAX) components
+    /// carry it, and no feasible fold can produce it — feasible components
+    /// saturate at [`CEILING`](Self::CEILING), strictly below.
+    pub(crate) const INFEASIBLE: u64 = u64::MAX;
+
+    /// The saturation ceiling for feasible components, strictly below
+    /// [`INFEASIBLE`](Self::INFEASIBLE).
+    ///
+    /// A feasible fold of any length stays feasible by construction, so no
+    /// chain can ever alias into the infeasible sentinel and route the emit
+    /// toward an absent child. Reaching the ceiling honestly needs
+    /// `u64::MAX - 1` id levels — beyond any encodable id — so saturation
+    /// never decides a real comparison.
+    pub(crate) const CEILING: u64 = Self::INFEASIBLE - 1;
+
+    /// One more path level for a single cost component, saturating at
+    /// `ceiling`.
+    ///
+    /// A component at or above the ceiling — the saturated value, or the
+    /// [`INFEASIBLE`](Self::INFEASIBLE) sentinel — is left where it is, so
+    /// infeasibility propagates and saturation stays strictly feasible. Every
+    /// implementation of the route DP (the fused walk's fold, the reference
+    /// recursive probe, the recursive oracle) steps components through this
+    /// one function; production callers pass
+    /// [`CEILING`](Self::CEILING) — the parameter exists so the saturation
+    /// tests can scale the bound into constructible range.
+    pub(crate) fn deepen(component: u64, ceiling: u64) -> u64 {
+        if component >= ceiling {
+            component
+        } else {
+            component + 1
+        }
+    }
+
     /// The cost of an infeasible region: an empty-id subtree can never be
     /// inflated.
     pub(super) const MAX: Cost = Cost {
-        expansions: u32::MAX,
-        depth: u32::MAX,
+        expansions: Self::INFEASIBLE,
+        depth: Self::INFEASIBLE,
     };
 
     /// The zero inflation cost: a fully-owned terminal is a free increment

@@ -5,10 +5,21 @@ use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
 use std::sync::Arc;
 
 use crate::codec::Base;
+use crate::version::skyline::grow::Cost as RouteCost;
 
 use super::Party;
 
-type Cost = (u32, u32); // (#expansions, depth), lexicographic
+type Cost = (u64, u64); // (#expansions, depth), lexicographic
+
+/// One more path level for a cost component, exactly the route DP's step
+/// ([`RouteCost::deepen`] at the production ceiling).
+///
+/// Infeasibility propagates, and feasible components saturate strictly below
+/// the [`RouteCost::INFEASIBLE`] sentinel, so a feasible chain of any depth
+/// stays feasible in every implementation of the fold at once.
+fn deepen(component: u64) -> u64 {
+    RouteCost::deepen(component, RouteCost::CEILING)
+}
 
 /// Event component.
 ///
@@ -264,16 +275,18 @@ impl Version {
                 if cl < cr {
                     (
                         Version::Node(n.clone(), Arc::new(el2), er.clone()),
-                        (cl.0, cl.1 + 1),
+                        (cl.0, deepen(cl.1)),
                     )
                 } else {
                     (
                         Version::Node(n.clone(), el.clone(), Arc::new(er2)),
-                        (cr.0, cr.1 + 1),
+                        (cr.0, deepen(cr.1)),
                     )
                 }
             }
-            (Party::Leaf(false), _) => (self.clone(), (u32::MAX, u32::MAX)),
+            (Party::Leaf(false), _) => {
+                (self.clone(), (RouteCost::INFEASIBLE, RouteCost::INFEASIBLE))
+            }
             (Party::Node(..), Version::Leaf(n)) => {
                 let expanded = Version::Node(
                     n.clone(),
@@ -281,20 +294,20 @@ impl Version {
                     Arc::new(Version::leaf(0u64)),
                 );
                 let (e2, c) = expanded.grow(id);
-                (e2, (c.0 + 1, c.1))
+                (e2, (deepen(c.0), c.1))
             }
             (Party::Node(il, ir), Version::Node(n, el, er)) => {
                 if il.is_empty() {
                     let (er2, cr) = er.grow(ir);
                     (
                         Version::Node(n.clone(), el.clone(), Arc::new(er2)),
-                        (cr.0, cr.1 + 1),
+                        (cr.0, deepen(cr.1)),
                     )
                 } else if ir.is_empty() {
                     let (el2, cl) = el.grow(il);
                     (
                         Version::Node(n.clone(), Arc::new(el2), er.clone()),
-                        (cl.0, cl.1 + 1),
+                        (cl.0, deepen(cl.1)),
                     )
                 } else {
                     let (el2, cl) = el.grow(il);
@@ -302,12 +315,12 @@ impl Version {
                     if cl < cr {
                         (
                             Version::Node(n.clone(), Arc::new(el2), er.clone()),
-                            (cl.0, cl.1 + 1),
+                            (cl.0, deepen(cl.1)),
                         )
                     } else {
                         (
                             Version::Node(n.clone(), el.clone(), Arc::new(er2)),
-                            (cr.0, cr.1 + 1),
+                            (cr.0, deepen(cr.1)),
                         )
                     }
                 }
@@ -339,7 +352,7 @@ impl Version {
     /// inflation and its reported cost against the brute-force search
     /// (`testing::grow_brute_force::best_inflation`/`min_inflation_cost`).
     #[cfg(test)]
-    pub(crate) fn grow_for_test(&self, id: &Party) -> (Version, (u32, u32)) {
+    pub(crate) fn grow_for_test(&self, id: &Party) -> (Version, (u64, u64)) {
         self.grow(id)
     }
 
