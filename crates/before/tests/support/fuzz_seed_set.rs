@@ -226,6 +226,21 @@ pub fn seed_set() -> Vec<Seed> {
         name: "ranked_mismatched",
         bytes: [newer.rank().encode(), older.encode()].concat(),
     });
+    // A canonical encoding cut exactly at a flush byte boundary: the live
+    // bits of `Version::try_from(7)` (leaf flag `1`, gamma(7) `0001000`)
+    // fill its first byte, so its whole `1000_0000` padding byte is the
+    // second — and the first byte alone is a complete tree whose required
+    // padding is missing entirely. It seeds the truncation-genre agreement
+    // between the reader and slice doors (`UnexpectedEof` is exactly raw
+    // `Truncated`).
+    seeds.push(Seed {
+        target: "fuzz_decode_differential",
+        name: "version_flush_cut",
+        bytes: Version::try_from(7)
+            .expect("a small leaf constructs")
+            .encode()[..1]
+            .to_vec(),
+    });
 
     // Text-parse seeds: the display notation of known values, including
     // the nested tuple form and wide decimal magnitudes.

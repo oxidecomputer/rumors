@@ -225,6 +225,12 @@ fn differential_seeds_exercise_their_genre_seams() {
                     "a rank prefix the version does not measure is non-canonical"
                 );
             }
+            "version_flush_cut" => {
+                assert!(
+                    matches!(Version::decode(&bytes[..]), Err(Decode::Truncated)),
+                    "a flush stream cut before its whole padding byte is missing required data"
+                );
+            }
             "span_coincident" => {
                 let span = Span::decode(&bytes[..]).expect("the coincident composite decodes");
                 assert_eq!(

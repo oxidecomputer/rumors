@@ -756,11 +756,14 @@ impl Clock {
         let id_bytes = {
             let bits = codec::bytes_as_bits(&buf);
             let id_end = codec::parse_id(bits, 0)?;
-            // The party's padding marker rides in its final byte — which
-            // an input truncated right after a flush id tree lacks.
+            // The party's padding marker rides in its final byte — which an
+            // input cut right after a flush id tree lacks. That cut is
+            // missing required data (the marker byte, and the whole version
+            // after it): the truncation genre, exactly as a byte-starved
+            // reader reports the same boundary.
             let id_bytes = (id_end + 1).div_ceil(8);
             if 8 * id_bytes > bits.len() {
-                return Err(Decode::TrailingBits);
+                return Err(Decode::Truncated);
             }
             codec::require_marker_padding(&bits[..8 * id_bytes], id_end)?;
             let tail = &bits[8 * id_bytes..];

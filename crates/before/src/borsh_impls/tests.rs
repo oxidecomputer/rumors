@@ -22,7 +22,8 @@ use crate::{Clock, Party, Rank, Ranked, Version};
 /// `Decode::Io` is the one rich variant the bit-level error split must still
 /// deliver losslessly through `ReaderCursor`: the prefix-free encodings pad
 /// only to the next byte boundary, so every proper byte prefix of a canonical
-/// encoding cuts mid-tree and the next per-bit refill hits end-of-input. The
+/// encoding ends mid-tree or ahead of the tree's padding, and the next
+/// per-bit refill hits end-of-input. The
 /// wide value's 129-bit gamma code exceeds the 64-bit decode window, so its
 /// cuts land inside the per-bit fallback's refill loop as well as around it.
 #[test]
@@ -89,6 +90,135 @@ fn non_canonical_borsh_bytes_report_invalid_data() {
         matches!(inner.downcast_ref::<Decode>(), Some(Decode::NotCanonical)),
         "expected NotCanonical, got: {inner:?}"
     );
+}
+
+/// An arbitrary impl `Version` whose live bits end flush against a byte
+/// boundary, so its canonical padding occupies a whole final `1000_0000`
+/// byte.
+fn arb_flush_version() -> impl Strategy<Value = Version> {
+    arb_oracle_version()
+        .prop_map(|t| from_oracle_version(&t))
+        .prop_filter("live bits must end on a byte boundary", |v| {
+            v.encoded_bits().is_multiple_of(8)
+        })
+}
+
+/// As [`arb_flush_version`], for `Party`.
+fn arb_flush_party() -> impl Strategy<Value = Party> {
+    arb_oracle_party_nonempty()
+        .prop_map(|t| from_oracle_party(&t))
+        .prop_filter("live bits must end on a byte boundary", |p| {
+            p.encoded_bits().is_multiple_of(8)
+        })
+}
+
+/// The 1-byte flush-cut witness reads the truncation genre through both
+/// doors.
+///
+/// `Version::try_from(7)` encodes to eight live bits plus a whole
+/// `1000_0000` padding byte; on its first byte alone the reader door
+/// starves reading the absent padding byte (`UnexpectedEof`), and the
+/// slice door reports [`Decode::Truncated`] for the same bytes. This is
+/// the mapping the decode differential relies on: `UnexpectedEof` is
+/// exactly raw `Truncated`.
+#[test]
+fn flush_cut_is_the_truncation_genre_through_both_doors() {
+    let bytes = Version::try_from(7).unwrap().encode();
+    assert_eq!(
+        bytes,
+        vec![0b1000_1000, 0b1000_0000],
+        "witness canonical encoding"
+    );
+    let cut = &bytes[..1];
+    assert!(matches!(Version::decode(cut), Err(Decode::Truncated)));
+    let err = Version::try_from_slice(cut).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+}
+
+proptest! {
+    /// A stream cut exactly at a flush byte boundary reads the truncation
+    /// genre through both doors of every version-tailed wire type.
+    ///
+    /// The borsh reader starves on the absent `1000_0000` padding byte
+    /// (`UnexpectedEof`) exactly where the whole-slice decode reports
+    /// [`Decode::Truncated`] — the two doors report the same genre for the
+    /// same malformed input, at the end of the input (`Version`, and the
+    /// version tail of `Clock`, `Ranked`, and `Span`) and at the interior
+    /// seam (`Span`'s meet cut short of its own padding byte).
+    #[test]
+    fn flush_cut_version_truncation_genre_agrees_across_doors(
+        v in arb_flush_version(),
+        pa in arb_oracle_party_nonempty(),
+    ) {
+        let bytes = v.encode();
+        let cut = &bytes[..bytes.len() - 1];
+        prop_assert!(matches!(Version::decode(cut), Err(Decode::Truncated)));
+        prop_assert_eq!(
+            Version::try_from_slice(cut).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+
+        // The version tail of a clock.
+        let clock = Clock::from_parts(from_oracle_party(&pa), v.clone());
+        let clock_bytes = clock.encode();
+        let clock_cut = &clock_bytes[..clock_bytes.len() - 1];
+        prop_assert!(matches!(Clock::decode(clock_cut), Err(Decode::Truncated)));
+        prop_assert_eq!(
+            Clock::try_from_slice(clock_cut).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+
+        // The version tail of a ranked key.
+        let key = Ranked::from(&v).encode();
+        let key_cut = &key[..key.len() - 1];
+        prop_assert!(matches!(Ranked::decode(key_cut), Err(Decode::Truncated)));
+        prop_assert_eq!(
+            Ranked::try_from_slice(key_cut).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+
+        // The join tail of a span (the hull of the empty version and `v`).
+        let span = Version::new().span(&v).encode();
+        let span_cut = &span[..span.len() - 1];
+        prop_assert!(matches!(Span::decode(span_cut), Err(Decode::Truncated)));
+        prop_assert_eq!(
+            Span::try_from_slice(span_cut).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+
+        // The interior seam: the meet cut short of its own padding byte,
+        // the join missing entirely.
+        prop_assert!(matches!(Span::decode(cut), Err(Decode::Truncated)));
+        prop_assert_eq!(
+            Span::try_from_slice(cut).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+    }
+}
+
+proptest! {
+    /// A party stream cut exactly at a flush byte boundary reads the
+    /// truncation genre through both doors.
+    ///
+    /// `UnexpectedEof` from the borsh reader, [`Decode::Truncated`] from
+    /// the whole-slice decode — at the end of the input (`Party`) and at
+    /// the clock door's interior seam (the id section cut short of its own
+    /// padding byte, the version then missing entirely).
+    #[test]
+    fn flush_cut_party_truncation_genre_agrees_across_doors(p in arb_flush_party()) {
+        let bytes = p.encode();
+        let cut = &bytes[..bytes.len() - 1];
+        prop_assert!(matches!(Party::decode(cut), Err(Decode::Truncated)));
+        prop_assert_eq!(
+            Party::try_from_slice(cut).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+        prop_assert!(matches!(Clock::decode(cut), Err(Decode::Truncated)));
+        prop_assert_eq!(
+            Clock::try_from_slice(cut).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+    }
 }
 
 /// Regression: a `Party` grown by [`join`](Party::join) — the operation

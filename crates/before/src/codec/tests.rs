@@ -1224,10 +1224,12 @@ proptest! {
 /// to the byte boundary, all within one byte, which is what makes
 /// `decode` **injective on byte strings**: every stream has one padded
 /// spelling, and no accepted input re-encodes to different bytes than
-/// its own. Each clause below rejects one way of breaking that — a
-/// spurious whole zero byte after the padding, a missing marker byte on
-/// a stream that ends flush against a byte boundary, and a zeroed
-/// marker byte — as [`Decode::TrailingBits`], never a silent accept.
+/// its own. Each clause below rejects one way of breaking that: a
+/// spurious whole zero byte after the padding and a zeroed marker byte
+/// are [`Decode::TrailingBits`] (the padding is present but malformed,
+/// or input runs beyond it), and a flush stream cut before its whole
+/// marker byte is [`Decode::Truncated`] (the padding is missing, not
+/// malformed) — never a silent accept.
 #[test]
 fn malformed_padding_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)`: the 9-bit stream
@@ -1259,10 +1261,11 @@ fn malformed_padding_rejected_witness() {
     );
 
     // Truncating the marker byte leaves a parseable tree with no padding
-    // at all: rejected, so the flush stream has exactly one spelling.
+    // at all: rejected as missing required data, so the flush stream has
+    // exactly one spelling.
     assert!(
-        matches!(Party::decode(&party[..1]), Err(Decode::TrailingBits)),
-        "a flush stream without its marker byte must be rejected",
+        matches!(Party::decode(&party[..1]), Err(Decode::Truncated)),
+        "a flush stream cut before its marker byte is missing required data",
     );
 
     // Zeroing the marker byte is the same defect spelled longer.
@@ -1322,6 +1325,131 @@ proptest! {
                 "a set bit at padding position {pad} must be rejected",
             );
         }
+    }
+}
+
+// ─────────────────────── flush-boundary truncation ───────────────────────
+//
+// A canonical encoding whose live bits end flush against a byte boundary
+// carries its padding in a whole final `1000_0000` byte; cutting the input
+// just before that byte leaves a complete tree with its required padding
+// missing entirely — the truncation genre, through every decode door. The
+// family spans the five marker-padded wire types (`Party`, `Version`,
+// `Clock`, `Ranked`, `Span`); `Rank` has no marker padding (its stream is
+// self-delimiting within its final byte), so no flush-cut input exists for
+// it and its truncations are all mid-stream.
+
+/// An arbitrary impl `Version` whose live bits end flush against a byte
+/// boundary, so its canonical padding occupies a whole final `1000_0000`
+/// byte.
+fn arb_flush_version() -> impl Strategy<Value = Version> {
+    arb_oracle_version()
+        .prop_map(|t| from_oracle_version(&t))
+        .prop_filter("live bits must end on a byte boundary", |v| {
+            v.encoded_bits().is_multiple_of(8)
+        })
+}
+
+/// As [`arb_flush_version`], for `Party`.
+fn arb_flush_party() -> impl Strategy<Value = Party> {
+    arb_oracle_party_nonempty()
+        .prop_map(|t| from_oracle_party(&t))
+        .prop_filter("live bits must end on a byte boundary", |p| {
+            p.encoded_bits().is_multiple_of(8)
+        })
+}
+
+/// The 1-byte flush-cut witness reads [`Decode::Truncated`], never the
+/// trailing-bits genre.
+///
+/// `Version::try_from(7)` encodes to eight live bits (leaf flag `1`,
+/// gamma(7) `0001000`) plus a whole `1000_0000` padding byte, so its first
+/// byte alone is a complete tree whose required padding byte is absent
+/// entirely: missing required data.
+#[test]
+fn flush_version_cut_before_its_marker_byte_is_truncated() {
+    let bytes = Version::try_from(7).unwrap().encode();
+    assert_eq!(
+        bytes,
+        vec![0b1000_1000, 0b1000_0000],
+        "witness canonical encoding"
+    );
+    assert!(matches!(
+        Version::decode(&bytes[..1]),
+        Err(Decode::Truncated)
+    ));
+}
+
+proptest! {
+    /// A stream cut exactly at a flush byte boundary reads
+    /// [`Decode::Truncated`] through every version-tailed decode door.
+    ///
+    /// Live bits end on the boundary and the whole `1000_0000` padding byte
+    /// is absent: required data is missing, not malformed. Exercised at the
+    /// end of the input (`Version`, and the version tail of `Clock`,
+    /// `Ranked`, and `Span`) and at the interior seam (`Span`'s meet cut
+    /// short of its own padding byte, the join then missing entirely).
+    #[test]
+    fn flush_cut_version_reads_truncated_at_every_door(
+        v in arb_flush_version(),
+        pa in arb_oracle_party_nonempty(),
+    ) {
+        let bytes = v.encode();
+        prop_assert_eq!(
+            bytes.len() * 8,
+            v.encoded_bits() + 8,
+            "the padding occupies a whole final byte",
+        );
+        let cut = &bytes[..bytes.len() - 1];
+        prop_assert!(matches!(Version::decode(cut), Err(Decode::Truncated)));
+
+        // The version tail of a clock.
+        let clock = Clock::from_parts(from_oracle_party(&pa), v.clone());
+        let clock_bytes = clock.encode();
+        prop_assert!(matches!(
+            Clock::decode(&clock_bytes[..clock_bytes.len() - 1]),
+            Err(Decode::Truncated)
+        ));
+
+        // The version tail of a ranked key.
+        let key = Ranked::from(&v).encode();
+        prop_assert!(matches!(
+            Ranked::decode(&key[..key.len() - 1]),
+            Err(Decode::Truncated)
+        ));
+
+        // The join tail of a span (the hull of the empty version and `v`).
+        let span = Version::new().span(&v).encode();
+        prop_assert!(matches!(
+            Span::decode(&span[..span.len() - 1]),
+            Err(Decode::Truncated)
+        ));
+
+        // The interior seam: the meet cut short of its own padding byte,
+        // the join missing entirely.
+        prop_assert!(matches!(Span::decode(cut), Err(Decode::Truncated)));
+    }
+}
+
+proptest! {
+    /// A party stream cut exactly at a flush byte boundary reads
+    /// [`Decode::Truncated`] through the party and clock doors.
+    ///
+    /// Live bits end on the boundary and the whole `1000_0000` padding byte
+    /// is absent: missing required data at the end of the input (`Party`)
+    /// and at the clock door's interior seam (the id section cut short of
+    /// its own padding byte, the version then missing entirely).
+    #[test]
+    fn flush_cut_party_reads_truncated_at_every_door(p in arb_flush_party()) {
+        let bytes = p.encode();
+        prop_assert_eq!(
+            bytes.len() * 8,
+            p.encoded_bits() + 8,
+            "the padding occupies a whole final byte",
+        );
+        let cut = &bytes[..bytes.len() - 1];
+        prop_assert!(matches!(Party::decode(cut), Err(Decode::Truncated)));
+        prop_assert!(matches!(Clock::decode(cut), Err(Decode::Truncated)));
     }
 }
 

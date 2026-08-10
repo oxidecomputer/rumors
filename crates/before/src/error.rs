@@ -47,17 +47,22 @@ pub struct Crossed;
 /// ```
 #[derive(Debug, thiserror::Error)]
 pub enum Decode {
-    /// The bit stream ended mid-tree (or mid-integer).
+    /// The input ended before the value did: mid-tree, mid-integer, or cut
+    /// ahead of the final padding a complete tree still owes.
+    ///
+    /// A stream whose live bits end flush against a byte boundary carries
+    /// its padding in a whole final byte, and that byte is required: an
+    /// input cut just before it is truncated, not trailing-malformed.
     #[error("unexpected end of input")]
     Truncated,
     /// The input did not end in a complete tree followed by exactly its
     /// canonical padding: a `1` marker bit, then zeros to the byte
     /// boundary.
     ///
-    /// Nothing less passes (a stream flush against the boundary still
-    /// owes a whole marker byte) and nothing more (no bits after the
-    /// tree beyond one padded byte, however well-formed).
-    #[error("missing or malformed trailing padding")]
+    /// Malformed padding (a cleared marker, a stray set bit) and spurious
+    /// input past the one padded byte both land here; an input that ends
+    /// before any padding arrives is [`Decode::Truncated`] instead.
+    #[error("malformed or spurious trailing padding")]
     TrailingBits,
     /// The structure is well-formed but not in canonical normal form.
     #[error("input is not canonical")]

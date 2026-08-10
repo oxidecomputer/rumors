@@ -260,7 +260,7 @@ fn error_display_strings() {
     Overlap               parties are not disjoint
     Crossed               span endpoints cross: the start is not within the end
     Decode::Truncated     unexpected end of input
-    Decode::TrailingBits  missing or malformed trailing padding
+    Decode::TrailingBits  malformed or spurious trailing padding
     Decode::NotCanonical  input is not canonical
     Parse::Syntax         input is not well-formed paper notation
     Parse::NotCanonical   input is not canonical

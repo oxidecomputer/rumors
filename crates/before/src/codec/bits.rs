@@ -348,19 +348,26 @@ pub(crate) fn byte_view(bits: &BitsSlice) -> Option<(&[u8], Option<u8>)> {
 /// one `1` marker bit, then zeros to the byte boundary.
 ///
 /// A canonical encoding pads with a single marker and at most 7 zeros, all
-/// inside the final byte, so the remainder here is 1 to 8 bits: a `1`, then
-/// zeros. (The remainder is never empty: a stream whose live bits end flush
-/// against a byte boundary carries its marker in a whole final `1000_0000`
-/// byte.) Everything else rejects — no remainder at all, a leading `0`, a
-/// second set bit, or a remainder of 9+ bits (a spurious trailing byte, even a
-/// well-formed marker followed by an all-zero byte). The marker plus the length
-/// bound are what make `decode` injective on bytes: every stream has exactly
-/// one padded spelling, and no byte string spells two streams.
+/// inside the final byte, so an intact remainder here is 1 to 8 bits: a `1`,
+/// then zeros. (A stream whose live bits end flush against a byte boundary
+/// carries its marker in a whole final `1000_0000` byte.) The rejections
+/// split by genre:
+///
+/// - An empty remainder is [`Decode::Truncated`]: the input ends where the
+///   padding should begin — a flush stream cut before its whole marker byte —
+///   so required data is missing, exactly what a byte-starved reader reports
+///   at the same boundary.
+/// - Everything else is [`Decode::TrailingBits`]: a leading `0`, a second set
+///   bit, or a remainder of 9+ bits (a spurious trailing byte, even a
+///   well-formed marker followed by an all-zero byte).
+///
+/// The marker plus the length bound are what make `decode` injective on
+/// bytes: every stream has exactly one padded spelling, and no byte string
+/// spells two streams.
 pub(crate) fn require_marker_padding(bits: &BitsSlice, pos: usize) -> Result<(), Decode> {
-    let rem = bits.len() - pos;
-    if (1..=8).contains(&rem) && bits[pos] && !bits[pos + 1..].any() {
-        Ok(())
-    } else {
-        Err(Decode::TrailingBits)
+    match bits.len() - pos {
+        0 => Err(Decode::Truncated),
+        1..=8 if bits[pos] && !bits[pos + 1..].any() => Ok(()),
+        _ => Err(Decode::TrailingBits),
     }
 }
