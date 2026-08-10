@@ -8,7 +8,6 @@
 //! embedding against a value the paper states.
 
 use std::cmp::Ordering;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use proptest::prelude::*;
@@ -517,7 +516,7 @@ fn right_comb(d: u32) -> oracle::Version {
 fn riemann_sum_dropping_the_last_cell(e: &Event, g: u32) -> crate::Rank {
     let mut total = Base::ZERO;
     for k in 0..(1u64 << g) - 1 {
-        total += &e(Dyadic::grid(k, g));
+        total += &e.at(Dyadic::grid(k, g));
     }
     crate::Rank::from_raw(total, u64::from(g))
 }
@@ -579,7 +578,7 @@ fn mirrored_lift_ev(t: oracle::Version) -> Event {
             }
         }
     }
-    Rc::new(move |x| eval(&t, x))
+    Event::new(ev_depth(&t), move |x| eval(&t, x))
 }
 
 /// The tree↔fs leg's criterion can fail: the paper worked-value anchor
@@ -614,7 +613,7 @@ fn worked_value_anchor_convicts_the_mirrored_embedding() {
         )),
     );
     let f = mirrored_lift_ev(e.clone());
-    let got: Vec<Base> = (0..8).map(|k| f(Dyadic::grid(k, 3))).collect();
+    let got: Vec<Base> = (0..8).map(|k| f.at(Dyadic::grid(k, 3))).collect();
     let want: Vec<Base> = [3u64, 3, 3, 3, 2, 4, 1, 1]
         .into_iter()
         .map(Base::from)
