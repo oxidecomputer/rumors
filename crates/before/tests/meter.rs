@@ -8208,6 +8208,195 @@ mod width_circulation_cost {
     }
 }
 
+// ─── the dominated-undercut emission's decision liveness and touch cost ──────
+//
+// The committed pins that the watermark web's dominated-undercut arm — a
+// no-latent, word-scale-offset emission decided against a wide-negative
+// anchor gap by post-sign domination, its residue moved out whole at the
+// documented polarity `m − v = −gap − offset` — stays DRIVEN and stays
+// O(1) per emission beyond the input-funded width. The family: k raise
+// sites, each re-arming the web at the top of a `5·2^b` climb and then
+// emitting its copied region's block minimum from one word above it, so
+// every site routes exactly one emission through the arm and the arm's
+// residue annihilates the site's own arming boundary exactly.
+//
+// Two enforcement legs, split by what only each can see. The COST leg is
+// the touch band below: flat per input byte across the joint (k, b)
+// doubling, under an absolute ceiling — a per-emission re-read of the
+// dominating gap's width beyond the one annihilation fold drives it red.
+// The DECISION leg is the `meter::emit_traffic` floor: the arm and the
+// fold-and-restore path compute the same values at nearby touch costs, so
+// no differential and no cost band can prove the arm still fires — a
+// routing change (a guard-conjunction edit, a new fast path shadowing
+// this one) that re-routes these emissions onto the fold path leaves
+// everything else green while the arm returns to undriven — an arm no
+// committed family drives is exactly where a polarity error waits for an
+// input to find it. The floor is derived from the construction, never
+// measured: the shape mints exactly one dominated-undercut emission per
+// site, so `dominated_undercut ≥ k` is the mechanism's irreducible
+// decision count, and a reading below it means the family no longer
+// drives the arm — re-derive the family's reachability argument (the
+// generator doc), never delete the floor.
+#[cfg(feature = "limb-meter")]
+mod dominated_undercut_cost {
+    use before::meter;
+    use before::meter::registry::Shape;
+    use before::{Party, Version};
+    use dashu_int::UBig;
+    use suanpan::touch_meter;
+
+    /// One tick run over the family cross.
+    ///
+    /// The tick's packed input bytes, the accumulator digit touches of
+    /// its body, the dominated-undercut decisions the watermark web
+    /// recorded, and the ticked version for the closed-form semantic
+    /// leg.
+    struct Run {
+        input: u64,
+        touches: u64,
+        undercuts: u64,
+        ticked: Version,
+    }
+
+    /// Tick the `DU(k, b)` cross and read the touch and decision counters
+    /// over the tick body alone.
+    ///
+    /// Enforces the arm-liveness floor before returning: the family
+    /// constructs exactly one dominated-undercut emission per site (the
+    /// generator doc carries the reachability derivation), so a reading
+    /// under `k` means the walk re-routed the family's emissions off the
+    /// arm — the arm is undriven again no matter how green every value
+    /// and cost pin reads.
+    fn tick_run(k: usize, b: usize) -> Run {
+        let ev = Shape::DominatedUndercut.packed2(k, b);
+        let id = Shape::DominatedUndercutId.packed1(k);
+        let mut v = ev.version();
+        let p = Party::decode(&id.bytes[..]).expect("the generator's id is canonical");
+        let input = (v.encode().len() + id.bytes.len()) as u64;
+        meter::reset_emit_traffic();
+        touch_meter::reset();
+        v.tick(&p);
+        let run = Run {
+            input,
+            touches: touch_meter::touches(),
+            undercuts: meter::emit_traffic().dominated_undercut,
+            ticked: v,
+        };
+        assert!(
+            run.undercuts >= k as u64,
+            "dominated_undercut({k}, {b}): {} dominated-undercut decisions under \
+             the one-per-site liveness floor {k}: the walk no longer routes the \
+             family's block-minimum emissions through the dominated-undercut arm",
+            run.undercuts,
+        );
+        run
+    }
+
+    /// The family's closed-form tick, built as a text literal so the
+    /// expected tree shares no walk with the kernel under test.
+    ///
+    /// Every site's raise leaf lifts to the copied region's minimum (the
+    /// raise value 3) and the terminal's right-full raise reads the same
+    /// surviving minimum, so normalization hoists one 3 to the root and
+    /// every site block reads `(0, 0, (0, (0, 5·2^b, 0), 1))`.
+    fn expected(k: usize, b: usize) -> Version {
+        let wide = UBig::from(5u8) << b;
+        let site = format!("(0, 0, (0, (0, {wide}, 0), 1))");
+        let mut text = format!("(3, {site}, ");
+        for _ in 1..k {
+            text.push_str(&format!("(0, {site}, "));
+        }
+        text.push('0');
+        text.push_str(&")".repeat(k));
+        text.parse().expect("the dominated-undercut literal parses")
+    }
+
+    /// Touch liveness floor on the larger run, derived from the walk's
+    /// irreducible work on this family — never from a measured basis.
+    ///
+    /// Per site, the mechanism cannot avoid: the two wide input codes
+    /// (the climb and the block's return) each folding into the running
+    /// height once, and the arm's residue dying by one fold into the
+    /// site's arming boundary at the boundary's own width — three
+    /// wide-operand folds at one digit touch per 64-bit limb, `3·b/64` —
+    /// plus the domination read and the re-seated gap's offset fold, one
+    /// touch each. At (k, b) = (1,024, 1,024): 1,024·(48 + 2). A design
+    /// that honestly does less is a floor-premise finding — re-derive the
+    /// premise before trusting the trip.
+    const DOMINATED_UNDERCUT_TOUCH_FLOOR: u64 = 51_200;
+
+    /// Absolute touch ceiling on the larger run, measured 726,020 ×1.25,
+    /// rounded up.
+    const DOMINATED_UNDERCUT_TOUCH_CEILING: u64 = 907_525;
+
+    /// The dominated-undercut arm fires once per site and stays flat per
+    /// input byte across the joint (k, b) doubling.
+    ///
+    /// Touches grow by at most ×1.25 per byte across the doubling, under
+    /// an absolute band on the larger run, with the decision counter's
+    /// one-per-site floor certifying the arm is the path taken.
+    ///
+    /// Semantics first: the tick is the closed form (every raise lands at
+    /// the copied region's minimum, and the terminal's right-full raise
+    /// reads the minimum the arm's residue propagation preserved — the
+    /// leaf that surfaces a mis-polarized residue), so the cost and
+    /// decision legs ride on pinned values. The signature [measured:
+    /// 1.49 → 1.37 touches per byte across (k, b) =
+    /// (512, 512) → (1,024, 1,024), one decision per site at both
+    /// scales]: each site's cost is its own two wide codes' folds plus
+    /// the residue's one annihilation fold, and the arm's decision,
+    /// take-out, and re-seat are O(1) beside them.
+    #[test]
+    fn tick_dominated_undercut_arm_is_flat_per_unit() {
+        let small = tick_run(512, 512);
+        assert_eq!(
+            small.ticked,
+            expected(512, 512),
+            "dominated_undercut ticks to its closed form: the failure is cost-only"
+        );
+        let large = tick_run(1_024, 1_024);
+        assert_eq!(
+            large.ticked,
+            expected(1_024, 1_024),
+            "dominated_undercut ticks to its closed form: the failure is cost-only"
+        );
+        eprintln!(
+            "MEASURED dominated_undercut: small={}/{}B/{}dec large={}/{}B/{}dec",
+            small.touches,
+            small.input,
+            small.undercuts,
+            large.touches,
+            large.input,
+            large.undercuts,
+        );
+        assert!(
+            u128::from(large.touches) * u128::from(small.input) * 100
+                <= u128::from(small.touches) * u128::from(large.input) * 125,
+            "dominated_undercut: per-byte touch growth across the joint doubling \
+             exceeds x1.25 ({}/{}B -> {}/{}B): the dominated-undercut emission has \
+             picked up a width term beyond the input-funded folds",
+            small.touches,
+            small.input,
+            large.touches,
+            large.input,
+        );
+        assert!(
+            large.touches <= DOMINATED_UNDERCUT_TOUCH_CEILING,
+            "dominated_undercut: {} touches at (k, b) = (1,024, 1,024) exceed the \
+             pinned ceiling {DOMINATED_UNDERCUT_TOUCH_CEILING}",
+            large.touches,
+        );
+        assert!(
+            large.touches >= DOMINATED_UNDERCUT_TOUCH_FLOOR,
+            "dominated_undercut: {} touches read below the \
+             {DOMINATED_UNDERCUT_TOUCH_FLOOR} liveness floor (the walk's derived \
+             irreducible work): the walk's accumulator work left the metered \
+             representation",
+            large.touches,
+        );
+    }
+}
+
 // ─── query and span placement scenarios ─────────────────────────────────────
 //
 // The `causally` filter and placement walks' resource identities, stated

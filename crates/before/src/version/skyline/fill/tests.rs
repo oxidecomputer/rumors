@@ -21,6 +21,7 @@
 //! additionally held to the oracle's inflation, the brute-force search, and a
 //! reference route probe in `grow/tests.rs`.
 
+use dashu_int::UBig;
 use proptest::prelude::*;
 use rayon::prelude::*;
 
@@ -402,7 +403,56 @@ fn dominated_undercut_residue_carries_its_offset() {
     let v: Version = "(0, (0, 0, (3, (0, 237684487543081243156783562749, 0), 1)), 0)"
         .parse()
         .expect("test version literals parse");
+    crate::meter::reset_emit_traffic();
     assert_tick(&v, &p);
+    // The witness binds to its branch only through the walk's current
+    // routing, and reachability is sensitive to the accumulator's digit
+    // state — so the binding is asserted, not assumed: the decision
+    // counter must show the dominated-undercut arm answered. (`≥`, not
+    // `=`: the counter is process-global, and other work in a shared
+    // process only adds.)
+    assert!(
+        crate::meter::emit_traffic().dominated_undercut >= 1,
+        "the witness pair no longer routes its block-minimum emission through \
+         the dominated-undercut arm: the path it exists to pin is undriven"
+    );
+}
+
+/// The dominated-undercut family ticks byte-identically to the recursive
+/// oracle at every knob.
+///
+/// Each site's copied sibling region climbs a wide leaf and returns, so
+/// its block-minimum emission arrives against a scale-disparate anchor
+/// gap, and the raise reading the surviving minimum stays exact.
+///
+/// The size-generic generalization of the worked witness above, biased
+/// toward scale-disparate emissions: per site, a raise value, an exit
+/// rise, and a wide climb `m · 2^b` with most of the width range past the
+/// domination read's decision bound — so the family keeps generator mass
+/// on emissions the post-sign domination arms answer, with the smaller
+/// widths exercising the fold-and-restore path beside them. The
+/// `dominated-undercut` meter family pins the arm's decision count and
+/// touch cost at committed scales; this differential pins the values over
+/// the whole knob space.
+#[test]
+fn dominated_undercut_family_ticks_identically() {
+    let site = |c: u64, m: u64, b: usize, r: u64| -> String {
+        let wide = UBig::from(m) << b;
+        format!("({c}, (0, {wide}, 0), {r})")
+    };
+    let strategy = proptest::collection::vec((1u64..=6, 1u64..=7, 64usize..=192, 1u64..=4), 1..=4);
+    proptest!(|(sites in strategy)| {
+        let mut text = String::new();
+        for (c, m, b, r) in &sites {
+            text.push_str(&format!("(0, (0, 0, {}), ", site(*c, *m, *b, *r)));
+        }
+        text.push('0');
+        text.push_str(&")".repeat(sites.len()));
+        let v: Version = text.parse().expect("the site literal is normal form");
+        let id = "((1, 0), ".repeat(sites.len()) + "1" + &")".repeat(sites.len());
+        let p: Party = id.parse().expect("the site id literal parses");
+        assert_tick(&v, &p);
+    });
 }
 
 /// The left-full raise decision's height seam: the tick matches the oracle on

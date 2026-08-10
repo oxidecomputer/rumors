@@ -138,6 +138,7 @@ use suanpan::Accumulator;
 use crate::codec::Int;
 
 use super::signed::{fold_signed_int, Sign, Signed};
+use super::web_traffic;
 
 /// Follower slots the web carries (the fill walk's two relations; a const
 /// assert beside the fill walk's slot constants binds the two rosters).
@@ -897,8 +898,10 @@ impl MinWeb<()> {
             let (sign, decided) = self.gap.sign_dominates_word();
             if decided {
                 if sign == Ordering::Greater {
+                    web_traffic::record(web_traffic::Decision::DominatedAbove);
                     return;
                 }
+                web_traffic::record(web_traffic::Decision::DominatedUndercut);
                 // gap wide-negative: v sits far below the minimum; the
                 // drop dwarfs the offset. Residue = m − v = −gap − offset.
                 let mut residue = core::mem::take(&mut self.gap);
@@ -913,6 +916,7 @@ impl MinWeb<()> {
                 self.propagate(residue, |()| ());
                 return;
             }
+            web_traffic::record(web_traffic::Decision::Undecided);
         }
         // Fold the priced side; restore it unless it funds the residue.
         fold_signed_int(&mut self.gap, offset.sign, &offset.magnitude);

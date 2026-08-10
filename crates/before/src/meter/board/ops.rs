@@ -131,7 +131,8 @@ pub(super) fn designed(kind: FamilyId, group: OpGroup) -> bool {
         | FamilyId::RevealHifloor
         | FamilyId::PureComb
         | FamilyId::AscendCliff
-        | FamilyId::AscendPlateau => group == OpGroup::Tick,
+        | FamilyId::AscendPlateau
+        | FamilyId::DominatedUndercut => group == OpGroup::Tick,
         // The query-fold adversaries, built against the
         // linear-functional rows: wide difference crests over a
         // dense-position spine, the many-freezes spine, the

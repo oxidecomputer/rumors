@@ -178,6 +178,10 @@ pub enum Shape {
     AscendCliffPlateau,
     /// The ascending-cliff id: [`Shape::packed1`]`(k)`.
     AscendCliffId,
+    /// The dominated-undercut spine `DU(k, b)`: [`Shape::packed2`]`(k, b)`.
+    DominatedUndercut,
+    /// The dominated-undercut id: [`Shape::packed1`]`(k)`.
+    DominatedUndercutId,
     /// The freeze-position spine `FP(k)`: [`Shape::packed1`]`(k)`.
     FreezePosition,
     /// The promotion re-arm spine `PR(p)`: [`Shape::packed1`]`(p)`.
@@ -313,6 +317,8 @@ impl Shape {
             Shape::AscendCliff => Builder::P2(super::ascend_cliff),
             Shape::AscendCliffPlateau => Builder::P2(super::ascend_cliff_plateau),
             Shape::AscendCliffId => Builder::P1(super::ascend_cliff_id),
+            Shape::DominatedUndercut => Builder::P2(super::dominated_undercut),
+            Shape::DominatedUndercutId => Builder::P1(super::dominated_undercut_id),
             Shape::FreezePosition => Builder::P1(super::freeze_position),
             Shape::PromotionRearm => Builder::P1(super::promotion_rearm),
             Shape::PromotionRearmMate => Builder::P1(super::promotion_rearm_mate),
@@ -518,8 +524,8 @@ impl Shape {
 /// One adversarial input family: the roster every instrument's family
 /// axis derives from.
 ///
-/// The first thirty-two variants are the amplification board's columns, in
-/// render order (each variant's doc carries its genre note); the rest are the
+/// The leading variants are the amplification board's columns, in render
+/// order (each variant's doc carries its genre note); the rest are the
 /// envelope suite's kernel-seam probe families, each answering
 /// [`Coverage::EnvelopeOnly`] with the dated reason it earns no column. Every
 /// variant's row of record is its [`FamilyId::spec`] answer.
@@ -665,6 +671,18 @@ pub enum FamilyId {
     /// passes whole in O(1): the hop-schedule control. The designated cross of
     /// the two tick rows.
     AscendPlateau,
+    /// The dominated-undercut cross: `dominated_undercut(s, s)` × its own id.
+    ///
+    /// Each of `s` raise sites re-arms the watermark web at the top of a
+    /// `5·2^s`-scale climb and then emits its copied region's block minimum
+    /// from one word above it — a no-latent, word-scale-offset emission
+    /// against a wide-negative anchor gap, the one shape that routes the
+    /// web's post-sign dominated-undercut arm (`meter::emit_traffic`'s
+    /// undercut decision) on every site. The band's committed floor on that
+    /// counter is the arm's liveness pin: correct values survive a re-route
+    /// onto the fold path, so only the decision count can prove the arm
+    /// still fires. The designated cross of the two tick rows.
+    DominatedUndercut,
     /// The two-operand jump comb `jump_pair(k, m, d)`: wide height-difference
     /// crests over a dense-position spine.
     ///
@@ -972,7 +990,7 @@ impl FamilyId {
     /// Every registered family, in the roster order of record: the
     /// board columns first, in render order, then the envelope-only
     /// probe families.
-    pub const ALL: [FamilyId; 46] = [
+    pub const ALL: [FamilyId; 47] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -993,6 +1011,7 @@ impl FamilyId {
         FamilyId::PureComb,
         FamilyId::AscendCliff,
         FamilyId::AscendPlateau,
+        FamilyId::DominatedUndercut,
         FamilyId::JumpPair,
         FamilyId::FreezePos,
         FamilyId::PromoRearm,
@@ -1046,32 +1065,33 @@ impl FamilyId {
             FamilyId::PureComb => 17,
             FamilyId::AscendCliff => 18,
             FamilyId::AscendPlateau => 19,
-            FamilyId::JumpPair => 20,
-            FamilyId::FreezePos => 21,
-            FamilyId::PromoRearm => 22,
-            FamilyId::WeightComb => 23,
-            FamilyId::FreezeParade => 24,
-            FamilyId::DenseSuffix => 25,
-            FamilyId::WideArming => 26,
-            FamilyId::PlateauPuncture => 27,
-            FamilyId::LoneFreeze => 28,
-            FamilyId::ConcurrentPair => 29,
-            FamilyId::ToothTail => 30,
-            FamilyId::Benign => 31,
-            FamilyId::WideToothComb => 32,
-            FamilyId::JumpComb => 33,
-            FamilyId::CliffFan => 34,
-            FamilyId::CancellingChain => 35,
-            FamilyId::AltSpine => 36,
-            FamilyId::MemoChain => 37,
-            FamilyId::MemoComb => 38,
-            FamilyId::MemoFanout => 39,
-            FamilyId::MemoOscillating => 40,
-            FamilyId::MemoChurn => 41,
-            FamilyId::DescendingRaises => 42,
-            FamilyId::MaskDrift => 43,
-            FamilyId::MeetShade => 44,
-            FamilyId::ArmingTrain => 45,
+            FamilyId::DominatedUndercut => 20,
+            FamilyId::JumpPair => 21,
+            FamilyId::FreezePos => 22,
+            FamilyId::PromoRearm => 23,
+            FamilyId::WeightComb => 24,
+            FamilyId::FreezeParade => 25,
+            FamilyId::DenseSuffix => 26,
+            FamilyId::WideArming => 27,
+            FamilyId::PlateauPuncture => 28,
+            FamilyId::LoneFreeze => 29,
+            FamilyId::ConcurrentPair => 30,
+            FamilyId::ToothTail => 31,
+            FamilyId::Benign => 32,
+            FamilyId::WideToothComb => 33,
+            FamilyId::JumpComb => 34,
+            FamilyId::CliffFan => 35,
+            FamilyId::CancellingChain => 36,
+            FamilyId::AltSpine => 37,
+            FamilyId::MemoChain => 38,
+            FamilyId::MemoComb => 39,
+            FamilyId::MemoFanout => 40,
+            FamilyId::MemoOscillating => 41,
+            FamilyId::MemoChurn => 42,
+            FamilyId::DescendingRaises => 43,
+            FamilyId::MaskDrift => 44,
+            FamilyId::MeetShade => 45,
+            FamilyId::ArmingTrain => 46,
         }
     }
 
@@ -1323,6 +1343,18 @@ impl FamilyId {
                 bands: Bands::Priced(&["ascend_cliff_plateau_control_is_flat_per_unit"]),
                 denominator: PACKED,
                 closed_form: None,
+            },
+            FamilyId::DominatedUndercut => FamilySpec {
+                name: "dominated-undercut",
+                shapes: &[Shape::DominatedUndercut, Shape::DominatedUndercutId],
+                coverage: Coverage::Board { cells: 82 },
+                bands: Bands::Priced(&["tick_dominated_undercut_arm_is_flat_per_unit"]),
+                denominator: PACKED,
+                closed_form: Some(
+                    "k(2b + 26) + 2 construction bits, one dominated-undercut decision \
+                     per site; the meter suite pins the size closed form and the band \
+                     pins the per-site decision count",
+                ),
             },
             FamilyId::JumpPair => FamilySpec {
                 name: "jump-pair",

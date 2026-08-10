@@ -9,11 +9,11 @@ use suanpan::UBig;
 
 use super::{
     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
-    cliff_comb, cliff_fan, concurrent_pair, dense, dense_suffix, dense_suffix_mate, freeze_parade,
-    freeze_position, harmonic, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze,
-    mask_drift_quadruple, mask_drift_triple, plateau_puncture, plateau_puncture_factors,
-    promotion_rearm, promotion_rearm_mate, scattered_id, tooth_tail, weight_comb, wide_arming,
-    wide_tooth_comb, Packed,
+    cliff_comb, cliff_fan, concurrent_pair, dense, dense_suffix, dense_suffix_mate,
+    dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position, harmonic, hugeleaf,
+    id_spine, jump_comb, jump_pair, lone_freeze, mask_drift_quadruple, mask_drift_triple,
+    plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate,
+    scattered_id, tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -348,6 +348,43 @@ fn alt_spine_decodes_canonically_at_predicted_length() {
     let p = alt_spine(3);
     let v = p.version();
     assert_eq!(v.to_string(), "(0, (0, 0, (0, 0, 1)), 0)");
+}
+
+/// `dominated_undercut(k, b)` is canonical normal form at exactly
+/// `k(2b + 26) + 2` bits, and each site holds the raise leaf beside the
+/// `5 · 2^b` climb with the exit one above the region's minimum.
+///
+/// The sizes cover the generator's minimum width, an unaligned width (the
+/// decidability argument is width-generic past the bound), and a site count
+/// deep enough for the spine to dominate; the single-site tree is pinned via
+/// the paper notation (leaf values are absolute there).
+#[test]
+fn dominated_undercut_decodes_canonically_at_predicted_length() {
+    for (k, b) in [(1, 128), (3, 133), (50, 200)] {
+        check_version(&dominated_undercut(k, b), k * (2 * b + 26) + 2);
+    }
+    // The site the family exists for: the raise leaf 0, then the copied
+    // region (3, (0, 5·2^128, 0), 1) — climb, return, one-above exit.
+    let p = dominated_undercut(1, 128);
+    let v = p.version();
+    let wide = UBig::from(5u8) << 128;
+    assert_eq!(
+        v.to_string(),
+        format!("(0, (0, 0, (3, (0, {wide}, 0), 1)), 0)")
+    );
+}
+
+/// `dominated_undercut_id(k)` decodes canonically at exactly `6k + 2` bits:
+/// per site a `(1, 0)` node over the raise leaf, bottoming in a full terminal.
+#[test]
+fn dominated_undercut_id_decodes_canonically_at_predicted_length() {
+    for k in [1, 2, 50] {
+        check_party(&dominated_undercut_id(k), 6 * k + 2);
+    }
+    // The single-site id in the paper notation: the site's full-left node
+    // over the unowned region, the terminal full.
+    let id = check_party(&dominated_undercut_id(1), 8);
+    assert_eq!(id.to_string(), "((1, 0), 1)");
 }
 
 /// The stack-segment meter observes deep guarded recursion, resets to zero,

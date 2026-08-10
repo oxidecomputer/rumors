@@ -138,6 +138,24 @@ const PURE_COMB_BASE: usize = 1_000;
 /// samples the same work at nearly double the held capacity.
 const ASCEND_CLIFF_BASE: usize = 992;
 
+/// Dominated-undercut site count and wide-width bits at scale 1.0 (equal;
+/// packed pair ~13 KiB).
+///
+/// One knob drives both, so the doubling scales the emission count and the
+/// per-site climb width together — every site's climb is its own input-funded
+/// wide code, so the packed pair grows with their product.
+///
+/// The base is a multiple of 32 deliberately: the family's dominant rank
+/// summand rides the `5 · 2^s` climb, and `rank_sum` lands its small summands
+/// at bit remainder `exp mod 32` (an honest amortized-O(1) constant that
+/// flips with the remainder — the freeze-position base's derivation carries
+/// the mechanism); `32 | s` keeps the remainder fixed across the level
+/// doubling, so the exponent leg compares like against like. The build arm
+/// floors the knob at the generator's minimum width (the domination read must
+/// decide the word bound from the wide side), which binds only under extreme
+/// scale-down.
+const DOMINATED_UNDERCUT_BASE: usize = 160;
+
 /// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops` row:
 /// small, so the pair's cost is carried entirely by the mismatch.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
@@ -638,6 +656,18 @@ impl FamilyData {
                     kind,
                     Shape::AscendCliffPlateau.packed2(s, s).version().encode(),
                     Shape::AscendCliffId.packed1(s).bytes,
+                )
+            }
+            FamilyId::DominatedUndercut => {
+                // One knob drives the site count and the wide width (the
+                // band's DU(s, s) diagonal), floored at the generator's
+                // minimum width; the floor binds only under extreme
+                // scale-down (the base constant's rustdoc).
+                let s = size(DOMINATED_UNDERCUT_BASE).max(128);
+                Self::cross_family(
+                    kind,
+                    Shape::DominatedUndercut.packed2(s, s).version().encode(),
+                    Shape::DominatedUndercutId.packed1(s).bytes,
                 )
             }
             FamilyId::JumpPair => {

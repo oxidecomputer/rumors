@@ -76,6 +76,10 @@ pub use crate::version::skyline;
 /// ([`span_traffic`]/[`reset_span_traffic`]).
 pub use crate::version::hull_traffic::SpanTraffic;
 
+/// The watermark web's domination-decision snapshot, re-exported beside its
+/// readers ([`emit_traffic`]/[`reset_emit_traffic`]).
+pub use crate::version::skyline::web_traffic::EmitTraffic;
+
 use crate::codec::{self, Base, BitsMut};
 
 /// A generator's output: canonical packed bytes plus the exact bit length.
@@ -2232,6 +2236,109 @@ fn ascend_cliff_id(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The raise value of every [`dominated_undercut`] site: each site's raised
+/// leaf lands here, and the whole tick's closed form is the input with every
+/// zero position lifted to it.
+const DOMINATED_UNDERCUT_RAISE: u64 = 3;
+
+/// The exit rise of every [`dominated_undercut`] site: the last leaf of the
+/// copied region sits this far above the region's minimum, so the site's
+/// block-minimum emission carries exactly this word-scale nonzero offset.
+const DOMINATED_UNDERCUT_EXIT_RISE: u64 = 1;
+
+/// The dominated-undercut spine `DU(k, b)`: `k` sibling raise sites, each
+/// whose copied region climbs `5 · 2^b` and returns, `k(2b + 26) + 2` bits.
+///
+/// Layout: a right-leaning zero-base spine of `k` levels `1 · γ(0)`, each
+/// level's left child the *site* `1 · γ(0)` over the raise leaf `0 · γ(0)` and
+/// the copied region `1 · γ(3) · (1 · γ(0) · 0 · γ(5·2^b) · 0 · γ(0)) · 0 ·
+/// γ(1)` — an internal node with base [`DOMINATED_UNDERCUT_RAISE`] whose left
+/// child holds the wide leaf `5 · 2^b` beside a zero and whose right leaf
+/// rises [`DOMINATED_UNDERCUT_EXIT_RISE`] above the region's minimum —
+/// terminated by a leaf 0. Crossed with [`dominated_undercut_id`], each site's
+/// left-full raise diverges the walk and arms at the sibling region's minimum,
+/// the region's first (wide) leaf re-arms the watermark web at the climb's
+/// top, and the region's remaining block then returns below with the exit one
+/// above its minimum — so the block-minimum emission arrives with no latent, a
+/// word-scale nonzero offset, and an anchor gap of `−(5·2^b − 1)`: the
+/// emission arm where post-sign domination must decide a wide-negative gap
+/// against a word and move the residue out whole, once per site. The residue
+/// annihilates the site's own arming boundary exactly, so no boundary parks
+/// and every site re-enters the same state; the terminal's right-full raise
+/// then reads the surviving minimum, which pins the residue's documented
+/// polarity `m − v = −gap − offset` in the tick's own output. The width `5 ·
+/// 2^b` makes the domination read's decision a closed form: the gap magnitude
+/// `5·2^b − 1` at `b ≥ 128` has its top digit at base-`2^32` index at least 4,
+/// and the sign fold's running partial reaches the domination bound at or
+/// above index 3 — one digit of descent at most — which is `sign_dominates_at`
+/// floor `1` (the word bound) plus the two-digit clearance the certificate
+/// requires. Normal form: every node's child minima meet 0 (each site's raise
+/// leaf and the wide leaf's zero sibling), and no sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `k == 0`, or if `b < 128` (the closed-form decidability bound
+/// above).
+fn dominated_undercut(k: usize, b: usize) -> Packed {
+    assert!(
+        k >= 1,
+        "the dominated-undercut spine needs at least one site"
+    );
+    assert!(
+        b >= 128,
+        "the wide width must decide the word-bound domination read"
+    );
+    let wide = pow2(b + 2) + pow2(b); // 5 · 2^b
+    let raise = Base::from(DOMINATED_UNDERCUT_RAISE);
+    let rise = Base::from(DOMINATED_UNDERCUT_EXIT_RISE);
+    let mut bits = BitsMut::with_capacity(k * (2 * b + 26) + 2);
+    for _ in 0..k {
+        bits.push(true); // spine node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        bits.push(true); // the site's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf(&mut bits, 0); // the raise leaf (the site's owned left half)
+        bits.push(true); // the copied region's root: base = the raise value
+        codec::encode_int(&mut bits, &raise);
+        bits.push(true); // the climb carrier
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf_wide(&mut bits, &wide); // the wide climb: 5 · 2^b
+        ev_leaf(&mut bits, 0); // the return to the region's minimum
+        ev_leaf_wide(&mut bits, &rise); // the exit, one above the minimum
+    }
+    ev_leaf(&mut bits, 0); // the spine terminal (the right-full raise's leaf)
+    Packed::from_bits(bits)
+}
+
+/// The dominated-undercut id over [`dominated_undercut`]: per site a `(1, 0)`
+/// node over the raise leaf, bottoming in a full terminal, `6k + 2` bits.
+///
+/// Layout: `k` levels `11` (the spine node) · `10 · 00` (the site: a full left
+/// child over the raise leaf, the copied region unowned), then `00` — the full
+/// terminal, whose right-full shortcut at the deepest spine node raises the
+/// terminal leaf to the enclosing watermark minimum: the read that surfaces
+/// any mis-propagated residue in the tick's own bytes. Normal form: no
+/// `(1, 1)` node.
+///
+/// # Panics
+///
+/// Panics if `k == 0`.
+fn dominated_undercut_id(k: usize) -> Packed {
+    assert!(k >= 1, "the dominated-undercut id needs at least one site");
+    let mut bits = BitsMut::with_capacity(6 * k + 2);
+    for _ in 0..k {
+        bits.push(true); // the spine node: the site ...
+        bits.push(true); // ... then deeper
+        bits.push(true); // the site: full left child ...
+        bits.push(false); // ... over an unowned copied region
+        bits.push(false); // the full left terminal
+        bits.push(false);
+    }
+    bits.push(false); // the spine terminus: full
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
 /// Shared-spine levels per isolated position digit in [`jump_pair`].
 ///
 /// Each right-descent turn sets one isolated bit of every absolute position
@@ -2867,6 +2974,28 @@ pub fn span_traffic() -> SpanTraffic {
 /// Reset the rung counters behind [`span_traffic`] to zero.
 pub fn reset_span_traffic() {
     crate::version::hull_traffic::reset()
+}
+
+/// The fill walk's priced-offset domination decisions since the last
+/// [`reset_emit_traffic`]: how many word-scale emissions each of the
+/// watermark web's no-fold arms answered, and how many fell back to the
+/// fold path.
+///
+/// The deterministic stand-in for emission-arm *liveness*, which no cost
+/// meter can see: the dominated arms and the fold path compute the same
+/// values at nearby costs, so a routing change that quietly re-routes a
+/// family's emissions off a fast arm leaves every differential green and
+/// every cost band near its pin while the arm goes undriven — exactly the
+/// regression this counter's committed floors catch (the
+/// `dominated-undercut` family's band in `tests/meter.rs`).
+/// Process-global, same isolation requirement as [`stack_segments`].
+pub fn emit_traffic() -> EmitTraffic {
+    crate::version::skyline::web_traffic::snapshot()
+}
+
+/// Reset the decision counters behind [`emit_traffic`] to zero.
+pub fn reset_emit_traffic() {
+    crate::version::skyline::web_traffic::reset()
 }
 
 /// The packed-stream bits scanned and written since the last
