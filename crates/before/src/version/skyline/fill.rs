@@ -297,12 +297,11 @@ pub(super) fn fused_fill(event_bits: &BitsSlice, id: &crate::Party) -> FillOutco
         height: Accumulator::new(),
         gap: Accumulator::new(),
         w_anchored: false,
-        started: false,
         range_is_leaf: false,
         web: MinWeb::new(),
         memo: Memo::new(),
         relation: Relation::None,
-        out: Out::verbatim(),
+        out: Out::Unstarted,
         probe: RouteProbe::new(id_bits.len()),
     };
     let mut reader = IdReader::root(id_bits);
@@ -361,8 +360,6 @@ struct FillWalk<'a> {
     /// the tracked minimum, and `min − prev_out` rides the web's
     /// [`OUT_FOLLOWER`] instead of `gap`.
     w_anchored: bool,
-    /// Whether any output leaf has been emitted (the first is coded absolute).
-    started: bool,
     /// Whether the range the last consuming max scan covered was a single leaf.
     ///
     /// The changed flag's topology test at the emission that replaces the
@@ -471,8 +468,8 @@ impl FillWalk<'_> {
                     // fill((il, ir), Leaf n) = Leaf n: an event leaf is already
                     // simple; the dominated id children are lazy-skipped, and
                     // the route's expansion fold rides the skips.
-                    let step = self.consume_payload();
-                    self.emit_step(depth, step.sign, step.magnitude);
+                    self.consume_payload();
+                    self.emit_step(depth);
                     break self.probe.expand(key, id, left, right);
                 }
 
@@ -756,11 +753,13 @@ impl FillWalk<'_> {
         if sign == Ordering::Less {
             // The minimum side: the raise lifts the emitted value strictly
             // above the consumed range's maximum, so a verbatim walk diverges
-            // here (the first-leaf write below needs the builder live).
+            // here (the first-leaf write below needs the builder live); the
+            // first-leaf question is asked before the divergence erases it.
+            let first = self.out.is_unstarted();
             self.diverge();
             // The relation accumulator is exactly `h − m_s`, the below the
             // arming moves into the web.
-            if !self.started {
+            if first {
                 // First output leaf, coded absolute: value = h − below.
                 let mut absolute = self.web.lease();
                 absolute.add_accum(&self.height);
@@ -768,7 +767,6 @@ impl FillWalk<'_> {
                 self.web.emit_below_accum(relation);
                 let value = self.web.materialize(absolute);
                 debug_assert!(!value.sign.is_negative(), "a raised height is a natural");
-                self.started = true;
                 self.out.leaf(depth + 1, gamma_code_int(&value.magnitude));
                 // prev_out = min: the output delta anchors to the
                 // watermark from the start.
@@ -835,39 +833,23 @@ impl FillWalk<'_> {
     }
 
     /// Emit a pass-through leaf at the current input height: the output delta
-    /// is the live gap (the step is already folded in), which equals the input
-    /// step itself whenever the streams agree.
+    /// is the live gap (the caller has just consumed and folded the leaf's
+    /// step), which equals the input step itself whenever the streams agree.
     ///
     /// A pass-through leaf can never trip the changed flag: its depth is the
     /// consumed input leaf's own, and its delta re-codes the step just consumed
     /// against an unchanged predecessor — byte-identical by canonical
     /// uniqueness — so a verbatim walk records the match and skips the emission
-    /// body outright.
-    fn emit_step(&mut self, depth: usize, sign: Sign, magnitude: Int) {
+    /// body outright. When the match is declined the output is built, hence
+    /// past its absolute-coded first leaf ([`Out::Built`]'s contract), so the
+    /// body codes a delta unconditionally — from the registers, never from
+    /// the step itself.
+    fn emit_step(&mut self, depth: usize) {
         self.web.emit_here();
         if self.out.note_match(self.pos()) {
-            self.started = true;
             self.gap.reset();
             return;
         }
-        if !self.started {
-            // The output's first leaf is coded absolute. A pass-through first
-            // leaf is the input's first (every consumed-but-not-emitted range
-            // ends in a collapse emit), whose absolute is the step itself.
-            debug_assert!(
-                !sign.is_negative(),
-                "the stream's first height is a natural"
-            );
-            debug_assert!(!self.w_anchored, "the first emission finds no anchor");
-            self.started = true;
-            self.gap.reset();
-            self.out.leaf(depth, gamma_code_int(&magnitude));
-            return;
-        }
-        // Deliberately unread past this point: the step is already folded
-        // into the live gap, and the delta below re-derives the output code
-        // from the registers, not from the step.
-        let _ = (sign, magnitude);
         let delta = if self.w_anchored {
             // d_out = h − prev_out = (min − prev_out) + (h − min): the anchor
             // switch's one bridge read of the surviving web, priced by this
@@ -904,21 +886,21 @@ impl FillWalk<'_> {
     /// raise is a match, never a divergence.
     fn emit_offset(&mut self, depth: usize, offset: Signed) {
         self.web.emit_offset(&offset);
-        if self.out.is_verbatim() {
-            if self.range_is_leaf && offset.is_zero() {
-                // A value-reproducing emission on a verbatim walk always
-                // matches (the doc's argument), unlike `emit_step`'s
-                // unguarded call, where the bool genuinely discriminates.
-                let matched = self.out.note_match(self.pos());
-                debug_assert!(matched, "a verbatim walk records a value-reproducing raise");
-                let _ = matched;
-                self.started = true;
-                self.gap.reset();
-                return;
-            }
-            self.diverge();
+        if self.out.is_verbatim() && self.range_is_leaf && offset.is_zero() {
+            // A value-reproducing emission on a verbatim walk always
+            // matches (the doc's argument), unlike `emit_step`'s
+            // unguarded call, where the bool genuinely discriminates.
+            let matched = self.out.note_match(self.pos());
+            debug_assert!(matched, "a verbatim walk records a value-reproducing raise");
+            let _ = matched;
+            self.gap.reset();
+            return;
         }
-        if !self.started {
+        // The first-leaf question is asked before the divergence erases it
+        // (`diverge` is a no-op on an already-built output).
+        let first = self.out.is_unstarted();
+        self.diverge();
+        if first {
             // First output leaf: materialize the absolute — its width is the
             // emitted code's own (the height so far is the input's own first
             // code plus consumed deltas), so the read is priced by the write.
@@ -932,7 +914,6 @@ impl FillWalk<'_> {
             }
             .sum(&offset);
             debug_assert!(!value.sign.is_negative(), "a collapsed height is a natural");
-            self.started = true;
             self.out.leaf(depth, gamma_code_int(&value.magnitude));
         } else {
             let delta = if self.w_anchored {
@@ -968,8 +949,11 @@ impl FillWalk<'_> {
     /// consumed range's maximum — at or above every input plateau the emission
     /// replaces — so the emitted value moved.
     fn emit_at_min(&mut self, depth: usize) {
+        debug_assert!(
+            !self.out.is_unstarted(),
+            "a tracked minimum implies an emission"
+        );
         self.diverge();
-        debug_assert!(self.started, "a tracked minimum implies an emission");
         // Emitting the true minimum retires any latent, so the fresh zero
         // follower below installs against an exact anchor. Funded: a
         // watermark-anchored delta to the minimum is at least the anchor's
@@ -1044,7 +1028,6 @@ impl FillWalk<'_> {
             self.first_read = false;
             self.fold_block(&skip.net);
             self.web.emit_offset(&skip.min_from_exit);
-            self.started = true;
             // The region's last leaf is the last emission: the gap closes
             // exactly, whatever it held at entry.
             self.gap.reset();
@@ -1055,8 +1038,8 @@ impl FillWalk<'_> {
         }
         // Per-leaf for the first leaf (and, post-divergence, its re-code
         // against the live output delta through the full emission machinery).
-        let step = self.consume_payload();
-        self.emit_step(depth + first_leaf_depth, step.sign, step.magnitude);
+        self.consume_payload();
+        self.emit_step(depth + first_leaf_depth);
         if first_leaf_depth >= 2 && self.out.held_at(depth + first_leaf_depth) {
             // Post-divergence the rest of the region is byte-identical to the
             // input — every consecutive-leaf delta lies strictly inside the
@@ -1081,8 +1064,8 @@ impl FillWalk<'_> {
             return;
         }
         while let Some(leaf_depth) = walk.descend(&mut self.cursor) {
-            let step = self.consume_payload();
-            self.emit_step(depth + leaf_depth, step.sign, step.magnitude);
+            self.consume_payload();
+            self.emit_step(depth + leaf_depth);
         }
     }
 

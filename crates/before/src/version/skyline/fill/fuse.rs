@@ -76,13 +76,24 @@ pub(super) fn decode_cost_component(encoded: u64) -> u64 {
 }
 
 /// The fill walk's output, as the changed flag's realization (module doc): a
-/// verbatim reference over the matched input prefix, or a materialized builder
-/// after the first divergence.
+/// verbatim reference over the matched input prefix, or a materialized
+/// builder after the first divergence.
+///
+/// [`Out::Unstarted`] is the verbatim reference while the prefix is empty:
+/// the state itself carries the absolute-vs-delta decision for the output's
+/// first leaf, so no flag beside the output tracks it.
 // One `Out` lives per fill walk — never a collection element — so the
 // variant-size gap prices nothing; boxing the builder would put a heap
 // indirection on every emitted leaf instead.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum Out {
+    /// No plateau has been emitted or matched yet: the verbatim reference
+    /// over the empty prefix.
+    ///
+    /// The output's first leaf is coded absolute, every later one as a
+    /// delta, and this state is what the emission arms read to decide
+    /// which — never a flag beside the output.
+    Unstarted,
     /// Every emitted plateau so far equals the input plateau it replaces, so
     /// the output so far is byte-identical to the input prefix ending at
     /// `matched_end` — nothing is built.
@@ -93,18 +104,28 @@ pub(super) enum Out {
     },
     /// A plateau diverged (or the walk replayed the prefix): the canonical
     /// builder holds the real output.
+    ///
+    /// At every emission the builder is past the output's first leaf —
+    /// materializing a nonempty prefix copies it in, and the arm that
+    /// diverges on the very first emission appends its absolute code before
+    /// the walk resumes — so the emission bodies code deltas unconditionally
+    /// once a match is declined.
     Built(SkylineBuilder),
 }
 
 impl Out {
-    /// A fresh verbatim reference at the stream's start.
-    pub(super) fn verbatim() -> Self {
-        Out::Verbatim { matched_end: 0 }
-    }
-
     /// Whether the walk is still a verbatim reference (no divergence).
     pub(super) fn is_verbatim(&self) -> bool {
-        matches!(self, Out::Verbatim { .. })
+        matches!(self, Out::Unstarted | Out::Verbatim { .. })
+    }
+
+    /// Whether no plateau has been emitted or matched: the next emission is
+    /// the output's first leaf, coded absolute rather than as a delta.
+    ///
+    /// Read before a divergence materializes the prefix — [`Out::Built`]
+    /// does not record whether it was entered empty.
+    pub(super) fn is_unstarted(&self) -> bool {
+        matches!(self, Out::Unstarted)
     }
 
     /// Record that the emission in flight matches its input plateau,
@@ -116,8 +137,8 @@ impl Out {
     /// post-divergence.
     pub(super) fn note_match(&mut self, end: usize) -> bool {
         match self {
-            Out::Verbatim { matched_end } => {
-                *matched_end = end;
+            Out::Unstarted | Out::Verbatim { .. } => {
+                *self = Out::Verbatim { matched_end: end };
                 true
             }
             Out::Built(_) => false,
@@ -133,7 +154,7 @@ impl Out {
     pub(super) fn leaf(&mut self, depth: usize, code: Code) {
         match self {
             Out::Built(builder) => builder.leaf(depth, code),
-            Out::Verbatim { .. } => {
+            Out::Unstarted | Out::Verbatim { .. } => {
                 unreachable!("a verbatim emission is matched or has diverged")
             }
         }
@@ -152,7 +173,9 @@ impl Out {
     pub(super) fn held_at(&self, depth: usize) -> bool {
         match self {
             Out::Built(builder) => builder.held_at(depth),
-            Out::Verbatim { .. } => unreachable!("the region splice runs post-divergence"),
+            Out::Unstarted | Out::Verbatim { .. } => {
+                unreachable!("the region splice runs post-divergence")
+            }
         }
     }
 
@@ -176,25 +199,29 @@ impl Out {
             Out::Built(builder) => {
                 builder.continue_verbatim(rest, root_depth, last_rel_depth, last_code_len)
             }
-            Out::Verbatim { .. } => unreachable!("the region splice runs post-divergence"),
+            Out::Unstarted | Out::Verbatim { .. } => {
+                unreachable!("the region splice runs post-divergence")
+            }
         }
     }
 
     /// Materialize the matched prefix at the first divergence.
     ///
-    /// Decodes `event[..matched_end]` — byte-identical to the output so far by
-    /// the verbatim invariant — and feeds its plateaus through a fresh builder,
-    /// leaving `self` built; a no-op once built.
+    /// Decodes the matched prefix — byte-identical to the output so far by
+    /// the verbatim invariant, and empty for an unstarted walk — and feeds
+    /// its plateaus through a fresh builder, leaving `self` built; a no-op
+    /// once built.
     ///
     /// One wholesale prefix copy, priced by the divergence that ends the
     /// verbatim run; the walk from here on is a direct fill emission. Iterative
     /// (a path bit stack, no recursion), so prefix depth cannot overflow the
     /// native stack.
     pub(super) fn materialize(&mut self, event: &BitsSlice) {
-        let Out::Verbatim { matched_end, .. } = self else {
-            return;
+        let matched_end = match self {
+            Out::Unstarted => 0,
+            Out::Verbatim { matched_end } => *matched_end,
+            Out::Built(_) => return,
         };
-        let matched_end = *matched_end;
         let mut builder = SkylineBuilder::with_capacity(event.len());
         let mut cursor = crate::codec::DsiCursor::new(event);
         let mut walk = LeafWalk::new();
@@ -224,17 +251,17 @@ impl Out {
     /// `None` for an unchanged walk (every plateau matched; `fill(i, e) = e`,
     /// byte-exact by canonical uniqueness).
     pub(super) fn finish(self, event: &BitsSlice) -> Option<BitsMut> {
-        match self {
-            Out::Built(builder) => Some(builder.finish()),
-            Out::Verbatim { matched_end } => {
-                debug_assert_eq!(
-                    matched_end,
-                    event.len(),
-                    "an unchanged walk matches every input plateau"
-                );
-                None
-            }
-        }
+        let matched_end = match self {
+            Out::Built(builder) => return Some(builder.finish()),
+            Out::Unstarted => 0,
+            Out::Verbatim { matched_end } => matched_end,
+        };
+        debug_assert_eq!(
+            matched_end,
+            event.len(),
+            "an unchanged walk matches every input plateau"
+        );
+        None
     }
 }
 
