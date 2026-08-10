@@ -43,7 +43,13 @@
 //! either is (any nonzero `D` refutes equality), [`le`] when its one direction
 //! is (any `D > 0`). A refuted direction stays refuted, so breaking at the
 //! question's resolution never moves a verdict the completed sweep would have
-//! reached, and a decided sweep reads no more of either stream.
+//! reached, and a decided sweep reads no more of either stream. That last
+//! clause is a measured number, not just a claim: the `eq_early_exit` row of
+//! the resource-envelope suite (`tests/meter.rs`) pins the sweep's touch and
+//! scan readings on a first-interval-refuted pair as tail-independent
+//! absolutes at two operand scales, so an exit discipline that keeps sweeping
+//! a decided question fails that row while every verdict-level suite stays
+//! green.
 //!
 //! # Testing
 //!
