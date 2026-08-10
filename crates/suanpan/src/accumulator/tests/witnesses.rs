@@ -11,25 +11,8 @@ use core::cmp::Ordering;
 
 use dashu_int::{IBig, UBig};
 
-use super::{assert_value, Accumulator};
+use super::{assert_value, park_extreme_negative_digit, Accumulator};
 use crate::accumulator::{QUICK_MAX, QUICK_SHIFT_MAX};
-
-/// Deposit `−(2^33 − 1)` — the lazy zone's most negative digit — at
-/// digit `index` through the public word-scale entry points, without
-/// triggering a recenter.
-///
-/// Two deposits of `−2^32` and `−(2^32 − 1)` land in one digit because
-/// each intermediate total stays inside the zone; a single deposit of
-/// the full value would recenter. This is the construction behind the
-/// extreme-cancellation witnesses below: an adversary (or an unlucky
-/// workload) can park any digit one unit inside the zone boundary.
-fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
-    // The construction is a digit-engine spelling: arm the engine so
-    // the register cannot fuse the two deposits into one exact value.
-    acc.spill();
-    acc.sub_magnitude_shl(&UBig::from(1u64 << 32), 32 * index);
-    acc.sub_magnitude_shl(&UBig::from((1u64 << 32) - 1), 32 * index);
-}
 
 /// The sign fold's decision threshold is tight: a running partial of
 /// exactly 2 can still be overturned by the digits below, so the fold
@@ -174,6 +157,59 @@ fn decided_domination_covers_extreme_accumulator_operands() {
     );
 }
 
+/// The register arm's certification constant is tight from below: a
+/// register-held `2^65` at `floor = 1` must read `decided = false`,
+/// because an operand held in digits `0..=1` can spell more than `2^65`.
+///
+/// The bound `3 · 2^(32·(floor + 1))` is the smallest whole multiple
+/// clearing the `2.01 · 2^(32·(floor + 1))` redundant-spelling operand
+/// bound: an operand parked at the zone's edge in digits `0..=1`
+/// carries `(2^33 − 1)(2^32 + 1) = 2^65 + 2^32 − 1 > 2^65`, so a
+/// certificate at `2^65` would cover an operand larger than the held
+/// value — weakening the constant to 2 certifies exactly here, and the
+/// fold at the tail flips the sign. The generalized family is the
+/// accumulator-operand probe arm of `floor_domination_is_sound`; this
+/// witness is its deterministic tripwire at the gap value.
+#[test]
+fn register_domination_constant_is_tight_from_below() {
+    let mut held = Accumulator::new();
+    held.add_u64(1 << 35);
+    held.shl(30);
+    assert!(
+        held.quick.is_some(),
+        "2^65 built through register entry points stays register-held"
+    );
+    assert_value(&held, &(IBig::from(1) << 65usize));
+    // operand: every digit 0..=floor parked at the zone's edge —
+    // magnitude 2^65 + 2^32 − 1, strictly above the held 2^65.
+    let mut operand = Accumulator::new();
+    park_extreme_negative_digit(&mut operand, 0);
+    park_extreme_negative_digit(&mut operand, 1);
+    operand.negate();
+    assert_eq!(
+        operand.digit_count() - 1,
+        1,
+        "the operand sits at the floor"
+    );
+    let operand_value = (IBig::from(1) << 65usize) + ((IBig::from(1) << 32usize) - 1);
+    assert_value(&operand, &operand_value);
+    let (sign, decided) = held.sign_dominates_at(1);
+    assert_eq!(sign, Ordering::Greater, "the sign itself is exact");
+    assert!(
+        !decided,
+        "2^65 < 3 · 2^64: certifying would cover an operand held in \
+         digits 0..=floor that exceeds the held value"
+    );
+    // Why false is required: the in-scope operand flips the sign.
+    let mut probe = held.clone();
+    probe.sub_accum(&operand);
+    assert_eq!(
+        probe.sign(),
+        Ordering::Less,
+        "the zone-edge spelling (2^33 − 1)(2^32 + 1) exceeds 2^65"
+    );
+}
+
 /// A floor within 2 of `usize::MAX` never certifies domination: the
 /// decision index saturates instead of wrapping.
 ///
@@ -260,16 +296,31 @@ fn domination_certificate_depends_on_representation() {
 /// the read-out's complement pass must ripple through the zero low
 /// digit.
 ///
-/// The flush-right deposit `−2^32 − 2^32` lands digit 0 on the recenter
-/// boundary (remainder 0, carry −2). Pins the `rem_euclid`/complement
-/// seam of `sign_magnitude` on the one shape where the complement's
-/// carry crosses a zero digit — the arm the negative-conversion test's
-/// operands never exercise.
+/// With the digit engine explicitly armed, the flush-right deposit
+/// `−2^32 − 2^32` lands digit 0 on the recenter boundary (remainder 0,
+/// carry −2). Pins the `rem_euclid`/complement seam of `sign_magnitude`
+/// on the one shape where the complement's carry crosses a zero digit —
+/// the arm the negative-conversion test's operands never exercise. The
+/// mode asserts keep the witness honest: the same schedule on the quick
+/// register stays register-held and never reaches the seam, so the
+/// spill and the exact digit state are pinned alongside the value. The
+/// generalized family is `carry_tie_streams_match_the_oracle` in the
+/// differential suite; this witness is its deterministic tripwire.
 #[test]
 fn flush_right_carry_tie_converts_exactly() {
     let mut acc = Accumulator::new();
+    acc.spill();
     acc.sub_u64(1 << 32);
     acc.sub_u64(1 << 32);
+    assert!(
+        acc.quick.is_none(),
+        "the seam under test lives in the digit engine"
+    );
+    assert_eq!(
+        &acc.digits[..=acc.top],
+        &[0, -2],
+        "the recenter tie leaves remainder 0 and carry −2"
+    );
     let (sign, magnitude) = acc.sign_magnitude();
     assert_eq!((sign, magnitude), (Ordering::Less, UBig::from(1u64 << 33)));
     assert_eq!(acc.sign(), Ordering::Less);

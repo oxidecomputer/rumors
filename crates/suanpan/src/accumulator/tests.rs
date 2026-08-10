@@ -17,7 +17,8 @@
 //!   randomized deep-shift streams.
 //!
 //! This file holds the shared harness: mode-forcing construction, the
-//! oracle comparison, and limb-built wide operands.
+//! oracle comparison, limb-built wide operands, and zone-edge digit
+//! parking.
 
 mod differential;
 mod ledger;
@@ -81,4 +82,22 @@ fn assert_value(acc: &Accumulator, oracle: &IBig) {
 fn from_limbs(limbs: &[u64]) -> UBig {
     let bytes: Vec<u8> = limbs.iter().flat_map(|limb| limb.to_le_bytes()).collect();
     UBig::from_le_bytes(&bytes)
+}
+
+/// Deposit `−(2^33 − 1)` — the lazy zone's most negative digit — at
+/// digit `index` through the public word-scale entry points, without
+/// triggering a recenter.
+///
+/// Two deposits of `−2^32` and `−(2^32 − 1)` land in one digit because
+/// each intermediate total stays inside the zone; a single deposit of
+/// the full value would recenter. This is the construction behind the
+/// extreme-cancellation witnesses and the differential suite's
+/// accumulator-operand probes: an adversary (or an unlucky workload)
+/// can park any digit one unit inside the zone boundary.
+fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
+    // The construction is a digit-engine spelling: arm the engine so
+    // the register cannot fuse the two deposits into one exact value.
+    acc.spill();
+    acc.sub_magnitude_shl(&UBig::from(1u64 << 32), 32 * index);
+    acc.sub_magnitude_shl(&UBig::from((1u64 << 32) - 1), 32 * index);
 }

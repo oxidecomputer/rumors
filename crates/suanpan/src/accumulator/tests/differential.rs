@@ -14,7 +14,10 @@ use dashu_int::ops::BitTest;
 use dashu_int::{IBig, UBig};
 use proptest::prelude::*;
 
-use super::{assert_value, fresh, from_limbs, oracle_sign, Accumulator};
+use super::{
+    assert_value, fresh, from_limbs, oracle_sign, park_extreme_negative_digit, Accumulator,
+};
+use crate::accumulator::QUICK_SHIFT_MAX;
 
 /// One accumulator operation, oracle-applicable.
 #[derive(Debug, Clone)]
@@ -100,6 +103,177 @@ fn arb_op() -> impl Strategy<Value = Op> {
                 shift,
             }),
     ]
+}
+
+/// How the domination family's held value is built.
+#[derive(Debug, Clone)]
+enum Held {
+    /// A random mixed stream: samples the digit engine and the sign
+    /// fold's decision index.
+    Stream { ops: Vec<Op>, engine_first: bool },
+    /// A register-parked `m · 2^(32·(floor + 1) − 31) + delta`, both
+    /// signs: samples the quick branch's direct magnitude comparison,
+    /// optionally spilled so the same magnitudes also run through the
+    /// fold.
+    Register {
+        m: u64,
+        delta: u64,
+        negative: bool,
+        spill: bool,
+    },
+}
+
+/// A held value paired with the floor it is probed at.
+///
+/// Stream-built values draw any floor; register-built values
+/// concentrate `m` (the multiplier in units of `2^31`) around the
+/// quick branch's certification boundary `3 · 2^(32·(floor + 1))` and
+/// the redundant-operand bound just above `2 · 2^(32·(floor + 1))`,
+/// spanning multipliers 1.5..4 in between. Register floors stop at 1:
+/// a wider floor puts the boundary past the register's ceiling.
+fn arb_held() -> impl Strategy<Value = (Held, usize)> {
+    prop_oneof![
+        1 => (proptest::collection::vec(arb_op(), 1..60), any::<bool>(), 0usize..8).prop_map(
+            |(ops, engine_first, floor)| (Held::Stream { ops, engine_first }, floor)
+        ),
+        1 => (
+            prop_oneof![
+                2 => Just(1u64 << 32),           // multiplier 2: the operand bound
+                1 => Just(3u64 << 31),           // multiplier 3: the certification boundary
+                3 => (3u64 << 30)..(1u64 << 33), // multipliers spanning 1.5..4
+            ],
+            prop_oneof![
+                2 => Just(0u64),
+                3 => 0u64..(1 << 32),
+                1 => 0u64..(1 << 34),
+            ],
+            any::<bool>(),
+            any::<bool>(),
+            0usize..=1,
+        )
+            .prop_map(|(m, delta, negative, spill, floor)| {
+                (
+                    Held::Register {
+                        m,
+                        delta,
+                        negative,
+                        spill,
+                    },
+                    floor,
+                )
+            }),
+    ]
+}
+
+/// Materialize a held-value spec as the accumulator and its exact
+/// oracle.
+fn build_held(held: &Held, floor: usize) -> (Accumulator, IBig) {
+    match held {
+        Held::Stream { ops, engine_first } => {
+            let mut acc = fresh(*engine_first);
+            let mut oracle = IBig::from(0);
+            for op in ops {
+                apply(&mut acc, &mut oracle, op);
+            }
+            (acc, oracle)
+        }
+        Held::Register {
+            m,
+            delta,
+            negative,
+            spill,
+        } => {
+            let mut acc = Accumulator::new();
+            acc.add_u64(*m);
+            // Shift to the floor's scale in chunks the register accepts,
+            // so the value stays register-held throughout.
+            let mut remaining = 32 * (floor as u64 + 1) - 31;
+            while remaining > 0 {
+                let step = remaining.min(QUICK_SHIFT_MAX);
+                acc.shl(step);
+                remaining -= step;
+            }
+            acc.add_u64(*delta);
+            if *negative {
+                acc.negate();
+            }
+            assert!(
+                acc.quick.is_some(),
+                "the register arm stays register-held until its own spill"
+            );
+            let mut oracle = (IBig::from(*m) << (32 * (floor + 1) - 31)) + IBig::from(*delta);
+            if *negative {
+                oracle = -oracle;
+            }
+            if *spill {
+                acc.spill();
+            }
+            (acc, oracle)
+        }
+    }
+}
+
+/// One digit of an accumulator-operand probe.
+#[derive(Debug, Clone, Copy)]
+enum ProbeDigit {
+    /// Parked at the lazy zone's edge: `−(2^33 − 1)`.
+    Extreme,
+    /// A single word deposit `−w`, `w < 2^32`.
+    Word(u64),
+    /// No deposit at this index.
+    Absent,
+}
+
+/// A probe digit, biased toward the zone's edge — the spellings whose
+/// magnitude exceeds any plain probe under the same floor.
+fn arb_probe_digit() -> impl Strategy<Value = ProbeDigit> {
+    prop_oneof![
+        3 => Just(ProbeDigit::Extreme),
+        2 => (1u64..(1 << 32)).prop_map(ProbeDigit::Word),
+        1 => Just(ProbeDigit::Absent),
+    ]
+}
+
+/// Materialize an accumulator-operand probe held in digits
+/// `0..=floor`, as the accumulator and its exact oracle.
+///
+/// `all_extreme` overrides every digit spec to the zone's edge — the
+/// extremal operand of the floor, up to `(2^33 − 1)` per digit —
+/// so the strategy carries a point mass at the strongest probe.
+fn build_probe(
+    digits: &[ProbeDigit],
+    all_extreme: bool,
+    negate: bool,
+    floor: usize,
+) -> (Accumulator, IBig) {
+    let mut probe = Accumulator::new();
+    // A digit-engine spelling by construction: the deposits below must
+    // land as lazy-zone digits, not fuse in the register.
+    probe.spill();
+    let mut oracle = IBig::from(0);
+    for (index, spec) in digits[..=floor].iter().enumerate() {
+        let spec = if all_extreme {
+            ProbeDigit::Extreme
+        } else {
+            *spec
+        };
+        match spec {
+            ProbeDigit::Extreme => {
+                park_extreme_negative_digit(&mut probe, index as u64);
+                oracle -= IBig::from((1u64 << 33) - 1) << (32 * index);
+            }
+            ProbeDigit::Word(w) => {
+                probe.sub_magnitude_shl(&UBig::from(w), 32 * index as u64);
+                oracle -= IBig::from(w) << (32 * index);
+            }
+            ProbeDigit::Absent => {}
+        }
+    }
+    if negate {
+        probe.negate();
+        oracle = -oracle;
+    }
+    (probe, oracle)
 }
 
 proptest! {
@@ -463,28 +637,49 @@ proptest! {
         assert_value(&reused, &IBig::from(0));
     }
 
-    /// `sign_dominates_at` never lies at any floor: the sign matches the
-    /// oracle's, and a `decided` verdict implies no operand fitting in
-    /// digits `0..=floor` could flip the sign when folded in.
+    /// `sign_dominates_at` never lies at any floor: the sign matches
+    /// the oracle's, and a `decided` verdict covers every operand in
+    /// digits `0..=floor` — plain or redundantly spelled.
+    ///
+    /// Held values come from random streams (the digit fold's decision
+    /// index) and from register-parked values concentrated at the quick
+    /// branch's certification boundary (its direct magnitude
+    /// comparison). Three legs per decided verdict: a plain-magnitude
+    /// probe under `2^(32·(floor + 1))` folded through the oracle; an
+    /// accumulator-operand probe built from lazy-zone digit deposits in
+    /// digits `0..=floor` (whose redundant spelling can reach
+    /// `2.01 · 2^(32·(floor + 1))`), folded in both signs with the held
+    /// magnitude asserted strictly larger; and, while register-held, the
+    /// documented certification bound pinned exactly —
+    /// `decided ⇔ |value| ≥ 3 · 2^(32·(floor + 1))`.
     #[test]
     fn floor_domination_is_sound(
-        ops in proptest::collection::vec(arb_op(), 1..60),
-        floor in 0usize..8,
+        (held, floor) in arb_held(),
         probe_limbs in proptest::collection::vec(any::<u64>(), 1..=4),
         probe_negative: bool,
-        engine_first: bool,
+        probe_digits in proptest::collection::vec(arb_probe_digit(), 8),
+        probe_all_extreme: bool,
+        probe_negate: bool,
     ) {
-        let mut acc = fresh(engine_first);
-        let mut oracle = IBig::from(0);
-        for op in &ops {
-            apply(&mut acc, &mut oracle, op);
-        }
+        let (mut acc, oracle) = build_held(&held, floor);
+        let register_held = acc.quick.is_some();
         let (sign, decided) = acc.sign_dominates_at(floor);
         prop_assert_eq!(sign, oracle_sign(&oracle));
         assert_value(&acc, &oracle);
+        if register_held {
+            // The register arm's contract is exact, not merely sound:
+            // the certificate is the direct magnitude comparison.
+            let (_, magnitude) = acc.sign_magnitude();
+            prop_assert_eq!(
+                decided,
+                magnitude >= UBig::from(3u8) << (32 * (floor + 1)),
+                "a register-held verdict is exactly the comparison \
+                 against 3 · 2^(32·(floor + 1))"
+            );
+        }
         if decided {
-            // The largest operand the verdict covers: top digit index at
-            // most `floor`, so at most 32·(floor + 1) bits.
+            // The largest plain operand the verdict covers: top digit
+            // index at most `floor`, so at most 32·(floor + 1) bits.
             let mut probe = from_limbs(&probe_limbs);
             let cap = 32 * (floor + 1);
             probe &= (UBig::from(1u8) << cap) - 1u8;
@@ -497,6 +692,37 @@ proptest! {
             prop_assert_eq!(
                 oracle_sign(&folded), sign,
                 "a decided verdict survives any fold under its floor"
+            );
+            // The accumulator-operand clause: a redundant lazy-zone
+            // spelling in digits 0..=floor can exceed every plain
+            // magnitude under the floor, and the verdict covers it too.
+            let (operand, operand_oracle) =
+                build_probe(&probe_digits, probe_all_extreme, probe_negate, floor);
+            prop_assert!(
+                operand.digit_count() <= floor + 1,
+                "the probe operand sits at or below the floor"
+            );
+            assert_value(&operand, &operand_oracle);
+            let (_, held_magnitude) = acc.sign_magnitude();
+            let (_, operand_magnitude) = operand.sign_magnitude();
+            prop_assert!(
+                held_magnitude > operand_magnitude,
+                "a decided verdict implies the held magnitude strictly \
+                 exceeds any operand held in digits 0..=floor"
+            );
+            let mut folded = acc.clone();
+            folded.sub_accum(&operand);
+            prop_assert_eq!(
+                folded.sign(), sign,
+                "a decided verdict survives subtracting an operand held \
+                 in digits 0..=floor"
+            );
+            let mut folded = acc.clone();
+            folded.add_accum(&operand);
+            prop_assert_eq!(
+                folded.sign(), sign,
+                "a decided verdict survives adding an operand held in \
+                 digits 0..=floor"
             );
         }
     }
@@ -531,6 +757,55 @@ proptest! {
                 oracle_sign(&folded), sign,
                 "a decided verdict survives any word-scale fold"
             );
+        }
+    }
+
+    /// Digit-aligned streams — every delta an exact multiple of 2^32 —
+    /// convert exactly at every step: recenter ties leave zero
+    /// remainders that the read-out's complement carry must ripple
+    /// across.
+    ///
+    /// The generalized family behind the flush-right carry-tie witness:
+    /// with the digit engine forced, deposits biased toward small
+    /// multiples drive digits onto exact `±k · 2^33` boundaries (every
+    /// recenter of a digit holding a multiple of `2^32` is a tie, since
+    /// the recentered remainder is both a multiple of `2^32` and inside
+    /// `[−2^31, 2^31)` — so exactly 0), and the zero digits they leave
+    /// under nonzero highs route `sign_magnitude` through the
+    /// `rem_euclid`/complement seam at random digit offsets, both
+    /// signs. The value is oracle-checked after every deposit, before
+    /// the sign read collapses the spelling.
+    #[test]
+    fn carry_tie_streams_match_the_oracle(
+        ops in proptest::collection::vec(
+            (
+                prop_oneof![3 => 1u64..=4, 1 => 1u64..(1 << 32)],
+                0u64..6,
+                any::<bool>(),
+            ),
+            1..40,
+        ),
+    ) {
+        let mut acc = Accumulator::new();
+        // The seam lives in the digit engine: register-held values read
+        // out from the register arm and never recenter.
+        acc.spill();
+        let mut oracle = IBig::from(0);
+        for (multiple, index, negative) in &ops {
+            let delta = UBig::from(multiple << 32);
+            let scaled =
+                IBig::from(delta.clone()) << usize::try_from(32 * index).unwrap();
+            if *negative {
+                acc.sub_magnitude_shl(&delta, 32 * index);
+                oracle -= scaled;
+            } else {
+                acc.add_magnitude_shl(&delta, 32 * index);
+                oracle += scaled;
+            }
+            // Raw spelling first: the read-out samples the complement
+            // seam before the sign read's collapse rewrites the digits.
+            assert_value(&acc, &oracle);
+            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
         }
     }
 }
