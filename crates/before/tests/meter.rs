@@ -5984,7 +5984,7 @@ mod query_env {
     pub const RANK_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 61_448, 11_099, 2, 6_659); // 68, 0, 12_289, 65_546, 12_975 (the row's pin of record); touches 12_975 -> 8_879 (the segment feed opens at the first freeze — the practical regime's one-third dead weight); scan 65_546 -> 49_158 (the max_depth pre-scan records each payload skip once; every other column byte-identical); re-pinned (limb 3, scan 49_158, touches 8_879, heap 0): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     pub const TICKS_DENSE: QueryEnvelope = query_envelope(58_815, 0, 8, 468_809, 156_270, 4, 93_762); // 47_052 -> 47_084 (pre-existing drift) -> 47_180 (the zero-run ledger's map nodes; the older ceiling stands), 0, 250_020, 375_047, 125_025 (the tick row's readings plus the count's gamma codes); re-pinned (limb 6, scan 375_047, touches 125_016, heap 47_261): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     pub const TICKS_NESTED_WIDE: QueryEnvelope = query_envelope(14_107, 0, 323, 150_072, 31_125, 193, 18_675); // 11_286 -> 11_350 (pre-existing drift) -> 11_542 (the zero-run ledger's map nodes; the older ceiling stands), 0, 24_280, 120_057, 36_908 (the fill branch pays its documented second walk - scan ~2x the tick row's one walk); re-pinned to the new readings (limb 8_272, scan 120_057, touches 24_900, heap 11_782): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 258, scan 120_057, touches 24_900, heap 11_782): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const TICKS_MIRROR_WIDE: QueryEnvelope = query_envelope(39_506, 0, 723, 230_045, 107_574, 433, 64_544); // 31_605 -> 31_701 (pre-existing drift) -> 31_989 (the zero-run ledger's map nodes; the older ceiling stands), 0, 40_580, 184_036, 122_060 (second-walk fill branch, as the nested-wide row); re-pinned to the new readings (limb 24_572, scan 184_036, touches 86_059, heap 31_877): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 578, scan 184_036, touches 86_059, heap 31_877): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    pub const TICKS_MIRROR_WIDE: QueryEnvelope = query_envelope(39_506, 0, 723, 220_048, 72_582, 433, 43_548); // 31_605 -> 31_701 (pre-existing drift) -> 31_989 (the zero-run ledger's map nodes; the older ceiling stands), 0, 40_580, 184_036, 122_060 (second-walk fill branch, as the nested-wide row); re-pinned to the new readings (limb 24_572, scan 184_036, touches 86_059, heap 31_877): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 578, scan 184_036, touches 86_059, heap 31_877): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal); re-pinned (limb 578, scan 176_038, touches 58_065, heap 31_877): the pre-scan records minima only — the walk owns every left-full raise decision, so the per-site collapse re-read and raise-mirror folds leave the scan and touch columns
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope = query_envelope(30_720, 0, 5, 468_758, 312_508, 3, 187_504); // 24_576, 0, 500_002 -> 250_006 (the anchor-web fold: the per-close signed offset compare is gone), 375_006, 125_005 -> 250_008 (every delta folds into two accumulators - the live height and the web's gap - so the touch column doubles while the quadratic minima circulation leaves; heap and scan byte-identical across the rewrite); re-pinned (limb 4, scan 375_006, touches 250_006, heap 24_576): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope = query_envelope(3_530, 0, 180, 17_923, 12_000, 108, 7_200); // 49_752 -> 2_592 -> 3_168 (the anchor-web fold's 19x drop, then the zero-run ledger's map nodes measured at the cure-round merge; the older ceiling stands) -> 3_448 (the accumulator's quick register: one idle i128 per pooled accumulator; work columns unmoved), 8_258 -> 6_284, 70_962 -> 10_619 (the anchor-web fold: the comb's wide F-relative pending offsets and their per-close folds are epoch-ledger counts now, touches 6.7x down; scan byte-identical), 0, 14_338; re-pinned (limb 144, scan 14_338, touches 9_600, heap 3_320): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (single-record id tags), 35_939
@@ -5996,7 +5996,7 @@ mod query_env {
     // and floors ×0.75 over the measurements of record below.
     pub const TICK_DENSE: QueryEnvelope = query_envelope(58_815, 0, 0, 468_765, 156_265, 0, 93_759); // 71_484 -> 47_052 (the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder no longer coexist at peak) -> 47_084 (pre-existing drift) -> 47_180 (the zero-run ledger's map nodes; the older ceiling stands), 0, 250_008, 375_012, 125_017 (work columns byte-identical across the fusion); re-pinned (limb 0, scan 375_012, touches 125_012, heap 47_260): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     pub const TICK_NESTED_WIDE: QueryEnvelope = query_envelope(14_108, 0, 239, 80_028, 30_808, 143, 18_484); // 7_702 -> 11_286 (the explicit-stack walk: suspended ancestors moved from stacker segments to metered frame bits) -> 11_350 (pre-existing drift) -> 11_542 (the zero-run ledger's map nodes; the older ceiling stands), 6 -> 0 (same change; the zero pin is the ratchet), 24_209, 64_022, 36_652 (work columns byte-identical across the conversion; the anchor web reads the wide first payload O(1) times); re-pinned to the new readings (limb 8_205, scan 64_022, touches 24_646, heap 11_782): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 191, scan 64_022, touches 24_646, heap 11_782): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const TICK_MIRROR_WIDE: QueryEnvelope = query_envelope(32_467, 0, 398, 170_000, 106_948, 238, 64_168); // 25_973 -> 31_605 (the explicit-stack walk's frame bits; the older ceiling stands) -> 31_701 (pre-existing drift) -> 31_989 (the zero-run ledger's map nodes; the older ceiling still stands), 8 -> 0 (same change; the zero pin is the ratchet), 40_312, 128_002 -> 136_000 and 109_560 -> 121_557 (the pre-scan's site-close replay re-reads each disjoint collapse range once; the older ceilings stand) (the frame ledger stores no link for the shared wide minimum; heap parity with one queue word per site); re-pinned to the new readings (limb 24_312, scan 136_000, touches 85_558, heap 31_877): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 318, scan 136_000, touches 85_558, heap 31_877): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    pub const TICK_MIRROR_WIDE: QueryEnvelope = query_envelope(32_467, 0, 398, 160_003, 71_955, 238, 43_173); // 25_973 -> 31_605 (the explicit-stack walk's frame bits; the older ceiling stands) -> 31_701 (pre-existing drift) -> 31_989 (the zero-run ledger's map nodes; the older ceiling still stands), 8 -> 0 (same change; the zero pin is the ratchet), 40_312 (the frame ledger stores no link for the shared wide minimum; heap parity with one queue word per site); re-pinned to the new readings (limb 24_312, scan 136_000, touches 85_558, heap 31_877): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 318, scan 136_000, touches 85_558, heap 31_877): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal); re-pinned (limb 318, scan 128_002, touches 57_564, heap 31_877): the pre-scan records minima only — the walk owns every left-full raise decision, so the per-site collapse re-read and raise-mirror folds leave the scan and touch columns
     // The expansion rows: grow-branch deep
     // ticks measuring the whole public tick — walk, route fold, splice.
     // Baselines at the fusion's landing; the composed path's grow-only
@@ -7448,13 +7448,14 @@ mod memo_resolution_cost {
     ///
     /// `k` consumption-sibling sites' links each die into their own
     /// raise decision — one fold per link across the whole walk
-    /// [measured: ×2.00 across the doubling, 62,021 → 124,021 at the
-    /// pinned sizes (62,023 → 124,023 before the fused tick;
-    /// 60,023 → 120,023 before the latent boundary
-    /// register's O(1) tag work per close); ×3.94 under the refuted
-    /// recording-chain interval resolution. Live remeasure: 65,021 →
-    /// 130,021 — +3 touches per site accumulated since the record,
-    /// still exactly ×2.00 across the doubling].
+    /// [measured: ×2.00 across the doubling, 44,006 → 88,006 at the
+    /// pinned sizes (51,006 → 102,006 before the pre-scan's
+    /// minima-only recording — the per-site collapse re-read and
+    /// raise-mirror folds; 62,021 → 124,021 at the earlier record,
+    /// itself 62,023 → 124,023 before the fused tick and 60,023 →
+    /// 120,023 before the latent boundary register's O(1) tag work
+    /// per close); ×3.94 under the refuted recording-chain interval
+    /// resolution].
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(
@@ -7507,10 +7508,12 @@ mod memo_resolution_cost {
     /// the shape that defeated the recording-chain and the
     /// previously-consumed-site resolutions alike — but every ledger
     /// link is a sibling or first-child difference read exactly once
-    /// [measured: ×2.00 across the doubling, 44,032 → 88,032 at the
-    /// pinned sizes (43,532 → 87,032 before the latent boundary
-    /// register's O(1) tag work per close); ×3.92 under
-    /// the refuted interval resolution].
+    /// [measured: ×2.00 across the doubling, 28,518 → 57,018 at the
+    /// pinned sizes (35,518 → 71,018 before the pre-scan's
+    /// minima-only recording; 44,032 → 88,032 at the earlier record,
+    /// itself 43,532 → 87,032 before the latent boundary register's
+    /// O(1) tag work per close); ×3.92 under the refuted interval
+    /// resolution].
     #[test]
     fn memo_comb_resolution_reads_linear() {
         let small = tick_run(Shape::MemoComb.packed1(500), Shape::MemoCombId.packed1(500));
@@ -7530,13 +7533,14 @@ mod memo_resolution_cost {
     /// The absolute ceiling is the k-independence assert — a
     /// discipline that materializes one wide record per site (the
     /// refuted floor-anchored recording) adds the width once per
-    /// site and blows it [measured: 72,721 touches at k = 2,000,
-    /// b = 2,048, the pinned band's basis (76,722 before the at-height
+    /// site and blows it [measured: 58,721 touches at k = 2,000,
+    /// b = 2,048, the pinned band's basis (72,721 before the
+    /// pre-scan's minima-only recording; 76,722 before the at-height
     /// arm moved the dying gap out whole instead of folding a leased
     /// zero; 94,725 before the fused tick; 88,726 before the latent
     /// boundary register's O(1) tag work per close) — a
     /// per-site fan-out at that width would add ~64 touches per site
-    /// on top of the ~43-touch linear slope].
+    /// on top of the ~28-touch linear slope].
     #[test]
     fn memo_fanout_wide_cost_is_site_count_independent() {
         let small = tick_run(
@@ -7549,13 +7553,13 @@ mod memo_resolution_cost {
         );
         assert_flat("memo_fanout", &small, &large);
         assert!(
-            large.touches <= 90_902,
-            "memo_fanout: {} touches at k = 2,000 exceed the pinned absolute              ceiling 90,902 (measured 72,721 x1.25): a wide ledger quantity              is being materialized per site",
+            large.touches <= 73_402,
+            "memo_fanout: {} touches at k = 2,000 exceed the pinned absolute              ceiling 73,402 (measured 58,721 x1.25): a wide ledger quantity              is being materialized per site",
             large.touches,
         );
         assert!(
-            large.touches >= 54_540,
-            "memo_fanout: {} touches read below the 54,540 liveness floor              (measured 72,721 x0.75): the ledger's work left the metered              representation",
+            large.touches >= 44_040,
+            "memo_fanout: {} touches read below the 44,040 improvement tripwire              (measured 58,721 x0.75): attribute the drop — an honest              improvement re-pins the band; a dead meter is the bypass this              column exists to catch",
             large.touches,
         );
     }
@@ -7595,9 +7599,11 @@ mod memo_resolution_cost {
     ///
     /// The descending run undercuts every open range while `d`
     /// sibling records ride the one live ledger head [measured:
-    /// ×2.00 across the doubling, 84,817 → 169,617 (84,819 → 169,619
-    /// before the fused tick; 80,019 → 160,019 before the
-    /// latent boundary register landed)]. A discipline
+    /// ×2.00 across the doubling, 44,820 → 89,620 (50,420 → 100,820
+    /// before the pre-scan's minima-only recording; 84,817 → 169,617
+    /// at the earlier record, itself 84,819 → 169,619 before the
+    /// fused tick and 80,019 → 160,019 before the latent boundary
+    /// register landed)]. A discipline
     /// keeping one live record per open level folds all `d` per
     /// drop — the refuted live-anchored followers' tombstone.
     #[test]
@@ -7621,9 +7627,11 @@ mod memo_resolution_cost {
     /// decide-then-emit ordering violation (a relation installed
     /// after the raise's arm) produces wrong values its oracle
     /// differential catches; this pin carries the cost leg
-    /// [measured: ×2.00 across the doubling, 48,048 → 96,048
-    /// (48,052 → 96,052 before the fused tick; 46,452 →
-    /// 92,852 before the latent boundary register landed)].
+    /// [measured: ×2.00 across the doubling, 32,828 → 65,628
+    /// (38,428 → 76,828 before the pre-scan's minima-only recording;
+    /// 48,048 → 96,048 at the earlier record, itself 48,052 → 96,052
+    /// before the fused tick and 46,452 → 92,852 before the latent
+    /// boundary register landed)].
     #[test]
     fn descending_raises_stay_linear_under_min_movement() {
         let small = tick_run(
@@ -7740,11 +7748,12 @@ mod width_circulation_cost {
     /// Semantics first: the tick is the closed form (every site
     /// collapses to the shared plateau leaf; the covering raise stays
     /// at the floor), so this pin carries the cost leg alone. The
-    /// signature [measured: 37,848 → 75,696 touches across
+    /// signature [measured: 30,848 → 61,696 touches across
     /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×2.00 on a ×2.00
-    /// input (39,849 → 79,697 before the at-height arm moved the dying
-    /// gap out whole instead of folding a leased zero — two arms per
-    /// site, walk and pre-scan; 738,449 → 2,884,881 (×3.91) before
+    /// input (37,848 → 75,696 before the pre-scan's minima-only
+    /// recording; 39,849 → 79,697 before the at-height arm moved the
+    /// dying gap out whole instead of folding a leased zero — two arms
+    /// per site, walk and pre-scan; 738,449 → 2,884,881 (×3.91) before
     /// the latent boundary register landed)]: the consume-minted width-b
     /// boundary difference parks in the latent register at the site's
     /// close and the next consume's arm recycles it by a narrow
@@ -7790,15 +7799,15 @@ mod width_circulation_cost {
             large.touches,
         );
         assert!(
-            large.touches <= 94_620,
+            large.touches <= 77_120,
             "reveal_comb: {} touches at (k, b) = (2,000, 2,048) exceed the pinned \
-             ceiling 94,620 (measured 75,696 x1.25)",
+             ceiling 77,120 (measured 61,696 x1.25)",
             large.touches,
         );
         assert!(
             large.touches >= REVEAL_COMB_TOUCH_TRIPWIRE,
             "reveal_comb: {} touches dropped more than 25% below the pinned \
-             reading ({REVEAL_COMB_TOUCH_TRIPWIRE} = measured 75,696 x0.75): \
+             reading ({REVEAL_COMB_TOUCH_TRIPWIRE} = measured 61,696 x0.75): \
              attribute the improvement and re-pin",
             large.touches,
         );
@@ -7810,7 +7819,7 @@ mod width_circulation_cost {
     /// The module comment's tripwire genre: a trip means the reading
     /// improved past the band, not that the meter died — attribute and
     /// re-pin.
-    const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 56_772;
+    const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 46_272;
 
     /// Touch liveness floor on the pure comb's larger run, derived from
     /// the cycle's irreducible work — never from a measured basis.
@@ -7908,13 +7917,15 @@ mod width_circulation_cost {
     }
 
     /// Absolute touch ceiling on the high-floor control's larger run,
-    /// measured 40,833 ×1.25, rounded up.
+    /// measured 33,833 ×1.25, rounded up.
     ///
-    /// Movement: 42,834 → 40,833 when the at-height arm moved the dying
+    /// Movement: 40,833 → 33,833 when the pre-scan's minima-only
+    /// recording landed (the per-site collapse re-read and raise-mirror
+    /// folds); 42,834 → 40,833 when the at-height arm moved the dying
     /// gap out whole instead of folding a leased zero (one touch per
     /// arm); 56,831 → 50,837 when the latent boundary register landed —
     /// the deleted close and consume folds this family paid narrow.
-    const HIFLOOR_TOUCH_CEILING: u64 = 51_042;
+    const HIFLOOR_TOUCH_CEILING: u64 = 42_292;
 
     /// Improvement tripwire paired with [`HIFLOOR_TOUCH_CEILING`]: the
     /// measured reading ×0.75, rounded down.
@@ -7922,15 +7933,16 @@ mod width_circulation_cost {
     /// The module comment's tripwire genre: a trip means the reading
     /// improved past the band, not that the meter died — attribute and
     /// re-pin.
-    const HIFLOOR_TOUCH_TRIPWIRE: u64 = 30_624;
+    const HIFLOOR_TOUCH_TRIPWIRE: u64 = 25_374;
 
     /// GREEN PIN: the high-floor control is flat and width-independent
     /// — identical forest, identical deferral and close-reveal cycle,
     /// consume-time gap 2.
     ///
     /// Per-byte touches stay flat (×1.25) across the width QUADRUPLING
-    /// the wide family scales with [measured: 15.3 → 13.5 per byte
-    /// across b = 512 → 2,048 at k = 1,000; 16.1 → 14.2 before the
+    /// the wide family scales with [measured: 12.6 → 11.2 per byte
+    /// across b = 512 → 2,048 at k = 1,000; 15.3 → 13.5 before the
+    /// pre-scan's minima-only recording; 16.1 → 14.2 before the
     /// at-height arm's no-fold move; 21.4 → 18.9 before the
     /// latent boundary register landed], under an absolute
     /// band on the larger run. The wide GAP is the cycle's cost driver
@@ -7983,13 +7995,13 @@ mod width_circulation_cost {
         assert!(
             large.touches <= HIFLOOR_TOUCH_CEILING,
             "reveal_comb_hifloor: {} touches exceed the pinned ceiling \
-             {HIFLOOR_TOUCH_CEILING} (measured 40,833 x1.25)",
+             {HIFLOOR_TOUCH_CEILING} (measured 33,833 x1.25)",
             large.touches,
         );
         assert!(
             large.touches >= HIFLOOR_TOUCH_TRIPWIRE,
             "reveal_comb_hifloor: {} touches dropped more than 25% below the \
-             pinned reading ({HIFLOOR_TOUCH_TRIPWIRE} = measured 40,833 x0.75): \
+             pinned reading ({HIFLOOR_TOUCH_TRIPWIRE} = measured 33,833 x0.75): \
              attribute the improvement and re-pin",
             large.touches,
         );

@@ -67,10 +67,8 @@
 //! once; the left-full pre-scan reads a position at most once more (the memo
 //! turns every interior left-full site into a lookup, and distinct fresh scans
 //! cover disjoint sibling ranges); the absent-sibling extremum scans read their
-//! range once ahead of the walk's own copy (a flat ×2, never nesting); the
-//! pre-scan replays each covered site's collapse range once at the site's close
-//! (distinct sites' collapse ranges are disjoint — one more flat pass, never
-//! nesting). The fused route fold adds no reads of its own — its id reads are
+//! range once ahead of the walk's own copy (a flat ×2, never nesting). The
+//! fused route fold adds no reads of its own — its id reads are
 //! the tags the walk's skips pay anyway — and each of the two branch epilogues
 //! is one more bounded pass: a divergence replays the matched prefix once, and
 //! the unchanged branch's splice emit reads both streams once.
@@ -129,11 +127,11 @@
 //! control bits plus pop-able word deltas (`Frames` and the pre-scan's
 //! `PreFrames`, the route fold's own `PopStack` discipline) — so paired depth
 //! costs a few heap bits per level, never a call-stack frame, and no input
-//! depth can grow stacker segments or overflow. The wide quantity a left-full
-//! site's raise decision needs after its sibling walk is re-derived by one
-//! bounded replay of the site's own collapse range (the pre-scan's
-//! `replay_max`) rather than parked per open site, so frames stay word-free
-//! and the transient stays flat on nested-site chains.
+//! depth can grow stacker segments or overflow. The pre-scan parks no wide
+//! quantity per open site: a left-full site's raise decision belongs to the
+//! walk alone (the `prescan` module doc carries the argument), so its frames
+//! hold bits and unit deltas — never an accumulator per open site-nesting
+//! level — and the transient stays flat on nested-site chains.
 //!
 //! # Testing
 //!

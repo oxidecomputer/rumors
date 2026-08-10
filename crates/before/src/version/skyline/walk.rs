@@ -2,8 +2,8 @@
 //! of the *single-stream* leaf passes.
 //!
 //! Its clients are the scanning walks that visit one skyline subtree's leaves
-//! through a caller-owned cursor — the fill walk's block scans and sibling
-//! walks, the pre-scan's replays.
+//! through a caller-owned cursor — the fill walk's and its pre-scan's block
+//! scans and sibling walks.
 //!
 //! The overlay layer's [`LeafCursor`](super::overlay::LeafCursor) carries its
 //! own copy of the same skeleton for the other client family: the multi-stream
@@ -172,18 +172,6 @@ impl Extremum {
             return;
         }
         self.fold_armed(sign, magnitude);
-    }
-
-    /// Fold one undecoded zigzag payload code; the arming first call folds
-    /// nothing and leaves its code undecoded (an armed leaf's absolute-vs-delta
-    /// coding is irrelevant — it is never folded).
-    pub(super) fn fold_zigzag(&mut self, code: Int) {
-        if !self.armed {
-            self.armed = true;
-            return;
-        }
-        let (sign, magnitude) = unzigzag(code);
-        self.fold_armed(sign, &magnitude);
     }
 
     fn fold_armed(&mut self, sign: Sign, magnitude: &Int) {

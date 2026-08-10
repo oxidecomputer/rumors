@@ -18,11 +18,16 @@
 //! - `min(fill((il, 1), (n, el, er))) = min(fill(il, el))` — mirror.
 //! - otherwise the minimum of the two children's.
 //!
-//! Every equation is realized as a *virtual emission* into the web — the same
-//! open/arm/propagate/close discipline as the walk's — so per-site minima and
-//! per-range net movements are never materialized: heights stay relative here
-//! exactly as they do in the walk (the `fill` module doc), and each recorded
-//! minimum leaves as one ledger link.
+//! The leaf and copy equations are realized as *virtual emissions* into the
+//! web — the same open/arm/propagate/close discipline as the walk's — so
+//! per-site minima and per-range net movements are never materialized: heights
+//! stay relative here exactly as they do in the walk (the `fill` module doc),
+//! and each recorded minimum leaves as one ledger link. A left-full site's
+//! own raise emits nothing: the raised value never falls below the sibling
+//! minimum the site is here to record (its equation above), so mirroring it
+//! could not move any tracked minimum — that raise decision belongs to the
+//! walk, which derives it from its own consuming scan and the minimum
+//! recorded here.
 
 use core::cmp::Ordering;
 
@@ -41,9 +46,6 @@ use super::{DeltaReg, REL_FOLLOWER};
 /// [`IdReader`] threads alongside as [`run`](Self::run)'s argument, exactly as
 /// the fill walk threads its own.
 pub(super) struct PreScan<'a, 'm> {
-    /// The input skyline stream (read, never consumed; kept beside the cursor
-    /// for the replay's spawn positions).
-    event: &'a BitsSlice,
     /// The scan's own forward cursor, opened at the scan's entry; the walk's
     /// cursor is untouched (the scan never consumes).
     cursor: codec::DsiCursor<'a>,
@@ -102,7 +104,6 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// the entry net alive at zero, no head seeded, the outermost level.
     pub(super) fn new(event: &'a BitsSlice, start: usize, memo: &'m mut Memo) -> Self {
         PreScan {
-            event,
             cursor: codec::DsiCursor::new_at(event, start),
             web: MinWeb::new(),
             entry_net: Some(Accumulator::new()),
@@ -177,12 +178,13 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 }
                 if left && matches!(id.peek(), IdNode::Full) {
                     // An interior left-full site: its minimum is the recorded
-                    // quantity, and its own raise is a virtual emission.
+                    // quantity. The collapse range is consumed for its height
+                    // movement alone — the site's raise is the walk's decision,
+                    // never mirrored here (the site-close arm below carries
+                    // the argument).
                     id.skip();
-                    let collapse_start = self.cursor.position();
-                    let above = self.max_range(first);
+                    self.skip_collapse(first);
                     first = false;
-                    let site_pos = self.cursor.position();
                     if !right {
                         // fill(0, er): the leaves stay as they are, and the
                         // walk re-derives this raise from its own local scan —
@@ -190,13 +192,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
                         self.web.open(1);
                         self.copy_range(false);
                         self.web.close();
-                        if self.web.compare_above(&above) != Ordering::Less {
-                            self.emit_offset(&above);
-                        }
                         break;
                     }
-                    let slot = self.reserve(site_pos);
-                    frames.push_site(slot, collapse_start);
+                    let slot = self.reserve(self.cursor.position());
+                    frames.push_site(slot);
                     level += 1;
                     self.web.open(1);
                     continue; // walk the sibling range
@@ -220,20 +219,22 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 };
                 self.web.close();
                 match top {
-                    // A site's sibling range finished: record its ledger link,
-                    // then decide its raise against the collapse maximum,
-                    // re-derived by one bounded replay of the site's own
-                    // (disjoint) collapse range — the one wide quantity the
-                    // recursion parked per open site, kept off the frames so
-                    // nested-site chains stay word-free.
+                    // A site's sibling range finished: record its ledger link.
+                    // The site's own raise leaves no mark in the web: the
+                    // raised value is `max(max(el), m_s)` where `m_s` is
+                    // exactly the sibling minimum this range just tracked, so
+                    // it never falls below the innermost tracked minimum and a
+                    // mirrored emission could not move any web state. The
+                    // raise decision itself is the walk's alone — made at the
+                    // site's own vantage from its consuming scan and the
+                    // ledger link recorded here, the only height where
+                    // comparing the collapse maximum against `m_s` is
+                    // denominated correctly (the sibling range has moved `h`
+                    // by its net between the site and this close).
                     PreFrame::Site => {
-                        let (slot, collapse_start) = frames.pop_site();
+                        let slot = frames.pop_site();
                         level -= 1;
                         self.record(slot, level);
-                        let above = self.replay_max(collapse_start);
-                        if self.web.compare_above(&above) != Ordering::Less {
-                            self.emit_offset(&above);
-                        }
                     }
                     // A node's left range finished: peek the right-full arm,
                     // walk the right child, or copy an absent one.
@@ -271,36 +272,6 @@ impl<'a, 'm> PreScan<'a, 'm> {
         }
     }
 
-    /// Re-derive a closed site's collapse maximum (`max(el) − h` at the range's
-    /// own exit) by one non-consuming replay of the range.
-    ///
-    /// Byte-for-byte the fold [`max_range`](Self::max_range) ran before the
-    /// sibling walk — the first leaf arms and is never folded, so its
-    /// absolute-vs-delta coding is irrelevant and stays undecoded — on local
-    /// state: heights and the entry net folded into the web once, on the first
-    /// pass, never again here. Distinct sites' collapse ranges are disjoint, so
-    /// the replays add one flat pass over those positions, never a nesting one.
-    fn replay_max(&mut self, pos: usize) -> Signed {
-        // Re-derived by replay rather than parked per open site so frames
-        // stay word-free: parking the maximum would store one wide
-        // accumulator per open site-nesting level (the fill module doc's
-        // heap paragraph carries the trade).
-        //
-        // The replay jumps back to the site's recorded range start, so it runs
-        // on its own cursor; the scan's forward cursor stays where the sibling
-        // walk left it.
-        let mut cursor = codec::DsiCursor::new_at(self.event, pos);
-        let mut above = Extremum::max(self.web.lease());
-        let mut walk = LeafWalk::new();
-        while walk.descend(&mut cursor).is_some() {
-            let code = cursor.read_int().expect("canonical skyline bits");
-            above.fold_zigzag(code);
-        }
-        let result = self.web.materialize(above.into_offset());
-        debug_assert!(!result.sign.is_negative(), "the fold floors at zero");
-        result
-    }
-
     /// Reserve the next consumption-order queue slot for the site whose range
     /// starts at `pos`.
     pub(super) fn reserve(&mut self, pos: usize) -> usize {
@@ -318,15 +289,15 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// Record the just-closed site's ledger link and re-anchor the head to this
     /// site's minimum.
     ///
-    /// Runs at the moment the site's range has closed and its raise has not yet
-    /// been emitted: the innermost armed minimum is exactly this site's `m_s`
-    /// (its node frame holds only the range's emissions, and a raise never
-    /// falls below its own site's minimum), so the head reads `m_s − m_ref`
-    /// verbatim. A sibling record moves the head into the queue as its link; a
-    /// level's first record defers its link to the forest parent's own record —
-    /// the parent's minimum is not final yet — and suspends the outer head,
-    /// whose value is immutable from here on (both its endpoints are final
-    /// minima).
+    /// Runs at the moment the site's range has closed: the innermost armed
+    /// minimum is exactly this site's `m_s` (its node frame holds only the
+    /// range's own emissions — a left-full site's raise is not mirrored at
+    /// all, and a raise emission never falls below its own site's minimum),
+    /// so the head reads `m_s − m_ref` verbatim. A sibling record
+    /// moves the head into the queue as its link; a level's first record
+    /// defers its link to the forest parent's own record — the parent's
+    /// minimum is not final yet — and suspends the outer head, whose value is
+    /// immutable from here on (both its endpoints are final minima).
     pub(super) fn record(&mut self, slot: usize, level: u32) {
         // The head and the suspends store true minimum differences, so no
         // anchor-relative content may escape into the ledger: a latent parked
@@ -375,15 +346,13 @@ impl<'a, 'm> PreScan<'a, 'm> {
             self.first_slot = Some(slot);
             self.head_level = level;
         }
-        // The head restarts at this site's minimum, installed before the raise
-        // emission below for uniformity with the walk-side consume discipline,
-        // where the ordering is load-bearing (a consume's raise can arm a
-        // pending frame, and only an installed follower receives that arm's
-        // fold). Here the ordering carries no hazard of its own: the site's
-        // range has emitted at least one leaf, arming every enclosing frame (so
-        // none is pending), and the raise is min-guarded (never below the
-        // tracked minimum), so no arm fold can arrive between this install and
-        // the emission.
+        // The head restarts at this site's minimum. On the walk side the
+        // mirror install runs before the site's raise emission and the
+        // ordering is load-bearing (a consume's raise can arm a pending
+        // frame, and only an installed follower receives that arm's fold);
+        // here no emission follows at all — the site's raise leaves no mark
+        // in the web (the site-close arm's argument) — so the install just
+        // seats the head for the next range's emissions.
         let zero = self.web.lease();
         self.web.follower_set(REL_FOLLOWER, zero);
     }
@@ -515,6 +484,38 @@ impl<'a, 'm> PreScan<'a, 'm> {
         self.emit_offset(&skip.min_from_exit);
     }
 
+    /// Consume a collapsing range at the cursor: fold its net height movement
+    /// into the height side of the web (and the entry net while it lives),
+    /// emitting nothing.
+    ///
+    /// The range's leaves vanish into a raise only the walk decides, and that
+    /// raise never falls below the sibling minimum the scan is here to record
+    /// (the module doc's raise arms) — so the scan owes the web nothing but
+    /// the cursor's height movement across the range.
+    fn skip_collapse(&mut self, first: bool) {
+        let mut walk = LeafWalk::new();
+        let first_leaf_depth = walk
+            .descend(&mut self.cursor)
+            .expect("a subtree has at least one leaf");
+        if first_leaf_depth < 2 {
+            // A tiny range (the first descent's depth routes for free):
+            // per-leaf height folds are cheaper than a block summary's
+            // fixed cost — a single wide leaf folds once, straight into
+            // the web, never through a materialized net.
+            let _ = self.payload(first);
+            while walk.descend(&mut self.cursor).is_some() {
+                let _ = self.payload(false);
+            }
+            return;
+        }
+        let skip = skip_leaves(&mut walk, &mut self.cursor, first, Some(first_leaf_depth))
+            .expect("the descended leaf is pending");
+        self.web.fold_height(skip.net.sign, &skip.net.magnitude);
+        if let Some(net) = &mut self.entry_net {
+            fold_signed_int(net, skip.net.sign, &skip.net.magnitude);
+        }
+    }
+
     /// Scan a collapsing range at the cursor for its maximum: `max − h′` at
     /// exit as a nonnegative offset. No virtual emissions — the range's leaves
     /// vanish into the raise the caller decides.
@@ -560,7 +561,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
 /// minus costs — the pre-scan folds no route).
 enum PreFrame {
     /// A left-full site: its sibling walk is in flight; the ledger
-    /// record and the raise decision run at its close.
+    /// record runs at its close.
     Site,
     /// An ordinary node whose left child's range is in flight.
     AwaitLeft,
@@ -569,8 +570,8 @@ enum PreFrame {
 }
 
 /// The pre-scan's suspended ancestors, held as bits: the fill walk's stack
-/// shape with site payloads (ledger slot, collapse-range start) as pop-able
-/// word deltas in place of route keys and costs.
+/// shape with the site payload (its ledger slot) as a pop-able word delta in
+/// place of route keys and costs.
 struct PreFrames {
     /// Per frame: a left-full site (true) or an ordinary node (false).
     site: BitStack,
@@ -580,16 +581,12 @@ struct PreFrames {
     /// Ordinary frames: whether the right child is present. Site frames: false,
     /// unread.
     aux: BitStack,
-    /// Per site frame: the ledger slot delta, then the collapse-range start
-    /// delta — both against monotone registers, LIFO with the frames they
-    /// serve.
+    /// Per site frame: the ledger slot delta against a monotone register,
+    /// LIFO with the frames it serves.
     values: PopStack,
     /// The top site frame's ledger slot (reserves run in stream order, so the
     /// register only advances).
     slots: DeltaReg,
-    /// The top site frame's collapse-range start (the stream cursor only
-    /// advances).
-    positions: DeltaReg,
 }
 
 impl PreFrames {
@@ -600,7 +597,6 @@ impl PreFrames {
             aux: BitStack::new(),
             values: PopStack::new(),
             slots: DeltaReg::new(),
-            positions: DeltaReg::new(),
         }
     }
 
@@ -633,9 +629,8 @@ impl PreFrames {
     }
 
     /// Suspend a left-full site around its sibling walk.
-    fn push_site(&mut self, slot: usize, collapse_start: usize) {
+    fn push_site(&mut self, slot: usize) {
         self.slots.push(&mut self.values, slot);
-        self.positions.push(&mut self.values, collapse_start);
         self.site.push(true);
         self.phase.push(false);
         self.aux.push(false);
@@ -658,13 +653,11 @@ impl PreFrames {
         self.aux.pop();
     }
 
-    /// Close a site frame: its ledger slot and collapse-range start.
-    fn pop_site(&mut self) -> (usize, usize) {
+    /// Close a site frame: its ledger slot.
+    fn pop_site(&mut self) -> usize {
         self.site.pop();
         self.phase.pop();
         self.aux.pop();
-        let collapse_start = self.positions.pop(&mut self.values);
-        let slot = self.slots.pop(&mut self.values);
-        (slot, collapse_start)
+        self.slots.pop(&mut self.values)
     }
 }

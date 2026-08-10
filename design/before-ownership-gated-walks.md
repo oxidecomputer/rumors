@@ -124,8 +124,8 @@ with `RegionSummary` carrying what the consumers need and nothing more:
   currency is `codec::Int`, so word-scale regions never touch dashu);
 - the region's minimum, **lazily**: a closure/replay handle rather than
   an eager value, because only `fill`'s shortcut arms ever ask, and
-  only for some regions — the existing `PreScan::replay_max` deferral
-  is exactly this shape and can be shared.
+  only for some regions — a bounded re-read of the region's recorded
+  bit range, spawned from the summary's own coordinates.
 
 The skip loop is one function (`skip_region`), and it is the only new
 kernel: unary topology run + `skip_int` per leaf, one `Int` fold, one
