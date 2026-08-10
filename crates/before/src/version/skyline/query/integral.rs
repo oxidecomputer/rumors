@@ -127,8 +127,9 @@
 //! (parked digits plus window density) — not in the entry count alone:
 //! exponentially spread masses chain one isolating split per level (the
 //! committed split-depth witness in the [`query`](super) module's tests), still
-//! under the total-mass logarithm. Every unit of settle mass is a digit the
-//! input funded, so the depth is at most `log |v|`.
+//! within twice the total-mass logarithm ([`mass_split`] derives the constant
+//! and states the pinned bound). Every unit of settle mass is a digit the
+//! input funded, so the depth is `O(log |v|)`.
 //!
 //! # Funding: the potential function and its arity
 //!
@@ -171,7 +172,7 @@
 //!   - the rewrites: every window's digits are rewritten at most once
 //!     per tree level, each rewrite paid by the window's own read, and
 //!     the mass balance keeps the level count logarithmic in the total
-//!     settle mass, hence at most `log |v|`.
+//!     settle mass, hence `O(log |v|)`.
 //!
 //! A cheap code from one operand can *fire* a freeze, but the work the freeze
 //! performs is bounded by deposits from the codes that built the state being
@@ -268,6 +269,36 @@ use super::super::signed::{fold_signed, fold_signed_int, Sign};
 /// than any real stream holds, and it caps how far a per-leaf `L` add can
 /// outgrow the code that last set `L`'s width.
 pub(super) const FREEZE_ALLOWANCE_DIGITS: usize = 8;
+
+#[cfg(test)]
+thread_local! {
+    /// Freezes parked on the current thread, counted at
+    /// [`Integrator::freeze`]'s drift-parking arm: the liveness tap for the
+    /// sibling tests' freeze-regime witnesses.
+    ///
+    /// A witness pinned "in the freeze regime" must prove its inputs actually
+    /// park drift — a value pin whose input never freezes passes vacuously.
+    pub(super) static FREEZE_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// The settle tree's split rule: the first boundary at or past the mass
+/// midpoint of `prefix[lo..=hi]`, clamped so both halves are nonempty.
+///
+/// `prefix` holds the running leaf-mass sums (`prefix[i]` is the mass before
+/// leaf `i`, each leaf's mass floored at one), and `lo < hi − 1` names an
+/// internal node's range; the returned `mid` satisfies `lo < mid < hi`. Each
+/// half's mass stays within half the node's plus one leaf's: the right half is
+/// at most half the node's mass, and the left half exceeds half only by mass
+/// its own *last* leaf carries — the straddling leaf, which the left half's
+/// next split pushes into a right half of its own. So along any root-to-leaf
+/// path the mass at least halves every second level, and the deepest leaf sits
+/// within `2·log₂(total mass) + 2` levels — the entropy denomination the
+/// module doc's settle bound rests on, pinned size-generically (with the
+/// nonempty-halves contract) by the sibling tests' split-rule family.
+pub(super) fn mass_split(prefix: &[u64], lo: usize, hi: usize) -> usize {
+    let target = (prefix[lo] + prefix[hi]).div_ceil(2);
+    (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target)).min(hi - 1)
+}
 
 /// [`base_digits`] over the decoded-payload value form.
 pub(super) fn int_digits(value: &Int) -> usize {
@@ -565,7 +596,7 @@ impl WindowMass {
     /// The product-tree merge: a mass's digits are rewritten once per tree
     /// level they survive, which is what bounds every window's digits to one
     /// rewrite per tree level — a depth the mass balance keeps logarithmic in
-    /// the total settle mass, hence at most `log |v|` — across the whole
+    /// the total settle mass, hence `O(log |v|)` — across the whole
     /// settle.
     pub(super) fn absorb(&mut self, other: WindowMass) {
         self.combine(other.digits.into_iter());
@@ -771,6 +802,8 @@ impl Integrator {
         // ([`frozen`](Self::frozen)) — so the settle below banks and charges
         // only from the second freeze onward.
         self.frozen = true;
+        #[cfg(test)]
+        FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
         self.settle_segment();
         if self.parked.digit_count() > base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS {
             self.promote();
@@ -914,9 +947,10 @@ impl Integrator {
     ///
     /// The tree balances by **mass** (parked digits plus window density), not
     /// by entry count: the whole ledger is in hand at the close, so each node
-    /// splits its run at the mass midpoint, node masses shrink geometrically
-    /// down the tree, and the per-node backend products telescope into the top
-    /// node's under any power-law multiplication tier — where an entry-count
+    /// splits its run at the mass midpoint ([`mass_split`] states the split's
+    /// contract), node masses shrink geometrically down the tree, and the
+    /// per-node backend products telescope into the top node's under any
+    /// power-law multiplication tier — where an entry-count
     /// split would let one wide arming meet an equal share of window mass at
     /// every level and stack a polylog on top of the multiplication bound (the
     /// module doc's settle bound carries the resulting cost). The reduction is
@@ -991,12 +1025,7 @@ impl Integrator {
                         next_leaf += 1;
                         reduced.push(leaves.next().expect("one aggregate per unit range"));
                     } else {
-                        // The first boundary at or past the mass midpoint,
-                        // clamped so both halves are nonempty: each half's mass
-                        // stays within half the node's plus one leaf's.
-                        let target = (prefix[lo] + prefix[hi]).div_ceil(2);
-                        let mid = (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target))
-                            .min(hi - 1);
+                        let mid = mass_split(&prefix, lo, hi);
                         control.push(Step::Merge);
                         control.push(Step::Open(mid, hi));
                         control.push(Step::Open(lo, mid));

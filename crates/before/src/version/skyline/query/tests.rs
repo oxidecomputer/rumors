@@ -30,7 +30,7 @@ use crate::testing::{optrace, semantic_oracle};
 use crate::version::skyline::{emit, encode};
 use crate::{Clock, Party, Version};
 
-use super::{distance, lag, min_ticks, project, rank};
+use super::{distance, lag, min_ticks, project, rank, rank_cmp};
 
 /// Decode a meter-generated packed shape as a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -79,9 +79,23 @@ fn assert_projection(v: &Version, p: &Party) {
 ///   rank fold over them, and [`Rank::checked_sub`] — so the pair
 ///   measures are pinned digit-exact against rank-of-meet arithmetic
 ///   computed along a code path they do not share.
+///
+/// The signed co-sweep rides every pairing too: `rank_cmp` is pinned against
+/// the oracle's rank order in both operand orders — the one fold whose total
+/// carries a sign, and whose `Equal` answer demands the signed settle cancel
+/// exactly through whatever parked/promoted state the pair arms (the
+/// nonnegative measures never need that answer: their totals are monotone
+/// differences, debug-asserted nonnegative at the fold).
 fn assert_pair(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
+    let order = ta.rank().cmp(&tb.rank());
+    assert_eq!(rank_cmp(&ea, &eb), order, "rank_cmp: {a} vs {b}");
+    assert_eq!(
+        rank_cmp(&eb, &ea),
+        order.reverse(),
+        "rank_cmp reversed: {b} vs {a}"
+    );
     let join_rank = (ta.clone() | tb.clone()).rank();
     let meet_rank = (ta.clone() & tb.clone()).rank();
     let dist = join_rank
@@ -253,6 +267,70 @@ fn promoting_families_agree_with_the_oracle() {
             assert_pair(a, b);
         }
     }
+}
+
+/// `rank_cmp` agrees with the oracle rank order across the promoting pool and
+/// reads `Equal` on a mirrored equal-rank promoting pair, with the freeze tap
+/// proving both legs actually park drift.
+///
+/// The signed co-sweep's value witness in the freeze/promotion regime, with
+/// its liveness floors: the promoting-pool cross pins the sign against the
+/// oracle's rank order in both operand orders where the sweeps park, promote,
+/// and settle wide drift, and the mirrored pair — one promoting shape hung on
+/// each side of a fresh root fork, two distinct streams of exactly equal
+/// rank — pins the `Equal` answer, which demands the signed settle cancel to
+/// a spelled zero through the whole parked/promoted/settled pipeline. The
+/// [`FREEZE_HITS`](super::integral::FREEZE_HITS) floors make the regime claim
+/// non-vacuous: a pool or pair that never froze would pass any value pin
+/// while exercising none of the ledger.
+#[test]
+fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
+    let assert_cmp = |a: &Version, b: &Version| {
+        let (ea, eb) = (encode(a), encode(b));
+        let want = to_oracle_version(a)
+            .rank()
+            .cmp(&to_oracle_version(b).rank());
+        assert_eq!(rank_cmp(&ea, &eb), want, "rank_cmp: {a} vs {b}");
+        assert_eq!(
+            rank_cmp(&eb, &ea),
+            want.reverse(),
+            "rank_cmp reversed: {a} vs {b}"
+        );
+    };
+    let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
+    let pool = promoting_pool();
+    for a in &pool {
+        for b in &pool {
+            assert_cmp(a, b);
+        }
+    }
+    let pool_hits = super::integral::FREEZE_HITS.with(|hits| hits.get());
+    assert!(
+        pool_hits > hits_before,
+        "liveness: the promoting-pool cross must run freezes under rank_cmp"
+    );
+    let t = to_oracle_version(&version_of(
+        &Shape::ArmingTrain.packed_train(3, 19, 1, false),
+    ));
+    let zero = crate::oracle::Version::leaf(0u64);
+    let left = from_oracle_version(&crate::oracle::Version::node(0u64, t.clone(), zero.clone()));
+    let right = from_oracle_version(&crate::oracle::Version::node(0u64, zero, t));
+    assert_ne!(
+        encode(&left),
+        encode(&right),
+        "the mirrored pair must be distinct streams"
+    );
+    assert_eq!(
+        to_oracle_version(&left).rank(),
+        to_oracle_version(&right).rank(),
+        "the mirrored pair must tie exactly in rank"
+    );
+    let mirror_hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
+    assert_cmp(&left, &right);
+    assert!(
+        super::integral::FREEZE_HITS.with(|hits| hits.get()) > mirror_hits_before,
+        "liveness: the mirrored equal-rank pair must run freezes under rank_cmp"
+    );
 }
 
 /// The two version-pair families agree with the oracle and the composed forms
@@ -428,6 +506,52 @@ proptest! {
         let b = version_of(&Shape::ArmingTrain.packed_train(n, w, g, !alternate));
         assert_single(&a);
         assert_pair(&a, &b);
+    }
+
+    /// An arming train mirrored across a fresh root fork yields two distinct
+    /// streams of exactly equal rank, and `rank_cmp` reads `Equal` on them in
+    /// both operand orders, freezing on both legs.
+    ///
+    /// The `Equal` generator arm of the signed co-sweep's freeze-regime
+    /// coverage: over the train dimensions, the signed settle must cancel to
+    /// a spelled zero through the parked/promoted/settled pipeline — the one
+    /// answer the nonnegative pair measures can never exercise (their totals
+    /// are monotone differences), and one no organically drawn pair reaches
+    /// at freezing scale. The freeze floor keeps the arm honest: every train
+    /// in the sampled box parks drift under the co-sweep.
+    #[test]
+    fn arbitrary_mirrored_arming_trains_cancel_to_equal(
+        n in 1usize..6,
+        w in 19usize..23,
+        g in 1usize..4,
+        alternate: bool,
+    ) {
+        let t = to_oracle_version(&version_of(&Shape::ArmingTrain.packed_train(n, w, g, alternate)));
+        let zero = crate::oracle::Version::leaf(0u64);
+        let left = from_oracle_version(&crate::oracle::Version::node(0u64, t.clone(), zero.clone()));
+        let right = from_oracle_version(&crate::oracle::Version::node(0u64, zero, t));
+        let (el, er) = (encode(&left), encode(&right));
+        prop_assert_ne!(&el, &er, "the mirrored pair must be distinct streams");
+        prop_assert_eq!(
+            to_oracle_version(&left).rank(),
+            to_oracle_version(&right).rank(),
+            "the mirrored pair must tie exactly in rank"
+        );
+        let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
+        prop_assert_eq!(
+            rank_cmp(&el, &er),
+            core::cmp::Ordering::Equal,
+            "rank_cmp on the mirrored pair: {} vs {}", left, right
+        );
+        prop_assert_eq!(
+            rank_cmp(&er, &el),
+            core::cmp::Ordering::Equal,
+            "rank_cmp on the mirrored pair reversed: {} vs {}", right, left
+        );
+        prop_assert!(
+            super::integral::FREEZE_HITS.with(|hits| hits.get()) > hits_before,
+            "liveness: the mirrored train must run freezes under rank_cmp"
+        );
     }
 
     /// The projection kernel agrees with the oracle's semantic mask over
@@ -823,48 +947,57 @@ fn dense_factor_tier_legs() {
     }
 }
 
+/// Prefix sums of a mass vector, each leaf's mass floored at one — the split
+/// currency [`integral::mass_split`](super::integral::mass_split) consumes,
+/// built exactly as the shipped settle builds it.
+fn mass_prefix(masses: &[u64]) -> Vec<u64> {
+    let mut prefix: Vec<u64> = Vec::with_capacity(masses.len() + 1);
+    prefix.push(0);
+    for &m in masses {
+        prefix.push(prefix.last().expect("seeded nonempty") + m.max(1));
+    }
+    prefix
+}
+
+/// Depth of the deepest leaf under the shipped split rule
+/// ([`integral::mass_split`](super::integral::mass_split)), by the same
+/// explicit-stack expansion the settle runs.
+fn split_depth(masses: &[u64]) -> usize {
+    let prefix = mass_prefix(masses);
+    let mut deepest = 0;
+    let mut stack = vec![(0usize, masses.len(), 0usize)];
+    while let Some((lo, hi, depth)) = stack.pop() {
+        if hi - lo == 1 {
+            deepest = deepest.max(depth);
+            continue;
+        }
+        let mid = super::integral::mass_split(&prefix, lo, hi);
+        stack.push((mid, hi, depth + 1));
+        stack.push((lo, mid, depth + 1));
+    }
+    deepest
+}
+
 /// The mass-balanced split isolates one leaf per level on exponentially spread
 /// masses: the product tree's depth is `n − 1` there, linear in the entry
 /// count, while uniform masses keep it at `⌈log₂ n⌉`.
 ///
-/// The committed witness behind the `integral` module doc's depth
-/// denomination: the split
-/// arithmetic below replicates `Integrator::settle_armings`' inline rule
-/// verbatim (prefix sums, `div_ceil` midpoint, `partition_point`, the
-/// both-halves-nonempty clamp) — keep them in lockstep. What it demonstrates: a
-/// leaf's depth is bounded by the *total mass* logarithm (masses at least
-/// double along the isolating path), never by any function of the entry count
+/// The deterministic points behind the `integral` module doc's depth
+/// denomination, driven through the shipped split rule itself: a leaf's depth
+/// is governed by the *total mass*, never by any function of the entry count
 /// alone — with `n` entries of masses `2^1..2^n` the deepest entry is re-read
-/// `n − 1` times, not `O(log n)`. Every aggregate cost bound absorbs this
-/// (heavy leaves sit shallow, so mass-weighted traffic stays entropy-bounded at
-/// the total mass times the entry-count logarithm), which is why the `integral`
-/// module doc denominates the tree's depth in settle mass — at most `log |v|`,
-/// the mass being input-funded — and why its `O((n + D) log n)` claim is
-/// conditioned on `O(1)`-wide parked masses.
+/// `n − 1` times, not `O(log n)`. The doubled family (each mass repeated
+/// twice) pins the bound's constant: it also chains one isolating split per
+/// level, but on half the mass budget per level — the straddling-leaf regime
+/// where mass halves only every *second* level, which is why the pinned bound
+/// is `2·log₂(total) + 2` and not `log₂(total) + 1`. Every aggregate cost
+/// bound absorbs this (heavy leaves sit shallow, so mass-weighted traffic
+/// stays entropy-bounded at the total mass times the entry-count logarithm),
+/// which is why the `integral` module doc denominates the tree's depth in
+/// settle mass — `O(log |v|)`, the mass being input-funded — and why its
+/// `O((n + D) log n)` claim is conditioned on `O(1)`-wide parked masses.
 #[test]
 fn mass_midpoint_split_runs_linear_depth_on_exponential_masses() {
-    /// Depth of the deepest leaf under the settle's split rule.
-    fn split_depth(masses: &[u64]) -> usize {
-        let mut prefix: Vec<u64> = Vec::with_capacity(masses.len() + 1);
-        prefix.push(0);
-        for &m in masses {
-            prefix.push(prefix.last().expect("seeded nonempty") + m.max(1));
-        }
-        let mut deepest = 0;
-        let mut stack = vec![(0usize, masses.len(), 0usize)];
-        while let Some((lo, hi, depth)) = stack.pop() {
-            if hi - lo == 1 {
-                deepest = deepest.max(depth);
-                continue;
-            }
-            let target = (prefix[lo] + prefix[hi]).div_ceil(2);
-            let mid = (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target)).min(hi - 1);
-            stack.push((mid, hi, depth + 1));
-            stack.push((lo, mid, depth + 1));
-        }
-        deepest
-    }
-
     let n = 16usize;
     let exponential: Vec<u64> = (1..=n as u32).map(|i| 1u64 << i).collect();
     assert_eq!(
@@ -872,12 +1005,81 @@ fn mass_midpoint_split_runs_linear_depth_on_exponential_masses() {
         n - 1,
         "exponentially spread masses must chain: one isolating split per level"
     );
+    // Three unit leaves, then the powers 2^1..2^k twice each: total mass
+    // 2^(k+2) − 1 against 2k + 3 entries, and every second split only sheds
+    // a straddling leaf instead of halving.
+    let mut doubled: Vec<u64> = vec![1, 1, 1];
+    for i in 1..=6u32 {
+        doubled.push(1 << i);
+        doubled.push(1 << i);
+    }
+    assert_eq!(
+        split_depth(&doubled),
+        doubled.len() - 1,
+        "doubled masses must chain one isolating split per level on half the \
+         mass budget: the two-levels-per-halving regime is real"
+    );
     let uniform: Vec<u64> = vec![8; n];
     assert_eq!(
         split_depth(&uniform),
         4,
         "uniform masses must balance to ⌈log₂ n⌉ levels"
     );
+}
+
+proptest! {
+    /// The shipped split rule keeps both halves nonempty at every node, and
+    /// the deepest leaf sits within `2·log₂(total mass) + 2` levels, on
+    /// arbitrary mass vectors.
+    ///
+    /// The size-generic contract of
+    /// [`integral::mass_split`](super::integral::mass_split), checked by a
+    /// naive recursive reference expanding the same rule: the right half
+    /// never exceeds half the node's mass, and the left half exceeds it only
+    /// by its straddling last leaf — which the next split isolates — so mass
+    /// at least halves every second level along any root-to-leaf path. The
+    /// masses are drawn log-uniformly across 48 bits of magnitude at
+    /// arbitrary lengths, so both regimes (balanced splits and straddling
+    /// chains) fall in-support.
+    #[test]
+    fn arbitrary_mass_vectors_split_nonempty_and_entropy_bounded(
+        masses in proptest::collection::vec(
+            (0u32..48).prop_flat_map(|s| (1u64 << s)..=((1u64 << (s + 1)) - 1)),
+            1..64,
+        ),
+    ) {
+        // Deepest-leaf depth by naive recursion on the shipped rule,
+        // asserting both halves nonempty at every node; recursion depth is
+        // bounded by the leaf count, which the strategy caps.
+        fn depth_by_recursion(prefix: &[u64], lo: usize, hi: usize) -> usize {
+            if hi - lo == 1 {
+                return 0;
+            }
+            let mid = super::integral::mass_split(prefix, lo, hi);
+            assert!(
+                lo < mid && mid < hi,
+                "both halves must be nonempty: lo {lo}, mid {mid}, hi {hi}"
+            );
+            1 + depth_by_recursion(prefix, lo, mid).max(depth_by_recursion(prefix, mid, hi))
+        }
+
+        let prefix = mass_prefix(&masses);
+        let total = *prefix.last().expect("seeded nonempty");
+        let depth = depth_by_recursion(&prefix, 0, masses.len());
+        prop_assert_eq!(
+            depth,
+            split_depth(&masses),
+            "the recursive reference and the settle's explicit-stack expansion \
+             must walk the same tree"
+        );
+        prop_assert!(
+            depth as u32 <= 2 * total.ilog2() + 2,
+            "the deepest leaf must sit within the entropy bound: depth {} \
+             against total mass {}",
+            depth,
+            total
+        );
+    }
 }
 
 /// The committed known-bad freeze accounting: the freeze-position family's
@@ -1732,7 +1934,7 @@ mod adequacy {
     // agree with the shipped fold exactly.
 
     use crate::meter::{limb_ops, reset_limb_ops};
-    use crate::version::skyline::query::integral::{Aggregate, Integrator};
+    use crate::version::skyline::query::integral::{mass_split, Aggregate, Integrator};
     use suanpan::UBig;
 
     /// Fold `other` into `dst` one digit at a time: each single-digit
@@ -1813,9 +2015,7 @@ mod adequacy {
                         next_leaf += 1;
                         reduced.push(leaves.next().expect("one aggregate per unit range"));
                     } else {
-                        let target = (prefix[lo] + prefix[hi]).div_ceil(2);
-                        let mid = (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target))
-                            .min(hi - 1);
+                        let mid = mass_split(&prefix, lo, hi);
                         control.push(Step::Merge);
                         control.push(Step::Open(mid, hi));
                         control.push(Step::Open(lo, mid));
@@ -2034,9 +2234,7 @@ mod adequacy {
                         next_leaf += 1;
                         reduced.push(leaves.next().expect("one aggregate per unit range"));
                     } else {
-                        let target = (prefix[lo] + prefix[hi]).div_ceil(2);
-                        let mid = (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target))
-                            .min(hi - 1);
+                        let mid = mass_split(&prefix, lo, hi);
                         control.push(Step::Merge);
                         control.push(Step::Open(mid, hi));
                         control.push(Step::Open(lo, mid));
