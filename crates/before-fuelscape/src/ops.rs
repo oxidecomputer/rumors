@@ -1903,6 +1903,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          clock_forks panels price",
     ),
     (
+        "Clock Eq / Hash (canonical byte compare)",
+        "fieldwise composition of the party and version canonical-byte compares \
+         and hashes; the version_eq, version_hash, and party_hash panels price \
+         the mechanism",
+    ),
+    (
         "Ranked::rank",
         "the identical rank walk as Version::rank, entered from the view (the \
          version_rank panel prices it)",
