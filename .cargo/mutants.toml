@@ -20,9 +20,12 @@
 # confirm the pinned line still names the intended expression.
 #
 # Deliberately absent: sweep::eq_exit's `||`-guard mutant and
-# integral::meter_product's tap deletion. Those survivors mark real
-# instrument gaps (an undriven documented early exit; a meter tap with no
-# liveness floor) and stay visible until their owning instruments land.
+# integral::meter_product's tap deletion. Their owning instruments kill
+# them — the eq_exit early-exit row and the settle-products liveness
+# floor in tests/meter.rs — so they need no exclusion. Likewise absent:
+# the fill/pre-scan sub-scan routing guards in copy_range and
+# scan_max_consuming, and masked.rs's block-skip pair, killed by the
+# sub-scan hole and masked-hole engagement families' envelope rows.
 
 exclude_re = [
     # --- suanpan::accumulator ---
@@ -92,24 +95,53 @@ exclude_re = [
     # skippable work.
     "prescan\\.rs:325:26: replace > with >= in PreScan<'a, 'm>::record",
 
-    # Performance genre: the tiny-range boundary trios route between
-    # per-leaf emission and block summary, extensionally equal by the
-    # block-fold argument; proven value-equivalent (all five boundary
-    # mutations pass the full all-features suite simultaneously) with
-    # touch movement inside the deliberate meter band.
-    "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::copy_range",
+    # Performance genre: the collapse skip's routing boundary moves only
+    # work between extensionally equal paths (the block-fold argument),
+    # and no honest ceiling can price the reroute — the block side's
+    # skip_leaves folds a streaming minimum this function never reads, so
+    # per-leaf is never the costlier direction, on deep ranges included.
+    # That inversion is owner-review material (a leaner net-only block
+    # fold), not a test gap.
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::skip_collapse",
+
+    # Performance genre: both sides of the max scan's routing boundary
+    # fold the identical net movement and extremum per leaf, so the
+    # reroute is touch-neutral on deep and leaf-scale ranges alike and no
+    # honest band can separate it.
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::max_range",
-    "fill\\.rs.*: replace < with (<=|==|>) in FillWalk<'_>::scan_max_consuming",
 
-    # --- before::version::skyline::masked ---
+    # --- before::version::skyline::query::integral ---
 
-    # Performance genre, within the stated cost envelope on every
-    # committed shape (block consumption is value-identical to per-boundary
-    # folds; the win is depth-flat block skips on long masked runs, which
-    # no committed shape concentrates). An engagement-shape family whose
-    # regions concentrate the per-leaf/block gap would make these killable
-    # honestly; delete both entries when one lands.
-    "masked\\.rs.*: replace != with == in Walk<'a>::others_deepest",
-    "masked\\.rs.*: replace Walk<'a>::block_skip with \\(\\)",
+    # Proven equivalent: charge_digits' degenerate guards are value-inert
+    # (the disjunction's arms coincide wherever they disagree in shape).
+    "integral\\.rs.*: replace \\|\\| with && in charge_digits",
+
+    # Proven equivalent: window digit counts are nonzero by construction,
+    # so the strictness of the comparisons against them never
+    # discriminates (both `<` sites in the function).
+    "integral\\.rs.*: replace < with (<=|==|>) in charge_digits",
+
+    # Performance genre, line-pinned (the function's other minus sites are
+    # killed): the span subtraction only sizes the cluster's densified
+    # image, and widening it pads zero bytes that contribute nothing to
+    # the product. The `+` replacement alone is excluded: the `/` twin at
+    # the same site is not value-inert (it divides by a possibly-zero
+    # floor index and can undersize the image), so it stays visible.
+    "integral\\.rs:450:65: replace - with \\+ in charge_digits",
+
+    # Proven equivalent: the jump coefficient is never zero, so the
+    # comparison's strictness never discriminates (the contract at the
+    # site carries the argument).
+    "integral\\.rs.*: replace < with (<=|==|>) in Integrator::jump",
+
+    # Performance genre: the boundary and freeze triggers tune engagement
+    # thresholds inside the deliberate cost allowance; the verdicts and
+    # settled values are identical on either side.
+    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::boundary",
+    "integral\\.rs.*: replace \\+ with (-|\\*) in Integrator::boundary",
+    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::freeze",
+
+    # Performance genre: the settled value is independent of the arming
+    # tree's shape, so the shape-tuning sum routes only work.
+    "integral\\.rs.*: replace \\+ with \\* in Integrator::settle_armings",
 ]
