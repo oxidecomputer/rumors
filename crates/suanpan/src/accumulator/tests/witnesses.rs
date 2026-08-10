@@ -202,13 +202,13 @@ fn domination_floor_near_usize_max_never_decides() {
 }
 
 /// A register-held value certifies domination by direct magnitude
-/// comparison, deciding values no fold could: `u64::MAX` spans two
-/// digits — below any deciding fold's index for `floor = 0` — yet the
-/// register reads `(Greater, true)` because `u64::MAX ≥ 3 · 2^32`.
+/// comparison, deciding values no fold could.
 ///
-/// Pins the register arm of the contract: `decided` on a register-held
-/// value is exactly `|value| ≥ 3 · 2^(32·(floor + 1))`, with no fold
-/// mechanics involved.
+/// `u64::MAX` spans two digits — below any deciding fold's index for
+/// `floor = 0` — yet the register reads `(Greater, true)` because
+/// `u64::MAX ≥ 3 · 2^32`. Pins the register arm of the contract:
+/// `decided` on a register-held value is exactly
+/// `|value| ≥ 3 · 2^(32·(floor + 1))`, with no fold mechanics involved.
 #[test]
 fn register_certifies_domination_below_any_deciding_fold() {
     let mut acc = Accumulator::new();
@@ -226,11 +226,11 @@ fn register_certifies_domination_below_any_deciding_fold() {
 }
 
 /// The domination certificate is a property of the representation, not
-/// the value: the same `2^80` certifies at `floor = 1` while
-/// register-held (`2^80 ≥ 3 · 2^64`) and reads `decided = false` once
-/// spilled — its fold decides at digit index 2, below the required
-/// `floor + 2 = 3`.
+/// the value.
 ///
+/// The same `2^80` certifies at `floor = 1` while register-held
+/// (`2^80 ≥ 3 · 2^64`) and reads `decided = false` once spilled — its
+/// fold decides at digit index 2, below the required `floor + 2 = 3`.
 /// Pins the representation cliff the contract documents: a caller must
 /// never treat `decided` as a pure function of the value.
 #[test]
