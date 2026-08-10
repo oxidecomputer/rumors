@@ -144,6 +144,20 @@ impl<'a> IdIndex<'a> {
         }
     }
 
+    /// Index `bits` with the position table deliberately absent, exactly as
+    /// [`build`](IdIndex::build) leaves it when the stream's positions do not
+    /// fit `u32`.
+    ///
+    /// [`build`](IdIndex::build) reaches that state only past 2³² bits (512
+    /// MiB) of packed id — an input no test can afford to materialize — so the
+    /// fallback differentials in `party/tests.rs` construct it here directly
+    /// to hold [`is_disjoint`](IdIndex::is_disjoint)'s unindexed arm to the
+    /// cursor walk's verdict.
+    #[cfg(test)]
+    pub(crate) fn build_unindexed(bits: &'a BitsSlice) -> IdIndex<'a> {
+        IdIndex { bits, rights: None }
+    }
+
     /// Whether the indexed operand and `other` (both normal-form ids) share no
     /// owned region: the same verdict as [`IdReader::is_disjoint`] on the same
     /// pair, in `O(other)` node visits.

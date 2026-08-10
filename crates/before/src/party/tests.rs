@@ -334,7 +334,10 @@ proptest! {
     /// indexed).
     ///
     /// This is the fold's semantic seam: `join_all`'s up-front test may differ
-    /// from `is_disjoint` in mechanism only.
+    /// from `is_disjoint` in mechanism only. The huge-stream fallback — the
+    /// position table absent, as `build` leaves it past `u32` positions — is
+    /// held to the same verdict on every sampled pair, since no affordable
+    /// input reaches it through `build`.
     #[test]
     fn indexed_disjointness_matches_the_cursor_walk(
         oa in arb_oracle_party_nonempty(),
@@ -344,6 +347,8 @@ proptest! {
         let walk = ia.is_disjoint(&ib);
         prop_assert_eq!(IdIndex::build(ia.as_bits()).is_disjoint(ib.view()), walk);
         prop_assert_eq!(IdIndex::build(ib.as_bits()).is_disjoint(ia.view()), walk);
+        prop_assert_eq!(IdIndex::build_unindexed(ia.as_bits()).is_disjoint(ib.view()), walk);
+        prop_assert_eq!(IdIndex::build_unindexed(ib.as_bits()).is_disjoint(ia.view()), walk);
     }
 }
 
@@ -354,7 +359,9 @@ proptest! {
     /// Spines, zigzags, and bushy shapes at scale, in both roles — driving the
     /// index's table search and its skip-free descent through real depth, on
     /// disjoint pairs (both single-tip spine halves and the misaligned
-    /// skip-stress pair) and overlapping ones (a shape against itself).
+    /// skip-stress pair) and overlapping ones (a shape against itself). The
+    /// huge-stream fallback (the position table absent) is held to the same
+    /// verdict on every pair.
     #[test]
     fn indexed_disjointness_matches_the_cursor_walk_deep(
         shape_a in arb_shape(),
@@ -368,6 +375,51 @@ proptest! {
             let walk = x.is_disjoint(y);
             prop_assert_eq!(IdIndex::build(x.as_bits()).is_disjoint(y.view()), walk);
             prop_assert_eq!(IdIndex::build(y.as_bits()).is_disjoint(x.view()), walk);
+            prop_assert_eq!(IdIndex::build_unindexed(x.as_bits()).is_disjoint(y.view()), walk);
+            prop_assert_eq!(IdIndex::build_unindexed(y.as_bits()).is_disjoint(x.view()), walk);
+        }
+    }
+}
+
+/// The huge-stream fallback of [`IdIndex::is_disjoint`] answers the identical
+/// verdict as the built index and the cursor walk, on constructed pairs of
+/// every overlap disposition in both roles, empty streams included.
+///
+/// The deterministic tripwire beside the proptest legs above: disjoint
+/// complements at depth, self-overlap, nested overlap, a bushy pair sharing
+/// skeleton but no owned cell, a root-full side, and the empty stream — an
+/// empty reader against a nonempty indexed operand drives the walk's
+/// vacuously-disjoint empty arm, which no nonempty generator reaches.
+#[test]
+fn unindexed_fallback_matches_the_walk_on_constructed_pairs() {
+    use self::constructed::{complement_leftmost, full, leftmost, node};
+    use crate::codec::BitsMut;
+    let empty = BitsMut::new();
+    let pairs: Vec<(BitsMut, BitsMut)> = vec![
+        (leftmost(6), complement_leftmost(6)),
+        (leftmost(6), leftmost(6)),
+        (leftmost(6), leftmost(3)),
+        (
+            node(Some(&leftmost(2)), Some(&full())),
+            node(Some(&complement_leftmost(2)), None),
+        ),
+        (full(), leftmost(4)),
+        (leftmost(3), empty.clone()),
+        (empty.clone(), empty),
+    ];
+    for (a, b) in &pairs {
+        for (x, y) in [(a, b), (b, a)] {
+            let walk = IdReader::root(x).is_disjoint(IdReader::root(y));
+            assert_eq!(
+                IdIndex::build(x).is_disjoint(IdReader::root(y)),
+                walk,
+                "the built index diverged from the cursor walk"
+            );
+            assert_eq!(
+                IdIndex::build_unindexed(x).is_disjoint(IdReader::root(y)),
+                walk,
+                "the unindexed fallback diverged from the cursor walk"
+            );
         }
     }
 }
@@ -467,24 +519,16 @@ fn sum_split_collapsed_union_matches_terminal_split() {
     assert_eq!(Party::from_bits(fused.1), give, "the give half is (0, 1)");
 }
 
-/// Deep constructed id pairs hold `sum_split` to its composition beyond the
-/// arbitrary generator's reach.
-///
-/// `arb_oracle_party` recurses a handful of levels, so every genre here is
-/// otherwise unsampled: a kilolevel lockstep spine ending at the union-collapse
-/// seam (adjacent sibling cells at depth), whole-branch delegation whose merge
-/// cascade-collapses to the terminal level by level, a deep subtree spliced
-/// verbatim from one side alone, a targeted branch whose merged child collapses
-/// inside the delegated `sum`, overlap detected at depth (on the spine and
-/// inside the delegated merge), and the root-leaf/empty-operand arms. Each case
-/// asserts byte equality with `sum`-then-`split` (`None` arms included); the
-/// deep cases double as stack-safety proof for the fused walk's loop.
-mod sum_split_constructed {
-    use super::*;
+// ────────── constructed packed ids (the deep witnesses' shared shapes) ──────────
+
+/// Hand-built normal-form packed id streams: the shapes the constructed deep
+/// witnesses and tripwires assemble their operands from, each built tags-first
+/// in one pass so a deep stream costs one allocation, not one per level.
+mod constructed {
     use crate::codec::BitsMut;
 
     /// The full `1` leaf: terminal tag `00`.
-    fn full() -> BitsMut {
+    pub(super) fn full() -> BitsMut {
         let mut b = BitsMut::new();
         b.push(false);
         b.push(false);
@@ -493,7 +537,7 @@ mod sum_split_constructed {
 
     /// An internal node over the present children (normal form is the caller's
     /// obligation: at least one child, never two terminals).
-    fn node(left: Option<&BitsMut>, right: Option<&BitsMut>) -> BitsMut {
+    pub(super) fn node(left: Option<&BitsMut>, right: Option<&BitsMut>) -> BitsMut {
         let mut b = BitsMut::new();
         b.push(left.is_some());
         b.push(right.is_some());
@@ -508,7 +552,7 @@ mod sum_split_constructed {
 
     /// `levels` unary nodes toward `left_side` over `tail` (built tags-first,
     /// so a deep spine costs one pass, not one per level).
-    fn spine(levels: usize, left_side: bool, tail: BitsMut) -> BitsMut {
+    pub(super) fn spine(levels: usize, left_side: bool, tail: BitsMut) -> BitsMut {
         let mut b = BitsMut::with_capacity(2 * levels + tail.len());
         for _ in 0..levels {
             b.push(left_side);
@@ -519,7 +563,7 @@ mod sum_split_constructed {
     }
 
     /// The leftmost `2^-k` cell: a `k`-level left-unary spine over `1`.
-    fn leftmost(k: usize) -> BitsMut {
+    pub(super) fn leftmost(k: usize) -> BitsMut {
         spine(k, true, full())
     }
 
@@ -529,7 +573,7 @@ mod sum_split_constructed {
     /// Built by one preorder pass — `k − 1` both-present nodes whose left child
     /// continues and whose right child is full, then the deepest right-only
     /// cell.
-    fn complement_leftmost(k: usize) -> BitsMut {
+    pub(super) fn complement_leftmost(k: usize) -> BitsMut {
         let mut b = BitsMut::with_capacity(4 * k);
         for _ in 1..k {
             b.push(true);
@@ -543,6 +587,24 @@ mod sum_split_constructed {
         }
         b
     }
+}
+
+/// Deep constructed id pairs hold `sum_split` to its composition beyond the
+/// arbitrary generator's reach.
+///
+/// `arb_oracle_party` recurses a handful of levels, so every genre here is
+/// otherwise unsampled: a kilolevel lockstep spine ending at the union-collapse
+/// seam (adjacent sibling cells at depth), whole-branch delegation whose merge
+/// cascade-collapses to the terminal level by level, a deep subtree spliced
+/// verbatim from one side alone, a targeted branch whose merged child collapses
+/// inside the delegated `sum`, overlap detected at depth (on the spine and
+/// inside the delegated merge), and the root-leaf/empty-operand arms. Each case
+/// asserts byte equality with `sum`-then-`split` (`None` arms included); the
+/// deep cases double as stack-safety proof for the fused walk's loop.
+mod sum_split_constructed {
+    use super::constructed::{complement_leftmost, full, leftmost, node, spine};
+    use super::*;
+    use crate::codec::BitsMut;
 
     /// The fused walk against its composition on one id pair, in both operand
     /// orders (byte equality, `None` arms included).
@@ -683,6 +745,158 @@ mod sum_split_constructed {
         assert_matches_composition(&full(), &empty);
         assert_matches_composition(&empty, &empty.clone());
         assert_matches_composition(&empty, &leftmost(DEEP));
+    }
+}
+
+/// Deep constructed id pairs drive `diff`'s covered-block arms — the verbatim
+/// splice and the owned-cover block scan — plus the complement walk, at depths
+/// no committed generator reaches.
+///
+/// The deep `without` drivers elsewhere all route `self = seed`, which settles
+/// at the root, so of `diff`'s four settle regimes only the complement descent
+/// and the lockstep descent see real depth without these. Each family here is
+/// size-generic over a scale ladder whose top no recursive walk survives: the
+/// deep instances are asserted byte-for-byte against the constructed
+/// expectation (doubling as stack-safety proof for the block scan and the
+/// sweep), and the oracle-reachable scales are additionally held to the
+/// recursive `oracle::Party::without`.
+mod diff_constructed {
+    use super::constructed::{complement_leftmost, full, leftmost, node};
+    use super::*;
+    use crate::codec::BitsMut;
+
+    /// The scale ladder: every family runs at each `k`, byte-checked.
+    const SCALES: [usize; 3] = [256, 4096, 100_000];
+
+    /// Scales the plain-recursive oracle (and the id-side bridge) can walk on
+    /// the test stack; the ladder's top is deliberately beyond it.
+    const ORACLE_SCALE_MAX: usize = 4096;
+
+    /// `self \ other` on one constructed pair: byte-equal to `expected`, and
+    /// at oracle-reachable scales (`k <= ORACLE_SCALE_MAX`) also equal to the
+    /// recursive oracle's `without`, compared over lowered oracle trees.
+    fn assert_diff(a: &BitsMut, b: &BitsMut, expected: &BitsMut, k: usize) {
+        let d = IdReader::root(a).diff(IdReader::root(b));
+        assert_eq!(
+            &d, expected,
+            "diff diverged from the constructed expectation (k={k})"
+        );
+        if k <= ORACLE_SCALE_MAX {
+            let oa = to_oracle_party(&Party::from_bits(a.clone()));
+            let ob = to_oracle_party(&Party::from_bits(b.clone()));
+            let oracle_diff = oa.without(&ob);
+            if d.is_empty() {
+                assert!(
+                    oracle_diff.is_empty(),
+                    "the oracle kept a remainder the sweep dropped (k={k})"
+                );
+            } else {
+                assert_eq!(
+                    to_oracle_party(&Party::from_bits(d)),
+                    oracle_diff,
+                    "diff diverged from the recursive oracle (k={k})"
+                );
+            }
+        }
+    }
+
+    /// A deep `self` subtree under an unowned `other` cover survives whole:
+    /// the remainder is `self` itself, byte for byte, at every scale.
+    ///
+    /// `self` is the leftmost `2^-k` cell and `other` owns only the right
+    /// half, so the root descent settles the whole spine as one covered block
+    /// — a single iterative scan and one verbatim splice, never a
+    /// plateau-by-plateau walk.
+    #[test]
+    fn deep_subtree_under_unowned_cover_splices_verbatim() {
+        for k in SCALES {
+            let a = leftmost(k);
+            let b = node(None, Some(&full()));
+            assert_diff(&a, &b, &a, k);
+        }
+    }
+
+    /// A deep `self` subtree under an owned `other` cover vanishes whole: the
+    /// remainder is empty, at every scale.
+    ///
+    /// The same spine with the cover's polarity flipped — `other` owns the
+    /// half the spine lives in — so the block scan consumes the subtree and
+    /// nothing of it survives into the output.
+    #[test]
+    fn deep_subtree_under_owned_cover_vanishes() {
+        for k in SCALES {
+            let a = leftmost(k);
+            let b = node(Some(&full()), None);
+            assert_diff(&a, &b, &BitsMut::new(), k);
+        }
+    }
+
+    /// The complement dual: carving a deep cell out of the seed emits exactly
+    /// the cell's complement, at every scale.
+    ///
+    /// A full `self` plateau over a deep `other` subtree is the one covered
+    /// pairing that is *not* a block — the sweep walks the subtree plateau by
+    /// plateau and the output is its complement, owned at every level down
+    /// the spine.
+    #[test]
+    fn seed_without_deep_cell_is_its_complement() {
+        for k in SCALES {
+            assert_diff(&full(), &leftmost(k), &complement_leftmost(k), k);
+        }
+    }
+
+    /// A covered block costs its own tags plus its verbatim output and no
+    /// more, and never out-scans the complement walk over the same subtree.
+    ///
+    /// Each block regime's recorded scan sits between reading every operand
+    /// tag once (the floor) and that plus writing the settled output once
+    /// (the ceiling).
+    ///
+    /// The module doc's cost claim, held by meter at two scales. The scan
+    /// currency counts builder writes as well as reads, and emitting plateau
+    /// by plateau costs about triple the verbatim splice's bits per level
+    /// (per-plateau tag reservations and patches against one block write), so
+    /// a diff that re-walks or re-derives a block-settled subtree plateau by
+    /// plateau lands far past the ceiling — a regression no other committed
+    /// reading would notice. The complement walk — the owned-`self` dual
+    /// driving the same spine plateau by plateau — rides as the relative
+    /// yardstick the block regimes must stay under.
+    #[cfg(feature = "scan-meter")]
+    #[test]
+    fn diff_block_scan_never_exceeds_the_complement_walk() {
+        /// Constant scan overhead of a settled block beyond its operand reads
+        /// and output write: the root-level tag reservations and patches.
+        const BLOCK_SLACK: u64 = 8;
+        let scan = |a: &BitsMut, b: &BitsMut| -> u64 {
+            crate::codec::scan::reset();
+            IdReader::root(a).diff(IdReader::root(b));
+            crate::codec::scan::scan_bits()
+        };
+        for k in [256usize, 4096] {
+            let spine = leftmost(k);
+            let unowned_cover = node(None, Some(&full()));
+            let owned_cover = node(Some(&full()), None);
+            let walk = scan(&owned_cover, &spine);
+            for (name, cover, output_len) in [
+                ("splice", &unowned_cover, spine.len()),
+                ("owned-cover block", &owned_cover, 0),
+            ] {
+                let blocked = scan(&spine, cover);
+                let floor = (spine.len() + cover.len()) as u64;
+                let ceiling = floor + output_len as u64 + BLOCK_SLACK;
+                assert!(
+                    floor <= blocked && blocked <= ceiling,
+                    "{name} k={k}: scanned {blocked} bits outside \
+                     [{floor}, {ceiling}] (every operand tag once, plus the \
+                     settled output written once)",
+                );
+                assert!(
+                    blocked <= walk,
+                    "{name} k={k}: scanned {blocked} bits against the \
+                     complement walk's {walk}",
+                );
+            }
+        }
     }
 }
 
