@@ -1111,3 +1111,6 @@ impl MinWeb<()> {
         delta.sub_accum(&self.gap);
     }
 }
+
+#[cfg(test)]
+mod tests;

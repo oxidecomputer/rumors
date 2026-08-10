@@ -479,6 +479,235 @@ fn left_full_raise_decides_at_the_site_not_its_close() {
     assert_tick(&v, &p);
 }
 
+/// Build a latent-ladder pair: an arming spine whose closes park a latent
+/// boundary, beside a sibling whose raise decision reads it through the
+/// domination ladder.
+///
+/// The driven path, with every enclosing base zero: the leaf left of the spine
+/// arms the web at height `0`; each spine level's zero leaf arms one level
+/// deeper (the outermost spine base is the surviving innermost minimum
+/// `m = bases.last()`), the tip leaf arms last and highest, and the spine's
+/// closes then pop those arming boundaries back — one park per level, the
+/// first a mint and the rest merges — leaving the latent
+/// `Λ = tip + Σ bases[..last]` under the anchor `A = m + Λ`. The sibling
+/// consumed by the right-full raise probes the ladder at `v = peak`: the
+/// latent `Λ` decides against the drop `δ = A − v`, with the true minimum at
+/// `m`. A zero `peak` places a lone zero leaf as the sibling (the two-leaf
+/// spelling would collapse); the raise consumes either shape identically.
+///
+/// A second right-full raise wraps the ladder site and reads the web again
+/// over a lone zero leaf: its raise lifts that leaf to the tracked minimum
+/// `m`, coding the post-ladder web state into the output stream — a ladder
+/// exit that misplaces the web (a wrong fold-restore, a wrong post-collapse
+/// re-test) surfaces as wrong bytes rather than dying unread when the last
+/// armed range retires.
+fn latent_ladder_pair(bases: &[Base], tip: &Base, peak: &Base) -> (Version, Party) {
+    use crate::oracle::{Party as P, Version as V};
+    // (1, 0): an id node over a consumed leaf — the leaf's emission arms the
+    // web without the id owning or moving anything.
+    let owned = || P::node(P::seed(), P::Leaf(false));
+    let (mut spine, mut spine_id) = (
+        V::node(bases[0].clone(), V::leaf(0u64), V::leaf(tip.clone())),
+        P::node(owned(), owned()),
+    );
+    for b in &bases[1..] {
+        spine = V::node(b.clone(), V::leaf(0u64), spine);
+        spine_id = P::node(owned(), spine_id);
+    }
+    let sibling = if *peak == Base::ZERO {
+        V::leaf(0u64)
+    } else {
+        V::node(0u64, V::leaf(peak.clone()), V::leaf(0u64))
+    };
+    let x = V::node(0u64, spine, sibling);
+    // The sibling sits under a full id: its consumption is the right-full
+    // raise, whose decision read and declined-raise emission are the walk's
+    // latent-live reads of the web.
+    let ix = P::node(spine_id, P::seed());
+    // The wrapping reader: another right-full raise over a zero leaf, whose
+    // emission is the tracked minimum read back from the web.
+    let w = V::node(0u64, x, V::leaf(0u64));
+    let iw = P::node(ix, P::seed());
+    let g = V::node(0u64, V::leaf(0u64), w);
+    let ig = P::node(owned(), iw);
+    let root = V::node(0u64, g, V::leaf(0u64));
+    let ip = P::node(ig, P::Leaf(false));
+    (from_oracle_version(&root), from_oracle_party(&ip))
+}
+
+/// `5 · 2^96`: a ladder operand past the `2^97` certificate line.
+fn five_p96() -> Base {
+    (Base::from(1u8) << 96u32) + (Base::from(1u8) << 98u32)
+}
+
+/// A dominating latent declines a word-scale drop: the emission lands between
+/// the true minimum and the anchor (`m < v < A`, `Λ ≥ 5·2^96`, `A − v = 7`),
+/// so the tracked minimum must not move and the raise emits `v` itself.
+///
+/// The worked witness for the ladder's latent-dominates arm and both of its
+/// reads: the raise decision (`compare_above`) and the declined drop's exact
+/// fold-restore in `emit_offset` (the latent-decide-false gate). Restoring
+/// that fold with the wrong polarity displaces the anchor web by `2·|offset|`
+/// for every later read; the enclosing minimum then comes out wrong — caught
+/// here against the recursive oracle.
+#[test]
+fn wide_latent_dominates_a_word_scale_drop() {
+    let (v, p) = latent_ladder_pair(
+        &[Base::from(1u8)],
+        &(five_p96() + 7u64),
+        &(five_p96() + 1u64),
+    );
+    assert_tick(&v, &p);
+}
+
+/// A wide drop dominates a word-scale latent: the emission reads strictly
+/// below the true minimum (`v < m`, `m ≥ 5·2^96`, `Λ = 9`), so the raise must
+/// lift the consumed sibling to exactly `m`.
+///
+/// The worked witness for the ladder's gap-dominates arm: the decision is the
+/// O(1) domination read of the drop against the latent, answered without a
+/// collapse, and the raise then emits the tracked minimum. A polarity error
+/// there declines the raise instead and emits the low sibling value — caught
+/// here against the recursive oracle.
+#[test]
+fn wide_drop_dominates_a_word_scale_latent() {
+    let (v, p) = latent_ladder_pair(&[five_p96()], &Base::from(9u8), &Base::ZERO);
+    assert_tick(&v, &p);
+}
+
+/// Comparable scales collapse the latent, and the re-based re-test reads the
+/// drop stopping above the true minimum (`m < v`, `Λ = 2^97`, `A − v = 2^96`):
+/// the minimum must not move and the raise emits `v` itself.
+///
+/// The worked witness for the ladder's comparable-collapse arm on its
+/// non-undercut side: neither operand's top digit certifies domination, the
+/// near-cancellation funds the latent's retirement, and the post-collapse
+/// plain sign read declines the drop. A wrong post-collapse polarity turns
+/// the declined drop into an undercut of the re-based anchor — caught here
+/// against the recursive oracle.
+#[test]
+fn comparable_scales_collapse_above_the_true_minimum() {
+    let (v, p) = latent_ladder_pair(
+        &[Base::from(1u8)],
+        &(Base::from(1u8) << 97u32),
+        &((Base::from(1u8) << 96u32) + 1u64),
+    );
+    assert_tick(&v, &p);
+}
+
+/// Comparable scales collapse the latent, and the re-based re-test reads the
+/// drop passing the true minimum (`v < m`, `Λ = 5·2^96`, `A − v = 5·2^96 +
+/// 3`): the raise must lift the consumed sibling to exactly `m`.
+///
+/// The worked witness for the ladder's comparable-collapse arm on its
+/// undercut side: the collapse re-bases the anchor to the true minimum and
+/// the plain re-test still reads a drop, so the raise emits the minimum. A
+/// wrong post-collapse polarity emits the low sibling value instead — caught
+/// here against the recursive oracle.
+#[test]
+fn comparable_scales_collapse_under_the_true_minimum() {
+    let (v, p) = latent_ladder_pair(&[Base::from(5u8)], &five_p96(), &Base::from(2u8));
+    assert_tick(&v, &p);
+}
+
+/// The dominating side of a scale-disparate ladder case: `[5·2^96, 2^100)`,
+/// past the `2^97` certificate line in both accumulator representations.
+///
+/// The register certifies from `3·2^(32·(floor+1))`; the digit fold from a
+/// partial of `3` at digit index `floor + 2` — here index 3 against
+/// word-scale floors.
+fn arb_ladder_dominant() -> impl Strategy<Value = Base> {
+    (5u128 << 64..1u128 << 68).prop_map(|n| Base::from(n) << 32u32)
+}
+
+/// One comparable-scale ladder operand: `[2^96, 2^99)` — top digit index 3
+/// with a small partial, so no draw dominates another draw (or a sum of two)
+/// and every pairing takes the collapse arm.
+fn arb_ladder_comparable() -> impl Strategy<Value = Base> {
+    (1u128 << 64..1u128 << 67).prop_map(|n| Base::from(n) << 32u32)
+}
+
+/// One latent-ladder case for [`latent_ladder_pair`] — `(bases, tip, peak)` —
+/// drawn to land in a chosen ladder relation, with the spine depth (one to
+/// three parks: a mint plus up to two merges) and every scale free.
+fn arb_latent_ladder() -> impl Strategy<Value = (Vec<Base>, Base, Base)> {
+    let inner = proptest::collection::vec((1u64..1000).prop_map(Base::from), 0..=2);
+    prop_oneof![
+        // Latent-dominates: Λ ≥ 5·2^96 against a word-scale drop δ, the
+        // emission landing between the true minimum and the anchor.
+        (
+            inner.clone(),
+            1u64..1000,
+            arb_ladder_dominant(),
+            1u64..1 << 63
+        )
+            .prop_map(|(mut bases, outer, dominant, delta)| {
+                bases.push(Base::from(outer));
+                let sum = bases.iter().fold(Base::ZERO, |a, b| a + b);
+                (bases, dominant.clone() + delta, sum + dominant)
+            },),
+        // Gap-dominates: a drop past a huge outermost minimum against a
+        // word-scale latent — a true undercut, the raise lifting to m.
+        (
+            inner.clone(),
+            arb_ladder_dominant(),
+            1u64..1 << 32,
+            0u64..1000
+        )
+            .prop_map(|(mut bases, outer, tip, peak)| {
+                bases.push(outer);
+                (bases, Base::from(tip), Base::from(peak))
+            },),
+        // Comparable scales, the drop stopping above the true minimum: the
+        // collapse re-bases the anchor and the raise still emits v itself.
+        (
+            inner.clone(),
+            2u64..1000,
+            arb_ladder_comparable(),
+            arb_ladder_comparable(),
+        )
+            .prop_map(|(mut bases, outer, u, t)| {
+                bases.push(Base::from(outer));
+                (bases, u + &t, Base::from(outer) + t)
+            }),
+        // Comparable scales, the drop passing the true minimum: the
+        // post-collapse re-test reads a plain undercut and the raise lifts
+        // to m.
+        (
+            inner,
+            (2u64..1000).prop_flat_map(|outer| (Just(outer), 0..outer)),
+            arb_ladder_comparable(),
+            arb_ladder_comparable(),
+        )
+            .prop_map(|(mut bases, (outer, peak), u, t)| {
+                bases.push(Base::from(outer));
+                (bases, u + t, Base::from(peak))
+            }),
+    ]
+}
+
+proptest! {
+    /// Latent-parking armings tick byte-identically to the recursive oracle
+    /// across the domination ladder: dominating latents decline, dominated
+    /// ones undercut, comparable scales collapse — both re-test sides.
+    ///
+    /// The generalized family behind the four worked witnesses above: spine
+    /// depth sweeps the park chain (a mint plus up to two merges), the
+    /// dominating sides draw from `[5·2^96, 2^100)` so the domination
+    /// certificate fires in either accumulator representation, and the
+    /// comparable arm draws both operands at top digit index 3 so neither
+    /// ever certifies. Every case funnels the parked latent into a raise
+    /// decision and its emission, where a polarity error in the ladder's
+    /// declined-drop restore or its post-collapse re-test displaces the
+    /// enclosing minimum — checked total against the recursive oracle.
+    #[test]
+    fn latent_ladder_ticks_identically(case in arb_latent_ladder()) {
+        let (bases, tip, peak) = case;
+        let (v, p) = latent_ladder_pair(&bases, &tip, &peak);
+        assert_tick(&v, &p);
+    }
+}
+
 /// The version that is `1` on the leftmost `2^-depth` interval and `0`
 /// everywhere else: `depth` nested nodes, all bases zero, the single 1-leaf at
 /// the bottom left.
