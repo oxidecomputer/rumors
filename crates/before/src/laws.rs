@@ -1958,15 +1958,17 @@ laws! {
     /// Laws over a live party (the receiver) and a list of live parties
     /// (the items), at any arity.
     ///
-    /// [`Party::join_all`]'s three faces, each quantified over the item
-    /// count no fixed-width point law can sweep: acceptance is pairwise
+    /// [`Party::join_all`]'s faces, each quantified over the item count
+    /// no fixed-width point law can sweep: acceptance is pairwise
     /// disjointness of the whole family, an accepted fold is the
-    /// sequential pair joins, and rejection is per-input and lossless
-    /// (best-effort). The constructed laws draw their families from the
-    /// receiver's own fork tree, so the accepted arm is exercised at
-    /// every width even though arbitrary parties rarely happen to be
-    /// disjoint — while the arbitrary items (frequently aliased, since
-    /// the drivers index small pools) keep the refusal arm under mass.
+    /// sequential pair joins, and rejection is per-input, lossless
+    /// (best-effort), and region-conserving. The constructed laws draw
+    /// their families from the receiver's own fork tree, so the accepted
+    /// arm is exercised at every width even though arbitrary parties
+    /// rarely happen to be disjoint — while the arbitrary items
+    /// (frequently aliased, since the drivers index small pools) keep
+    /// the refusal arm under mass, with two and more distinct
+    /// overlapping groups arising from repeated pool picks.
     pub static PARTY_AND_LIST: (p: &Party, items: &[Party]);
 
     /// `join_all` accepts exactly the pairwise-disjoint families —
@@ -2046,6 +2048,43 @@ laws! {
         match keeper.join_all(fed) {
             Err(returned) => returned.len() == 1 && returned[0] == residual && keeper == *p,
             Ok(()) => false,
+        }
+    }
+
+    /// `join_all`'s rejection conserves regions at every arity: the
+    /// accumulator joined with the returned regions covers the
+    /// receiver's original region unioned with every input's.
+    ///
+    /// Stated over region unions (`covers` against a `join`-built
+    /// union), never byte identity: the closing drain legitimately
+    /// hands back *coalesced* groups, byte-distinct from every input,
+    /// so an element-wise identity clause would reject correct
+    /// behavior. What the union statement convicts is a fold that
+    /// *drops* a group instead of handing it back — a loss invisible to
+    /// the acceptance law's `Err` clauses (hand-back nonempty,
+    /// accumulator covers its origin) whenever another input already
+    /// sits in the rejection channel. The accepted arm's conservation
+    /// is the acceptance law's: an accepted fold equals the sequential
+    /// pair joins, which drop nothing.
+    fn party_join_all_err_conserves_the_region_union {
+        let mut acc = p.dangerously_alias();
+        match acc.join_all(items.iter().map(Party::dangerously_alias)) {
+            Ok(()) => true,
+            Err(returned) => {
+                // The union of the accumulator and every returned
+                // region: each hand-back may overlap the accumulator
+                // and its fellows (aliases are why it came back), so
+                // the union grows by each one's uncovered remainder.
+                let mut union = acc;
+                for back in returned {
+                    if let Some(missing) = back.without(&union) {
+                        if union.join(missing).is_err() {
+                            return false; // the remainder is disjoint by construction
+                        }
+                    }
+                }
+                union.covers(p) && items.iter().all(|item| union.covers(item))
+            }
         }
     }
 }
@@ -2751,12 +2790,13 @@ laws! {
     /// Laws over a clock (the receiver) and a list of clocks (the items),
     /// at any arity.
     ///
-    /// [`Clock::join_all`]'s two faces at swept widths: acceptance is
+    /// [`Clock::join_all`]'s faces at swept widths: acceptance is
     /// pairwise disjointness of the parties (an accepted fold equals the
     /// sequential pair joins on both components, and the returned
-    /// reference is the freshly folded version), and a constructed fork
+    /// reference is the freshly folded version), a constructed fork
     /// family — every child line ticked apart — reunites to the original
-    /// region carrying the join of every line's history. Beside them, the
+    /// region carrying the join of every line's history, and rejection
+    /// conserves the family's regions and histories. Beside them, the
     /// n-ary doors are pinned to their composed spellings:
     /// [`Clock::sync_all`] byte-identical to `join_all` then the balanced
     /// re-share — with every overlap refused and no participant moved —
@@ -2831,6 +2871,54 @@ laws! {
                 returned == expected && *keeper.version() == expected && keeper.party() == c.party()
             }
             Err(_) => false,
+        }
+    }
+
+    /// `join_all`'s rejection conserves the family at every arity:
+    /// joined with the returned clocks, the accumulator covers the
+    /// receiver's original region and history and every input's.
+    ///
+    /// Spelled out: the accumulator's party joined with the returned
+    /// parties covers the receiver's original region unioned with every
+    /// input's, and the accumulator's version joined with the returned
+    /// versions dominates the receiver's original version and every
+    /// input's.
+    ///
+    /// The clock face of the party group's conservation law, stated
+    /// over unions/joins on both components, never byte identity: the
+    /// closing drain legitimately hands back *coalesced* groups
+    /// (parties unioned, versions joined), so an element-wise identity
+    /// clause would reject correct behavior. What the union statement
+    /// convicts is a fold that *drops* a group — region and history
+    /// alike — instead of handing it back, a loss invisible to the
+    /// acceptance law's `Err` clauses whenever another input already
+    /// sits in the rejection channel.
+    fn clock_join_all_err_conserves_the_region_union {
+        let mut acc = c.dangerously_alias();
+        match acc.join_all(items.iter().map(Clock::dangerously_alias)) {
+            Ok(_) => true, // an accepted fold equals the sequential pair joins
+            Err(returned) => {
+                // The union of the accumulator's region with every
+                // returned one (each hand-back may overlap the union —
+                // aliases are why it came back — so it contributes its
+                // uncovered remainder), and the join of the
+                // accumulator's history with every returned one.
+                let (mut union, mut history) = acc.into_parts();
+                for back in returned {
+                    let (party, version) = back.into_parts();
+                    if let Some(missing) = party.without(&union) {
+                        if union.join(missing).is_err() {
+                            return false; // the remainder is disjoint by construction
+                        }
+                    }
+                    history = &history | &version;
+                }
+                union.covers(c.party())
+                    && le(c.version(), &history)
+                    && items
+                        .iter()
+                        .all(|item| union.covers(item.party()) && le(item.version(), &history))
+            }
         }
     }
 

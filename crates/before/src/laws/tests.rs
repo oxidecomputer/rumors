@@ -59,3 +59,77 @@ fn every_law_group_is_registered() {
          and a rostered phantom names nothing"
     );
 }
+
+/// The conservation laws' deterministic witness: the feed order
+/// [a, alias(a), b, alias(b), c] holds both `join_all` conservation laws
+/// while its hand-back contains a *coalesced* group.
+///
+/// Two pins ride on the constructed shape. First, the party and clock
+/// conservation laws hold on exactly the family whose retained group a
+/// discipline-level drop would lose — the deterministic tripwire beside
+/// the pool-driven law family, red the day the fold misroutes that group
+/// (dropping it outright flips the verdict, which the acceptance laws
+/// police; dropping it only when the rejection channel is already
+/// nonempty is visible to the conservation laws alone). Second, the
+/// hand-back genuinely contains a coalesced group, which is why the laws
+/// are stated over region unions and never over byte identity with the
+/// input list.
+#[test]
+fn conservation_witness_coalesces_the_hand_back() {
+    use crate::{Clock, Party};
+
+    // The party face.
+    let mut p = Party::seed();
+    let shares: Vec<Party> = p.forks(3).collect();
+    let [a, b, c] = shares.try_into().expect("three shares");
+    let items = vec![
+        a.dangerously_alias(),
+        a.dangerously_alias(),
+        b.dangerously_alias(),
+        b.dangerously_alias(),
+        c.dangerously_alias(),
+    ];
+    assert!(
+        super::party_join_all_err_conserves_the_region_union(&p, &items),
+        "the party conservation law must hold on the retained-group witness"
+    );
+    let mut acc = p.dangerously_alias();
+    let returned = acc
+        .join_all(items.iter().map(Party::dangerously_alias))
+        .expect_err("aliased inputs must be refused");
+    assert!(
+        returned
+            .iter()
+            .any(|back| [&a, &b, &c].iter().all(|input| back != *input)),
+        "the closing drain hands back a coalesced group, not input bytes"
+    );
+
+    // The clock face, over the same feed shape with ticked-apart lines.
+    let mut seed = Clock::seed();
+    let mut lines: Vec<Clock> = seed.forks(3).collect();
+    for line in &mut lines {
+        line.tick();
+    }
+    let [a, b, c] = lines.try_into().expect("three lines");
+    let items = vec![
+        a.dangerously_alias(),
+        a.dangerously_alias(),
+        b.dangerously_alias(),
+        b.dangerously_alias(),
+        c.dangerously_alias(),
+    ];
+    assert!(
+        super::clock_join_all_err_conserves_the_region_union(&seed, &items),
+        "the clock conservation law must hold on the retained-group witness"
+    );
+    let mut acc = seed.dangerously_alias();
+    let returned = acc
+        .join_all(items.iter().map(Clock::dangerously_alias))
+        .expect_err("aliased inputs must be refused");
+    assert!(
+        returned
+            .iter()
+            .any(|back| [&a, &b, &c].iter().all(|input| back != *input)),
+        "the closing drain hands back a coalesced group, not input bytes"
+    );
+}
