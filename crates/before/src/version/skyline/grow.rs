@@ -161,6 +161,13 @@ impl Cost {
     };
 }
 
+// The strictness is the whole no-aliasing argument: a ceiling equal to the
+// sentinel would let [`Cost::deepen`] saturate a feasible component *into*
+// infeasibility and route the emit toward an absent child. No input can probe
+// the boundary (reaching it takes ~2^64 id levels), so the relation is pinned
+// where it is declared rather than in a runtime test.
+static_assertions::const_assert!(Cost::CEILING < Cost::INFEASIBLE);
+
 /// The walk → emit channel: the cheapest inflation's route, one direction *bit*
 /// per id branch node — `true` = descend the left child.
 ///
