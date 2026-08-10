@@ -637,7 +637,15 @@ impl WindowMass {
             }
             meter_window_digits(1);
             let mut sum: i64 = 0;
-            if carry != 0 && carry_index == index {
+            if carry != 0 {
+                // A pending carry is consumed at the very next merged
+                // position: both operand streams ascend strictly past the
+                // position that produced it, so the loop head's min lands
+                // exactly on its index.
+                debug_assert_eq!(
+                    carry_index, index,
+                    "a pending carry is consumed at its own index"
+                );
                 sum = carry;
                 carry = 0;
             }
