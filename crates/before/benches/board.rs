@@ -129,11 +129,11 @@ fn bench_board(c: &mut Criterion) {
     // Cell IDs are `op/family` and denominators are the board's own
     // per-cell bytes, in board row order; the wide-display pair rides the
     // same sidecar after the board rows. Each cell's ceiling class comes
-    // from the pinned set: the conversion-dominated display cells
-    // (`sidecar::TEXT_CEILING_CELLS`, the declared render model at the
-    // pin) are judged at the text ceiling, every other board cell at the
-    // general one — so a cell's class can only move by editing the pinned
-    // constant, never here.
+    // from the pinned set: the conversion-dominated text-IO cells
+    // (`sidecar::TEXT_CEILING_CELLS`, the declared conversion model at
+    // the pin) are judged at the text ceiling, every other board cell at
+    // the general one — so a cell's class can only move by editing the
+    // pinned constant, never here.
     let mut denoms: Vec<(String, usize, sidecar::Ceiling)> = cells
         .iter()
         .map(|cell| {

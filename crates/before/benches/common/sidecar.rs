@@ -37,9 +37,10 @@ use before::meter::board;
 ///
 /// `tools/benchjudge` maps each class to its ceiling constant (general 1.3,
 /// text 1.7; both derivations live at the constants). The text class exists
-/// for conversion-dominated rendering only ([`TEXT_CEILING_CELLS`]):
-/// binary→decimal conversion is honestly superlinear, so the general
-/// ceiling would read the honest class red.
+/// for conversion-dominated text IO only ([`TEXT_CEILING_CELLS`]), in both
+/// directions: binary→decimal conversion (rendering) and decimal→binary
+/// conversion (parsing) are honestly superlinear, so the general ceiling
+/// would read the honest class red.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Ceiling {
     /// The default class, judged at the judge's general ceiling.
@@ -59,28 +60,37 @@ impl Ceiling {
 }
 
 /// The cell IDs declared [`Ceiling::Text`]: the judge-only wide-display
-/// pair and the board's hugeleaf display pair.
+/// pair, the board's hugeleaf display pair, and the board's hugeleaf
+/// parse trio.
 ///
 /// The wide-display pair (`version_display_wide`, `display_schoolbook`)
 /// times conversion at conversion-dominated widths by construction
-/// (`benches/board.rs` documents the pair). The hugeleaf display pair
-/// (`version_display`, `clock_display` on the maximal-bits-per-node
-/// family) declares the same model: display renders text, and at hugeleaf
-/// widths the render is conversion-dominated, so the
-/// superlinear-but-subquadratic conversion class is the intended cost of
-/// exactly these rows — measured exponents 1.39/1.42 (quick sampling,
-/// bench profile) against the 1.7 text ceiling, with a quadratic render
-/// still reading red there.
+/// (`benches/board.rs` documents the pair). The board cells declare the
+/// same model in both conversion directions: text IO at hugeleaf widths
+/// (the maximal-bits-per-node family) is dominated by radix conversion,
+/// whose superlinear-but-subquadratic class is the intended cost of
+/// exactly these rows. Outbound, the hugeleaf display pair
+/// (`version_display`, `clock_display`) renders binary→decimal —
+/// measured exponents 1.39/1.42. Inbound, the hugeleaf parse trio
+/// (`version_parse_trailing`, `version_parse_noncanon`,
+/// `clock_parse_trailing`) converts hugeleaf-width decimal literals
+/// decimal→binary on the way to the placed defect — measured exponents
+/// 1.28/1.33/1.30.
+/// (Both measurements: quick sampling, bench profile, against the 1.7
+/// text ceiling; a quadratic conversion still reads red there.)
 ///
 /// [`write_denoms`] asserts every declaration against this set, and
 /// `tests/bench_judge_roster.rs` pins the set itself — so widening the
 /// text class is a two-site edit whose diff a reviewer sees, never a
 /// one-character class swap at a cell.
-pub const TEXT_CEILING_CELLS: [&str; 4] = [
+pub const TEXT_CEILING_CELLS: [&str; 7] = [
     "version_display_wide/hugeleaf",
     "display_schoolbook/hugeleaf",
     "version_display/hugeleaf",
     "clock_display/hugeleaf",
+    "version_parse_trailing/hugeleaf",
+    "version_parse_noncanon/hugeleaf",
+    "clock_parse_trailing/hugeleaf",
 ];
 
 /// The input-scale environment variable read by [`scale_from_env`].

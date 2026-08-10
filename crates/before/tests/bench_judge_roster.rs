@@ -45,7 +45,7 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
 /// The roster's red set is exactly the permanent schoolbook tripwire.
 ///
 /// Every other cell — the designed diagonal, the board-red riders, and
-/// the text-class display cells alike — must fit under its own ceiling,
+/// the text-class cells alike — must fit under its own ceiling,
 /// `version_distance/jump-pair` included: the fused co-sweep holds the
 /// pair queries linear, and the judge's time leg is proven alive in the
 /// same run by the schoolbook tripwire's required red (a leg that went
@@ -83,19 +83,24 @@ fn roster_schema_carries_expectations_only() {
 }
 
 /// The sidecar's text-ceiling set is exactly the conversion-dominated
-/// display cells.
+/// text-IO cells.
 ///
 /// Those are the judge-only wide-display pair (`version_display_wide`
-/// and `display_schoolbook`) and the *hugeleaf display pair* of board rows
-/// (`version_display` and `clock_display`), whose declared render model
-/// lives at the set's declaration site.
+/// and `display_schoolbook`), the *hugeleaf display pair* of board rows
+/// (`version_display` and `clock_display`, binary→decimal), and the
+/// *hugeleaf parse trio* of board rows (`version_parse_trailing`,
+/// `version_parse_noncanon`, and `clock_parse_trailing`,
+/// decimal→binary); the declared conversion model lives at the set's
+/// declaration site.
 ///
-/// The text ceiling (1.7) exists for conversion-dominated rendering only,
-/// and every other cell must stay judged at the general ceiling — widening
-/// this set is the one remaining way to move a cell's ceiling, so it is
-/// pinned here and asserted again at every sidecar write.
+/// The text ceiling (1.7) exists for conversion-dominated text IO only —
+/// rendering and parsing at hugeleaf widths, the two directions of the
+/// same radix-conversion class — and every other cell must stay judged
+/// at the general ceiling. Widening this set is the one remaining way to
+/// move a cell's ceiling, so it is pinned here and asserted again at
+/// every sidecar write.
 #[test]
-fn sidecar_text_ceiling_set_is_the_display_cells() {
+fn sidecar_text_ceiling_set_is_the_conversion_cells() {
     assert_eq!(
         sidecar::TEXT_CEILING_CELLS,
         [
@@ -103,6 +108,9 @@ fn sidecar_text_ceiling_set_is_the_display_cells() {
             "display_schoolbook/hugeleaf",
             "version_display/hugeleaf",
             "clock_display/hugeleaf",
+            "version_parse_trailing/hugeleaf",
+            "version_parse_noncanon/hugeleaf",
+            "clock_parse_trailing/hugeleaf",
         ]
     );
 }

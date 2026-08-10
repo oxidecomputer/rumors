@@ -598,9 +598,10 @@ bench-alloc-ab target arm="shipped" *filter:
 # judge refuses mismatched pairs), and tools/benchjudge fits every cell's
 # exponent across the two (denominated against the board's own per-cell
 # bytes) at the cell's own ceiling — general 1.3 for the board rows, text
-# 1.7 for the conversion-dominated display cells (the wide-display pair
-# and the hugeleaf display pair), the class declared per cell by the bench
-# sidecar, never by the roster — red/green table. Every run judges through
+# 1.7 for the conversion-dominated text-IO cells (the wide-display pair,
+# the hugeleaf display pair, and the hugeleaf parse trio), the class
+# declared per cell by the bench sidecar, never by the roster — red/green
+# table. Every run judges through
 # the committed roster (tools/benchjudge-expected.json: expected reds by
 # cell name — exactly the permanent schoolbook tripwire, required RED at
 # its text ceiling; tests/bench_judge_roster.rs pins the exact

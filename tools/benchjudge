@@ -18,8 +18,9 @@ cell's ceiling class); then, per cell, fit
     e = ln(median_hi / median_lo) / ln(denom_hi / denom_lo)
 
 and hold every judged cell to ITS OWN ceiling: `general` cells (the
-board) to MAX_WALL_SCALING_EXPONENT, `text` cells (the wide-display
-pair) to MAX_TEXT_SCALING_EXPONENT — derivations at the constants. The
+board) to MAX_WALL_SCALING_EXPONENT, `text` cells (the sidecar's pinned
+conversion-dominated text-IO set) to MAX_TEXT_SCALING_EXPONENT —
+derivations at the constants. The
 ceiling class is a property of the cell, declared in bench code where
 the cell is defined (`benches/common/sidecar.rs`, `Ceiling`); the roster
 below carries only expectations, so misfiling a cell's roster class can
@@ -120,9 +121,11 @@ from pathlib import Path
 MAX_WALL_SCALING_EXPONENT = 1.3
 
 # The ceiling on the text-conversion cells (sidecar ceiling class
-# "text", the wide-display pair): rendering a wide magnitude to decimal
-# is honestly superlinear — divide-and-conquer conversion is ~O(n^1.5) —
-# so the general ceiling would read the honest class red. This ceiling separates
+# "text", the pinned conversion-dominated text-IO set): radix conversion
+# at wide magnitudes — binary→decimal rendering and decimal→binary
+# parsing alike — is honestly superlinear (divide-and-conquer conversion
+# is ~O(n^1.5)), so the general ceiling would read the honest class red.
+# This ceiling separates
 # the honest class from the schoolbook (quadratic) class it replaces the
 # retired wall-ratio canary in catching. Placement is derived from the
 # measured classes at the wide-display pair's widths (128k -> 512k bits,
