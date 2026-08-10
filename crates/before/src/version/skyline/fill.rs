@@ -1002,10 +1002,9 @@ impl FillWalk<'_> {
     fn copy_subtree(&mut self, depth: usize) {
         // Three regimes, selected in order: (1) a verbatim walk over a
         // depth-2+ region block-scans it as one matched prefix extension;
-        // (2) otherwise the first leaf goes per-leaf through the emission
-        // machinery, and post-divergence a first leaf the builder still
-        // holds unmerged lets the rest splice wholesale
-        // (`continue_verbatim`); (3) any other shape feeds leaf by leaf.
+        // (2) post-divergence a depth-2+ region feeds its first leaf
+        // through the emission machinery and splices the rest wholesale
+        // (`continue_verbatim`); (3) a shallower region feeds leaf by leaf.
         //
         // The first descent's depth routes the region for free — its bits are
         // consumed either way. A depth under 2 (a lone leaf, or a leaf-first
@@ -1040,27 +1039,26 @@ impl FillWalk<'_> {
         // against the live output delta through the full emission machinery).
         self.consume_payload();
         self.emit_step(depth + first_leaf_depth);
-        if first_leaf_depth >= 2 && self.out.held_at(depth + first_leaf_depth) {
+        if first_leaf_depth >= 2 {
             // Post-divergence the rest of the region is byte-identical to the
             // input — every consecutive-leaf delta lies strictly inside the
-            // canonical subtree — and splices wholesale, provided the first
-            // leaf survived in the builder unmerged (the `continue_verbatim`
-            // precondition; a zero-delta first leaf can absorb into the held
-            // output instead, and that rare boundary collapse falls back to the
-            // per-leaf feed below).
+            // canonical subtree — and splices wholesale; the first leaf is
+            // still held at its own depth, which the builder's splice owns
+            // and asserts.
             let rest_start = self.pos();
-            if let Some(skip) = skip_leaves(&mut walk, &mut self.cursor, false, None) {
-                self.fold_block(&skip.net);
-                self.web.emit_offset(&skip.min_from_exit);
-                // The region's last leaf is the last emission.
-                self.gap.reset();
-                self.out.continue_verbatim(
-                    &self.event[rest_start..self.pos()],
-                    depth,
-                    skip.last_depth,
-                    skip.last_code_len,
-                );
-            }
+            let skip = skip_leaves(&mut walk, &mut self.cursor, false, None)
+                .expect("a region whose first leaf sits below its root has more leaves");
+            self.fold_block(&skip.net);
+            self.web.emit_offset(&skip.min_from_exit);
+            // The region's last leaf is the last emission.
+            self.gap.reset();
+            self.out.continue_verbatim(
+                &self.event[rest_start..self.pos()],
+                depth,
+                first_leaf_depth,
+                skip.last_depth,
+                skip.last_code_len,
+            );
             return;
         }
         while let Some(leaf_depth) = walk.descend(&mut self.cursor) {

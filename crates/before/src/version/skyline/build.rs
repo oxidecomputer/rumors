@@ -192,8 +192,9 @@ impl SkylineBuilder {
     /// Whether the most recent [`leaf`](Self::leaf) survives as the held leaf
     /// at exactly `depth`, no absorb or cascade having merged it upward.
     ///
-    /// A [`continue_verbatim`](Self::continue_verbatim) splice would
-    /// extend exactly that leaf.
+    /// The predicate behind
+    /// [`continue_verbatim`](Self::continue_verbatim)'s held-first-leaf
+    /// precondition: the splice extends exactly that leaf.
     pub(super) fn held_at(&self, depth: usize) -> bool {
         self.held.is_some() && self.path.len() == depth
     }
@@ -207,16 +208,21 @@ impl SkylineBuilder {
     ///
     /// The caller has just fed the subtree's *first* leaf through
     /// [`leaf`](Self::leaf) (verbatim or with a repaired code) at depth
-    /// `root_depth` plus that leaf's own relative depth; `rest` is the
-    /// subtree's stream from just past that leaf's payload code to the
-    /// subtree's end. Because every consecutive-leaf delta strictly inside a
-    /// canonical subtree is unchanged by anything outside it, the range is
-    /// copied in one splice instead of leaf by leaf; only the held-leaf
-    /// discipline is re-established around it — the last leaf's flag is
-    /// withheld and its code (`last_code_len` bits, ending the range) becomes
-    /// the held code. `last_rel_depth` is that last leaf's depth below the
-    /// subtree root (at least 1: a single-leaf subtree is fed wholly through
-    /// [`leaf`](Self::leaf) instead).
+    /// `root_depth + first_rel_depth`, and that leaf is still held there,
+    /// unmerged — the depths alone guarantee it, and the splice
+    /// debug-asserts it: absorb takes only the held leaf's direct *right*
+    /// sibling, while a subtree's first leaf at positive relative depth lies
+    /// on the subtree's leftmost path and so enters as a *left* child.
+    /// `rest` is the subtree's stream from just past that leaf's payload
+    /// code to the subtree's end. Because every consecutive-leaf delta
+    /// strictly inside a canonical subtree is unchanged by anything outside
+    /// it, the range is copied in one splice instead of leaf by leaf; only
+    /// the held-leaf discipline is re-established around it — the last
+    /// leaf's flag is withheld and its code (`last_code_len` bits, ending
+    /// the range) becomes the held code. `first_rel_depth` and
+    /// `last_rel_depth` are the first and last leaves' depths below the
+    /// subtree root, each at least 1: a single-leaf subtree is fed wholly
+    /// through [`leaf`](Self::leaf) instead.
     ///
     /// The spliced interior levels record no left-sibling-leaf collapse
     /// coordinates: a canonical subtree's rightmost leaf is never the equal
@@ -228,12 +234,19 @@ impl SkylineBuilder {
         &mut self,
         rest: &BitsSlice,
         root_depth: usize,
+        first_rel_depth: usize,
         last_rel_depth: usize,
         last_code_len: usize,
     ) {
         debug_assert!(
-            last_rel_depth >= 1,
-            "a multi-leaf subtree's last leaf sits below its root"
+            first_rel_depth >= 1 && last_rel_depth >= 1,
+            "a multi-leaf subtree's first and last leaves sit below its root"
+        );
+        debug_assert!(
+            self.held_at(root_depth + first_rel_depth),
+            "the spliced subtree's first leaf is still held at its own depth: \
+             absorb takes only a direct right sibling, and a first leaf below \
+             its subtree root enters as a left child"
         );
         debug_assert!(
             rest.len() > last_code_len,

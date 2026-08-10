@@ -174,14 +174,14 @@ fn partial_equality_collapses_only_the_equal_pair() {
 /// re-derived by the forced flip-and-descend.
 ///
 /// `first_depth` is the already-fed first leaf's depth; `leaves` are the
-/// remaining leaves in preorder. Returns the range with the last leaf's
-/// relative depth and code length — the coordinates the splice re-anchors the
-/// builder around.
+/// remaining leaves in preorder. Returns the range with the first and last
+/// leaves' relative depths and the last code's length — the coordinates the
+/// splice re-anchors the builder around.
 fn continuation(
     root_depth: usize,
     first_depth: usize,
     leaves: &[(usize, Code)],
-) -> (BitsMut, usize, usize) {
+) -> (BitsMut, usize, usize, usize) {
     let mut range = BitsMut::new();
     // The within-subtree path to the previous leaf; the subtree's first leaf is
     // its leftmost, so the path starts all left branches.
@@ -211,7 +211,12 @@ fn continuation(
         }
     }
     let (last_depth, last_code) = leaves.last().expect("a continuation has at least one leaf");
-    (range, last_depth - root_depth, last_code.len())
+    (
+        range,
+        first_depth - root_depth,
+        last_depth - root_depth,
+        last_code.len(),
+    )
 }
 
 /// Splicing a subtree's continuation is stream-identical to feeding
@@ -234,8 +239,9 @@ fn continue_verbatim_matches_per_leaf_feeding() {
     let mut spliced = SkylineBuilder::with_capacity(64);
     spliced.leaf(2, gamma(3));
     spliced.leaf(3, delta(Sign::Positive, 2));
-    let (range, last_rel, last_len) = continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
-    spliced.continue_verbatim(&range, 2, last_rel, last_len);
+    let (range, first_rel, last_rel, last_len) =
+        continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
+    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
     spliced.leaf(1, delta(Sign::Negative, 1));
     assert_eq!(spliced.finish(), per_leaf);
 }
@@ -258,12 +264,12 @@ fn continue_verbatim_reanchors_across_levels() {
     let mut spliced = SkylineBuilder::with_capacity(64);
     spliced.leaf(2, gamma(2));
     spliced.leaf(4, delta(Sign::Positive, 2));
-    let (range, last_rel, last_len) = continuation(
+    let (range, first_rel, last_rel, last_len) = continuation(
         2,
         4,
         &[(4, delta(Sign::Positive, 3)), (3, delta(Sign::Negative, 1))],
     );
-    spliced.continue_verbatim(&range, 2, last_rel, last_len);
+    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
     spliced.leaf(1, delta(Sign::Positive, 3));
     assert_eq!(spliced.finish(), per_leaf);
 }
@@ -285,8 +291,9 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
     let mut spliced = SkylineBuilder::with_capacity(64);
     spliced.leaf(2, gamma(3));
     spliced.leaf(3, delta(Sign::Positive, 2));
-    let (range, last_rel, last_len) = continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
-    spliced.continue_verbatim(&range, 2, last_rel, last_len);
+    let (range, first_rel, last_rel, last_len) =
+        continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
+    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
     spliced.leaf(2, delta(Sign::Positive, 2));
     spliced.leaf(2, delta(Sign::Positive, 0));
     assert_eq!(spliced.finish(), per_leaf);

@@ -379,6 +379,7 @@ fn feed_subtree(
         out.continue_verbatim(
             &event.bits[subtree.first_code.end..subtree.end],
             depth,
+            subtree.first_rel_depth,
             subtree.last_rel_depth,
             subtree.last_code.len(),
         );
