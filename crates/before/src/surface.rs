@@ -1071,6 +1071,16 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("representation mechanics"),
     },
     SurfaceRow {
+        op: "Clock Eq / Hash (canonical byte compare)",
+        prod_tree: Leg::Law("clock_eq_iff_bytes_eq"),
+        prod_fs: Leg::Excluded(
+            "representation mechanics; equality-of-meaning rides every differential \
+             compare (clock_eq_iff_bytes_eq pins Eq to the canonical bytes, \
+             clock_eq_implies_hash_eq the hash coherence)",
+        ),
+        tree_fs: Leg::Excluded("representation mechanics"),
+    },
+    SurfaceRow {
         op: "Clock | Version and Version | Clock (heterogeneous joins, |=)",
         prod_tree: Leg::Bound("heterogeneous_joins"),
         prod_fs: Leg::Trans("heterogeneous_joins"),

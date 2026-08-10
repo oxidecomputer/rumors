@@ -209,6 +209,27 @@ macro_rules! group_drivers {
             }
         }
     };
+    (@one $group:ident, $driver:ident, (clock, clock)) => {
+        proptest! {
+            /// Every law in the group holds on pairs of arbitrary canonical
+            /// party/version pairings — typically unrelated stamps sharing
+            /// neither region nor history, the regime where a non-injective
+            /// encoding boundary would hide.
+            #[test]
+            fn $driver(
+                p in arb_oracle_party_nonempty(),
+                a in arb_oracle_version(),
+                q in arb_oracle_party_nonempty(),
+                b in arb_oracle_version(),
+            ) {
+                assert_laws!(
+                    laws::$group,
+                    &Clock::from_parts(party(&p), ver(&a)),
+                    &Clock::from_parts(party(&q), ver(&b))
+                );
+            }
+        }
+    };
     (@one $group:ident, $driver:ident, (clock, version)) => {
         proptest! {
             /// Every law in the group holds on arbitrary clocks paired
@@ -294,8 +315,10 @@ struct Organic<'a> {
     /// Ranks derived from the versions: two own ranks and a genuine
     /// distance.
     r: [&'a Rank; 3],
-    /// One reachable clock, replayed from the trace on the impl.
-    c: &'a Clock,
+    /// Two reachable clocks, replayed from the trace on the impl —
+    /// possibly the same pick, so the pair laws' equality arms stay
+    /// live on this population.
+    c: [&'a Clock; 2],
     /// Pool-indexed lists at fold-boundary arities. Repeated picks are
     /// repeated raw versions and *aliased* live parties/clocks — the
     /// input classes the list laws' fold and refusal arms exist for.
@@ -348,10 +371,13 @@ macro_rules! organic_drive {
         assert_laws!(laws::$group, $env.r[0], $env.r[1], $env.r[2]);
     };
     (@one $env:expr, $group:ident, (clock)) => {
-        assert_laws!(laws::$group, $env.c);
+        assert_laws!(laws::$group, $env.c[0]);
+    };
+    (@one $env:expr, $group:ident, (clock, clock)) => {
+        assert_laws!(laws::$group, $env.c[0], $env.c[1]);
     };
     (@one $env:expr, $group:ident, (clock, version)) => {
-        assert_laws!(laws::$group, $env.c, $env.v[1]);
+        assert_laws!(laws::$group, $env.c[0], $env.v[1]);
     };
     (@one $env:expr, $group:ident, (versions)) => {
         assert_laws!(laws::$group, $env.versions);
@@ -363,7 +389,7 @@ macro_rules! organic_drive {
         assert_laws!(laws::$group, $env.p[0], $env.parties);
     };
     (@one $env:expr, $group:ident, (clock, clocks)) => {
-        assert_laws!(laws::$group, $env.c, $env.clocks);
+        assert_laws!(laws::$group, $env.c[0], $env.clocks);
     };
 }
 
@@ -403,6 +429,7 @@ proptest! {
             step_impl(&mut imp, op);
         }
         let ca = &imp[picks[0] % imp.len()];
+        let cb = &imp[picks[1] % imp.len()];
         let clist: Vec<Clock> = list_picks
             .iter()
             .map(|t| imp[t % imp.len()].dangerously_alias())
@@ -412,7 +439,7 @@ proptest! {
             v: [&ia, &ib, &ic],
             p: [&qa, &qb, &qc],
             r: [&ra, &rb, &rc],
-            c: ca,
+            c: [ca, cb],
             versions: &vlist,
             parties: &plist,
             clocks: &clist,

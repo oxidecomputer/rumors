@@ -101,8 +101,11 @@ struct Env<'x> {
     /// Ranks derived from the decoded versions: two own ranks and a
     /// genuine distance.
     r: [&'x Rank; 3],
-    /// The decoded clock.
-    k: &'x Clock,
+    /// The decoded clock, and a second stamp pairing the decoded party
+    /// with the first decoded version — a pair that can share either
+    /// component with the first, the regime the clock pair laws' frame
+    /// boundary clauses want.
+    k: [&'x Clock; 2],
     /// The list scripts' pool-indexed variadic inputs.
     versions: &'x [Version],
     parties: &'x [Party],
@@ -154,10 +157,13 @@ macro_rules! drive_groups {
         drive!(before::laws::$group, $env.r[0], $env.r[1], $env.r[2]);
     };
     (@one $env:expr, $group:ident, (clock)) => {
-        drive!(before::laws::$group, $env.k);
+        drive!(before::laws::$group, $env.k[0]);
+    };
+    (@one $env:expr, $group:ident, (clock, clock)) => {
+        drive!(before::laws::$group, $env.k[0], $env.k[1]);
     };
     (@one $env:expr, $group:ident, (clock, version)) => {
-        drive!(before::laws::$group, $env.k, $env.v[0]);
+        drive!(before::laws::$group, $env.k[0], $env.v[0]);
     };
     (@one $env:expr, $group:ident, (versions)) => {
         drive!(before::laws::$group, $env.versions);
@@ -169,7 +175,7 @@ macro_rules! drive_groups {
         drive!(before::laws::$group, $env.p[0], $env.parties);
     };
     (@one $env:expr, $group:ident, (clock, clocks)) => {
-        drive!(before::laws::$group, $env.k, $env.clocks);
+        drive!(before::laws::$group, $env.k[0], $env.clocks);
     };
 }
 
@@ -211,7 +217,7 @@ fn run(mut data: &[u8]) {
         v: [&a, &b, &c],
         p: [&p, &q, k.party()],
         r: [&ra, &rb, &rc],
-        k: &k,
+        k: [&k, &ka],
         versions: &versions,
         parties: &parties,
         clocks: &clocks,

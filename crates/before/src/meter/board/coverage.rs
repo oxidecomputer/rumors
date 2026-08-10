@@ -212,6 +212,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         &["version_eq", "version_hash"],
     ),
     ("Party Eq / Hash (canonical byte compare)", &["party_hash"]),
+    ("Clock Eq / Hash (canonical byte compare)", &["clock_hash"]),
     (
         "Clock | Version and Version | Clock (heterogeneous joins, |=)",
         &["clock_recv", "clock_hash"],

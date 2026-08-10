@@ -124,6 +124,7 @@ macro_rules! for_each_law_group {
             (VERSION_PAIR_PARTY_PAIR, version_pair_party_pair_laws, (version, version, party, party)),
             (RANK_TRIPLE, rank_triple_laws, (rank, rank, rank)),
             (CLOCK_SOLO, clock_solo_laws, (clock)),
+            (CLOCK_PAIR, clock_pair_laws, (clock, clock)),
             (CLOCK_VERSION, clock_version_laws, (clock, version)),
             (CLOCK_AND_LIST, clock_and_list_laws, (clock, clocks)),
         }
@@ -2703,6 +2704,37 @@ laws! {
     /// too.
     fn clock_encoded_bits_matches_encode_len {
         c.encode().len() == (c.encoded_bits() + 1).div_ceil(8)
+    }
+}
+
+// ───────────────────────────── Clock: pairs ─────────────────────────────
+
+laws! {
+    /// Laws over a pair of clocks.
+    ///
+    /// The representational pair laws [`Version`] and [`Party`] each carry,
+    /// closed over the whole stamp: `Eq` rides the canonical byte encoding,
+    /// and equal clocks hash equally — what container keys on stamps rest
+    /// on.
+    pub static CLOCK_PAIR: (a: &Clock, b: &Clock);
+
+    /// `Eq` is canonical-byte equality on whole stamps: `a == b ⟺
+    /// encode(a) == encode(b)`.
+    ///
+    /// Both directions matter: equal clocks must encode identically (the
+    /// canonical encoding is a function of the value), and distinct clocks
+    /// must encode distinctly (injectivity — what byte-level `Eq`/`Hash`
+    /// uses rest on). With the frame pinned as the party's bytes then the
+    /// version's ([`encode_frames_party_then_version`]), the biconditional
+    /// also pins the id/event boundary unambiguous: a difference in either
+    /// component alone changes the composite bytes.
+    fn clock_eq_iff_bytes_eq {
+        (a == b) == (a.encode() == b.encode())
+    }
+
+    /// `Eq`/`Hash` coherence: equal clocks hash equally.
+    fn clock_eq_implies_hash_eq {
+        a != b || hash_of(a) == hash_of(b)
     }
 }
 
