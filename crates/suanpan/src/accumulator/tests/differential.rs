@@ -115,11 +115,18 @@ enum Held {
     /// signs: samples the quick branch's direct magnitude comparison,
     /// optionally spilled so the same magnitudes also run through the
     /// fold.
+    ///
+    /// The value reaches its scale by one of the two register-preserving
+    /// shift routes — in-place `shl` steps, or register-to-register
+    /// shifted folds (`fold_shift`). Both draw their first step at the
+    /// widest in-register shift, so each route's register keep is
+    /// exercised at its `QUICK_SHIFT_MAX` boundary.
     Register {
         m: u64,
         delta: u64,
         negative: bool,
         spill: bool,
+        fold_shift: bool,
     },
 }
 
@@ -149,15 +156,17 @@ fn arb_held() -> impl Strategy<Value = (Held, usize)> {
             ],
             any::<bool>(),
             any::<bool>(),
+            any::<bool>(),
             0usize..=1,
         )
-            .prop_map(|(m, delta, negative, spill, floor)| {
+            .prop_map(|(m, delta, negative, spill, fold_shift, floor)| {
                 (
                     Held::Register {
                         m,
                         delta,
                         negative,
                         spill,
+                        fold_shift,
                     },
                     floor,
                 )
@@ -182,15 +191,23 @@ fn build_held(held: &Held, floor: usize) -> (Accumulator, IBig) {
             delta,
             negative,
             spill,
+            fold_shift,
         } => {
             let mut acc = Accumulator::new();
             acc.add_u64(*m);
             // Shift to the floor's scale in chunks the register accepts,
-            // so the value stays register-held throughout.
+            // so the value stays register-held throughout — in place, or
+            // by folding the running value into a fresh register at the
+            // same step (the other register-preserving shift schedule).
             let mut remaining = 32 * (floor as u64 + 1) - 31;
             while remaining > 0 {
                 let step = remaining.min(QUICK_SHIFT_MAX);
-                acc.shl(step);
+                if *fold_shift {
+                    let operand = core::mem::take(&mut acc);
+                    acc.add_accum_shl(&operand, step);
+                } else {
+                    acc.shl(step);
+                }
                 remaining -= step;
             }
             acc.add_u64(*delta);
