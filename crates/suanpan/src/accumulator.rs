@@ -548,6 +548,11 @@ impl Accumulator {
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
     pub fn shl(&mut self, shift: u64) {
+        // Identity fast path: a zero shift or a literal zero changes
+        // nothing, and returning here keeps both free — no rebuild of a
+        // digit-engine value, no spill of a zero register on a wide
+        // shift. Value-observable behavior is identical without this
+        // guard; what it routes is cost and representation.
         if shift == 0 || self.is_literally_zero() {
             return;
         }
@@ -940,7 +945,10 @@ impl Accumulator {
     fn read_magnitude(&self, start: usize) -> (Ordering, UBig) {
         // Low-to-high signed carry: after the pass, the collected unsigned
         // digits hold `M` with `value = carry · 2^(32·len) + M`,
-        // `0 ≤ M < 2^(32·len)`.
+        // `0 ≤ M < 2^(32·len)`. The final carry has magnitude at most 3:
+        // each step floors `(digit + carry) / 2^32` with `|digit| < 2^33`,
+        // so `[−3, 2]` is closed under the recurrence from 0 — the
+        // high-part drains below each emit at most one nonzero digit.
         let start = start.min(self.top);
         let mut collected: Vec<u32> = Vec::with_capacity(self.top - start + 2);
         let mut carry: i128 = 0;
