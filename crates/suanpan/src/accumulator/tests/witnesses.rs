@@ -201,6 +201,61 @@ fn domination_floor_near_usize_max_never_decides() {
     assert_eq!(acc.sign_dominates_at(61), (Ordering::Greater, true));
 }
 
+/// A register-held value certifies domination by direct magnitude
+/// comparison, deciding values no fold could: `u64::MAX` spans two
+/// digits — below any deciding fold's index for `floor = 0` — yet the
+/// register reads `(Greater, true)` because `u64::MAX ≥ 3 · 2^32`.
+///
+/// Pins the register arm of the contract: `decided` on a register-held
+/// value is exactly `|value| ≥ 3 · 2^(32·(floor + 1))`, with no fold
+/// mechanics involved.
+#[test]
+fn register_certifies_domination_below_any_deciding_fold() {
+    let mut acc = Accumulator::new();
+    acc.add_u64(u64::MAX);
+    assert!(
+        acc.quick.is_some(),
+        "a word-scale add stays in the register"
+    );
+    assert_eq!(acc.digit_count(), 2, "u64::MAX spans two digits");
+    assert_eq!(
+        acc.sign_dominates_at(0),
+        (Ordering::Greater, true),
+        "the direct comparison certifies: u64::MAX ≥ 3 · 2^32"
+    );
+}
+
+/// The domination certificate is a property of the representation, not
+/// the value: the same `2^80` certifies at `floor = 1` while
+/// register-held (`2^80 ≥ 3 · 2^64`) and reads `decided = false` once
+/// spilled — its fold decides at digit index 2, below the required
+/// `floor + 2 = 3`.
+///
+/// Pins the representation cliff the contract documents: a caller must
+/// never treat `decided` as a pure function of the value.
+#[test]
+fn domination_certificate_depends_on_representation() {
+    let mut acc = Accumulator::new();
+    acc.add_u64(1 << 20);
+    acc.shl(30);
+    acc.shl(30);
+    assert!(
+        acc.quick.is_some(),
+        "2^80 built through register entry points stays register-held"
+    );
+    assert_eq!(
+        acc.sign_dominates_at(1),
+        (Ordering::Greater, true),
+        "register-held: the direct comparison certifies 2^80 ≥ 3 · 2^64"
+    );
+    acc.spill();
+    assert_eq!(
+        acc.sign_dominates_at(1),
+        (Ordering::Greater, false),
+        "spilled: the fold decides at index 2, below floor + 2 = 3"
+    );
+}
+
 /// A carry tie that recenters to a zero remainder converts exactly:
 /// the read-out's complement pass must ripple through the zero low
 /// digit.

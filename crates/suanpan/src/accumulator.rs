@@ -79,11 +79,13 @@ const QUICK_SHIFT_MAX: u64 = 30;
 /// Priced here is only the derived surface; each operation's cost lives
 /// on the operation, and the crate docs' table is the overview.
 /// `Default` is `O(1)`. `Clone` and `Debug` are `O(b)`, `b` the digit
-/// buffer: it covers the highest position ever written since
-/// construction and never shrinks — after a wide interlude collapses to
-/// a narrow value, a clone still pays the old width (a
-/// [`reset`](Accumulator::reset) does not release it either; only
-/// dropping the accumulator does).
+/// buffer's current width: the buffer grows to cover the highest
+/// position written, so after a wide interlude collapses to a narrow
+/// value a clone still pays the wide width. A
+/// [`reset`](Accumulator::reset) keeps the buffer's capacity for the
+/// next spill — the pooled-reuse contract — while
+/// [`shl`](Accumulator::shl) on a digit-engine value rebuilds the held
+/// value and may release the buffer.
 #[derive(Debug, Clone)]
 pub struct Accumulator {
     /// The quick register: `Some(v)` means the held value is exactly
@@ -522,7 +524,7 @@ impl Accumulator {
     }
 
     /// Scale the held value by `2^shift` in place: O(held digits) digit
-    /// touches, and the digit buffer grows to cover the shifted positions.
+    /// touches, and the digit buffer covers the shifted positions.
     ///
     /// The re-denomination move of a weighted fold that keeps its running
     /// sum in units of the finest scale seen so far: when a summand
@@ -531,10 +533,15 @@ impl Accumulator {
     /// shift per unit change, and every other summand enters through a
     /// shifted add at its own gap.
     ///
+    /// On a digit-engine value the shift rebuilds the held value and may
+    /// release the digit buffer: a pooled accumulator — one re-armed by
+    /// [`reset`](Accumulator::reset) to keep its capacity — loses its
+    /// warm buffer here.
+    ///
     /// # Complexity
     ///
     /// `O(|self|)` digit touches, independent of the shift; the digit
-    /// buffer grows to cover the shifted positions.
+    /// buffer covers the shifted positions.
     ///
     /// # Panics
     ///
@@ -688,17 +695,30 @@ impl Accumulator {
     /// [`clone`](Clone::clone) when the held value must survive the
     /// probe) and read [`sign`](Accumulator::sign).
     ///
-    /// `decided` is true exactly when the sign fold's partial reached
-    /// `|s| ≥ 3` at digit index `floor + 2` or higher (so a value held in
-    /// fewer than `floor + 3` digits always reads `decided = false`). At
-    /// decision index `i` the unscanned digits below contribute under
-    /// `2.01 · 2^(32·i)` (the crate docs' domination bound), so
-    /// `|value| ≥ 0.99 · 2^(32·i)`; an operand with top digit index at
-    /// most `floor` holds under `2.01 · 2^(32·(floor + 1))` (the same
-    /// geometric bound one level up), and
+    /// `decided` is a property of the value's *current representation* —
+    /// which tier holds it, and within the digit engine, the spelling
+    /// the operation history left — never of the value alone. A
+    /// register-held value certifies by direct magnitude comparison:
+    /// `decided` is true exactly when
+    /// `|value| ≥ 3 · 2^(32·(floor + 1))` (the register is exact, and
+    /// the factor 3 clears the `2.01 · 2^(32·(floor + 1))`
+    /// redundant-spelling operand bound with the same margin the digit
+    /// fold uses). A digit-engine value certifies when the sign fold's
+    /// running partial reaches `|s| ≥ 3` at digit index `floor + 2` or
+    /// higher: at decision index `i` the unscanned digits below
+    /// contribute under `2.01 · 2^(32·i)` (the crate docs' domination
+    /// bound), so `|value| ≥ 0.99 · 2^(32·i)`; an operand with top digit
+    /// index at most `floor` holds under `2.01 · 2^(32·(floor + 1))`
+    /// (the same geometric bound one level up), and
     /// `0.99 · 2^(32·(floor + 2)) > 2.01 · 2^(32·(floor + 1))` by a
     /// factor over `2^30` — so folding any such operand in could flip
-    /// neither the sign nor which magnitude is larger.
+    /// neither the sign nor which magnitude is larger. The register's
+    /// direct comparison certifies more values than the fold's index
+    /// test: a decided fold implies `|value| ≥ 0.99 · 2^(32·(floor + 2))`,
+    /// so a value between `3 · 2^(32·(floor + 1))` and that bound
+    /// certifies only while register-held — after a spill the same
+    /// value reads `decided = false`, and whether a wider spelled value
+    /// certifies depends on the spelling, not only the magnitude.
     ///
     /// # Complexity
     ///
