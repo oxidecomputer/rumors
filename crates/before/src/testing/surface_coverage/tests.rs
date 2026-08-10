@@ -6,9 +6,65 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use super::{
-    cited_test_names, crate_root, declared_test_names, extract_public_fns, FAMILY_SURFACE,
-    METHOD_SURFACE, TRIPWIRES,
+    cited_test_names, crate_root, declared_test_names, declared_test_names_by_file,
+    extract_public_fns, FAMILY_SURFACE, METHOD_SURFACE, TRIPWIRES,
 };
+
+/// The deliberate same-named test pairs, by declaring files: parallel
+/// same-shaped suites in sibling modules (the party/version codec pins, the
+/// clock/party fold differentials, the clock/oracle worked examples, the
+/// skyline query/sweep corpus sweeps).
+///
+/// Citations resolve by bare name, so a duplicated name is satisfiable by
+/// either declaration — deleting one copy would leave every citation green
+/// while half the coverage vanished. This roster makes each duplication a
+/// reviewed decision: [`duplicate_test_names_are_rostered`] holds it equal,
+/// both directions, to the scan of the tree.
+const DUPLICATE_TEST_NAMES: &[(&str, &[&str])] = &[
+    (
+        "as_bytes_matches_encode",
+        &["src/party/tests.rs", "src/version/tests.rs"],
+    ),
+    (
+        "byte_equality_matches_bit_equality",
+        &["src/party/tests.rs", "src/version/tests.rs"],
+    ),
+    (
+        "decode_encode_arbitrary",
+        &["src/party/tests.rs", "src/version/tests.rs"],
+    ),
+    (
+        "exhaustive_small_scope_agrees",
+        &[
+            "src/version/skyline/query/tests.rs",
+            "src/version/skyline/sweep/tests.rs",
+        ],
+    ),
+    (
+        "heterogeneous_joins",
+        &["src/clock/tests.rs", "src/oracle/tests.rs"],
+    ),
+    (
+        "join_all_agrees_with_oracle_on_aliased_coalesced_group",
+        &["src/clock/tests.rs", "src/party/tests.rs"],
+    ),
+    (
+        "join_all_matches_the_recursive_oracle",
+        &["src/clock/tests.rs", "src/party/tests.rs"],
+    ),
+    (
+        "organic_histories_agree",
+        &[
+            "src/version/skyline/query/tests.rs",
+            "src/version/skyline/sweep/tests.rs",
+        ],
+    ),
+    ("sync", &["src/clock/tests.rs", "src/oracle/tests.rs"]),
+    (
+        "worked_example",
+        &["src/clock/tests.rs", "src/oracle/tests.rs"],
+    ),
+];
 
 /// The roster is total over the public inherent-`pub fn` surface, both
 /// directions.
@@ -154,6 +210,60 @@ fn exclusion_reason_citations_resolve() {
         dead.is_empty(),
         "exclusion reasons cite names that resolve to no `#[test]` item or \
          registered law: {dead:?}"
+    );
+}
+
+/// Every test name declared in more than one file is rostered in
+/// [`DUPLICATE_TEST_NAMES`] with exactly its declaring files — both
+/// directions, so a new same-named test fails here until the duplication
+/// is reviewed and rostered, and a rostered duplicate losing a copy fails
+/// here instead of leaving its citations satisfiable by the survivor.
+///
+/// This is the duplicate-name half of citation integrity: the bare-name
+/// citation check cannot tell which file satisfies which roster row, so
+/// every collision must be a committed, named decision.
+#[test]
+fn duplicate_test_names_are_rostered() {
+    let scanned: Vec<(String, Vec<String>)> = declared_test_names_by_file()
+        .into_iter()
+        .filter(|(_, files)| files.len() > 1)
+        .map(|(name, files)| (name, files.into_iter().collect()))
+        .collect();
+    let rostered: Vec<(String, Vec<String>)> = DUPLICATE_TEST_NAMES
+        .iter()
+        .map(|(name, files)| {
+            (
+                (*name).to_owned(),
+                files.iter().map(|f| (*f).to_owned()).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        scanned, rostered,
+        "the same-named tests in the tree and the DUPLICATE_TEST_NAMES \
+         roster must agree exactly: an unrostered duplicate makes bare-name \
+         citations ambiguous, and a rostered phantom names a deleted copy"
+    );
+}
+
+/// No registered law name is also a `#[test]` name: a citation must resolve
+/// to exactly one binding kind.
+///
+/// The haystack the citation checks search is the union of the declared
+/// tests and the law tables; a name living in both is doubly satisfiable,
+/// so deleting either binding leaves every citation green while the
+/// coverage it named silently halves.
+#[test]
+fn law_names_never_shadow_test_names() {
+    let declared = declared_test_names();
+    let shadowed: Vec<&str> = crate::laws::registered_names()
+        .into_iter()
+        .filter(|name| declared.contains(*name))
+        .collect();
+    assert!(
+        shadowed.is_empty(),
+        "law names doubling as #[test] names make citations ambiguous: \
+         {shadowed:?}"
     );
 }
 

@@ -202,7 +202,7 @@ proptest! {
 proptest! {
     /// Party fork is invertible by join, and fork preserves a clock's version.
     #[test]
-    fn fork_join_roundtrip(ops in world_strategy()) {
+    fn oracle_fork_join_roundtrip(ops in world_strategy()) {
         for c in &run(&ops) {
             // Party level: fork then join recovers the original party.
             let mut p = c.party().clone();
@@ -218,7 +218,7 @@ proptest! {
 proptest! {
     /// `fork` leaves both halves carrying the parent's version.
     #[test]
-    fn fork_preserves_version(ops in world_strategy()) {
+    fn oracle_fork_preserves_version(ops in world_strategy()) {
         let mut cs = run(&ops);
         for c in &mut cs {
             let before = c.version();

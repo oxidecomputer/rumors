@@ -86,7 +86,7 @@
 //! conviction test also documents that the leg's pointwise differentials
 //! alone are blind to a twin-substituted mirror).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -279,8 +279,20 @@ pub(crate) fn cited_test_names() -> BTreeSet<&'static str> {
 /// citation is satisfiable only by an item the test runner actually
 /// executes.
 pub(crate) fn declared_test_names() -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    let mut stack = vec![crate_root().join("src")];
+    declared_test_names_by_file().into_keys().collect()
+}
+
+/// Every `#[test]`-attributed `fn` name declared under `src/`, with the
+/// crate-relative paths of the files declaring it.
+///
+/// The same scan as [`declared_test_names`], keeping the declaring files:
+/// a bare-name set collapses same-named tests across files into one entry,
+/// which is exactly the ambiguity the duplicate-name roster pin holds
+/// tamper-evident.
+pub(crate) fn declared_test_names_by_file() -> BTreeMap<String, BTreeSet<String>> {
+    let root = crate_root();
+    let mut names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut stack = vec![root.join("src")];
     while let Some(dir) = stack.pop() {
         for entry in fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
             let path = entry.expect("directory entry").path();
@@ -289,6 +301,11 @@ pub(crate) fn declared_test_names() -> BTreeSet<String> {
             } else if path.extension().is_some_and(|e| e == "rs") {
                 let text = fs::read_to_string(&path)
                     .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+                let relative = path
+                    .strip_prefix(&root)
+                    .expect("scanned files live under the crate root")
+                    .to_string_lossy()
+                    .into_owned();
                 // Whether a `#[test]` attribute is pending for the next
                 // `fn` declaration.
                 let mut test_pending = false;
@@ -313,7 +330,10 @@ pub(crate) fn declared_test_names() -> BTreeSet<String> {
                             if boundary {
                                 let name = fn_name(&trimmed[pos + 3..]);
                                 if !name.is_empty() {
-                                    names.insert(name.to_owned());
+                                    names
+                                        .entry(name.to_owned())
+                                        .or_default()
+                                        .insert(relative.clone());
                                 }
                             }
                         }
