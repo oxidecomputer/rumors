@@ -93,7 +93,7 @@ impl Sign {
 
 /// A signed relative quantity — a sign tag beside a magnitude — the exchange
 /// shape between the zigzag coding, the scans, and the accumulator folds.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct Signed {
     /// The sign tag. A zero magnitude may carry either tag and means zero
     /// under both (the module doc's conventions).

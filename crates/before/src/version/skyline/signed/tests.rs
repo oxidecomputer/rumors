@@ -1,4 +1,5 @@
-//! Differential pins for the fused signed-gamma coder.
+//! Differential pins for the fused signed-gamma coder and the signed
+//! comparisons.
 //!
 //! [`gamma_code_signed`] and its [`Int`] twin fuse the zigzag map with the
 //! gamma coder, and a fast-path guard routes word-scale magnitudes through
@@ -8,13 +9,22 @@
 //! off-by-one mantissa near the fast-path magnitude bound reads red
 //! deterministically under the seam sweep and under committed seeds of the
 //! generalized family.
+//!
+//! [`signed_le`] and [`signed_max`] are pinned against the exact value order
+//! (an [`IBig`] oracle): the sign-tag case analysis and its negative-zero
+//! slack are the contract under test, over both magnitude spellings — a
+//! word-scale value may travel as [`Int::Small`] or parked in [`Int::Wide`],
+//! and the order must not see the difference.
 
 use bitvec::field::BitField;
+use dashu_int::IBig;
 use proptest::prelude::*;
 
 use crate::codec::{self, Base, BitsMut, Code, Int};
 
-use super::{gamma_code_signed, gamma_code_signed_int, zigzag_signed, Sign};
+use super::{
+    gamma_code_signed, gamma_code_signed_int, signed_le, signed_max, zigzag_signed, Sign, Signed,
+};
 
 /// Render a payload code into live bits by [`Code`]'s own representation
 /// contract (a small code sits value-packed at the register's low end, first
@@ -124,5 +134,102 @@ proptest! {
             Sign::Positive
         };
         assert_fused_matches(sign, &magnitude);
+    }
+}
+
+// ───────────── the signed comparisons against the value order ─────────────
+
+/// The exact signed value a [`Signed`] denotes: the magnitude under the sign
+/// tag, a zero magnitude denoting zero under either tag (the module doc's
+/// conventions, which [`signed_le`] tolerates by contract).
+fn value_of(x: &Signed) -> IBig {
+    let magnitude = IBig::from(x.magnitude.clone().into_base().0);
+    match x.sign {
+        Sign::Positive => magnitude,
+        Sign::Negative => -magnitude,
+    }
+}
+
+/// Assert [`signed_le`] and [`signed_max`] agree with the value order on one
+/// operand pair.
+fn assert_comparisons_match(x: &Signed, y: &Signed) {
+    let (vx, vy) = (value_of(x), value_of(y));
+    assert_eq!(
+        signed_le(x, y),
+        vx <= vy,
+        "signed_le disagrees with the value order on {vx} <= {vy}"
+    );
+    assert_eq!(
+        value_of(&signed_max(x, y)),
+        vx.clone().max(vy.clone()),
+        "signed_max returned a value other than the larger of {vx} and {vy}"
+    );
+}
+
+/// Every [`Signed`] over magnitudes `0..=3`: both sign tags (negative zero
+/// included — the comparisons' documented slack) crossed with both magnitude
+/// spellings ([`Int::Small`] and a parked [`Int::Wide`] of the same value).
+fn small_signed_grid() -> Vec<Signed> {
+    let mut grid = Vec::new();
+    for magnitude in 0u64..=3 {
+        for sign in [Sign::Positive, Sign::Negative] {
+            grid.push(Signed {
+                sign,
+                magnitude: Int::Small(magnitude),
+            });
+            grid.push(Signed {
+                sign,
+                magnitude: Int::Wide(Base::from(magnitude)),
+            });
+        }
+    }
+    grid
+}
+
+/// Deterministic small scope: [`signed_le`] and [`signed_max`] match the
+/// value order on every ordered pair of the small grid.
+///
+/// The grid reaches every sign-pair arm of the case analysis (mixed, both
+/// nonnegative, both negative), equal and distinct magnitudes, negative
+/// zeros, and both magnitude spellings, without any random exploration.
+#[test]
+fn signed_comparisons_match_the_value_order_at_small_scope() {
+    let grid = small_signed_grid();
+    for x in &grid {
+        for y in &grid {
+            assert_comparisons_match(x, y);
+        }
+    }
+}
+
+/// A [`Signed`] whose sign tag is independent of its magnitude — negative
+/// zero included — over word-scale magnitudes, both spellings, and wide
+/// (past-`u64`) magnitudes.
+fn arb_signed() -> impl Strategy<Value = Signed> {
+    let magnitude = prop_oneof![
+        (0u64..=8).prop_map(Int::Small),
+        any::<u64>().prop_map(Int::Small),
+        (0u64..=8).prop_map(|n| Int::Wide(Base::from(n))),
+        (any::<u64>(), 1u32..=80).prop_map(|(n, shift)| Int::Wide(Base::from(n) << shift)),
+    ];
+    (magnitude, any::<bool>()).prop_map(|(magnitude, negative)| Signed {
+        sign: Sign::from_is_negative(negative),
+        magnitude,
+    })
+}
+
+proptest! {
+    /// [`signed_le`] and [`signed_max`] agree with the exact value order on
+    /// arbitrary signed pairs.
+    ///
+    /// Sign tags are drawn independently of magnitudes, so negative-tagged
+    /// zeros exercise the documented slack; magnitudes cross the dense small
+    /// range, the word range, parked-wide spellings, and wide values.
+    #[test]
+    fn signed_comparisons_match_the_value_order(
+        x in arb_signed(),
+        y in arb_signed(),
+    ) {
+        assert_comparisons_match(&x, &y);
     }
 }
