@@ -53,12 +53,15 @@ fn run(data: &[u8]) {
     span_differential(data);
     ranked_differential(data);
 
-    borsh_vs_raw(data, |b| Party::decode(b), Party::encode);
-    borsh_vs_raw(data, |b| Version::decode(b), Version::encode);
-    borsh_vs_raw(data, |b| Clock::decode(b), Clock::encode);
-    borsh_vs_raw(data, |b| Rank::decode(b), Rank::encode);
-    borsh_vs_raw(data, |b| Ranked::decode(b), Ranked::encode);
-    borsh_vs_raw(data, |b| Span::decode(b), Span::encode);
+    // `composite` is true exactly for the two types whose decode ends in a
+    // prefix-scoped composite check (the ranked cross-check, the span pair
+    // verdict); the scalar types get the exact-genre agreement.
+    borsh_vs_raw(data, |b| Party::decode(b), Party::encode, false);
+    borsh_vs_raw(data, |b| Version::decode(b), Version::encode, false);
+    borsh_vs_raw(data, |b| Clock::decode(b), Clock::encode, false);
+    borsh_vs_raw(data, |b| Rank::decode(b), Rank::encode, false);
+    borsh_vs_raw(data, |b| Ranked::decode(b), Ranked::encode, true);
+    borsh_vs_raw(data, |b| Span::decode(b), Span::encode, true);
 
     postcard_vs_composed(data, |b| Party::decode(b), Party::encode);
     postcard_vs_composed(data, |b| Version::decode(b), Version::encode);
@@ -233,15 +236,18 @@ fn ranked_differential(data: &[u8]) {
 ///     decode of the *whole* slice rejects it as `TrailingBits`.
 ///   - borsh rejects ⟹ the raw decode of the whole slice rejects, with
 ///     the genre mapped: `UnexpectedEof` is exactly raw `Truncated`; an
-///     embedded `Decode` genre matches exactly, except that the raw
-///     whole-slice parse may report `TrailingBits` where borsh's
-///     prefix-scoped composite checks (the ranked cross-check, the span
-///     pair verdict) reject first — borsh cannot see bytes it has not
-///     been asked to read.
+///     embedded `Decode` genre matches exactly, except on the `composite`
+///     types, where the raw whole-slice parse may report `TrailingBits`
+///     where borsh's prefix-scoped composite checks (the ranked
+///     cross-check, the span pair verdict) reject first — borsh cannot
+///     see bytes it has not been asked to read. The scalar types run no
+///     check after the structural parse, so for them that genre pair is
+///     impossible and any occurrence is a divergence.
 fn borsh_vs_raw<T>(
     data: &[u8],
     decode: impl Fn(&[u8]) -> Result<T, Decode>,
     encode: fn(&T) -> Vec<u8>,
+    composite: bool,
 ) where
     T: BorshDeserialize + BorshSerialize,
 {
@@ -286,9 +292,10 @@ fn borsh_vs_raw<T>(
             let borsh = borsh_genre(&error);
             let agreed = match (borsh, raw) {
                 (b, r) if b == r => true,
-                // borsh's prefix-scoped composite checks reject where the
-                // whole-slice parse still sees unconsumed input.
-                (Genre::NotCanonical, Genre::TrailingBits) => true,
+                // A prefix-scoped composite check rejects where the
+                // whole-slice parse still sees unconsumed input — possible
+                // only on the types that run one.
+                (Genre::NotCanonical, Genre::TrailingBits) => composite,
                 _ => false,
             };
             assert!(

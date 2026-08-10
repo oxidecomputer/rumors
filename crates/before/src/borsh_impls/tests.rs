@@ -4,6 +4,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::decode_error;
+use crate::causally::Span;
 use crate::codec::{self, BitCursor, BitsMut};
 use crate::error::Decode;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
@@ -11,7 +12,9 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{step_impl, world_strategy};
-use crate::{Clock, Party, Version};
+use crate::version::decode_rank_stream;
+use crate::version::skyline::{validate_dominating_from, Admission};
+use crate::{Clock, Party, Rank, Ranked, Version};
 
 /// A borsh stream that ends mid-tree surfaces the reader's own I/O error
 /// (`UnexpectedEof`), never a masked decode error.
@@ -347,6 +350,254 @@ proptest! {
     }
 }
 
+/// Decode one clock — an id tree, then an event tree — per-bit through
+/// [`BitwiseReaderCursor`], replicating the wire door's composition: the
+/// version decode starts exactly where the party decode stopped.
+fn reference_clock<R: Read>(reader: &mut R) -> Result<Clock, Decode> {
+    let party = reference_party(reader)?;
+    let version = reference_version(reader)?;
+    Ok(Clock::from_parts(party, version))
+}
+
+/// Decode one composite key — a self-delimiting rank stream, then an
+/// event tree — with the version leg per-bit through
+/// [`BitwiseReaderCursor`] and the wire door's own cross-check after it.
+///
+/// The rank stream has exactly one parser, shared with the wire door
+/// byte for byte, so the surface this reference pins differentially is
+/// the version stream (window, refills, padding) and the composite
+/// cross-check around it.
+fn reference_ranked<R: Read>(reader: &mut R) -> Result<Ranked<'static>, Decode> {
+    let rank = decode_rank_stream(|| {
+        let mut byte = [0];
+        reader.read_exact(&mut byte).map_err(Decode::Io)?;
+        Ok(byte[0])
+    })?;
+    let version = reference_version(reader)?;
+    if version.rank() != rank {
+        return Err(Decode::NotCanonical);
+    }
+    Ok(Ranked::from(version))
+}
+
+/// Decode one span composite per-bit through [`BitwiseReaderCursor`],
+/// replicating the wire pipeline stage for stage.
+///
+/// The stages, in the wire door's order: the meet's tree and padding, the
+/// fused admission walk over the join, the join's padding consumption —
+/// which outranks the pair verdict — then the verdict.
+fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
+    let lo = reference_version(reader)?;
+    let mut cursor = BitwiseReaderCursor {
+        reader,
+        bits: BitsMut::new(),
+        position: 0,
+    };
+    let admission = validate_dominating_from(lo.view(), &mut cursor)?;
+    let position = cursor.position;
+    reference_consume_padding(&mut cursor)?;
+    let mut bits = cursor.bits;
+    bits.truncate(position);
+    let hi = match admission {
+        Admission::Refuted => return Err(Decode::NotCanonical),
+        Admission::Equal => lo.clone(),
+        Admission::Dominates => Version::from_bits(bits),
+    };
+    Ok(Span::owned(lo, hi))
+}
+
+proptest! {
+    /// The windowed wire cursor decodes a `Clock` stream — an id tree,
+    /// then an event tree — exactly like the per-bit reference: same
+    /// value or same error, same bytes consumed.
+    ///
+    /// The clock door is the two component doors composed, so beyond the
+    /// components' own differentials this pins the hand-off between them
+    /// on accepts and rejects alike. Streams cover canonical clock
+    /// encodings, bit flips, truncations, raw noise, and trailing junk.
+    #[test]
+    fn clock_wire_decode_matches_bitwise_reference(
+        stream in arb_stream(
+            (arb_oracle_party_nonempty(), arb_oracle_version()).prop_map(|(p, v)| {
+                [
+                    from_oracle_party(&p).encode(),
+                    from_oracle_version(&v).encode(),
+                ]
+                .concat()
+            }),
+        ),
+    ) {
+        let mut subject_reader: &[u8] = &stream;
+        let subject = Clock::deserialize_reader(&mut subject_reader);
+        let mut oracle_reader: &[u8] = &stream;
+        let oracle = reference_clock(&mut oracle_reader).map_err(decode_error);
+        prop_assert_eq!(
+            subject_reader.len(),
+            oracle_reader.len(),
+            "byte consumption diverged",
+        );
+        match (subject, oracle) {
+            (Ok(s), Ok(o)) => prop_assert_eq!(s, o),
+            (Err(s), Err(o)) => assert_same_error(&s, &o)?,
+            (s, o) => prop_assert!(false, "accept/reject diverged: {:?} vs {:?}", s, o),
+        }
+    }
+}
+
+proptest! {
+    /// The windowed wire cursor decodes a `Ranked` composite key exactly
+    /// like the per-bit reference: same value or same error, same bytes
+    /// consumed.
+    ///
+    /// The rank stream has exactly one parser, shared by both sides, so
+    /// the differential surface is the version leg — window, refills, and
+    /// the padding genre — and the mismatched-pair cross-check around it,
+    /// which bit flips in the rank prefix breed. Streams cover canonical
+    /// composite keys, bit flips, truncations, raw noise, and trailing
+    /// junk.
+    #[test]
+    fn ranked_wire_decode_matches_bitwise_reference(
+        stream in arb_stream(
+            arb_oracle_version().prop_map(|t| from_oracle_version(&t).ranked().encode()),
+        ),
+    ) {
+        let mut subject_reader: &[u8] = &stream;
+        let subject = Ranked::deserialize_reader(&mut subject_reader);
+        let mut oracle_reader: &[u8] = &stream;
+        let oracle = reference_ranked(&mut oracle_reader).map_err(decode_error);
+        prop_assert_eq!(
+            subject_reader.len(),
+            oracle_reader.len(),
+            "byte consumption diverged",
+        );
+        match (subject, oracle) {
+            (Ok(s), Ok(o)) => prop_assert_eq!(s, o),
+            (Err(s), Err(o)) => assert_same_error(&s, &o)?,
+            (s, o) => prop_assert!(false, "accept/reject diverged: {:?} vs {:?}", s, o),
+        }
+    }
+}
+
+proptest! {
+    /// The borsh rank door reads exactly one self-delimiting rank stream
+    /// and agrees with the whole-slice decode on the exact error variant:
+    /// no genre may shift between the two doors.
+    ///
+    /// Reader starvation surfaces as the reader's own `UnexpectedEof`
+    /// exactly where the slice door reports [`Decode::Truncated`]; every
+    /// other rejection crosses as `InvalidData` carrying the identical
+    /// [`Decode`] variant. On accepts, the consumed prefix is the value's
+    /// canonical encoding, and a nonempty remainder is exactly what makes
+    /// the whole-slice decode reject as [`Decode::TrailingBits`]. Streams
+    /// cover version-derived and deep-fraction ranks, bit flips,
+    /// truncations, raw noise, and trailing junk.
+    #[test]
+    fn rank_wire_decode_matches_slice_reference(
+        stream in arb_stream(prop_oneof![
+            arb_oracle_version().prop_map(|t| from_oracle_version(&t).rank().encode()),
+            (any::<u128>(), 0u64..64).prop_map(|(num, exp)| {
+                Rank::from_raw(codec::Base::from(num), exp).encode()
+            }),
+        ]),
+    ) {
+        let mut reader: &[u8] = &stream;
+        match Rank::deserialize_reader(&mut reader) {
+            Ok(rank) => {
+                let consumed = &stream[..stream.len() - reader.len()];
+                let reencoded = rank.encode();
+                prop_assert_eq!(
+                    reencoded.as_slice(),
+                    consumed,
+                    "accepted rank re-encodes to the consumed prefix",
+                );
+                prop_assert_eq!(
+                    &Rank::decode(consumed).expect("the slice door accepts the same bytes"),
+                    &rank,
+                );
+                if !reader.is_empty() {
+                    let whole = Rank::decode(&stream[..])
+                        .expect_err("bytes remain past the rank: the whole slice must reject");
+                    prop_assert!(
+                        matches!(whole, Decode::TrailingBits),
+                        "input past a complete rank is the trailing genre: {:?}",
+                        whole,
+                    );
+                }
+            }
+            Err(err) => {
+                let raw = Rank::decode(&stream[..])
+                    .expect_err("the borsh door rejects: the slice door must reject");
+                let variant = err
+                    .get_ref()
+                    .and_then(|inner| inner.downcast_ref::<Decode>())
+                    .map(std::mem::discriminant);
+                match raw {
+                    Decode::Truncated => {
+                        prop_assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+                        prop_assert_eq!(variant, None);
+                    }
+                    raw => {
+                        prop_assert_eq!(err.kind(), ErrorKind::InvalidData);
+                        prop_assert_eq!(variant, Some(std::mem::discriminant(&raw)));
+                    }
+                }
+            }
+        }
+    }
+}
+
+proptest! {
+    /// The windowed wire cursor decodes a `Span` composite exactly like
+    /// the per-bit reference: same value or same error, same bytes
+    /// consumed.
+    ///
+    /// The agreement is total — the admission verdict, the padding check
+    /// that outranks it, and every structural genre included. Streams cover canonical span composites and bare meet prefixes,
+    /// each optionally bit-flipped, truncated, and tailed with junk, plus
+    /// raw noise: the junk-tailed meet prefixes drive the admission walk
+    /// over arbitrary join streams (height dips, collapsible siblings,
+    /// dirty padding), pinning the wire cursor's error plumbing under the
+    /// fused walk. Accepted spans additionally re-encode to the consumed
+    /// prefix and decode identically through the byte-slice door.
+    #[test]
+    fn span_wire_decode_matches_bitwise_reference(
+        stream in arb_stream(prop_oneof![
+            (arb_oracle_version(), arb_oracle_version()).prop_map(|(a, b)| {
+                from_oracle_version(&a).span(&from_oracle_version(&b)).encode()
+            }),
+            arb_oracle_version().prop_map(|t| from_oracle_version(&t).encode()),
+        ]),
+    ) {
+        let mut subject_reader: &[u8] = &stream;
+        let subject = Span::deserialize_reader(&mut subject_reader);
+        let mut oracle_reader: &[u8] = &stream;
+        let oracle = reference_span(&mut oracle_reader).map_err(decode_error);
+        prop_assert_eq!(
+            subject_reader.len(),
+            oracle_reader.len(),
+            "byte consumption diverged",
+        );
+        match (subject, oracle) {
+            (Ok(s), Ok(o)) => {
+                prop_assert_eq!(&s, &o);
+                let consumed = &stream[..stream.len() - subject_reader.len()];
+                let reencoded = s.encode();
+                prop_assert_eq!(
+                    reencoded.as_slice(),
+                    consumed,
+                    "accepted span re-encodes to the consumed prefix",
+                );
+                prop_assert_eq!(
+                    Span::decode(consumed).expect("the slice door accepts the same bytes"),
+                    s,
+                );
+            }
+            (Err(s), Err(o)) => assert_same_error(&s, &o)?,
+            (s, o) => prop_assert!(false, "accept/reject diverged: {:?} vs {:?}", s, o),
+        }
+    }
+}
+
 proptest! {
     /// A canonical encoding embedded in a longer borsh stream decodes to its
     /// value while consuming exactly the encoding's bytes.
@@ -615,7 +866,6 @@ proptest! {
 /// `Span::decode` documents).
 #[test]
 fn span_borsh_composes_and_keeps_its_genres() {
-    use crate::causally::Span;
     let mut clock = Clock::seed();
     let older = clock.tick().clone();
     let newer = clock.tick().clone();
@@ -682,8 +932,7 @@ proptest! {
     /// constructor admits.
     #[test]
     fn span_borsh_roundtrips(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-        use crate::causally::Span;
-        let a = from_oracle_version(&oa);
+            let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
         let span = a.span(&b);
         let bytes = borsh::to_vec(&span).unwrap();
@@ -703,9 +952,6 @@ proptest! {
 /// type's decoder can over- or under-read into a neighbor of any type.
 #[test]
 fn borsh_every_type_pair_composes_with_exact_boundaries() {
-    use crate::causally::Span;
-    use crate::{Rank, Ranked};
-
     // Multi-byte, structure-bearing values of each type.
     let mut party = Party::seed();
     for _ in 0..4 {
@@ -854,7 +1100,6 @@ fn borsh_sequence_defect_in_element_n_keeps_its_genre() {
 /// the composite still re-serializes byte-identically.
 #[test]
 fn span_borsh_dedups_the_coincident_span() {
-    use crate::causally::Span;
     let mut clock = crate::Clock::seed();
     for _ in 0..12 {
         clock.tick();
@@ -886,8 +1131,6 @@ fn span_borsh_dedups_the_coincident_span() {
 /// and the composite re-serializes byte-identically.
 #[test]
 fn coincident_span_keeps_borsh_container_framing() {
-    use crate::causally::Span;
-    use crate::Rank;
     let mut clock = Clock::seed();
     for _ in 0..9 {
         clock.tick();
@@ -937,7 +1180,6 @@ fn coincident_span_keeps_borsh_container_framing() {
 /// byte-slice decode orders them.
 #[test]
 fn coincident_span_borsh_rejects_tampered_join_padding() {
-    use crate::causally::Span;
     let v: Version = "(1, 0, 4)".parse().unwrap();
     assert_ne!(
         v.encoded_bits() % 8,
@@ -956,5 +1198,62 @@ fn coincident_span_borsh_rejects_tampered_join_padding() {
     assert!(
         matches!(inner.downcast_ref::<Decode>(), Some(Decode::TrailingBits)),
         "expected TrailingBits from the tampered join padding, got: {inner:?}"
+    );
+}
+
+/// A structurally whole join whose running height dips negative rejects
+/// through the borsh span door as `InvalidData` carrying
+/// [`Decode::NotCanonical`]: the refuted verdict subsumes the dip on the
+/// wire path too.
+///
+/// The bytes are the fuzz seed set's `span_negative_join` witness: a
+/// canonical empty meet, then a join whose height dips negative — root
+/// internal `0`, left leaf height gamma(0), right leaf delta zigzag(-1),
+/// padding marker. No encode produces it, so only a constructed stream
+/// reaches the verdict's rejection arm under a `ReaderCursor`; it rides
+/// beside [`span_wire_decode_matches_bitwise_reference`] as the
+/// deterministic tripwire for that arm's genre.
+#[test]
+fn span_borsh_rejects_negative_height_join() {
+    let bytes = [Version::new().encode(), vec![0x75]].concat();
+    assert!(
+        matches!(Span::decode(&bytes[..]), Err(Decode::NotCanonical)),
+        "the byte-slice door rejects the dip as NotCanonical"
+    );
+    let err = <Span as BorshDeserialize>::try_from_slice(&bytes).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::NotCanonical)),
+        "expected NotCanonical from the negative-height join, got: {inner:?}"
+    );
+}
+
+/// A join carrying a collapsible sibling pair rejects through the borsh
+/// span door as `InvalidData` carrying [`Decode::NotCanonical`]: the
+/// close-out canonicality check fires under a `ReaderCursor` too.
+///
+/// The bytes are a canonical empty meet, then an internal node whose two
+/// leaf children carry height 0 and delta 0 — a sibling pair normal form
+/// forbids. It rides beside
+/// [`span_wire_decode_matches_bitwise_reference`] as the deterministic
+/// tripwire for the close-out arm's genre.
+#[test]
+fn span_borsh_rejects_collapsible_join() {
+    let bytes = [Version::new().encode(), vec![0b0111_1000]].concat();
+    assert!(
+        matches!(Span::decode(&bytes[..]), Err(Decode::NotCanonical)),
+        "the byte-slice door rejects the collapsible join as NotCanonical"
+    );
+    let err = <Span as BorshDeserialize>::try_from_slice(&bytes).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::NotCanonical)),
+        "expected NotCanonical from the collapsible join, got: {inner:?}"
     );
 }
