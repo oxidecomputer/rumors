@@ -47,7 +47,10 @@
 //! Measurement and rendering are decoupled: a survey can persist every
 //! operation's raw atlas as it is measured ([`dump`]) and be re-rendered
 //! later — any styling, no re-measure — with the round trip pinned
-//! byte-identical to a direct render.
+//! byte-identical to a direct render. A run can also target a named
+//! subset of the roster ([`select`]), `cargo bench`-style, so one
+//! operation's panel can be re-measured without paying for the whole
+//! atlas.
 
 pub mod count;
 pub mod dump;
@@ -57,3 +60,4 @@ pub mod ops;
 pub mod plan;
 pub mod render;
 pub mod sample;
+pub mod select;

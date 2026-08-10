@@ -2,17 +2,26 @@
 //! measure fuel in the fuzz-fit guest, render the per-op heatmaps and the
 //! gallery — or replay rendering from a persisted dump without measuring.
 //!
-//! Flags (all optional): `--samples <n>` per column (default 300),
-//! `--max-bytes <n>` grid top (default 256), `--seed <u64>` base seed
-//! (default 0xa71a5), `--out <dir>` output directory (default
+//! Positional arguments filter the roster the way `cargo bench` filters
+//! benchmarks: each argument selects every operation whose name contains
+//! it as a substring, and the run surveys the union (roster order, no
+//! duplicates). No arguments surveys the whole roster. A filter that
+//! matches no operation is an error naming the available operations —
+//! never a silent empty run ([`before_fuelscape::select`] owns and pins
+//! these semantics).
+//!
+//! Flags (all optional): `--list` (print the selected operations' names,
+//! one per line, without measuring), `--samples <n>` per column (default
+//! 300), `--max-bytes <n>` grid top (default 256), `--seed <u64>` base
+//! seed (default 0xa71a5), `--out <dir>` output directory (default
 //! `target/fuelscape` under the current directory), `--dump` (persist
-//! every operation's raw atlas as JSON beside the SVGs, in the
+//! every selected operation's raw atlas as JSON beside the SVGs, in the
 //! `before_fuelscape::dump` layout), `--render-from <dump>` (skip
 //! measurement: load a dump — its `atlas.json` or the directory holding
 //! it — and render its SVGs and gallery into `--out`; the measuring
-//! flags `--samples`/`--max-bytes`/`--seed` and `--dump` do not combine
-//! with it), and `--font-scale <f64>` (scale all SVG text for print,
-//! default 1.0; usable in both modes).
+//! flags `--samples`/`--max-bytes`/`--seed`, `--dump`, `--list`, and the
+//! positional filters do not combine with it), and `--font-scale <f64>`
+//! (scale all SVG text for print, default 1.0; usable in both modes).
 //!
 //! Provenance: the `FUELSCAPE_TIP` environment variable (the recipe
 //! passes `git rev-parse HEAD`) is stamped into every measuring run's
@@ -58,6 +67,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use before_fuelscape::ops::ROSTER;
 use before_fuelscape::plan::{run_op_with_progress, Plan, Samplers};
 use before_fuelscape::render::{render_gallery, render_op, AtlasData, RenderMeta};
+use before_fuelscape::select::{listing, select};
 use fuzzfit_harness::wasm::Guest;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
@@ -80,6 +90,8 @@ fn main() {
     let mut render_from: Option<PathBuf> = None;
     let mut font_scale = 1.0f64;
     let mut measuring_flags = false;
+    let mut list = false;
+    let mut filters: Vec<String> = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let mut value = || {
@@ -103,17 +115,33 @@ fn main() {
             "--dump" => dump_measurements = true,
             "--render-from" => render_from = Some(PathBuf::from(value())),
             "--font-scale" => font_scale = value().parse().expect("--font-scale <f64>"),
-            other => panic!("unknown flag {other} (see the module doc for the flag list)"),
+            "--list" => list = true,
+            other if other.starts_with('-') => {
+                panic!("unknown flag {other} (see the module doc for the flag list)")
+            }
+            _ => filters.push(flag),
         }
     }
 
     if let Some(dump_path) = render_from {
         assert!(
-            !measuring_flags && !dump_measurements,
+            !measuring_flags && !dump_measurements && !list && filters.is_empty(),
             "--render-from replays a recorded dump; the measuring flags \
-             (--samples/--max-bytes/--seed) and --dump configure a measuring run"
+             (--samples/--max-bytes/--seed), --dump, --list, and the positional \
+             filters configure a measuring run"
         );
         render_from_dump(&dump_path, &out, font_scale);
+        return;
+    }
+
+    // A filter that matches nothing must never become a silent empty
+    // survey; `select` errors with the roster's names instead.
+    let selected = select(ROSTER, &filters).unwrap_or_else(|no_match| {
+        eprintln!("{no_match}");
+        std::process::exit(1);
+    });
+    if list {
+        print!("{}", listing(&selected));
         return;
     }
 
@@ -168,7 +196,7 @@ fn main() {
     drop(Guest::new());
     bars.suspend(|| println!("guest module compiled: {:.1?}", t0.elapsed()));
 
-    // The panel pool: CONCURRENT_PANELS workers pull roster rows off a
+    // The panel pool: CONCURRENT_PANELS workers pull selected rows off a
     // shared cursor; each panel's samples fan out on the global rayon
     // pool underneath. One sub-bar per in-flight panel, one total bar
     // over every bulk sample in the run; completion lines print above
@@ -180,7 +208,7 @@ fn main() {
     // at a roughly stationary rate and its ETA holds steady, where a
     // sample-counting bar reads optimistic through every panel's small
     // columns and re-learns the ramp on the large ones.
-    let work_units: Vec<u64> = ROSTER
+    let work_units: Vec<u64> = selected
         .iter()
         .map(|op| {
             let min = op.inputs.min_bytes();
@@ -197,18 +225,18 @@ fn main() {
         )
         .expect("the progress template is well-formed"),
     );
-    total.set_message(format!("total ({} panels)", ROSTER.len()));
+    total.set_message(format!("total ({} panels)", selected.len()));
     let panel_style = ProgressStyle::with_template("{msg:24} {wide_bar} {percent}%")
         .expect("the progress template is well-formed");
 
     let writer = std::sync::Mutex::new(writer);
-    let rendered = std::sync::Mutex::new(vec![None; ROSTER.len()]);
+    let rendered = std::sync::Mutex::new(vec![None; selected.len()]);
     let cursor = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|scope| {
-        for _ in 0..CONCURRENT_PANELS.min(ROSTER.len()) {
+        for _ in 0..CONCURRENT_PANELS.min(selected.len()) {
             scope.spawn(|| loop {
                 let i = cursor.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let Some(op) = ROSTER.get(i) else {
+                let Some(op) = selected.get(i).copied() else {
                     break;
                 };
                 let bar = bars.insert_before(&total, ProgressBar::new(work_units[i]));
@@ -254,7 +282,7 @@ fn main() {
         .into_inner()
         .expect("no panicked holder")
         .into_iter()
-        .map(|slot| slot.expect("every roster row ran"))
+        .map(|slot| slot.expect("every selected row ran"))
         .collect();
     let gallery = render_gallery(&rendered, &meta, &out).expect("gallery must render");
     println!("gallery → {}", gallery.display());
