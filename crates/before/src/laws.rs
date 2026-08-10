@@ -2436,10 +2436,11 @@ laws! {
 // ───────────────────────────── Version × Version × Party ─────────────────────────────
 
 laws! {
-    /// Laws over two versions and a live party: projection as a lattice
-    /// homomorphism, its monotonicity in the version, its metric short-map
-    /// property, and `ticks` as a monoid action at the wide counts the
-    /// operands' tick floors supply.
+    /// Laws over two versions and a live party.
+    ///
+    /// Projection as a lattice homomorphism, its monotonicity in the
+    /// version, its metric short-map property, and `ticks` as a monoid
+    /// action at the wide counts the operands' tick floors supply.
     pub static VERSION_PAIR_PARTY: (a: &Version, b: &Version, p: &Party);
 
     /// Projection is a homomorphism of the join: `(a | b) / p == (a/p) | (b/p)`

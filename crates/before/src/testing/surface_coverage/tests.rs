@@ -10,10 +10,11 @@ use super::{
     extract_public_fns, FAMILY_SURFACE, METHOD_SURFACE, TRIPWIRES,
 };
 
-/// The deliberate same-named test pairs, by declaring files: parallel
-/// same-shaped suites in sibling modules (the party/version codec pins, the
-/// clock/party fold differentials, the clock/oracle worked examples, the
-/// skyline query/sweep corpus sweeps).
+/// The deliberate same-named test pairs, by declaring files.
+///
+/// Parallel same-shaped suites in sibling modules: the party/version codec
+/// pins, the clock/party fold differentials, the clock/oracle worked
+/// examples, the skyline query/sweep corpus sweeps.
 ///
 /// Citations resolve by bare name, so a duplicated name is satisfiable by
 /// either declaration — deleting one copy would leave every citation green
@@ -164,60 +165,104 @@ fn citation_haystack_admits_only_attributed_tests() {
     );
 }
 
-/// Test-name-shaped identifiers cited inside *exclusion* reasons resolve
-/// to an executable binding, exactly as Bound/Law/Trans citations must.
+/// Every payload name an exclusion carries resolves to an executable
+/// binding, and each family's structural obligation holds.
 ///
-/// The exclusion legs are the roster's largest genre, and their reasons
-/// carry the production-side pins each exclusion rests on
-/// (`decode_encode_arbitrary`, `alias_is_byte_identical_overlap`, ...).
+/// The exclusion legs are the roster's largest genre, and their payloads
+/// carry the production-side pins each exclusion rests on.
 /// [`every_cited_binding_test_exists`] never sees them — `Leg::cited`
 /// returns `None` for exclusions — so a pin renamed or deleted while
-/// cited only in a reason would rot silently. This sweep extracts every
-/// identifier-shaped token (lowercase snake_case with at least two
-/// underscores, so ordinary prose never matches) from every exclusion
-/// reason and holds it to the same haystack: a `#[test]`-attributed item
-/// under `src/` or a registered law name.
-///
-/// The two-underscore threshold is the reason-writer's contract: cite
-/// pins by their full snake_case test name, never by a shorthand — a
-/// one-word or single-underscore alias is invisible to this sweep.
+/// cited only in a payload would rot silently. Every `pins` element and
+/// `license` must be a `#[test]`-attributed item under `src/` or a
+/// registered law name; a `GridCap` guard must be an executable test
+/// (a premise guard must run, not merely resolve); a `NotAPaperObject`
+/// binding site must be a roster row, test, or law.
 #[test]
-fn exclusion_reason_citations_resolve() {
-    let mut declared = declared_test_names();
-    declared.extend(
+fn exclusion_payload_citations_resolve() {
+    use crate::surface::Exclusion;
+    let mut resolvable = declared_test_names();
+    resolvable.extend(
         crate::laws::registered_names()
             .into_iter()
             .map(str::to_owned),
     );
+    let tests_only = declared_test_names();
+    let rows: BTreeSet<&str> = METHOD_SURFACE
+        .iter()
+        .chain(FAMILY_SURFACE)
+        .map(|row| row.op)
+        .collect();
     let mut dead: Vec<String> = Vec::new();
     for row in METHOD_SURFACE.iter().chain(FAMILY_SURFACE) {
         for leg in [&row.prod_tree, &row.prod_fs, &row.tree_fs] {
-            let Some(reason) = leg.exclusion_reason() else {
+            let Some(family) = leg.exclusion() else {
                 continue;
             };
-            let ident = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_';
-            for token in reason.split(|c: char| !ident(c)) {
-                if token.matches('_').count() >= 2
-                    && token.starts_with(|c: char| c.is_ascii_lowercase())
-                    && !declared.contains(token)
-                {
-                    dead.push(format!("{}: {token}", row.op));
+            let mut names: Vec<&str> = Vec::new();
+            match family {
+                Exclusion::NoWireFormatInReferences { pins }
+                | Exclusion::DefinitionalCombinator { pins }
+                | Exclusion::NAryNotInReferences { pins }
+                | Exclusion::LinearityMechanics { pins } => names.extend(*pins),
+                Exclusion::NotAPaperObject { bound_at, pins } => {
+                    names.extend(*pins);
+                    if !rows.contains(bound_at) {
+                        names.push(bound_at);
+                    }
+                }
+                Exclusion::GridCap { guard } => {
+                    if !tests_only.contains(*guard) {
+                        dead.push(format!(
+                            "{}: GridCap guard {guard} is no executable #[test]",
+                            row.op
+                        ));
+                    }
+                }
+                Exclusion::RepresentationMechanics { license } => names.push(license),
+            }
+            for name in names {
+                if !resolvable.contains(name) {
+                    dead.push(format!("{}: {name}", row.op));
                 }
             }
         }
     }
     assert!(
         dead.is_empty(),
-        "exclusion reasons cite names that resolve to no `#[test]` item or \
-         registered law: {dead:?}"
+        "exclusion payloads cite names that resolve to no `#[test]` item, \
+         registered law, or (for bound_at) roster row: {dead:?}"
     );
 }
 
+/// Every exclusion family is inhabited: an empty family is a dead
+/// category, dissolvable rather than carried in the vocabulary.
+#[test]
+fn every_exclusion_family_is_inhabited() {
+    use std::collections::BTreeMap;
+    let mut census: BTreeMap<&str, usize> = BTreeMap::new();
+    for row in METHOD_SURFACE.iter().chain(FAMILY_SURFACE) {
+        for leg in [&row.prod_tree, &row.prod_fs, &row.tree_fs] {
+            if let Some(family) = leg.exclusion() {
+                *census.entry(family.family()).or_default() += 1;
+            }
+        }
+    }
+    for family in crate::surface::Exclusion::FAMILIES {
+        assert!(
+            census.get(family).copied().unwrap_or(0) > 0,
+            "exclusion family {family} is uninhabited: dissolve it or \
+             inhabit it"
+        );
+    }
+}
+
 /// Every test name declared in more than one file is rostered in
-/// [`DUPLICATE_TEST_NAMES`] with exactly its declaring files — both
-/// directions, so a new same-named test fails here until the duplication
-/// is reviewed and rostered, and a rostered duplicate losing a copy fails
-/// here instead of leaving its citations satisfiable by the survivor.
+/// [`DUPLICATE_TEST_NAMES`] with exactly its declaring files.
+///
+/// Both directions: a new same-named test fails here until the
+/// duplication is reviewed and rostered, and a rostered duplicate losing
+/// a copy fails here instead of leaving its citations satisfiable by the
+/// survivor.
 ///
 /// This is the duplicate-name half of citation integrity: the bare-name
 /// citation check cannot tell which file satisfies which roster row, so
@@ -274,23 +319,6 @@ fn law_names_never_shadow_test_names() {
 fn family_rows_are_unique() {
     let ops: BTreeSet<&str> = FAMILY_SURFACE.iter().map(|row| row.op).collect();
     assert_eq!(ops.len(), FAMILY_SURFACE.len(), "duplicate family rows");
-}
-
-/// Every excluded leg states a non-trivial reason: an exclusion is a
-/// documented boundary decision, never a bare opt-out.
-#[test]
-fn every_exclusion_states_a_reason() {
-    for row in METHOD_SURFACE.iter().chain(FAMILY_SURFACE) {
-        for leg in [&row.prod_tree, &row.prod_fs, &row.tree_fs] {
-            if let Some(reason) = leg.exclusion_reason() {
-                assert!(
-                    reason.len() >= 20,
-                    "{}: exclusion reason too thin: {reason:?}",
-                    row.op
-                );
-            }
-        }
-    }
 }
 
 /// Every tripwire leg label is nonempty and unique — the tripwire list

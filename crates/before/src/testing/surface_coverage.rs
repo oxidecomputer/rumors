@@ -55,18 +55,14 @@
 //!
 //! # Exclusion families
 //!
-//! Codecs and text (no wire format exists in the references; correctness is
-//! production-side canonicality/round-trip/strict-rejection pins), linearity
-//! and aliasing mechanics (`Clone` references cannot express them; the
-//! compile-time pins own them — `static_assertions` beside the
-//! `Party`/`Clock` definitions and the join matrix, and the array-split
-//! `compile_fail` doctest twins), `causally` (a definitional combinator over
-//! the bound causal
-//! order), rank arithmetic (not a paper object; bound to the in-test
-//! alignment oracle), n-ary hand-back mechanics (value identity and order
-//! are not functions of the geometry), depth beyond the function-space grid
-//! (`GRID_N` caps resolution; `deep_tree_stack_safety` is impl-only by
-//! documented necessity), and the meter/error/iter plumbing.
+//! An excluded leg carries a variant of the typed [`crate::surface::Exclusion`]
+//! vocabulary — seven families, each variant's documentation defending its
+//! argument once. The suite enforces the families' obligations: every payload
+//! name resolves exactly as citations do, every family is inhabited (an empty
+//! family is a dead category), a `GridCap` guard is a live executable test,
+//! and a `NotAPaperObject` binding site is a real roster row, test, or law.
+//! The function-space non-adoption dispositions are the owner's, ratified
+//! where the variants say so.
 //!
 //! # Adequacy tripwires
 //!

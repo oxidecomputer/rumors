@@ -70,9 +70,10 @@ pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
     Exception {
         name: "surface::",
         reason: "the roster's own row accessors (`Leg::cited`, \
-                 `Leg::exclusion_reason`), public under the `meter` feature so \
-                 instrument crates can read the rows; rostering the roster's \
-                 accessors in itself would be circular",
+                 `Leg::exclusion`, the `Exclusion` family census), public \
+                 under the `meter` feature so instrument crates can read the \
+                 rows; rostering the roster's accessors in itself would be \
+                 circular",
         decided: "2026-07-30",
     },
     Exception {
