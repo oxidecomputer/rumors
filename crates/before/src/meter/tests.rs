@@ -12,7 +12,7 @@ use super::{
     cliff_comb, cliff_fan, collapse_hole, concurrent_pair, copy_hole, dense, dense_suffix,
     dense_suffix_mate, dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position,
     harmonic, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze, mask_drift_quadruple,
-    mask_drift_triple, plateau_puncture, plateau_puncture_factors, promotion_rearm,
+    mask_drift_triple, masked_hole, plateau_puncture, plateau_puncture_factors, promotion_rearm,
     promotion_rearm_mate, raise_hole, scattered_id, tooth_tail, weight_comb, wide_arming,
     wide_tooth_comb, Packed,
 };
@@ -760,6 +760,34 @@ fn hole_pairs_decode_canonically_at_predicted_lengths() {
         check_version(&ev, 2 * k + 2 + regions);
         check_party(&id, 4 * k + 4);
     }
+}
+
+/// `MH(d, h)` is three canonical operands at their closed-form lengths,
+/// and the correlation realizes the full-walk verdict.
+///
+/// The lengths: the dense spine's `4d + 4`, the diverted id spine's
+/// `2h + 2`, the plateau's 4. The verdict: the projected spine sits
+/// strictly under the plateau, fused and materialized alike, so no
+/// measurement of this family exits early.
+#[test]
+fn masked_hole_decodes_canonically_and_realizes_less() {
+    let (d, h) = (64, 8);
+    let (spine, mask, plateau) = masked_hole(d, h);
+    check_version(&spine, 4 * d + 4);
+    check_version(&plateau, 4);
+    let party = check_party(&mask, 2 * h + 2);
+    let (v, w) = (spine.version(), plateau.version());
+    let fused = (&v / &party).partial_cmp(&w);
+    assert_eq!(
+        fused,
+        Some(std::cmp::Ordering::Less),
+        "the projected spine sits strictly under the plateau"
+    );
+    assert_eq!(
+        fused,
+        (&v / &party).to_version().partial_cmp(&w),
+        "the fused verdict is the materialized verdict"
+    );
 }
 
 /// The leaf count of a stored version's skyline stream, by one iterative

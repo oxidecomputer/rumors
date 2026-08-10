@@ -125,6 +125,21 @@ const SCAN_HOLE_UNITS: usize = 16;
 /// moves the pinned columns past their ceilings.
 const SCAN_HOLE_STEPS: usize = 128;
 
+/// Spine-depth pair of the masked-hole scenarios: the depth band holds
+/// the fused comparison's accumulator readings flat across this doubling.
+///
+/// The band needs the touch meter, so the smaller point is read only
+/// when the `limb-meter` feature compiles it in.
+#[cfg(feature = "limb-meter")]
+const MASK_HOLE_DEPTH_LO: usize = 1_000;
+
+/// The masked-hole depth pair's larger point (the envelope row's scale).
+const MASK_HOLE_DEPTH_HI: usize = 2_000;
+
+/// Mask depth of the masked-hole triple: the one knob the fused
+/// comparison's accumulator readings may be a function of.
+const MASK_HOLE_MASK_DEPTH: usize = 8;
+
 /// Spine depth of the min_ticks ascending-cliff scenario: enough
 /// simultaneously stacked nonzero boundary differences that per-boundary
 /// transient memory dominates the envelope.
@@ -6270,6 +6285,7 @@ mod query_env {
     pub const TICK_COLLAPSE_HOLE: QueryEnvelope = query_envelope(2_748, 0, 0, 14_368, 8_125, 0, 4_875); // 2_198, 0, 0, 11_494, 6_500 (the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing); rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
     pub const TICK_COPY_HOLE: QueryEnvelope = query_envelope(1_733, 0, 18, 53_302, 15_615, 10, 9_369); // 1_386, 0, 14, 42_641, 12_492 (the pre-scan copies each untouched range as one net movement and one watermark emission); rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
     pub const TICK_RAISE_HOLE: QueryEnvelope = query_envelope(2_660, 0, 0, 13_543, 8_030, 0, 4_818); // 2_128, 0, 0, 10_834, 6_424 (the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing); rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
+    pub const MASKED_CMP_HOLE: QueryEnvelope = query_envelope(480, 0, 0, 7_535, 18, 0, 10); // 384, 0, 0, 6_028, 14 (the block skip consumes the spine's unowned continuation whole: the touch reading is a function of the mask depth alone); a per-boundary walk reads ~one touch per spine boundary on this family, orders of magnitude over the ceiling — the depth band beside this row holds the reading flat across a spine-depth doubling
     pub const TICK_EXPAND_SPINE: QueryEnvelope = query_envelope(435_435, 0, 5, 2_187_519, 0, 3, 0);// 348_364, 0, 500_012, 1_750_015, 3 (an empty version's tick folds one word-scale payload: near-zero accumulator work); re-pinned to the new readings (limb 4, scan 1_750_015, touches 0, heap 348_348): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work
     pub const TICK_EXPAND_CROSS: QueryEnvelope = query_envelope(611_210, 0, 5, 3_593_782, 156_260, 3, 93_756); // 488_989, 0, 750_010, 2_875_025, 250_013; re-pinned to the new readings (limb 250_006, scan 2_875_025, touches 125_008, heap 488_984): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 4, scan 2_875_025, touches 125_008, heap 488_968): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
     // The version-pair rows: the public
@@ -6841,6 +6857,118 @@ fn own_version_pair_cmp_mask_drift_envelope() {
             .to_version()
             .partial_cmp(&(&v2 / &p2).to_version()),
         "the fused verdict is the materialized verdict"
+    );
+}
+
+/// The fused three-stream comparison `(spine / mask) ⋚ plateau` stays
+/// within its envelope on the masked-hole triple.
+///
+/// The mask owns one leaf at depth [`MASK_HOLE_MASK_DEPTH`] and leaves the
+/// dense spine's whole continuation below it as one unowned run: the
+/// walk's block skip must consume that run whole, so the touch ceiling is
+/// a function of the mask depth, not the spine depth — the depth band
+/// below holds the same reading across a spine-depth doubling — while the
+/// scan column holds every skipped bit still read.
+#[test]
+fn masked_cmp_hole_envelope() {
+    let (spine, mask, plateau) =
+        Shape::MaskedHoleTriple.packed_triple(MASK_HOLE_DEPTH_HI, MASK_HOLE_MASK_DEPTH);
+    let v = spine.version();
+    let p = Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
+    let w = plateau.version();
+    let input_bytes = v.encode().len() + mask.bytes.len() + w.encode().len();
+    let (ord, v, p, w) = query_metered(
+        "masked_cmp_hole",
+        input_bytes,
+        &query_env::MASKED_CMP_HOLE,
+        move || {
+            let ord = (&v / &p).partial_cmp(&w);
+            (ord, v, p, w)
+        },
+    );
+    assert_eq!(
+        ord,
+        Some(Ordering::Less),
+        "the projected spine sits strictly under the plateau (the full-walk verdict)"
+    );
+    assert_eq!(
+        ord,
+        (&v / &p).to_version().partial_cmp(&w),
+        "the fused verdict is the materialized verdict"
+    );
+}
+
+/// One masked-hole fused comparison at spine depth `d`: the accumulator
+/// touches over the comparison body alone, with the full-walk `Less`
+/// verdict enforced (no early exit shortens the measured walk).
+#[cfg(feature = "limb-meter")]
+fn masked_hole_touches(d: usize) -> u64 {
+    let (spine, mask, plateau) = Shape::MaskedHoleTriple.packed_triple(d, MASK_HOLE_MASK_DEPTH);
+    let v = spine.version();
+    let p = Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
+    let w = plateau.version();
+    suanpan::touch_meter::reset();
+    let verdict = (&v / &p).partial_cmp(&w);
+    assert_eq!(
+        verdict,
+        Some(Ordering::Less),
+        "the projected spine sits strictly under the plateau (no early exit)"
+    );
+    suanpan::touch_meter::touches()
+}
+
+/// The flat touch ceiling both depth points must sit under: the measured
+/// reading ×1.25.
+///
+/// Measured: 14 at both spine depths — the block skip makes the reading a
+/// function of the mask depth alone. A per-boundary walk reads ~one touch
+/// per spine boundary here (a thousand and up at these depths), so the
+/// shared ceiling is what a linear mechanism fails at both points.
+#[cfg(feature = "limb-meter")]
+const MASK_HOLE_TOUCH_CEILING: u64 = 18;
+
+/// The improvement tripwire under both depth points: the measured reading
+/// ×0.75, the envelope columns' tripwire genre.
+#[cfg(feature = "limb-meter")]
+const MASK_HOLE_TOUCH_FLOOR: u64 = 10;
+
+/// The masked walk's block skip is depth-independent: the fused
+/// comparison's touches read the same under one flat ceiling at both
+/// masked-hole spine depths.
+///
+/// Shape over point: one ceiling shared across two depths is a claim no
+/// per-boundary mechanism can satisfy — a walk that steps the unowned run
+/// boundary by boundary scales its touches with the spine depth and fails
+/// at both points — while the committed floor (measured ×0.75, the
+/// improvement-tripwire genre) keeps the column live. The two readings are
+/// deterministic and equal: the block skip makes the walk's accumulator
+/// work a function of the mask depth alone, so the band also pins the
+/// readings' difference at zero.
+#[cfg(feature = "limb-meter")]
+#[test]
+fn masked_cmp_hole_depth_band() {
+    let lo = masked_hole_touches(MASK_HOLE_DEPTH_LO);
+    let hi = masked_hole_touches(MASK_HOLE_DEPTH_HI);
+    eprintln!("MEASURED masked_cmp_hole_depth_band: lo={lo} hi={hi}");
+    for (name, reading) in [("lo", lo), ("hi", hi)] {
+        assert!(
+            reading <= MASK_HOLE_TOUCH_CEILING,
+            "masked_cmp_hole depth {name}: {reading} touches exceed the flat ceiling \
+             {MASK_HOLE_TOUCH_CEILING}: the unowned run is being consumed per boundary, \
+             not as a block"
+        );
+        assert!(
+            reading >= MASK_HOLE_TOUCH_FLOOR,
+            "masked_cmp_hole depth {name}: touch counter reads {reading}, below the \
+             {MASK_HOLE_TOUCH_FLOOR} improvement tripwire (measured x0.75): attribute \
+             the drop — an honest improvement re-pins the band; a dead meter is the \
+             bypass this column exists to catch"
+        );
+    }
+    assert_eq!(
+        lo, hi,
+        "the block skip makes the accumulator work a function of the mask depth alone: \
+         a spine-depth doubling may not move the touch reading"
     );
 }
 

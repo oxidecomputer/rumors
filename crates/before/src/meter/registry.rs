@@ -243,6 +243,8 @@ pub enum Shape {
     CopyHole,
     /// The raise-hole pair `RH(k, m)`: [`Shape::packed_pair`]`(k, m)`.
     RaiseHole,
+    /// The masked-hole triple `MH(d, h)`: [`Shape::packed_triple`]`(d, h)`.
+    MaskedHoleTriple,
 }
 
 /// A registered constructor's signature class, binding one [`Shape`] to
@@ -349,6 +351,7 @@ impl Shape {
             Shape::CollapseHole => Builder::Pair2(super::collapse_hole),
             Shape::CopyHole => Builder::Pair2(super::copy_hole),
             Shape::RaiseHole => Builder::Pair2(super::raise_hole),
+            Shape::MaskedHoleTriple => Builder::Triple2(super::masked_hole),
         }
     }
 
@@ -923,6 +926,16 @@ pub enum FamilyId {
     /// neither launches a pre-scan); the copy pair concentrates the
     /// pre-scan's untouched-range copy under one covering scan.
     ScanHole,
+    /// The masked-hole triple `MH(d, h)`: a deep dense spine under a
+    /// shallow diverted mask against a dominating plateau.
+    ///
+    /// The fused three-stream comparison's depth-independence adversary:
+    /// the mask leaves the spine's whole continuation below depth `h` as
+    /// one unowned run whose boundaries no other cursor crosses, so the
+    /// masked walk's block skip must consume it whole and the accumulator
+    /// work reads flat across a spine-depth doubling — the shape a
+    /// per-boundary walk cannot survive.
+    MaskedHole,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -1018,7 +1031,7 @@ impl FamilyId {
     /// Every registered family, in the roster order of record: the
     /// board columns first, in render order, then the envelope-only
     /// probe families.
-    pub const ALL: [FamilyId; 48] = [
+    pub const ALL: [FamilyId; 49] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1067,6 +1080,7 @@ impl FamilyId {
         FamilyId::MeetShade,
         FamilyId::ArmingTrain,
         FamilyId::ScanHole,
+        FamilyId::MaskedHole,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1122,6 +1136,7 @@ impl FamilyId {
             FamilyId::MeetShade => 45,
             FamilyId::ArmingTrain => 46,
             FamilyId::ScanHole => 47,
+            FamilyId::MaskedHole => 48,
         }
     }
 
@@ -1757,6 +1772,21 @@ impl FamilyId {
                     decided: "2026-08-10",
                 },
                 denominator: PACKED,
+                closed_form: None,
+            },
+            FamilyId::MaskedHole => FamilySpec {
+                name: "masked-hole",
+                shapes: &[Shape::MaskedHoleTriple],
+                coverage: Coverage::EnvelopeOnly {
+                    reason: "an operand tuple correlated for the fused three-stream \
+                             comparison alone, as the mask-drift tuples; a tuple built \
+                             for one row signature is a pairing probe, not a shape",
+                    decided: "2026-08-10",
+                },
+                bands: Bands::Priced(&["masked_cmp_hole_depth_band"]),
+                denominator: "combined packed tuple bytes (the depth band's flat ceiling \
+                              is absolute: the block skip makes the reading a function \
+                              of the mask depth alone)",
                 closed_form: None,
             },
         }

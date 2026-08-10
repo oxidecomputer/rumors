@@ -3085,6 +3085,38 @@ fn scattered_id_offset(e: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The masked-hole triple `MH(d, h)`: a deep dense spine under a shallow
+/// diverted mask, compared against a dominating plateau — the fused
+/// three-stream comparison's depth-independence adversary.
+///
+/// Returns `(spine, mask, plateau)`: the dense spine [`dense`]`(d)`, the
+/// diverted id spine [`id_spine`]`(h, true)`, and a single leaf of value 2.
+/// The mask owns exactly one leaf at depth `h` and leaves the spine's whole
+/// continuation below depth `h` as one unowned region whose `Θ(d)`
+/// boundaries no other cursor crosses: the masked walk's block skip must
+/// consume that run as one block, so the comparison's accumulator work is a
+/// function of `h` alone, however deep the spine grows. The plateau
+/// strictly dominates every spine height, so the projected verdict is
+/// `Less` at every elementary interval and the walk never exits early. The
+/// `masked_cmp_hole` envelope and the `masked_cmp_hole_depth_band` band in
+/// `tests/meter.rs` pin the flatness across a spine-depth doubling — the
+/// reading a per-boundary walk cannot reproduce.
+///
+/// # Panics
+///
+/// Panics if `h < 2` (the mask needs a unary run to divert from) or if
+/// `d <= h` (the spine must outrun the mask, or no deep run exists).
+fn masked_hole(d: usize, h: usize) -> (Packed, Packed, Packed) {
+    assert!(
+        h >= 2,
+        "the masked hole's mask needs a unary run to divert from"
+    );
+    assert!(d > h, "the masked hole's spine must outrun its mask");
+    let mut plateau = BitsMut::with_capacity(4);
+    ev_leaf(&mut plateau, 2); // dominates every spine height (they are 0 or 1)
+    (dense(d), id_spine(h, true), Packed::from_bits(plateau))
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> Base {
     pow2(b) - &Base::from(1u8)

@@ -775,7 +775,8 @@ impl FamilyData {
             | FamilyId::MaskDrift
             | FamilyId::MeetShade
             | FamilyId::ArmingTrain
-            | FamilyId::ScanHole => unreachable!(
+            | FamilyId::ScanHole
+            | FamilyId::MaskedHole => unreachable!(
                 "{kind:?} is envelope-only in the registry: it has no operand bundle, \
                  and the board sweeps FamilyId::board() alone"
             ),

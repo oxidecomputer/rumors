@@ -299,6 +299,11 @@ impl<'a> Walk<'a> {
     ///
     /// A block can consume a side to exhaustion, so the caller re-checks
     /// [`done`](Self::done) before applying the advance law.
+    ///
+    /// The `masked_cmp_hole` envelope and its depth band (`tests/meter.rs`)
+    /// pin the skip engaging: on the masked-hole triple the comparison's
+    /// accumulator work is a function of the mask depth alone, flat across
+    /// a spine-depth doubling.
     fn block_skip(&mut self) {
         loop {
             let a_bound = self.others_deepest(Self::A);
