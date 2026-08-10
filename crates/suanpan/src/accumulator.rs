@@ -1226,6 +1226,19 @@ impl Accumulator {
             self.zero_runs.insert(self.top, pos);
         }
         let run_start = pos;
+        // Invariant window: "`top` covers every nonzero digit" holds at
+        // this loop's entry and exit but not within it — a carry step
+        // may write a nonzero remainder above `top` without raising it.
+        // The final landing restores the invariant by itself: the carry
+        // arm always continues (recentering keeps `|carry| >= 2`
+        // whenever `|total| >= LAZY_LIMIT`), so the chain ends in the
+        // in-zone arm; if the chain climbed past the entry `top`, every
+        // digit it reached up there was zero, so the landing sees
+        // `total = value != 0` at the chain's highest position and
+        // raises `top` past every remainder below it. Any exit added
+        // inside this loop must re-establish the invariant itself; the
+        // assert at the end of this function fails loudly if it does
+        // not.
         while value != 0 {
             if pos >= self.digits.len() {
                 self.digits.resize(pos + 1, 0);
@@ -1234,23 +1247,25 @@ impl Accumulator {
             let total = i128::from(self.digits[pos]) + value;
             if total.abs() < LAZY_LIMIT {
                 self.digits[pos] = total as i64;
-                if total != 0 && pos > self.top {
-                    self.top = pos;
+                if total != 0 {
+                    self.top = self.top.max(pos);
                 }
                 value = 0;
             } else {
                 let carry = (total + RECENTER_BIAS) >> DIGIT_BITS;
                 let remainder = total - (carry << DIGIT_BITS);
                 self.digits[pos] = remainder as i64;
-                if remainder != 0 && pos > self.top {
-                    self.top = pos;
-                }
                 value = carry;
                 pos += 1;
             }
         }
         self.crop_runs(run_start, pos);
         self.settle_top();
+        debug_assert!(
+            (self.top == 0 || self.digits[self.top] != 0)
+                && self.digits[self.top + 1..].iter().all(|&digit| digit == 0),
+            "top must rest on the highest nonzero digit at add_at exit"
+        );
     }
 
     /// Re-certify the ledger after the digits `[from, to]` were
