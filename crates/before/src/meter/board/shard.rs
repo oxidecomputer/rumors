@@ -33,8 +33,12 @@
 //! as bit patterns, so nothing rounds), and one trailing `end` count line
 //! guarding truncation. The parent refuses any mismatch — a header that is not
 //! byte-for-byte the one it commissioned, an unknown operation or family name,
-//! a cell outside the child's slice, a duplicate cell, or a count that
-//! disagrees with the lines received. The protocol is internal to the runner
+//! a cell outside the child's slice, a duplicate cell, a count that
+//! disagrees with the lines received, or a merged grid whose per-family
+//! cell counts differ from the reach the registry's `Coverage::Board`
+//! declarations commit (the one check on the *union*, so a child that
+//! silently under-measures is refused even when every capture is
+//! self-consistent). The protocol is internal to the runner
 //! (parent and children are the same binary), not a stable format.
 //!
 //! # Slicing
@@ -73,7 +77,7 @@ use super::measure::{HeapMeter, Sample};
 use super::ops::ops;
 use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
 use super::worst::{check_with, render_map};
-use crate::meter::registry::FamilyId;
+use crate::meter::registry::{Coverage, FamilyId};
 
 /// The wire header's protocol tag; bumped with any change to the cell line's
 /// field order or encoding, or to the slice deal the ownership check enforces,
@@ -490,6 +494,30 @@ fn merge_samples(
             "amp-board shard merge: shard {index}/{count} capture is truncated: no end line"
         );
     }
+    // The completeness refusal: the merged grid must realize, family by
+    // family, exactly the cell count the registry's `Coverage::Board`
+    // declaration commits that family to. Every per-shard check above
+    // validates one capture against itself, so a child that silently
+    // measures fewer cells (an applicability arm regressing to `None`)
+    // still merges cleanly — this is the one total check comparing the
+    // union against the declared reach, and being merge-layer it fires at
+    // every scale, the acceptance ladder of record included.
+    for (family_position, family) in FamilyId::board().enumerate() {
+        let Coverage::Board { cells: declared } = family.spec().coverage else {
+            unreachable!("FamilyId::board() filters on the Board coverage answer")
+        };
+        let merged = cells
+            .keys()
+            .filter(|(_, position)| *position == family_position)
+            .count();
+        assert_eq!(
+            merged,
+            declared,
+            "amp-board shard merge: family {name} merged {merged} cells but the registry \
+             declares {declared}: the sweep lost or grew cells against its Coverage::Board reach",
+            name = family.name()
+        );
+    }
     cells.into_values().collect()
 }
 
@@ -534,9 +562,11 @@ pub fn run(
 ///
 /// # Panics
 ///
-/// As [`run`], plus if the two sweeps disagree on the cell grid (impossible
-/// while both run this binary's own tables: applicability depends on the
-/// family, never the size).
+/// As [`run`], plus if the two sweeps disagree on the cell grid. Each
+/// sweep's merge already refuses a grid that falls short of the registry's
+/// declared reach ([`merge_samples`]'s completeness refusal, which is what
+/// holds applicability scale-independent in practice), so the cross-check
+/// here binds only the row-order seam between the two merges.
 pub fn run_acceptance(
     shards: usize,
     spawn: ShardSpawner<'_>,

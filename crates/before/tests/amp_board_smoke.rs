@@ -210,6 +210,97 @@ fn worst_map_covers_every_operation_row() {
     );
 }
 
+/// The merge refuses a silently shrunk grid: a genuine capture with one
+/// cell line deleted and the end count restated is refused naming the
+/// shorted family, for every family on the board.
+///
+/// This is the completeness refusal's committed known-bad artifact: each
+/// tampered capture is well-formed shard output whose only defect is one
+/// missing cell, and the merge must refuse it rather than render the
+/// shrunk board. The sweep quantifies over the family axis — the axis the
+/// per-family refusal discriminates on; positions within one family short
+/// the same count — by dropping each family's first cell, plus the
+/// grid's last cell (the boundary the end-count restatement is easiest to
+/// forge at). Being a merge-layer check it fires at every scale,
+/// including the release acceptance ladder — the completeness the
+/// per-family smoke pin (`board_runs_to_completion`) can only attest at
+/// its own scale.
+#[test]
+fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
+    let heap = heap_meter();
+    let honest = in_process_spawn(1, &heap)(SMOKE_SCALE).expect("in-process capture succeeds");
+    let text = String::from_utf8(honest[0].clone()).expect("shard captures are UTF-8");
+    let lines: Vec<&str> = text.lines().collect();
+    let declared: usize = lines
+        .last()
+        .expect("a capture ends with its end line")
+        .strip_prefix("end ")
+        .expect("the last line is the end line")
+        .parse()
+        .expect("the end line declares a count");
+    assert_eq!(
+        declared,
+        lines.len() - 2,
+        "the capture is one header, the cell lines, and one end line"
+    );
+    // Each family's first cell line, plus the grid's last cell.
+    let mut positions: Vec<usize> = Vec::new();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for (position, line) in lines[1..=declared].iter().enumerate() {
+        let family = line
+            .split('\t')
+            .nth(2)
+            .expect("a cell line names its operation and family");
+        if seen.insert(family) {
+            positions.push(position);
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        expected_cells_per_family().len(),
+        "the capture reaches every board family"
+    );
+    positions.push(declared - 1);
+    for dropped in positions {
+        // Cell lines sit between the header and the end line; drop one and
+        // restate the count, leaving every per-shard invariant intact.
+        let mut tampered_lines: Vec<&str> = Vec::with_capacity(lines.len() - 1);
+        tampered_lines.push(lines[0]);
+        tampered_lines.extend(
+            lines[1..=declared]
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| *k != dropped)
+                .map(|(_, line)| *line),
+        );
+        let end_line = format!("end {}", declared - 1);
+        tampered_lines.push(&end_line);
+        let mut tampered = tampered_lines.join("\n");
+        tampered.push('\n');
+        let tampered_capture = vec![tampered.into_bytes()];
+
+        let family = lines[1 + dropped]
+            .split('\t')
+            .nth(2)
+            .expect("a cell line names its operation and family");
+        let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let spawn = move |_scale: f64| Ok(tampered_capture.clone());
+            let mut rendered = Vec::new();
+            board::run(SMOKE_SCALE, 1, &spawn, &mut rendered).expect("writing to a Vec succeeds");
+        }))
+        .expect_err("the merge must refuse a capture missing one cell");
+        let message = refusal
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| refusal.downcast_ref::<&str>().map(|s| (*s).to_string()))
+            .expect("the refusal panics with a message");
+        assert!(
+            message.contains(family),
+            "the refusal must name the shorted family {family}: {message}"
+        );
+    }
+}
+
 // ─── the band-name parity survivor ──────────────────────────────────────────
 
 /// The envelope suite's flatness/adequacy band tests: every
