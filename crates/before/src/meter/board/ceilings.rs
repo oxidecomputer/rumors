@@ -111,12 +111,15 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 /// the release profile of record: the delta-folding kernels (validate, sweep,
 /// emit, the query folds, the text parse) touch a handful of digits per delta
 /// code — single digits per packed byte on organic shapes — and the heaviest
-/// honest reader measured is the mirror-narrow tick cross (the memo machinery's
-/// per-site resolution) at 30.8 touches per input byte at the ladder's base
-/// scale, 24.3 at its top \[measured in release, both sampling scales\]. The ceiling
-/// sits at 96, scan's own margin convention, so only a walk that re-reads digit
-/// state growing with the input — the width-circulation genre — goes red on
-/// this column's constant.
+/// honest readers measured are the mirror-narrow tick cross (the memo
+/// machinery's per-site resolution) at 16.0 touches per input byte at the
+/// ladder's base scale and the span fold's stagger cell at 17.2 at its top,
+/// where the balanced reduction's per-level re-touching stacks \[measured in
+/// release, the board's worst-case map at both sampling scales; the fold
+/// rows' touch constant is judged at this same ceiling — only their exponent
+/// leg rides the fold model\]. The ceiling sits at 96, scan's own margin
+/// convention, so only a walk that re-reads digit state growing with the
+/// input — the width-circulation genre — goes red on this column's constant.
 pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 96.0;
 
 /// Scan liveness floor: an operation that must examine its packed operands
@@ -366,7 +369,7 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
 /// buffers' capacity rounded at powers of two, sampled at the position
 /// inside that period the family base fixes for every ladder point (the
 /// base's own doc carries the choice). Measured (release, across the
-/// ladder's two sampling scales): 179.0 → 181.1 B per input byte at heap
+/// ladder's two sampling scales): 178.8 → 181.0 B per input byte at heap
 /// exponent 1.00 — a constant, not a class; the ceiling is the worst
 /// reading ×1.25, rounded up (owner-ratified, conditional on exactly this
 /// flat-constant profile). A reading over it is a genuine
