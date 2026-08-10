@@ -198,6 +198,126 @@ fn assert_join_all_matches_recursive_oracle(mut acc: Party, inputs: Vec<Party>) 
     );
 }
 
+/// The oracle's `join_all` fold discipline with one deliberate defect: a
+/// newer group that already coalesced loses its stack slot on a failed
+/// combine — the fold drops it instead of retaining it at its weight.
+///
+/// The committed known-bad reference for the prod↔tree leg
+/// (`crate::testing::surface_coverage`'s tripwire roster):
+/// [`join_all_differential_convicts_the_dropped_group_oracle`] holds it
+/// convicted by the same comparison the leg's differentials perform, so
+/// the criterion is proven able to reject a wrong reference. Everything
+/// but the defect transcribes the discipline the honest oracle spells.
+fn join_all_dropping_the_retained_group(
+    acc: &mut oracle::Party,
+    inputs: Vec<oracle::Party>,
+) -> Result<(), Vec<oracle::Party>> {
+    let mut overlapping = Vec::new();
+    let mut stack: Vec<(oracle::Party, u32)> = Vec::new();
+    for other in inputs {
+        if !acc.is_disjoint(&other) {
+            overlapping.push(other);
+            continue;
+        }
+        let mut merged = Some(other);
+        let mut weight = 0u32;
+        while stack.last().is_some_and(|(_, w)| *w == weight) {
+            let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
+            match top.join(merged.take().expect("the operand is held while merging up")) {
+                Ok(()) => {
+                    merged = Some(top);
+                    weight += 1;
+                }
+                Err(back) => {
+                    stack.push((top, weight));
+                    if weight == 0 {
+                        overlapping.push(back);
+                    }
+                    // The defect: a retained group would be pushed back at
+                    // its weight here; this variant lets it vanish.
+                    break;
+                }
+            }
+        }
+        if let Some(merged) = merged {
+            stack.push((merged, weight));
+        }
+    }
+    for (group, _) in stack {
+        if let Err(back) = acc.join(group) {
+            overlapping.push(back);
+        }
+    }
+    if overlapping.is_empty() {
+        Ok(())
+    } else {
+        Err(overlapping)
+    }
+}
+
+/// Run the production fold against an injectable reference fold over one
+/// input population and report whether the outcomes agree.
+///
+/// The comparison is the one
+/// [`assert_join_all_matches_recursive_oracle`] asserts — verdict,
+/// hand-back contents and order, final accumulator — as a predicate.
+fn join_all_outcomes_agree(
+    mut acc: Party,
+    inputs: Vec<Party>,
+    reference: impl FnOnce(&mut oracle::Party, Vec<oracle::Party>) -> Result<(), Vec<oracle::Party>>,
+) -> bool {
+    let mut oracle_acc = to_oracle_party(&acc);
+    let oracle_inputs: Vec<oracle::Party> = inputs.iter().map(to_oracle_party).collect();
+    let new = acc
+        .join_all(inputs)
+        .map_err(|back| back.iter().map(to_oracle_party).collect::<Vec<_>>());
+    let want = reference(&mut oracle_acc, oracle_inputs);
+    new == want && to_oracle_party(&acc) == oracle_acc
+}
+
+/// The prod↔tree leg's criterion can fail: the differential comparison
+/// convicts the dropped-group oracle variant at every width that reaches
+/// the retention arm, while agreeing with the honest oracle everywhere.
+///
+/// Per width `w`, the family plants one alias of the first share, fed
+/// third, among `w` pairwise-disjoint forks (`[s0, s1, alias(s0), s2,
+/// ...]`):
+/// the alias coalesces with the share behind it and the weight-1 combine
+/// against the earlier group fails, so the newer group is retained on
+/// the stack at its weight — the arm
+/// [`join_all_dropping_the_retained_group`] erases. The honest
+/// transcription agrees with production at every width (the comparison's
+/// liveness), and the known-bad variant is convicted at exactly the
+/// widths that reach the arm (from `w = 3` up; below that the closing
+/// drain hands the lone alias back either way). The sweep crosses the
+/// balanced counter's first two weight octaves, so the conviction does
+/// not hinge on one stack geometry.
+#[test]
+fn join_all_differential_convicts_the_dropped_group_oracle() {
+    for width in 2..=17u64 {
+        let family = || {
+            let mut acc = Party::seed();
+            let mut shares: Vec<Party> = acc.forks(width).collect();
+            let alias = shares[0].dangerously_alias();
+            shares.insert(2, alias);
+            (acc, shares)
+        };
+        let (acc, inputs) = family();
+        assert!(
+            join_all_outcomes_agree(acc, inputs, |acc, inputs| acc.join_all(inputs)),
+            "the honest oracle transcription must agree with production at width {width}"
+        );
+        let (acc, inputs) = family();
+        let convicted = !join_all_outcomes_agree(acc, inputs, join_all_dropping_the_retained_group);
+        assert_eq!(
+            convicted,
+            width >= 3,
+            "the dropped-group variant must be convicted at exactly the widths \
+             that reach the retention arm (width {width})"
+        );
+    }
+}
+
 proptest! {
     /// The production `join_all` decides exactly as the recursive oracle's
     /// `join_all` over arbitrary normal-form mixes.

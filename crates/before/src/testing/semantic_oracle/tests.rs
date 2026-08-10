@@ -8,6 +8,7 @@
 //! embedding against a value the paper states.
 
 use std::cmp::Ordering;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use proptest::prelude::*;
@@ -15,8 +16,9 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use super::{
-    diff, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join, lift_ev,
-    lift_id, meet, min_ticks, project, rank, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
+    descend, diff, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
+    lift_ev, lift_id, meet, min_ticks, project, rank, sum, Dyadic, Event, FunctionClock, Id,
+    GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
@@ -482,6 +484,160 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
     assert_eq!(f(Dyadic::grid(7, 4)), Base::from(7u64)); // 7/16
     assert_eq!(f(Dyadic::grid(9, 4)), Base::from(9u64)); // 9/16
     assert_eq!(f(Dyadic::grid(15, 4)), Base::from(9u64)); // 15/16
+}
+
+// ───────────────────────── known-bad references, held convicted ─────────────────────────
+
+/// A right comb of depth `d` with one base per node and a ticked tip: the
+/// asymmetric family the known-bad convictions sweep.
+///
+/// Every level's left child is a zero leaf, so the function climbs
+/// toward `1` and the value at the last grid cell is the full path sum —
+/// nonzero at every depth, and never mirror-symmetric.
+fn right_comb(d: u32) -> oracle::Version {
+    use oracle::Version as V;
+    let mut v = V::Leaf(1u64.into());
+    for _ in 0..d {
+        v = V::Node(1u64.into(), Arc::new(V::Leaf(0u64.into())), Arc::new(v));
+    }
+    v
+}
+
+/// The Riemann sum with one deliberate defect: it drops the final grid
+/// cell.
+///
+/// The committed known-bad reference for the prod↔fs leg
+/// (`crate::testing::surface_coverage`'s tripwire roster):
+/// [`rank_differential_convicts_the_cell_dropping_riemann_sum`] holds it
+/// convicted by the same comparison [`rank_realizes_riemann_sum`]
+/// performs.
+fn riemann_sum_dropping_the_last_cell(e: &Event, g: u32) -> crate::Rank {
+    let mut total = Base::ZERO;
+    for k in 0..(1u64 << g) - 1 {
+        total += &e(Dyadic::grid(k, g));
+    }
+    crate::Rank::from_raw(total, u64::from(g))
+}
+
+/// The prod↔fs leg's criterion can fail: the rank differential convicts
+/// the cell-dropping Riemann sum at every depth of an asymmetric family,
+/// while the genuine sum agrees with the impl everywhere.
+///
+/// Per depth, the right-comb family stacks its bases down the rightmost
+/// path, so the dropped cell's height is the full path sum and the
+/// truncated total falls short exactly there. The genuine Riemann sum
+/// realizes the impl's rank at every depth (the comparison's liveness);
+/// the known-bad variant reads different at every depth, so the leg's
+/// criterion is proven able to reject a wrong reference.
+#[test]
+fn rank_differential_convicts_the_cell_dropping_riemann_sum() {
+    for d in 1..=6 {
+        let v = right_comb(d);
+        let g = grid_for(&[ev_depth(&v)]);
+        let want = from_oracle_version(&v).rank();
+        assert_eq!(
+            rank(&lift_ev(v.clone()), g),
+            want,
+            "the genuine Riemann sum must realize the impl rank at depth {d}"
+        );
+        assert_ne!(
+            riemann_sum_dropping_the_last_cell(&lift_ev(v), g),
+            want,
+            "the rank differential must convict the cell-dropping sum at depth {d}"
+        );
+    }
+}
+
+/// The embedding with one deliberate defect: every descent step walks
+/// into the wrong child (the mirror image of the §4 recursion).
+///
+/// The committed known-bad reference for the tree↔fs leg
+/// (`crate::testing::surface_coverage`'s tripwire roster):
+/// [`worked_value_anchor_convicts_the_mirrored_embedding`] holds it
+/// convicted by the paper worked-value anchor's comparison — and
+/// documents that the leg's pointwise-operation differentials alone
+/// cannot convict it.
+fn mirrored_lift_ev(t: oracle::Version) -> Event {
+    fn eval(t: &oracle::Version, mut x: Dyadic) -> Base {
+        use oracle::Version as V;
+        let mut node = t;
+        let mut acc = Base::ZERO;
+        loop {
+            match node {
+                V::Leaf(n) => return acc + n,
+                V::Node(n, l, r) => {
+                    acc += n;
+                    let (right, nx) = descend(x);
+                    // The defect: the honest embedding descends right
+                    // exactly when the point lies in [1/2, 1).
+                    node = if right { l } else { r };
+                    x = nx;
+                }
+            }
+        }
+    }
+    Rc::new(move |x| eval(&t, x))
+}
+
+/// The tree↔fs leg's criterion can fail: the paper worked-value anchor
+/// convicts the mirrored embedding, which the leg's pointwise-operation
+/// differentials alone can never reject.
+///
+/// The mirror is a measure-preserving relabeling of `[0,1)`, so it
+/// commutes with every pointwise combinator: substituted on *both* sides
+/// of the meet differential it stays green at every depth (asserted
+/// below — the twin-spelling blindness that makes an absolute-geometry
+/// anchor the leg's necessary tripwire, not a redundancy). The anchor
+/// and the honest embedding convict it: the mirrored lift of the paper's
+/// §4 worked example disagrees with the samples the paper states, and it
+/// disagrees with the honest lift at every depth of the asymmetric
+/// right-comb family.
+#[test]
+fn worked_value_anchor_convicts_the_mirrored_embedding() {
+    use oracle::Version as V;
+    // The worked tree the committed anchor pins
+    // ([`embedding_matches_paper_worked_value`]'s fixture).
+    let e = V::Node(
+        1u64.into(),
+        Arc::new(V::Leaf(2u64.into())),
+        Arc::new(V::Node(
+            0u64.into(),
+            Arc::new(V::Node(
+                1u64.into(),
+                Arc::new(V::Leaf(0u64.into())),
+                Arc::new(V::Leaf(2u64.into())),
+            )),
+            Arc::new(V::Leaf(0u64.into())),
+        )),
+    );
+    let f = mirrored_lift_ev(e.clone());
+    let got: Vec<Base> = (0..8).map(|k| f(Dyadic::grid(k, 3))).collect();
+    let want: Vec<Base> = [3u64, 3, 3, 3, 2, 4, 1, 1]
+        .into_iter()
+        .map(Base::from)
+        .collect();
+    assert_ne!(
+        got, want,
+        "the worked-value anchor must convict the mirrored embedding"
+    );
+    for d in 1..=6 {
+        let v = right_comb(d);
+        let g = grid_for(&[ev_depth(&v), ev_depth(&e)]);
+        assert!(
+            !ev_eq(&lift_ev(v.clone()), &mirrored_lift_ev(v.clone()), g),
+            "the honest embedding must convict the mirror at depth {d}"
+        );
+        // The blindness this artifact documents: with the mirror on both
+        // sides, the meet differential's comparison stays green.
+        assert!(
+            ev_eq(
+                &mirrored_lift_ev(v.clone() & e.clone()),
+                &meet(mirrored_lift_ev(v), mirrored_lift_ev(e.clone())),
+                g,
+            ),
+            "the pointwise differential is blind to the twin-substituted mirror at depth {d}"
+        );
+    }
 }
 
 /// Guard the soundness premise: the chosen grid must fully resolve every

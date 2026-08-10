@@ -70,15 +70,21 @@
 //!
 //! # Adequacy tripwires
 //!
-//! Each leg keeps a committed artifact proving its criterion can fail
-//! ([`TRIPWIRES`], names checked live): prod↔tree keeps the fold seeds
-//! replaying through the `join_all` differentials (the seeds are pinned
-//! committed by `d1_seeds_stay_committed`) and the brute-force grow
-//! reference as the independent fourth leg; prod↔fs keeps the grid-cap
-//! premise guard; tree↔fs keeps the paper worked-value anchors. Named
-//! obligation, not yet wired: a permanently-red known-bad artifact per leg
-//! (the wrong-child-descent mutation is demonstrated in history, not
-//! committed as a rostered red).
+//! Each leg keeps committed artifacts proving its criterion can fail
+//! ([`TRIPWIRES`], names checked live), in two genres. *Liveness anchors*
+//! prove the machinery runs: prod↔tree keeps the fold seeds replaying
+//! through the `join_all` differentials (the seeds are pinned committed
+//! by `d1_seeds_stay_committed`) and the brute-force grow reference as
+//! the independent fourth leg; prod↔fs keeps the grid-cap premise guard;
+//! tree↔fs keeps the paper worked-value anchors. *Known-bad references,
+//! held convicted*, prove the comparisons can reject: each leg commits a
+//! deliberately-wrong reference variant behind an inverted assertion —
+//! the leg's differential comparison must convict it over a committed
+//! input family — so a criterion that has gone blind reads red instead
+//! of green (prod↔tree convicts the dropped-group fold, prod↔fs the
+//! cell-dropping Riemann sum, tree↔fs the mirrored embedding, whose
+//! conviction test also documents that the leg's pointwise differentials
+//! alone are blind to a twin-substituted mirror).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -96,9 +102,12 @@ mod tests;
 pub(crate) use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
 
 /// Per-leg adequacy tripwires: committed artifacts proving each leg's
-/// criterion can fail. Names are checked live by the roster tests; the
-/// prod↔tree seeds are additionally pinned committed by
-/// `d1_seeds_stay_committed`.
+/// criterion can fail.
+///
+/// Both of the module doc's genres are rostered here — the liveness
+/// anchors and the known-bad references held convicted. Names are
+/// checked live by the roster tests; the prod↔tree seeds are
+/// additionally pinned committed by `d1_seeds_stay_committed`.
 pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     (
         "prod↔tree: the fold seeds replay through the join_all differentials",
@@ -109,8 +118,16 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
         "grow_matches_brute_force",
     ),
     (
+        "prod↔tree: the known-bad dropped-group fold, held convicted",
+        "join_all_differential_convicts_the_dropped_group_oracle",
+    ),
+    (
         "prod↔fs: the grid-resolution premise guard",
         "grid_cap_is_never_reached",
+    ),
+    (
+        "prod↔fs: the known-bad cell-dropping Riemann sum, held convicted",
+        "rank_differential_convicts_the_cell_dropping_riemann_sum",
     ),
     (
         "tree↔fs: the paper worked-value anchor",
@@ -119,6 +136,10 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     (
         "tree↔fs: the leaf-interval constancy anchor",
         "lifted_event_is_constant_within_a_leaf_interval",
+    ),
+    (
+        "tree↔fs: the known-bad mirrored embedding, held convicted",
+        "worked_value_anchor_convicts_the_mirrored_embedding",
     ),
 ];
 
