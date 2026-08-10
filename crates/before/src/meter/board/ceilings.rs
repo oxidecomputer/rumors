@@ -39,9 +39,10 @@
 //!   declaration can never absorb growth.
 //! - **The mirror-wide display pair** (`version_display`,
 //!   `clock_display` on the mirror-wide cross): the render merge's
-//!   documented superlinear time class, judge-rostered on the wall leg,
-//!   honestly reads a superlinear limb exponent and an over-κ limb
-//!   constant on exactly this cross. Both limb legs are judged at the
+//!   documented superlinear time class — the wall leg judges the display
+//!   rows' conversion-dominated cells at its text ceiling — honestly
+//!   reads a superlinear limb exponent and an over-κ limb constant on
+//!   exactly this cross. Both limb legs are judged at the
 //!   stated ceilings ([`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`],
 //!   [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`]); the class's
 //!   liveness is the asymptotics suite's
@@ -400,7 +401,7 @@ pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 247.0;
 ///
 /// Derivation: the render's summary merge on a deep tree of wide interior
 /// values is the documented superlinear time class (the display impls' `#
-/// Complexity` sections; judge-rostered red on the wall leg), so on the
+/// Complexity` sections; judged at the wall leg's text ceiling), so on the
 /// mirror-wide cross the limb column honestly reads a superlinear exponent
 /// against `n_io` — intended and modeled, not a regression. Measured (release,
 /// per-window at the ladder's two sampling scales): fitted limb exponents 1.55 → 1.81
@@ -411,7 +412,8 @@ pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 247.0;
 /// liveness floor is the committed `render_merge_superlinearity_is_alive` pin,
 /// which reads red the day a render-merge cure lands and forces this
 /// declaration's re-derivation in the same change (owner-ratified: the display
-/// pair's superlinearity is the documented, judge-rostered class).
+/// pair's superlinearity is the documented class the wall leg's text ceiling
+/// judges).
 pub const MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING: f64 = 1.96;
 
 /// The mirror-wide display pair's declared render model: the limb *constant*

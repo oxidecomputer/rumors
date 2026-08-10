@@ -42,49 +42,33 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
     names
 }
 
-/// The roster's red set is exactly the permanent schoolbook tripwire
-/// and the hugeleaf display pair.
+/// The roster's red set is exactly the permanent schoolbook tripwire.
 ///
-/// Every other cell — the designed diagonal and the board-red riders
-/// alike — must fit under its own ceiling, `version_distance/jump-pair`
-/// included: the fused co-sweep holds the pair queries linear, and the
-/// judge's time leg is proven alive in the same run by the schoolbook
-/// tripwire's required red (a leg that went dark would read that cell
-/// green and fail this roster). The tripwire's red is the
-/// known-quadratic conversion class it times, where green means the
-/// tripwire went dark; the display pair's red is the conversion-dominated
-/// hugeleaf-width render (measured e 1.39/1.42 at the general 1.3
-/// ceiling), owned by the text column with the class question
-/// open. Removing an owned red silences a standing judgment and adding
-/// one launders a new regression as expected, so both directions must
-/// show up as a diff of this pin.
+/// Every other cell — the designed diagonal, the board-red riders, and
+/// the text-class display cells alike — must fit under its own ceiling,
+/// `version_distance/jump-pair` included: the fused co-sweep holds the
+/// pair queries linear, and the judge's time leg is proven alive in the
+/// same run by the schoolbook tripwire's required red (a leg that went
+/// dark would read that cell green and fail this roster). The tripwire's
+/// red is the known-quadratic conversion class it times, where green
+/// means the tripwire went dark. Rostered reds are re-attested at
+/// `just all` cadence: the bench-judge recipes run there with the machine
+/// to themselves, while the gate's parallel tier judges no wall time.
+/// Removing an owned red silences a standing judgment and adding one
+/// launders a new regression as expected, so both directions must show
+/// up as a diff of this pin.
 #[test]
 fn roster_red_membership_is_pinned() {
-    let mut expected = vec![
-        "clock_display/hugeleaf",
-        "display_schoolbook/hugeleaf",
-        "version_display/hugeleaf",
-    ];
-    expected.sort();
-    assert_eq!(class(&roster(), "red"), expected);
+    assert_eq!(class(&roster(), "red"), ["display_schoolbook/hugeleaf"]);
 }
 
-/// The roster's boundary set is empty at this tip.
-///
-/// The class stays in the schema as enforcement vocabulary. Boundary
-/// membership accepts either verdict, so adding a cell would exempt it
-/// from judgment — any change must be a reviewed diff here.
-#[test]
-fn roster_boundary_membership_is_pinned() {
-    assert_eq!(class(&roster(), "boundary"), [] as [&str; 0]);
-}
-
-/// The roster carries only the two expectation classes plus configuration
+/// The roster carries only the red expectation class plus configuration
 /// and notes.
 ///
 /// A new member would be a new enforcement vocabulary (the judge refuses
 /// unknown members at runtime; this pin catches the edit at test time,
-/// before any bench runs).
+/// before any bench runs). In particular there is no exemption class: a
+/// cell is rostered red or held to its own ceiling, nothing else.
 #[test]
 fn roster_schema_carries_expectations_only() {
     let roster = roster();
@@ -95,28 +79,28 @@ fn roster_schema_carries_expectations_only() {
         .map(String::as_str)
         .collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["boundary", "configuration", "notes", "red"]);
+    assert_eq!(keys, ["configuration", "notes", "red"]);
 }
 
-/// The sidecar's text-ceiling set is exactly the wide-display pair:
-/// `version_display_wide` and `display_schoolbook`, the judge-only
-/// conversion-class cells.
-///
-/// Distinct from the *hugeleaf display pair* of board rows,
-/// `version_display` and `clock_display`, rostered red above at the
-/// general ceiling — four cell IDs end in `/hugeleaf`, two sets.
+/// The sidecar's text-ceiling set is exactly the conversion-dominated
+/// display cells: the judge-only wide-display pair (`version_display_wide`
+/// and `display_schoolbook`) and the *hugeleaf display pair* of board rows
+/// (`version_display` and `clock_display`), whose declared render model
+/// lives at the set's declaration site.
 ///
 /// The text ceiling (1.7) exists for conversion-dominated rendering only,
 /// and every other cell must stay judged at the general ceiling — widening
 /// this set is the one remaining way to move a cell's ceiling, so it is
 /// pinned here and asserted again at every sidecar write.
 #[test]
-fn sidecar_text_ceiling_set_is_the_wide_display_pair() {
+fn sidecar_text_ceiling_set_is_the_display_cells() {
     assert_eq!(
         sidecar::TEXT_CEILING_CELLS,
         [
             "version_display_wide/hugeleaf",
-            "display_schoolbook/hugeleaf"
+            "display_schoolbook/hugeleaf",
+            "version_display/hugeleaf",
+            "clock_display/hugeleaf",
         ]
     );
 }
@@ -129,11 +113,7 @@ fn sidecar_text_ceiling_set_is_the_wide_display_pair() {
 /// green.
 #[test]
 fn wide_display_pair_expectations_are_split() {
-    let roster = roster();
-    let red = class(&roster, "red");
-    let boundary = class(&roster, "boundary");
+    let red = class(&roster(), "red");
     assert!(red.contains(&"display_schoolbook/hugeleaf".to_string()));
-    for rostered in [&red, &boundary] {
-        assert!(!rostered.contains(&"version_display_wide/hugeleaf".to_string()));
-    }
+    assert!(!red.contains(&"version_display_wide/hugeleaf".to_string()));
 }

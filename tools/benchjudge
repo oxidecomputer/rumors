@@ -67,8 +67,8 @@ membership-by-name philosophy — makes the judge enforce a *fixed* verdict
 map instead of all-green, so `just all` stays meaningful while owned reds
 await their cures. The file pins the configuration it was recorded under
 (profile, sampling — a single mode or a list when the expectations hold
-under several, scale pair; mismatch is exit 2) and lists cells in two
-expectation classes — never a ceiling, which only the sidecar assigns:
+under several, scale pair; mismatch is exit 2) and lists cells in one
+expectation class — never a ceiling, which only the sidecar assigns:
 
   - "red": must be judged and must read RED at the cell's own ceiling.
     Reading GREEN is a verdict-flip or liveness signal (exit 1, cell
@@ -77,19 +77,14 @@ expectation classes — never a ceiling, which only the sidecar assigns:
     tripwire, a red expectation at its text ceiling, green means the
     tripwire has gone dark. Reading SKIP is likewise a violation —
     drifting out of judgment is a change, not a pass.
-  - "boundary": must be judged; either verdict is accepted while the
-    fitted exponent stays within the fit-noise band of the cell's own
-    ceiling (fit_noise_band, derivation there). Outside the band the
-    cell has genuinely moved and the roster entry is stale (exit 1).
-    Reading SKIP is a violation, as above.
 
 Any unrostered cell reading RED is a violation (exit 1). Unrostered cells
 may drift between GREEN and SKIP freely — both are non-red, and
 near-floor cells cross the judgment floor with machine noise. A roster
 naming a cell the run does not contain is an input error (exit 2), as is
-a roster carrying any member beyond the two classes, `configuration`,
-and `notes` — in particular, a roster inventing a ceiling-selection
-class refuses instead of judging.
+a roster carrying any member beyond `red`, `configuration`, and `notes`
+— in particular, a roster inventing a ceiling-selection class or an
+exemption class refuses instead of judging.
 
 Usage:
     benchjudge --criterion-dir DIR --lo NAME --hi NAME \\
@@ -153,7 +148,7 @@ CRITERION_TIMER_ERROR_NANOS = 100
 # too small to time and a lo-side floor would evict real judged coverage
 # (benign rows, the dense projection, and the cliff fork all judge from
 # lo medians of 2-10 us). The honest resolution bound under that choice
-# is FIT_NOISE_EXPONENT_BAND, below.
+# is the fit-noise band, below (fit_noise_band).
 RESOLUTION_DOMINANCE_FACTOR = 100
 
 # The judgment floor: cells whose larger-scale median sits below this are
@@ -171,10 +166,10 @@ MIN_JUDGED_MEDIAN_NANOS = CRITERION_TIMER_ERROR_NANOS * RESOLUTION_DOMINANCE_FAC
 # (general ceiling: ~0.052 at x4, ~0.156 at x15; and once span^ceiling
 # reaches RESOLUTION_DOMINANCE_FACTOR the worst-case lo median falls to
 # the timer error and the model bounds nothing). The derived band
-# constants below are therefore exact at the nominal span and an
-# underestimate for a wider-span cell: a boundary-roster expectation on a
-# cell whose measured span exceeds the nominal must re-derive its band at
-# that cell's own span, not lean on these constants.
+# constant below is therefore exact at the nominal span and an
+# underestimate for a wider-span cell: any argument leaning on the band
+# (the text ceiling's placement) must re-derive it at the cell's own span
+# when that span moves.
 NOMINAL_DENOMINATOR_SPAN = 4.0
 
 # How far timer resolution alone can pull a fitted exponent that sits at
@@ -197,10 +192,6 @@ def fit_noise_band(ceiling):
         )
     ) / math.log(NOMINAL_DENOMINATOR_SPAN)
 
-
-# The band at the default ceiling (~0.052), the boundary class's
-# acceptance width.
-FIT_NOISE_EXPONENT_BAND = fit_noise_band(MAX_WALL_SCALING_EXPONENT)
 
 # The band at the text ceiling (~0.088): 4^1.7 is a deeper lo-side reach,
 # so the band is wider. The text ceiling's derivation (at the constant)
@@ -447,13 +438,13 @@ def load_cells(criterion_dir, lo, hi, denoms_lo_path, denoms_hi_path, tip):
 
 
 def load_roster(path):
-    """Read the expected-verdict roster: pinned configuration and classes.
+    """Read the expected-verdict roster: pinned configuration and the red class.
 
-    The only classes are the two expectations, `red` and `boundary`; any
-    other member is an input error — a roster cannot mint a class, and in
-    particular cannot mint one that selects a ceiling (ceilings ride the
-    sidecar). The configuration's `sampling` pin is a single mode or a
-    list of modes the expectations hold under.
+    The only expectation class is `red`; any other member is an input
+    error — a roster cannot mint a class, and in particular cannot mint
+    one that selects a ceiling (ceilings ride the sidecar) or exempts a
+    cell from judgment. The configuration's `sampling` pin is a single
+    mode or a list of modes the expectations hold under.
     """
     try:
         roster = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -461,13 +452,12 @@ def load_roster(path):
         raise JudgeError(f"{path}: cannot read the roster: {error}") from error
     except json.JSONDecodeError as error:
         raise JudgeError(f"{path}: the roster is not JSON: {error}") from error
-    classes = ("red", "boundary")
-    if not isinstance(roster, dict) or not {"configuration", "red", "boundary"} <= set(
+    if not isinstance(roster, dict) or not {"configuration", "red"} <= set(
         roster
-    ) <= {"configuration", "notes", *classes}:
+    ) <= {"configuration", "notes", "red"}:
         raise JudgeError(
             f"{path}: expected a JSON object with `configuration`, `red`, "
-            f"`boundary`, and optionally `notes`"
+            f"and optionally `notes`"
         )
     configuration = roster["configuration"]
     wanted = {"profile", "sampling", "scale_lo", "scale_hi"}
@@ -480,15 +470,11 @@ def load_roster(path):
             f"{path}: the sampling pin must be one of {SAMPLINGS} or a "
             f"nonempty list of them, got {sampling!r}"
         )
-    for cls in classes:
-        names = roster[cls]
-        if not isinstance(names, list) or not all(
-            isinstance(name, str) for name in names
-        ):
-            raise JudgeError(f"{path}: `{cls}` must be a list of cell IDs")
-    overlap = sorted(set(roster["red"]) & set(roster["boundary"]))
-    if overlap:
-        raise JudgeError(f"{path}: cells rostered both red and boundary: {overlap}")
+    names = roster["red"]
+    if not isinstance(names, list) or not all(
+        isinstance(name, str) for name in names
+    ):
+        raise JudgeError(f"{path}: `red` must be a list of cell IDs")
     return roster
 
 
@@ -524,16 +510,15 @@ def check_roster_configuration(roster_path, configuration, stamp_lo, stamp_hi):
 def roster_violations(roster, rows):
     """The named roster violations in `rows`, in row order.
 
-    Every rostered cell must be judged with its class's expectation at the
-    cell's own ceiling — the roster never selects a ceiling; any
-    unrostered RED is a violation. A rostered cell absent from the run
-    entirely is an input error, not a violation: the run and the roster
-    describe different boards.
+    Every rostered cell must be judged and must read red at the cell's
+    own ceiling — the roster never selects a ceiling; any unrostered RED
+    is a violation. A rostered cell absent from the run entirely is an
+    input error, not a violation: the run and the roster describe
+    different boards.
     """
     red = set(roster["red"])
-    boundary = set(roster["boundary"])
     names = {name for _, name, _, _, _ in rows}
-    missing = sorted((red | boundary) - names)
+    missing = sorted(red - names)
     if missing:
         raise JudgeError(f"the roster names cells this run does not contain: {missing}")
     violations = []
@@ -550,20 +535,6 @@ def roster_violations(roster, rows):
                 violations.append(
                     f"{name}: rostered red fell below the judgment floor: "
                     f"drifting out of judgment is a change, not a pass"
-                )
-        elif name in boundary:
-            band = fit_noise_band(CEILINGS[ceiling])
-            if verdict == "SKIP":
-                violations.append(
-                    f"{name}: rostered boundary fell below the judgment floor: "
-                    f"drifting out of judgment is a change, not a pass"
-                )
-            elif abs(exponent - CEILINGS[ceiling]) > band:
-                violations.append(
-                    f"{name}: rostered boundary fitted e {exponent:.2f}, outside "
-                    f"the +-{band:.3f} fit-noise band around its "
-                    f"{CEILINGS[ceiling]} ceiling: the cell has "
-                    f"genuinely moved; re-roster it deliberately"
                 )
         elif verdict == "RED":
             violations.append(
@@ -812,7 +783,6 @@ def self_test():
 
     linear = (floor * 10.0, floor * 40.0)
     quadratic = (floor * 10.0, floor * 160.0)
-    at_ceiling = (floor * 10.0, floor * 10.0 * 4**MAX_WALL_SCALING_EXPONENT)
     sub_floor = (floor / 32, floor / 2)
 
     # Exit 0 on all-green.
@@ -846,7 +816,7 @@ def self_test():
     # sidecar rewritten with another class is a mismatch, never a re-score.
     assert judged({"op/a": linear}, ceilings={"op/a": ("general", "text")}) == 2
 
-    def roster(red=(), boundary=(), sampling="quick", **extra_classes):
+    def roster(red=(), sampling="quick", **extra_classes):
         return {
             "configuration": {
                 "profile": "optimized",
@@ -855,7 +825,6 @@ def self_test():
                 "scale_hi": 4.0,
             },
             "red": list(red),
-            "boundary": list(boundary),
             **{cls: list(names) for cls, names in extra_classes.items()},
         }
 
@@ -867,37 +836,8 @@ def self_test():
     assert judged({"op/quad": sub_floor}, roster=roster(["op/quad"])) == 1
     # An unrostered red is a violation.
     assert judged({"op/quad": quadratic}, roster=roster()) == 1
-    # A boundary cell may read either verdict within the fit-noise band...
-    assert judged({"op/edge": at_ceiling}, roster=roster(boundary=["op/edge"])) == 0
-    over_band = (floor * 10.0, floor * 10.0 * 4**2.0)
-    under_band = (floor * 10.0, floor * 40.0)
-    # ...but not a verdict outside it (the cell genuinely moved)...
-    assert judged({"op/edge": over_band}, roster=roster(boundary=["op/edge"])) == 1
-    assert judged({"op/edge": under_band}, roster=roster(boundary=["op/edge"])) == 1
-    # ...and never a sub-floor skip.
-    assert judged({"op/edge": sub_floor}, roster=roster(boundary=["op/edge"])) == 1
-    # A boundary expectation on a text-class cell uses the band around the
-    # TEXT ceiling: at the text ceiling it holds, well under it the cell
-    # has genuinely moved.
-    at_text_ceiling = (floor * 10.0, floor * 10.0 * 4**MAX_TEXT_SCALING_EXPONENT)
     dc_shape = (floor * 10.0, floor * 10.0 * 4**1.5)
     school_shape = (floor * 10.0, floor * 10.0 * 4**2.0)
-    assert (
-        judged(
-            {"op/t": at_text_ceiling},
-            roster=roster(boundary=["op/t"]),
-            ceilings={"op/t": "text"},
-        )
-        == 0
-    )
-    assert (
-        judged(
-            {"op/t": dc_shape},
-            roster=roster(boundary=["op/t"]),
-            ceilings={"op/t": "text"},
-        )
-        == 1
-    )
     # Unrostered cells drift between GREEN and SKIP freely: both non-red.
     assert judged({"op/a": linear, "op/tiny": sub_floor}, roster=roster()) == 0
     # A text-class cell is judged at the text ceiling by its SIDECAR
@@ -978,14 +918,6 @@ def self_test():
     assert judged({"op/a": linear}, roster=roster(sampling=[])) == 2
     # A roster naming a cell the run does not contain is an input error.
     assert judged({"op/a": linear}, roster=roster(["op/gone"])) == 2
-    # A cell rostered in both classes is an input error.
-    assert (
-        judged(
-            {"op/quad": quadratic},
-            roster=roster(red=["op/quad"], boundary=["op/quad"]),
-        )
-        == 2
-    )
 
 
 def main(argv):
@@ -1053,8 +985,7 @@ def main(argv):
             return 1
         print(
             f"benchjudge: roster {args.roster} satisfied "
-            f"({len(roster['red'])} expected red, "
-            f"{len(roster['boundary'])} boundary)",
+            f"({len(roster['red'])} expected red)",
             file=sys.stdout,
         )
         return 0

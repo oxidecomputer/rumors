@@ -598,16 +598,15 @@ bench-alloc-ab target arm="shipped" *filter:
 # judge refuses mismatched pairs), and tools/benchjudge fits every cell's
 # exponent across the two (denominated against the board's own per-cell
 # bytes) at the cell's own ceiling — general 1.3 for the board rows, text
-# 1.7 for the wide-display pair, the class declared per cell by the bench
+# 1.7 for the conversion-dominated display cells (the wide-display pair
+# and the hugeleaf display pair), the class declared per cell by the bench
 # sidecar, never by the roster — red/green table. Every run judges through
 # the committed roster (tools/benchjudge-expected.json: expected reds by
-# cell name — the permanent schoolbook tripwire, required RED at its text
-# ceiling, plus the hugeleaf display pair — and boundary cells by name,
-# that set empty at this tip; tests/bench_judge_roster.rs pins the exact
+# cell name — exactly the permanent schoolbook tripwire, required RED at
+# its text ceiling; tests/bench_judge_roster.rs pins the exact
 # membership; the sampling pin covers both modes — the expectations are
 # exponent classes, which hold under either regime), so it passes on the
-# honest tree while the rostered reds stand and fails on any unexpected
-# red OR unexpected green.
+# honest tree and fails on any unexpected red OR unexpected green.
 
 # Judge the board bench exponents across both scales through the roster.
 bench-judge sampling="quick" cells="pinned":

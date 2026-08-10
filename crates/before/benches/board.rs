@@ -128,16 +128,22 @@ fn bench_board(c: &mut Criterion) {
     let wide = WideDisplay::build(scale);
     // Cell IDs are `op/family` and denominators are the board's own
     // per-cell bytes, in board row order; the wide-display pair rides the
-    // same sidecar after the board rows and declares the text ceiling —
-    // every board cell is judged at the general one.
+    // same sidecar after the board rows. Each cell's ceiling class comes
+    // from the pinned set: the conversion-dominated display cells
+    // (`sidecar::TEXT_CEILING_CELLS`, the declared render model at the
+    // pin) are judged at the text ceiling, every other board cell at the
+    // general one — so a cell's class can only move by editing the pinned
+    // constant, never here.
     let mut denoms: Vec<(String, usize, sidecar::Ceiling)> = cells
         .iter()
         .map(|cell| {
-            (
-                format!("{}/{}", cell.op, cell.family),
-                cell.denominator_bytes(),
-                sidecar::Ceiling::General,
-            )
+            let id = format!("{}/{}", cell.op, cell.family);
+            let ceiling = if sidecar::TEXT_CEILING_CELLS.contains(&id.as_str()) {
+                sidecar::Ceiling::Text
+            } else {
+                sidecar::Ceiling::General
+            };
+            (id, cell.denominator_bytes(), ceiling)
         })
         .collect();
     denoms.push((
