@@ -108,8 +108,8 @@ pub enum Exclusion {
     },
     /// Linearity, borrowing, and adjacent Rust-API mechanics.
     ///
-    /// Aliasing doors, borrow settling and lending, hand-out iterators,
-    /// and convenience predicates — shapes the `Clone` references cannot
+    /// Aliasing doors, borrow settling and lending, and hand-out
+    /// iterators — shapes the `Clone` references cannot
     /// express. The hazard side is owned by the compile-time pins
     /// (`static_assertions` beside the `Party`/`Clock` definitions and
     /// the array-split `compile_fail` doctest twins).
@@ -232,6 +232,23 @@ const RANK_WIRE_PINS: &[&str] = &[
     "rank_encoding_size_is_provenance_linear",
 ];
 
+/// Shorthand for a plain writer-sink codec door (`encode_to` on `Party`,
+/// `Version`, and `Clock`).
+///
+/// The identical emission as `encode` with a writer sink, with the
+/// agreement pinned across all three types by `encode_to_matches_encode`
+/// beside each door's doctest.
+const fn encode_to_row(op: &'static str) -> SurfaceRow {
+    SurfaceRow {
+        op,
+        prod_tree: Leg::Excluded(Exclusion::NoWireFormatInReferences {
+            pins: &["encode_to_matches_encode"],
+        }),
+        prod_fs: Leg::Excluded(Exclusion::NoWireFormatInReferences { pins: &[] }),
+        tree_fs: Leg::Excluded(Exclusion::NoWireFormatInReferences { pins: &[] }),
+    }
+}
+
 /// The `causally` combinators' pinning laws.
 ///
 /// Every predicate is a definitional combination of `partial_cmp`
@@ -313,7 +330,9 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Party::is_seed",
         prod_tree: Leg::Bound("is_seed_matches_the_oracle"),
-        prod_fs: Leg::Excluded(Exclusion::LinearityMechanics { pins: &[] }),
+        prod_fs: Leg::Excluded(Exclusion::DefinitionalCombinator {
+            pins: &["is_seed_iff_equals_seed"],
+        }),
         tree_fs: Leg::Excluded(Exclusion::DefinitionalCombinator {
             pins: &["is_seed_iff_equals_seed"],
         }),
@@ -386,7 +405,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded(Exclusion::LinearityMechanics { pins: &[] }),
     },
     codec_row("Party::encode"),
-    codec_row("Party::encode_to"),
+    encode_to_row("Party::encode_to"),
     codec_row("Party::encoded_bits"),
     codec_row("Party::decode"),
     codec_row("Party::as_bytes"),
@@ -508,7 +527,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Trans("project_is_the_operator_spelling"),
     },
     codec_row("Version::encode"),
-    codec_row("Version::encode_to"),
+    encode_to_row("Version::encode_to"),
     codec_row("Version::decode"),
     codec_row("Version::encoded_bits"),
     codec_row("Version::as_bytes"),
@@ -636,7 +655,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("quotient_realizes_region_mask"),
     },
     codec_row("Clock::encode"),
-    codec_row("Clock::encode_to"),
+    encode_to_row("Clock::encode_to"),
     codec_row("Clock::decode"),
     codec_row("Clock::encoded_bits"),
     SurfaceRow {
@@ -1149,9 +1168,38 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded(Exclusion::GridCap { guard: "grid_cap_is_never_reached" }),
     },
     SurfaceRow {
-        op: "meter / error / iter plumbing",
-        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "board_coverage_tiles_the_public_surface", pins: &[] }),
-        prod_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "board_coverage_tiles_the_public_surface", pins: &[] }),
-        tree_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "board_coverage_tiles_the_public_surface", pins: &[] }),
+        op: "meter instrumentation plumbing",
+        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "board_coverage_tiles_the_public_surface",
+            pins: &[],
+        }),
+        prod_fs: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "board_coverage_tiles_the_public_surface",
+            pins: &[],
+        }),
+        tree_fs: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "board_coverage_tiles_the_public_surface",
+            pins: &[],
+        }),
+    },
+    SurfaceRow {
+        op: "error verdict types (Decode / Parse / Crossed)",
+        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "Version::decode",
+            pins: &[
+                "span_gate_admits_exactly_the_ordered",
+                "rank_decoding_rejects_each_genre",
+                "span_decode_rejects_each_genre",
+                "from_str_is_strict_about_shape",
+            ],
+        }),
+        prod_fs: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "Version::decode",
+            pins: &[],
+        }),
+        tree_fs: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "Version::decode",
+            pins: &[],
+        }),
     },
 ];

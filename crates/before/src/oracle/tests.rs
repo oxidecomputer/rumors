@@ -257,7 +257,8 @@ proptest! {
 
 proptest! {
     /// Peek does not advance: `version()` is idempotent and leaves the clock
-    /// unchanged. (Fork preserving history is covered by `fork_preserves_version`.)
+    /// unchanged. (Fork preserving history is covered by
+    /// `oracle_fork_preserves_version`.)
     #[test]
     fn peek_does_not_advance(ops in world_strategy()) {
         for c in &run(&ops) {

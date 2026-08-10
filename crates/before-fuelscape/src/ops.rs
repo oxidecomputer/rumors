@@ -2087,7 +2087,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "a depth regime, not an operation; the atlas plots operations over size",
     ),
     (
-        "meter / error / iter plumbing",
-        "instrumentation and data plumbing, not ITC operations",
+        "meter instrumentation plumbing",
+        "the measurement apparatus itself, not an ITC operation",
+    ),
+    (
+        "error verdict types (Decode / Parse / Crossed)",
+        "verdict carriers of the paper ops' rejection arms; the producing \
+         doors' panels price the walks that mint them",
     ),
 ];

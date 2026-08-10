@@ -603,10 +603,15 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          deep_tree_stack_safety, and every board family already scales depth",
     ),
     (
-        "meter / error / iter plumbing",
-        "instrumentation and data plumbing with no packed-input computation; \
-         the meters are the measurement apparatus itself, feature-gated out of \
-         production builds",
+        "meter instrumentation plumbing",
+        "the measurement apparatus itself, feature-gated out of production \
+         builds; no packed-input computation of its own",
+    ),
+    (
+        "error verdict types (Decode / Parse / Crossed)",
+        "verdict carriers of the paper ops' rejection arms, with no \
+         packed-input computation; the producing doors' board rows price \
+         the walks that mint them",
     ),
 ];
 

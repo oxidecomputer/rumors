@@ -55,8 +55,8 @@ pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
                  binaries alone and never part of a production build; the tree's \
                  totality discipline is the family registry's own (the \
                  compiler-forced constructor table and the registry pins), and \
-                 the differential roster excludes it by the meter/error/iter \
-                 plumbing family row",
+                 the differential roster excludes it by the meter \
+                 instrumentation plumbing family row",
         decided: "2026-07-30",
     },
     Exception {

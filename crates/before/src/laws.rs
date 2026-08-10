@@ -2629,20 +2629,38 @@ laws! {
     }
 
     /// Projection is additive over any without-carved decomposition of a
-    /// region: when `r = p \ q` and `inner = p \ r` both survive, they
-    /// partition `p`'s region, and `(v/r) | (v/inner) == v / p`.
+    /// region: for `r = p \ q` and `inner = p \ r`, the two remainders
+    /// partition `p`'s region and `(v/r) | (v/inner) == v / p`.
     ///
     /// [`projection_additive_over_fork`] states additivity for the balanced
     /// fork geometry; the ragged region pairs `without` carves are that
-    /// law's negative space, and overlapping arbitrary parties keep both
-    /// remainders inhabited under mass. Vacuous only when `q` covers `p`
-    /// (no outer remainder) or is disjoint from it (no inner part).
+    /// law's negative space, and overlapping arbitrary parties keep them
+    /// inhabited under mass. When `q` carves nothing out of `p` (it covers
+    /// `p`, or is disjoint from it — every pair in a one-world population,
+    /// whose parties are pairwise disjoint), the law constructs the
+    /// decomposition from `p`'s own fork half through the same `without`
+    /// doors instead: the additivity equation runs on every call, so no
+    /// population can leave this law vacuous.
     fn projection_additive_over_carved_regions {
-        let Some(r) = p.dangerously_alias().without(q) else {
-            return true; // q covers p: no outer remainder to carve
-        };
-        let Some(inner) = p.dangerously_alias().without(&r) else {
-            return true; // r == p (q disjoint from p): no inner part
+        let carved = p
+            .dangerously_alias()
+            .without(q)
+            .and_then(|r| p.dangerously_alias().without(&r).map(|inner| (r, inner)));
+        let (r, inner) = match carved {
+            Some(pair) => pair,
+            None => {
+                // The constructed decomposition: carve p by its own fork
+                // half, still through the without doors under law.
+                let mut keeper = p.dangerously_alias();
+                let half = keeper.fork();
+                let Some(r) = p.dangerously_alias().without(&half) else {
+                    return false; // a proper half never covers its parent
+                };
+                let Some(inner) = p.dangerously_alias().without(&r) else {
+                    return false; // nor does the kept half
+                };
+                (r, inner)
+            }
         };
         ((v / &r).to_version() | (v / &inner).to_version()) == (v / p)
     }
@@ -2957,7 +2975,8 @@ laws! {
     pub static CLOCK_PAIR: (a: &Clock, b: &Clock);
 
     /// `Eq` is canonical-byte equality on whole stamps: `a == b ⟺
-    /// encode(a) == encode(b)`.
+    /// encode(a) == encode(b)`, and clock `Eq` is exactly componentwise
+    /// party and version `Eq`.
     ///
     /// Both directions matter: equal clocks must encode identically (the
     /// canonical encoding is a function of the value), and distinct clocks
@@ -2965,9 +2984,14 @@ laws! {
     /// uses rest on). With the frame pinned as the party's bytes then the
     /// version's ([`encode_frames_party_then_version`]), the biconditional
     /// also pins the id/event boundary unambiguous: a difference in either
-    /// component alone changes the composite bytes.
+    /// component alone changes the composite bytes. The componentwise
+    /// clause *executes* the link the first clause otherwise assumes —
+    /// with an `Eq` refactored to whole-encode comparison, the
+    /// biconditional alone would degrade toward tautology and a
+    /// party-frame prefix ambiguity could hide behind it.
     fn clock_eq_iff_bytes_eq {
         (a == b) == (a.encode() == b.encode())
+            && (a == b) == (a.party() == b.party() && a.version() == b.version())
     }
 
     /// `Eq`/`Hash` coherence: equal clocks hash equally.
