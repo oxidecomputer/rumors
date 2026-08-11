@@ -125,19 +125,13 @@
         "anchor": "(Sign::Positive, code)",
         "disposition": "unreachable",
         "why": "run's sole call site (fill.rs's left-full arm) passes the walk's first_read, which is false by then: the arm consumes the site's collapse range first (scan_max_consuming; a subtree has at least one leaf, and consume_payload flips first_read on the first payload)"
-      },
-      {
-        "anchor": "fold_signed_int(entry, net.sign, &net.magnitude);",
-        "disposition": "unreachable",
-        "why": "max_range runs only at a right-full raise, after the node's left range completed, and every completed range emits at least one virtual emission (the leaf arm and copy_range both emit; skip_collapse suspends a site whose sibling range emits recursively), which retires the entry net at its first arming"
       }
     ],
     "crates/before/src/version/skyline/grow.rs": [
       {
         "anchor": "a full id over an event node collapses under fill",
-        "offset": 2,
-        "disposition": "unreachable",
-        "why": "no executable code: both match arms above diverge, so the block never falls through (a region artifact on the closing brace)"
+        "disposition": "panic-arm",
+        "why": "grow inflates only the unchanged branch, where a fully-owned terminal covers a single event leaf: a full id over an event node collapses under fill and trips the changed flag first, so the inflation walk never meets one"
       }
     ],
     "crates/before/src/version/skyline/literal.rs": [
@@ -182,23 +176,6 @@
     ],
     "crates/before/src/version/skyline/place.rs": [
       {
-        "anchor": "(None, None) => Placement::Concurrent(Endpoint::Both),",
-        "disposition": "unreachable",
-        "why": "both-endpoints concurrency is delivered mid-walk: span's hook drops a refuted side only while the other is live, so the second side to refute sees other_live false and breaks with Concurrent(Both) there, and a live side at exhaustion keeps a surviving direction (its hook ran after its final fold) \u2014 finish never sees two Nones. The arm keeps the map total; the verdict itself is exercised through the hook's break."
-      },
-      {
-        "anchor": "} else if matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Greater)) {",
-        "offset": 3,
-        "disposition": "unreachable",
-        "why": "a refuted start direction returns Dominance::Before from the loop's hook (the inline comment carries the argument); the arm keeps the finish map total"
-      },
-      {
-        "anchor": "} else if matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Less)) {",
-        "offset": 3,
-        "disposition": "unreachable",
-        "why": "a refuted end direction returns Precedence::After from the loop's hook (the inline comment carries the argument); the arm keeps the finish map total"
-      },
-      {
         "anchor": "Self::END => self.end.as_ref().map_or(0, |side| side.cursor.depth()),",
         "offset": 1,
         "disposition": "panic-arm",
@@ -242,6 +219,26 @@
         "why": "the sole call site (finish) pre-checks promotions non-empty; the guard keeps the method total"
       }
     ],
+    "crates/before/src/version/skyline/walk.rs": [
+      {
+        "anchor": "let mut consumed = false;",
+        "offset": 7,
+        "disposition": "unreachable",
+        "why": "net_leaves' first-payload direction never fires: its sole caller is the pre-scan's collapse skip, whose first flag is the scan run's threading, false from entry (the fill walk consumes the covering site's collapse range before any scan launches; prescan.rs's (Sign::Positive, code) entry pins the same argument at the scan's own payload reader)"
+      },
+      {
+        "anchor": "let mut consumed = false;",
+        "offset": 8,
+        "disposition": "unreachable",
+        "why": "the first-payload arm's value, with the line above"
+      },
+      {
+        "anchor": "if !consumed {",
+        "offset": 1,
+        "disposition": "unreachable",
+        "why": "the empty-walk return never fires: net_leaves' sole caller hands it a pending descended leaf, so the first iteration always consumes a payload (the call site's expect reads the Some)"
+      }
+    ],
     "crates/before/src/version/skyline/watermark.rs": [
       {
         "anchor": "residue.sub_accum(&diff);",
@@ -260,6 +257,12 @@
         "offset": 8,
         "disposition": "remediation",
         "why": "the follower-propagation loop's close, with the line above"
+      },
+      {
+        "anchor": "pub(super) fn undercuts_here(&mut self) -> bool {",
+        "offset": 7,
+        "disposition": "remediation",
+        "why": "reachable in principle: an emission dropping below the anchor but not past the latent-parked minimum refuses the undercut here; only generated populations graze it, nondeterministically (this function's branch entry names the same gap). Family needed: a directed emission at a height between a latent-parked minimum and its stale anchor"
       }
     ]
   },
@@ -290,11 +293,6 @@
         "anchor": "let (sign, magnitude) = if first {",
         "disposition": "unreachable",
         "why": "the first direction never fires: run's sole call site passes the walk's first_read, already false after the site's consuming scan (the line pin's twin entry)"
-      },
-      {
-        "anchor": "if let Some(entry) = &mut self.entry_net {",
-        "disposition": "unreachable",
-        "why": "the Some direction never fires: the entry net dies at the first virtual emission, which every completed left range performs before a right-full raise can reach max_range (the line pin's twin entry)"
       },
       {
         "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
