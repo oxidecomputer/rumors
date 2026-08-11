@@ -210,11 +210,17 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
         hi,
         on_side,
         on_side,
-        // A dropped side is a decided concurrency, and so is the total
-        // non-canonical `Some(None)` corner — `flatten` folds the two, soundly
-        // per `walk`'s obligation: `on_side` drops only at a both-directions
-        // refutation, exactly the relation the `Concurrent` arms below read a
-        // `None` as.
+        // A dropped side is a decided concurrency — `flatten` folds the two
+        // spellings, soundly per `walk`'s obligation: `on_side` drops only at
+        // a both-directions refutation, exactly the relation the `Concurrent`
+        // arms below read a `None` as. Both sides `None` is control-flow
+        // impossible, on any input: `on_side` drops a side only while the
+        // other is live, and the last live side to refute breaks
+        // `Concurrent(Both)` from the loop itself — so an undecided start
+        // leaves the end decided. The assertion keeps that argument loud: a
+        // hook or loop change that ever lets both sides go undecided fails
+        // debug builds at the seam instead of silently mislabeling the
+        // concurrency's extent.
         |lo, hi| match (lo.flatten(), hi.flatten()) {
             (Some(Ordering::Less), _) => Placement::Before,
             (Some(Ordering::Equal), Some(Ordering::Equal)) => Placement::At(Endpoint::Both),
@@ -223,8 +229,13 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
             (Some(Ordering::Greater), Some(Ordering::Equal)) => Placement::At(Endpoint::End),
             (Some(Ordering::Greater), Some(Ordering::Greater)) => Placement::After,
             (Some(Ordering::Greater), None) => Placement::Concurrent(Endpoint::End),
-            (None, None) => Placement::Concurrent(Endpoint::Both),
-            (None, _) => Placement::Concurrent(Endpoint::Start),
+            (None, hi) => {
+                debug_assert!(
+                    hi.is_some(),
+                    "the last live side to refute breaks Concurrent(Both) from the loop, so an undecided start leaves the end decided"
+                );
+                Placement::Concurrent(Endpoint::Start)
+            }
         },
     )
 }
@@ -265,20 +276,26 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
             }
         },
         // `hi <= probe` surviving to exhaustion is domination of the whole
-        // span; otherwise `lo <= probe` surviving is the start.
-        // `Dominance::Before` is unreachable here on canonical validated inputs
-        // (a refuted start direction returned from the loop) but keeps the map
-        // total. The `flatten` merge is sound (`walk`'s obligation): the end
-        // side drops only when `hi <= probe` is refuted, so a dropped end
-        // flattens to the same not-`Equal`/`Greater` answer its decided
-        // relation could ever have given.
+        // span; otherwise `lo <= probe` survived — the start hook breaks
+        // `Dominance::Before` at any interval refuting it (and never drops
+        // the start side) before the exhaustion check runs, on any input, so
+        // reaching this arm proves the start relation. The assertion keeps
+        // that control-flow argument loud: a hook or loop change that ever
+        // admits a refuted start here fails debug builds at the seam instead
+        // of silently re-deciding the verdict. The `flatten` merge is sound
+        // (`walk`'s obligation): the end side drops only when `hi <= probe`
+        // is refuted, so a dropped end flattens to the same
+        // not-`Equal`/`Greater` answer its decided relation could ever have
+        // given.
         |lo, hi| {
             if matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
                 Dominance::After
-            } else if matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Greater)) {
-                Dominance::Between
             } else {
-                Dominance::Before
+                debug_assert!(
+                    matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Greater)),
+                    "dominance's start hook breaks Before on refutation, so exhaustion proves lo <= probe"
+                );
+                Dominance::Between
             }
         },
     )
@@ -322,20 +339,26 @@ pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> P
             }
         },
         // `probe <= lo` surviving to exhaustion is precedence of the whole
-        // span; otherwise `probe <= hi` surviving is the end.
-        // `Precedence::After` is unreachable here on canonical validated inputs
-        // (a refuted end direction returned from the loop) but keeps the map
-        // total. The `flatten` merge is sound (`walk`'s obligation): the start
-        // side drops only when `probe <= lo` is refuted, so a dropped start
-        // flattens to the same not-`Equal`/`Less` answer its decided relation
-        // could ever have given.
+        // span; otherwise `probe <= hi` survived — the end hook breaks
+        // `Precedence::After` at any interval refuting it (and never drops
+        // the end side) before the exhaustion check runs, on any input, so
+        // reaching this arm proves the end relation. The assertion keeps
+        // that control-flow argument loud: a hook or loop change that ever
+        // admits a refuted end here fails debug builds at the seam instead
+        // of silently re-deciding the verdict. The `flatten` merge is sound
+        // (`walk`'s obligation): the start side drops only when `probe <=
+        // lo` is refuted, so a dropped start flattens to the same
+        // not-`Equal`/`Less` answer its decided relation could ever have
+        // given.
         |lo, hi| {
             if matches!(lo.flatten(), Some(Ordering::Equal | Ordering::Less)) {
                 Precedence::Before
-            } else if matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Less)) {
-                Precedence::Between
             } else {
-                Precedence::After
+                debug_assert!(
+                    matches!(hi.flatten(), Some(Ordering::Equal | Ordering::Less)),
+                    "precedence's end hook breaks After on refutation, so exhaustion proves probe <= hi"
+                );
+                Precedence::Between
             }
         },
     )
@@ -404,9 +427,12 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
 /// early break or drop never moves a verdict the completed sweep would have
 /// reached. `finish` maps the decided relations at exhaustion: `None` for a
 /// dropped side, `Some(None)` for a side refuted in both directions at the
-/// last interval (unreachable on canonical inputs — every caller keeps
-/// the arm total so a non-canonical sweep stays a silent unspecified verdict,
-/// per the panics contract).
+/// last interval — deliverable only by hooks that leave a refutation
+/// standing. Each side's hook runs after its final interval's fold, before
+/// the exhaustion check, so hooks that act on the refutations their finish
+/// arm tests rule that corner out by control flow, on any input; every
+/// entry point's hooks do, and each finish arm debug-asserts what its own
+/// hooks prove.
 ///
 /// Obligation on every caller: a `finish` arm that reads a side through
 /// `flatten` merges "dropped" with "swept to concurrent", so the side's drop
