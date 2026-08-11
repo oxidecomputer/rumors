@@ -385,34 +385,29 @@ impl RouteProbe {
         let mut right_present = BitStack::new();
         let mut values = PopStack::new();
         let mut keys = DeltaReg::new();
-        // `None`: enter the subtree at the cursor; `Some(distance)`: rise with
-        // a computed distance ([`Cost::INFEASIBLE`] for an absent child).
-        let mut rise: Option<u64> = None;
+        // Every outer iteration enters the subtree at the cursor; distances
+        // rise through the inner loop below, which breaks out only to descend
+        // into a suspended frame's right child.
         loop {
-            let mut distance = match rise.take() {
-                Some(distance) => distance,
-                None => {
-                    // The branch's route key ([`Route`]'s convention: the bit
-                    // position of the branch's 2-bit id tag) — here the tag
-                    // `read` is about to consume.
-                    let key = id.pos();
-                    match id.read() {
-                        // An owned terminal: the landing, distance 0.
-                        IdNode::Full => 0,
-                        IdNode::Internal { left, right } => {
-                            keys.push(&mut values, key);
-                            phase.push(false);
-                            right_present.push(right);
-                            if left {
-                                continue;
-                            }
-                            // Left absent: rise its infeasibility into the
-                            // frame just pushed.
-                            Cost::INFEASIBLE
-                        }
-                        IdNode::Empty => unreachable!("a present id child is a real node"),
+            // The branch's route key ([`Route`]'s convention: the bit
+            // position of the branch's 2-bit id tag) — here the tag
+            // `read` is about to consume.
+            let key = id.pos();
+            let mut distance = match id.read() {
+                // An owned terminal: the landing, distance 0.
+                IdNode::Full => 0,
+                IdNode::Internal { left, right } => {
+                    keys.push(&mut values, key);
+                    phase.push(false);
+                    right_present.push(right);
+                    if left {
+                        continue;
                     }
+                    // Left absent: rise its infeasibility into the
+                    // frame just pushed.
+                    Cost::INFEASIBLE
                 }
+                IdNode::Empty => unreachable!("a present id child is a real node"),
             };
             // Rise the distance through completed frames.
             loop {

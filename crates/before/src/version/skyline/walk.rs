@@ -298,6 +298,11 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip
 /// extremum would be folded leaf by leaf just to be dropped. Every bit is
 /// still read and folded, as [`skip_region`].
 ///
+/// Every payload decodes as a zigzag-coded leaf-to-leaf delta: the walked
+/// range never starts at the stream's absolute first payload (the caller's
+/// contract; the pre-scan's collapse skip runs behind the fill walk's own
+/// consuming scan).
+///
 /// # Panics
 ///
 /// The stream must be canonical. The violations this walk structurally
@@ -307,11 +312,9 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip
 pub(super) fn net_leaves(
     walk: &mut LeafWalk,
     cursor: &mut DsiCursor<'_>,
-    first: bool,
     pending: Option<usize>,
 ) -> Option<Signed> {
     let mut net = Accumulator::new();
-    let mut first = first;
     let mut pending = pending;
     let mut consumed = false;
     loop {
@@ -319,12 +322,7 @@ pub(super) fn net_leaves(
             break;
         }
         let code = cursor.read_int().expect("canonical skyline bits");
-        let (sign, magnitude) = if first {
-            first = false;
-            (Sign::Positive, code)
-        } else {
-            unzigzag(code)
-        };
+        let (sign, magnitude) = unzigzag(code);
         fold_signed_int(&mut net, sign, &magnitude);
         consumed = true;
     }

@@ -517,7 +517,7 @@ impl FillWalk<'_> {
                         let slot = scan.reserve(scan_start);
                         scan.web.open(1);
                         let mut reader = IdReader::at(id.bits(), id.pos());
-                        let end = scan.run(self.first_read, &mut reader);
+                        let end = scan.run(&mut reader);
                         scan.record(slot, 0);
                         let relation = scan.web.follower_take(REL_FOLLOWER);
                         scan.web.retire(relation);

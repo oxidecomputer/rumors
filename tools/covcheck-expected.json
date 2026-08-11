@@ -62,11 +62,6 @@
         "why": "finish sees Unstarted only for a stream with no plateaus, and a canonical skyline stream holds at least one leaf (the codec validation contract); the debug_assert beside the arm pins matched_end == event.len()"
       },
       {
-        "anchor": "Some(distance) => distance,",
-        "disposition": "unreachable",
-        "why": "nothing assigns the rise variable, so the take always yields None: dead scaffolding, a dissolution candidate"
-      },
-      {
         "anchor": "a present id child is a real node",
         "disposition": "panic-arm",
         "why": "the walk descends only into children whose presence bits are set"
@@ -92,12 +87,6 @@
         "why": "the empty-root arm, with the line above"
       },
       {
-        "anchor": "IdNode::Empty => {",
-        "offset": 3,
-        "disposition": "unreachable",
-        "why": "the empty-root arm, with the line above"
-      },
-      {
         "anchor": "IdNode::Full => {",
         "offset": 1,
         "disposition": "unreachable",
@@ -114,17 +103,6 @@
         "offset": 3,
         "disposition": "unreachable",
         "why": "the full-arm body, with the line above"
-      },
-      {
-        "anchor": "IdNode::Full => {",
-        "offset": 4,
-        "disposition": "unreachable",
-        "why": "the full-arm body, with the line above"
-      },
-      {
-        "anchor": "(Sign::Positive, code)",
-        "disposition": "unreachable",
-        "why": "run's sole call site (fill.rs's left-full arm) passes the walk's first_read, which is false by then: the arm consumes the site's collapse range first (scan_max_consuming; a subtree has at least one leaf, and consume_payload flips first_read on the first payload)"
       }
     ],
     "crates/before/src/version/skyline/grow.rs": [
@@ -221,18 +199,6 @@
     ],
     "crates/before/src/version/skyline/walk.rs": [
       {
-        "anchor": "let mut consumed = false;",
-        "offset": 7,
-        "disposition": "unreachable",
-        "why": "net_leaves' first-payload direction never fires: its sole caller is the pre-scan's collapse skip, whose first flag is the scan run's threading, false from entry (the fill walk consumes the covering site's collapse range before any scan launches; prescan.rs's (Sign::Positive, code) entry pins the same argument at the scan's own payload reader)"
-      },
-      {
-        "anchor": "let mut consumed = false;",
-        "offset": 8,
-        "disposition": "unreachable",
-        "why": "the first-payload arm's value, with the line above"
-      },
-      {
         "anchor": "if !consumed {",
         "offset": 1,
         "disposition": "unreachable",
@@ -289,11 +255,6 @@
       }
     ],
     "crates/before/src/version/skyline/fill/prescan.rs": [
-      {
-        "anchor": "let (sign, magnitude) = if first {",
-        "disposition": "unreachable",
-        "why": "the first direction never fires: run's sole call site passes the walk's first_read, already false after the site's consuming scan (the line pin's twin entry)"
-      },
       {
         "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
         "disposition": "panic-arm",

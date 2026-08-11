@@ -36,7 +36,7 @@ use suanpan::Accumulator;
 use crate::codec::{self, BitCursor, BitStack, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
-use super::super::signed::{fold_signed_int, unzigzag, Sign, Signed};
+use super::super::signed::{fold_signed_int, unzigzag, Signed};
 use super::super::walk::{fold_region, net_leaves, skip_leaves, Extremum, LeafWalk};
 use super::super::watermark::MinWeb;
 use super::memo::Memo;
@@ -127,16 +127,17 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// open/close), not the fill walk's `depth` (tree depth, one per branch
     /// node) — the two counters are different notions under near-synonymous
     /// names. The stream cursor threads linearly (every range starts
-    /// where the previous one ended), and `first` — whether the next payload is
-    /// the stream's absolute first — flips false permanently at the first
-    /// payload-consuming read, exactly the value the recursion threads per
-    /// call. The site-nesting level is one plus the count of open site frames:
-    /// a site's own range walks at `level + 1`, and its close records at
-    /// `level`.
-    pub(super) fn run(&mut self, first: bool, id: &mut IdReader) -> usize {
+    /// where the previous one ended), and every payload the scan reads
+    /// decodes as a signed delta: the walk consumes the covering site's
+    /// collapse range before any scan launches, so the stream's absolute
+    /// first payload — the one coded as a height, not a delta — is behind
+    /// every scan's entry ([`payload`](Self::payload) carries the decoding
+    /// consequence). The site-nesting level is one plus the count of open
+    /// site frames: a site's own range walks at `level + 1`, and its close
+    /// records at `level`.
+    pub(super) fn run(&mut self, id: &mut IdReader) -> usize {
         let mut frames = PreFrames::new();
         let mut level: u32 = 1;
-        let mut first = first;
         'descend: loop {
             // Descend: resolve the range at the cursor, or suspend and re-enter
             // on a present child.
@@ -145,8 +146,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                     // fill(0, e) = e: every leaf a virtual emission. A
                     // real cursor reads this only at an empty root.
                     IdNode::Empty => {
-                        self.copy_range(first);
-                        first = false;
+                        self.copy_range();
                         break;
                     }
                     // Unreachable for canonical ids: every entry hands in a
@@ -154,8 +154,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                     // collapses) or a child the caller peeked as not-full. Kept
                     // so the walk realizes `min(fill(1, e)) = max(e)` totally.
                     IdNode::Full => {
-                        let above = self.max_range(first);
-                        first = false;
+                        let above = self.max_range();
                         self.emit_offset(&above);
                         break;
                     }
@@ -164,9 +163,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 let leaf = self.cursor.read_bit().expect("canonical skyline bits");
                 if leaf {
                     // A leaf under an id node stays: one virtual emission.
-                    let step = self.payload(first);
-                    first = false;
-                    let _ = step;
+                    self.payload();
                     self.emit_here();
                     if left {
                         id.skip();
@@ -183,14 +180,13 @@ impl<'a, 'm> PreScan<'a, 'm> {
                     // never mirrored here (the site-close arm below carries
                     // the argument).
                     id.skip();
-                    self.skip_collapse(first);
-                    first = false;
+                    self.skip_collapse();
                     if !right {
                         // fill(0, er): the leaves stay as they are, and the
                         // walk re-derives this raise from its own local scan —
                         // nothing is recorded.
                         self.web.open(1);
-                        self.copy_range(false);
+                        self.copy_range();
                         self.web.close();
                         break;
                     }
@@ -208,8 +204,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 }
                 // Absent left child: fill(0, el), inlined in the frame
                 // just opened.
-                self.copy_range(first);
-                first = false;
+                self.copy_range();
                 break;
             }
             // Ascend: resume suspended nodes as their children complete.
@@ -245,7 +240,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                             // it is raised to, so only the max side is a new
                             // virtual value.
                             id.skip();
-                            let above = self.max_range(false);
+                            let above = self.max_range();
                             if self.web.compare_above(&above) != Ordering::Less {
                                 self.emit_offset(&above);
                             }
@@ -258,7 +253,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                             // Absent right child: fill(0, er) in its own
                             // frame.
                             self.web.open(1);
-                            self.copy_range(false);
+                            self.copy_range();
                             self.web.close();
                             frames.pop_node();
                         }
@@ -401,13 +396,14 @@ impl<'a, 'm> PreScan<'a, 'm> {
 
     /// Read one payload at the cursor, folding the step into the height side of
     /// the web (and the entry net while it lives).
-    fn payload(&mut self, first: bool) -> Signed {
+    ///
+    /// Decodes unconditionally as a zigzag-coded leaf-to-leaf delta: the
+    /// stream's absolute first payload — the one coded as a height — is
+    /// behind every scan's entry ([`run`](Self::run)'s doc), so the scan
+    /// never reads it.
+    fn payload(&mut self) -> Signed {
         let code = self.cursor.read_int().expect("canonical skyline bits");
-        let (sign, magnitude) = if first {
-            (Sign::Positive, code)
-        } else {
-            unzigzag(code)
-        };
+        let (sign, magnitude) = unzigzag(code);
         self.web.fold_height(sign, &magnitude);
         if let Some(net) = &mut self.entry_net {
             fold_signed_int(net, sign, &magnitude);
@@ -458,7 +454,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// lands the range's minimum as one virtual emission — the same two
     /// quantities the leaf-by-leaf virtual emissions would have left in the
     /// web.
-    fn copy_range(&mut self, first: bool) {
+    fn copy_range(&mut self) {
         let mut walk = LeafWalk::new();
         let first_leaf_depth = walk
             .descend(&mut self.cursor)
@@ -468,15 +464,16 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // per-leaf virtual emissions are cheaper than a block summary's
             // fixed cost. The `tick_copy_hole` envelope pins the block side
             // engaging on deep ranges.
-            let _ = self.payload(first);
+            let _ = self.payload();
             self.emit_here();
             while walk.descend(&mut self.cursor).is_some() {
-                let _ = self.payload(false);
+                let _ = self.payload();
                 self.emit_here();
             }
             return;
         }
-        let skip = skip_leaves(&mut walk, &mut self.cursor, first, Some(first_leaf_depth))
+        // `first: false`: the scan reads only deltas (`payload`'s doc).
+        let skip = skip_leaves(&mut walk, &mut self.cursor, false, Some(first_leaf_depth))
             .expect("the descended leaf is pending");
         self.web.fold_height(skip.net.sign, &skip.net.magnitude);
         if let Some(net) = &mut self.entry_net {
@@ -493,7 +490,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// raise never falls below the sibling minimum the scan is here to record
     /// (the module doc's raise arms) — so the scan owes the web nothing but
     /// the cursor's height movement across the range.
-    fn skip_collapse(&mut self, first: bool) {
+    fn skip_collapse(&mut self) {
         let mut walk = LeafWalk::new();
         let first_leaf_depth = walk
             .descend(&mut self.cursor)
@@ -503,13 +500,13 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // per-leaf height folds are cheaper than a block summary's
             // fixed cost — a single wide leaf folds once, straight into
             // the web, never through a materialized net.
-            let _ = self.payload(first);
+            let _ = self.payload();
             while walk.descend(&mut self.cursor).is_some() {
-                let _ = self.payload(false);
+                let _ = self.payload();
             }
             return;
         }
-        let net = net_leaves(&mut walk, &mut self.cursor, first, Some(first_leaf_depth))
+        let net = net_leaves(&mut walk, &mut self.cursor, Some(first_leaf_depth))
             .expect("the descended leaf is pending");
         self.web.fold_height(net.sign, &net.magnitude);
         if let Some(entry) = &mut self.entry_net {
@@ -534,7 +531,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// arm's call sits outside the chain only because that arm is itself
     /// unreachable — a scan entry is never full (its own comment carries the
     /// argument) — so the assertion binds it too.
-    fn max_range(&mut self, first: bool) -> Signed {
+    fn max_range(&mut self) -> Signed {
         debug_assert!(
             self.entry_net.is_none(),
             "a completed range emits before any raise scans for its maximum, so the entry net is already retired"
@@ -547,10 +544,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
         if first_leaf_depth < 2 {
             // A tiny range (the first descent's depth routes for free):
             // per-leaf is cheaper than a block summary.
-            let step = self.payload(first);
+            let step = self.payload();
             above.fold(step.sign, &step.magnitude);
             while walk.descend(&mut self.cursor).is_some() {
-                let step = self.payload(false);
+                let step = self.payload();
                 above.fold(step.sign, &step.magnitude);
             }
         } else {
@@ -558,7 +555,8 @@ impl<'a, 'm> PreScan<'a, 'm> {
             fold_region(
                 &mut walk,
                 &mut self.cursor,
-                first,
+                // `first: false`: the scan reads only deltas (`payload`'s doc).
+                false,
                 &mut net,
                 &mut above,
                 Some(first_leaf_depth),
