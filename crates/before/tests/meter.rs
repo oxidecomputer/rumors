@@ -4763,13 +4763,14 @@ mod ledger_wide_arming {
     use suanpan::touch_meter;
 
     /// One public `Version::rank` run over `WA(w, w)`: packed bytes
-    /// and both counters over the rank body alone.
+    /// and the touch, limb, and densify counters over the rank body
+    /// alone.
     ///
     /// Carries `min_ticks`' closed form as the cross-fold semantic leg
     /// (proving the generator builds the gap spine and the wide arming
     /// this band reasons about) and the one-touch-per-operand-byte
     /// liveness floor.
-    fn run(w: usize) -> (u64, u64, u64) {
+    fn run(w: usize) -> (u64, u64, u64, u64) {
         use dashu_int::UBig;
         let v = Shape::WideArming.packed2(w, w).version();
         let bytes = v.encode().len() as u64;
@@ -4786,17 +4787,19 @@ mod ledger_wide_arming {
         );
         touch_meter::reset();
         meter::reset_limb_ops();
+        meter::reset_densified_digits();
         let rank = v.rank();
         std::hint::black_box(rank);
         let touches = touch_meter::touches();
         let limb_ops = meter::limb_ops();
+        let densified = meter::densified_digits();
         assert!(
             touches >= bytes,
             "rank at {bytes} operand bytes: {touches} digit touches under \
              the one-per-byte floor: the fold's accumulator work is not \
              metered",
         );
-        (bytes, touches, limb_ops)
+        (bytes, touches, limb_ops, densified)
     }
 
     /// Suffix digits (and arming digits) of the band's small run (the
@@ -4813,6 +4816,19 @@ mod ledger_wide_arming {
     /// committed schoolbook kernel keeps that mechanism failing.
     const WIDE_ARMING_CEILINGS: [(u64, u64); 2] = [(43_427, 52_427), (86_716, 104_795)];
 
+    /// Absolute two-scale densify ceilings for rank on the wide-arming
+    /// family: the measured record ×1.25, rounded up (the record and every
+    /// re-pin's movement live in the pin commits).
+    ///
+    /// Flat per packed byte across the doubling: the settle's densified
+    /// spans are the dense trailing window's, which scale with the knob
+    /// exactly as the input does. An image sized by a cluster's absolute
+    /// digit position instead reads the never-written scale prefix into
+    /// every image and leaves flatness while inflating the absolute record;
+    /// the position axis itself is isolated (and killed) by the
+    /// hoisted-window band, where spans stay fixed as positions grow.
+    const WIDE_ARMING_DENSIFY_CEILINGS: (u64, u64) = (2_580, 5_160);
+
     /// rank is flat per byte on the wide-arming family: per-byte touch
     /// and limb work stay within ×1.25 across a `WA(w, w)` doubling,
     /// under absolute two-scale ceilings.
@@ -4826,12 +4842,13 @@ mod ledger_wide_arming {
     /// [`run`].
     #[test]
     fn rank_wide_arming_is_flat_per_unit() {
-        let (small_bytes, small_touches, small_limbs) = run(WIDE_ARMING_SMALL);
-        let (large_bytes, large_touches, large_limbs) = run(2 * WIDE_ARMING_SMALL);
+        let (small_bytes, small_touches, small_limbs, small_densify) = run(WIDE_ARMING_SMALL);
+        let (large_bytes, large_touches, large_limbs, large_densify) = run(2 * WIDE_ARMING_SMALL);
         eprintln!(
             "MEASURED rank_wide_arming: small={small_touches}/{small_bytes}B \
-             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
-             (limb {large_limbs})"
+             (limb {small_limbs}, densify {small_densify}) \
+             large={large_touches}/{large_bytes}B \
+             (limb {large_limbs}, densify {large_densify})"
         );
         for (name, small, large, ceilings) in [
             (
@@ -4845,6 +4862,12 @@ mod ledger_wide_arming {
                 small_limbs,
                 large_limbs,
                 (WIDE_ARMING_CEILINGS[0].1, WIDE_ARMING_CEILINGS[1].1),
+            ),
+            (
+                "densified digits",
+                small_densify,
+                large_densify,
+                WIDE_ARMING_DENSIFY_CEILINGS,
             ),
         ] {
             assert!(
@@ -4906,14 +4929,14 @@ mod hoisted_window {
     const HOISTED_WINDOW_SMALL_TAIL: usize = 10_240;
 
     /// One public `Version::rank` run over `HW(w, d, t)` at the band's
-    /// fixed width and gap knobs: packed bytes and both counters over the
-    /// rank body alone.
+    /// fixed width and gap knobs: packed bytes and the touch, limb, and
+    /// densify counters over the rank body alone.
     ///
     /// Carries `min_ticks`' closed form as the cross-fold semantic leg —
     /// tail-independent by construction, so it also proves the tail adds
     /// no stored-base mass — and the one-touch-per-operand-byte liveness
     /// floor.
-    fn run(t: usize) -> (u64, u64, u64) {
+    fn run(t: usize) -> (u64, u64, u64, u64) {
         use dashu_int::UBig;
         let v = Shape::HoistedWindow
             .packed3(HOISTED_WINDOW_WIDTH, HOISTED_WINDOW_GAPS, t)
@@ -4934,17 +4957,19 @@ mod hoisted_window {
         );
         touch_meter::reset();
         meter::reset_limb_ops();
+        meter::reset_densified_digits();
         let rank = v.rank();
         std::hint::black_box(rank);
         let touches = touch_meter::touches();
         let limb_ops = meter::limb_ops();
+        let densified = meter::densified_digits();
         assert!(
             touches >= bytes,
             "rank at {bytes} operand bytes: {touches} digit touches under \
              the one-per-byte floor: the fold's accumulator work is not \
              metered",
         );
-        (bytes, touches, limb_ops)
+        (bytes, touches, limb_ops, densified)
     }
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
@@ -4967,8 +4992,8 @@ mod hoisted_window {
     /// input grows only by tail bits.
     #[test]
     fn rank_hoisted_window_is_flat_per_unit() {
-        let (small_bytes, small_touches, small_limbs) = run(HOISTED_WINDOW_SMALL_TAIL);
-        let (large_bytes, large_touches, large_limbs) = run(2 * HOISTED_WINDOW_SMALL_TAIL);
+        let (small_bytes, small_touches, small_limbs, _) = run(HOISTED_WINDOW_SMALL_TAIL);
+        let (large_bytes, large_touches, large_limbs, _) = run(2 * HOISTED_WINDOW_SMALL_TAIL);
         eprintln!(
             "MEASURED rank_hoisted_window: small={small_touches}/{small_bytes}B \
              (limb {small_limbs}) large={large_touches}/{large_bytes}B \
@@ -5005,6 +5030,76 @@ mod hoisted_window {
                  settle clusters' absolute positions",
             );
         }
+    }
+
+    /// Absolute two-scale densify ceilings for rank on the hoisted-window
+    /// family: the measured record ×1.25, rounded up (the record and every
+    /// re-pin's movement live in the pin commits).
+    ///
+    /// Judged absolute, never per byte: the tail doubling adds no window
+    /// density and no settle width, so the densified spans — and this
+    /// column with them — must not grow across it at all. An image sized
+    /// by a cluster's absolute digit position reads roughly ×2 across the
+    /// doubling and sits nearly an order of magnitude above the span-priced
+    /// record at the small tail already.
+    const HOISTED_WINDOW_DENSIFY_CEILINGS: [u64; 2] = [105, 105];
+
+    /// The densify liveness floor at both scales: two span-wide images per
+    /// charge of the trailing window's punctured cluster.
+    ///
+    /// The premise is the mechanism's irreducible per-charge work, never a
+    /// reading: the family's close settles at least one charge against the
+    /// trailing window, whose punctured run holds the `d` gap digits at
+    /// unit interior gaps — inside every settle factor's cluster gap limit
+    /// — so it densifies as one multi-digit cluster of span at least `d`,
+    /// and every multi-digit cluster's densification zero-fills two
+    /// span-wide images. A run under this floor means the settle stopped
+    /// densifying the window this band exists to price, and every densify
+    /// ceiling above it would be passing vacuously.
+    const HOISTED_WINDOW_DENSIFY_FLOOR: u64 = 2 * HOISTED_WINDOW_GAPS as u64;
+
+    /// rank's densified-image fill is span-priced on the hoisted-window
+    /// family: the densify column stays within ×1.25 *absolute* across the
+    /// tail doubling — the tail moves cluster positions only — under
+    /// absolute two-scale ceilings and over the two-image liveness floor.
+    ///
+    /// This is the row the width and touch counters cannot express: an
+    /// image sized by a cluster's absolute digit position zero-fills
+    /// O(position) bytes per cluster that enter no operand width and touch
+    /// no accumulator digit, so every other column reads byte-identical
+    /// while this one scales with the tail knob.
+    #[test]
+    fn rank_hoisted_window_densify_span_band() {
+        let (small_bytes, _, _, small_densify) = run(HOISTED_WINDOW_SMALL_TAIL);
+        let (large_bytes, _, _, large_densify) = run(2 * HOISTED_WINDOW_SMALL_TAIL);
+        eprintln!(
+            "MEASURED rank_hoisted_window_densify: small={small_densify}dg/{small_bytes}B \
+             large={large_densify}dg/{large_bytes}B"
+        );
+        assert!(
+            small_densify >= HOISTED_WINDOW_DENSIFY_FLOOR
+                && large_densify >= HOISTED_WINDOW_DENSIFY_FLOOR,
+            "rank densified {small_densify} -> {large_densify} digits, under the \
+             {HOISTED_WINDOW_DENSIFY_FLOOR}-digit two-image floor: the settle is \
+             not densifying the trailing window, and the densify ceilings are \
+             passing vacuously"
+        );
+        assert!(
+            small_densify <= HOISTED_WINDOW_DENSIFY_CEILINGS[0]
+                && large_densify <= HOISTED_WINDOW_DENSIFY_CEILINGS[1],
+            "rank's densify column exceeds the pinned ceilings on the \
+             hoisted-window family ({small_densify} -> {large_densify} against \
+             {} / {})",
+            HOISTED_WINDOW_DENSIFY_CEILINGS[0],
+            HOISTED_WINDOW_DENSIFY_CEILINGS[1],
+        );
+        assert!(
+            large_densify * 4 <= small_densify * 5,
+            "rank's densify column grew more than x1.25 absolute across the \
+             hoisted-window tail doubling ({small_densify} -> {large_densify}): \
+             the densified images are being sized by the settle clusters' \
+             absolute positions, not their spans",
+        );
     }
 }
 
@@ -5170,14 +5265,14 @@ mod answer_embedded_product {
     use suanpan::touch_meter;
 
     /// One public `Version::rank` run over `PP(s, s)`: packed bytes and
-    /// both counters over the rank body alone.
+    /// the touch, limb, and densify counters over the rank body alone.
     ///
     /// Carries the `min_ticks` closed form (`s · x + 1` over the
     /// committed factors) as the generator's semantic leg, the
     /// exact-rank leg (the answer is the product `2·x·y + 1` — the
     /// `Ω(M(|v|))` mandate's witness), and the
     /// one-touch-per-operand-byte liveness floor.
-    fn run(s: usize) -> (u64, u64, u64) {
+    fn run(s: usize) -> (u64, u64, u64, u64) {
         use dashu_int::UBig;
         let v = Shape::PlateauPuncture.packed2(s, s).version();
         let bytes = v.encode().len() as u64;
@@ -5194,10 +5289,12 @@ mod answer_embedded_product {
         );
         touch_meter::reset();
         meter::reset_limb_ops();
+        meter::reset_densified_digits();
         let rank = v.rank();
         std::hint::black_box(&rank);
         let touches = touch_meter::touches();
         let limb_ops = meter::limb_ops();
+        let densified = meter::densified_digits();
         // The answer itself is the product: the band is honest only
         // while the measured body computes 2·x·y + 1 exactly.
         assert_eq!(
@@ -5211,7 +5308,7 @@ mod answer_embedded_product {
              the one-per-byte floor: the fold's accumulator work is not \
              metered",
         );
-        (bytes, touches, limb_ops)
+        (bytes, touches, limb_ops, densified)
     }
 
     /// Plateau digits (and turn count) of the band's small run (the
@@ -5228,6 +5325,18 @@ mod answer_embedded_product {
     /// digit.
     const PLATEAU_PUNCTURE_CEILINGS: [(u64, u64); 2] = [(60_525, 91_103), (121_058, 182_197)];
 
+    /// Absolute two-scale densify ceilings for rank on the
+    /// plateau-puncture family: the measured record ×1.25, rounded up (the
+    /// record and every re-pin's movement live in the pin commits).
+    ///
+    /// Flat per packed byte across the doubling: the close-time settle
+    /// densifies the jittered punctured mass, whose span scales with the
+    /// turn count exactly as the input does. The position axis — an image
+    /// sized by a cluster's absolute digit index — is isolated (and
+    /// killed) by the hoisted-window band, where spans stay fixed as
+    /// positions grow.
+    const PLATEAU_PUNCTURE_DENSIFY_CEILINGS: (u64, u64) = (2_580, 5_158);
+
     /// rank is flat per byte on the plateau-puncture family: per-byte
     /// touch and limb work stay within ×1.25 across a `PP(s, s)`
     /// doubling, under absolute two-scale ceilings.
@@ -5240,12 +5349,14 @@ mod answer_embedded_product {
     /// `O(M(|v|))` achieved, `Ω(M(|v|))` mandatory.
     #[test]
     fn rank_plateau_puncture_is_flat_per_unit() {
-        let (small_bytes, small_touches, small_limbs) = run(PLATEAU_PUNCTURE_SMALL);
-        let (large_bytes, large_touches, large_limbs) = run(2 * PLATEAU_PUNCTURE_SMALL);
+        let (small_bytes, small_touches, small_limbs, small_densify) = run(PLATEAU_PUNCTURE_SMALL);
+        let (large_bytes, large_touches, large_limbs, large_densify) =
+            run(2 * PLATEAU_PUNCTURE_SMALL);
         eprintln!(
             "MEASURED rank_plateau_puncture: small={small_touches}/{small_bytes}B \
-             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
-             (limb {large_limbs})"
+             (limb {small_limbs}, densify {small_densify}) \
+             large={large_touches}/{large_bytes}B \
+             (limb {large_limbs}, densify {large_densify})"
         );
         for (name, small, large, ceilings) in [
             (
@@ -5265,6 +5376,12 @@ mod answer_embedded_product {
                     PLATEAU_PUNCTURE_CEILINGS[0].1,
                     PLATEAU_PUNCTURE_CEILINGS[1].1,
                 ),
+            ),
+            (
+                "densified digits",
+                small_densify,
+                large_densify,
+                PLATEAU_PUNCTURE_DENSIFY_CEILINGS,
             ),
         ] {
             assert!(

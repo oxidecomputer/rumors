@@ -3289,6 +3289,32 @@ pub fn reset_limb_ops() {
     crate::codec::limb_meter::reset()
 }
 
+/// The settle's densified-image digits zero-filled since the last
+/// [`reset_densified_digits`].
+///
+/// The deterministic stand-in for allocation-fill work, which no other meter
+/// can see: the query folds' settle densifies each balanced-digit cluster
+/// into two zero-filled byte images before multiplying, and a zeroed byte no
+/// digit lands on enters no operand width (the limb column's proxy), touches
+/// no accumulator digit, and raises no peak while the image stays under the
+/// walk's own high-water mark. The count is the images' capacity in
+/// base-2^32 digits — two images per multi-digit cluster, each at the
+/// cluster's span — so span-priced densification counts linearly in the
+/// settle's cluster spans, and a densification sized by cluster *positions*
+/// counts by those positions instead (the axis the hoisted-window family
+/// isolates). Process-global, same isolation requirement as
+/// [`stack_segments`]; only compiled under the `limb-meter` feature.
+#[cfg(feature = "limb-meter")]
+pub fn densified_digits() -> u64 {
+    crate::codec::limb_meter::densified_digits()
+}
+
+/// Reset the densified-image counter behind [`densified_digits`] to zero.
+#[cfg(feature = "limb-meter")]
+pub fn reset_densified_digits() {
+    crate::codec::limb_meter::reset_densified()
+}
+
 /// The accumulator digit touches since the last [`reset_touch_ops`].
 ///
 /// The deterministic stand-in for accumulator *fold* work, which the limb

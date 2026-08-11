@@ -1830,7 +1830,10 @@ impl FamilyId {
                              board-priced on the wide-arming column",
                     decided: "2026-08-11",
                 },
-                bands: Bands::Priced(&["rank_hoisted_window_is_flat_per_unit"]),
+                bands: Bands::Priced(&[
+                    "rank_hoisted_window_is_flat_per_unit",
+                    "rank_hoisted_window_densify_span_band",
+                ]),
                 denominator: "packed input bytes for the walk columns; the densify column \
                               is judged absolute across the tail doubling (span-priced \
                               work is position-free by construction)",

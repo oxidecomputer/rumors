@@ -392,6 +392,33 @@ fn meter_window_digits(count: u64) {
     let _ = count;
 }
 
+/// Record the zero-filled capacity of a cluster's two densified byte images,
+/// in base-2^32 digits: [`charge_digits`]' zero-fill tap.
+///
+/// The images are zero-filled at the cluster's span before any live digit
+/// lands, and that fill is real width-scale work no other counter reads: a
+/// zeroed byte no digit lands on enters no operand width [`meter_product`]
+/// records, touches no accumulator digit, and raises no peak while the image
+/// stays under the walk's own high-water mark. Without this tap a
+/// densification could size its images by anything — the cluster's absolute
+/// digit position included, O(position) fill per cluster — while every
+/// committed counter read unchanged; with it, the images' own lengths are
+/// the recorded quantity, so the count moves with the allocation itself (the
+/// sibling tests' span pin, `densify_tap_prices_the_cluster_span`, holds the
+/// rate to exactly two spans per multi-digit cluster). The fill is memory
+/// work, not `Base` arithmetic, so it feeds its own meter column
+/// (`crate::meter::densified_digits`) instead of a share of the limb count.
+/// Compiles to nothing without the `limb-meter` feature, and
+/// [`charge_digits`] calls it unconditionally — wherever the meters are, the
+/// tap is on by construction.
+#[inline(always)]
+fn meter_densified_image(bytes: u64) {
+    #[cfg(feature = "limb-meter")]
+    crate::codec::limb_meter::record_densified(bytes / 4);
+    #[cfg(not(feature = "limb-meter"))]
+    let _ = bytes;
+}
+
 /// Debit (or, with a negative `sign`, credit) `factor × segment · 2^shift`
 /// into the total: the segment settle move of [`charge_digits`].
 ///
@@ -415,8 +442,10 @@ fn charge_segment(total: &mut Accumulator, sign: Sign, factor: &Base, segment: &
 /// spelling). Each cluster of digits whose interior gaps stay within the
 /// factor's own width densifies into at most two magnitudes (the positive and
 /// negative digits separately, so no signed subtraction precedes the product)
-/// and rides one backend multiplication each; a single-digit cluster takes the
-/// one-word product directly. The gap threshold is the factor's width because
+/// and rides one backend multiplication each — the densification zero-fills
+/// two images at the cluster's span, priced by their own meter column
+/// ([`meter_densified_image`]); a single-digit cluster takes the one-word
+/// product directly. The gap threshold is the factor's width because
 /// that is where bridging stops paying: a zero run narrower than the factor
 /// costs less to carry through the multiplication than the extra full-width
 /// product a split would add, while a wider run would do work no code funded —
@@ -454,8 +483,11 @@ pub(super) fn charge_digits(
             .expect("cluster spans are bounded by the stream's depth");
         // Densify the cluster into little-endian byte images, positive and
         // negative digits separately: balanced digits carry signs, and two
-        // nonnegative products need no borrow machinery.
+        // nonnegative products need no borrow machinery. The zero fill is
+        // span-scale work no width or touch counter sees, so the tap prices
+        // the images by their own lengths.
         let mut parts = [(vec![0u8; span * 4], false), (vec![0u8; span * 4], false)];
+        meter_densified_image((parts[0].0.len() + parts[1].0.len()) as u64);
         for &(index, digit) in cluster {
             debug_assert!(
                 digit != 0 && digit.unsigned_abs() <= 1 << 31,

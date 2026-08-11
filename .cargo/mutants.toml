@@ -25,7 +25,12 @@
 # floor in tests/meter.rs — so they need no exclusion. Likewise absent:
 # the fill/pre-scan sub-scan routing guards in copy_range and
 # scan_max_consuming, and masked.rs's block-skip pair, killed by the
-# sub-scan hole and masked-hole engagement families' envelope rows.
+# sub-scan hole and masked-hole engagement families' envelope rows; and
+# charge_digits' span-subtraction mutants (both the `+` and `/`
+# replacements size the densified images by something other than the
+# cluster's span), killed by the densify tap's span pin
+# (densify_tap_prices_the_cluster_span, the query fold's test suite)
+# and the hoisted-window densify band in tests/meter.rs.
 
 exclude_re = [
     # --- suanpan::accumulator ---
@@ -136,14 +141,6 @@ exclude_re = [
     # so the strictness of the comparisons against them never
     # discriminates (both `<` sites in the function).
     "integral\\.rs.*: replace < with (<=|==|>) in charge_digits",
-
-    # Performance genre, line-pinned (the function's other minus sites are
-    # killed): the span subtraction only sizes the cluster's densified
-    # image, and widening it pads zero bytes that contribute nothing to
-    # the product. The `+` replacement alone is excluded: the `/` twin at
-    # the same site is not value-inert (it divides by a possibly-zero
-    # floor index and can undersize the image), so it stays visible.
-    "integral\\.rs:450:65: replace - with \\+ in charge_digits",
 
     # Proven equivalent: the jump coefficient is never zero, so the
     # comparison's strictness never discriminates (the contract at the

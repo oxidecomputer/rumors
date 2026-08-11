@@ -908,6 +908,74 @@ fn settle_product_tap_is_alive_on_the_wide_arming_close() {
     }
 }
 
+/// [`charge_digits`]' densify tap records exactly the zero-filled capacity of
+/// a cluster's two byte images — `2·span` digits per multi-digit cluster,
+/// `span` the first-to-last live digit distance inclusive, zero for a
+/// single-digit cluster — at shallow and deep absolute positions alike.
+///
+/// Deliberate internal-entry pin, decided here (as the settle-product tap's
+/// liveness pin above): the images are transient allocations whose zero fill
+/// no other counter reads — a zeroed byte no digit lands on enters no operand
+/// width, touches no accumulator digit, and raises no peak under the walk's
+/// high-water mark — so the seam window is the one place the recorded
+/// quantity can be held to the span, value-exact. The worst artifact this pin
+/// excludes is a densification sized by the cluster's absolute digit
+/// position: O(position) zero fill per cluster, green on every width and
+/// touch counter, red here because the tap records the images' own lengths
+/// and the deep cluster's equality breaks the moment the allocation outgrows
+/// its span. The value leg holds the charge to the exact signed product, so a
+/// densification that recorded the right capacity while landing digits at the
+/// wrong offsets proves nothing.
+#[cfg(feature = "limb-meter")]
+#[test]
+fn densify_tap_prices_the_cluster_span() {
+    use suanpan::{Accumulator, UBig};
+
+    use crate::codec::Base;
+    use crate::meter::{densified_digits, reset_densified_digits};
+    use crate::version::skyline::signed::Sign;
+
+    // A 5-digit factor: the cluster gap limit under test is its width.
+    let factor = Base::from(UBig::ONE << 128);
+    for floor in [0u64, 100_000] {
+        // One multi-digit cluster: live digits at `floor` and `floor + 2`
+        // (the interior gap of 1 sits inside the factor's 5-digit gap
+        // limit), span 3, both signs live so both images carry digits.
+        let digits = [(floor, 1i64), (floor + 2, -3i64)];
+        let mut total = Accumulator::new();
+        reset_densified_digits();
+        super::integral::charge_digits(&mut total, Sign::Positive, &factor, &digits);
+        assert_eq!(
+            densified_digits(),
+            6,
+            "two images at span 3 record 6 digits: the densify tap must read \
+             the images' own capacity, independent of the cluster's absolute \
+             position (floor {floor})"
+        );
+        // The value leg: exactly factor · (2^(32·floor) − 3 · 2^(32·(floor + 2))).
+        let mut expected = Accumulator::new();
+        expected.add_wide_shl(&factor.0, 32 * floor);
+        expected.sub_wide_shl(&(&factor.0 * UBig::from(3u8)), 32 * (floor + 2));
+        expected.sub_accum(&total);
+        assert_eq!(
+            expected.sign(),
+            core::cmp::Ordering::Equal,
+            "the metered charge must spell exactly factor × mass"
+        );
+    }
+    // A single-digit cluster takes the word-scale product: no image, no fill,
+    // nothing recorded.
+    let digits = [(7u64, 5i64)];
+    let mut total = Accumulator::new();
+    reset_densified_digits();
+    super::integral::charge_digits(&mut total, Sign::Positive, &factor, &digits);
+    assert_eq!(
+        densified_digits(),
+        0,
+        "a single-digit cluster densifies no image"
+    );
+}
+
 /// Dense committed factors drive one settle product through the public rank at
 /// each backend multiplication-tier boundary, exact against the recursive
 /// oracle and the closed form.
