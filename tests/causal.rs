@@ -490,3 +490,55 @@ proptest! {
         }
     }
 }
+
+/// The crash boundary at the final pop: a checkpoint read after the last
+/// staged message is handed over — but before the caller has durably
+/// handled it — still replays that message on resume.
+///
+/// `checkpoint()` promises "resuming from this `Version` will never skip
+/// messages" (at-least-once), the same promise the mid-backlog lag in
+/// `checkpoint_lags_until_the_backlog_drains` pins, here at the
+/// backlog's last item instead of its middle.
+///
+/// [`rumors::UnorderedMessages`] holds this boundary: its checkpoint
+/// absorbs a pass's ceiling only on the *next* call after the pass drains,
+/// so a checkpoint persisted while the caller still holds an unhandled
+/// message never covers that message. Witness of the current asymmetry:
+/// `CausalMessages` advances its checkpoint in the same step that hands
+/// over the final staged message, so a process that persists this
+/// checkpoint and crashes before durably handling the message resumes past
+/// it — the message vanishes.
+#[test]
+#[ignore = "witness: CausalMessages' final-pop checkpoint already covers the still-unhandled last message, so a crash-resume skips it"]
+fn final_pop_checkpoint_still_replays_the_last_message() {
+    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    known.send(7);
+
+    // The unordered observer under the probe's protocol — deliver the only
+    // message, persist the checkpoint, crash, resume — replays the message.
+    let mut unordered = known.unordered_messages();
+    assert!(
+        unordered.borrow_next().now_or_never().flatten().is_some(),
+        "a populated set delivers an item"
+    );
+    let persisted = unordered.checkpoint().clone();
+    let mut resumed = known.unordered_messages_since(persisted);
+    assert!(
+        matches!(resumed.try_next(), rumors::TryNext::Message(_)),
+        "unordered: the in-flight message replays after a crash-resume"
+    );
+
+    // The causal observer under the identical protocol.
+    let mut causal = known.causal_messages();
+    let Step::Item(item) = step(&mut causal) else {
+        panic!("a populated set delivers an item");
+    };
+    let persisted = causal.checkpoint().clone();
+    let mut resumed = known.causal_messages_since(persisted);
+    let (replayed, _) = drain(&mut resumed);
+    assert_eq!(
+        replayed,
+        vec![item],
+        "causal: the in-flight message must replay after a crash-resume"
+    );
+}
