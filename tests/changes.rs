@@ -10,6 +10,7 @@ mod common;
 use futures::{FutureExt, StreamExt};
 use rumors::{Peer, Rumors};
 
+use crate::common::action::minted_key;
 use crate::common::wire::{bootstrap_fork_async, wire_gossip_async};
 
 /// A fresh observer yields immediately — even on an empty set — because a
@@ -81,6 +82,59 @@ async fn gossip_join_ticks_the_observer() {
     a.send(7);
     wire_gossip_async(&a, &b).await;
     assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
+}
+
+/// A frontier advance learned by gossip with no content movement — the
+/// peer's ceiling absorbed while its every message is already held or
+/// honored as deleted — ticks a parked observer like any other change.
+///
+/// [`rumors::Changes`] promises a tick for "anything learned by gossip",
+/// and [`Rumors::changes`] promises one yield "per observed advance of the
+/// set's causal frontier". A redaction's only wire representation *is* such
+/// a frontier advance, so this tick is what lets a change-driven consumer
+/// react to redactions it never held.
+///
+/// Witness of the current contradiction: `Tree::join`'s changed flag
+/// deliberately excludes ceiling-only advances, and the gossip write-back
+/// notifies the watch iff the peer retired or that flag is set, so the
+/// observer parked in its quiet-period wait never wakes. This closed world
+/// is single-threaded and the watch notification is synchronous, so
+/// `now_or_never() == None` below is a lost wakeup, not a still-pending one.
+#[pollster::test]
+#[ignore = "witness: a ceiling-only gossip advance never notifies Changes, contradicting the documented per-frontier-advance tick"]
+async fn gossip_frontier_only_advance_ticks_the_observer() {
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let b = bootstrap_fork_async(&a).await;
+
+    // Park B's observer in its quiet-period wait, where a live
+    // `gossip_when` driver's policy stream sits between sessions.
+    let mut b_changes = b.changes();
+    assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
+    assert_eq!(b_changes.next().now_or_never(), None);
+
+    // A sends and redacts before any session runs: A's tree is empty again,
+    // and the redaction's only trace is A's advanced causal frontier.
+    let pre = a.snapshot().latest().clone();
+    a.send(7);
+    a.redact(minted_key(&a.snapshot(), &pre));
+
+    // B learns that frontier by gossip: verifiably an observed advance of
+    // B's own causal frontier, with no content movement (both trees empty).
+    let b_before = b.snapshot().latest().clone();
+    wire_gossip_async(&a, &b).await;
+    assert_ne!(*b.snapshot().latest(), b_before, "B's frontier advanced");
+    assert_eq!(
+        b.snapshot().latest(),
+        a.snapshot().latest(),
+        "B absorbed the redaction frontier"
+    );
+
+    // The documented contract owes the parked observer a tick for it.
+    assert_eq!(
+        b_changes.next().now_or_never(),
+        Some(Some(())),
+        "a frontier-only gossip advance must tick the observer"
+    );
 }
 
 /// The stream ends once the set closes: with the `Peer` and every `Rumors`

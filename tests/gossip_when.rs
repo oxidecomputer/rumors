@@ -42,6 +42,7 @@ use rumors::{Error, Gossiped, Led, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
+use crate::common::action::minted_key;
 use crate::common::fault::{FaultPlan, faulty};
 use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
 
@@ -280,6 +281,89 @@ async fn changes_propagate_transitively_through_a_chain() {
         _ = drive_all => unreachable!("changes()-fed drivers never end while handles live"),
         out = timeout(DEADLINE, converged) => out.expect("A's change never reached C"),
     }
+}
+
+/// Transitive propagation holds for a redaction that reaches the middle
+/// peer as pure frontier news: the advance B absorbs on its A-side
+/// connection is exactly the news its C-side driver must push.
+///
+/// This is the same relay contract
+/// `changes_propagate_transitively_through_a_chain` pins for content, on
+/// an A–B–C chain of `changes()`-fed drivers. The frontier *is* the
+/// redaction — a peer whose ceiling covers a message's version drops that
+/// message on contact — so a chain that relays content but not frontiers
+/// propagates sends while stalling redactions.
+///
+/// Witness of the current stall: A sends and redacts between driver polls,
+/// so the A–B session hands B a ceiling-only advance (B never held the
+/// message, and both trees are empty). The gossip write-back notifies B's
+/// watch only when content moved or the peer retired, so B's `changes()`
+/// never ticks, B's C-side driver never initiates, and C's frontier never
+/// absorbs the redaction — the final join below times out.
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "witness: a ceiling-only advance does not tick B's changes(), stalling transitive propagation of a redaction frontier"]
+async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let b = bootstrap_fork_async(&a).await;
+    let c = bootstrap_fork_async(&b).await;
+
+    let (mut ab_a_link, mut ab_b_link) = links();
+    let (mut bc_b_link, mut bc_c_link) = links();
+
+    let mut a_drv = a.gossip_when(a.changes(), &mut ab_a_link);
+    let mut b_ab_drv = b.gossip_when(b.changes(), &mut ab_b_link);
+    let mut b_bc_drv = b.gossip_when(b.changes(), &mut bc_b_link);
+    let mut c_drv = c.gossip_when(c.changes(), &mut bc_c_link);
+
+    // The unconditional first sessions converge both connections.
+    let initial =
+        futures::future::join4(a_drv.next(), b_ab_drv.next(), b_bc_drv.next(), c_drv.next());
+    let (a0, b0, b1, c0) = timeout(DEADLINE, initial)
+        .await
+        .expect("initial sessions deadlocked");
+    for item in [a0, b0, b1, c0] {
+        item.expect("driver running").expect("initial session");
+    }
+
+    // Converged and quiet: every echo tick is suppressed.
+    let idle = futures::future::join4(a_drv.next(), b_ab_drv.next(), b_bc_drv.next(), c_drv.next());
+    assert!(
+        timeout(Duration::from_millis(100), idle).await.is_err(),
+        "a converged chain must be quiet"
+    );
+
+    // A sends and redacts between driver polls: the commit's only surviving
+    // trace is A's advanced causal frontier.
+    let pre = a.snapshot().latest().clone();
+    a.send(42);
+    a.redact(minted_key(&a.snapshot(), &pre));
+
+    // The A-side connection carries the news to B...
+    let ab = futures::future::join(a_drv.next(), b_ab_drv.next());
+    let (a1, b2) = timeout(DEADLINE, ab)
+        .await
+        .expect("the A-led session never ran");
+    a1.expect("driver running").expect("A-led session");
+    b2.expect("driver running").expect("B's serving session");
+    assert_eq!(
+        b.snapshot().latest(),
+        a.snapshot().latest(),
+        "B absorbed the redaction frontier"
+    );
+
+    // ...and B's C-side driver must relay it: transitive propagation.
+    let bc = futures::future::join(b_bc_drv.next(), c_drv.next());
+    let (b3, c1) = timeout(DEADLINE, bc).await.expect(
+        "the redaction frontier never crossed the B-C connection: \
+         B's ceiling-only advance did not tick its changes()",
+    );
+    b3.expect("driver running").expect("B-led session");
+    c1.expect("driver running").expect("C's serving session");
+    assert_eq!(
+        c.snapshot().latest(),
+        a.snapshot().latest(),
+        "C absorbed the redaction frontier"
+    );
 }
 
 /// When the `when` stream ends with nothing in flight, the driver ends
