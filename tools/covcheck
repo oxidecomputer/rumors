@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""Hold the skyline kernel's coverage residue to a curated expectation.
+
+Usage:
+    covcheck --lcov FILE --expected FILE --root DIR [--branch]
+    covcheck --self-test
+
+The expectation file (tools/covcheck-expected.json) names every kernel
+source line that is allowed to read uncovered — each with a curated
+disposition and the argument for it. Exactly three dispositions exist,
+and the checker rejects any other: "panic-arm" (the untaken code is a
+panic only programmer error can trigger), "unreachable" (genuinely
+unexercisable, with a reconstructible argument naming the pinned
+invariant it rests on), and "remediation" (reachable but unexercised: a
+named open population gap, never a blessed exception). The check is
+tamper-evident in both directions:
+
+  - a kernel line uncovered in the lcov but absent from the expectation
+    fails BY NAME (a new hole never rides in silently), and
+  - an expected entry whose line is covered, gone, or no longer
+    instrumented also fails (the pin tightens deliberately, never rots).
+
+Entries are anchored on source text, not line numbers: each entry names a
+snippet unique within its file plus a small line offset, and the checker
+resolves the anchor at check time. Ordinary drift (code moving above or
+below the site) therefore does not disturb the pin; an edit that removes
+or duplicates the anchor fails closed and asks for a re-pin. The checker
+is deterministic and never runs coverage itself: it judges whatever lcov
+file it is handed (the `coverage-kernel` recipes produce one).
+
+Line mode judges lcov `DA:` records. `--branch` judges `BRDA:` records
+instead: an executed kernel line with a never-taken branch direction must
+be expected under the "branch" key. Lines whose `DA:` count is zero are
+the line pin's responsibility and are skipped in branch mode.
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+
+def parse_lcov(text, scope):
+    """Extract per-file line and branch hits for sources under `scope`.
+
+    Returns `{relpath: {"da": {line: hits}, "brda": {line: [taken...]}}}`
+    where `relpath` starts at `scope`'s first path component and `taken`
+    is an int (lcov's `-`, a branch on a never-executed line, reads 0).
+    """
+    files = {}
+    current = None
+    for raw in text.splitlines():
+        if raw.startswith("SF:"):
+            path = raw[3:]
+            at = path.find(scope)
+            current = files.setdefault(path[at:], {"da": {}, "brda": {}}) if at >= 0 else None
+        elif current is not None and raw.startswith("DA:"):
+            line, hits = raw[3:].split(",")[:2]
+            entry = current["da"]
+            entry[int(line)] = entry.get(int(line), 0) + int(hits)
+        elif current is not None and raw.startswith("BRDA:"):
+            line, _block, _branch, taken = raw[5:].split(",")
+            taken = 0 if taken == "-" else int(taken)
+            current["brda"].setdefault(int(line), []).append(taken)
+        elif raw.startswith("end_of_record"):
+            current = None
+    return files
+
+
+def resolve(entries, root):
+    """Resolve each expected entry's anchor to a current source line.
+
+    Returns `({relpath: {line: entry}}, [problem...])`: every anchor must
+    occur on exactly one line of its file, and two entries must not land
+    on the same line — anything else is a finding, never a silent skip.
+    """
+    dispositions = {"panic-arm", "unreachable", "remediation"}
+    resolved = {}
+    problems = []
+    for relpath, file_entries in entries.items():
+        path = Path(root, relpath)
+        if not path.is_file():
+            problems.append(f"{relpath}: expected file does not exist under --root")
+            continue
+        source = path.read_text(encoding="utf-8").splitlines()
+        lines = {}
+        for entry in file_entries:
+            if entry.get("disposition") not in dispositions:
+                problems.append(
+                    f"{relpath}: entry {entry.get('anchor')!r} carries disposition "
+                    f"{entry.get('disposition')!r}; only "
+                    f"{sorted(dispositions)} exist — re-curate, never invent a category"
+                )
+                continue
+            anchor = entry["anchor"]
+            hits = [i + 1 for i, text in enumerate(source) if anchor in text]
+            if len(hits) != 1:
+                where = "nowhere" if not hits else f"on lines {hits}"
+                problems.append(
+                    f"{relpath}: anchor {anchor!r} found {where} "
+                    "(expected exactly once); re-curate the entry"
+                )
+                continue
+            line = hits[0] + entry.get("offset", 0)
+            if not 1 <= line <= len(source):
+                problems.append(
+                    f"{relpath}: anchor {anchor!r} + offset resolves outside the file"
+                )
+                continue
+            if line in lines:
+                problems.append(
+                    f"{relpath}:{line}: two expected entries resolve to one line"
+                )
+                continue
+            lines[line] = entry
+        resolved[relpath] = lines
+    return resolved, problems
+
+
+def check_lines(files, resolved, root):
+    """The line judgment: uncovered kernel lines == expected lines, exactly."""
+    problems = []
+    for relpath, lines in resolved.items():
+        if relpath not in files:
+            problems.append(f"{relpath}: expected file is absent from the lcov report")
+            continue
+        da = files[relpath]["da"]
+        for line, entry in sorted(lines.items()):
+            if line not in da:
+                problems.append(
+                    f"{relpath}:{line}: expected-uncovered line is not instrumented "
+                    f"(anchor {entry['anchor']!r}); re-curate the entry"
+                )
+            elif da[line] > 0:
+                problems.append(
+                    f"{relpath}:{line}: expected-uncovered line is now covered "
+                    f"(anchor {entry['anchor']!r}); tighten the pin by removing the entry"
+                )
+    for relpath, data in sorted(files.items()):
+        allowed = resolved.get(relpath, {})
+        source = None
+        for line in sorted(l for l, hits in data["da"].items() if hits == 0):
+            if line in allowed:
+                continue
+            if source is None:
+                path = Path(root, relpath)
+                source = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+            text = source[line - 1].strip() if line <= len(source) else "<line beyond source>"
+            problems.append(f"{relpath}:{line}: new uncovered kernel line: {text}")
+    if not any(hits > 0 for data in files.values() for hits in data["da"].values()):
+        problems.append(
+            "liveness: no covered kernel line in the lcov report; "
+            "the coverage run did not exercise the kernel at all"
+        )
+    return problems
+
+
+def check_branches(files, resolved, root):
+    """The branch judgment: executed kernel lines with a never-taken branch
+    direction == expected branch lines, exactly."""
+    problems = []
+
+    def half_lines(data):
+        return {
+            line
+            for line, takens in data["brda"].items()
+            if data["da"].get(line, 0) > 0 and any(t == 0 for t in takens)
+        }
+
+    for relpath, lines in resolved.items():
+        if relpath not in files:
+            problems.append(f"{relpath}: expected file is absent from the lcov report")
+            continue
+        half = half_lines(files[relpath])
+        for line, entry in sorted(lines.items()):
+            if line not in half:
+                problems.append(
+                    f"{relpath}:{line}: expected half-covered branch line no longer has "
+                    f"an untaken direction (anchor {entry['anchor']!r}); "
+                    "tighten the pin by removing the entry"
+                )
+    for relpath, data in sorted(files.items()):
+        allowed = resolved.get(relpath, {})
+        source = None
+        for line in sorted(half_lines(data)):
+            if line in allowed:
+                continue
+            if source is None:
+                path = Path(root, relpath)
+                source = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+            text = source[line - 1].strip() if line <= len(source) else "<line beyond source>"
+            problems.append(
+                f"{relpath}:{line}: new half-covered branch on kernel line: {text}"
+            )
+    if not any(
+        all(t > 0 for t in takens) and len(takens) > 1
+        for data in files.values()
+        for takens in data["brda"].values()
+    ):
+        problems.append(
+            "liveness: no fully-taken branch pair in the lcov report; "
+            "the run carries no branch instrumentation for the kernel"
+        )
+    return problems
+
+
+def run(lcov_text, expected, root, branch):
+    """One judgment: parse, resolve, and check; returns the problem list."""
+    scope = expected["scope"]
+    files = parse_lcov(lcov_text, scope)
+    entries = expected["branch" if branch else "line"]
+    for relpath in entries:
+        if not relpath.startswith(scope):
+            return [f"{relpath}: expected entry outside the pinned scope {scope!r}"]
+    # Resolution problems do not stop the judgment: the comparison still
+    # runs over whatever resolved, so a drifted pin reports the anchor
+    # findings AND the holes side by side rather than hiding one class
+    # behind the other.
+    resolved, problems = resolve(entries, root)
+    check = check_branches if branch else check_lines
+    return problems + check(files, resolved, root)
+
+
+def self_test():
+    """Pin the red paths: each tamper direction must fail, and the honest
+    report must pass — in both line and branch modes."""
+    import tempfile
+
+    source = "fn f() {\n    covered();\n    match x {\n        None => unreachable!(),\n    }\n}\n"
+    rel = "crates/k/src/a.rs"
+    scope = "crates/k/src/"
+
+    def lcov(da, brda=()):
+        records = [f"SF:/abs/prefix/{rel}"]
+        records += [f"DA:{line},{hits}" for line, hits in da]
+        records += [f"BRDA:{line},0,{i},{taken}" for line, i, taken in brda]
+        records.append("end_of_record")
+        return "\n".join(records)
+
+    def expected(line_entries, branch_entries=()):
+        return {
+            "scope": scope,
+            "line": {rel: list(line_entries)},
+            "branch": {rel: list(branch_entries)},
+        }
+
+    unreachable = {"anchor": "None => unreachable!(", "disposition": "panic-arm", "why": "t"}
+    with tempfile.TemporaryDirectory() as root:
+        path = Path(root, rel)
+        path.parent.mkdir(parents=True)
+        path.write_text(source, encoding="utf-8")
+
+        cases = [
+            # The honest report: line 4 uncovered and expected.
+            ("line green", lcov([(2, 1), (4, 0)]), expected([unreachable]), False, []),
+            # A new uncovered line must fail by name.
+            ("new hole", lcov([(1, 1), (2, 0), (4, 0)]), expected([unreachable]), False,
+             ["new uncovered kernel line: covered();"]),
+            # An expected line now covered must demand tightening.
+            ("stale entry", lcov([(2, 1), (4, 1)]), expected([unreachable]), False,
+             ["is now covered"]),
+            # A vanished anchor must fail closed.
+            ("gone anchor", lcov([(2, 1)]),
+             expected([{"anchor": "no such text", "disposition": "remediation", "why": "t"}]),
+             False, ["found nowhere"]),
+            # An entry inventing a disposition category must fail closed.
+            ("invented category", lcov([(2, 1), (4, 0)]),
+             expected([{"anchor": "None => unreachable!(", "disposition": "cold", "why": "t"}]),
+             False, ["never invent a category", "new uncovered kernel line"]),
+            # An ambiguous anchor must fail closed.
+            ("ambiguous anchor", lcov([(2, 1)]),
+             expected([{"anchor": "(", "disposition": "remediation", "why": "t"}]),
+             False, ["expected exactly once"]),
+            # An expected line the report no longer instruments must fail.
+            ("uninstrumented", lcov([(2, 1)]), expected([unreachable]), False,
+             ["is not instrumented"]),
+            # A dead report must trip the liveness floor, not read green.
+            ("vacuous report", "", {"scope": scope, "line": {}, "branch": {}}, False,
+             ["liveness"]),
+            # Branch green: line 3 executed, one direction untaken, expected.
+            ("branch green", lcov([(2, 1), (3, 1)], [(2, 0, 1), (2, 1, 2), (3, 0, 1), (3, 1, 0)]),
+             expected([], [{"anchor": "match x {", "disposition": "remediation", "why": "t"}]),
+             True, []),
+            # A new half-covered branch must fail by name.
+            ("new half branch", lcov([(2, 1), (3, 1)], [(2, 0, 1), (2, 1, 2), (3, 0, 1), (3, 1, 0)]),
+             expected([], []), True, ["new half-covered branch"]),
+            # A branch entry whose directions all fire must demand tightening.
+            ("stale branch entry", lcov([(2, 1), (3, 1)], [(2, 0, 1), (2, 1, 2), (3, 0, 1), (3, 1, 4)]),
+             expected([], [{"anchor": "match x {", "disposition": "remediation", "why": "t"}]),
+             True, ["no longer has an untaken direction"]),
+            # An untaken direction on a line the line pin owns is skipped.
+            ("line-dead branch", lcov([(2, 1), (3, 0)], [(2, 0, 1), (2, 1, 2), (3, 0, 0), (3, 1, 0)]),
+             expected([], []), True, []),
+        ]
+        for name, lcov_text, expectation, branch, needles in cases:
+            problems = run(lcov_text, expectation, root, branch)
+            if len(needles) != len(problems) or not all(
+                needle in problem for needle, problem in zip(needles, problems)
+            ):
+                raise AssertionError(f"self-test {name!r}: expected {needles}, got {problems}")
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(prog="covcheck", description=__doc__)
+    parser.add_argument("--lcov", help="lcov tracefile to judge")
+    parser.add_argument("--expected", help="curated expectation JSON")
+    parser.add_argument("--root", help="workspace root the expectation's paths resolve under")
+    parser.add_argument("--branch", action="store_true", help="judge branch records instead of lines")
+    parser.add_argument("--self-test", action="store_true", help="pin the checker's own red paths")
+    args = parser.parse_args(argv[1:])
+
+    if args.self_test:
+        self_test()
+        return 0
+    if not (args.lcov and args.expected and args.root):
+        parser.error("--lcov, --expected, and --root are all required")
+
+    expected = json.loads(Path(args.expected).read_text(encoding="utf-8"))
+    lcov_text = Path(args.lcov).read_text(encoding="utf-8")
+    problems = run(lcov_text, expected, args.root, args.branch)
+    mode = "branch" if args.branch else "line"
+    if problems:
+        for problem in problems:
+            print(problem)
+        print(f"\ncovcheck: {mode} coverage disagrees with the curated expectation "
+              f"in {len(problems)} place(s); curate deliberately, never wave through.",
+              file=sys.stderr)
+        return 1
+    counted = sum(len(entries) for entries in expected["branch" if args.branch else "line"].values())
+    print(f"covcheck: {mode} coverage matches the curated expectation ({counted} pinned entries)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
