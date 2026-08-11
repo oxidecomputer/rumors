@@ -4922,9 +4922,10 @@ mod hoisted_window {
     /// the family's fixed span axis.
     const HOISTED_WINDOW_GAPS: usize = 40;
 
-    /// Tail depth of the band's small run (the large run doubles it): a
-    /// position hoist of ~8× the window span in digits, so span-priced and
-    /// position-priced densification separate by nearly an order of
+    /// Tail depth of the band's small run (the large run doubles it).
+    ///
+    /// A position hoist of ~8× the window span in digits, so span-priced
+    /// and position-priced densification separate by nearly an order of
     /// magnitude before the doubling separates them again.
     const HOISTED_WINDOW_SMALL_TAIL: usize = 10_240;
 
@@ -5039,9 +5040,9 @@ mod hoisted_window {
     /// Judged absolute, never per byte: the tail doubling adds no window
     /// density and no settle width, so the densified spans — and this
     /// column with them — must not grow across it at all. An image sized
-    /// by a cluster's absolute digit position reads roughly ×2 across the
-    /// doubling and sits nearly an order of magnitude above the span-priced
-    /// record at the small tail already.
+    /// by a cluster's absolute digit position grows with the tail knob —
+    /// roughly ×2 across the doubling — while a span-priced column does not
+    /// move at all.
     const HOISTED_WINDOW_DENSIFY_CEILINGS: [u64; 2] = [105, 105];
 
     /// The densify liveness floor at both scales: two span-wide images per
@@ -5060,10 +5061,11 @@ mod hoisted_window {
 
     /// rank's densified-image fill is span-priced on the hoisted-window
     /// family: the densify column stays within ×1.25 *absolute* across the
-    /// tail doubling — the tail moves cluster positions only — under
-    /// absolute two-scale ceilings and over the two-image liveness floor.
+    /// tail doubling, under two-scale ceilings and over the two-image
+    /// liveness floor.
     ///
-    /// This is the row the width and touch counters cannot express: an
+    /// The tail moves cluster positions only, so this column must not move
+    /// with it. This is the row the width and touch counters cannot express: an
     /// image sized by a cluster's absolute digit position zero-fills
     /// O(position) bytes per cluster that enter no operand width and touch
     /// no accumulator digit, so every other column reads byte-identical

@@ -909,9 +909,12 @@ fn settle_product_tap_is_alive_on_the_wide_arming_close() {
 }
 
 /// [`charge_digits`]' densify tap records exactly the zero-filled capacity of
-/// a cluster's two byte images — `2·span` digits per multi-digit cluster,
-/// `span` the first-to-last live digit distance inclusive, zero for a
-/// single-digit cluster — at shallow and deep absolute positions alike.
+/// a cluster's two byte images, at shallow and deep absolute positions alike.
+///
+/// The rate is `2·span` digits per multi-digit cluster — `span` the
+/// first-to-last live digit distance inclusive — and nothing for a
+/// single-digit cluster, which takes the word-scale product without an
+/// image.
 ///
 /// Deliberate internal-entry pin, decided here (as the settle-product tap's
 /// liveness pin above): the images are transient allocations whose zero fill
