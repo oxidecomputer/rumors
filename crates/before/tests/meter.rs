@@ -7830,6 +7830,19 @@ mod memo_resolution_cost {
         assert_flat("memo_comb", &small, &large);
     }
 
+    /// Absolute touch ceiling on the wide fan-out's larger run: the
+    /// measured record ×1.25, rounded up (the record and every
+    /// re-pin's movement live in the pin commits).
+    const MEMO_FANOUT_TOUCH_CEILING: u64 = 73_402;
+
+    /// Improvement tripwire paired with [`MEMO_FANOUT_TOUCH_CEILING`]:
+    /// the measured reading ×0.75, rounded down.
+    ///
+    /// The module comment's tripwire genre: a trip means the reading
+    /// improved past the band, not that the meter died — attribute and
+    /// re-pin.
+    const MEMO_FANOUT_TOUCH_TRIPWIRE: u64 = 44_040;
+
     /// The wide fan-out's ledger cost is independent of the site
     /// count.
     ///
@@ -7853,13 +7866,18 @@ mod memo_resolution_cost {
         );
         assert_flat("memo_fanout", &small, &large);
         assert!(
-            large.touches <= 73_402,
-            "memo_fanout: {} touches at k = 2,000 exceed the pinned absolute              ceiling 73,402 (measured 58,721 x1.25): a wide ledger quantity              is being materialized per site",
+            large.touches <= MEMO_FANOUT_TOUCH_CEILING,
+            "memo_fanout: {} touches at k = 2,000 exceed the pinned absolute \
+             ceiling {MEMO_FANOUT_TOUCH_CEILING}: a wide ledger quantity is \
+             being materialized per site",
             large.touches,
         );
         assert!(
-            large.touches >= 44_040,
-            "memo_fanout: {} touches read below the 44,040 improvement tripwire              (measured 58,721 x0.75): attribute the drop — an honest              improvement re-pins the band; a dead meter is the bypass this              column exists to catch",
+            large.touches >= MEMO_FANOUT_TOUCH_TRIPWIRE,
+            "memo_fanout: {} touches read below the {MEMO_FANOUT_TOUCH_TRIPWIRE} \
+             improvement tripwire (measured x0.75): attribute the drop — an \
+             honest improvement re-pins the band; a dead meter is the bypass \
+             this column exists to catch",
             large.touches,
         );
     }
@@ -8086,27 +8104,42 @@ mod width_circulation_cost {
             large.touches,
         );
         assert!(
-            large.touches <= 77_120,
+            large.touches <= REVEAL_COMB_TOUCH_CEILING,
             "reveal_comb: {} touches at (k, b) = (2,000, 2,048) exceed the pinned \
-             ceiling 77,120 (measured 61,696 x1.25)",
+             ceiling {REVEAL_COMB_TOUCH_CEILING}",
             large.touches,
         );
         assert!(
             large.touches >= REVEAL_COMB_TOUCH_TRIPWIRE,
-            "reveal_comb: {} touches dropped more than 25% below the pinned \
-             reading ({REVEAL_COMB_TOUCH_TRIPWIRE} = measured 61,696 x0.75): \
-             attribute the improvement and re-pin",
+            "reveal_comb: {} touches read below the {REVEAL_COMB_TOUCH_TRIPWIRE} \
+             improvement tripwire (measured x0.75): attribute the improvement \
+             and re-pin",
             large.touches,
         );
     }
 
-    /// Improvement tripwire on the reveal comb's larger run: the
-    /// measured reading ×0.75, rounded down.
+    /// Absolute touch ceiling on the reveal comb's larger run: the
+    /// measured record ×1.25, rounded up (the record and every
+    /// re-pin's movement live in the pin commits).
+    const REVEAL_COMB_TOUCH_CEILING: u64 = 77_120;
+
+    /// Improvement tripwire paired with [`REVEAL_COMB_TOUCH_CEILING`]:
+    /// the measured reading ×0.75, rounded down.
     ///
     /// The module comment's tripwire genre: a trip means the reading
     /// improved past the band, not that the meter died — attribute and
     /// re-pin.
     const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 46_272;
+
+    /// Absolute touch ceiling on the pure comb's larger run: the
+    /// measured record ×1.25, rounded up (the record and every
+    /// re-pin's movement live in the pin commits).
+    ///
+    /// The record's regime is the at-height arm's no-fold move: the
+    /// accumulator's quick register folds the comb's narrow values in
+    /// its register, so the ceiling sits close over the derived floor
+    /// below.
+    const PURE_COMB_TOUCH_CEILING: u64 = 2_793;
 
     /// Touch liveness floor on the pure comb's larger run, derived from
     /// the cycle's irreducible work — never from a measured basis.
@@ -8181,11 +8214,9 @@ mod width_circulation_cost {
             large.input,
         );
         assert!(
-            large.touches <= 2_793,
+            large.touches <= PURE_COMB_TOUCH_CEILING,
             "pure_comb: {} touches at (k, b) = (1,000, 2,048) exceed the pinned \
-             ceiling 2,793 (measured 2,234 x1.25, the at-height arm's no-fold \
-             move; the accumulator's quick register folds the comb's narrow \
-             values in its register)",
+             ceiling {PURE_COMB_TOUCH_CEILING}",
             large.touches,
         );
         assert!(
@@ -8266,13 +8297,13 @@ mod width_circulation_cost {
         assert!(
             large.touches <= HIFLOOR_TOUCH_CEILING,
             "reveal_comb_hifloor: {} touches exceed the pinned ceiling \
-             {HIFLOOR_TOUCH_CEILING} (measured 33,833 x1.25)",
+             {HIFLOOR_TOUCH_CEILING}",
             large.touches,
         );
         assert!(
             large.touches >= HIFLOOR_TOUCH_TRIPWIRE,
-            "reveal_comb_hifloor: {} touches dropped more than 25% below the \
-             pinned reading ({HIFLOOR_TOUCH_TRIPWIRE} = measured 33,833 x0.75): \
+            "reveal_comb_hifloor: {} touches read below the \
+             {HIFLOOR_TOUCH_TRIPWIRE} improvement tripwire (measured x0.75): \
              attribute the improvement and re-pin",
             large.touches,
         );
@@ -8291,6 +8322,13 @@ mod width_circulation_cost {
         text.parse()
             .expect("the grown ascending-cliff literal parses")
     }
+
+    /// Absolute touch ceiling on the undercut cascade's larger run:
+    /// the measured record ×1.25, rounded up (the record and every
+    /// re-pin's movement live in the pin commits).
+    ///
+    /// The record's regime is the at-height arm's no-fold move.
+    const ASCEND_CLIFF_TOUCH_CEILING: u64 = 18_560;
 
     /// Touch liveness floor on the undercut cascade's larger run,
     /// derived from the cascade's irreducible work — never from a
@@ -8361,10 +8399,9 @@ mod width_circulation_cost {
             large.touches,
         );
         assert!(
-            large.touches <= 18_560,
+            large.touches <= ASCEND_CLIFF_TOUCH_CEILING,
             "ascend_cliff: {} touches at (k, b) = (2,000, 4,096) exceed the pinned \
-             ceiling 18,560 (measured 14,848 x1.25, the at-height arm's \
-             no-fold move)",
+             ceiling {ASCEND_CLIFF_TOUCH_CEILING}",
             large.touches,
         );
         assert!(
@@ -8453,7 +8490,7 @@ mod width_circulation_cost {
         assert!(
             large.touches <= PLATEAU_TOUCH_CEILING,
             "ascend_cliff_plateau: {} touches exceed the pinned ceiling \
-             {PLATEAU_TOUCH_CEILING} (measured 2,854 x1.25)",
+             {PLATEAU_TOUCH_CEILING}",
             large.touches,
         );
         assert!(

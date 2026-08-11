@@ -225,8 +225,8 @@ pub(super) const NA_HEAP_IN_PLACE: &str =
      is not semantically forced (the process allocator itself cannot be re-routed around)";
 /// Scan floor: the tick walk examines its whole input.
 const WHY_SCAN_TICK_WALK: &str = "the paired fill walk examines every topology bit and payload \
-     code of both operands at least once: 8 bits per input byte, with the measured tick-walk \
-     constants 2–5× above";
+     code of both operands at least once: 8 bits per input byte, the walk's irreducible single \
+     examination";
 /// Touch floor (deterministic-liveness): the kernel folds every
 /// *nonzero* stored delta code through the metered accumulator.
 const WHY_TOUCH_DELTA_FOLD: &str = "deterministic-liveness: the kernel folds each nonzero \
