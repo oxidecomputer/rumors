@@ -906,6 +906,70 @@ fn raise_hole(k: usize, m: usize) -> (Packed, Packed) {
     (Packed::from_bits(ev), Packed::from_bits(id))
 }
 
+/// The site-hole pair `SH(k, m)`: `k` interior left-full sites down a
+/// right spine, each collapsing one deep hole region inside one covering
+/// pre-scan.
+///
+/// Returns `(event, id)`. The id's root is a left-full site over a
+/// single-leaf collapse range (launching the covering fresh pre-scan, as
+/// [`copy_hole`]'s root does); each unit's id node then hangs a left-full
+/// site over a deep [`hole_region`] (leads alternating 2, 3) with its
+/// right sibling absent, so the pre-scan consumes each deep range through
+/// `PreScan::skip_collapse` — the height movement is the only quantity
+/// the range owes the scan (an absent sibling records no ledger link) —
+/// and the walk's own consuming max scan crosses it once more at the
+/// site's consume. The pair that concentrates the pre-scan's collapse
+/// skip on deep ranges, where the committed tick families feed it only
+/// leaf-scale ones (the `tick_site_hole` envelope pins the readings);
+/// [`copy_hole`] is its untouched-range dual.
+///
+/// Event layout: `1 · γ(0) · 0 · γ(0)` (the root site and its collapsed
+/// leaf), then per unit `1 · γ(0)` (spine node), `1 · γ(0)` (the site
+/// node), the hole region, and `0 · γ(0)` (the site's absent-side sibling
+/// leaf); after all `k` units, `0 · γ(0)` (the trailing no-stake leaf).
+/// Id layout: `11 · 00` (the root site), then per unit `11` (`10` at the
+/// last unit's spine node) and `10 · 00` (the site: full left child,
+/// absent right). `6k + 4` id bits.
+///
+/// # Panics
+///
+/// Panics if `k` is not an even count of at least 2 (the lead alternation
+/// needs equal halves), or if `m == 0`.
+fn site_hole(k: usize, m: usize) -> (Packed, Packed) {
+    assert!(
+        k >= 2 && k.is_multiple_of(2),
+        "the site hole needs an even unit count"
+    );
+    assert!(m >= 1, "the site hole needs a nonzero region size");
+    let mut ev = BitsMut::new();
+    ev.push(true); // the root site's node
+    codec::encode_int(&mut ev, &Base::ZERO);
+    ev_leaf(&mut ev, 0); // its collapsed left leaf
+    for i in 0..k {
+        ev.push(true); // spine node
+        codec::encode_int(&mut ev, &Base::ZERO);
+        ev.push(true); // the unit's site node
+        codec::encode_int(&mut ev, &Base::ZERO);
+        hole_region(&mut ev, 2 + (i % 2), m); // the collapse range
+        ev_leaf(&mut ev, 0); // the site's absent-side sibling leaf
+    }
+    ev_leaf(&mut ev, 0); // the spine's trailing no-stake leaf
+    let mut id = BitsMut::new();
+    id.push(true); // the root site: left full ...
+    id.push(true); // ... over the spine
+    id.push(false); // the full collapsed child
+    id.push(false);
+    for i in 0..k {
+        id.push(true); // spine node: the unit hangs left ...
+        id.push(i + 1 < k); // ... and the spine continues (absent at the end)
+        id.push(true); // the unit's site: left full ...
+        id.push(false); // ... with its right sibling absent
+        id.push(false); // the full collapse child
+        id.push(false);
+    }
+    (Packed::from_bits(ev), Packed::from_bits(id))
+}
+
 /// The memo-chain event `Q(k, distinct)`: a right-leaning spine of `k`
 /// single-leaf left-full sites, `~(14k + 9)` bits distinct (γ(j) codes), `13k +
 /// 9` shared.

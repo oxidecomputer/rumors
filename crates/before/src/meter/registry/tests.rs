@@ -10,7 +10,7 @@ use super::{Bands, Coverage, FamilyId, Shape, AXIS_BANDS};
 /// Completeness rides the same review discipline as [`FamilyId::ALL`]: a
 /// variant missing here escapes only the citation pin, never the compiler ties
 /// (its constructor arm in `Shape::builder` is still forced).
-const ALL_SHAPES: [Shape; 61] = [
+const ALL_SHAPES: [Shape; 62] = [
     Shape::Dense,
     Shape::Bigroot,
     Shape::Hugeleaf,
@@ -71,6 +71,7 @@ const ALL_SHAPES: [Shape; 61] = [
     Shape::CollapseHole,
     Shape::CopyHole,
     Shape::RaiseHole,
+    Shape::SiteHole,
     Shape::MaskedHoleTriple,
 ];
 

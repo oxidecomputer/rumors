@@ -243,6 +243,8 @@ pub enum Shape {
     CopyHole,
     /// The raise-hole pair `RH(k, m)`: [`Shape::packed_pair`]`(k, m)`.
     RaiseHole,
+    /// The site-hole pair `SH(k, m)`: [`Shape::packed_pair`]`(k, m)`.
+    SiteHole,
     /// The masked-hole triple `MH(d, h)`: [`Shape::packed_triple`]`(d, h)`.
     MaskedHoleTriple,
 }
@@ -351,6 +353,7 @@ impl Shape {
             Shape::CollapseHole => Builder::Pair2(super::collapse_hole),
             Shape::CopyHole => Builder::Pair2(super::copy_hole),
             Shape::RaiseHole => Builder::Pair2(super::raise_hole),
+            Shape::SiteHole => Builder::Pair2(super::site_hole),
             Shape::MaskedHoleTriple => Builder::Triple2(super::masked_hole),
         }
     }
@@ -1758,7 +1761,12 @@ impl FamilyId {
             },
             FamilyId::ScanHole => FamilySpec {
                 name: "scan-hole",
-                shapes: &[Shape::CollapseHole, Shape::CopyHole, Shape::RaiseHole],
+                shapes: &[
+                    Shape::CollapseHole,
+                    Shape::CopyHole,
+                    Shape::RaiseHole,
+                    Shape::SiteHole,
+                ],
                 coverage: Coverage::EnvelopeOnly {
                     reason: "kernel-seam engagement probes for the fused fill's sub-scan \
                              block routing; their enforcement home is the absolute tick \
