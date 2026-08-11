@@ -8,7 +8,9 @@
 # `instruments` job beside it re-runs the gate's deterministic, counter-based
 # instrument legs — the board verdicts and pins, surface totality, and the
 # supply-chain leg; its job comment says which instrument legs stay local and
-# why. The `gate` recipe line in the justfile remains the roster of record.
+# why. The `coverage` job runs the two instrumented-coverage legs against the
+# curated kernel pin (the justfile's coverage section carries the design).
+# The `gate` recipe line in the justfile remains the roster of record.
 # CI invokes recipes rather than re-listing their steps, so every check has
 # exactly one definition (the justfile) and the two can't drift.
 #
@@ -163,3 +165,47 @@ jobs:
 
       - name: just surface-totality
         run: just surface-totality
+
+  # The instrumented-coverage legs: kernel line coverage on stable and
+  # kernel branch coverage on the pinned nightly, each held to the curated
+  # pinned expectation (tools/covcheck-expected.json) by tools/covcheck —
+  # tamper-evident in both directions, so a new uncovered kernel line or a
+  # stale pin entry fails by name. The justfile's coverage section carries
+  # the design and why these are CI legs, never gate legs: each run is a
+  # full instrumented rebuild plus the whole suite under instrumentation.
+  #
+  # Runner fit: both legs build the workspace test tier (debug profile,
+  # instrumented) — the same shape as `ci`'s test-all leg, well inside the
+  # runner's memory; the known-heavy bench/release tier is never built here.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Nightly first, stable last (each dtolnay/rust-toolchain step runs
+      # `rustup default`, last one sticks): only the branch leg invokes
+      # `cargo +nightly`; the line leg must hit stable. llvm-tools is the
+      # coverage instrumentation's profdata component, needed on both.
+      - name: Install nightly toolchain (branch coverage)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools
+
+      - name: Install stable toolchain (default)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
+
+      - name: Install just, cargo-nextest, and cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just,cargo-nextest,cargo-llvm-cov
+
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: just coverage-kernel (line, stable)
+        run: just coverage-kernel
+
+      - name: just coverage-kernel-branch (branch, pinned nightly)
+        run: just coverage-kernel-branch

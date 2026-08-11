@@ -783,6 +783,9 @@ worst-cases-pin:
 # `instruments` job re-runs the counter-based subset (board verdicts, the
 # ranking pin, surface totality, and the supply-chain leg) beside
 # the `ci` sweep, leaving the wall-time judge and the wasm fuel tier local.
+# CI's `coverage` job carries the two instrumented-coverage legs (the
+# coverage section below): too slow for the gate, judged against the
+# curated kernel pin.
 #
 # `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
 # per-commit spend), the formal tier (the runner has no Lean toolchain) —
@@ -797,3 +800,42 @@ ci: fmt-check doclint testdoc readme-check clippy clippy-default features wasm-c
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire
+
+# ── the coverage legs (CI cadence; the gate never runs them) ─────────────────
+# GOAL: no skyline-kernel arm goes silently unexercised — every uncovered
+# kernel line and every untaken branch direction is either curated (a
+# panic-arm or an unreachable arm, its argument stated at the entry) or a
+# named remediation item, and any NEW hole fails by name. MECHANISM:
+# cargo-llvm-cov produces an lcov report; tools/covcheck holds it to the
+# curated pinned expectation in tools/covcheck-expected.json, tamper-evident
+# in both directions — a new uncovered kernel line fails, and a stale entry
+# (covered, gone, or no longer instrumented) fails until the pin tightens.
+# Deliberately NOT a global coverage threshold: the worst artifact passing a
+# threshold is a suite that pads covered lines elsewhere; the pin names lines.
+#
+# CI legs, never gate legs: each run is a full instrumented rebuild plus the
+# whole suite under instrumentation — minutes, not gate seconds. The line leg
+# runs on stable; branch instrumentation needs the pinned nightly (the same
+# toolchain-pin argument as the other nightly legs, and each leg judges only
+# its own toolchain's records — the two map a few regions to different
+# lines). One residual to know when a red arrives: proptest populations draw
+# fresh cases each run, so an arm a random case occasionally grazes can flip
+# a pinned line to covered. That red is information, not noise — the arm is
+# reachable, so promote its remediation entry to a directed test family and
+# remove it. Needs cargo-llvm-cov: `cargo install cargo-llvm-cov`.
+
+covcheck_expected := justfile_directory() + "/tools/covcheck-expected.json"
+
+# Run the instrumented suite (stable) and hold kernel line coverage to the pin.
+coverage-kernel:
+    ./tools/covcheck --self-test
+    @mkdir -p target/llvm-cov
+    {{ justfile_directory() }}/tools/memwatch cargo llvm-cov nextest --workspace --all-features --lcov --output-path target/llvm-cov/workspace.lcov
+    ./tools/covcheck --lcov target/llvm-cov/workspace.lcov --expected {{ covcheck_expected }} --root {{ justfile_directory() }}
+
+# Run the instrumented suite (pinned nightly, --branch) and hold kernel branch coverage to the pin.
+coverage-kernel-branch:
+    ./tools/covcheck --self-test
+    @mkdir -p target/llvm-cov
+    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} llvm-cov nextest --branch --workspace --all-features --lcov --output-path target/llvm-cov/workspace-branch.lcov
+    ./tools/covcheck --branch --lcov target/llvm-cov/workspace-branch.lcov --expected {{ covcheck_expected }} --root {{ justfile_directory() }}
