@@ -166,12 +166,11 @@ impl borsh::BorshSerialize for Explosive {
 /// and a batch the caller never finished building is not "all of it".
 ///
 /// `Batch::send` panics when a value fails to serialize (its documented
-/// panic), and the unwind drops the half-built batch. Witness of the
-/// current contradiction: `Batch`'s `Drop` commits unconditionally — it
-/// never consults `std::thread::panicking()` — so the unwind publishes the
-/// prefix queued before the panic.
+/// panic), and the unwind drops the half-built batch. `Batch`'s `Drop`
+/// consults `std::thread::panicking()` and commits nothing during an
+/// unwind, so the prefix queued before the panic never publishes; this
+/// test pins that guard.
 #[test]
-#[ignore = "witness: Batch's Drop commits during a panic's unwind, publishing the prefix the batch docs rule out"]
 fn a_panicked_batch_commits_nothing() {
     let rumors: Rumors<Explosive> = Peer::seed().sync_window_floor().into_rumors();
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

@@ -13,7 +13,9 @@ use crate::{Inner, Key};
 /// [`Rumors`](crate::Rumors). Dropping the batch commits it: the single-action
 /// case reads as a plain call (`rumors.send(message);` commits at the end of
 /// the statement), and chaining accumulates
-/// (`rumors.batch().send(a).send(b).redact(key);`) into one commit.
+/// (`rumors.batch().send(a).send(b).redact(key);`) into one commit. A batch
+/// dropped during a panic's unwind commits nothing: none of it, never a
+/// prefix.
 ///
 /// Building a [`Batch`] holds no lock; committing locks the rumor set
 /// momentarily.
@@ -63,6 +65,15 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
 
 impl<T: Send + Sync> Drop for Batch<'_, T> {
     fn drop(&mut self) {
+        // A drop reached by a panic's unwind commits nothing: the caller
+        // never finished building the batch, and atomicity ("none of the
+        // batch or all of it, never a prefix") rules out publishing the
+        // prefix queued before the panic. This also covers an unrelated
+        // panic unwinding over a held batch: RAII-transaction style, an
+        // unwound batch aborts.
+        if std::thread::panicking() {
+            return;
+        }
         if self.actions.is_empty() {
             return;
         }
