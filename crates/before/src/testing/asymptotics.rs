@@ -47,15 +47,16 @@ fn render_limb_ops(s: usize) -> u64 {
 /// render-merge cure lands this pin reads red, and the rustdoc and this
 /// floor must move in one change.
 ///
-/// Deterministic counter, dev profile; linear rendering would read ~2.0
-/// across the doubling, and the current merge reads x2.93 (8 558 ->
-/// 25 114 ops, measured at this shape and scale). The floor
-/// sits midway in that gap, so only a class change (never noise — the
-/// counter is exact) crosses it.
+/// Deterministic counter, dev profile; linear rendering reads ~x2.0
+/// across the doubling, and the merge's measured growth sits well above
+/// it. The floor sits midway in that gap, so only a class change (never
+/// noise — the counter is exact) crosses it; the failure message prints
+/// both endpoints, and the readings of record live in the pin commit.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn render_merge_superlinearity_is_alive() {
-    /// Halfway between linear growth (~2.0x) and the measured x2.93.
+    /// Halfway between the ~x2.0 linear reference and the measured
+    /// growth (the reading of record lives in the pin commit).
     const MIN_GROWTH: f64 = 2.45;
     let (lo, hi) = (render_limb_ops(500), render_limb_ops(1000));
     let growth = hi as f64 / lo.max(1) as f64;
@@ -246,12 +247,13 @@ fn assert_log_factor_alive(door: &str, lo: u64, hi: u64, min_growth: f64) {
 /// red, and the rustdoc and this floor must move in one change.
 ///
 /// Deterministic counter, dev profile. The linear reference is the
-/// population's own measured byte growth, x4.77 (63,488 -> 303,104 B
-/// across n = 256 -> 1,024 at 64 blocks; leaf paths deepen with the
-/// slot count, so bytes grow slightly faster than arity) — a
-/// scan-linear fold reads that ratio; the door reads x5.82
-/// (4,906,266 -> 28,537,882 bits), the log factor's marginal. The
-/// floor sits midway.
+/// population's own byte growth across the n = 256 -> 1,024
+/// quadrupling at `FOLD_DOOR_TEETH` blocks (the harness prints each
+/// run's total encoded bytes beside its scan bits; leaf paths deepen
+/// with the slot count, so bytes grow slightly faster than arity) — a
+/// scan-linear fold reads that ratio, and the door reads above it, the
+/// log factor's marginal. The floor sits midway between the two
+/// measured endpoints; the readings of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn version_join_all_log_factor_is_alive() {
@@ -274,9 +276,10 @@ fn version_join_all_log_factor_is_alive() {
 /// one change.
 ///
 /// Deterministic counter, dev profile. The linear reference is the
-/// population's measured byte growth, x4.77 (63,742 -> 304,126 B
-/// across n = 256 -> 1,024); the door reads x5.82
-/// (4,907,680 -> 28,543,880 bits). The floor sits midway.
+/// population's own byte growth across the n = 256 -> 1,024
+/// quadrupling (the harness prints it beside each run's scan bits);
+/// the door reads above it. The floor sits midway between the two
+/// measured endpoints; the readings of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn version_meet_all_log_factor_is_alive() {
@@ -299,9 +302,10 @@ fn version_meet_all_log_factor_is_alive() {
 /// this floor must move in one change.
 ///
 /// Deterministic counter, dev profile. The linear reference is the
-/// population's measured byte growth, x4.77 (63,488 -> 303,104 B
-/// across n = 256 -> 1,024); the door reads x5.76
-/// (5,241,754 -> 30,212,634 bits). The floor sits midway.
+/// population's own byte growth across the n = 256 -> 1,024
+/// quadrupling (the harness prints it beside each run's scan bits);
+/// the door reads above it. The floor sits midway between the two
+/// measured endpoints; the readings of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn version_span_all_log_factor_is_alive() {
@@ -324,13 +328,14 @@ fn version_span_all_log_factor_is_alive() {
 /// one change.
 ///
 /// Deterministic counter, dev profile. The linear reference is the
-/// population's measured byte growth, x4.80 (40,960 -> 196,608 B
-/// across n = 256 -> 1,024); the door reads x4.99
-/// (7,260,488 -> 36,191,048 bits) — the factor's expression is
-/// weaker on ids than on versions (denser unions spell fewer bits
-/// per block, thinning the upper levels), so this floor holds the
-/// narrowest gap of the five doors; both endpoints are exact
-/// counters, so the gap is stable, not noisy. The floor sits midway.
+/// population's own byte growth across the n = 256 -> 1,024
+/// quadrupling (the harness prints it beside each run's scan bits);
+/// the door reads above it — the factor's expression is weaker on ids
+/// than on versions (denser unions spell fewer bits per block,
+/// thinning the upper levels), so this floor holds the narrowest gap
+/// of the doors here; both endpoints are exact counters, so the gap
+/// is stable, not noisy. The floor sits midway between the two
+/// measured endpoints; the readings of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn party_join_all_log_factor_is_alive() {
@@ -353,10 +358,11 @@ fn party_join_all_log_factor_is_alive() {
 /// this floor must move in one change.
 ///
 /// Deterministic counter, dev profile. The linear reference is the
-/// population's measured byte growth, x4.79 (104,448 -> 499,712 B
-/// across n = 256 -> 1,024); the door reads x5.32
-/// (12,166,758 -> 64,770,022 bits), the two components' factors
-/// blended. The floor sits midway.
+/// population's own byte growth across the n = 256 -> 1,024
+/// quadrupling (the harness prints it beside each run's scan bits);
+/// the door reads above it, the two components' factors blended. The
+/// floor sits midway between the two measured endpoints; the readings
+/// of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn clock_join_all_log_factor_is_alive() {
