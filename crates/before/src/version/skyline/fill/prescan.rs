@@ -520,7 +520,25 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// Scan a collapsing range at the cursor for its maximum: `max − h′` at
     /// exit as a nonnegative offset. No virtual emissions — the range's leaves
     /// vanish into the raise the caller decides.
+    ///
+    /// The entry net is already retired at every call (the assertion below).
+    /// The chain: the one reachable call site is the ascend loop's right-full
+    /// arm; ascend runs only after a descend arm resolved a range; and every
+    /// resolving descend arm emits — the leaf arm directly, the empty,
+    /// absent-child, and no-sibling site arms through `copy_range` — while
+    /// `skip_collapse`, the one non-emitting consumption, never resolves a
+    /// range (it either continues into the site's sibling walk or is followed
+    /// by the forced copy). The first emission seeds the recording relation
+    /// from the dying entry net, exactly once per scan (`seed_relation`'s
+    /// expect pins the dual), and nothing re-seeds it. The descend-entry full
+    /// arm's call sits outside the chain only because that arm is itself
+    /// unreachable — a scan entry is never full (its own comment carries the
+    /// argument) — so the assertion binds it too.
     fn max_range(&mut self, first: bool) -> Signed {
+        debug_assert!(
+            self.entry_net.is_none(),
+            "a completed range emits before any raise scans for its maximum, so the entry net is already retired"
+        );
         let mut above = Extremum::max(self.web.lease());
         let mut walk = LeafWalk::new();
         let first_leaf_depth = walk
@@ -548,9 +566,6 @@ impl<'a, 'm> PreScan<'a, 'm> {
             let (net_sign, net_magnitude) = net.sign_magnitude();
             let net = Signed::from_sign_magnitude(net_sign, net_magnitude);
             self.web.fold_height(net.sign, &net.magnitude);
-            if let Some(entry) = &mut self.entry_net {
-                fold_signed_int(entry, net.sign, &net.magnitude);
-            }
         }
         let result = self.web.materialize(above.into_offset());
         debug_assert!(!result.sign.is_negative(), "the fold floors at zero");

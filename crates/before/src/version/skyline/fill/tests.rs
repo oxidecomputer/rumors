@@ -1466,3 +1466,180 @@ fn ticks_composes_at_wide_n() {
         }
     }
 }
+
+/// Directed pre-scan shapes concentrating right-full raises at the earliest
+/// reachable moments of a fresh scan.
+///
+/// The negative space around the invariant that every range resolving ahead
+/// of a raise has already emitted (retiring the scan's entry net,
+/// `PreScan::max_range`'s entry assertion).
+mod prescan_raise_shapes {
+    use super::*;
+    use crate::codec::{self, BitsMut};
+
+    /// Construction-language pushers (the meter shape builders' vocabulary):
+    /// internal node = `1 · gamma(0)`, leaf = `0 · gamma(n)`.
+    fn nd(ev: &mut BitsMut) {
+        ev.push(true);
+        codec::encode_int(ev, &Base::ZERO);
+    }
+    fn lf(ev: &mut BitsMut, n: u64) {
+        ev.push(false);
+        codec::encode_int(ev, &Base::from(n));
+    }
+    /// A deep staircase region (the meter `hole_region`'s lead-2 shape):
+    /// wrapper node, staircase `m..0`, wrapper floor leaf — deep enough to
+    /// route every consuming scan and copy through its block summary.
+    fn hole(ev: &mut BitsMut, m: u64) {
+        nd(ev); // wrapper
+        nd(ev); // staircase root
+        lf(ev, m);
+        for v in (1..m).rev() {
+            nd(ev);
+            lf(ev, v);
+        }
+        lf(ev, 0);
+        lf(ev, 0); // wrapper floor
+    }
+    /// Seal a built construction-language stream (the meter `Packed` form).
+    fn pk(bits: BitsMut) -> Packed {
+        let live = bits.len();
+        let mut sealed = bits;
+        codec::seal_padding(&mut sealed);
+        Packed {
+            bytes: sealed.into_vec(),
+            bits: live,
+        }
+    }
+
+    const T: bool = true;
+    const F: bool = false;
+
+    /// Wrap an entry range and its id in the covering left-full site that
+    /// launches the fresh pre-scan: a root site over a fully-owned collapse
+    /// leaf, the entry range as its sibling.
+    fn covered(er: &BitsMut, ir: &[bool]) -> (Version, Party) {
+        let mut ev = BitsMut::new();
+        nd(&mut ev); // the covering site's node
+        lf(&mut ev, 2); // its fully-owned collapse leaf
+        ev.extend_from_bitslice(er);
+        let mut id = BitsMut::new();
+        for b in [T, T, F, F] {
+            id.push(b); // the covering site: internal, full left child
+        }
+        for &b in ir {
+            id.push(b);
+        }
+        (version_of(&pk(ev)), party_of(&pk(id)))
+    }
+
+    /// The chain-raise pair: a `k`-deep chain of suspended left-full sites
+    /// under a node whose right child is fully owned — the raise.
+    ///
+    /// The scan's first (and only) emission is the chain's innermost sibling
+    /// leaf. `k = 0` is the minimum-latency raise: the entry range's root
+    /// raises immediately after its left leaf's single emission.
+    fn chain_raise(k: usize, deep: bool) -> (Version, Party) {
+        let mut er = BitsMut::new();
+        nd(&mut er); // the raising node
+        for _ in 0..k {
+            nd(&mut er); // a site along the chain ...
+            lf(&mut er, 1); // ... over its skipped, unemitted collapse leaf
+        }
+        lf(&mut er, 0); // the innermost sibling leaf: the scan's first emission
+        if deep {
+            hole(&mut er, 3); // the raise range, block-routed
+        } else {
+            lf(&mut er, 3); // the raise range, a single leaf
+        }
+        let mut ir = vec![T, T]; // the raising node
+        for _ in 0..k {
+            ir.extend([T, T, F, F]); // each site: internal, full left child
+        }
+        ir.extend([T, F, F, F]); // the innermost sibling leaf's id
+        ir.extend([F, F]); // the raising node's right child: full
+        covered(&er, &ir)
+    }
+
+    /// The chain-raise grid runs the full differential in a debug build,
+    /// where `PreScan::max_range`'s entry assertion is live.
+    ///
+    /// The raise fires at the earliest reachable moment of the fresh scan
+    /// (one emission, arbitrarily many suspended-and-resolved sites), and
+    /// the verdicts match the recursive oracle on every pair.
+    #[test]
+    fn chain_raise_grid_matches_oracle() {
+        for k in 0..=3 {
+            for deep in [false, true] {
+                let (v, p) = chain_raise(k, deep);
+                assert_tick(&v, &p);
+            }
+        }
+    }
+
+    /// A raise fires inside a suspended site's sibling after the scan's one
+    /// and only emission, and the verdicts match the recursive oracle.
+    ///
+    /// The site's collapse skip emits nothing and the sibling's left leaf is
+    /// the scan's sole emission, so the raise scans under the deepest
+    /// pre-arming pressure a canonical pair can construct, the site still
+    /// suspended. The skip-then-forced-copy dual rides along: a no-sibling
+    /// site's deep collapse skip (its entry-net fold live) resolves through
+    /// the forced copy's emission before its parent's raise.
+    #[test]
+    fn suspended_and_skipping_site_raises_match_oracle() {
+        // The raise under suspension: site over (collapse leaf, raising node).
+        let mut er = BitsMut::new();
+        nd(&mut er); // the site
+        lf(&mut er, 1); // its collapse (skipped, unemitted)
+        nd(&mut er); // the raising node
+        lf(&mut er, 0); // its left leaf: the scan's first emission
+        lf(&mut er, 2); // the raise range
+        let (v, p) = covered(
+            &er,
+            &[
+                T, T, F, F, // the site: internal, full left child
+                T, T, // the raising node
+                T, F, F, F, // its left leaf's id
+                F, F, // its right child: full
+            ],
+        );
+        assert_tick(&v, &p);
+        // The skip-then-forced-copy dual: raising node over (no-sibling site
+        // with a deep collapse, raise range).
+        let mut er = BitsMut::new();
+        nd(&mut er); // the raising node
+        nd(&mut er); // the no-sibling site
+        hole(&mut er, 4); // its deep collapse (skipped net-only, unemitted)
+        lf(&mut er, 0); // its absent-side sibling: the forced copy's emission
+        lf(&mut er, 2); // the raise range
+        let (v, p) = covered(
+            &er,
+            &[
+                T, T, // the raising node
+                T, F, F, F, // the site: internal, full left, absent right
+                F, F, // the raising node's right child: full
+            ],
+        );
+        assert_tick(&v, &p);
+    }
+
+    /// The descend-entry full arm is excluded at the type boundary: a full
+    /// child's sibling can never itself be full.
+    ///
+    /// An id handing a full sibling to a full child is `(1, 1)`, which
+    /// normal form collapses and decode rejects — every pre-scan entry is a
+    /// full child's sibling or a child its caller peeked as not-full.
+    #[test]
+    fn full_sibling_of_full_child_is_undecodable() {
+        let mut id = BitsMut::new();
+        for b in [T, T, F, F, F, F] {
+            id.push(b);
+        }
+        codec::seal_padding(&mut id);
+        assert!(
+            Party::decode(&id.into_vec()[..]).is_err(),
+            "id (1, 1) must be rejected as non-normal"
+        );
+    }
+}
