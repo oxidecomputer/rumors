@@ -80,14 +80,17 @@
 //!
 //! # The freeze trigger
 //!
-//! A freeze fires exactly when a folded delta leaves the live component more
-//! than [`FREEZE_ALLOWANCE_DIGITS`] digits wider than that delta's own code:
+//! A freeze fires once a folded delta leaves the live component wider than
+//! that delta's own code by an allowance sized by [`FREEZE_ALLOWANCE_DIGITS`]:
 //! stale wide drift is about to ride under cheaper codes, so the sweep evicts
 //! it once — charged to the codes that built the drift, which the freeze
 //! consumes and resets — and the cheap codes continue on an emptied live
-//! component. Bounded oscillation at *any* width keeps the live component
-//! within its own codes' width and never freezes: every wide-tooth fold is paid
-//! by the tooth's own code, on either side of any fixed width.
+//! component. The engagement boundary itself is a tuning choice inside the
+//! deliberate cost allowance — settled values are identical on either side of
+//! it. What holds at every tuning: bounded oscillation at *any* width keeps
+//! the live component within its own codes' width and never freezes — every
+//! wide-tooth fold is paid by the tooth's own code, on either side of any
+//! fixed width.
 //!
 //! The pair co-sweep denominates the same trigger once per boundary, against
 //! the *boundary's* widest folded code, not per folded delta. The behavior it
