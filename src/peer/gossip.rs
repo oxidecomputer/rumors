@@ -894,8 +894,12 @@ impl<T, B: Persist> Peer<T, B> {
             // representation is such an advance. Computed by containment
             // before the join consumes the merged tree: the ceiling moves
             // exactly when the reconciled frontier is not already contained
-            // in ours (both frontiers are plain field reads, cheap under the
-            // lock). Waking on a ceiling advance cannot loop: the driver's
+            // in ours — strictly greater, or incomparable (commits that ran
+            // concurrently with the session advance our frontier past the
+            // session's view without containing it; the join then adds the
+            // reconciled regions, so incomparable is an advance too). Both
+            // frontiers are plain field reads, cheap under the lock.
+            // Waking on a ceiling advance cannot loop: the driver's
             // suppression token is the converged frontier itself, so the
             // echo tick this notification queues on the session's own
             // connection is swallowed, and a fresh connection initiates once
@@ -903,7 +907,10 @@ impl<T, B: Persist> Peer<T, B> {
             //
             // The join runs unconditionally — it must commit the merge even
             // when the retirement alone decides the notification.
-            let ceiling_advancing = !(merged.latest() <= inner.tree.latest());
+            let ceiling_advancing = matches!(
+                merged.latest().partial_cmp(inner.tree.latest()),
+                None | Some(std::cmp::Ordering::Greater)
+            );
             let tree_changed = inner.tree.join(merged);
             peer_retiring || tree_changed || ceiling_advancing
         });
