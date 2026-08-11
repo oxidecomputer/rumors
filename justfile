@@ -287,6 +287,12 @@ gate-lints: fmt-check doclint testdoc readme-check
 # Each stream's output is captured rather than interleaved, and a failing
 # stream's log is replayed in full at the end, so a parallel failure reads
 # like a sequential one. Completion lines arrive live, in finish order.
+#
+# The verdict has a liveness floor: every stream records its own completion
+# (an ok or failed marker), and the verdict requires completions plus
+# failures to account for every stream launched. A stream killed from
+# outside — the OOM killer, a stray signal — records neither marker, and
+# that silence must read as a gate failure, never as a pass.
 
 # Run every building gate leg, grouped into streams that cannot collide.
 gate-streams:
@@ -310,18 +316,23 @@ gate-streams:
             echo "===== just $leg ====="
             if ! nice -n "$niceness" just "$leg"; then rc=1; break; fi
         done
+        # The marker is the record and the echo is narration, so the marker
+        # is written first: a stream that reported ok has already banked it.
         if [ "$rc" -eq 0 ]; then
+            : > "$logs/$name.ok"
             echo "gate: ok      $name ($((SECONDS - began))s)" >&3
         else
-            echo "gate: FAILED  $name ($((SECONDS - began))s)" >&3
             : > "$logs/$name.failed"
+            echo "gate: FAILED  $name ($((SECONDS - began))s)" >&3
         fi
     }
 
+    streams=()
     start_stream() {
         name=$1
         niceness=$2
         shift 2
+        streams+=("$name")
         run_stream "$name" "$niceness" "$@" > "$logs/$name.log" 2>&1 &
         echo "gate: start   $name ($*)"
     }
@@ -343,14 +354,29 @@ gate-streams:
     wait
 
     failed=$(cd "$logs" && ls *.failed 2>/dev/null | sed 's/\.failed$//')
-    if [ -n "$failed" ]; then
+    # The liveness floor: a stream that recorded no completion at all died
+    # without a verdict, which fails the gate exactly as a failure marker
+    # would — its partial log is the only witness, so replay it too.
+    missing=""
+    for name in "${streams[@]}"; do
+        [ -e "$logs/$name.ok" ] || [ -e "$logs/$name.failed" ] || missing="$missing $name"
+    done
+    if [ -n "$failed" ] || [ -n "$missing" ]; then
         for name in $failed; do
             echo
             echo "───── $name ─────"
             cat "$logs/$name.log"
         done
+        for name in $missing; do
+            echo
+            echo "───── $name (died without a verdict) ─────"
+            cat "$logs/$name.log"
+        done
+        summary=""
+        [ -n "$failed" ] && summary=" $(echo $failed | tr '\n' ' ')"
+        [ -n "$missing" ] && summary="$summary died without a verdict:$missing"
         echo
-        echo "gate: FAILED after $((SECONDS - began))s: $(echo $failed | tr '\n' ' ')"
+        echo "gate: FAILED after $((SECONDS - began))s:$summary"
         exit 1
     fi
     echo "gate: clean in $((SECONDS - began))s; stream logs in $logs"
