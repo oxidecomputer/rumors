@@ -140,3 +140,57 @@ proptest! {
         prop_assert_eq!(multiset_of(&values), multiset_of(&shuffled));
     }
 }
+
+/// A value whose serialization fails on demand, so a test can fire
+/// [`rumors::Batch::send`]'s documented serialization panic at a chosen
+/// point mid-batch.
+#[derive(Debug)]
+struct Explosive {
+    value: u64,
+    fail: bool,
+}
+
+impl borsh::BorshSerialize for Explosive {
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        if self.fail {
+            return Err(borsh::io::Error::other("detonated"));
+        }
+        borsh::BorshSerialize::serialize(&self.value, writer)
+    }
+}
+
+/// A batch interrupted by a panic between its sends commits nothing.
+///
+/// [`rumors::Rumors::batch`] promises observers and concurrent gossip
+/// sessions see "either none of the batch or all of it, never a prefix",
+/// and a batch the caller never finished building is not "all of it".
+///
+/// `Batch::send` panics when a value fails to serialize (its documented
+/// panic), and the unwind drops the half-built batch. Witness of the
+/// current contradiction: `Batch`'s `Drop` commits unconditionally — it
+/// never consults `std::thread::panicking()` — so the unwind publishes the
+/// prefix queued before the panic.
+#[test]
+#[ignore = "witness: Batch's Drop commits during a panic's unwind, publishing the prefix the batch docs rule out"]
+fn a_panicked_batch_commits_nothing() {
+    let rumors: Rumors<Explosive> = Peer::seed().sync_window_floor().into_rumors();
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut batch = rumors.batch();
+        batch.send(Explosive {
+            value: 1,
+            fail: false,
+        });
+        // The documented serialization panic fires here, after the first
+        // send is queued; the unwind drops the half-built batch.
+        batch.send(Explosive {
+            value: 2,
+            fail: true,
+        });
+    }));
+    assert!(unwound.is_err(), "the second send must panic");
+    assert_eq!(
+        rumors.snapshot().len(),
+        0,
+        "a batch interrupted by a panic must commit nothing: never a prefix"
+    );
+}
