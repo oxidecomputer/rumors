@@ -120,8 +120,18 @@ pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
 /// (canonical uniqueness makes them the same test).
 #[cfg(any(test, feature = "meter"))]
 pub fn eq(a: &BitsSlice, b: &BitsSlice) -> bool {
-    // Surviving both directions to exhaustion is equality.
-    sweep(a, b, eq_exit, |directions| directions.le && directions.ge)
+    // Surviving to exhaustion is equality: `eq_exit` breaks on any refutation
+    // before the exhaustion check runs, so reaching the finish arm IS the
+    // verdict. The assertion keeps that control-flow argument loud: an exit or
+    // loop change that ever admits a refuted sweep here fails debug builds at
+    // the seam instead of silently re-deriving (or corrupting) the verdict.
+    sweep(a, b, eq_exit, |directions| {
+        debug_assert!(
+            directions.le && directions.ge,
+            "eq_exit breaks on refutation, so exhaustion is equality"
+        );
+        true
+    })
 }
 
 /// Whether the versions two skyline streams denote are concurrent: neither
