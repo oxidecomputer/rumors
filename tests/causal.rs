@@ -81,6 +81,18 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
     rumors.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
 }
 
+/// Drain an [`rumors::UnorderedMessages`] observer until it goes quiet or
+/// ends, returning the delivered `(Key, value)` pairs.
+fn drain_unordered(obs: &mut rumors::UnorderedMessages<u64>) -> Vec<(Key, u64)> {
+    let mut items = Vec::new();
+    loop {
+        match obs.try_next() {
+            rumors::TryNext::Message((key, _, message)) => items.push((key, **message)),
+            rumors::TryNext::Quiet | rumors::TryNext::Ended => return items,
+        }
+    }
+}
+
 /// A single party's sends form a causal chain, so a fresh observer must
 /// deliver the whole backlog in exactly send order — the case key-ordered
 /// delivery scrambles roughly half the time.
@@ -486,6 +498,113 @@ proptest! {
             prop_assert!(
                 first_keys.is_disjoint(&second_keys),
                 "a drained backlog's messages must not re-fire",
+            );
+        }
+    }
+
+    /// The restart shape, generalized over both observer faces: a process
+    /// follows the persist-after-delivery protocol — deliver a message,
+    /// persist the checkpoint as bytes, handle the message — and crashes
+    /// with the last delivered message still unhandled, dropping every
+    /// handle it held. A rebuilt replica of the same network resumes each
+    /// face from the deserialized checkpoint, and the resumed run must
+    /// deliver every live message the crashed process had not handled, the
+    /// in-flight one included: at-least-once, so replay is permitted and
+    /// loss never is. Both runs of the causal face are individually causal.
+    #[test]
+    fn restart_replays_every_unhandled_message(
+        local in vec(any::<u64>(), 1..8),
+        remote in vec(any::<u64>(), 0..4),
+        taken in any::<usize>(),
+    ) {
+        // Two replicas of one network: `known` is the crashing process,
+        // `partner` survives it to seed the rebuild.
+        let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let partner = bootstrap_fork(&known);
+        for v in &local {
+            known.send(*v);
+        }
+        for v in &remote {
+            partner.send(*v); // concurrent with `local`: a real partial order
+        }
+        wire_gossip(&known, &partner);
+        let final_live = live_map(&known);
+
+        // Deliver `taken` messages on each face. All but the last delivered
+        // message count as handled; the last is in flight — delivered, its
+        // checkpoint persisted, not yet handled — when the process dies.
+        let taken = taken % (final_live.len() + 1);
+
+        let mut causal = known.causal_messages();
+        let mut causal_delivered: Vec<(Key, Version, u64)> = Vec::new();
+        for _ in 0..taken {
+            match step(&mut causal) {
+                Step::Item(item) => causal_delivered.push(item),
+                other => panic!("the backlog has more items, got {other:?}"),
+            }
+        }
+        assert_causal(&causal_delivered);
+        let causal_checkpoint =
+            borsh::to_vec(causal.checkpoint()).expect("a checkpoint serializes");
+
+        let mut unordered = known.unordered_messages();
+        let mut unordered_delivered: Vec<(Key, u64)> = Vec::new();
+        for _ in 0..taken {
+            match unordered.try_next() {
+                rumors::TryNext::Message((key, _, message)) => {
+                    unordered_delivered.push((key, **message));
+                }
+                other => panic!("the pass has more items, got {other:?}"),
+            }
+        }
+        let unordered_checkpoint =
+            borsh::to_vec(unordered.checkpoint()).expect("a checkpoint serializes");
+
+        let causal_handled: BTreeSet<Key> = causal_delivered
+            .iter()
+            .rev()
+            .skip(1)
+            .map(|(k, _, _)| *k)
+            .collect();
+        let unordered_handled: BTreeSet<Key> = unordered_delivered
+            .iter()
+            .rev()
+            .skip(1)
+            .map(|(k, _)| *k)
+            .collect();
+
+        // The crash: every handle the process held goes away at once.
+        drop(causal);
+        drop(unordered);
+        drop(known);
+
+        // The rebuild: a fresh replica of the same network (bootstrapped
+        // converged from the survivor) resumes each face from the
+        // persisted bytes.
+        let rebuilt = bootstrap_fork(&partner);
+
+        let since: Version =
+            borsh::from_slice(&causal_checkpoint).expect("a checkpoint deserializes");
+        let mut resumed = rebuilt.causal_messages_since(since);
+        let (replayed, _) = drain(&mut resumed);
+        assert_causal(&replayed);
+        for (key, value) in &final_live {
+            prop_assert!(
+                causal_handled.contains(key)
+                    || replayed.iter().any(|(k, _, m)| k == key && m == value),
+                "causal: unhandled live message {key:?} fell through the restart",
+            );
+        }
+
+        let since: Version =
+            borsh::from_slice(&unordered_checkpoint).expect("a checkpoint deserializes");
+        let mut resumed = rebuilt.unordered_messages_since(since);
+        let replayed = drain_unordered(&mut resumed);
+        for (key, value) in &final_live {
+            prop_assert!(
+                unordered_handled.contains(key)
+                    || replayed.iter().any(|(k, m)| k == key && m == value),
+                "unordered: unhandled live message {key:?} fell through the restart",
             );
         }
     }
