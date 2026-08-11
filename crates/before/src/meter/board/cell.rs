@@ -16,16 +16,17 @@
 //!   that exclude different converters. The *exponent* leg — against `n_io`,
 //!   like every exponent — is what excludes quadratic conversion: any
 //!   schoolbook converter's limb work is `Θ(digits × limbs)`, quadratic in
-//!   the value bits however wide its chunks, and reads ~2 there \[measured\].
+//!   the value bits however wide its chunks, and reads a quadratic exponent
+//!   there \[the committed chunked tripwire\].
 //!   The *constant* leg — against the radix-work denominator
 //!   `R = n_io + Σᵢ (digitsᵢ × limbsᵢ +
 //!   TEXT_PIPELINE_LIMB_OPS_PER_VALUE)` over the event values the text
 //!   spells (the honest text cost law: schoolbook conversion plus the
 //!   delta⇄absolute pipeline's measured per-value arithmetic), at the
 //!   ceiling [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`](super::ceilings::MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT) — is what excludes a
-//!   wasteful constant: a digit-by-digit schoolbook probe scores ~1 limb
-//!   per `R` unit, over κ, while the honest kernels' worst family reads
-//!   0.59 \[measured — the test suite's tripwires\]. Only a converter
+//!   wasteful constant: a digit-by-digit schoolbook probe scores over κ
+//!   while the honest kernels stay under it with margin \[the test
+//!   suite's schoolbook and delegating-parser pins\]. Only a converter
 //!   whose recorded limb work is near-linear in `n_io` with a
 //!   pipeline-class constant reads green.
 //! - **Flat-denominator exponents** (the comb-scatter shape): the shape

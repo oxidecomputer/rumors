@@ -126,15 +126,14 @@ fn rendered_text_is_honest_and_padding_trips() {
 }
 
 /// Pinned liveness floors for the delegating-parser pin, one per family: the
-/// whole `FromStr` pipeline's measured limb records × 0.85.
+/// whole `FromStr` pipeline's measured limb records × 0.85 (the readings of
+/// record live in the pin commit).
 ///
 /// The pipeline records from two sites — the delegated radix conversion (one
 /// width-proportional count per materialized value) and the gamma encoder's
-/// arithmetic — and the radix site alone contributes ~50% on both families
-/// \[measured: pipeline totals 501 and 8_259; the radix side's own
-/// contribution is 250 and 4_127, so the bypass readings are 251 and 4_132\].
-/// A floor at ×0.85 of the pipeline total (425 and 7_020) sits above what the
-/// encoder site can reach alone, so a parse path that stops recording trips
+/// arithmetic — and the radix site alone contributes roughly half on both
+/// families, so a floor at ×0.85 of the pipeline total sits above what the
+/// encoder site can reach alone and a parse path that stops recording trips
 /// it; the values' mandatory limbs alone cannot separate that bypass (the
 /// encode-side arithmetic already covers them). The separation margin is
 /// measured, not structural — the floor sits over a bypass reading of
@@ -287,8 +286,8 @@ fn schoolbook_limb_ops(text: &str, chunk_digits: usize) -> u64 {
 /// only on its exponent leg: chunking slips the constant under κ.
 ///
 /// κ alone does not enforce subquadratic conversion: `u32` chunking shrinks the
-/// schoolbook constant ~9× to well under κ (measured 0.11 limb/`R` on hugeleaf,
-/// 0.15 on bigroot) while leaving the complexity class untouched (`Θ(digits ×
+/// schoolbook constant ~9× to well under κ (the premise assert below holds
+/// it there) while leaving the complexity class untouched (`Θ(digits ×
 /// limbs)`, limb work quadratic in the value's bits — recorded here through the
 /// same metered ops the board reads). The criterion's teeth against it are
 /// entirely in the limb exponent judged against `n_io`: quadratic limb work
@@ -508,9 +507,10 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
 #[test]
 fn join_all_overlap_upfront_test_reads_flat() {
     use super::family::{decode_party, overlap_fold_probe, overlap_mounted_pair};
-    /// Ceiling on scan growth across the joint doubling: measured ×2.00
-    /// (deterministic meter), with headroom for rounding only — a
-    /// per-input accumulator re-walk reads ~×4.
+    /// Ceiling on scan growth across the joint doubling: a linear
+    /// discipline reads exactly ×2.00 there (deterministic meter), so
+    /// the ceiling adds headroom for rounding only — a per-input
+    /// accumulator re-walk reads ~×4.
     const MAX_SCAN_GROWTH: f64 = 2.05;
     let scan_at = |depth: usize| -> (u64, u64) {
         let shape = crate::meter::id_spine(depth, false);
@@ -1001,7 +1001,7 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
 ///
 /// Probes through [`evaluate`] at the comb-scatter cross's committed geometry
 /// (the model reads 68 160 -> 176 256 B there): the ratified profile
-/// (measured/model 1.005–1.017 at every probed point) is green; a regressed
+/// (the fixture readings beside the geometry, ~1% over model) is green; a regressed
 /// builder — an unanchored doubling chain or an extra buffer copy, reading 2x
 /// the model — is red on the model ceiling; an improved builder reading half
 /// the model trips the stale-model floor, forcing a deliberate re-declaration;

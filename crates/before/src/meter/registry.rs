@@ -743,8 +743,8 @@ pub enum FamilyId {
     /// event — the position weight is topology, so no code funds the gap — and
     /// every cancellation makes the accumulator's top settle back across the
     /// never-written run. A settlement scan that steps the gap digit by digit
-    /// goes quadratic here (×1.93 per byte across the doubling, measured under
-    /// a probe build with certificate consumption disabled); consuming one
+    /// goes quadratic here (demonstrated by a probe build with certificate
+    /// consumption disabled); consuming one
     /// zero-run certificate per jumped run reads flat (the `skyline_flatness`
     /// weight-comb band). Designed against the linear-functional query rows.
     WeightComb,
@@ -757,8 +757,8 @@ pub enum FamilyId {
     /// segment read starts `Θ(k)` digits up. The accumulator's write watermark
     /// prices each read at the segment's written span; a scaled read that
     /// starts at digit 0 walks the never-written prefix per freeze and goes
-    /// quadratic in the touch and limb currencies together (×1.91 per byte
-    /// across the doubling, measured under a probe build whose scaled reads
+    /// quadratic in the touch and limb currencies together (demonstrated by
+    /// a probe build whose scaled reads
     /// start at digit 0); the watermark reads flat (the `skyline_flatness`
     /// freeze-parade band). The freeze-position spine prices the query layer's
     /// per-freeze accounting; this family prices the accumulator's read side

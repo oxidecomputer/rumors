@@ -20,7 +20,7 @@
 //!   `clock_own_version_to_version` on the output-domination cross): peak
 //!   heap is the output builder's doubling chain anchored at the
 //!   operand-size reserve — [`capacity_chain_peak`]'s
-//!   `3·(n+m)·2^(k−1)`, ratified within 2% at every probed point. The
+//!   `3·(n+m)·2^(k−1)`, ratified against the committed probe points. The
 //!   heap reading is banded around the model at every measured size
 //!   ([`CAPACITY_MODEL_FLOOR`], [`CAPACITY_MODEL_CEILING`]) and the heap
 //!   exponent fit is retired as unjudgeable there — the chain quantizes
@@ -34,9 +34,9 @@
 //!   shape that defeats consumption, and the anchor web's `Θ(k)` live
 //!   reign records on the one shape that defeats batching. The heap
 //!   *constant* is judged at the stated ceiling (each declaring
-//!   constant carries its derivation and measured profile); the
-//!   exponent leg stays at the global bound, so a flat-constant
-//!   declaration can never absorb growth.
+//!   constant carries its derivation; the measured profiles live in
+//!   the pin commits); the exponent leg stays at the global bound, so
+//!   a flat-constant declaration can never absorb growth.
 //! - **The mirror-wide display pair** (`version_display`,
 //!   `clock_display` on the mirror-wide cross): the render merge's
 //!   documented superlinear time class — the wall leg judges the display
@@ -53,12 +53,13 @@ use crate::Party;
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
 //
-// Several ceilings below argue their calibration from a measured worst honest
-// reader and name it. Those witnesses are load-bearing prose, and nothing
-// mechanical guards them: a new family (or kernel change) that reads heavier
-// than a named witness falsifies the calibration argument while its cell still
-// reads green, since every ceiling sits well above its witness. Whoever lands
-// such a change re-measures and re-words the constants whose witness moved.
+// Several ceilings below argue their calibration from the worst honest reader
+// at the release profile of record. The readings themselves live in the pin
+// commits (`git log -S` the constant), never in this prose: a quoted reading
+// would keep asserting itself as present-tense fact while headroom absorbed
+// the drift. A change that moves a ceiling's worst honest reader is a
+// deliberate event: re-measure, re-derive, and re-pin the constant — the
+// event re-words derivations and re-pins numbers, never prose readings.
 
 /// Green requires every meter's scaling exponent at or below this.
 ///
@@ -99,8 +100,8 @@ pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 /// single walk over packed operands scans ~8 bits per byte, multi-walk
 /// operations (`distance` runs join, meet, and two rank folds) scan a small
 /// multiple, and the text parsers re-scan their packed output through the
-/// strict validator. The worst honest reader measured is well under 64; the
-/// ceiling sits at 96 so only a walk that re-scans state growing with the input
+/// strict validator. The committed families all read under this ceiling with
+/// room to spare, so only a walk that re-scans state growing with the input
 /// — the fold genre — goes red on this column.
 pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 
@@ -110,20 +111,19 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 /// Calibrated against the worst honest reader at the release profile of
 /// record: the delta-folding kernels (validate, sweep, emit, the query folds,
 /// the text parse) touch a handful of digits per delta code — single digits
-/// per packed byte on organic shapes — and the heaviest honest readers
-/// measured are the mirror-narrow tick cross (the memo machinery's per-site
-/// resolution) at 16.0 touches per input byte at the ladder's base scale and
-/// the span fold's stagger cell at 17.2 at its top, where the balanced
-/// reduction's per-level re-touching stacks \[measured in release, the
-/// board's worst-case map at both sampling scales; the fold rows' touch
-/// constant is judged at this same ceiling — only their exponent leg rides
-/// the fold model\]. The ceiling is the worst honest reading ×1.25, rounded
-/// up (owner-ratified: the family-stated ceilings' margin convention), so a
-/// kernel that re-reads digit state growing with the input — the
-/// width-circulation genre — goes red on this column's constant instead of
-/// hiding in headroom, and an honest family that reads past the worst
-/// witness is a deliberate re-measure-and-re-word event, never absorbed
-/// slack.
+/// per packed byte on organic shapes — and the heaviest honest readers are
+/// the cells where per-site resolution or the balanced reduction's per-level
+/// re-touching legitimately stacks; the board's worst-case map at both
+/// sampling scales identifies them, and the fold rows' touch constant is
+/// judged at this same ceiling — only their exponent leg rides the fold
+/// model. The ceiling is the worst honest reading ×1.25, rounded up
+/// (owner-ratified: the family-stated ceilings' margin convention; the
+/// reading lives in the pin commit), so a kernel that re-reads digit state
+/// growing with the input — the width-circulation genre — goes red on this
+/// column's constant instead of hiding in headroom, and an honest family
+/// that reads past the worst witness is a deliberate re-measure event:
+/// re-derive the worst honest reader from the board's worst-case map and
+/// re-pin the constant, never absorbed slack.
 pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 22.0;
 
 /// Scan liveness floor: an operation that must examine its packed operands
@@ -167,20 +167,20 @@ pub const TICKS_BOARD_COUNT: u64 = 512;
 /// exponent against it reads a flat ~1 on exactly the quadratic converters the
 /// bound exists to catch. The legs exclude different converters, and a constant
 /// ceiling cannot enforce a complexity class: a `u32`-chunked schoolbook
-/// converter scores ~0.11 limb per `R` unit — under κ, and wider chunks only
-/// lower it — while its limb work stays quadratic in the value bits and reads
-/// exponent ~2 against `n_io` \[measured — the chunked tripwire in the test
-/// suite\]; the exponent leg is what excludes it. What κ excludes is a wasteful
-/// constant. It is pinned from the production kernels' observed meter at the
-/// ladder's top sampling scale (release, the profile of record): the honest cells read at
-/// most 0.59 limb per `R` unit (the staircase pipeline, both directions), so κ
-/// leaves the worst honest family ~27% headroom while a digit-by-digit
-/// schoolbook probe's measured ~1 limb per `R` unit still exceeds it, and the
-/// production parser — radix conversion delegated to the backend's
-/// divide-and-conquer parser, one width-proportional limb record per
-/// materialized value — reads orders under it on the conversion-dominated
-/// families \[measured — the schoolbook and delegating-parser pins in the test
-/// suite\]. The test suite pins three legs — the schoolbook probe exceeds κ;
+/// converter scores under κ — and wider chunks only lower its constant —
+/// while its limb work stays quadratic in the value bits and reads a
+/// quadratic exponent against `n_io` \[the chunked tripwire in the test
+/// suite pins both halves\]; the exponent leg is what excludes it. What κ
+/// excludes is a wasteful constant. It is pinned from the production
+/// kernels' observed meter at the ladder's top sampling scale (release, the
+/// profile of record), at the family-stated ×1.25 margin over the worst
+/// honest cell's reading rounded to a round constant (the reading lives in
+/// the pin commit), placed so a digit-by-digit schoolbook probe still
+/// exceeds it while the production parser — radix conversion delegated to
+/// the backend's divide-and-conquer parser, one width-proportional limb
+/// record per materialized value — stays under it on the
+/// conversion-dominated families \[the schoolbook and delegating-parser
+/// pins in the test suite\]. The test suite pins three legs — the schoolbook probe exceeds κ;
 /// the delegating parser stays under κ over a liveness floor; the chunked probe
 /// slips under κ and trips the exponent leg — so none can silently soften.
 pub const MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT: f64 = 0.75;
@@ -194,11 +194,10 @@ pub const MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT: f64 = 0.75;
 /// summaries, the parse re-derives delta codes from spelled bases — and `Σ
 /// digits × limbs` under-weights it to nothing on small-value trees (a
 /// one-digit value is one radix unit; the pipeline around it is not free). The
-/// allowance is pinned just above the production kernels' measured honest range
-/// \[measured, release, record scale: 5–9 limb ops per spelled value across the
-/// small-value families, both directions; the ceiling κ then leaves the worst
-/// family ~27% headroom\]. Id tokens contribute nothing: an id tree spells
-/// booleans and forces no arithmetic.
+/// allowance is pinned just above the production kernels' measured honest
+/// range across the small-value families, both directions (release, the
+/// record scale; the readings live in the pin commit). Id tokens contribute
+/// nothing: an id tree spells booleans and forces no arithmetic.
 pub const TEXT_PIPELINE_LIMB_OPS_PER_VALUE: u64 = 10;
 
 /// Any text stream entering a denominator must hold at most this many bytes per
@@ -250,18 +249,16 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// join level re-scans the operands it merges, so scan work per input byte
 /// grows by a constant per level — never flat, at any implementation of the
 /// balanced reduction. Derivation of the constant: per-level readings vary
-/// widely with population and arity — the committed fold cells span ~0.8–9.5
-/// scan bits per byte per level, each divided by its own cell's `log2(2k)` —
-/// and the binding calibration is the heaviest honest per-level reader, the
-/// party fold's benign control: 94.6 bits/B over 10 levels at the ladder's
-/// base scale (k = 512) and 109.8 over 12 at its top (k = 2048), 9.46 and
-/// 9.15 per level \[measured in release, the acceptance ladder at both
-/// sampling scales; the party overlap populations ride their declared
-/// per-input search allowance on top of the fold model, so they are outside
-/// this per-level arithmetic\]. 12 leaves that worst honest reading ~27%
-/// headroom — the family-stated ceilings' ×1.25 margin convention at a round
-/// constant — while a fold whose per-level constant regresses by a third
-/// still reads red.
+/// widely with population and arity — each committed fold cell's reading
+/// divided by its own cell's `log2(2k)` — and the binding calibration is the
+/// heaviest honest per-level reader, the party fold's benign control at the
+/// acceptance ladder's two sampling scales (release, the profile of record;
+/// the readings live in the pin commit). The party overlap populations ride
+/// their declared per-input search allowance on top of the fold model, so
+/// they are outside this per-level arithmetic. The constant is the worst
+/// honest per-level reading at the family-stated ceilings' ×1.25 margin
+/// convention, rounded to a round constant, so a fold whose per-level
+/// constant regresses past the margin reads red.
 pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 
 /// The scan bits one metered `IdIndex` table probe records: one `u32` table
@@ -276,15 +273,14 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 /// nodes, and each both-present node the test visits runs one binary search
 /// over at most `t` entries — at most `⌈log2(t+1)⌉` probes of one table word
 /// each. The allowance is that bound summed over the inputs' both-present
-/// nodes, computed from the operands at prepare; it is tight-ish where the
-/// searches dominate \[measured in release, the weave family: readings sit
-/// within ~10% of the fold model plus this allowance at both sampling scales\], zero on
-/// populations with no both-present structure (scatter's single-leaf operands),
-/// and absent from the version fold, which runs no overlap test. The index
-/// stays, its searches priced, over a per-input cursor walk: the committed
-/// overlap instruments pin the index's asymptotic win (a cursor discipline
-/// reads quadratic on the overlap rows and trips the flatness pin), and the
-/// index ties or wins wall time on every committed fold population.
+/// nodes, computed from the operands at prepare; it is tight where the
+/// searches dominate (the weave family is the calibrating population; the
+/// readings live in the pin commit), zero on populations with no
+/// both-present structure (scatter's single-leaf operands), and absent from
+/// the version fold, which runs no overlap test. The index stays, its
+/// searches priced, over a per-input cursor walk: the committed overlap
+/// instruments pin the index's asymptotic win (a cursor discipline reads
+/// quadratic on the overlap rows and trips the flatness pin).
 pub const INDEX_PROBE_SCAN_BITS: u64 = 32;
 
 /// A packed id operand's both-present node count: the size of the `IdIndex`
@@ -304,12 +300,13 @@ pub(super) fn both_present_nodes(p: &Party) -> u64 {
 /// The declared-model band: a modeled reading must sit within
 /// `[CAPACITY_MODEL_FLOOR, CAPACITY_MODEL_CEILING] × model`.
 ///
-/// The capacity-chain model fits the committed probe points within 2%
-/// \[measured in release: measured/model 1.005–1.017 across teeth 128–1024\],
-/// so ±10% absorbs the walk's small non-chain allocations while a regressed
-/// builder — an unanchored doubling chain, an extra buffer copy — overshoots
-/// the ceiling, and an improved builder undershoots the floor and forces a
-/// deliberate re-declaration.
+/// The model is exact for the anchored doubling chain, and the walk's
+/// non-chain allocations are small beside it (the ratified fit is pinned in
+/// the capacity probe's committed fixtures; the live readings of record live
+/// in the pin commit), so ±10% absorbs them while a regressed builder — an
+/// unanchored doubling chain, an extra buffer copy, each a factor-scale
+/// effect — overshoots the ceiling, and an improved builder undershoots the
+/// floor and forces a deliberate re-declaration.
 pub const CAPACITY_MODEL_CEILING: f64 = 1.10;
 /// The declared-model band's lower edge; see [`CAPACITY_MODEL_CEILING`].
 pub const CAPACITY_MODEL_FLOOR: f64 = 0.90;
@@ -379,12 +376,14 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
 /// buys the tick walk's word-scale fast path — with the certificate
 /// buffers' capacity rounded at powers of two, sampled at the position
 /// inside that period the family base fixes for every ladder point (the
-/// base's own doc carries the choice). Measured (release, across the
-/// ladder's two sampling scales): 178.8 → 181.0 B per input byte at heap
-/// exponent 1.00 — a constant, not a class; the ceiling is the worst
-/// reading ×1.25, rounded up (owner-ratified, conditional on exactly this
-/// flat-constant profile). A reading over it is a genuine
-/// certificate-memory regression on the one shape that defeats consumption.
+/// base's own doc carries the choice). The profile at the release profile
+/// of record is a flat per-byte constant, not a class — the exponent leg
+/// stays at the global bound, so growth cannot hide under the stated
+/// constant — and the ceiling is the worst reading across the ladder's two
+/// sampling scales ×1.25, rounded up (owner-ratified, conditional on
+/// exactly this flat-constant profile; the readings live in the pin
+/// commit). A reading over it is a genuine certificate-memory regression
+/// on the one shape that defeats consumption.
 pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 227.0;
 
 /// The ascending-cliff `version_min_ticks` cell's family-stated heap ceiling,
@@ -398,12 +397,13 @@ pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 227.0;
 /// legitimately holds `Θ(k)` live reign records (the state that keeps the
 /// fold's *exponent* linear, each pricing its accumulators' word-backed
 /// quick registers alongside their digit state) at a flat per-byte constant:
-/// intended and modeled, not amplification. Measured (release, across the
-/// ladder's two sampling scales): 194.8 → 197.5 B per input byte at heap
-/// exponent 1.00 — a constant, not a class; the ceiling is the worst
-/// reading ×1.25, rounded up (owner-ratified, conditional on exactly this
-/// flat-constant profile). A reading over it is a genuine reign-state
-/// regression on the one shape that defeats batching.
+/// intended and modeled, not amplification. The profile at the release
+/// profile of record is a flat per-byte constant, not a class — the
+/// exponent leg stays at the global bound — and the ceiling is the worst
+/// reading across the ladder's two sampling scales ×1.25, rounded up
+/// (owner-ratified, conditional on exactly this flat-constant profile; the
+/// readings live in the pin commit). A reading over it is a genuine
+/// reign-state regression on the one shape that defeats batching.
 pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 247.0;
 
 /// The mirror-wide display pair's declared render model: the limb *exponent*
@@ -417,12 +417,11 @@ pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 247.0;
 /// values is the documented superlinear time class (the display impls' `#
 /// Complexity` sections; judged at the wall leg's text ceiling), so on the
 /// mirror-wide cross the limb column honestly reads a superlinear exponent
-/// against `n_io` — intended and modeled, not a regression. Measured (release,
-/// per-window at the ladder's two sampling scales): fitted limb exponents 1.55 → 1.81
-/// (`version_display`) and 1.56 → 1.81 (`clock_display`). The ceiling is the
-/// worst measured exponent plus the linear cells' slack (1.81 + 0.15, the
-/// [`MAX_SCALING_EXPONENT`] margin), so a genuinely quadratic conversion (~2.0)
-/// still reads red. The model's under-side is not banded here: the class's
+/// against `n_io` — intended and modeled, not a regression. The ceiling is
+/// the worst fitted exponent on the two cells at the release profile of
+/// record plus the linear cells' slack (the [`MAX_SCALING_EXPONENT`] margin,
+/// 0.15; the fitted exponents live in the pin commit), so a genuinely
+/// quadratic conversion (~2.0) still reads red. The model's under-side is not banded here: the class's
 /// liveness floor is the committed `render_merge_superlinearity_is_alive` pin,
 /// which reads red the day a render-merge cure lands and forces this
 /// declaration's re-derivation in the same change (owner-ratified: the display
@@ -437,11 +436,10 @@ pub const MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING: f64 = 1.96;
 /// κ is calibrated on conversion-honest cells; the mirror-wide render merge
 /// re-folds wide summaries beyond conversion, so its per-`R` constant honestly
 /// exceeds κ at the ladder's sizes — the same mechanism as the exponent
-/// ceiling above, priced on the constant leg. Measured (release, across the
-/// ladder's two sampling scales): 0.7 → 1.4 (`version_display`) and 0.6 → 1.3
-/// (`clock_display`) limb per `R` unit; the ceiling is the worst reading ×1.25
-/// (owner-ratified, conditional on the render-merge mechanism the liveness pin
-/// holds).
+/// ceiling above, priced on the constant leg. The ceiling is the worst
+/// reading on the two cells at the release profile of record ×1.25
+/// (owner-ratified, conditional on the render-merge mechanism the liveness
+/// pin holds; the readings live in the pin commit).
 pub const MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT: f64 = 1.75;
 
 /// The base sampling scale of the measurement ladder, and the size
@@ -457,9 +455,9 @@ pub const DEFAULT_SCALE: f64 = 1.0;
 /// The base-scale sizes under-detect segment amplifiers: stacker grows a
 /// segment only past ~1 MiB of frames, so a recursion-frame amplifier whose
 /// onset sits above the base depths reads a false green there. ×4 is the
-/// witnessed calibration floor — the sampling scale at which every known
-/// segment-onset amplifier read red under pre-fix code — so the ladder tops
-/// out there. **Campaign acceptance is every cell green across the whole
+/// witnessed calibration floor — the smallest sampling scale at which every
+/// segment-onset amplifier the suite has caught reads red — so the ladder
+/// tops out there. **Campaign acceptance is every cell green across the whole
 /// ladder, one acceptance invocation measuring all of it under the
 /// determinism tripwire**, with each exponent judged as one trend over the
 /// four measured points; an acceptance run is acceptance-time only (the

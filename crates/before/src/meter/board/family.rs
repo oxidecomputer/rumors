@@ -199,8 +199,9 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// wide drop codes dominating).
 ///
 /// The scale of the `skyline_flatness` freeze-position band's small run: the
-/// committed known-bad accounting reads ×1.50 per-byte growth across this
-/// regime's doubling (the adequacy tripwire's committed measurement), so the
+/// committed known-bad accounting reads superlinear per-byte growth across
+/// this regime's doubling (the committed adequacy tripwire keeps it failing
+/// there), so the
 /// board's default pair straddles exactly what the family exists to catch. The
 /// base is a multiple of 16 deliberately: the family's rank exponent is `2s −
 /// 1` (one trailing zero strips — exactly one leaf term, the odd `2^L + 1` at
@@ -209,8 +210,7 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// makes most landings span two digits instead of one — an honest
 /// amortized-O(1) constant, but one that flips with the remainder, and an
 /// exponent fitted across two scales with different remainders reads the flip
-/// as growth (measured: e 1.65 from a 1.0 → 1.57 per-summand constant at
-/// remainders 15 → 31). `16 | s` keeps `2s ≡ 0 (mod 32)`, so every doubling
+/// as growth. `16 | s` keeps `2s ≡ 0 (mod 32)`, so every doubling
 /// preserves the remainder and the exponent leg compares like against like.
 const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 
@@ -218,8 +218,9 @@ const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 /// wide arming codes dominating).
 ///
 /// Half the `skyline_flatness` promotion re-arm band's small run: the committed
-/// span-reading promotion reads ×1.74 per-byte growth across that regime's
-/// doubling (the span-promotion tripwire's committed measurement), so the
+/// span-reading promotion reads superlinear per-byte growth across that
+/// regime's doubling (the committed span-promotion tripwire keeps it failing
+/// there), so the
 /// board's default pair straddles what the family exists to catch. The base is
 /// a multiple of 8 deliberately: the family's rank exponent is `36s`, and
 /// `rank_sum` lands its small summands at bit remainder `exp mod 32` (an honest
@@ -610,9 +611,9 @@ impl FamilyData {
                 // Projecting the shared-wide-plateau event through its
                 // site-owning comb id re-materializes a wide absolute value per
                 // kept site: mandatory output Theta(k*b) on a Theta(k + b)
-                // input, the same output domination the comb-scatter cross
-                // declares [measured: output x4 per input doubling, every work
-                // column within x4 of it].
+                // input — output ~x4 per joint input doubling by construction
+                // — the same output domination the comb-scatter cross
+                // declares.
                 data.output_dominated = true;
                 data
             }

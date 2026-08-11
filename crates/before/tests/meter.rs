@@ -242,64 +242,62 @@ const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64, _limb_floor: 
     }
 }
 
-// The envelope table: pinned ceiling = measured ×1.25, rounded up, and
-// only ever tightened: where a remeasure rises while staying inside an
-// existing ceiling (the spilled-magnitude heap cells, which carry the
-// backend's `len/8 + 2` words of growth headroom per heap allocation),
-// the older, tighter ceiling stands over the recorded movement. The
-// trailing comment on each line is the measurement of record
-// (aarch64-apple-darwin, dev profile, three identical runs) the ceiling
-// derives from; a row re-pinned after an improvement records the movement
-// as `old -> new`, and its ceiling derives from the
-// new value. Re-pin by rerunning this binary under `--no-capture` and
-// reading the MEASURED lines (the limb column needs `--all-features` or
-// `--features limb-meter`).
+// The envelope table: pinned ceiling = measured ×1.25, rounded up
+// (aarch64-apple-darwin, dev profile, three identical runs), and only ever
+// tightened: where a remeasure rises while staying inside an existing
+// ceiling (the spilled-magnitude heap cells, which carry the backend's
+// `len/8 + 2` words of growth headroom per heap allocation), the older,
+// tighter ceiling stands. The trailing comment on each line states the
+// mechanism that prices the row; the measurements of record — and every
+// re-pin's movement and attribution — live in the pin commits (`git log
+// -S` the constant), never in this prose. Re-pin by rerunning this binary
+// under `--no-capture` and reading the MEASURED lines (the limb column
+// needs `--all-features` or `--features limb-meter`).
 // The limb floor column is the measured value ×0.75, rounded down (the
 // file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod envelope {
     use super::{envelope, sweep_envelope, Envelope, SweepEnvelope};
-    //                                              peak heap,  segments, limb ops, limb floor           measured: peak heap, segments, limb ops
-    pub const DECODE_DENSE: Envelope = envelope(120_035, 0, 0, 0); // 11_072_549 -> 96_036 (operations route to the skyline kernels: wire decode is validate + wrap), 0, 250_002 -> 500_002 (operations route to the skyline kernels); re-pinned (limb 0, heap 96_028): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const CMP_DENSE: Envelope = envelope(30_720, 0, 0, 0); //          8 -> 24_592 -> 24_584 (OpenedPair: the pair walk's opening move stated once) -> 24_576 (the Bytes-backed at-rest form), 192 -> 0, 2_000_010 -> 250_004 (operations route to the skyline kernels: the iterative sweep) -> 250_002 (the Bytes-backed at-rest form); re-pinned (limb 0, heap 24_576): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const JOIN_DENSE: Envelope = envelope(130_277, 0, 0, 0); //  4_797_477 -> 151_113 -> 104_237 (the Bytes-backed at-rest form: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 240 -> 0, 3_000_008 -> 750_004 (operations route to the skyline kernels: the emit kernel); re-pinned to the new readings (limb 250_002, heap 104_221): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 0, heap 104_221): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    //                                              peak heap,  segments, limb ops, limb floor
+    pub const DECODE_DENSE: Envelope = envelope(120_035, 0, 0, 0); // wire decode is validate + wrap on the skyline kernels; decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    pub const CMP_DENSE: Envelope = envelope(30_720, 0, 0, 0); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero
+    pub const JOIN_DENSE: Envelope = envelope(130_277, 0, 0, 0); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero
     // The tick rows live in `query_env`: the tick walk's cost currency
     // is accumulator digit touches (with scanned bits beside it), which
     // this four-column table never watched.
-    pub const DECODE_BIGROOT: Envelope = envelope(60_090, 0, 783, 469); //  1_396_905 -> 48_072 (operations route to the skyline kernels: wire decode is validate + wrap), 0, 20_630 -> 40_632 (operations route to the skyline kernels); re-pinned (limb 626, heap 48_072): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const CMP_BIGROOT: Envelope = envelope(40_340, 0, 783, 469); // 56_416_936 -> 32_280 -> 32_272 (the Bytes-backed at-rest form), 12 -> 0, 37_606_270 -> 20_632 (operations route to the skyline kernels: the iterative sweep) -> 20_630 (the Bytes-backed at-rest form); re-pinned (limb 626, heap 32_272): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const JOIN_BIGROOT: Envelope = envelope(85_060, 0, 1_565, 939); // 56_849_753 -> 81_800 -> 68_048 (the Bytes-backed at-rest form: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 16 -> 0, 87_631_274 -> 61_266 (operations route to the skyline kernels: the emit kernel); re-pinned to the new readings (limb 21_258, heap 68_048): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 1_252, heap 68_048): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const DECODE_HUGELEAF: Envelope = envelope(   122_504,        0,         2_443, 1_465); //     48_851 -> 98_003 (operations route to the skyline kernels: the validating wire decode holds the running height), 0, 1_954
-    pub const JOIN_HUGELEAF: Envelope   = envelope(   185_494,        0,         4_887, 2_931); //    115_707 -> 179_622 (operations route to the skyline kernels: the emit kernel holds both payload buffers) -> 148_395 (the Bytes-backed at-rest form: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 0, 7_821 -> 3_909 (operations route to the skyline kernels)
-    pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0, 0); //    125_001 -> 223_305, 202 -> 0, 0 (iterative id walks: frame bits on the heap, no grown segments)
-    pub const ID_COVERS: Envelope       = envelope(        10,        0,             0, 0); //          0 -> 8,  85 -> 0, 0 (iterative id walks)
-    pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); //          0 -> 8, 170 -> 0, 0 (iterative id walks)
-    pub const ID_WITHOUT: Envelope      = envelope(   521_110,        0,             0, 0); //    518_219 -> 416_888 (dev builds run no shadow re-parse of the diff emission: the differential suites carry the normal-form check) -> 416_887 (the Bytes-backed at-rest form), 138 -> 0, 0 (iterative complement)
-    pub const DECODE_CLIFF: Envelope = envelope(4_052, 0, 88, 52); //    607_489 -> 3_241 (operations route to the skyline kernels: wire decode is validate + wrap), 0, 40_960 -> 10_322 (operations route to the skyline kernels); re-pinned (limb 70, heap 3_241): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const CMP_CLIFF: Envelope = envelope(1_330, 0, 88, 52); //        496 -> 1_368 (operations route to the skyline kernels: the sweep holds two accumulators) -> 1_200 (OpenedPair: the pair walk's opening move stated once) -> 1_192 (the Bytes-backed at-rest form), 0, 190_474 -> 6_212 (operations route to the skyline kernels: the cliff-immune sweep) -> 6_210 (the Bytes-backed at-rest form); re-pinned (limb 70, heap 1_064): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const JOIN_CLIFF: Envelope = envelope(5_362, 0, 308, 184); //  1_411_489 -> 6_330 -> 4_537 (the Bytes-backed at-rest form: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand, so the public join's peak is the emit kernel's alone), 0, 384_008 -> 20_695 (operations route to the skyline kernels: the emit kernel); re-pinned to the new readings (limb 8_432, heap 4_689): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 246, heap 4_289): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    // Skyline validator rows: the dense row's 49 KB peak over
-    // 125k levels is ~3.1 bits per open ancestor (bit stack plus
-    // reallocation growth) against DECODE_DENSE's 11 MB parse frames on
-    // the same tree, ~56 B per level. The validator and decoder rows carry
+    pub const DECODE_BIGROOT: Envelope = envelope(60_090, 0, 783, 469); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
+    pub const CMP_BIGROOT: Envelope = envelope(40_340, 0, 783, 469); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
+    pub const JOIN_BIGROOT: Envelope = envelope(85_060, 0, 1_565, 939); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
+    pub const DECODE_HUGELEAF: Envelope = envelope(   122_504,        0,         2_443, 1_465); // the validating wire decode holds the running height; one wide gamma code's linear limb work
+    pub const JOIN_HUGELEAF: Envelope   = envelope(   185_494,        0,         4_887, 2_931); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
+    pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0, 0); // iterative id walks: frame bits on the heap, no grown segments
+    pub const ID_COVERS: Envelope       = envelope(        10,        0,             0, 0); // iterative id walks
+    pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); // iterative id walks
+    pub const ID_WITHOUT: Envelope      = envelope(   521_110,        0,             0, 0); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
+    pub const DECODE_CLIFF: Envelope = envelope(4_052, 0, 88, 52); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
+    pub const CMP_CLIFF: Envelope = envelope(1_330, 0, 88, 52); // the cliff-immune sweep (two accumulators, opened once) over the Bytes-backed at-rest form
+    pub const JOIN_CLIFF: Envelope = envelope(5_362, 0, 308, 184); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
+    // Skyline validator rows: the validator's transient is the
+    // open-ancestor bit stack plus reallocation growth — bits per level,
+    // not frames. The validator and decoder rows carry
     // the sweep tables' scanned-bits column: their work is cursor reads
     // end to end (the validator allocates near-nothing and, off the wide
     // families, does little arithmetic), so scan is the column that sees
     // a re-read the others cannot. Decode is validate plus the wrap, so
     // each shape's scan reading equals its validate row's.
-    pub const SKYLINE_VALIDATE_DENSE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); //     49_160, 0,   500_002, scan 375_006; re-pinned (limb 0, scan 375_006, heap 49_152): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_VALIDATE_CLIFF: SweepEnvelope = sweep_envelope(1_770, 0, 88, 17_923, 52); //      1_416 -> 1_448 (dashu-int backend), 0,    10_322, scan 14_338; re-pinned (limb 70, scan 14_338, heap 1_448): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_VALIDATE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(1_520, 0, 29_509, 1_000_480, 17_705); //      1_216 -> 1_408 (the zero-run ledger's map node; the older ceiling stands), 0,    33_860, scan 800_384; re-pinned (limb 23_607, scan 800_384, heap 1_408): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_VALIDATE_HUGELEAF: SweepEnvelope   = sweep_envelope(    80_980,        0,         2_443, 312_503, 1_465); //     64_784 -> 66_752 (dashu-int backend), 0,     1_954, scan 250_002
-    pub const SKYLINE_VALIDATE_ALT_SPINE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); //     49_160, 0,   500_002, scan 375_006; re-pinned (limb 0, scan 375_006, heap 49_152): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    pub const SKYLINE_VALIDATE_DENSE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_VALIDATE_CLIFF: SweepEnvelope = sweep_envelope(1_770, 0, 88, 17_923, 52); // the cliff-immune accumulator: amortized O(1) per delta
+    pub const SKYLINE_VALIDATE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(1_520, 0, 29_509, 1_000_480, 17_705); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
+    pub const SKYLINE_VALIDATE_HUGELEAF: SweepEnvelope   = sweep_envelope(    80_980,        0,         2_443, 312_503, 1_465); // one wide decode and one wide accumulator load, both linear in the code's width
+    pub const SKYLINE_VALIDATE_ALT_SPINE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // per-level state stays two bits however the descent direction flips
     // Skyline decoder rows: validation plus the wrap into storage — the
     // stored coding is the skyline stream itself, so decode materializes
     // nothing beyond the copy and stays priced by the wire input.
-    pub const SKYLINE_DECODE_DENSE: SweepEnvelope = sweep_envelope(122_880, 0, 0, 468_758, 0); // 18_138_292 -> 98_304, 0, 2_750_012 -> 500_002 (operations route to the skyline kernels: decode is validate + wrap), scan 375_006; re-pinned (limb 0, scan 375_006, heap 98_304): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_DECODE_CLIFF: SweepEnvelope = sweep_envelope(3_840, 0, 88, 17_923, 52); //  1_787_704 -> 3_072, 0, 317_626 -> 10_322 (operations route to the skyline kernels: decode is validate + wrap), scan 14_338; re-pinned (limb 70, scan 14_338, heap 3_072): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_DECODE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(245_760, 0, 29_509, 1_000_480, 17_705); //  1_699_472 -> 196_608, 0, 370_843 -> 33_860 (operations route to the skyline kernels: decode is validate + wrap), scan 800_384; re-pinned (limb 23_607, scan 800_384, heap 196_608): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_DECODE_HUGELEAF: SweepEnvelope     = sweep_envelope(    83_440,        0,         2_443, 312_503, 1_465); //    101_803 -> 66_752, 0, 9_773 -> 1_954 (operations route to the skyline kernels: decode is validate + wrap), scan 250_002
-    pub const SKYLINE_DECODE_ALT_SPINE: SweepEnvelope = sweep_envelope(122_880, 0, 0, 468_758, 0); // 15_778_996 -> 98_304, 0, 2_750_012 -> 500_002 (operations route to the skyline kernels: decode is validate + wrap), scan 375_006; re-pinned (limb 0, scan 375_006, heap 98_304): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    pub const SKYLINE_DECODE_DENSE: SweepEnvelope = sweep_envelope(122_880, 0, 0, 468_758, 0); // decode is validate + wrap
+    pub const SKYLINE_DECODE_CLIFF: SweepEnvelope = sweep_envelope(3_840, 0, 88, 17_923, 52); // decode is validate + wrap
+    pub const SKYLINE_DECODE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(245_760, 0, 29_509, 1_000_480, 17_705); // decode is validate + wrap; the wrap's copy prices the wide payloads
+    pub const SKYLINE_DECODE_HUGELEAF: SweepEnvelope     = sweep_envelope(    83_440,        0,         2_443, 312_503, 1_465); // decode is validate + wrap
+    pub const SKYLINE_DECODE_ALT_SPINE: SweepEnvelope = sweep_envelope(122_880, 0, 0, 468_758, 0); // decode is validate + wrap
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -806,9 +804,8 @@ fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Ticks) -> (u64, u64, 
 /// dependence is piecewise-linear with a knee exactly there: below it
 /// the output carries the count in one gamma code (span `2·bits(n)`),
 /// above it the min-lift re-coding around the grown site carries the
-/// count's excess over the site again (span `4·bits(n) − 2·site`,
-/// measured exact on the mirror-wide cross: 24,750 → 57,518 scanned
-/// bits against the law's 24,766 → 57,534). Judging two points in one
+/// count's excess over the site again (span `4·bits(n) − 2·site`, the
+/// law the wide points' scan spans track). Judging two points in one
 /// regime keeps the ratio band tight; a probe straddling the knee
 /// legitimately reads up to ×3 without any superlinearity.
 #[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
@@ -827,12 +824,12 @@ const TICKS_WIDE_COUNT_BITS: usize = 8_192;
 /// ×4 here and cannot hide in the baseline, which the committed
 /// three-family log band already pins at word counts.
 ///
-/// [Measured in the dev profile, exact counters: scan spans
-/// 16,366 → 32,750 bits (×2.001) and limb spans 256 → 512 on dense
-/// and nested-wide; scan spans 24,750 → 57,518 (×2.32, the slope-4
-/// regime above the site-width knee) and limb spans 834 → 1,730 on
-/// mirror-wide; touch spans 0 → 0 everywhere — the count's arithmetic
-/// lives on `Base`, never the accumulator.]
+/// Dense and nested-wide sit below the site-width knee; mirror-wide
+/// sits in the slope-4 regime above it (both wide points exceed its
+/// [`TICK_CROSS_SCALE`]-bit site width by construction), and both
+/// regimes are width-linear, so the ratio band holds across all
+/// three. The touch span carries no count dependence anywhere: the
+/// count's arithmetic lives on `Base`, never the accumulator.
 #[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_GROWTH_NUM: u64 = 5;
 
@@ -929,18 +926,18 @@ const TICKS_POINT_HI: u64 = 4_096;
 /// The scan movement band: up to two count-carrying codes x 2 bits per
 /// doubling x 3 doublings.
 ///
-/// [Measured: exactly 6 on all three families - one code
-/// carries the count there; the second code's budget covers operand
-/// shapes where the successor repair carries it too.]
+/// One code carries the count on the committed families; the second
+/// code's budget covers operand shapes where the successor repair
+/// carries it too.
 #[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_SCAN_BAND: u64 = 12;
 /// The limb movement band: the count's arithmetic stays inside one
-/// digit across the band [measured: exactly 0 on all three
-/// families; a word of slack for a digit-boundary crossing].
+/// digit across the band; a word of slack covers a digit-boundary
+/// crossing.
 #[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_LIMB_BAND: u64 = 8;
-/// The touch movement band: see the limb band [measured:
-/// exactly 0 on all three families].
+/// The touch movement band: see the limb band (the count's arithmetic
+/// never lands on the accumulator).
 #[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_TOUCH_BAND: u64 = 8;
 
@@ -1083,14 +1080,14 @@ fn join_cliff_envelope() {
 // conversion) honest, and the touch column is the liveness floor for the
 // fold itself. RANK_HARMONIC is the fold's separating family — a
 // numerator as wide as the depth already walked at every level — pinned
-// linear (its limb column moved 134,740,995 -> 1,025 when the digit-routed
-// fold landed). RANK_DENSE and RANK_BIGROOT are the controls: one-bit and
-// root-heavy numerators respectively.
+// linear where a re-shifting fold reads magnitude-quadratic. RANK_DENSE
+// and RANK_BIGROOT are the controls: one-bit and root-heavy numerators
+// respectively.
 //
 // RANK_PAIR_MISMATCH pins the class-first comparison's honest remainder
 // (the subtraction and addition outputs' own content), and RANK_SUM_MIXED
-// the raw-accumulator Sum (one normalization at the end; its limb column
-// moved 156,312,196 -> 3,908 when the fold landed).
+// the raw-accumulator Sum (one normalization at the end, where a
+// per-summand renormalization reads magnitude-quadratic).
 
 /// One touch-priced scenario's pinned ceilings, asserted when the
 /// `limb-meter` feature is lit.
@@ -1153,32 +1150,30 @@ const fn touch_envelope(
 }
 
 // The touch-priced envelope table (the rank rows): pinned ceiling =
-// measured ×1.25, rounded up,
-// and only ever tightened: where a remeasure rises while staying inside
-// an existing ceiling (the spilled-numerator heap cells, which carry the
-// backend's `len/8 + 2` words of growth headroom per heap allocation),
-// the older, tighter ceiling stands over the recorded movement. The
-// trailing comment on each line is the measurement of record
-// (aarch64-apple-darwin, dev profile, three identical runs)
-// the ceiling derives from; a re-pinned column records the movement as
-// `old -> new`. Re-pin by rerunning under `--no-capture` with
-// `--all-features` and reading the MEASURED lines.
+// measured ×1.25, rounded up (aarch64-apple-darwin, dev profile, three
+// identical runs), and only ever tightened: where a remeasure rises while
+// staying inside an existing ceiling (the spilled-numerator heap cells,
+// which carry the backend's `len/8 + 2` words of growth headroom per heap
+// allocation), the older, tighter ceiling stands. The trailing comment on
+// each line states the mechanism that prices the row; the measurements of
+// record — and every re-pin's movement and attribution — live in the pin
+// commits (`git log -S` the constant). Re-pin by rerunning under
+// `--no-capture` with `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
 // file doc's improvement-tripwire convention).
-// One rise is recorded against the tightening rule: every limb ceiling
-// here rose when `Base::trailing_zeros` joined the metered
-// seam (rank normalization strips factors of two through it, so these
-// are the rows that gained counts) — a re-denomination of the column,
-// the same work newly counted, not a weakening.
+// A re-denomination of a column — the same work newly counted at the
+// metered seam (`Base::trailing_zeros`, widening shifts) — is a
+// sanctioned rise under the tightening rule, recorded in its pin commit,
+// never a weakening.
 #[rustfmt::skip]
 mod rank_env {
     use super::{touch_envelope, TouchEnvelope};
-    //                                                             peak heap, segments,    limb ops, touches, limb floor, touch floor       measured: peak heap, segments, limb ops (movement), touches
-    pub const RANK_DENSE: TouchEnvelope = touch_envelope(30_720, 0, 4, 7, 2, 3); //          0 -> 65_560, 240 -> 0, 3 -> 250_005, 0 -> 125_007 (operations route to the skyline kernels: the query fold reads delta payloads); heap 65_576 -> 24_576 and touches 125_007 -> 5 (the segment feed opens at the first freeze — the depth control's touch column and scale-deep segment buffer were the feed); re-pinned (limb 3, touches 5, heap 24_576): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const RANK_BIGROOT: TouchEnvelope = touch_envelope(72_005, 0, 2_739, 8_993, 1_643, 5_395); //     41_368 -> 61_516 -> 61_708 (the zero-run ledger's map nodes; the older ceiling stands), 16 -> 0, 2_191 -> 22_195, 4_689 -> 17_194 (operations route to the skyline kernels: the query fold reads delta payloads); heap 61_724 -> 57_636 and touches 17_194 -> 7_192 (the segment feed opens at the first freeze); re-pinned (limb 2_191, touches 7_194, heap 57_604): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const RANK_HARMONIC: TouchEnvelope = touch_envelope(52_500, 0, 2_562, 248_285, 1_536, 148_971); //     33_840 -> 58_400, 124 -> 0, 2_049 -> 133_121, 67_522 -> 198_659 (operations route to the skyline kernels: the query fold reads delta payloads); heap 58_416 -> 42_040 and touches 198_658 -> 133_121 (the segment feed opens at the first freeze — one deposit per leaf gone); re-pinned to the new readings (limb 133_121, touches 198_628, heap 42_000): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 2_049, touches 198_628, heap 42_000): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const RANK_PAIR_MISMATCH: TouchEnvelope = touch_envelope(     234_400,        0,      87_910,      0, 52_746, 0); //    187_520 -> 211_016 (dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output) -> 54_704 (metered trailing_zeros) -> 70_328 (widening shifts record output width: a re-denomination, the exponent-alignment work newly counted), 0
-    pub const RANK_SUM_MIXED: TouchEnvelope     = touch_envelope(      78_140,        0,       9_769, 22_268, 5_861, 13_360); //     62_512 -> 62_704 (the zero-run ledger's map nodes; the older ceiling stands),   0, 156_312_196 -> 3_908 (raw accumulator, one normalization) -> 7_815 (metered trailing_zeros), 17_814
+    //                                                             peak heap, segments,    limb ops, touches, limb floor, touch floor
+    pub const RANK_DENSE: TouchEnvelope = touch_envelope(30_720, 0, 4, 7, 2, 3); // the depth control: word-scale numerators fold in the accumulator's quick register, so the work columns sit near zero and the heap is the at-rest form
+    pub const RANK_BIGROOT: TouchEnvelope = touch_envelope(72_005, 0, 2_739, 8_993, 1_643, 5_395); // the wide-magnitude control: one root-wide decode and one root-wide fold; the segment feed opens only at the first freeze
+    pub const RANK_HARMONIC: TouchEnvelope = touch_envelope(52_500, 0, 2_562, 248_285, 1_536, 148_971); // the separating family: each level's one-leaf sibling lands at the exponent gap, so touches stay linear in depth and no accumulated numerator is re-shifted
+    pub const RANK_PAIR_MISMATCH: TouchEnvelope = touch_envelope(     234_400,        0,      87_910,      0, 52_746, 0); // class-first cmp decides order in O(1); the limb record is checked_sub's and add's mandatory output content plus the metered exponent-alignment shifts
+    pub const RANK_SUM_MIXED: TouchEnvelope     = touch_envelope(      78_140,        0,       9_769, 22_268, 5_861, 13_360); // the raw accumulator: digit-routed summands, one normalization at the end
 }
 
 /// Run one touch-priced scenario body under all four meters and assert
@@ -1382,7 +1377,7 @@ fn rank_sum_mixed_envelope() {
 //
 // The skyline validator and decoder over the adversarial event families,
 // with the stream transcoded outside measurement. The validator rows pin
-// the V5 replacement's transient — ~2 bits of open-ancestor stack per
+// the validator's transient — ~2 bits of open-ancestor stack per
 // level plus the cliff-immune accumulator — denominated against skyline
 // input bytes; the decoder rows add the transcode back to the packed
 // form, whose materialized heights and floors are priced by that packed
@@ -1397,9 +1392,9 @@ fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsMut {
 
 /// The skyline validator on the dense spine stays within its envelope.
 ///
-/// The transient is ~2 bits per open ancestor (measured ~3.1 bits per
-/// level including reallocation growth, against the old parse stack's ~56
-/// bytes per level on the same tree), with zero grown segments.
+/// The transient is ~2 bits per open ancestor (bit stack plus
+/// reallocation growth) — bits per level, not frames — with zero grown
+/// segments.
 #[test]
 fn skyline_validate_dense_envelope() {
     let enc = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
@@ -1617,30 +1612,31 @@ const fn sweep_envelope(
     }
 }
 
-// The sweep envelope table: pinned ceiling = measured ×1.25, rounded
-// up, and only ever tightened: where a remeasure rises while staying
-// inside an existing ceiling (spilled-magnitude heap cells and their
-// backend growth headroom), the older, tighter ceiling stands over the
-// recorded movement. The trailing comment on each line is the measurement of record
-// (aarch64-apple-darwin, dev profile, three identical runs)
-// the ceiling derives from. Re-pin by rerunning under `--no-capture`
-// with `--all-features` and reading the MEASURED lines.
+// The sweep envelope table: pinned ceiling = measured ×1.25, rounded up
+// (aarch64-apple-darwin, dev profile, three identical runs), and only
+// ever tightened: where a remeasure rises while staying inside an
+// existing ceiling (spilled-magnitude heap cells and their backend growth
+// headroom), the older, tighter ceiling stands. The trailing comment on
+// each line states the mechanism that prices the row; the measurements of
+// record — and every re-pin's movement and attribution — live in the pin
+// commits (`git log -S` the constant). Re-pin by rerunning under
+// `--no-capture` with `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
 // file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod sweep_env {
     use super::{sweep_envelope, SweepEnvelope};
-    //                                                               peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_CMP_DENSE: SweepEnvelope = sweep_envelope(30_720, 0, 0, 468_760, 0); //   24_584 -> 24_576 (OpenedPair: the pair walk's opening move stated once; work columns unmoved), 0, 250_002, 375_008; re-pinned (limb 0, scan 375_008, heap 24_576): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(51_200, 0, 0, 937_515, 0); //   40_968 -> 40_960 (OpenedPair; work columns unmoved), 0, 500_004, 750_012; re-pinned (limb 0, scan 750_012, heap 40_960): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_CMP_BIGROOT: SweepEnvelope = sweep_envelope(39_540, 0, 783, 137_514, 469); //   31_632 -> 32_272 (dashu-int backend), 0,  20_630, 110_011; re-pinned (limb 626, scan 110_011, heap 32_272): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_CMP_CLIFF: SweepEnvelope = sweep_envelope(1_330, 0, 88, 17_925, 52); //    1_160 -> 1_296 (emission-sweep shared step holds each consumed delta) -> 1_360 (dashu-int backend) -> 1_192 (OpenedPair; work columns unmoved), 0,   6_210,  14_340; re-pinned (limb 70, scan 14_340, heap 1_064): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    // SKYLINE_CMP_WIDE_TOOTH's 1_064-under-1_250 margin is a deliberate
+    //                                                               peak heap, segments, limb ops,  scan bits, limb floor
+    pub const SKYLINE_CMP_DENSE: SweepEnvelope = sweep_envelope(30_720, 0, 0, 468_760, 0); // path-bit stacks and one accumulator; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(51_200, 0, 0, 937_515, 0); // aligned ties in lockstep to full depth: both streams' bits scanned whole
+    pub const SKYLINE_CMP_BIGROOT: SweepEnvelope = sweep_envelope(39_540, 0, 783, 137_514, 469); // the wide first height absorbed once, paid by its own code
+    pub const SKYLINE_CMP_CLIFF: SweepEnvelope = sweep_envelope(1_330, 0, 88, 17_925, 52); // the cliff-immune accumulator: amortized O(1) per crossing (the shared emission-sweep step holds each consumed delta; OpenedPair states the opening move once)
+    // SKYLINE_CMP_WIDE_TOOTH's deliberately thin heap margin is a
     // change-detector on the backend's and the accumulator's allocation
     // policies: the committed Cargo.lock (dashu-int 0.5.0 exact) is what
     // makes the measurement deterministic, and a cargo update to any other
     // 0.5.x is a deliberate re-measure event, not noise.
-    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_250,        0,    29_509, 1_000_483, 17_705); //      840 -> 968 (emission-sweep shared step holds each consumed delta) -> 1_032 (dashu-int backend) -> 1_224 (the zero-run ledger's map node) -> 1_064 (OpenedPair: the pair walk's opening move stated once; work columns unmoved), 0,  23_607, 800_386
+    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_250,        0,    29_509, 1_000_483, 17_705); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
 }
 
 /// Run one sweep scenario body under all four meters and assert its
@@ -1845,26 +1841,27 @@ fn skyline_cmp_wide_tooth_envelope() {
 // collapse discipline would make quadratic in depth times code width.
 
 // The emission envelope table: pinned ceiling = measured ×1.25, rounded
-// up, and only ever tightened: where a remeasure rises while staying
-// inside an existing ceiling (spilled-magnitude heap cells and their
-// backend growth headroom), the older, tighter ceiling stands over the
-// recorded movement. The trailing comment on each line is the measurement of record
-// (aarch64-apple-darwin, dev profile, three identical runs)
-// the ceiling derives from. Re-pin by rerunning under `--no-capture`
-// with `--all-features` and reading the MEASURED lines.
+// up (aarch64-apple-darwin, dev profile, three identical runs), and only
+// ever tightened: where a remeasure rises while staying inside an
+// existing ceiling (spilled-magnitude heap cells and their backend growth
+// headroom), the older, tighter ceiling stands. The trailing comment on
+// each line states the mechanism that prices the row; the measurements of
+// record — and every re-pin's movement and attribution — live in the pin
+// commits (`git log -S` the constant). Re-pin by rerunning under
+// `--no-capture` with `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
 // file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod emit_env {
     use super::{sweep_envelope, SweepEnvelope};
-    //                                                                peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_JOIN_DENSE: SweepEnvelope = sweep_envelope(130_277, 0, 0, 625_018, 0); //  104_237, 0, 750_004,   500_014; re-pinned to the new readings (limb 250_002, scan 500_014, heap 104_221): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 0, scan 500_014, heap 104_221): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_JOIN_ABSORB: SweepEnvelope = sweep_envelope(270_798, 0, 4_887, 1_250_013, 2_931); //  216_638 -> 218_606 (dashu-int backend), 0, 753_911, 1_000_010; re-pinned to the new readings (limb 253_911, scan 1_000_010, heap 218_607): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 3_909, scan 1_000_010, heap 218_607): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_JOIN_BIGROOT: SweepEnvelope = sweep_envelope(85_060, 0, 1_565, 275_028, 939); //   71_768 -> 68_048 (dashu-int backend), 0,  61_266,   220_022; re-pinned to the new readings (limb 21_258, scan 220_022, heap 68_048): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 1_252, scan 220_022, heap 68_048): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_JOIN_CLIFF: SweepEnvelope = sweep_envelope(5_362, 0, 308, 35_848, 184); //    4_409 -> 4_537 (dashu-int backend), 0,  20_695,    28_678; re-pinned to the new readings (limb 8_432, scan 28_678, heap 4_689): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 246, scan 28_678, heap 4_289): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_JOIN_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  128_312,        0,    74_477, 2_000_963, 44_685); //  102_649 -> 102_777 (dashu-int backend) -> 102_969 (the zero-run ledger's map node; the older ceiling stands), 0,  59_581, 1_600_770
-    pub const SKYLINE_MEET_CLIFF: SweepEnvelope = sweep_envelope(4_422, 0, 88, 23_055, 52); //    4_001 -> 4_065 (dashu-int backend), 0,  14_416,    18_444; re-pinned to the new readings (limb 6_212, scan 18_444, heap 4_049): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 70, scan 18_444, heap 3_537): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_MEET_WIDE_TOOTH: SweepEnvelope = sweep_envelope(127_732, 0, 29_512, 1_005_613, 17_706); //  102_185 -> 102_249 (dashu-int backend) -> 102_441 (the zero-run ledger's map node; the older ceiling stands), 0,  31_813,   804_490; re-pinned to the new readings (limb 23_609, scan 804_490, heap 102_425): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work
+    //                                                                peak heap, segments, limb ops,  scan bits, limb floor
+    pub const SKYLINE_JOIN_DENSE: SweepEnvelope = sweep_envelope(130_277, 0, 0, 625_018, 0); // the peak is the emitted stream itself; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_JOIN_ABSORB: SweepEnvelope = sweep_envelope(270_798, 0, 4_887, 1_250_013, 2_931); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
+    pub const SKYLINE_JOIN_BIGROOT: SweepEnvelope = sweep_envelope(85_060, 0, 1_565, 275_028, 939); // the wide first height absorbed once, paid by its own code
+    pub const SKYLINE_JOIN_CLIFF: SweepEnvelope = sweep_envelope(5_362, 0, 308, 35_848, 184); // every crossing re-emitted at amortized O(1) through the accumulator
+    pub const SKYLINE_JOIN_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  128_312,        0,    74_477, 2_000_963, 44_685); // each wide delta re-coded into the output, paid by its own zigzag code
+    pub const SKYLINE_MEET_CLIFF: SweepEnvelope = sweep_envelope(4_422, 0, 88, 23_055, 52); // the absorb cascade collapses to the flat leaf while every delta still crosses the carry boundary in the accumulator
+    pub const SKYLINE_MEET_WIDE_TOOTH: SweepEnvelope = sweep_envelope(127_732, 0, 29_512, 1_005_613, 17_706); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
 }
 
 /// The one-tick version's skyline stream: the shallow operand of the
@@ -2114,33 +2111,27 @@ fn tick_expand_cross_envelope() {
 // heights never materialize, so no summary or accumulator state carries
 // a copy of the wide magnitude per level.
 
-// The text envelope table: pinned ceiling = measured ×1.25, rounded up,
-// and only ever tightened. The trailing comment on each line is the
-// measurement of record (parse rows at the parse transient
-// cure — parallel chunked open-node stacks in place of a doubling
-// frame vector, the extraction magnitude moved instead of cloned, and
-// the wide path-sum buffer dropped at extraction; the peak-heap column
-// moved on all four rows, parent-measured 11,135,057 → 3,232,857
-// dense, 1,409,795 → 302,363 bigroot, 157,024 → 130,771 hugeleaf,
-// 386,073 → 275,441 cliff, with limb and scan byte-identical; render
-// rows at the streaming finalize arena;
-// aarch64-apple-darwin, dev profile, identical repeated runs) the
-// ceiling derives from. Re-pin by rerunning under `--no-capture` with
+// The text envelope table: pinned ceiling = measured ×1.25, rounded up
+// (aarch64-apple-darwin, dev profile, identical repeated runs), and only
+// ever tightened. The trailing comment on each line states the mechanism
+// that prices the row; the measurements of record — and every re-pin's
+// movement and attribution — live in the pin commits (`git log -S` the
+// constant). Re-pin by rerunning under `--no-capture` with
 // `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
 // file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod text_env {
     use super::{sweep_envelope, SweepEnvelope};
-    //                                                                 peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_RENDER_DENSE: SweepEnvelope    = sweep_envelope( 1_996_800,        0, 1_562_513,   468_758, 937_507); //  1_597_440, 0, 1_250_010, 375_006
-    pub const SKYLINE_RENDER_BIGROOT: SweepEnvelope  = sweep_envelope(   249_600,        0,   127_368,   137_512, 76_420); //    199_680, 0,   101_894, 110_009
-    pub const SKYLINE_RENDER_HUGELEAF: SweepEnvelope = sweep_envelope(   171_310,        0,     7_330,   312_503, 4_398); //    137_048, 0,     5_864, 250_002
-    pub const SKYLINE_RENDER_CLIFF: SweepEnvelope    = sweep_envelope( 1_113_202,        0,   243_385,    17_923, 146_031); //    890_561, 0,   194_708, 14_338
-    pub const SKYLINE_PARSE_DENSE: SweepEnvelope = sweep_envelope(4_041_052, 0, 625_007, 468_758, 375_003); //  3_232_857, 0, 1_500_013, 750_012; re-pinned to the new readings (limb 1_000_007, scan 750_012, heap 3_232_841): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 500_005, scan 750_012, heap 3_232_841): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal); re-pinned (limb 500_005, scan 375_006, heap 3_232_841): the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own
-    pub const SKYLINE_PARSE_BIGROOT: SweepEnvelope = sweep_envelope(377_944, 0, 51_574, 137_512, 30_944); //    302_363, 0,   121_899, 220_018; re-pinned to the new readings (limb 81_891, scan 220_018, heap 302_355): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 41_885, scan 220_018, heap 302_355): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal); re-pinned (limb 41_259, scan 110_009, heap 302_355): the parse pipeline ends at the builder — canonicality rides the committed differential suites — so the scan column is the build pass's own
-    pub const SKYLINE_PARSE_HUGELEAF: SweepEnvelope  = sweep_envelope(   152_480,        0,     4_887,   312_503, 2_931); //    130_771, 0,     5_863, 500_004; re-pinned (limb 3_909, scan 250_002, heap 121_984): the parse pipeline ends at the builder — canonicality rides the committed differential suites — so the scan column is the build pass's own and no accumulator re-walks the built stream's wide payloads
-    pub const SKYLINE_PARSE_CLIFF: SweepEnvelope = sweep_envelope(344_152, 0, 56_475, 17_923, 33_885); //    275_441, 0,    67_764, 28_676; re-pinned (limb 45_250, scan 28_676, heap 275_321): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal); re-pinned (limb 45_180, scan 14_338, heap 275_321): the parse pipeline ends at the builder — canonicality rides the committed differential suites — so the scan column is the build pass's own
+    //                                                                 peak heap, segments, limb ops,  scan bits, limb floor
+    pub const SKYLINE_RENDER_DENSE: SweepEnvelope    = sweep_envelope( 1_996_800,        0, 1_562_513,   468_758, 937_507); // word-sized finalize summaries per open node; the output sized exactly before one byte is written
+    pub const SKYLINE_RENDER_BIGROOT: SweepEnvelope  = sweep_envelope(   249_600,        0,   127_368,   137_512, 76_420); // leaf-delta-sized summaries: no per-level copy of the wide root value
+    pub const SKYLINE_RENDER_HUGELEAF: SweepEnvelope = sweep_envelope(   171_310,        0,     7_330,   312_503, 4_398); // one delegated decimal rendering plus the exact-sized output, no tree state
+    pub const SKYLINE_RENDER_CLIFF: SweepEnvelope    = sweep_envelope( 1_113_202,        0,   243_385,    17_923, 146_031); // each tooth's printed base re-derived from its 3-bit deltas, paid by its own rendered digits
+    pub const SKYLINE_PARSE_DENSE: SweepEnvelope = sweep_envelope(4_041_052, 0, 625_007, 468_758, 375_003); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
+    pub const SKYLINE_PARSE_BIGROOT: SweepEnvelope = sweep_envelope(377_944, 0, 51_574, 137_512, 30_944); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
+    pub const SKYLINE_PARSE_HUGELEAF: SweepEnvelope  = sweep_envelope(   152_480,        0,     4_887,   312_503, 2_931); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
+    pub const SKYLINE_PARSE_CLIFF: SweepEnvelope = sweep_envelope(344_152, 0, 56_475, 17_923, 33_885); // every tooth's base enters and leaves the cliff-immune accumulator paid by its own digit run; the scan column is the build pass's own
 }
 
 /// Rendering the dense spine's skyline stays within its envelope.
@@ -2592,10 +2583,10 @@ mod skyline_flatness {
     /// the path-sum accumulator is cliff-immune on the crate's canonical
     /// untrusted-input surface.
     ///
-    /// The parse is the touch-heaviest public surface measured, and its
-    /// per-base ≤2× accumulator charge is what this pin holds in the
-    /// aggregate (the `SKYLINE_PARSE_*` envelopes carry the other four
-    /// columns). Text bytes are the row's honest denominator: each
+    /// The parse extracts each leaf's delta from the running path-sum
+    /// accumulator, and its per-base ≤2× accumulator charge is what
+    /// this pin holds in the aggregate (the `SKYLINE_PARSE_*` envelopes
+    /// carry the other four columns). Text bytes are the row's honest denominator: each
     /// parsed base's join costs digit touches proportional to the base's
     /// own spelled width, so the comb's quadratically growing text pays
     /// for its own accumulator work — per delta the same reading grows
@@ -2703,20 +2694,14 @@ mod skyline_flatness {
         run
     }
 
-    /// Absolute over-threshold ceilings, measured ×1.25
-    /// (deterministic counters).
+    /// Absolute over-threshold ceilings: the measured record ×1.25
+    /// (deterministic counters; the record and every re-pin's movement
+    /// live in the pin commits).
     ///
-    /// These are the cured freeze discipline's numbers, tightened from
-    /// the retired quadratic baseline of record (101,716 → 396,126
-    /// touches, 145,680 → 564,784 limbs at these scales) in the commit
-    /// that landed the cure, per the ratchet convention. Measured: small
-    /// 6,182 → 5,166 touches (certificate skips replace the
-    /// accumulator's zero-run walks) / 4,326 → 4,479 limbs on 24,085
-    /// skyline bytes; large 12,390 → 10,350 touches (same change) /
-    /// 8,662 → 8,967 limbs on 48,245 bytes (limb movement:
-    /// metered `trailing_zeros`, under the standing ceilings). Live
-    /// remeasure: 4,905 → 9,829 touches (−5.1%, accumulated since the
-    /// record; limbs unmoved), under the standing ceilings.
+    /// The ceilings price the freeze discipline's flat over-threshold
+    /// work — each fold's eviction paid at the drift's own funded width
+    /// — where a frozen-width-per-tooth accounting reads quadratic and
+    /// exceeds them.
     const FREEZE_BAND_OVER_TOUCH_CEILINGS: (u64, u64) = (6_458, 12_938);
 
     /// The over-threshold limb ceilings paired with
@@ -2840,20 +2825,14 @@ mod skyline_flatness {
         run
     }
 
-    /// Absolute jump-comb ceilings, measured ×1.25 (three
-    /// identical runs).
+    /// Absolute jump-comb ceilings: the measured record ×1.25 (three
+    /// identical runs; the record and every re-pin's movement live in
+    /// the pin commits).
     ///
     /// The ceilings price one eviction of the `k`-bit jump plus flat
     /// 3-bit-delta work — the un-evicted alternative reads the jump's
-    /// width again on every following delta, ~15× these numbers at the
-    /// small scale alone. Measured: small 5,138 touches / 2,128 → 2,280
-    /// limbs on 4,961 skyline bytes; large 10,272 touches / 4,250 →
-    /// 4,554 limbs on 9,921 bytes (limb movement: metered
-    /// `trailing_zeros`, under the standing ceilings). Live remeasure:
-    /// 5,134 / 10,264 touches and 2,580 / 5,152 limbs — the limb column
-    /// has accumulated +13% since the movement and now sits
-    /// ×1.03 under its standing ceilings, the thinnest margin on the
-    /// suite; the next reading over is real signal, not slack.
+    /// width again on every following delta, `Θ(n·k)` against these
+    /// ceilings' flat funding, an order-of-magnitude overshoot.
     const RANK_JUMP_TOUCH_CEILINGS: (u64, u64) = (6_423, 12_840);
 
     /// The jump-comb limb ceilings paired with
@@ -2984,24 +2963,17 @@ mod skyline_flatness {
     const MIN_TICKS_COMB_SMALL: usize = 1_000;
 
     /// Absolute two-scale (touch, limb) ceilings for min_ticks on the
-    /// pure comb, measured ×1.25.
+    /// pure comb, measured ×1.25 (the record and every re-pin's
+    /// movement live in the pin commits).
     ///
-    /// The cured record: the anchor-web fold reads 2,228 / 4,447
-    /// touches and 2,071 / 4,135 limb ops at the two scales (~3.6 per
-    /// packed byte, flat across the doubling), tightened in the cure's
-    /// own commit from the epoch-stack fold's red pin of 18,210 /
-    /// 68,413 touches (29.1 → 54.7 per byte, ×1.88 across the doubling
-    /// and still rising — the closing nodes each circulated the full
-    /// plateau width).
+    /// The anchor-web fold reads flat per packed byte across the
+    /// doubling; an accounting that circulates the full plateau width
+    /// per closing node reads superlinear and exceeds these ceilings.
     const MIN_TICKS_PURE_COMB_CEILINGS: [(u64, u64); 2] = [(2_785, 2_588), (5_558, 5_168)];
 
     /// Absolute two-scale (touch, limb) ceilings for min_ticks on the
-    /// reveal comb, measured ×1.25.
-    ///
-    /// The cured record: 13,397 / 26,787 touches and 12,101 / 24,197
-    /// limb ops (~8.9 per packed byte, flat), tightened from the red
-    /// pin of 24,273 / 80,539 touches and 23,467 / 78,915 limb ops
-    /// (×1.66 touch and ×1.68 limb across the doubling, both rising).
+    /// reveal comb, measured ×1.25 (the record and every re-pin's
+    /// movement live in the pin commits).
     const MIN_TICKS_REVEAL_COMB_CEILINGS: [(u64, u64); 2] = [(16_746, 15_126), (33_483, 30_246)];
 
     /// min_ticks is linear on the pure comb: per-byte touch and limb
@@ -3012,12 +2984,10 @@ mod skyline_flatness {
     /// a zero floor, so every closing comb node's minimum is the floor:
     /// the fold must subtract the same value `k` times. An accounting
     /// that folds the minimum's width per closing node pays the plateau
-    /// width `k` times from one funding code and reads superlinear —
-    /// which is exactly what the epoch-stack fold's committed red pin
-    /// measured until the anchor-web cure landed: the web now counts
-    /// the floor's reign and settles it once, so the flatness bound
-    /// holds with the closed form `min_ticks = k·2^b` exact at both
-    /// scales.
+    /// width `k` times from one funding code and reads superlinear;
+    /// the anchor web counts the floor's reign and settles it once, so
+    /// the flatness bound holds with the closed form
+    /// `min_ticks = k·2^b` exact at both scales.
     #[test]
     fn skyline_min_ticks_pure_comb_is_flat_per_unit() {
         use dashu_int::UBig;
@@ -3055,9 +3025,9 @@ mod skyline_flatness {
     /// every site — the close-reveal genre. The web shuttles that
     /// boundary between the difference stack and the latent register by
     /// moves alone, so the flatness bound holds in both currencies with
-    /// the closed form `min_ticks = k·2^b` exact at both scales (the
-    /// epoch-stack fold's committed red pin read ×1.66/×1.68 per-byte
-    /// growth here until the anchor-web cure landed).
+    /// the closed form `min_ticks = k·2^b` exact at both scales (an
+    /// accounting that re-folds the boundary's width per site reads
+    /// superlinear here).
     #[test]
     fn skyline_min_ticks_reveal_comb_is_flat_per_unit() {
         use dashu_int::UBig;
@@ -3132,16 +3102,13 @@ mod skyline_flatness {
     const RANK_FREEZE_POSITION_SMALL: usize = 1_000;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// freeze-position family, measured ×1.25.
+    /// freeze-position family, measured ×1.25 (the record and every
+    /// re-pin's movement live in the pin commits).
     ///
-    /// The cured record: the anchored-segment integral reads 87,519 /
-    /// 175,260 touches and 35,243 / 70,485 limb ops at the two scales
-    /// (~1.2 touches per packed byte, flat across the doubling),
-    /// tightened in the cure's own commit from the absolute-position
-    /// accounting's red pin of 124,371 / 372,862 touches and 72,351 /
-    /// 206,804 limb ops (×1.50 touch and ×1.43 limb per-byte growth
-    /// across the doubling, local exponent still rising at FP(4,000) —
-    /// each freeze read the position accumulator's whole written span).
+    /// The anchored-segment integral reads flat per packed byte across
+    /// the doubling; an accounting that reads the position
+    /// accumulator's whole written span per freeze reads superlinear
+    /// and exceeds these ceilings.
     // Ceilings: the element-wise tightest of two independent truings,
     // held green by the run below.
     const RANK_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] = [(109_361, 44_054), (219_007, 88_590)];
@@ -3257,14 +3224,11 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for the distance/lag
-    /// triple on the freeze-position analogue, measured
-    /// ×1.25.
+    /// triple on the freeze-position analogue, measured ×1.25 (the
+    /// record and every re-pin's movement live in the pin commits).
     ///
-    /// The record: 258,676 / 517,516 touches and 115,878 / 231,750 limb
-    /// ops across `k = 1,000 → 2,000` on a 73 → 146 KiB packed pair —
-    /// three sweeps' worth, ~3.5 touches per byte, flat across the
-    /// doubling. Live remeasure: 256,037 / 512,297 touches and
-    /// 115,492 / 230,976 limb ops, under the standing ceilings.
+    /// The ceilings price the three query bodies together — three
+    /// sweeps' worth — flat per packed byte across the doubling.
     const DISTANCE_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] =
         [(323_345, 144_847), (646_895, 289_687)];
 
@@ -3353,26 +3317,15 @@ mod skyline_flatness {
     const PROMOTION_REARM_SMALL: usize = 1_000;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// promotion re-arm spine, measured ×1.25.
+    /// promotion re-arm spine, measured ×1.25 (the record and every
+    /// re-pin's movement and attribution live in the pin commits).
     ///
-    /// The record: the settle reads
-    /// 403,912 → 808,098 touches and 206,192 → 412,837 limb ops across
-    /// PR(1,000) → PR(2,000) on 246,501 B → 493,001 B (~1.6 touches
-    /// per packed byte, flat across the doubling). Movement
-    /// (the cluster-delegated settle, parent 401,387 → 802,887 touches
-    /// and 187,925 → 375,924 limb ops): +0.6% touch, +9.7% limb — the
-    /// per-freeze segment settles now compact through the window
-    /// spelling and the products record their operand traffic; the
-    /// per-byte exponent stays ×1.00. Movement
-    /// (the window-digit combine tap, parent 184,180 → 368,429 limb
-    /// ops): +2.0% limb — the settle's window-digit traffic now
-    /// metered — touches unchanged. The span-reading
-    /// promotion's committed tripwire reads 1,440,756 → 5,006,506
-    /// touches here (×1.74/byte, local exponent ~1.9 and rising —
-    /// every promotion re-read the position accumulator's whole
-    /// written span). Live remeasure: 368,546 → 737,232 touches
-    /// (−8.8%, accumulated since the record) and 205,479 → 411,125
-    /// limb ops, under the standing ceilings.
+    /// The cluster-delegated settle reads flat per packed byte across
+    /// the doubling, with the settle's window-digit traffic metered;
+    /// the span-reading promotion — every promotion re-reading the
+    /// position accumulator's whole written span — reads superlinear
+    /// here, and the committed tripwire beside the kernel keeps it
+    /// failing.
     const RANK_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
         [(504_890, 257_740), (1_010_122, 516_046)];
 
@@ -3465,13 +3418,11 @@ mod skyline_flatness {
     const LONE_FREEZE_SMALL: usize = 2_000;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// lone-freeze late axis, measured ×1.25.
+    /// lone-freeze late axis, measured ×1.25 (the record lives in the
+    /// pin commit).
     ///
-    /// The record: 4,186 → 8,249 touches and 6,118 → 12,182 limb ops
-    /// across LF(2,000, 2) → LF(4,000, 2) on 1,397 B → 2,647 B (~3.0
-    /// touches per packed byte, flat across the doubling): the gate
-    /// holds the segment feed shut across the whole never-freezing
-    /// prefix.
+    /// Flat per packed byte across the doubling: the gate holds the
+    /// segment feed shut across the whole never-freezing prefix.
     const RANK_LONE_FREEZE_LATE_CEILINGS: [(u64, u64); 2] = [(5_233, 7_648), (10_312, 15_228)];
 
     /// rank is linear on the lone-freeze spine's late axis: per-byte
@@ -3513,15 +3464,13 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// lone-freeze frozen-tail axis, measured ×1.25.
+    /// lone-freeze frozen-tail axis, measured ×1.25 (the record lives
+    /// in the pin commit).
     ///
-    /// The record: 6,246 → 12,372 touches and 6,118 → 12,182 limb ops
-    /// across LF(2, 2,000) → LF(2, 4,000) on 1,397 B → 2,647 B (~4.5
-    /// touches per packed byte, flat across the doubling). The tail
-    /// axis reads ~one touch per interval above the late axis at the
-    /// same bytes — exactly the open-gate segment feed, amortized O(1)
-    /// per interval — and the close's one settle reads the whole
-    /// tail's banked mass without moving the per-byte cost.
+    /// Flat per packed byte across the doubling. The tail axis adds
+    /// the open-gate segment feed over the late axis — amortized O(1)
+    /// touches per interval — and the close's one settle reads the
+    /// whole tail's banked mass without moving the per-byte cost.
     const RANK_LONE_FREEZE_TAIL_CEILINGS: [(u64, u64); 2] = [(7_808, 7_648), (15_465, 15_228)];
 
     /// rank is linear on the lone-freeze spine's frozen-tail axis:
@@ -3564,12 +3513,11 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for min_ticks on the
-    /// freeze-position spine, measured ×1.25.
+    /// freeze-position spine, measured ×1.25 (the record lives in the
+    /// pin commit).
     ///
-    /// The record: 103,990 → 207,990 touches and 35,019 → 70,019 limb
-    /// ops across FP(1,000) → FP(2,000) on 73,328 B → 146,579 B (~1.4
-    /// touches per packed byte, flat across the doubling): `Θ(k)`
-    /// epochs settle at one funded-width product each.
+    /// Flat per packed byte across the doubling: `Θ(k)` epochs settle
+    /// at one funded-width product each.
     const MIN_TICKS_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] =
         [(129_988, 43_774), (259_988, 87_524)];
 
@@ -3621,13 +3569,12 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for min_ticks on the
-    /// promotion re-arm spine, measured ×1.25.
+    /// promotion re-arm spine, measured ×1.25 (the record lives in the
+    /// pin commit).
     ///
-    /// The record: 516,060 → 1,032,060 touches and 212,012 → 424,012
-    /// limb ops across PR(1,000) → PR(2,000) on 246,501 B → 493,001 B
-    /// (~2.1 touches per packed byte, flat across the doubling):
-    /// `Θ(p)` wide-drift epochs in both directions settle at one
-    /// funded-width product each.
+    /// Flat per packed byte across the doubling: `Θ(p)` wide-drift
+    /// epochs in both directions settle at one funded-width product
+    /// each.
     const MIN_TICKS_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
         [(645_075, 265_015), (1_290_075, 530_015)];
 
@@ -3729,24 +3676,15 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for the distance/lag
-    /// triple on the promotion re-arm analogue, measured
-    /// ×1.25.
+    /// triple on the promotion re-arm analogue, measured ×1.25 (the
+    /// record and every re-pin's movement and attribution live in the
+    /// pin commits).
     ///
-    /// The record: 1,095,042 → 2,190,366 touches and 866,425 →
-    /// 1,733,715 limb ops across `p = 1,000 → 2,000` on a 263 → 525
-    /// KiB packed pair — three sweeps' worth, ~4 touches per byte,
-    /// flat across the doubling. Movement (the
-    /// cluster-delegated settle, parent 1,090,072 → 2,180,072 touches
-    /// and 829,891 → 1,659,889 limb ops): +0.5% touch, +4.4% limb —
-    /// the per-freeze segment settles' window spelling and the
-    /// products' operand traffic; the per-byte exponent stays ×1.00
-    /// (the span-reading promotion reads ×1.71 per byte here, the
-    /// committed pair tripwire's record). Movement (the
-    /// window-digit combine tap, parent 822,401 → 1,644,899 limb ops):
-    /// +0.9% limb — the settle's window-digit traffic now metered —
-    /// touches unchanged. Live remeasure: 988,333 → 1,976,657 touches
-    /// (−9.7%, accumulated since the record) and 864,999 → 1,730,291
-    /// limb ops, under the standing ceilings.
+    /// The ceilings price the three query bodies together — three
+    /// sweeps' worth — flat per packed byte across the doubling, with
+    /// the settle's window-digit traffic metered; the committed pair
+    /// tripwire keeps the span-reading promotion failing on this same
+    /// pair.
     const DISTANCE_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
         [(1_368_802, 1_083_031), (2_737_957, 2_167_143)];
 
@@ -3857,24 +3795,15 @@ mod skyline_flatness {
     const DISTANCE_JUMP_PAIR_SMALL_DIGITS: usize = 64;
 
     /// Absolute two-scale touch ceilings for the jump-pair distance,
-    /// measured ×1.25.
+    /// measured ×1.25 (the record and every re-pin's movement live in
+    /// the pin commits).
     ///
-    /// The record: the anchored-segment co-sweep read 184,494 / 368,958
-    /// touches at the two scales (1.37 per packed byte, flat across the
-    /// doubling), tightened in that cure's own commit from the composed
-    /// form's red pin of 1,029,327 / 3,735,733 (7.6 → 13.9 per byte
-    /// across the doubling — the superlinear wedge this family was
-    /// built to expose), then to 170,128 / 340,256 (1.26 per byte,
-    /// still flat; certificate skips replace the
-    /// accumulator's zero-run walks). Live remeasure: 166,993 /
-    /// 333,979 touches, under the standing ceilings.
+    /// The anchored-segment co-sweep reads flat per packed byte across
+    /// the doubling; the composed form this family was built to expose
+    /// reads superlinear, several times over these ceilings.
     const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (212_660, 425_320);
     /// The limb ceilings paired with
     /// [`DISTANCE_JUMP_PAIR_TOUCH_CEILINGS`].
-    ///
-    /// Measured 53,905 / 107,753 (0.40 per byte, flat), tightened from
-    /// the composed form's 973,702 / 3,341,816 (7.2 → 12.4 per byte).
-    /// Live remeasure: 53,559 / 107,048, under the standing ceilings.
     const DISTANCE_JUMP_PAIR_LIMB_CEILINGS: (u64, u64) = (67_382, 134_692);
 
     /// The jump-pair distance is linear in the packed pair: per-byte
@@ -3893,10 +3822,9 @@ mod skyline_flatness {
     /// multiplies evicted drift by absolute positions pays
     /// teeth × digits × magnitude here and reads superlinear — one
     /// operand's cheap codes firing corrections against drift only the
-    /// other operand funded — which is what this family's growth leg
-    /// read (×1.72 per-byte limb growth across the doubling) until the
-    /// anchored-segment co-sweep landed: each crest now settles against
-    /// its own segment's mass, whose compacted span the spine's shared
+    /// other operand funded, the wedge this family exists to expose.
+    /// The anchored-segment co-sweep settles each crest against its
+    /// own segment's mass, whose compacted span the spine's shared
     /// prefix never enters, so the flatness bound holds at both scales
     /// and each operand alone stays the flat control.
     #[test]
@@ -4123,9 +4051,9 @@ mod skyline_flatness {
     // the write watermark; loop bounds and fold starts reading the
     // buffer's high water instead of the settled top — turns one public
     // `before` operation superlinear while the family's input stays
-    // linear (each band's ceiling doc carries both readings, measured
-    // by disabling exactly one mechanism in a local probe
-    // build, value-identical by the full differential suite). On the
+    // linear (demonstrated by disabling exactly one mechanism in a
+    // local probe build, value-identical by the full differential
+    // suite; the probe readings live in the pin commits). On the
     // shipped accumulator all three read flat; each band is the
     // before-level witness that its mechanism is load-bearing, priced
     // through the public API rather than through `suanpan`'s own entry
@@ -4180,21 +4108,16 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// weight comb, measured ×1.25.
+    /// weight comb, measured ×1.25 (the record and every re-pin's
+    /// movement live in the pin commits).
     ///
-    /// The record: 5,131 / 10,251 touches and 36,353 / 72,705 limb
-    /// ops across `n = 512 → 1,024` (~0.73 touches per packed byte,
-    /// flat across the doubling; touches 21,512 / 43,016 → 4,104 /
-    /// 8,200 — the segment feed opens at the
-    /// first freeze, and this family never freezes, so its per-leaf
-    /// feed deposits left with the round — → 5,131 / 10,251: the
-    /// accumulator's quick register re-arms per lease epoch, and this
-    /// family's wide cycling pays one register spill per epoch). With certificate
-    /// consumption disabled (measured under a local probe
-    /// build whose scans step digit by digit), the probe runs
-    /// read 282,632 → 1,089,544 touches — `n² + O(n)` exactly, ×1.93
-    /// per byte across the doubling — so this band is the
-    /// before-level adequacy witness for the zero-run ledger.
+    /// Flat per packed byte across the doubling: this family never
+    /// freezes, so no segment feed deposits, and its wide cycling pays
+    /// one quick-register spill per lease epoch. With certificate
+    /// consumption disabled (a local probe build whose scans step
+    /// digit by digit), the reading goes quadratic — `n² + O(n)`
+    /// touches — and fails the band, so this band is the before-level
+    /// adequacy witness for the zero-run ledger.
     const RANK_WEIGHT_COMB_CEILINGS: [(u64, u64); 2] = [(6_414, 45_441), (12_814, 90_881)];
 
     /// Block pairs of the weight-comb band's small run.
@@ -4293,21 +4216,18 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// freeze parade, measured ×1.25.
+    /// freeze parade, measured ×1.25 (the record and every re-pin's
+    /// movement live in the pin commits).
     ///
-    /// The record: 46,774 / 93,530 touches and 83,973 / 167,941 limb
-    /// ops across `k = 512 → 1,024` (~0.94 touches per packed byte,
-    /// flat across the doubling; touches 81,080 / 162,140 → 46,774 /
-    /// 93,530 — the segment feed opens at the
-    /// first freeze, so the deep pre-freeze spine no longer deposits;
-    /// the freeze blocks' banked segments and settles are untouched,
-    /// and the limb column is byte-identical). With the write
-    /// watermark disabled (measured under a local probe
-    /// build whose scaled reads start at digit 0), the probe
-    /// runs read 864,953 → 3,302,749 touches and 345,605 → 1,215,493
-    /// limb ops — ×1.91 per byte across the doubling in both
-    /// currencies — so this band is the before-level adequacy witness
-    /// for the watermark read.
+    /// Flat per packed byte across the doubling: the segment feed
+    /// opens at the first freeze, so the deep pre-freeze spine
+    /// deposits nothing while the freeze blocks' banked segments and
+    /// settles are priced whole. With the write watermark disabled (a
+    /// local probe build whose scaled reads start at digit 0), the
+    /// reading goes quadratic in both currencies — every settle
+    /// re-walks the `Θ(k)`-digit never-written prefix — and fails the
+    /// band, so this band is the before-level adequacy witness for the
+    /// watermark read.
     const RANK_FREEZE_PARADE_CEILINGS: [(u64, u64); 2] = [(58_468, 104_967), (116_913, 209_927)];
 
     /// Freeze blocks of the parade band's small run.
@@ -4380,16 +4300,15 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for the comparison
-    /// sweep on the tooth-tail pair, measured ×1.25.
+    /// sweep on the tooth-tail pair, measured ×1.25 (the record lives
+    /// in the pin commit).
     ///
-    /// The record: 4,239 / 8,463 touches and 16,716 / 33,420 limb ops
-    /// across `(g, m) = (64, 4,096) → (128, 8,192)` (~0.8 touches per
-    /// packed byte, flat across the doubling). With the settled top
-    /// replaced by the buffer's high water (measured under
-    /// a local probe build), the same runs read 536,590 → 2,121,742
-    /// touches — 2(g + 1) per boundary, ×1.98 per byte across the
-    /// doubling — so this band is the before-level adequacy witness
-    /// for exact-top maintenance.
+    /// Flat per packed byte across the doubling. With the settled top
+    /// replaced by the buffer's high water (a local probe build), the
+    /// reading goes quadratic — `2(g + 1)` touches per boundary, the
+    /// spike's dead digits re-walked per sign read — and fails the
+    /// band, so this band is the before-level adequacy witness for
+    /// exact-top maintenance.
     const CMP_TOOTH_TAIL_CEILINGS: [(u64, u64); 2] = [(5_298, 20_895), (10_578, 41_775)];
 
     /// Boundaries of the tooth-tail band's small run.
@@ -4476,23 +4395,14 @@ mod skyline_flatness {
     const DENSE_SUFFIX_SMALL: usize = 500;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// dense-suffix family, measured ×1.25.
+    /// dense-suffix family, measured ×1.25 (the record and every
+    /// re-pin's movement and attribution live in the pin commits).
     ///
-    /// The record: the mass-balanced product-tree settle reads
-    /// 179,764 → 359,126 touches and 100,400 → 200,620 limb ops across
-    /// DS(500, 500) → DS(1,000, 1,000) on 119,593 B → 239,030 B (~1.5
-    /// touches per packed byte, flat across the doubling), tightened in
-    /// the settle's own commit from the per-arming suffix walk's red pin
-    /// of 3,417,450 → 13,357,237 touches and 2,837,934 → 11,175,881
-    /// limb ops (×1.96 touch and ×1.97 limb per-byte growth, local
-    /// exponent ~2.0 — every arming re-walked the suffix's Θ(d)
-    /// balanced digits). Movement (the cluster-delegated
-    /// settle, parent 219,764 → 437,912 touches and 126,403 → 252,379
-    /// limb ops): −18% touch, −21% limb — each aggregate charge is one
-    /// backend product per dense cluster instead of a factor-wide
-    /// product per window digit; the per-byte exponent stays ×1.00 in
-    /// both currencies. Live remeasure: 177,264 → 354,542 touches and
-    /// 97,381 → 195,491 limb ops, under the standing ceilings.
+    /// The mass-balanced product-tree settle reads flat per packed
+    /// byte across the doubling — each aggregate charge is one backend
+    /// product per dense cluster, never a factor-wide product per
+    /// window digit — where a per-arming suffix walk re-walks the
+    /// suffix's Θ(d) balanced digits per arming and reads quadratic.
     const RANK_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] = [(224_705, 125_500), (448_907, 250_775)];
 
     /// rank is flat per byte on the dense-suffix family under the
@@ -4510,8 +4420,8 @@ mod skyline_flatness {
     /// admits per-byte growth up to the log ratio — at this family's
     /// shape a doubling could read at most ×(log₂ 2p / log₂ p) ≈ ×1.11
     /// even if the settle dominated the fold, inside the band's ×1.25
-    /// slack — and the measurement reads ×1.00 in both currencies (the
-    /// settle's log term is a small share of the fold's linear work).
+    /// slack — and the settle's log term is a small share of the
+    /// fold's linear work, so the reading sits well inside the band.
     /// The committed tripwire beside the kernel
     /// (`suffix_walk_settle_reads_superlinear_on_dense_suffix`, the
     /// query fold's test suite) keeps the per-arming suffix walk
@@ -4589,21 +4499,14 @@ mod skyline_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for the distance/lag
-    /// triple on the dense-suffix pair, measured ×1.25.
+    /// triple on the dense-suffix pair, measured ×1.25 (the record and
+    /// every re-pin's movement and attribution live in the pin
+    /// commits).
     ///
-    /// The record: 549,454 → 1,097,440 touches and 361,841 →
-    /// 723,253 limb ops across `p = 500 → 1,000` on a 127,034 B →
-    /// 253,909 B packed pair (three sweeps' worth, flat across the
-    /// doubling), tightened in the settle's own commit from the
-    /// per-arming suffix walk's red pin of 12,900,786 → 50,547,044
-    /// touches and 5,836,909 → 22,673,775 limb ops (×1.96 touch and
-    /// ×1.94 limb per-byte growth). Movement (the
-    /// cluster-delegated settle, parent 710,692 → 1,416,186 touches
-    /// and 413,847 → 826,771 limb ops): −23% touch, −13% limb — one
-    /// backend product per dense cluster instead of a factor-wide
-    /// product per window digit; the per-byte exponent stays ×1.00 in
-    /// both currencies. Live remeasure: 525,427 → 1,051,407 touches
-    /// and 355,553 → 712,993 limb ops, under the standing ceilings.
+    /// The ceilings price the three query bodies together — three
+    /// sweeps' worth — flat per packed byte across the doubling, on
+    /// the cluster-delegated settle; a per-arming suffix walk reads
+    /// quadratic here.
     const DISTANCE_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] =
         [(686_817, 452_301), (1_371_800, 904_066)];
 
@@ -4729,25 +4632,24 @@ mod eq_early_exit {
     /// (ceiling, floor) = measured ×1.25 rounded up, ×0.75 rounded down
     /// (the file doc's ceiling and improvement-tripwire conventions).
     ///
-    /// The record: 49 touches at BOTH scales (512 and 1,024 teeth,
-    /// 1,154 B → 1,794 B packed operands) — the reading is the deciding
-    /// interval's one wide delta fold and does not move with the tail
-    /// \[measured, exact counters, dev profile\]. The exit-discipline
-    /// mutation this row owns (`eq` sweeping a decided question to
-    /// exhaustion — value-equivalent, work-only) read 2,179 → 4,227
-    /// touches on the same pairs: tail-linear, ~35× the small ceiling
+    /// The record (exact counters, dev profile; the readings live in
+    /// the pin commit) is identical at BOTH tooth-count scales: the
+    /// deciding interval's one wide delta fold, unmoved by the tail.
+    /// The exit-discipline mutation this row owns (`eq` sweeping a
+    /// decided question to exhaustion — value-equivalent, work-only)
+    /// reads tail-linear on the same pairs: orders over this ceiling
     /// and growing with the doubling \[measured under the live
-    /// mutation, same harness\].
+    /// mutation, same harness, at pin time\].
     const EQ_EXIT_TOUCH_PINS: (u64, u64) = (62, 36);
 
     /// Absolute two-scale scan pins paired with
     /// [`EQ_EXIT_TOUCH_PINS`], same conventions.
     ///
-    /// The record: 2,054 scanned bits at both scales — the two streams'
-    /// opening codes (dominated by the comb's 2,049-bit first absolute),
-    /// read once, tail-independent \[measured, exact counters, dev
-    /// profile\]. The same exit-discipline mutation read 9,220 → 14,340
-    /// scanned bits: tail-linear.
+    /// The record is identical at both scales: the two streams'
+    /// opening codes — dominated by the comb's
+    /// `2·EQ_EXIT_TOOTH_BITS + 1`-bit first absolute — read once,
+    /// tail-independent. The same exit-discipline mutation reads
+    /// tail-linear.
     #[cfg(feature = "scan-meter")]
     const EQ_EXIT_SCAN_PINS: (u64, u64) = (2_568, 1_540);
 
@@ -4880,22 +4782,13 @@ mod ledger_wide_arming {
     const WIDE_ARMING_SMALL: usize = 500;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// wide-arming family, measured ×1.25.
+    /// wide-arming family, measured ×1.25 (the record and every
+    /// re-pin's movement live in the pin commits).
     ///
-    /// The record: 34,742 → 69,373 touches and 41,942 → 83,836 limb
-    /// ops across WA(500, 500) → WA(1,000, 1,000) on 14,263 B →
-    /// 28,451 B packed operands (~2.4 touches per packed byte, flat
-    /// across the doubling), tightened in the cure's own commit from
-    /// the schoolbook settle's red reading of 288,037 → 1,083,963
-    /// touches and 293,651 → 1,095,255 limb ops — measured at the
-    /// parent as one whole fold, so 2 limb ops above the kernel's
-    /// own committed tip record of that date, two measurement
-    /// harnesses rather than drift — (×1.89 and ×1.87 per
-    /// byte, local exponent ~1.9: the aggregate product paid the
-    /// parked width times the window density one digit at a time).
-    /// Live remeasure: 32,452 → 64,793 touches (−6.6%, accumulated
-    /// since the record) and 41,412 → 82,774 limb ops, under the
-    /// standing ceilings.
+    /// Flat per packed byte across the doubling; a schoolbook settle —
+    /// the aggregate product paying the parked width times the window
+    /// density one digit at a time — reads quadratic here, and the
+    /// committed schoolbook kernel keeps that mechanism failing.
     const WIDE_ARMING_CEILINGS: [(u64, u64); 2] = [(43_427, 52_427), (86_716, 104_795)];
 
     /// rank is flat per byte on the wide-arming family: per-byte touch
@@ -4906,8 +4799,9 @@ mod ledger_wide_arming {
     /// product with the input, so a settle that pays their schoolbook
     /// product — or one whose product traffic stops being metered —
     /// moves this band, in opposite directions: the schoolbook charge
-    /// reads ~×1.9 per byte (the ceilings' doc), and a dark tap reads
-    /// under the liveness floor in [`run`].
+    /// reads ~×2 per byte per doubling (both factors scale with the
+    /// input), and a dark tap reads under the liveness floor in
+    /// [`run`].
     #[test]
     fn rank_wide_arming_is_flat_per_unit() {
         let (small_bytes, small_touches, small_limbs) = run(WIDE_ARMING_SMALL);
@@ -5028,17 +4922,14 @@ mod parse_wide_arming {
     /// run doubles both.
     const WIDE_ARMING_SMALL: usize = 256;
 
-    /// Absolute two-scale touch ceilings: the measured record ×1.25.
+    /// Absolute two-scale touch ceilings: the measured record ×1.25
+    /// (the record and every re-pin's movement live in the pin
+    /// commits).
     ///
-    /// The record: 19,511 → 38,967 touches across
-    /// WA(256, 256) → WA(512, 512) on 70,169 B → 140,219 B of rendered
-    /// text (0.28 touches per byte, flat across the doubling)
-    /// \[measured, exact counters\] — tightened in the
-    /// cure's own commit from the compensating-subtraction read of
-    /// 2,109,502 → 8,413,246 touches (30.1 → 60.0 per byte, ×2.00 per
-    /// byte across the doubling: the high-water walk's quadratic
-    /// signature), measured at the parent and kept demonstrated red by
-    /// the committed schoolbook kernel.
+    /// Flat per rendered-text byte across the doubling; a
+    /// compensating-subtraction read — the high-water walk's quadratic
+    /// signature — reads ~×2 per byte per doubling, kept demonstrated
+    /// red by the committed schoolbook kernel.
     const PARSE_WIDE_ARMING_TOUCH_CEILINGS: (u64, u64) = (24_388, 48_708);
 
     /// The text parse is flat per byte on the wide-arming family:
@@ -5048,8 +4939,8 @@ mod parse_wide_arming {
     /// `WA(s, s)` scales the swing's width and the trailing run's
     /// length together, so an extraction that pays the high-water span
     /// again moves this band on the exponent leg (the schoolbook
-    /// kernel reads ×2.00 per byte — the ceilings' doc), and a dark
-    /// tap reads under the liveness floor in [`run`].
+    /// kernel's quadratic signature), and a dark tap reads under the
+    /// liveness floor in [`run`].
     #[test]
     fn parse_wide_arming_touch_cost_is_flat_per_unit() {
         let (small_bytes, small_touches) = run(WIDE_ARMING_SMALL);
@@ -5165,18 +5056,13 @@ mod answer_embedded_product {
     const PLATEAU_PUNCTURE_SMALL: usize = 500;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
-    /// plateau-puncture family, measured ×1.25.
+    /// plateau-puncture family, measured ×1.25 (the record and every
+    /// re-pin's movement live in the pin commits).
     ///
-    /// The record: 48,420 → 96,847 touches and 72,883 → 145,758 limb
-    /// ops across PP(500, 500) → PP(1,000, 1,000) on 20,376 B →
-    /// 40,751 B packed operands (~2.4 touches per packed byte, flat
-    /// across the doubling), while the committed schoolbook kernel
-    /// reads the same family red at 482,968 → 1,843,181 touches and
-    /// 198,320 → 653,131 limb ops (×1.91 and ×1.65 per byte: the
-    /// close-time settle paying the parked plateau's width once per
-    /// trailing-mass digit). Live remeasure: 45,871 → 91,751 touches
-    /// (−5.3%, accumulated since the record; limbs unmoved), under
-    /// the standing ceilings.
+    /// Flat per packed byte across the doubling, while the committed
+    /// schoolbook kernel reads the same family red — the close-time
+    /// settle paying the parked plateau's width once per trailing-mass
+    /// digit.
     const PLATEAU_PUNCTURE_CEILINGS: [(u64, u64); 2] = [(60_525, 91_103), (121_058, 182_197)];
 
     /// rank is flat per byte on the plateau-puncture family: per-byte
@@ -5252,9 +5138,8 @@ mod answer_embedded_product {
 // across an arming-count doubling — ×log₂(2n)/log₂(n), at most ×1.17
 // from the probes' smallest count — and only if the settle dominated
 // the fold's linear work, which it does not: the ×1.25 flatness
-// convention covers the model's whole admissible growth here, and the
-// measurement reads ×1.04–×1.09 per doubling. The retired reading
-// these probes tightened from is the ceilings' docs; the
+// convention covers the model's whole admissible growth here. The
+// readings these probes tightened from live in the pin commits; the
 // committed-and-failing schoolbook kernel (the query fold's test
 // suite) is the adequacy witness that the families still catch a
 // per-digit settle.
@@ -5301,7 +5186,7 @@ mod settle_flatness {
             lt * 1000 / lb,
         );
         // Per-row growth bands: touches stay flat (x1.25); the limb row
-        // now reads the settle's delegated products alone — the linear
+        // reads the settle's delegated products alone — the linear
         // payload work rides the word-valued form — so the product
         // tree's documented depth factor shows across a doubling, and
         // its band is x1.5 (a re-read past the level cap still reads
@@ -5416,16 +5301,13 @@ mod settle_flatness {
     }
 
     /// Absolute two-scale (touch, limb) ceilings for the pair probe,
-    /// measured ×1.25.
+    /// measured ×1.25 (the record and every re-pin's movement live in
+    /// the pin commits).
     ///
-    /// The record: 406,244 → 815,755 touches and 369,661 → 745,682
-    /// limb ops across the committed doubling on 30,801 B → 60,797 B
-    /// packed pairs (×1.02 per byte); the committed schoolbook
-    /// kernel keeps the plateau side's close-time settle — the site
-    /// that dominates this pair — red on the same family in the
-    /// query fold's test suite. Live remeasure: 398,013 → 798,265
-    /// touches and 370,381 → 746,786 limb ops, under the standing
-    /// ceilings.
+    /// Flat per packed byte across the committed doubling; the
+    /// committed schoolbook kernel keeps the plateau side's close-time
+    /// settle — the site that dominates this pair — red on the same
+    /// family in the query fold's test suite.
     const PAIR_PLATEAU_TRAIN_CEILINGS: [(u64, u64); 2] = [(507_805, 462_076), (1_019_693, 932_102)];
 
     /// The plateau-puncture × arming-train pair is flat per byte
@@ -5463,31 +5345,25 @@ mod settle_flatness {
     }
 
     /// Absolute (touch, limb) ceilings for the same-sign train at
-    /// n = 4, 8, 16, measured ×1.25.
+    /// n = 4, 8, 16, measured ×1.25 (the record and every re-pin's
+    /// movement live in the pin commits).
     ///
-    /// The record: 23,392 → 48,167 → 97,809 touches and 34,009 →
-    /// 70,836 → 145,018 limb ops (×1.09, ×1.04 per byte — the tree's
-    /// one-rewrite-per-level window traffic under full-width parked
-    /// sums, inside the level-ratio model), tightened in the cure's
-    /// own commit from the schoolbook charge's 57,542 → 127,612 →
-    /// 279,963 touches (×1.17, ×1.13 per byte and rising with the
-    /// count). Live remeasure: 22,716 → 47,491 → 96,946 touches and
-    /// 33,487 → 70,210 → 144,081 limb ops, under the standing
-    /// ceilings.
+    /// The tree's one-rewrite-per-level window traffic under
+    /// full-width parked sums stays inside the level-ratio model; a
+    /// schoolbook charge grows past it, rising with the count.
     const TRAIN_SAME_SIGN_CEILINGS: [(u64, u64); 3] =
         [(29_240, 42_511), (60_208, 88_545), (122_261, 181_272)];
 
     /// Absolute (touch, limb) ceilings for the alternating train at
-    /// n = 4, 8, 16, measured ×1.25.
+    /// n = 4, 8, 16, measured ×1.25 (the record lives in the pin
+    /// commit).
     ///
-    /// The record: 23,942 → 49,571 → 100,426 touches and 33,851 →
-    /// 70,619 → 144,373 limb ops — within 3% of the same-sign train's:
-    /// under the backend-delegated products the parked sums' sign
-    /// schedule moves constants only (cancellation narrows a product's
-    /// factor; the bound never rests on it). The sign schedules' value
-    /// coverage lives in the promoting differential pool. Live
-    /// remeasure: 23,219 → 48,849 → 99,484 touches and 33,330 →
-    /// 69,994 → 143,543 limb ops, under the standing ceilings.
+    /// They sit within a few percent of the same-sign train's
+    /// committed ceilings: under the backend-delegated products the
+    /// parked sums' sign schedule moves constants only (cancellation
+    /// narrows a product's factor; the bound never rests on it). The
+    /// sign schedules' value coverage lives in the promoting
+    /// differential pool.
     const TRAIN_ALTERNATING_CEILINGS: [(u64, u64); 3] =
         [(29_927, 42_313), (61_963, 88_273), (125_532, 180_466)];
 
@@ -5502,8 +5378,8 @@ mod settle_flatness {
     /// convention because a doubling adds one level to a logarithmic
     /// stack while the byte budget doubles. The alternating twin
     /// cancels parked width digit-wise inside the tree's aggregate
-    /// sums; its ceilings read within 3% of the same-sign train's
-    /// (the ceilings' doc), the committed record that the sign
+    /// sums; its committed ceilings sit within a few percent of the
+    /// same-sign train's — the committed record that the sign
     /// schedule is a constants effect under backend-delegated
     /// products, not a class effect.
     #[test]
@@ -5835,8 +5711,8 @@ mod id_walk_scan_cost {
 #[rustfmt::skip]
 mod fork_env {
     use super::{sweep_envelope, SweepEnvelope};
-    //                                                    peak heap, segments, limb ops, scan bits, limb floor      measured: peak heap, segments, limb ops, scan bits
-    pub const ID_FORK: SweepEnvelope = sweep_envelope(      156_253,        0,        0,         3, 0); //   125_002 (both halves materialize, ~2x the packed input), 0, 0, 2 (the raw split path)
+    //                                                    peak heap, segments, limb ops, scan bits, limb floor
+    pub const ID_FORK: SweepEnvelope = sweep_envelope(      156_253,        0,        0,         3, 0); // the heap column prices both halves' materialization (~2x the packed input); the scan ceiling pins the raw split path's near-zero reading
 }
 
 /// Forking the deep id spine stays within its envelope, and the halves
@@ -6132,19 +6008,20 @@ mod accum_streams {
         );
     }
 
-    // The pinned per-unit ceilings: measured ×1.25, rounded up, in
+    // The pinned per-unit ceilings: measured ×1.25, rounded up
+    // (aarch64-apple-darwin, dev profile, three identical runs), in
     // milli-touches per unit (per delta, per coded byte for the chain, per
-    // sign read for the static prefix).
-    // The trailing comment on each line is the measurement of record the
-    // ceiling derives from; re-pin from the MEASURED lines under
-    // `--no-capture` with `--all-features`.
+    // sign read for the static prefix). The measurements of record live in
+    // the pin commits (`git log -S` the constant); re-pin from the
+    // MEASURED lines under `--no-capture` with `--all-features`. The comb
+    // ceiling also serves the fan row: per delta the two streams are the
+    // same arithmetic.
     #[rustfmt::skip]
     mod envelope {
-        //                                                     ceiling         measured (aarch64-apple-darwin, dev profile, three identical runs)
-        pub const COMB_MILLI_PER_DELTA: u64            = 2_500; // 2_000.00 at k=4096/n=50_000 and k=8192/n=100_000 (also the fan row)
-        pub const WIDE_TOOTH_MILLI_PER_DELTA: u64      = 7_501; // 6_000.08 at w=192, k=4096/n=25_000; 6_000.04 at k=8192/n=50_000
-        pub const CANCELLING_MILLI_PER_CODED_BYTE: u64 =   314; // 250.81 at k=2048/n=4096; 250.40 at k=4096/n=8192
-        pub const STATIC_PREFIX_MILLI_PER_READ: u64    = 2_509; // 2_006.50 at k=2048/n=10_000; 2_006.45 at k=4096/n=20_000
+        pub const COMB_MILLI_PER_DELTA: u64            = 2_500;
+        pub const WIDE_TOOTH_MILLI_PER_DELTA: u64      = 7_501;
+        pub const CANCELLING_MILLI_PER_CODED_BYTE: u64 =   314;
+        pub const STATIC_PREFIX_MILLI_PER_READ: u64    = 2_509;
     }
 }
 
@@ -6232,87 +6109,85 @@ const fn query_envelope(
     }
 }
 
-// The query envelope table: pinned ceiling = measured ×1.25, rounded up,
-// and only ever tightened: where a remeasure rises while staying inside
-// an existing ceiling (the bigroot heap and touch cells, whose frozen
-// component now lives on the accumulator), the older, tighter ceiling
-// stands. The trailing comment on each line is the measurement of record
-// (aarch64-apple-darwin, dev profile, three identical runs)
-// the ceiling derives from. Re-pin by rerunning under `--no-capture`
-// with `--all-features` and reading the MEASURED lines.
+// The query envelope table: pinned ceiling = measured ×1.25, rounded up
+// (aarch64-apple-darwin, dev profile, three identical runs), and only
+// ever tightened: where a remeasure rises while staying inside an
+// existing ceiling (the bigroot heap and touch cells, whose frozen
+// component lives on the accumulator), the older, tighter ceiling
+// stands. The trailing comment on each line states the mechanism that
+// prices the row; the measurements of record — and every re-pin's
+// movement and attribution — live in the pin commits (`git log -S` the
+// constant). Re-pin by rerunning under `--no-capture` with
+// `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
 // file doc's improvement-tripwire convention).
 #[rustfmt::skip]
 mod query_env {
     use super::{query_envelope, QueryEnvelope};
-    //                                                                        peak heap, segments,  limb ops, scan bits,   touches, limb floor, touch floor       measured: heap, seg, limb, scan, touches
-    pub const SKYLINE_RANK_DENSE: QueryEnvelope = query_envelope(30_720, 0, 4, 937_515, 7, 2, 3); // 65_560, 0, 250_004 -> 250_005 (metered trailing_zeros), 875_017, 125_007; heap 65_576 -> 24_576 and touches 125_007 -> 5 (the segment feed opens at the first freeze — the depth control's touch column and scale-deep segment buffer were the feed); scan 875_017 -> 750_012 (the max_depth pre-scan records each payload skip once; every other column byte-identical); re-pinned (limb 3, scan 750_012, touches 5, heap 24_576): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope = query_envelope(67_145, 0, 2_739, 275_023, 8_993, 1_643, 5_395); // 60_088 -> 61_516 (dashu-int backend) -> 61_708 (the zero-run ledger's map nodes; the older ceiling stands), 0, 21_413 -> 22_195 (metered trailing_zeros), 310_024, 17_194; heap 61_724 -> 57_636 (the older ceiling stands) and touches 17_194 -> 7_192 (the segment feed opens at the first freeze); scan 310_024 -> 220_018 (the max_depth pre-scan records each payload skip once; every other column byte-identical); re-pinned (limb 2_191, scan 220_018, touches 7_194, heap 57_604): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope = query_envelope(52_500, 0, 2_562, 491_530, 248_285, 1_536, 148_971); // 57_364 -> 58_400 (dashu-int backend), 0, 132_097 -> 133_121 (metered trailing_zeros), 458_763, 198_659; heap 58_416 -> 42_040 and touches 198_658 -> 133_121 (the segment feed opens at the first freeze — one deposit per leaf gone); scan 458_763 -> 393_224 (the max_depth pre-scan records each payload skip once; every other column byte-identical); re-pinned to the new readings (limb 133_121, scan 393_224, touches 198_628, heap 42_000): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 2_049, scan 393_224, touches 198_628, heap 42_000): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_RANK_CLIFF: QueryEnvelope = query_envelope(2_855, 0, 172, 35_845, 6_688, 102, 4_012); // 2_460 -> 2_540 (dashu-int backend) -> 3_132 (the zero-run ledger's map nodes plus the anchored-segment fold's integrator, measured at the cure-round merge), 0, 6_244 -> 6_277 (metered trailing_zeros), 38_917, 6_406; heap 3_132 -> 2_436 and touches 6_406 -> 4_325 (the segment feed opens at the first freeze); scan 38_917 -> 28_676 (the max_depth pre-scan records each payload skip once; every other column byte-identical); re-pinned (limb 137, scan 28_676, touches 5_350, heap 2_284): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_635,        0,    29_552, 2_000_960,    24_585, 17_755, 14_751); // 2_740 -> 2_820 (dashu-int backend) -> 3_604 (the zero-run ledger's map nodes plus the anchored-segment fold's integrator, measured at the cure-round merge), 0, 23_641 -> 23_674 (metered trailing_zeros), 2_397_055, 26_864 -> 21_749 (certificate skips replace the accumulator's zero-run walks); heap 3_604 -> 2_908 and touches 21_749 -> 19_668 (the segment feed opens at the first freeze — the no-freeze pin pays no feed at all); scan 2_397_055 -> 1_600_768 (the max_depth pre-scan records each payload skip once — 24.0 to 16.0 bits per packed byte on this payload-dominated comb; every other column byte-identical)
+    //                                                                        peak heap, segments,  limb ops, scan bits,   touches, limb floor, touch floor
+    pub const SKYLINE_RANK_DENSE: QueryEnvelope = query_envelope(30_720, 0, 4, 937_515, 7, 2, 3); // the depth control: path bits and near-zero arithmetic; the max_depth pre-scan records each payload skip once, and word-valued payloads keep the work columns near zero
+    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope = query_envelope(67_145, 0, 2_739, 275_023, 8_993, 1_643, 5_395); // the wide-magnitude control: the first leaf's magnitude seeds the frozen component and is read once, in the closing shifted add
+    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope = query_envelope(52_500, 0, 2_562, 491_530, 248_285, 1_536, 148_971); // the separating family: each level's one-leaf delta lands at its own weight; the segment feed opens only at the first freeze
+    pub const SKYLINE_RANK_CLIFF: QueryEnvelope = query_envelope(2_855, 0, 172, 35_845, 6_688, 102, 4_012); // the live component absorbs the oscillation at O(1) digits per fold; the terminal borrow rides it into one wide add, no freeze
+    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_635,        0,    29_552, 2_000_960,    24_585, 17_755, 14_751); // the no-freeze pin: every fold paid by its tooth's own code; certificate skips replace zero-run walks, and the pre-scan records each payload skip once on this payload-dominated comb
     // The practical-regime gauge: `Version::rank`
     // on one concurrent-pair operand — word-scale heights over organic
     // forks, no freeze, no arming. The row pins the benign path's
     // constants so the adversarial machinery's price on common inputs is
     // a committed number, not a vibe.
-    pub const RANK_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 61_448, 11_099, 2, 6_659); // 68, 0, 12_289, 65_546, 12_975 (the row's pin of record); touches 12_975 -> 8_879 (the segment feed opens at the first freeze — the practical regime's one-third dead weight); scan 65_546 -> 49_158 (the max_depth pre-scan records each payload skip once; every other column byte-identical); re-pinned (limb 3, scan 49_158, touches 8_879, heap 0): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const TICKS_DENSE: QueryEnvelope = query_envelope(58_815, 0, 8, 468_809, 156_270, 4, 93_762); // 47_052 -> 47_084 (pre-existing drift) -> 47_180 (the zero-run ledger's map nodes; the older ceiling stands), 0, 250_020, 375_047, 125_025 (the tick row's readings plus the count's gamma codes); re-pinned (limb 6, scan 375_047, touches 125_016, heap 47_261): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const TICKS_NESTED_WIDE: QueryEnvelope = query_envelope(14_107, 0, 323, 150_072, 31_125, 193, 18_675); // 11_286 -> 11_350 (pre-existing drift) -> 11_542 (the zero-run ledger's map nodes; the older ceiling stands), 0, 24_280, 120_057, 36_908 (the fill branch pays its documented second walk - scan ~2x the tick row's one walk); re-pinned to the new readings (limb 8_272, scan 120_057, touches 24_900, heap 11_782): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 258, scan 120_057, touches 24_900, heap 11_782): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const TICKS_MIRROR_WIDE: QueryEnvelope = query_envelope(39_506, 0, 723, 220_048, 72_582, 433, 43_548); // 31_605 -> 31_701 (pre-existing drift) -> 31_989 (the zero-run ledger's map nodes; the older ceiling stands), 0, 40_580, 184_036, 122_060 (second-walk fill branch, as the nested-wide row); re-pinned to the new readings (limb 24_572, scan 184_036, touches 86_059, heap 31_877): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 578, scan 184_036, touches 86_059, heap 31_877): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal); re-pinned (limb 578, scan 176_038, touches 58_065, heap 31_877): the pre-scan records minima only — the walk owns every left-full raise decision, so the per-site collapse re-read and raise-mirror folds leave the scan and touch columns
-    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope = query_envelope(30_720, 0, 5, 468_758, 312_508, 3, 187_504); // 24_576, 0, 500_002 -> 250_006 (the anchor-web fold: the per-close signed offset compare is gone), 375_006, 125_005 -> 250_008 (every delta folds into two accumulators - the live height and the web's gap - so the touch column doubles while the quadratic minima circulation leaves; heap and scan byte-identical across the rewrite); re-pinned (limb 4, scan 375_006, touches 250_006, heap 24_576): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope = query_envelope(3_530, 0, 180, 17_923, 12_000, 108, 7_200); // 49_752 -> 2_592 -> 3_168 (the anchor-web fold's 19x drop, then the zero-run ledger's map nodes measured at the cure-round merge; the older ceiling stands) -> 3_448 (the accumulator's quick register: one idle i128 per pooled accumulator; work columns unmoved), 8_258 -> 6_284, 70_962 -> 10_619 (the anchor-web fold: the comb's wide F-relative pending offsets and their per-close folds are epoch-ledger counts now, touches 6.7x down; scan byte-identical), 0, 14_338; re-pinned (limb 144, scan 14_338, touches 9_600, heap 3_320): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const SKYLINE_MIN_TICKS_ASCEND: QueryEnvelope = query_envelope(553_660, 0, 33, 12_823, 20_044, 19, 12_026); // 442_928, 0, 26, 10_258, 16_035 (the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads 623_408 heap (×1.41) and 32_027 touches (×2.0), over both ceilings)
-    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (single-record id tags), 35_939
-    pub const FOLD_VERSION_SCATTER: QueryEnvelope = query_envelope(323, 0, 0, 330_913, 61_429, 0, 36_857); // 73_216 -> 390 -> 294 (the at-rest form is codec::Bits, the wire bytes in a length-carrying container) -> 390 (the borrow-shaped fold face: the counter stack's entries carry the operand-form tag, ~8 B per level; work columns byte-identical) -> 309 (the Bytes-backed at-rest form: the fold's lone-group settle and adoption arms clone by refcount), 0, 690_310 -> 253_904 (sequential 14_281_732) -> 253_902 (pre-existing drift), 163_866 -> 264_730, 0 -> 50_677 (operations route to the skyline kernels); re-pinned to the new readings (limb 111_586, scan 264_730, touches 49_143, heap 282): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 0, scan 264_730, touches 49_143, heap 258): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       780,        0,         0,   322_068,         0, 0, 0); // 336 -> 624 (the Bytes-backed at-rest form: one refcount control block per frozen stream live in the fold's groups; work columns byte-identical), 0, 0, 292_432 -> 257_654 (join_all answers its up-front tests through a per-call id index; the 292_432 was a mid-round reading, the C2 flag-day commit itself reads 276_044) (sequential 3_284_952), 0
+    pub const RANK_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 61_448, 11_099, 2, 6_659); // word-scale heights: zero heap, near-zero limb work, one walk's scan and touches
+    pub const TICKS_DENSE: QueryEnvelope = query_envelope(58_815, 0, 8, 468_809, 156_270, 4, 93_762); // the tick row's cost plus the count's gamma codes
+    pub const TICKS_NESTED_WIDE: QueryEnvelope = query_envelope(14_107, 0, 323, 150_072, 31_125, 193, 18_675); // the fill branch pays its documented second walk: scan ~2x the tick row's one walk
+    pub const TICKS_MIRROR_WIDE: QueryEnvelope = query_envelope(39_506, 0, 723, 220_048, 72_582, 433, 43_548); // second-walk fill branch, as the nested-wide row; the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
+    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope = query_envelope(30_720, 0, 5, 468_758, 312_508, 3, 187_504); // every delta folds into two accumulators — the live height and the web's gap — so touches run ~2x the rank row's with no minima circulation
+    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope = query_envelope(3_530, 0, 180, 17_923, 12_000, 108, 7_200); // the comb's wide F-relative pending offsets are epoch-ledger counts, and the wide first height enters the exact total once, through the counting term
+    pub const SKYLINE_MIN_TICKS_ASCEND: QueryEnvelope = query_envelope(553_660, 0, 33, 12_823, 20_044, 19, 12_026); // the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads well over both the heap and touch ceilings
+    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // output-dominated: the pinned ceilings price input + output bytes; id tags are single records
+    pub const FOLD_VERSION_SCATTER: QueryEnvelope = query_envelope(323, 0, 0, 330_913, 61_429, 0, 36_857); // the balanced reduction: near-linear in the population's packed bytes where a left fold re-scans its whole accumulator per input; the at-rest form is a length-carrying container of the wire bytes, cloned by refcount in the fold's lone-group settle and adoption arms, and the counter stack's entries carry the operand-form tag (~8 B per level)
+    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       780,        0,         0,   322_068,         0, 0, 0); // pure stream scanning: join_all answers its up-front tests through a per-call id index, the id walk does no arithmetic, and one refcount control block per frozen stream lives in the fold's groups
     // Tick rows, on the five-meter harness: the tick walk's cost
     // currency is accumulator digit touches (with scanned bits beside
     // it), which the four-column table never watched. Ceilings ×1.25
-    // and floors ×0.75 over the measurements of record below.
-    pub const TICK_DENSE: QueryEnvelope = query_envelope(58_815, 0, 0, 468_765, 156_265, 0, 93_759); // 71_484 -> 47_052 (the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder no longer coexist at peak) -> 47_084 (pre-existing drift) -> 47_180 (the zero-run ledger's map nodes; the older ceiling stands), 0, 250_008, 375_012, 125_017 (work columns byte-identical across the fusion); re-pinned (limb 0, scan 375_012, touches 125_012, heap 47_260): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const TICK_NESTED_WIDE: QueryEnvelope = query_envelope(14_108, 0, 239, 80_028, 30_808, 143, 18_484); // 7_702 -> 11_286 (the explicit-stack walk: suspended ancestors moved from stacker segments to metered frame bits) -> 11_350 (pre-existing drift) -> 11_542 (the zero-run ledger's map nodes; the older ceiling stands), 6 -> 0 (same change; the zero pin is the ratchet), 24_209, 64_022, 36_652 (work columns byte-identical across the conversion; the anchor web reads the wide first payload O(1) times); re-pinned to the new readings (limb 8_205, scan 64_022, touches 24_646, heap 11_782): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 191, scan 64_022, touches 24_646, heap 11_782): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const TICK_MIRROR_WIDE: QueryEnvelope = query_envelope(32_467, 0, 398, 160_003, 71_955, 238, 43_173); // 25_973 -> 31_605 (the explicit-stack walk's frame bits; the older ceiling stands) -> 31_701 (pre-existing drift) -> 31_989 (the zero-run ledger's map nodes; the older ceiling still stands), 8 -> 0 (same change; the zero pin is the ratchet), 40_312 (the frame ledger stores no link for the shared wide minimum; heap parity with one queue word per site); re-pinned to the new readings (limb 24_312, scan 136_000, touches 85_558, heap 31_877): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 318, scan 136_000, touches 85_558, heap 31_877): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal); re-pinned (limb 318, scan 128_002, touches 57_564, heap 31_877): the pre-scan records minima only — the walk owns every left-full raise decision, so the per-site collapse re-read and raise-mirror folds leave the scan and touch columns
+    // and floors ×0.75 over the measurements of record in the pin
+    // commits.
+    pub const TICK_DENSE: QueryEnvelope = query_envelope(58_815, 0, 0, 468_765, 156_265, 0, 93_759); // the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder never coexist at peak
+    pub const TICK_NESTED_WIDE: QueryEnvelope = query_envelope(14_108, 0, 239, 80_028, 30_808, 143, 18_484); // the explicit-stack walk: suspended ancestors ride metered frame bits, zero grown segments (the zero pin is the ratchet); the anchor web reads the wide first payload O(1) times
+    pub const TICK_MIRROR_WIDE: QueryEnvelope = query_envelope(32_467, 0, 398, 160_003, 71_955, 238, 43_173); // the frame ledger stores no link for the shared wide minimum (heap parity with one queue word per site); the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
     // The expansion rows: grow-branch deep
-    // ticks measuring the whole public tick — walk, route fold, splice.
-    // Baselines at the fusion's landing; the composed path's grow-only
-    // measurements of record (splice passes alone) were
-    // 390_181 heap / 500_012 limb / 2_250_015 scan on the spine and
-    // 535_864 / 500_008 / 3_375_021 on the cross, without the fill
-    // walk the tick also paid.
-    pub const TICK_OWNERSHIP_HOLE: QueryEnvelope = query_envelope(3_647, 0, 0, 37_585, 7_563, 0, 4_537); // 2_917, 0, 0, 30_068, 6_050 (the ownership-gated block scan: unowned staircase runs fold as one net-and-minimum summary each); the leaf-by-leaf mechanism reads touches 12_023 on this family, above the ceiling — the skip must engage for the pin to hold, and the scan column holds every skipped bit still read
-    pub const TICK_OWNERSHIP_COMB: QueryEnvelope = query_envelope(59_575, 0, 0, 498_774, 156_275, 0, 93_765); // 47_660, 0, 0, 399_019, 125_020: readings identical to the ungated per-leaf walk's on this family (single-leaf regions everywhere, so the block gate never opens and may cost nothing when closed)
-    pub const TICK_COLLAPSE_HOLE: QueryEnvelope = query_envelope(2_748, 0, 0, 14_368, 8_125, 0, 4_875); // 2_198, 0, 0, 11_494, 6_500 (the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing); rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
-    pub const TICK_COPY_HOLE: QueryEnvelope = query_envelope(1_733, 0, 18, 53_302, 15_615, 10, 9_369); // 1_386, 0, 14, 42_641, 12_492 (the pre-scan copies each untouched range as one net movement and one watermark emission); rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
-    pub const TICK_RAISE_HOLE: QueryEnvelope = query_envelope(2_660, 0, 0, 13_543, 8_030, 0, 4_818); // 2_128, 0, 0, 10_834, 6_424 (the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing); rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling — the block path must engage for the pin to hold, and the scan column holds every folded bit still read
-    pub const MASKED_CMP_HOLE: QueryEnvelope = query_envelope(480, 0, 0, 7_535, 18, 0, 10); // 384, 0, 0, 6_028, 14 (the block skip consumes the spine's unowned continuation whole: the touch reading is a function of the mask depth alone); a per-boundary walk reads ~one touch per spine boundary on this family, orders of magnitude over the ceiling — the depth band beside this row holds the reading flat across a spine-depth doubling
-    pub const TICK_EXPAND_SPINE: QueryEnvelope = query_envelope(435_435, 0, 5, 2_187_519, 0, 3, 0);// 348_364, 0, 500_012, 1_750_015, 3 (an empty version's tick folds one word-scale payload: near-zero accumulator work); re-pinned to the new readings (limb 4, scan 1_750_015, touches 0, heap 348_348): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work
-    pub const TICK_EXPAND_CROSS: QueryEnvelope = query_envelope(611_210, 0, 5, 3_593_782, 156_260, 3, 93_756); // 488_989, 0, 750_010, 2_875_025, 250_013; re-pinned to the new readings (limb 250_006, scan 2_875_025, touches 125_008, heap 488_984): payload codes move as machine words and the accumulator's quick register folds narrow values without digit or limb work; re-pinned (limb 4, scan 2_875_025, touches 125_008, heap 488_968): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    // ticks measuring the whole public tick — walk, route fold, and
+    // splice — in one fused pass.
+    pub const TICK_OWNERSHIP_HOLE: QueryEnvelope = query_envelope(3_647, 0, 0, 37_585, 7_563, 0, 4_537); // the ownership-gated block scan: unowned staircase runs fold as one net-and-minimum summary each; the touch ceiling sits below the leaf-by-leaf mechanism's reading, so the skip must engage for the pin to hold, and the scan column holds every skipped bit still read
+    pub const TICK_OWNERSHIP_COMB: QueryEnvelope = query_envelope(59_575, 0, 0, 498_774, 156_275, 0, 93_765); // readings identical to the ungated per-leaf walk's on this family (single-leaf regions everywhere, so the block gate never opens and may cost nothing when closed)
+    pub const TICK_COLLAPSE_HOLE: QueryEnvelope = query_envelope(2_748, 0, 0, 14_368, 8_125, 0, 4_875); // the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const TICK_COPY_HOLE: QueryEnvelope = query_envelope(1_733, 0, 18, 53_302, 15_615, 10, 9_369); // the pre-scan copies each untouched range as one net movement and one watermark emission; rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const TICK_RAISE_HOLE: QueryEnvelope = query_envelope(2_660, 0, 0, 13_543, 8_030, 0, 4_818); // the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const MASKED_CMP_HOLE: QueryEnvelope = query_envelope(480, 0, 0, 7_535, 18, 0, 10); // the block skip consumes the spine's unowned continuation whole: the touch reading is a function of the mask depth alone; a per-boundary walk reads ~one touch per spine boundary, orders over the ceiling — the depth band beside this row holds the reading flat across a spine-depth doubling
+    pub const TICK_EXPAND_SPINE: QueryEnvelope = query_envelope(435_435, 0, 5, 2_187_519, 0, 3, 0); // an empty version's tick folds one word-scale payload: near-zero accumulator work; the emit codes the whole expansion chain as fresh one-bit deltas
+    pub const TICK_EXPAND_CROSS: QueryEnvelope = query_envelope(611_210, 0, 5, 3_593_782, 156_260, 3, 93_756); // the mixed regimes: the fused walk down the shared spine plus the id-only expansion fold, spliced in one pass
     // The version-pair rows: the public
-    // two-operand queries on the pair families, all four rows pinned
-    // at the fused co-sweep's cost:
-    // the composed emit-then-re-rank record they tightened from is the
-    // trailing comment on each row. The jump-pair distance row was the
-    // cross-stream freeze wedge's red pin (973_702 limb / 1_029_327
-    // touch at this scale); the anchored-segment co-sweep reads flat,
-    // and the `skyline_flatness` band test holds it there. The lag
-    // jump-pair touch column is the one rise in the sweep (87_148 →
-    // 164_630): lag now walks both operands' full overlay on the
-    // accumulator instead of skipping the meet leg, buying the heap
-    // (−96%), limb (−60%), and scan (−25%) columns down with the same
-    // change.
-    pub const DISTANCE_JUMP_PAIR: QueryEnvelope = query_envelope(5_750, 0, 48_714, 2_694_095, 208_749, 29_228, 125_249); // 5_008 -> 5_776 (the zero-run ledger's map nodes; the older ceiling stands), 0, 53_905 -> 53_559 (cluster-delegated settle products), 3_218_320, 184_494 (the fused co-sweep; from 138_809, 0, 973_702, 6_464_538, 1_029_327 at the uncured composed form) -> 170_128 (certificate skips replace the accumulator's zero-run walks) -> 167_225 (pre-existing drift); heap 5_376 -> 4_608 and touches 167_225 -> 166_993 (the segment feed opens at the first freeze — this pair freezes early, so only the pre-freeze prefix moves); scan 3_218_320 -> 2_155_276 (the max_depth pre-scan records each payload skip once, twice per pair walk; every other column byte-identical); re-pinned (limb 38_971, scan 2_155_276, touches 166_999, heap 4_600): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const LAG_JUMP_PAIR: QueryEnvelope = query_envelope(5_750, 0, 45_420, 2_694_095, 173_492, 27_252, 104_094); // 5_008 -> 5_776 (the zero-run ledger's map nodes; the older ceiling stands), 0, 50_839 -> 50_924 (cluster-delegated settle products: the lag leg's one upward column, under the standing ceiling), 3_218_320, 163_509 (the fused co-sweep; from 138_641, 0, 127_449, 4_315_090, 87_148 at the composed form) -> 141_463 (certificate skips replace the accumulator's zero-run walks) -> 139_023 (pre-existing drift); heap 5_376 -> 4_608 and touches 139_023 -> 138_791 (the segment feed opens at the first freeze); scan 3_218_320 -> 2_155_276 (the max_depth pre-scan records each payload skip once, twice per pair walk; every other column byte-identical); re-pinned (limb 36_336, scan 2_155_276, touches 138_793, heap 4_600): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const DISTANCE_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 117_753, 32_429, 2, 19_457); // 84, 0, 23_207, 126_287, 36_183 (the fused co-sweep; from 5_964, 0, 166_549, 263_500, 61_442 at the composed form) -> 32_087 (pre-existing drift) -> 27_991 (the segment feed opens at the first freeze — the word-scale pair never freezes); scan 126_287 -> 94_202 (the max_depth pre-scan records each payload skip once, twice per pair walk; every other column byte-identical); re-pinned (limb 3, scan 94_202, touches 25_943, heap 0): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const LAG_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 117_753, 33_278, 2, 19_966); // 84, 0, 23_207, 126_287, 36_862 (the fused co-sweep; from 5_964, 0, 95_571, 197_300, 43_696 at the composed form) -> 32_766 (pre-existing drift) -> 28_670 (the segment feed opens at the first freeze); scan 126_287 -> 94_202 (the max_depth pre-scan records each payload skip once, twice per pair walk; every other column byte-identical); re-pinned (limb 3, scan 94_202, touches 26_622, heap 0): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    // two-operand queries on the pair families (the corpus pairing
+    // `w = v + one seed tick` collapses the second operand onto a
+    // dominating plateau, so the co-sweep's orientation switches and its
+    // freeze paths would go unpriced without these rows). All four rows
+    // are linear records of the fused co-sweep, which reads flat where
+    // the composed emit-then-re-rank shape reads superlinear (the
+    // `skyline_flatness` band test holds the jump-pair rows flat across
+    // a scale doubling). Lag walks both operands' full overlay on the
+    // accumulator instead of skipping the meet leg, which is what buys
+    // its heap, limb, and scan columns down to the distance row's
+    // neighborhood.
+    pub const DISTANCE_JUMP_PAIR: QueryEnvelope = query_envelope(5_750, 0, 48_714, 2_694_095, 208_749, 29_228, 125_249); // the fused co-sweep with cluster-delegated settle products and certificate skips; this pair freezes early, so the segment feed's deposits are the pre-freeze prefix alone, and the max_depth pre-scan records each payload skip once, twice per pair walk
+    pub const LAG_JUMP_PAIR: QueryEnvelope = query_envelope(5_750, 0, 45_420, 2_694_095, 173_492, 27_252, 104_094); // the one-sided functional over the same fused co-sweep as the distance row
+    pub const DISTANCE_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 117_753, 32_429, 2, 19_457); // orientation-switch density on word-scale heights: the pair never freezes, so no segment feed deposits
+    pub const LAG_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 117_753, 33_278, 2, 19_966); // the one-sided functional over the same switch-dense overlay
     // The masked-comparison rows:
     // the fused projected comparisons on the correlated mask-drift
     // families, priced input-only on shapes whose *materialization* is
     // product-growth — the laziness the view exists for. Ceilings x1.25
-    // and floors x0.75 over the measurements of record in the trailing
-    // comments.
-    pub const MASKED_CMP_DRIFT_TRIPLE: QueryEnvelope = query_envelope(1_570, 0, 59, 20_488, 5_240, 35, 3_144); // 1_032 -> 1_384 (the zero-run ledger's map nodes), 0, 6_187, 16_390, 4_192 (the landing measurement: one pass over the overlay, ~2 touches per stored delta); re-pinned (limb 47, scan 16_390, touches 4_192, heap 1_256): decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const MASKED_CMP_DRIFT_QUAD: QueryEnvelope        = query_envelope(     2_720,        0,    39_722, 1_342_092,    83_946, 23_833, 50_367); // 2_176 -> 2_368 (the zero-run ledger's map nodes; the older ceiling stands), 0, 31_778, 1_073_674, 67_157 (the landing measurement: the sparse comb's wide climb/drop codes dominate the input; scan ~8 bits per input byte)
+    // and floors x0.75 over the measurements of record in the pin
+    // commits.
+    pub const MASKED_CMP_DRIFT_TRIPLE: QueryEnvelope = query_envelope(1_570, 0, 59, 20_488, 5_240, 35, 3_144); // one pass over the overlay, ~2 touches per stored delta
+    pub const MASKED_CMP_DRIFT_QUAD: QueryEnvelope        = query_envelope(     2_720,        0,    39_722, 1_342_092,    83_946, 23_833, 50_367); // the sparse comb's wide climb/drop codes dominate the input; scan ~8 bits per input byte
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -6563,10 +6438,10 @@ fn skyline_min_ticks_cliff_envelope() {
 /// instantiation buys: each word-scale difference is stored inline
 /// instead of as an accumulator entry, and the terminal cliff's
 /// undercut consumes each one by an O(1) word fold instead of an
-/// accumulator hop. With compaction deleted the same body reads ×1.41
-/// the pinned heap and ×2.0 the pinned touches \[measured under the
-/// live swap, same harness\] — over both ceilings, so this row is the
-/// measured basis `MinWeb::compacting` cites.
+/// accumulator hop. With compaction deleted the same body reads over
+/// both the heap and touch ceilings \[demonstrated under the live
+/// swap, same harness\], so this row is the measured basis
+/// `MinWeb::compacting` cites.
 #[test]
 fn skyline_min_ticks_ascend_envelope() {
     let p = Shape::AscendCliff.packed2(ASCEND_STACK_DEPTH, ASCEND_STACK_MAGNITUDE_BITS);
@@ -6918,11 +6793,11 @@ fn masked_hole_touches(d: usize) -> u64 {
 }
 
 /// The flat touch ceiling both depth points must sit under: the measured
-/// reading ×1.25.
+/// reading ×1.25 (the reading lives in the pin commit).
 ///
-/// Measured: 14 at both spine depths — the block skip makes the reading a
-/// function of the mask depth alone. A per-boundary walk reads ~one touch
-/// per spine boundary here (a thousand and up at these depths), so the
+/// The reading is identical at both spine depths — the block skip makes
+/// it a function of the mask depth alone. A per-boundary walk reads ~one
+/// touch per spine boundary here (thousands at these depths), so the
 /// shared ceiling is what a linear mechanism fails at both points.
 #[cfg(feature = "limb-meter")]
 const MASK_HOLE_TOUCH_CEILING: u64 = 18;
@@ -6977,13 +6852,10 @@ fn masked_cmp_hole_depth_band() {
 /// Peak-heap ceiling for the equal-operands join fold: the fold's own
 /// machinery (the counter's group vec, the dedup adapter's held clone),
 /// none of it proportional to the operands.
-// 624 -> 352 at 376 B operands, 1_749 -> 352 at 1_501 B (
-// the Bytes-backed at-rest form, parent-measured at 3a4f3c8e: the
-// equality rung's hand-back was a byte copy of the operand, so the
-// parent peak scaled with it; the hand-back is now an O(1) refcount
-// bump and the fold's peak is its size-independent machinery alone —
-// the flatness leg below is the proof). Ceiling 1.25x the 352 B
-// measurement of record.
+// The equality rung's hand-back is an O(1) refcount bump, so the fold's
+// peak is its size-independent machinery alone — the flatness leg below
+// is the proof. Ceiling 1.25x the measurement of record (the reading
+// lives in the pin commit).
 const JOIN_EQUAL_OPERANDS_PEAK: usize = 440;
 
 /// The cheap-clone demonstration: `join_all` over two byte-equal
@@ -7013,7 +6885,7 @@ fn join_all_equal_operands_is_clone_cheap() {
         assert_eq!(out.as_bytes(), a.as_bytes());
         peak_heap
     };
-    // The witness of record: two equal 376 B versions (dense depth 1,000).
+    // The witness of record: two byte-equal dense versions (depth 1,000).
     let small = run(1000);
     let large = run(4000);
     assert!(
@@ -7034,13 +6906,13 @@ fn join_all_equal_operands_is_clone_cheap() {
 // The public join folds on the scatter population: 1,024 balanced-forked
 // parties, one tick each, ordered evens before odds so a left fold's
 // accumulator would hold every other leaf and never coalesce — the shape
-// on which a sequential fold reads quadratic (the board's two `scatter`
-// cells were its red pins). The balanced binary-counter reduction gives
-// every input O(log n) joins against similarly-sized partners, and these
-// rows pin that as the enforced record: the version fold on the limb
-// column (sequential reads 14,281,732 limb ops on this population — 20.7×
-// the pinned fold), the party fold on the scan column (sequential reads
-// 3,284,952 scanned bits — 11.2× the pinned fold; the id walk allocates
+// on which a sequential fold reads quadratic (the board's `scatter`
+// cells exist to catch exactly that). The balanced binary-counter
+// reduction gives every input O(log n) joins against similarly-sized
+// partners, and these rows pin that as the enforced record: the version
+// fold on the limb column and the party fold on the scan column — a
+// sequential left fold reads an order of magnitude over either pinned
+// fold at this arity, the gap growing with it (the id walk allocates
 // nothing and does no `Base` arithmetic, so scanned bits are the only
 // deterministic meter that sees it).
 
@@ -7149,18 +7021,16 @@ fn fold_party_scatter_envelope() {
 // would forbid (on the arity axis the raw per-byte cost legitimately
 // grows exactly one level's worth per doubling).
 //
-// The known-bad readings these bands separate from [measured
-// in the dev profile, exact counters, n = 256, m = 64]: the
-// sequential left version fold (`fold(Version::new(), |acc, v| acc |
-// v)`) re-walks its never-coalescing accumulator per input — 25,725,854
-// scanned bits and 4,990,711 touches against the balanced reduction's
-// 4,906,266 and 1,048,313 on the same 63,488 B population (×5.2 and
-// ×4.8, the gap widening with arity) — and the sequential party fold
-// (one `join` per input) reads 18,246,408 scanned bits against the
-// balanced 7,260,488 on 40,960 B (×2.5): the growing-accumulator genre
-// the balanced reduction exists to foreclose;
-// the per-door `*_log_factor_is_alive` pins (the asymptotics suite)
-// keep the model's log factor itself honest.
+// The known-bad mechanism these bands separate from: the sequential
+// left version fold (`fold(Version::new(), |acc, v| acc | v)`) re-walks
+// its never-coalescing accumulator per input, and the sequential party
+// fold (one `join` per input) re-walks its accumulated region the same
+// way — the growing-accumulator genre the balanced reduction exists to
+// foreclose, quadratic in arity where the reduction is log-linear, so
+// its readings sit several times over these bands with the gap widening
+// with arity (the demonstration readings live in the pin commit); the
+// per-door `*_log_factor_is_alive` pins (the asymptotics suite) keep
+// the model's log factor itself honest.
 #[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 mod fold_stagger {
     use before::meter::registry::Shape;
@@ -7562,11 +7432,10 @@ mod fold_alias {
     /// contributes the model's `log |p|` factor and nothing more.
     ///
     /// The per-byte reading legitimately moves by the log factor here
-    /// (measured +16% across the doubling, the `O(B log |p|)` model's
-    /// own growth — 204 → 239 scanned bits per shared path level), so
-    /// the ×1.25 band is the model bound per doubling, not a flatness
-    /// claim: a hand-back that re-walked the accumulated group per
-    /// alias would read ×2 and cannot hide inside it.
+    /// (the `O(B log |p|)` model's own growth), so the ×1.25 band is
+    /// the model bound per doubling, not a flatness claim: a hand-back
+    /// that re-walked the accumulated group per alias would read ×2
+    /// and cannot hide inside it.
     #[test]
     fn party_fold_alias_rejection_depth_is_flat_per_unit() {
         let small = alias_run(ALIAS_COUNT_SMALL, ALIAS_DEPTH_SMALL);
@@ -7671,20 +7540,15 @@ mod meet_fold {
 
     /// Absolute (touch, limb) ceilings for `meet_all` on the shade
     /// diagonal, measured ×1.25 at
-    /// `MS(512, 512), MS(1,024, 1,024), MS(2,048, 2,048)`.
+    /// `MS(512, 512), MS(1,024, 1,024), MS(2,048, 2,048)` (the record
+    /// and every re-pin's movement live in the pin commits).
     ///
-    /// The cured record: the balanced reduction reads 4,644 / 10,280 /
-    /// 22,572 touches and 27,738 / 61,540 / 135,278 limb ops at the
-    /// three scales (704 / 1,408 / 2,816 B populations; per byte·level
-    /// 0.660 → 0.664 → 0.668 touches and 3.94 → 3.97 → 4.00 limb, the
-    /// model's constant flat while the raw per-byte cost grows exactly
-    /// the documented one-level-per-doubling), tightened in the cure's
-    /// own commit from the sequential reduce's red-pin record of
-    /// 1,051,644 → 4,200,444 touches and 6,295,542 → 25,174,006 limb
-    /// ops across the same last doubling (×2.00/byte in both
-    /// currencies — 186× the balanced reduction's reading at
-    /// MS(2,048, 2,048)) — the tripwire below keeps that mechanism
-    /// red.
+    /// The balanced reduction's model-normalized constant is flat
+    /// across the three scales while the raw per-byte cost grows
+    /// exactly the documented one-level-per-doubling; the sequential
+    /// reduce reads quadratic on the diagonal, orders over these
+    /// ceilings at the top scale — the tripwire below keeps that
+    /// mechanism red.
     const MEET_SHADE_CEILINGS: [(u64, u64); 3] =
         [(5_805, 34_672), (12_850, 76_925), (28_215, 169_097)];
 
@@ -7742,22 +7606,13 @@ mod meet_fold {
     /// width currencies.
     ///
     /// The reduce's accumulator never shrinks and every step's sweep
-    /// re-walks it whole — `Θ(k · d)`, quadratic on the diagonal — so
+    /// re-walks it whole — `Θ(k · d)`, the exact product law, each
+    /// factor independently linear, quadratic on the diagonal — so
     /// the shade family still catches the mechanism the balanced
     /// reduction forecloses, and the flatness band above is never
     /// decoration. The floor ×1.49 sits midway between linear (×1.00)
-    /// and the measured ×2.00, so only a class change crosses it.
-    ///
-    /// [measured in the dev profile, exact counters: touches
-    /// 1,051,644 → 4,200,444 across MS(1,024, 1,024) → MS(2,048,
-    /// 2,048) on 1,408 B → 2,816 B populations — per-byte growth
-    /// ×2.00 — and limb ops 6,295,542 → 25,174,006 (×2.00/byte); the
-    /// preceding doubling MS(512, 512) → MS(1,024, 1,024) reads ×1.99
-    /// in both currencies. Direction fits: k alone
-    /// (d = 256 fixed, k = 256 → 512 → 1,024) grows cost ×2.004 and
-    /// ×2.002 per doubling; d alone (k = 256 fixed, d = 256 → 512 →
-    /// 1,024) grows cost ×1.985 and ×1.992 — the exact product law
-    /// `Θ(k · d)`, each factor independently linear.]
+    /// and the quadratic mechanism's ×2.00 per-byte growth per
+    /// diagonal doubling, so only a class change crosses it.
     #[test]
     fn sequential_meet_reduce_reads_superlinear_on_shade() {
         let sequential: fn(Vec<Version>) -> Version = |population| {
@@ -7862,10 +7717,10 @@ mod memo_resolution_cost {
     /// Assert the linear signature: touches grow by at most ×2.5
     /// across a size doubling.
     ///
-    /// Measured ×2.0 under the frame ledger; a resolution that
-    /// re-reads links once per crossing reads ~×3.9 here. A reading
-    /// over the ceiling means a link is being read more than once —
-    /// re-pin only with a cure, never by deleting the family.
+    /// A linear resolution reads ×2.0 (the input doubles); a
+    /// resolution that re-reads links once per crossing reads ~×4. A
+    /// reading over the ceiling means a link is being read more than
+    /// once — re-pin only with a cure, never by deleting the family.
     fn assert_flat(name: &str, small: &Run, large: &Run) {
         eprintln!(
             "MEASURED {name}: small={}/{}B large={}/{}B",
@@ -7884,15 +7739,10 @@ mod memo_resolution_cost {
     /// linear in digit touches.
     ///
     /// `k` consumption-sibling sites' links each die into their own
-    /// raise decision — one fold per link across the whole walk
-    /// [measured: ×2.00 across the doubling, 44,006 → 88,006 at the
-    /// pinned sizes (51,006 → 102,006 before the pre-scan's
-    /// minima-only recording — the per-site collapse re-read and
-    /// raise-mirror folds; 62,021 → 124,021 at the earlier record,
-    /// itself 62,023 → 124,023 before the fused tick and 60,023 →
-    /// 120,023 before the latent boundary register's O(1) tag work
-    /// per close); ×3.94 under the refuted recording-chain interval
-    /// resolution].
+    /// raise decision — one fold per link across the whole walk, the
+    /// linear ×2.0 signature — where the refuted recording-chain
+    /// interval resolution re-reads recorded differences per crossing
+    /// interval and reads ~×4.
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(
@@ -7942,15 +7792,11 @@ mod memo_resolution_cost {
     /// touches.
     ///
     /// Consecutive consumptions sit Θ(d) apart in recording order —
-    /// the shape that defeated the recording-chain and the
+    /// the shape that defeats the recording-chain and the
     /// previously-consumed-site resolutions alike — but every ledger
-    /// link is a sibling or first-child difference read exactly once
-    /// [measured: ×2.00 across the doubling, 28,518 → 57,018 at the
-    /// pinned sizes (35,518 → 71,018 before the pre-scan's
-    /// minima-only recording; 44,032 → 88,032 at the earlier record,
-    /// itself 43,532 → 87,032 before the latent boundary register's
-    /// O(1) tag work per close); ×3.92 under the refuted interval
-    /// resolution].
+    /// link is a sibling or first-child difference read exactly once,
+    /// the linear ×2.0 signature; the refuted interval resolution
+    /// reads ~×4 here.
     #[test]
     fn memo_comb_resolution_reads_linear() {
         let small = tick_run(Shape::MemoComb.packed1(500), Shape::MemoCombId.packed1(500));
@@ -7969,15 +7815,9 @@ mod memo_resolution_cost {
     ///
     /// The absolute ceiling is the k-independence assert — a
     /// discipline that materializes one wide record per site (the
-    /// refuted floor-anchored recording) adds the width once per
-    /// site and blows it [measured: 58,721 touches at k = 2,000,
-    /// b = 2,048, the pinned band's basis (72,721 before the
-    /// pre-scan's minima-only recording; 76,722 before the at-height
-    /// arm moved the dying gap out whole instead of folding a leased
-    /// zero; 94,725 before the fused tick; 88,726 before the latent
-    /// boundary register's O(1) tag work per close) — a
-    /// per-site fan-out at that width would add ~64 touches per site
-    /// on top of the ~28-touch linear slope].
+    /// refuted floor-anchored recording) adds the parked width's
+    /// digit count once per site on top of the linear slope and blows
+    /// it (the pinned band's measured basis lives in the pin commit).
     #[test]
     fn memo_fanout_wide_cost_is_site_count_independent() {
         let small = tick_run(
@@ -8035,14 +7875,10 @@ mod memo_resolution_cost {
     /// cost one fold each.
     ///
     /// The descending run undercuts every open range while `d`
-    /// sibling records ride the one live ledger head [measured:
-    /// ×2.00 across the doubling, 44,820 → 89,620 (50,420 → 100,820
-    /// before the pre-scan's minima-only recording; 84,817 → 169,617
-    /// at the earlier record, itself 84,819 → 169,619 before the
-    /// fused tick and 80,019 → 160,019 before the latent boundary
-    /// register landed)]. A discipline
-    /// keeping one live record per open level folds all `d` per
-    /// drop — the refuted live-anchored followers' tombstone.
+    /// sibling records ride the one live ledger head — the linear
+    /// ×2.0 signature. A discipline keeping one live record per open
+    /// level folds all `d` per drop — the refuted live-anchored
+    /// followers' tombstone.
     #[test]
     fn memo_churn_undercuts_fold_one_follower() {
         let small = tick_run(
@@ -8063,12 +7899,8 @@ mod memo_resolution_cost {
     /// the ledger relation's install and its next read, so a
     /// decide-then-emit ordering violation (a relation installed
     /// after the raise's arm) produces wrong values its oracle
-    /// differential catches; this pin carries the cost leg
-    /// [measured: ×2.00 across the doubling, 32,828 → 65,628
-    /// (38,428 → 76,828 before the pre-scan's minima-only recording;
-    /// 48,048 → 96,048 at the earlier record, itself 48,052 → 96,052
-    /// before the fused tick and 46,452 → 92,852 before the latent
-    /// boundary register landed)].
+    /// differential catches; this pin carries the cost leg, at the
+    /// linear ×2.0 signature.
     #[test]
     fn descending_raises_stay_linear_under_min_movement() {
         let small = tick_run(
@@ -8185,18 +8017,13 @@ mod width_circulation_cost {
     /// Semantics first: the tick is the closed form (every site
     /// collapses to the shared plateau leaf; the covering raise stays
     /// at the floor), so this pin carries the cost leg alone. The
-    /// signature [measured: 30,848 → 61,696 touches across
-    /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×2.00 on a ×2.00
-    /// input (37,848 → 75,696 before the pre-scan's minima-only
-    /// recording; 39,849 → 79,697 before the at-height arm moved the
-    /// dying gap out whole instead of folding a leased zero — two arms
-    /// per site, walk and pre-scan; 738,449 → 2,884,881 (×3.91) before
-    /// the latent boundary register landed)]: the consume-minted width-b
-    /// boundary difference parks in the latent register at the site's
-    /// close and the next consume's arm recycles it by a narrow
-    /// anchor-relative fold, so no hop re-reads the width. A reading
-    /// over the growth ceiling means a per-site width read is back —
-    /// re-pin only with a cure, never by deleting the family.
+    /// signature is the linear ×2.0 on a ×2.0 input: the
+    /// consume-minted width-b boundary difference parks in the latent
+    /// register at the site's close and the next consume's arm
+    /// recycles it by a narrow anchor-relative fold, so no hop
+    /// re-reads the width — a per-site width read reads ~×4 here. A
+    /// reading over the growth ceiling means a per-site width read is
+    /// back — re-pin only with a cure, never by deleting the family.
     #[test]
     fn reveal_comb_close_reveal_cycle_reads_width_quadratic() {
         let expected = |k: usize, b: usize| -> Version {
@@ -8281,19 +8108,13 @@ mod width_circulation_cost {
     ///
     /// Semantics first: fill is the identity here (no left-full site
     /// exists), so the tick is grow's closed form — the shallowest
-    /// owned leaf expands, ties right. The signature [measured:
-    /// per-byte 1.53 → 1.36 across b = 1,024 → 2,048 at k = 1,000
-    /// (the widening input divides a flat count; 2.26 → 1.97 before
-    /// the at-height arm moved the dying gap out whole instead of
-    /// folding a leased zero — one touch per arm; 5.18 → 4.46 before
-    /// the fused tick skipped the matched pass-through emissions'
-    /// output materializations; 50.8 → 82.0 (×1.61)
-    /// before the latent boundary register landed)]: each
-    /// wide leaf's frame closes its width-`b` boundary into the latent
-    /// register by move and the next arm recycles it at the zero
-    /// inter-site offset — no memo, no pre-scan, and no site consume
-    /// anywhere, so this family pins the base stack's own cycle in
-    /// isolation from the frame ledger.
+    /// owned leaf expands, ties right. The signature is a flat touch
+    /// count that the widening input divides, so per-byte cost falls
+    /// across the width doubling: each wide leaf's frame closes its
+    /// width-`b` boundary into the latent register by move and the
+    /// next arm recycles it at the zero inter-site offset — no memo,
+    /// no pre-scan, and no site consume anywhere, so this family pins
+    /// the base stack's own cycle in isolation from the frame ledger.
     #[test]
     fn pure_comb_width_cycle_reads_width_scaled() {
         let expected = |k: usize, b: usize| -> Version {
@@ -8353,15 +8174,9 @@ mod width_circulation_cost {
         );
     }
 
-    /// Absolute touch ceiling on the high-floor control's larger run,
-    /// measured 33,833 ×1.25, rounded up.
-    ///
-    /// Movement: 40,833 → 33,833 when the pre-scan's minima-only
-    /// recording landed (the per-site collapse re-read and raise-mirror
-    /// folds); 42,834 → 40,833 when the at-height arm moved the dying
-    /// gap out whole instead of folding a leased zero (one touch per
-    /// arm); 56,831 → 50,837 when the latent boundary register landed —
-    /// the deleted close and consume folds this family paid narrow.
+    /// Absolute touch ceiling on the high-floor control's larger run:
+    /// the measured record ×1.25, rounded up (the record and every
+    /// re-pin's movement live in the pin commits).
     const HIFLOOR_TOUCH_CEILING: u64 = 42_292;
 
     /// Improvement tripwire paired with [`HIFLOOR_TOUCH_CEILING`]: the
@@ -8377,11 +8192,7 @@ mod width_circulation_cost {
     /// consume-time gap 2.
     ///
     /// Per-byte touches stay flat (×1.25) across the width QUADRUPLING
-    /// the wide family scales with [measured: 12.6 → 11.2 per byte
-    /// across b = 512 → 2,048 at k = 1,000; 15.3 → 13.5 before the
-    /// pre-scan's minima-only recording; 16.1 → 14.2 before the
-    /// at-height arm's no-fold move; 21.4 → 18.9 before the
-    /// latent boundary register landed], under an absolute
+    /// the wide family scales with, under an absolute
     /// band on the larger run. The wide GAP is the cycle's cost driver
     /// — not the site forest, not the deferral, not the close-reveal
     /// schedule, all of which this family shares with the wide one.
@@ -8485,19 +8296,12 @@ mod width_circulation_cost {
     /// Semantics first: fill is the identity (no id region covers a
     /// subdividable subtree at its minimum), so the tick is grow's
     /// closed form — the owned cliff leaf expands to `(0, 1, 0)` — and
-    /// this pin carries the cost leg alone. The signature [measured:
-    /// 7,432 → 14,848 touches across (k, b) =
-    /// (1,000, 2,048) → (2,000, 4,096), ×2.00 on a ×2.00 input
-    /// (8,432 → 16,848 before the at-height arm moved the dying gap
-    /// out whole instead of folding a leased zero — one touch per arm;
-    /// 12,626 → 25,234 before the fused tick
-    /// skipped the matched pass-through emissions' output
-    /// materializations; 203,435 → 790,851 (×3.89) before
-    /// the cascade's fold direction
-    /// inverted)]: the cliff's single wide undercut
+    /// this pin carries the cost leg alone. The signature is the
+    /// linear ×2.0 on a ×2.0 input: the cliff's single wide undercut
     /// penetrates k − 1 nonzero unit boundary differences, each dying
     /// by one fold into the surviving residue at the difference's own
-    /// width, top-index domination deciding every hop in O(1). A
+    /// width, top-index domination deciding every hop in O(1) — a
+    /// per-hop residue-width read reads ~×4 here. A
     /// reading over the growth ceiling means a per-hop residue-width
     /// read is back — re-pin only with a cure, never by deleting the
     /// family.
@@ -8549,13 +8353,9 @@ mod width_circulation_cost {
         );
     }
 
-    /// Absolute touch ceiling on the leveled control's larger run,
-    /// measured 2,854 ×1.25, rounded up.
-    ///
-    /// Movement: 4,854 → 2,854 when the at-height arm moved the dying
-    /// gap out whole instead of folding a leased zero (one touch per
-    /// arm); 13,240 before the fused tick skipped the matched
-    /// pass-through emissions' output materializations.
+    /// Absolute touch ceiling on the leveled control's larger run: the
+    /// measured record ×1.25, rounded up (the record and every
+    /// re-pin's movement live in the pin commits).
     const PLATEAU_TOUCH_CEILING: u64 = 3_568;
 
     /// Touch liveness floor paired with [`PLATEAU_TOUCH_CEILING`],
@@ -8575,9 +8375,7 @@ mod width_circulation_cost {
     /// boundary differences zero.
     ///
     /// Per-byte touches stay flat (×1.25) across the joint (k, b)
-    /// doubling the ascending family scales with [measured: 0.87 →
-    /// 0.86 per byte across (1,000, 2,048) → (2,000, 4,096); 1.48 →
-    /// 1.47 before the at-height arm's no-fold move],
+    /// doubling the ascending family scales with,
     /// under an absolute band on the larger run. The
     /// nonzero differences are the cascade's cost driver — with the
     /// stack one compressed zero run, the same wide undercut passes it
@@ -8762,8 +8560,8 @@ mod dominated_undercut_cost {
     /// premise before trusting the trip.
     const DOMINATED_UNDERCUT_TOUCH_FLOOR: u64 = 51_200;
 
-    /// Absolute touch ceiling on the larger run, measured 726,020 ×1.25,
-    /// rounded up.
+    /// Absolute touch ceiling on the larger run: the measured record
+    /// ×1.25, rounded up (the record lives in the pin commit).
     const DOMINATED_UNDERCUT_TOUCH_CEILING: u64 = 907_525;
 
     /// The dominated-undercut arm fires once per site and stays flat per
@@ -8777,12 +8575,11 @@ mod dominated_undercut_cost {
     /// the copied region's minimum, and the terminal's right-full raise
     /// reads the minimum the arm's residue propagation preserved — the
     /// leaf that surfaces a mis-polarized residue), so the cost and
-    /// decision legs ride on pinned values. The signature [measured:
-    /// 1.49 → 1.37 touches per byte across (k, b) =
-    /// (512, 512) → (1,024, 1,024), one decision per site at both
-    /// scales]: each site's cost is its own two wide codes' folds plus
-    /// the residue's one annihilation fold, and the arm's decision,
-    /// take-out, and re-seat are O(1) beside them.
+    /// decision legs ride on pinned values. The signature: each site's
+    /// cost is its own two wide codes' folds plus the residue's one
+    /// annihilation fold — flat per byte, one decision per site at
+    /// both scales — and the arm's decision, take-out, and re-seat are
+    /// O(1) beside them.
     #[test]
     fn tick_dominated_undercut_arm_is_flat_per_unit() {
         let small = tick_run(512, 512);
@@ -9664,9 +9461,9 @@ mod span {
     /// touches are exactly the traffic the fusion halves, so a
     /// two-accumulator spelling (each emission keeping its own
     /// difference, operands still decoded once) reads the composed
-    /// folds back and fails the strict undercut — constructed and
-    /// verified red in review136; the limb leg alone read that fake
-    /// byte-identically to the true fusion.
+    /// folds back and fails the strict undercut — a constructed,
+    /// verified-red fake that the limb leg alone reads byte-identically
+    /// to the true fusion.
     #[cfg(feature = "limb-meter")]
     #[test]
     fn span_shares_the_crossing_folds() {
@@ -9705,8 +9502,8 @@ mod span {
         // is folded exactly once); the ladder's classifying comparison
         // adds its early-exiting prefix on top, measured separately and
         // subtracted. A two-accumulator spelling (each emission keeping
-        // its own difference, constructed and verified red in
-        // review136) folds every crossing twice and reads the composed
+        // its own difference, a constructed and verified-red fake)
+        // folds every crossing twice and reads the composed
         // emissions back exactly, so the strict undercut keeps it
         // failing.
         assert!(
