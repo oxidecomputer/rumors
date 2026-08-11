@@ -37,7 +37,7 @@ use crate::codec::{self, BitCursor, BitStack, BitsSlice, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::signed::{fold_signed_int, unzigzag, Sign, Signed};
-use super::super::walk::{fold_region, skip_leaves, Extremum, LeafWalk};
+use super::super::walk::{fold_region, net_leaves, skip_leaves, Extremum, LeafWalk};
 use super::super::watermark::MinWeb;
 use super::memo::Memo;
 use super::{DeltaReg, REL_FOLLOWER};
@@ -509,11 +509,11 @@ impl<'a, 'm> PreScan<'a, 'm> {
             }
             return;
         }
-        let skip = skip_leaves(&mut walk, &mut self.cursor, first, Some(first_leaf_depth))
+        let net = net_leaves(&mut walk, &mut self.cursor, first, Some(first_leaf_depth))
             .expect("the descended leaf is pending");
-        self.web.fold_height(skip.net.sign, &skip.net.magnitude);
-        if let Some(net) = &mut self.entry_net {
-            fold_signed_int(net, skip.net.sign, &skip.net.magnitude);
+        self.web.fold_height(net.sign, &net.magnitude);
+        if let Some(entry) = &mut self.entry_net {
+            fold_signed_int(entry, net.sign, &net.magnitude);
         }
     }
 

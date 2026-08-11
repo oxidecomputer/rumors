@@ -612,14 +612,15 @@ fn tick_copy_hole_envelope() {
 }
 
 /// Ticking the site-hole pair (deep descending collapse ranges under
-/// interior left-full sites inside one covering pre-scan) stays within
-/// its envelope.
+/// interior left-full sites inside one covering pre-scan) stays within an
+/// envelope the extremum-streaming block fold exceeds.
 ///
 /// Each unit's collapse range is crossed exactly twice — once by the
 /// pre-scan's collapse skip, once by the walk's consuming max scan at the
 /// site's own consume — and the pre-scan's crossing owes the web only the
-/// range's net height movement: the touch ceiling prices that crossing,
-/// and the scan column holds every folded bit still read.
+/// range's net height movement: the touch ceiling sits below what a block
+/// fold that also streams the range's unread minimum reads over the same
+/// ranges, and the scan column holds every folded bit still read.
 #[test]
 fn tick_site_hole_envelope() {
     let (ev, id) = Shape::SiteHole.packed_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
@@ -6182,7 +6183,7 @@ mod query_env {
     pub const TICK_COLLAPSE_HOLE: QueryEnvelope = query_envelope(2_748, 0, 0, 14_368, 8_125, 0, 4_875); // the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
     pub const TICK_COPY_HOLE: QueryEnvelope = query_envelope(1_733, 0, 18, 53_302, 15_615, 10, 9_369); // the pre-scan copies each untouched range as one net movement and one watermark emission; rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling, and the scan column holds every folded bit still read
     pub const TICK_RAISE_HOLE: QueryEnvelope = query_envelope(2_660, 0, 0, 13_543, 8_030, 0, 4_818); // the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const TICK_SITE_HOLE: QueryEnvelope = query_envelope(2_768, 0, 0, 27_962, 15_949, 0, 9_569); // the pre-scan's collapse skip and the walk's consuming max scan each cross every deep range once as one block fold; the scan column holds every folded bit still read
+    pub const TICK_SITE_HOLE: QueryEnvelope = query_envelope(2_768, 0, 0, 27_962, 10_779, 0, 6_467); // the pre-scan's collapse skip and the walk's consuming max scan each cross every deep range once as one block fold, and the collapse skip's fold accumulates the net movement alone; a block fold that also streams the range's unread minimum reads touches over the ceiling, and the scan column holds every folded bit still read
     pub const MASKED_CMP_HOLE: QueryEnvelope = query_envelope(480, 0, 0, 7_535, 18, 0, 10); // the block skip consumes the spine's unowned continuation whole: the touch reading is a function of the mask depth alone; a per-boundary walk reads ~one touch per spine boundary, orders over the ceiling — the depth band beside this row holds the reading flat across a spine-depth doubling
     pub const TICK_EXPAND_SPINE: QueryEnvelope = query_envelope(435_435, 0, 5, 2_187_519, 0, 3, 0); // an empty version's tick folds one word-scale payload: near-zero accumulator work; the emit codes the whole expansion chain as fresh one-bit deltas
     pub const TICK_EXPAND_CROSS: QueryEnvelope = query_envelope(611_210, 0, 5, 3_593_782, 156_260, 3, 93_756); // the mixed regimes: the fused walk down the shared spine plus the id-only expansion fold, spliced in one pass

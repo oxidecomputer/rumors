@@ -17,10 +17,11 @@
 //! ancestors the consumed leaf completed). The driver owns exactly that
 //! skeleton; everything a pass *does* at a leaf — decode the payload, skip it
 //! by width, fold an extremum, emit — stays at the call site, on the caller's
-//! own state. Two leaf actions are shared widely enough to live here too:
-//! [`Extremum`], the armed, reset-on-overtake streaming max/min the scanning
-//! walks fold, and [`skip_region`], the ownership-gated walks' block scan over
-//! a subtree none of whose leaves the consumer will touch individually.
+//! own state. The leaf actions the clients share live here too: [`Extremum`],
+//! the armed, reset-on-overtake streaming max/min the scanning walks fold,
+//! and the block scans — [`skip_region`] and its open-walk and net-only
+//! siblings — each folding a whole subtree none of whose leaves the consumer
+//! will touch individually.
 
 use core::cmp::Ordering;
 
@@ -285,6 +286,53 @@ pub(super) fn fold_region(
 pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip {
     let mut walk = LeafWalk::new();
     skip_leaves(&mut walk, cursor, first, None).expect("a subtree has at least one leaf")
+}
+
+/// Block-scan the remaining leaves of a subtree whose walk is already open,
+/// folding only the net height movement — or `None` when none remain
+/// (`pending` as in [`fold_region`]).
+///
+/// The narrow sibling of [`skip_leaves`], for a consumer that reads no range
+/// minimum: a collapsing range's leaves vanish into a raise decided elsewhere,
+/// so only where the height ends up survives the range, and a streaming
+/// extremum would be folded leaf by leaf just to be dropped. Every bit is
+/// still read and folded, as [`skip_region`].
+///
+/// # Panics
+///
+/// The stream must be canonical. The violations this walk structurally
+/// notices — truncation, malformation — panic; the rest walk silently
+/// with an unspecified result (the contract of
+/// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
+pub(super) fn net_leaves(
+    walk: &mut LeafWalk,
+    cursor: &mut DsiCursor<'_>,
+    first: bool,
+    pending: Option<usize>,
+) -> Option<Signed> {
+    let mut net = Accumulator::new();
+    let mut first = first;
+    let mut pending = pending;
+    let mut consumed = false;
+    loop {
+        if pending.take().is_none() && walk.descend(cursor).is_none() {
+            break;
+        }
+        let code = cursor.read_int().expect("canonical skyline bits");
+        let (sign, magnitude) = if first {
+            first = false;
+            (Sign::Positive, code)
+        } else {
+            unzigzag(code)
+        };
+        fold_signed_int(&mut net, sign, &magnitude);
+        consumed = true;
+    }
+    if !consumed {
+        return None;
+    }
+    let (sign, magnitude) = net.sign_magnitude();
+    Some(Signed::from_sign_magnitude(sign, magnitude))
 }
 
 /// Block-scan the remaining leaves of a subtree whose walk is already open —

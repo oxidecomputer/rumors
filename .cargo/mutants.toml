@@ -109,12 +109,15 @@ exclude_re = [
     "prescan\\.rs:325:26: replace > with >= in PreScan<'a, 'm>::record",
 
     # Performance genre: the collapse skip's routing boundary moves only
-    # work between extensionally equal paths (the block-fold argument),
-    # and no honest ceiling can price the reroute — the block side's
-    # skip_leaves folds a streaming minimum this function never reads, so
-    # per-leaf is never the costlier direction, on deep ranges included.
-    # That inversion is owner-review material (a leaner net-only block
-    # fold), not a test gap.
+    # work between extensionally equal paths, and both sides fold the
+    # identical net movement exactly once per leaf — per-leaf into the
+    # web's height side or the dying entry net (exactly one of the two is
+    # live at any step), the block side into one materialized net folded
+    # in once at the close — so the reroute is touch-neutral on deep and
+    # leaf-scale ranges alike and no honest band can separate it. The
+    # tick_site_hole envelope prices the block fold itself (net-only, no
+    # streamed extremum); this entry covers only which side of the depth
+    # boundary answers.
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::skip_collapse",
 
     # Performance genre: both sides of the max scan's routing boundary
