@@ -502,15 +502,18 @@ proptest! {
         }
     }
 
-    /// The restart shape, generalized over both observer faces: a process
-    /// follows the persist-after-delivery protocol — deliver a message,
-    /// persist the checkpoint as bytes, handle the message — and crashes
-    /// with the last delivered message still unhandled, dropping every
-    /// handle it held. A rebuilt replica of the same network resumes each
-    /// face from the deserialized checkpoint, and the resumed run must
-    /// deliver every live message the crashed process had not handled, the
-    /// in-flight one included: at-least-once, so replay is permitted and
-    /// loss never is. Both runs of the causal face are individually causal.
+    /// The restart shape, generalized over both observer faces: a resumed
+    /// observer re-delivers every live message a crashed process had not
+    /// handled — the in-flight last delivery included.
+    ///
+    /// The process follows the persist-after-delivery protocol — deliver a
+    /// message, persist the checkpoint as bytes, handle the message — and
+    /// crashes with the last delivered message still unhandled, dropping
+    /// every handle it held. A rebuilt replica of the same network resumes
+    /// each face from the deserialized checkpoint, and the resumed run
+    /// must deliver every unhandled live message: at-least-once, so replay
+    /// is permitted and loss never is. Both runs of the causal face are
+    /// individually causal.
     #[test]
     fn restart_replays_every_unhandled_message(
         local in vec(any::<u64>(), 1..8),

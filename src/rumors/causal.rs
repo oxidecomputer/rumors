@@ -38,9 +38,10 @@ pub struct CausalMessages<T> {
     /// The next pass walks leaves *not* contained here. Advances at ingest,
     /// so it runs ahead of delivery while the backlog drains.
     ingested: Version,
-    /// The public resume point: [`checkpoint`](Self::checkpoint). Trails
-    /// [`ingested`](Self::ingested), catching up on the call *after* the
-    /// staged backlog drains — never in the step that hands over the
+    /// The public resume point: [`checkpoint`](Self::checkpoint).
+    ///
+    /// Trails [`ingested`](Self::ingested), catching up on the call *after*
+    /// the staged backlog drains — never in the step that hands over the
     /// backlog's last message — so that resuming from it skips neither a
     /// staged, undelivered message nor the delivered message still in the
     /// caller's hands.
