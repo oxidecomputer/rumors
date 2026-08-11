@@ -87,6 +87,19 @@ exclude_re = [
     # allocation pool; skipping it costs allocations, never values.
     "watermark\\.rs.*: replace MinWeb<P>::retire with \\(\\)",
 
+    # --- before::version::skyline::grow ---
+
+    # Proven equivalent: at a width tie of at most one bit, both magnitudes
+    # are the unique value of that width, so the comparison the widened
+    # guard routes through returns false exactly as the width cutoff
+    # decides — a work guard with an empty discriminating class.
+    "grow\\.rs.*: replace > with >= in recode",
+
+    # Proven equivalent, line-pinned (the match arm's guard shares the
+    # operator pattern and is killed): at equal magnitude the cross and
+    # shrink paths both land on the positive zero zigzag.
+    "grow\\.rs:457:38: replace < with <= in recode",
+
     # --- before::version::skyline::fill / prescan ---
 
     # Performance genre, line-pinned (record's completeness guard above it
