@@ -494,7 +494,7 @@ impl FillWalk<'_> {
                         // min(er), priced by the scan that reads the range; the
                         // copy runs in its own frame, exactly as a child walk
                         // would.
-                        let raise = scan_min_from(self.event, self.pos(), self.first_read);
+                        let raise = scan_min_from(self.event, self.pos());
                         let value_offset = signed_max(&above, &raise);
                         self.emit_offset(depth + 1, value_offset);
                         self.web.open(1);
@@ -1293,11 +1293,10 @@ impl Frames {
 /// its leaf heights relative to the height at entry, as a signed offset.
 ///
 /// The absent-right-sibling raise's argument (`min(fill(0, er)) = min(er)`),
-/// priced by the scan that reads the range. `first` says whether the subtree's
-/// first payload is the stream's absolute first.
-fn scan_min_from(event: &BitsSlice, pos: usize, first: bool) -> Signed {
+/// priced by the scan that reads the range.
+fn scan_min_from(event: &BitsSlice, pos: usize) -> Signed {
     let mut cursor = codec::DsiCursor::new_at(event, pos);
-    let skip = skip_region(&mut cursor, first);
+    let skip = skip_region(&mut cursor);
     // `min = h_entry + net + (min − h_exit)`.
     skip.net.sum(&skip.min_from_exit)
 }

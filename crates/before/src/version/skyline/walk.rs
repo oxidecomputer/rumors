@@ -283,9 +283,12 @@ pub(super) fn fold_region(
 /// notices — truncation, malformation — panic; the rest walk silently
 /// with an unspecified result (the contract of
 /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
-pub(super) fn skip_region(cursor: &mut DsiCursor<'_>, first: bool) -> RegionSkip {
+pub(super) fn skip_region(cursor: &mut DsiCursor<'_>) -> RegionSkip {
     let mut walk = LeafWalk::new();
-    skip_leaves(&mut walk, cursor, first, None).expect("a subtree has at least one leaf")
+    // `first: false`: the raise scan this serves runs after the walk's first
+    // payload (`scan_max_consuming` precedes the absent-right arm), so the
+    // region's first code is never the stream's absolute first.
+    skip_leaves(&mut walk, cursor, false, None).expect("a subtree has at least one leaf")
 }
 
 /// Block-scan the remaining leaves of a subtree whose walk is already open,
