@@ -197,6 +197,9 @@ pub enum Shape {
     DenseSuffixMate,
     /// The wide-arming family `WA(w, d)`: [`Shape::packed2`]`(w, d)`.
     WideArming,
+    /// The hoisted-window family `HW(w, d, t)`:
+    /// [`Shape::packed3`]`(w, d, t)`.
+    HoistedWindow,
     /// The weight-comb family `WC(n)`: [`Shape::packed1`]`(n)`.
     WeightComb,
     /// The freeze-parade family `FZ(k)`: [`Shape::packed1`]`(k)`.
@@ -335,6 +338,7 @@ impl Shape {
             Shape::DenseSuffix => Builder::P2(super::dense_suffix),
             Shape::DenseSuffixMate => Builder::P2(super::dense_suffix_mate),
             Shape::WideArming => Builder::P2(super::wide_arming),
+            Shape::HoistedWindow => Builder::P3(super::hoisted_window),
             Shape::WeightComb => Builder::P1(super::weight_comb),
             Shape::FreezeParade => Builder::P1(super::freeze_parade),
             Shape::LoneFreeze => Builder::P2(super::lone_freeze),
@@ -939,6 +943,22 @@ pub enum FamilyId {
     /// work reads flat across a spine-depth doubling — the shape a
     /// per-boundary walk cannot survive.
     MaskedHole,
+    /// The hoisted-window family `HW(w, d, t)`: the wide-arming close with a
+    /// dense tail hoisting the settle clusters' absolute positions.
+    ///
+    /// The settle's densify seam routes each balanced-digit cluster through
+    /// two zero-filled byte images sized by the cluster's *span*; the worst
+    /// artifact green on every width and touch counter is an image sized by
+    /// the cluster's absolute digit *position* — zero fill that scales with
+    /// depth, invisible because a zeroed byte no digit lands on enters no
+    /// operand width and touches no accumulator digit. The tail knob moves
+    /// exactly that axis: it hoists the trailing window's cluster positions
+    /// by `~t/32` digits while every span, width, freeze, and window density
+    /// stays put, so span-priced densification reads flat across a tail
+    /// doubling and position-priced densification scales with the knob (the
+    /// `hoisted_window` band in `tests/meter.rs` prices the family). Designed
+    /// against the settle's densified-image allocation in `charge_digits`.
+    HoistedWindow,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -1034,7 +1054,7 @@ impl FamilyId {
     /// Every registered family, in the roster order of record: the
     /// board columns first, in render order, then the envelope-only
     /// probe families.
-    pub const ALL: [FamilyId; 49] = [
+    pub const ALL: [FamilyId; 50] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1084,6 +1104,7 @@ impl FamilyId {
         FamilyId::ArmingTrain,
         FamilyId::ScanHole,
         FamilyId::MaskedHole,
+        FamilyId::HoistedWindow,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1140,6 +1161,7 @@ impl FamilyId {
             FamilyId::ArmingTrain => 46,
             FamilyId::ScanHole => 47,
             FamilyId::MaskedHole => 48,
+            FamilyId::HoistedWindow => 49,
         }
     }
 
@@ -1796,6 +1818,27 @@ impl FamilyId {
                               is absolute: the block skip makes the reading a function \
                               of the mask depth alone)",
                 closed_form: None,
+            },
+            FamilyId::HoistedWindow => FamilySpec {
+                name: "hoisted-window",
+                shapes: &[Shape::HoistedWindow],
+                coverage: Coverage::EnvelopeOnly {
+                    reason: "kernel-seam engagement probe for the settle's densified-image \
+                             span: the tail knob moves only the settle clusters' absolute \
+                             digit positions, an axis no public-operation column \
+                             denominates; the wide × dense settle genre itself is \
+                             board-priced on the wide-arming column",
+                    decided: "2026-08-11",
+                },
+                bands: Bands::Priced(&["rank_hoisted_window_is_flat_per_unit"]),
+                denominator: "packed input bytes for the walk columns; the densify column \
+                              is judged absolute across the tail doubling (span-priced \
+                              work is position-free by construction)",
+                closed_form: Some(
+                    "min_ticks(HW(w, d, t)) = d + 2^(32w) + 2^288 + 3, independent of \
+                     the tail knob (the meter module's tests pin it beside the bit \
+                     length)",
+                ),
             },
         }
     }

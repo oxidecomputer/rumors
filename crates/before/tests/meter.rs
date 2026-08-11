@@ -4867,6 +4867,147 @@ mod ledger_wide_arming {
     }
 }
 
+// ─── the hoisted-window band ─────────────────────────────────────────────────
+//
+// The settle's densified-image span genre. The family is the wide-arming
+// close with its block terminal deepened into a dense tail: the tail
+// funds no window density, no settle width, and no freeze — its consumed
+// interval mass is one contiguous run whose balanced spelling compacts
+// to O(1) digits — but it hoists the absolute digit position of every
+// settle cluster (the trailing window's punctured run, the block's
+// banked mass) by ~t/32 base-2^32 digits while every cluster's span
+// stays put. So across a tail doubling, span-priced work (the walk, the
+// folds, the settle products, the images the settle densifies) grows
+// only with the tail's own linear scan freight, and work priced by a
+// cluster's absolute position — the genre invisible to the width and
+// touch counters, because a zeroed image byte no digit lands on enters
+// no operand width and touches no accumulator digit — scales with the
+// knob instead.
+#[cfg(feature = "limb-meter")]
+mod hoisted_window {
+    use before::meter;
+    use before::meter::registry::Shape;
+    use suanpan::touch_meter;
+
+    /// Arming width (base-2^32 digits) of every run: wide enough that the
+    /// trailing window's unit-gap digits sit far inside every settle
+    /// factor's cluster gap limit, so the punctured run densifies as one
+    /// cluster.
+    const HOISTED_WINDOW_WIDTH: usize = 12;
+
+    /// Gap count of every run: the trailing window's punctured digit span,
+    /// the family's fixed span axis.
+    const HOISTED_WINDOW_GAPS: usize = 40;
+
+    /// Tail depth of the band's small run (the large run doubles it): a
+    /// position hoist of ~8× the window span in digits, so span-priced and
+    /// position-priced densification separate by nearly an order of
+    /// magnitude before the doubling separates them again.
+    const HOISTED_WINDOW_SMALL_TAIL: usize = 10_240;
+
+    /// One public `Version::rank` run over `HW(w, d, t)` at the band's
+    /// fixed width and gap knobs: packed bytes and both counters over the
+    /// rank body alone.
+    ///
+    /// Carries `min_ticks`' closed form as the cross-fold semantic leg —
+    /// tail-independent by construction, so it also proves the tail adds
+    /// no stored-base mass — and the one-touch-per-operand-byte liveness
+    /// floor.
+    fn run(t: usize) -> (u64, u64, u64) {
+        use dashu_int::UBig;
+        let v = Shape::HoistedWindow
+            .packed3(HOISTED_WINDOW_WIDTH, HOISTED_WINDOW_GAPS, t)
+            .version();
+        let bytes = v.encode().len() as u64;
+        let expected = UBig::from(HOISTED_WINDOW_GAPS as u64)
+            + (UBig::ONE << (32 * HOISTED_WINDOW_WIDTH))
+            + (UBig::ONE << 288usize)
+            + 3u8;
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the closed form parses"),
+            "the family's stored-code sum disagrees with min_ticks: the \
+             generator does not build the tree this band reasons about"
+        );
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(rank);
+        let touches = touch_meter::touches();
+        let limb_ops = meter::limb_ops();
+        assert!(
+            touches >= bytes,
+            "rank at {bytes} operand bytes: {touches} digit touches under \
+             the one-per-byte floor: the fold's accumulator work is not \
+             metered",
+        );
+        (bytes, touches, limb_ops)
+    }
+
+    /// Absolute two-scale (touch, limb) ceilings for rank on the
+    /// hoisted-window family, measured ×1.25 (the record and every re-pin's
+    /// movement live in the pin commits).
+    ///
+    /// Flat per packed byte across the tail doubling: the tail's leaves are
+    /// unit-delta scan freight, so both walk columns grow linearly with the
+    /// input while the settle's cluster spans do not grow at all.
+    const HOISTED_WINDOW_CEILINGS: [(u64, u64); 2] = [(15_952, 720), (29_752, 1_120)];
+
+    /// rank is flat per byte on the hoisted-window family: per-byte touch
+    /// and limb work stay within ×1.25 across a tail doubling, under
+    /// absolute two-scale ceilings.
+    ///
+    /// The tail doubling moves only the settle clusters' absolute digit
+    /// positions; anything the walk columns price by such a position —
+    /// a scaled read walking a never-written prefix, a settle product
+    /// re-based on an absolute index — grows superlinearly here while the
+    /// input grows only by tail bits.
+    #[test]
+    fn rank_hoisted_window_is_flat_per_unit() {
+        let (small_bytes, small_touches, small_limbs) = run(HOISTED_WINDOW_SMALL_TAIL);
+        let (large_bytes, large_touches, large_limbs) = run(2 * HOISTED_WINDOW_SMALL_TAIL);
+        eprintln!(
+            "MEASURED rank_hoisted_window: small={small_touches}/{small_bytes}B \
+             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
+             (limb {large_limbs})"
+        );
+        for (name, small, large, ceilings) in [
+            (
+                "touches",
+                small_touches,
+                large_touches,
+                (HOISTED_WINDOW_CEILINGS[0].0, HOISTED_WINDOW_CEILINGS[1].0),
+            ),
+            (
+                "limb ops",
+                small_limbs,
+                large_limbs,
+                (HOISTED_WINDOW_CEILINGS[0].1, HOISTED_WINDOW_CEILINGS[1].1),
+            ),
+        ] {
+            assert!(
+                small <= ceilings.0 && large <= ceilings.1,
+                "rank ({name}) exceeds the pinned ceilings on the \
+                 hoisted-window family ({small}/{small_bytes}B -> \
+                 {large}/{large_bytes}B against {} / {})",
+                ceilings.0,
+                ceilings.1,
+            );
+            assert!(
+                u128::from(large) * u128::from(small_bytes) * 4
+                    <= u128::from(small) * u128::from(large_bytes) * 5,
+                "rank ({name}) grew more than x1.25 per byte across the \
+                 hoisted-window tail doubling ({small}/{small_bytes}B -> \
+                 {large}/{large_bytes}B): some walk cost is riding the \
+                 settle clusters' absolute positions",
+            );
+        }
+    }
+}
+
 // ─── the wide-arming parse band ──────────────────────────────────────────────
 //
 // The parse-side exact-`top` genre, held flat at the text seam. The

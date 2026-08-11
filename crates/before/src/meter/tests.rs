@@ -11,10 +11,10 @@ use super::{
     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
     cliff_comb, cliff_fan, collapse_hole, concurrent_pair, copy_hole, dense, dense_suffix,
     dense_suffix_mate, dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position,
-    harmonic, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze, mask_drift_quadruple,
-    mask_drift_triple, masked_hole, plateau_puncture, plateau_puncture_factors, promotion_rearm,
-    promotion_rearm_mate, raise_hole, scattered_id, site_hole, tooth_tail, weight_comb,
-    wide_arming, wide_tooth_comb, Packed,
+    harmonic, hoisted_window, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze,
+    mask_drift_quadruple, mask_drift_triple, masked_hole, plateau_puncture,
+    plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole, scattered_id,
+    site_hole, tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -979,6 +979,45 @@ fn wide_arming_decodes_canonically_at_predicted_length() {
         wide_arming(w, d).version(),
         spelled,
         "the bit-level construction is the one-block spelling at the wide climb"
+    );
+}
+
+/// `hoisted_window(w, d, t)` is canonical normal form at exactly `134d + 64w +
+/// 4t + 600` bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum `d + 2^(32w) + 2^288 + 2 +
+/// 1`, *independent of the tail knob* — the tail's stored bases sum to the 1
+/// its bottom leaf pair carries, exactly the wide-arming block terminal it
+/// deepens — which is the family's whole design: the tail moves the settle
+/// clusters' absolute positions and nothing else the fold's inputs denominate.
+#[test]
+fn hoisted_window_decodes_canonically_at_predicted_length() {
+    for (w, d, t) in [(10usize, 1usize, 384usize), (12, 5, 448), (12, 5, 896)] {
+        check_version(&hoisted_window(w, d, t), 134 * d + 64 * w + 4 * t + 600);
+        let expected =
+            UBig::from(d as u64) + (UBig::ONE << (32 * w)) + (UBig::ONE << 288usize) + 3u8;
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            hoisted_window(w, d, t).version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count, and the \
+             tail must not move it"
+        );
+    }
+    // The tail leaves the fold's answer untouched too: rank agrees with the
+    // wide-arming shape it deepens at every tail scale (the tail's leaves ride
+    // the plateau for a vanishing extra area contribution — compare the
+    // deepened family across its own tail doubling instead, where the deeper
+    // tail's extra area halves away and the rank difference is exactly the
+    // tail region's own sliver).
+    let hoisted = hoisted_window(10, 2, 384).version();
+    let deeper = hoisted_window(10, 2, 768).version();
+    assert!(
+        hoisted.rank().checked_sub(&deeper.rank()).is_some(),
+        "a deeper tail only shrinks the tail sliver's area"
     );
 }
 

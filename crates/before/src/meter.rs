@@ -1928,6 +1928,61 @@ fn wide_arming(w: usize, d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The hoisted-window family `HW(w, d, t)`: [`wide_arming`]'s gap spine and
+/// single re-arm block, with the block terminal deepened into the dense tail
+/// spine `S(t)`.
+///
+/// The tail knob is the family's whole point. Its leaves ride the block's
+/// plateau at unit deltas, its consumed interval mass is one contiguous run
+/// whose balanced spelling compacts to O(1) digits, and its stored bases sum
+/// to the 1 the terminal it replaces carried — so it funds no window density,
+/// no settle width, and no freeze. What it does move is depth: the overlay
+/// deepens by `t` levels, so the absolute digit position of every settle
+/// cluster — the trailing window's punctured `Θ(d)`-digit run, the block's
+/// own banked mass — rises by `~t/32` base-2^32 digits while every cluster's
+/// *span* stays put. Work priced by cluster spans (the walk, the folds, the
+/// settle products, the images the settle densifies) therefore reads flat
+/// across a tail doubling, and work priced by a cluster's absolute position
+/// scales with the tail — the axis the `hoisted_window` band in
+/// `tests/meter.rs` prices through the densify column. Exactly `134d + 64w +
+/// 4t + 600` bits; `min_ticks(HW(w, d, t)) = d + 2^(32w) + 2^288 + 2 + 1`,
+/// independent of `t`. Normal form: as [`wide_arming`]'s, the tail by
+/// [`dense`]'s own argument.
+///
+/// # Panics
+///
+/// Panics if `w < 10` (the parked component must clear the settling drift by
+/// more than the freeze allowance), `d == 0`, or `t < 32(w + 2)`: the tail
+/// must hoist the trailing window past every settle factor's cluster gap
+/// limit, or the tail mass's own compacted digits merge into the trailing
+/// cluster and the family stops separating span from position.
+fn hoisted_window(w: usize, d: usize, t: usize) -> Packed {
+    assert!(
+        w >= 10,
+        "the wide arming must out-span the settling drift plus the allowance"
+    );
+    assert!(d >= 1, "the hoisted-window family needs at least one gap");
+    assert!(
+        t >= 32 * (w + 2),
+        "the tail must hoist the window past the settle factors' gap limit"
+    );
+    let arm = pow2(32 * w);
+    let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
+    let one = Base::from(1u8);
+    let mut bits = BitsMut::with_capacity(134 * d + 64 * w + 4 * t + 600);
+    let trailing = gap_spine(&mut bits, d);
+    for base in [&arm, &one, &settle, &one] {
+        bits.push(true); // the one block: 0-leaf left, chain right
+        codec::encode_int(&mut bits, base);
+        ev_leaf(&mut bits, 0);
+    }
+    ev_spine(&mut bits, t); // the block terminal, deepened into the tail
+    for _ in 0..trailing {
+        ev_leaf(&mut bits, 0);
+    }
+    Packed::from_bits(bits)
+}
+
 /// Append the dense-suffix gap spine: `33d` zero-base levels turning right
 /// every 33rd and left elsewhere.
 ///
