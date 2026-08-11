@@ -500,16 +500,12 @@ proptest! {
 /// `checkpoint_lags_until_the_backlog_drains` pins, here at the
 /// backlog's last item instead of its middle.
 ///
-/// [`rumors::UnorderedMessages`] holds this boundary: its checkpoint
-/// absorbs a pass's ceiling only on the *next* call after the pass drains,
-/// so a checkpoint persisted while the caller still holds an unhandled
-/// message never covers that message. Witness of the current asymmetry:
-/// `CausalMessages` advances its checkpoint in the same step that hands
-/// over the final staged message, so a process that persists this
-/// checkpoint and crashes before durably handling the message resumes past
-/// it — the message vanishes.
+/// Both observers hold this boundary the same way: the checkpoint catches
+/// up only on the call *after* the backlog (or pass) drains, never in the
+/// step that hands over its last message, so a checkpoint persisted while
+/// the caller still holds an unhandled message never covers that message.
+/// This test pins the boundary on both faces.
 #[test]
-#[ignore = "witness: CausalMessages' final-pop checkpoint already covers the still-unhandled last message, so a crash-resume skips it"]
 fn final_pop_checkpoint_still_replays_the_last_message() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     known.send(7);

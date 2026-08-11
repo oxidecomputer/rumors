@@ -39,9 +39,11 @@ pub struct CausalMessages<T> {
     /// so it runs ahead of delivery while the backlog drains.
     ingested: Version,
     /// The public resume point: [`checkpoint`](Self::checkpoint). Trails
-    /// [`ingested`](Self::ingested), catching up exactly when the staged
-    /// backlog empties, so that resuming from it never skips a staged,
-    /// undelivered message.
+    /// [`ingested`](Self::ingested), catching up on the call *after* the
+    /// staged backlog drains — never in the step that hands over the
+    /// backlog's last message — so that resuming from it skips neither a
+    /// staged, undelivered message nor the delivered message still in the
+    /// caller's hands.
     checkpoint: Version,
     /// The undelivered backlog, in causal-rank order. Always the residue of
     /// a *single* ingest (a new pass opens only once this empties), whose
@@ -95,14 +97,13 @@ impl<T> CausalMessages<T> {
     /// Pop the causally least staged message, parking it in `current` so
     /// its borrows survive the return.
     ///
-    /// Lets the resume point catch up when this empties the backlog (the
-    /// popped message is in the caller's hands by the time the checkpoint
-    /// can be read).
+    /// Never moves the resume point, even when this empties the backlog:
+    /// the popped message is still unhandled in the caller's hands, so the
+    /// catch-up is deferred to the next call, exactly as
+    /// [`UnorderedMessages`](super::UnorderedMessages) defers a drained
+    /// pass's ceiling.
     fn pop(&mut self) -> Option<(Key, &Version, &Arc<T>)> {
         let ((_, key), leaf) = self.staged.pop_first()?;
-        if self.staged.is_empty() {
-            self.checkpoint = self.ingested.clone();
-        }
         let (key, leaf) = self.current.insert((key, leaf));
         Some((*key, leaf.version(), leaf.value()))
     }
@@ -130,11 +131,18 @@ impl<T> CausalMessages<T> {
                     }
                 }
                 Channel::Ready(rx) => {
+                    // The backlog is empty here (the loop head breaks
+                    // otherwise), so the previous pass is fully delivered
+                    // and its last message is back out of the caller's
+                    // hands: the deferred catch-up runs now, before the
+                    // next pass opens against the caught-up boundary.
+                    self.checkpoint = self.ingested.clone();
                     Self::ingest(&mut self.staged, &mut self.ingested, rx);
                     if self.staged.is_empty() {
-                        // Nothing new: the resume point is already current;
-                        // await the next change. `Err` means every sender
-                        // is gone and the ingest above saw the final state.
+                        // Nothing new: the resume point covers the pass's
+                        // content-free ceiling advance too; await the next
+                        // change. `Err` means every sender is gone and the
+                        // ingest above saw the final state.
                         self.checkpoint = self.ingested.clone();
                         if rx.changed().await.is_err() {
                             return None;
@@ -151,7 +159,10 @@ impl<T> CausalMessages<T> {
     /// another replica of the same network.
     ///
     /// Resuming from this [`Version`] will never skip messages, but it may
-    /// replay an arbitrary number of them.
+    /// replay an arbitrary number of them. It covers a yielded message
+    /// only from the *following* call onward, so a checkpoint persisted
+    /// after handling each message replays — never skips — the message in
+    /// flight at a crash.
     ///
     /// Folding the yielded versions yourself is not a substitute: the
     /// causal order is partial, not total, so "the last version I saw" is
@@ -207,10 +218,11 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         loop {
+            // As in `pop`, the resume point stays put even when this pop
+            // empties the backlog: the yielded message is unhandled until
+            // the stream is polled again, so the catch-up defers to the
+            // next poll's ingest.
             if let Some(((_, key), leaf)) = this.staged.pop_first() {
-                if this.staged.is_empty() {
-                    this.checkpoint = this.ingested.clone();
-                }
                 return Poll::Ready(Some((key, leaf.version().clone(), leaf.value().clone())));
             }
             match this.channel.as_mut().expect("channel state present") {
@@ -224,6 +236,11 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
                     }
                 },
                 Channel::Ready(rx) => {
+                    // The backlog is empty here (the pop above returns
+                    // otherwise): the previous pass is fully yielded, so
+                    // the deferred catch-up runs before the next pass
+                    // opens against the caught-up boundary.
+                    this.checkpoint = this.ingested.clone();
                     Self::ingest(&mut this.staged, &mut this.ingested, rx);
                     if this.staged.is_empty() {
                         // Nothing new: catch the resume point up and enter
