@@ -883,14 +883,29 @@ impl<T, B: Persist> Peer<T, B> {
             // merge, run directly inside the critical section, as in `send`
             // and `redact`.
             //
-            // We've modified the watch if the peer retired or the tree
-            // changed, straight from `join`'s changed flag: no root hash is
-            // read inside this critical section (`Tree::join` states the
-            // flag's contract). The join runs unconditionally — it must
-            // commit the merge even when the retirement alone decides the
-            // notification.
+            // We've modified the watch if the peer retired, the tree's
+            // content changed (straight from `join`'s changed flag: no root
+            // hash is read inside this critical section — `Tree::join`
+            // states the flag's contract), or the causal ceiling advanced.
+            // The ceiling term is ours to add, not the flag's: the flag
+            // answers for the set's content, while the observer contract
+            // (`Rumors::changes`: one tick per observed frontier advance)
+            // counts ceiling-only advances too — a redaction's only wire
+            // representation is such an advance. Computed by containment
+            // before the join consumes the merged tree: the ceiling moves
+            // exactly when the reconciled frontier is not already contained
+            // in ours (both frontiers are plain field reads, cheap under the
+            // lock). Waking on a ceiling advance cannot loop: the driver's
+            // suppression token is the converged frontier itself, so the
+            // echo tick this notification queues on the session's own
+            // connection is swallowed, and a fresh connection initiates once
+            // and then quiesces (`tests/gossip_when.rs` pins the chain).
+            //
+            // The join runs unconditionally — it must commit the merge even
+            // when the retirement alone decides the notification.
+            let ceiling_advancing = !(merged.latest() <= inner.tree.latest());
             let tree_changed = inner.tree.join(merged);
-            peer_retiring || tree_changed
+            peer_retiring || tree_changed || ceiling_advancing
         });
         if party_overlap {
             return (Intent::Remain, Err(Error::PartyOverlap));

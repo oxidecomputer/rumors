@@ -94,14 +94,13 @@ async fn gossip_join_ticks_the_observer() {
 /// a frontier advance, so this tick is what lets a change-driven consumer
 /// react to redactions it never held.
 ///
-/// Witness of the current contradiction: `Tree::join`'s changed flag
-/// deliberately excludes ceiling-only advances, and the gossip write-back
-/// notifies the watch iff the peer retired or that flag is set, so the
-/// observer parked in its quiet-period wait never wakes. This closed world
-/// is single-threaded and the watch notification is synchronous, so
-/// `now_or_never() == None` below is a lost wakeup, not a still-pending one.
+/// `Tree::join`'s changed flag deliberately excludes ceiling-only advances
+/// (it answers for the set's content), so the gossip write-back supplies
+/// the ceiling term itself when deciding whether to notify the watch; this
+/// test pins that term. The closed world is single-threaded and the watch
+/// notification is synchronous, so `now_or_never() == None` below would be
+/// a lost wakeup, not a still-pending one.
 #[pollster::test]
-#[ignore = "witness: a ceiling-only gossip advance never notifies Changes, contradicting the documented per-frontier-advance tick"]
 async fn gossip_frontier_only_advance_ticks_the_observer() {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork_async(&a).await;

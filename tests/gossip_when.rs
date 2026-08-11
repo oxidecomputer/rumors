@@ -219,8 +219,10 @@ async fn heartbeat_ticks_are_free_until_divergence() {
         "a heartbeat tick initiated a session on a converged connection"
     );
 
-    // Diverged (the lost-wakeup scenario): the next heartbeat tick fires a
-    // real session.
+    // Diverged, with a tick stream that carries no change information (an
+    // interval stream never does): the next heartbeat tick fires a real
+    // session. This recovery is what makes an interval policy a liveness
+    // net for whatever a chosen `when` stream stays quiet about.
     a.send(7);
     a_tx.unbounded_send(()).expect("driver alive");
     let (a_session, _) = one_round(&mut a_sessions, &mut b_sessions).await;
@@ -294,14 +296,14 @@ async fn changes_propagate_transitively_through_a_chain() {
 /// message on contact — so a chain that relays content but not frontiers
 /// propagates sends while stalling redactions.
 ///
-/// Witness of the current stall: A sends and redacts between driver polls,
-/// so the A–B session hands B a ceiling-only advance (B never held the
-/// message, and both trees are empty). The gossip write-back notifies B's
-/// watch only when content moved or the peer retired, so B's `changes()`
-/// never ticks, B's C-side driver never initiates, and C's frontier never
-/// absorbs the redaction — the final join below times out.
+/// A sends and redacts between driver polls, so the A–B session hands B a
+/// ceiling-only advance (B never held the message, and both trees are
+/// empty). The gossip write-back's notification counts that frontier
+/// advance, so B's `changes()` ticks and B's C-side driver relays it —
+/// while frontier-based suppression keeps the same wake from echoing a
+/// session back on the A-side connection, so the relay initiates once and
+/// the chain quiesces.
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "witness: a ceiling-only advance does not tick B's changes(), stalling transitive propagation of a redaction frontier"]
 async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork_async(&a).await;
