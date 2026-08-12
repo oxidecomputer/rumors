@@ -1,0 +1,621 @@
+#!/usr/bin/env python3
+"""Resolve every roster citation against the test runner's own inventory.
+
+Usage:
+    citecheck --tests FILE --root DIR
+    citecheck --self-test
+
+The `before` coverage roster (src/surface.rs) and the bespoke half of the
+pointwise-differential tiling (src/testing/diff_ops.rs) cite their binding
+checks as bare strings: `Leg::Bound`/`Law`/`Trans` names, exclusion `pins`
+arrays, `GridCap` guards, `RepresentationMechanics` licenses, and the
+`DIFF_BESPOKE` entries. The crate's own suite holds those names to the live
+law and descriptor tables and to a `#[test]`-attribute source scan — but no
+source scan can attest *collection*: a `#[test]` in a module the tree never
+wires, or behind a cfg the gate never lights, scans fine and never runs.
+This checker closes that seam from outside the crate: a citation resolves
+only if its exact name is the final `::` segment of a test the runner
+collects (`cargo nextest list --message-format json`, captured whole to the
+file this tool is handed and judged from the artifact), or a law or
+descriptor name read from the registration blocks whose macros register
+every `fn` they contain under its own name. Substring or path-suffix
+matching is refused by construction: resolution is set membership over
+exact names, so a stale citation cannot find a partner in a longer one.
+
+`bound_at` payloads are deliberately not extracted: they name roster rows
+and suites, not tests, and the in-crate suite holds them to the row list.
+The in-crate suite also remains the authority on binding *kinds* (which
+names are tests vs laws vs descriptors, duplicate-name rostering); this
+tool's single authority is that every cited name is alive in the inventory
+the gate actually runs.
+
+The check is tamper-evident against its own rot:
+
+  - extraction floors: every citation source (legs, pins, guards,
+    licenses, bespoke entries) and every haystack source (collected
+    tests, laws, descriptors) must be nonzero, so an extractor whose
+    pattern rots reads as failure, never as an empty green;
+  - spelling totality: every `pins:`/`guard:`/`license:` occurrence in the
+    roster must be classified (data, named constant, or field
+    declaration) — an unrecognized spelling is a failure, not a skip;
+  - a shadow guard: a law or descriptor name that is also a collected
+    test's final segment is refused (either this tool's block scan went
+    wide, or a genuine ambiguity landed; both are findings);
+  - a fabricated-citation tripwire on every live run: a name asserted
+    absent from the haystack is pushed through the same resolution path
+    and must come back dead, so a resolver gone permissive fails loudly;
+  - `--self-test`: synthetic fixtures pinning every red path above.
+
+Rejected alternative, for the record: an in-crate `#[cfg(test)]` pin
+iterating the live `SURFACE` arrays against an inventory of collected test
+names. The tables are data and the crate already resolves them against its
+registries, but only the runner knows what it collects, and shelling out to
+`cargo nextest list` from inside a test binary that same runner is
+executing is not house style and inverts the layering; the crate cannot
+attest its own collection from within. The `tools/` linter route keeps the
+runner's inventory an input artifact, at the cost of reading the law and
+descriptor tables lexically — a cost the floors, the spelling totality,
+and the shadow guard price in.
+"""
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+# The fixed shape of the crate under check, relative to --root.
+SURFACE = "src/surface.rs"
+DIFF_OPS = "src/testing/diff_ops.rs"
+LAWS = "src/laws.rs"
+
+# Asserted absent from the haystack, then required to fail resolution, on
+# every live run: proof the resolver can reject at all.
+FABRICATED = "citecheck_fabricated_citation_tripwire"
+
+
+def strip_line_comments(text):
+    """Remove `//`-to-end-of-line runs that start outside string literals.
+
+    Doc comments quote citation-adjacent vocabulary (`pins`, leg names), so
+    extraction scans the code alone. String literals never contain `//`
+    here; the scan still respects quotes so a quoted name is never cut.
+    """
+    out = []
+    for line in text.splitlines():
+        in_string = False
+        i = 0
+        while i < len(line):
+            c = line[i]
+            if c == '"' and (i == 0 or line[i - 1] != "\\"):
+                in_string = not in_string
+            elif not in_string and c == "/" and line[i : i + 2] == "//":
+                line = line[:i]
+                break
+            i += 1
+        out.append(line)
+    return "\n".join(out)
+
+
+def extract_legs(surface_code):
+    """Every `Leg::Bound`/`Law`/`Trans` citation string, in table order."""
+    return re.findall(
+        r'Leg::(?:Bound|Law|Trans)\s*\(\s*"([^"]+)"', surface_code
+    )
+
+
+def extract_payloads(surface_code):
+    """The exclusion payload citations: pins, guards, and licenses.
+
+    Returns `(pins, guards, licenses, problems)`. Every occurrence of each
+    payload field must be classified — an inline `&[...]` array, a named
+    `const` this file declares, a quoted string, or the enum's own field
+    declaration (`&'static ...`) — so a spelling this extractor does not
+    understand is a problem, never a silent skip.
+    """
+    problems = []
+    pins = []
+    for m in re.finditer(r"pins:\s*", surface_code):
+        rest = surface_code[m.end() :]
+        if rest.startswith("&'static"):
+            continue  # the field declaration inside `enum Exclusion`
+        inline = re.match(r"&\[([^\]]*)\]", rest, re.S)
+        if inline:
+            pins.extend(re.findall(r'"([^"]+)"', inline.group(1)))
+            continue
+        named = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*[,}]", rest)
+        if named:
+            const = re.search(
+                r"const\s+"
+                + re.escape(named.group(1))
+                + r"\s*:\s*&\[&str\]\s*=\s*&\[([^\]]*)\]",
+                surface_code,
+                re.S,
+            )
+            if const is None:
+                problems.append(
+                    f"pins constant {named.group(1)} has no "
+                    "`const NAME: &[&str] = &[...]` declaration in the file"
+                )
+                continue
+            pins.extend(re.findall(r'"([^"]+)"', const.group(1)))
+            continue
+        problems.append(
+            "unrecognized `pins:` spelling (extend the extractor "
+            "deliberately): " + rest[:40].strip().splitlines()[0]
+        )
+    guards, licenses = [], []
+    for field, sink in (("guard", guards), ("license", licenses)):
+        for m in re.finditer(field + r":\s*", surface_code):
+            rest = surface_code[m.end() :]
+            if rest.startswith("&'static"):
+                continue  # the field declaration inside `enum Exclusion`
+            quoted = re.match(r'"([^"]+)"', rest)
+            if quoted:
+                sink.append(quoted.group(1))
+                continue
+            problems.append(
+                f"unrecognized `{field}:` spelling (extend the extractor "
+                "deliberately): " + rest[:40].strip().splitlines()[0]
+            )
+    return pins, guards, licenses, problems
+
+
+def extract_bespoke(diff_ops_code):
+    """The DIFF_BESPOKE citations. Returns `(names, problems)`."""
+    m = re.search(r"DIFF_BESPOKE\s*:[^=]*=\s*&\[", diff_ops_code)
+    if m is None:
+        return [], ["diff_ops.rs no longer declares DIFF_BESPOKE"]
+    end = diff_ops_code.find("];", m.end())
+    if end < 0:
+        return [], ["DIFF_BESPOKE array never closes"]
+    block = diff_ops_code[m.end() : end]
+    return (
+        re.findall(r'\(\s*"([^"]+)"\s*,\s*BespokeGenre::', block, re.S),
+        [],
+    )
+
+
+def macro_block_fn_names(text, macro_name):
+    """Names of `fn` items inside top-level `macro_name! { ... }` blocks.
+
+    The `laws!` and `diff_ops!` macros register every `fn` a block contains
+    under its own stringified name, and each file's in-crate totality pin
+    holds every declared group registered — so the blocks' `fn` heads are
+    the registered names. The brace walk skips string and char literals
+    (distinguishing char literals from lifetimes by their closing quote)
+    and both comment forms; a walk gone wrong fails loudly downstream —
+    under-extraction leaves real citations unresolved, over-extraction
+    trips the shadow guard.
+    """
+    names = []
+    for m in re.finditer(r"^" + re.escape(macro_name) + r"!\s*\{", text, re.M):
+        i = text.index("{", m.start())
+        depth, start = 0, i
+        while i < len(text):
+            c = text[i]
+            if c == '"':
+                i += 1
+                while i < len(text) and text[i] != '"':
+                    i += 2 if text[i] == "\\" else 1
+            elif c == "'" and re.match(r"'(\\.|[^\\'])'", text[i : i + 4]):
+                i = text.index("'", i + 1)
+            elif c == "/" and text[i : i + 2] == "//":
+                i = text.find("\n", i)
+                if i < 0:
+                    break
+            elif c == "/" and text[i : i + 2] == "/*":
+                i = text.index("*/", i) + 1
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        names.extend(
+            re.findall(r"^\s*fn\s+([a-z_][a-z0-9_]*)", text[start:i], re.M)
+        )
+    return names
+
+
+def collected_final_segments(listing):
+    """The final `::` segment of every non-ignored collected test.
+
+    Returns `(segments, problems)`; an `#[ignore]`d test is not collected
+    for the gate's run, so a citation must not resolve against it.
+    """
+    problems = []
+    segments = set()
+    for suite in listing.get("rust-suites", {}).values():
+        for name, case in suite.get("testcases", {}).items():
+            if case.get("ignored"):
+                continue
+            segments.add(name.rsplit("::", 1)[-1])
+    if not segments:
+        problems.append(
+            "liveness: the listing carries no collected (non-ignored) "
+            "tests; the nextest run produced nothing to resolve against"
+        )
+    return segments, problems
+
+
+def resolve(citations, haystack):
+    """The one resolution rule: exact set membership, nothing looser.
+
+    Returns the dead `(source, name)` pairs; the live-run tripwire pushes
+    its fabricated name through this same function.
+    """
+    return [
+        (label, name) for label, name in citations if name not in haystack
+    ]
+
+
+def run(surface_text, diff_ops_text, laws_text, listing):
+    """One judgment over the raw inputs.
+
+    Returns `(problems, cited)`: the problem list and the count of
+    distinct cited names, for the green summary line.
+    """
+    surface_code = strip_line_comments(surface_text)
+    diff_ops_code = strip_line_comments(diff_ops_text)
+
+    legs = extract_legs(surface_code)
+    pins, guards, licenses, problems = extract_payloads(surface_code)
+    bespoke, bespoke_problems = extract_bespoke(diff_ops_code)
+    problems += bespoke_problems
+
+    sources = [
+        ("surface.rs legs", legs),
+        ("surface.rs pins", pins),
+        ("surface.rs guards", guards),
+        ("surface.rs licenses", licenses),
+        ("diff_ops.rs bespoke entries", bespoke),
+    ]
+    for label, found in sources:
+        if not found:
+            problems.append(
+                f"liveness: extracted no citations from {label}; "
+                "the extractor has rotted or the source moved"
+            )
+
+    tests, listing_problems = collected_final_segments(listing)
+    problems += listing_problems
+    laws = set(macro_block_fn_names(laws_text, "laws"))
+    descriptors = set(macro_block_fn_names(diff_ops_code, "diff_ops"))
+    for label, found in (("laws", laws), ("descriptors", descriptors)):
+        if not found:
+            problems.append(
+                f"liveness: the {label} registration scan found nothing; "
+                "the block scan has rotted or the tables moved"
+            )
+    for name in sorted((laws | descriptors) & tests):
+        problems.append(
+            f"shadow: {name} is a law or descriptor AND a collected test's "
+            "final segment; either the registration scan went wide or the "
+            "name is genuinely ambiguous — both need a human"
+        )
+
+    haystack = tests | laws | descriptors
+    citations = [(label, name) for label, found in sources for name in found]
+    for label, name in resolve(citations, haystack):
+        problems.append(
+            f"dead citation ({label}): {name!r} resolves to no "
+            "collected test, registered law, or registered descriptor"
+        )
+
+    # The resolver's own liveness: a name asserted absent from the haystack
+    # must come back dead through the same path the citations take.
+    if FABRICATED in haystack:
+        problems.append(
+            f"tripwire: {FABRICATED} exists in the haystack; the "
+            "fabricated-citation tripwire is void — rename the collision"
+        )
+    elif not resolve([("tripwire", FABRICATED)], haystack):
+        problems.append(
+            "tripwire: the fabricated citation resolved; the resolver "
+            "has gone permissive"
+        )
+
+    return problems, len({name for _, name in citations})
+
+
+def self_test():
+    """Pin the red paths: each tamper direction must fail, exact-name
+    matching must refuse loose partners, and the honest fixture must pass.
+    """
+    surface = """
+pub enum Exclusion {
+    A { pins: &'static [&'static str] },
+    B { guard: &'static str },
+    C { license: &'static str },
+}
+const ALPHA_PINS: &[&str] = &["alpha_law"];
+pub const METHOD_SURFACE: &[SurfaceRow] = &[
+    SurfaceRow {
+        op: "Party::join",
+        prod_tree: Leg::Bound("alpha_diff"),
+        prod_fs: Leg::Law("alpha_law"),
+        tree_fs: Leg::Trans("alpha_descriptor"),
+    },
+    SurfaceRow {
+        op: "Party::fork",
+        prod_tree: Leg::Excluded(Exclusion::A { pins: ALPHA_PINS }),
+        prod_fs: Leg::Excluded(Exclusion::A { pins: &["alpha_pin_test"] }),
+        tree_fs: Leg::Excluded(Exclusion::B { guard: "alpha_guard" }),
+    },
+    SurfaceRow {
+        op: "Party::seed",
+        prod_tree: Leg::Excluded(Exclusion::C { license: "alpha_law" }),
+        prod_fs: Leg::Bound("alpha_diff"),
+        tree_fs: Leg::Bound("alpha_diff"),
+    },
+];
+"""
+    diff_ops = """
+diff_ops! {
+    pub(crate) static VERSION_PAIR: (a: version, b: version);
+    /// A descriptor; its body braces and "quoted {" text must not derail
+    /// the block walk.
+    fn alpha_descriptor {
+        prod: { a.join(b) },
+        tree: a.join(b),
+    }
+}
+pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
+    ("alpha_bespoke", BespokeGenre::TraceLockstep),
+    (
+        "alpha_diff",
+        BespokeGenre::FallibleHandBack,
+    ),
+];
+"""
+    laws = """
+laws! {
+    pub static VERSION_SOLO: (a: &Version);
+    /// A law with a nested brace-bearing body.
+    fn alpha_law {
+        let x = format!("{a:?}");
+        !x.is_empty()
+    }
+}
+fn helper_outside_blocks(a: &Version) -> bool {
+    true
+}
+"""
+
+    def listing(*names, ignored=()):
+        cases = {n: {"ignored": False} for n in names}
+        cases.update({n: {"ignored": True} for n in ignored})
+        return {"rust-suites": {"before": {"testcases": cases}}}
+
+    green = listing(
+        "party::tests::alpha_diff",
+        "clock::tests::alpha_bespoke",
+        "grid::tests::alpha_guard",
+        "wire::tests::alpha_pin_test",
+    )
+
+    cases = [
+        # The honest fixture: every citation resolves.
+        ("green", surface, diff_ops, laws, green, []),
+        # A fabricated citation must fail by name.
+        (
+            "fabricated citation",
+            surface.replace(
+                'Leg::Bound("alpha_diff")', 'Leg::Bound("no_such_test")', 1
+            ),
+            diff_ops,
+            laws,
+            green,
+            ["dead citation (surface.rs legs): 'no_such_test'"],
+        ),
+        # A citation whose test the runner no longer collects must fail.
+        (
+            "stale citation",
+            surface,
+            diff_ops,
+            laws,
+            listing(
+                "clock::tests::alpha_bespoke",
+                "grid::tests::alpha_guard",
+                "wire::tests::alpha_pin_test",
+            ),
+            [
+                "dead citation (surface.rs legs): 'alpha_diff'",
+                "dead citation (surface.rs legs): 'alpha_diff'",
+                "dead citation (surface.rs legs): 'alpha_diff'",
+                "dead citation (diff_ops.rs bespoke entries): 'alpha_diff'",
+            ],
+        ),
+        # An #[ignore]d test is not collected for the gate and must not
+        # satisfy a citation.
+        (
+            "ignored test",
+            surface,
+            diff_ops,
+            laws,
+            listing(
+                "clock::tests::alpha_bespoke",
+                "grid::tests::alpha_guard",
+                "wire::tests::alpha_pin_test",
+                ignored=("party::tests::alpha_diff",),
+            ),
+            [
+                "dead citation (surface.rs legs): 'alpha_diff'",
+                "dead citation (surface.rs legs): 'alpha_diff'",
+                "dead citation (surface.rs legs): 'alpha_diff'",
+                "dead citation (diff_ops.rs bespoke entries): 'alpha_diff'",
+            ],
+        ),
+        # Exact final-segment discipline: a substring of a collected name
+        # is no partner...
+        (
+            "substring is no match",
+            surface.replace(
+                'Leg::Bound("alpha_diff")', 'Leg::Bound("alpha")', 1
+            ),
+            diff_ops,
+            laws,
+            green,
+            ["dead citation (surface.rs legs): 'alpha'"],
+        ),
+        # ...and neither is a module-qualified suffix of one.
+        (
+            "path suffix is no match",
+            surface.replace(
+                'Leg::Bound("alpha_diff")',
+                'Leg::Bound("tests::alpha_diff")',
+                1,
+            ),
+            diff_ops,
+            laws,
+            green,
+            ["dead citation (surface.rs legs): 'tests::alpha_diff'"],
+        ),
+        # A leg extractor that finds nothing must read as failure.
+        (
+            "dead leg extractor",
+            surface.replace("Leg::", "Peg::"),
+            diff_ops,
+            laws,
+            green,
+            ["liveness: extracted no citations from surface.rs legs"],
+        ),
+        # So must a payload extractor gone empty (pins here)...
+        (
+            "dead pins extractor",
+            surface.replace("pins:", "fins:"),
+            diff_ops,
+            laws,
+            green,
+            ["liveness: extracted no citations from surface.rs pins"],
+        ),
+        # ...and a vanished bespoke table.
+        (
+            "dead bespoke table",
+            surface,
+            diff_ops.replace("DIFF_BESPOKE", "GONE"),
+            laws,
+            green,
+            [
+                "diff_ops.rs no longer declares DIFF_BESPOKE",
+                "liveness: extracted no citations from diff_ops.rs bespoke",
+            ],
+        ),
+        # A pins spelling the extractor cannot classify is a failure, not
+        # a skip.
+        (
+            "unknown pins spelling",
+            surface.replace("pins: ALPHA_PINS", "pins: alpha_pins()"),
+            diff_ops,
+            laws,
+            green,
+            ["unrecognized `pins:` spelling"],
+        ),
+        # An empty listing must trip the collected-tests floor (the dead
+        # test citations follow it).
+        (
+            "vacuous listing",
+            surface,
+            diff_ops,
+            laws,
+            {"rust-suites": {}},
+            # The floor, then every test-kind citation dead: the three
+            # `alpha_diff` legs, the pin, the guard, and both bespokes.
+            ["liveness: the listing carries no collected"]
+            + ["dead citation"] * 7,
+        ),
+        # A law name doubling as a collected final segment trips the
+        # shadow guard.
+        (
+            "shadowed law",
+            surface,
+            diff_ops,
+            laws,
+            listing(
+                "party::tests::alpha_diff",
+                "clock::tests::alpha_bespoke",
+                "grid::tests::alpha_guard",
+                "wire::tests::alpha_pin_test",
+                "laws::tests::alpha_law",
+            ),
+            ["shadow: alpha_law"],
+        ),
+        # A dead laws scan must trip its haystack floor (the law-resolved
+        # citations then read dead too).
+        (
+            "dead laws scan",
+            surface,
+            diff_ops,
+            laws.replace("laws! {", "lawz! {"),
+            green,
+            [
+                "liveness: the laws registration scan found nothing",
+                "dead citation (surface.rs legs): 'alpha_law'",
+                "dead citation (surface.rs pins): 'alpha_law'",
+                "dead citation (surface.rs licenses): 'alpha_law'",
+            ],
+        ),
+    ]
+    for name, s, d, l, tests, needles in cases:
+        problems, _ = run(s, d, l, tests)
+        if len(problems) != len(needles) or not all(
+            needle in problem
+            for needle, problem in zip(needles, problems)
+        ):
+            raise AssertionError(
+                f"self-test {name!r}: expected {needles}, got {problems}"
+            )
+    # The helper outside every laws! block must never enter the haystack.
+    assert "helper_outside_blocks" not in macro_block_fn_names(laws, "laws")
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(prog="citecheck", description=__doc__)
+    parser.add_argument(
+        "--tests", help="nextest list --message-format json artifact to judge"
+    )
+    parser.add_argument(
+        "--root", help="crate root the roster sources live under"
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="pin the checker's own red paths",
+    )
+    args = parser.parse_args(argv[1:])
+
+    if args.self_test:
+        self_test()
+        print("citecheck: self-test ok")
+        return 0
+    if not (args.tests and args.root):
+        parser.error("--tests and --root are both required")
+
+    root = Path(args.root)
+    problems, cited = run(
+        (root / SURFACE).read_text(encoding="utf-8"),
+        (root / DIFF_OPS).read_text(encoding="utf-8"),
+        (root / LAWS).read_text(encoding="utf-8"),
+        json.loads(Path(args.tests).read_text(encoding="utf-8")),
+    )
+    if problems:
+        for problem in problems:
+            print(problem)
+        print(
+            f"\ncitecheck: {len(problems)} problem(s); a citation must name "
+            "a collected test, a registered law, or a registered descriptor "
+            "exactly — re-cite deliberately, never wave through.",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"citecheck: all {cited} cited names resolve against the "
+        "runner-collected inventory"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

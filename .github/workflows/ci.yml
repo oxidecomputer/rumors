@@ -2,8 +2,8 @@
 #
 # `ci` is the build-everything tier: fmt-check → doclint → testdoc → readme-check
 # → clippy → clippy-default → the workspace feature matrix → wasm-check → docs →
-# docs-internal → test-all → doctest → bench-build → fuzz-build → the viz
-# bundle. It builds the fuzz targets but does not run the smoke (`just all`
+# docs-internal → test-all → citecheck → doctest → bench-build → fuzz-build →
+# the viz bundle. It builds the fuzz targets but does not run the smoke (`just all`
 # adds that locally — libFuzzer minutes are a poor per-commit spend). The
 # `instruments` job beside it re-runs the gate's deterministic, counter-based
 # instrument legs — the board verdicts and pins, surface totality, and the
@@ -21,8 +21,8 @@
 #   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check), and
 #     `wasm-pack` (viz),
 #   - node + npm for the viz TypeScript typecheck and bundle,
-#   - python3 for tools/doclint and tools/readme, and bash for tools/memwatch
-#     (all preinstalled).
+#   - python3 for the tools/ linters (doclint, testdoc, readme, citecheck),
+#     and bash for tools/memwatch (all preinstalled).
 # memwatch's swap backstop is sysctl-based and degrades to a no-op off macOS, so
 # wrapping the test/doctest/bench recipes is harmless here; its 8 GiB per-process
 # cap sits well above anything a normal Linux build reaches.

@@ -207,6 +207,27 @@ docs:
 docs-internal:
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
 
+# The before coverage roster (crates/before/src/surface.rs) and the bespoke
+# half of the pointwise-differential tiling (src/testing/diff_ops.rs) cite
+# their binding checks as bare strings. The in-crate suite holds those names
+# to the live law/descriptor tables and to a #[test]-attribute source scan;
+# what no source scan can attest is *collection* — a test in a module the
+# tree never wires, or behind a cfg the gate never lights, scans fine and
+# never runs. tools/citecheck closes that seam: every citation must resolve,
+# by exact name only (final `::` segment for tests, registered name for laws
+# and descriptors), against the runner's own inventory from
+# `cargo nextest list`, with per-source extraction floors and a self-test
+# pinning the red paths. The listing is captured whole to a file and judged
+# from the artifact; the verdict is deterministic under any load. The list
+# invocation builds test binaries in the root target/, which is why this leg
+# rides the workspace stream, after test-all has warmed those artifacts.
+
+# Resolve every roster/bespoke citation against the collected test inventory.
+citecheck:
+    ./tools/citecheck --self-test
+    mkdir -p target && {{ justfile_directory() }}/tools/memwatch bash -c 'cargo nextest list -p before --all-features --message-format json > target/citecheck-tests.json'
+    ./tools/citecheck --tests target/citecheck-tests.json --root crates/before
+
 # The supply-chain leg, two build-free checks over the committed lockfiles.
 # cargo-audit sweeps every lockfile in the repository — the root workspace
 # and each detached workspace (fuzz, fuzzfit, fuelscape, surfacecheck) —
@@ -343,7 +364,7 @@ gate-streams:
     # tests keep first call on the cores, and the shorter streams fill
     # what the tests leave idle instead of competing for it.
     began=$SECONDS
-    start_stream workspace     0 clippy clippy-default docs test-all
+    start_stream workspace     0 clippy clippy-default docs test-all citecheck
     start_stream doctest      10 doctest
     start_stream board        10 amp-board-acceptance worst-cases-pin
     start_stream wasm         10 fuzzfit fuelscape-test
@@ -796,7 +817,7 @@ worst-cases-pin:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc readme-check clippy clippy-default features wasm-check docs docs-internal test-all doctest bench-build fuzz-build viz
+ci: fmt-check doclint testdoc readme-check clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire
