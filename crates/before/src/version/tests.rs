@@ -366,6 +366,68 @@ fn path_sum_beyond_u64_compares_greater() {
     assert_eq!(a.partial_cmp(&b), Some(Ordering::Greater));
 }
 
+proptest! {
+    /// A node literal over two equal-height leaves is refused at every base.
+    ///
+    /// `(n, m, m)` collapses to the leaf `n + m`, so the leaf is the one
+    /// canonical spelling and the `TryFrom` surface rejects the node form.
+    /// The min-lift rejection precedes the collapse check, so the collapse
+    /// arm's whole domain is `m = 0` — any other equal pair already fails
+    /// min-lifting — and the accepted neighbors on either side pin that the
+    /// rejection is the equality, not the shape.
+    #[test]
+    fn equal_leaf_literals_are_refused(n in 0u64..=u64::MAX / 2, z in 1u64..=1u64 << 40) {
+        prop_assert_eq!(
+            Version::try_from((n, 0u64, 0u64)),
+            Err(crate::error::Parse::NotCanonical),
+            "(n, 0, 0) must collapse-reject"
+        );
+        prop_assert!(Version::try_from((n, 0u64, z)).is_ok());
+        prop_assert!(Version::try_from((n, z, 0u64)).is_ok());
+    }
+
+    /// Nested literals whose leaf heights descend build exactly the oracle's
+    /// tree.
+    ///
+    /// The composer re-derives each child's absolute heights from the
+    /// child's own stream, and a later-lower leaf rides the negative half of
+    /// that scan's zigzag decode — swept over descending runs in the left
+    /// child, the right child, and both at once.
+    #[test]
+    fn descending_literals_build_the_oracle_tree(
+        w in 0u64..=6,
+        k in 1u64..=1u64 << 40,
+        z in 1u64..=1u64 << 40,
+        z2 in 1u64..=1u64 << 40,
+    ) {
+        use crate::oracle::Version as V;
+        let expect = |t: &V| from_oracle_version(t);
+        // Descent inside the left child: leaves (k + z, k), strictly falling.
+        let left: Version = Version::try_from((w, (k, z, 0u64), 0u64)).unwrap();
+        prop_assert_eq!(
+            &left,
+            &expect(&V::node(w, V::node(k, V::leaf(z), V::leaf(0u64)), V::leaf(0u64)))
+        );
+        // Descent inside the right child.
+        let right: Version = Version::try_from((w, 0u64, (k, z, 0u64))).unwrap();
+        prop_assert_eq!(
+            &right,
+            &expect(&V::node(w, V::leaf(0u64), V::node(k, V::leaf(z), V::leaf(0u64))))
+        );
+        // Descents in both children, the right anchored at base zero so the
+        // node stays min-lifted.
+        let both: Version = Version::try_from((w, (k, z, 0u64), (0u64, z2, 0u64))).unwrap();
+        prop_assert_eq!(
+            &both,
+            &expect(&V::node(
+                w,
+                V::node(k, V::leaf(z), V::leaf(0u64)),
+                V::node(0u64, V::leaf(z2), V::leaf(0u64)),
+            ))
+        );
+    }
+}
+
 /// A stored leaf height above `u64::MAX` stays exact across mutation and merge.
 /// This pins the arbitrary-width payload path at the machine-word spill
 /// boundary, not only path sums made from individually-small nodes.

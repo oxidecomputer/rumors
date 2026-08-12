@@ -748,45 +748,47 @@ impl<P> MinWeb<P> {
                     // Tops are honest: a pushed difference had its sign read at
                     // push, and the residue collapses under its own reads here.
                     // Both sides are strictly positive, so a decided domination
-                    // is always `Greater`; each arm requires the sign anyway so
-                    // that a violated positivity invariant falls through to the
-                    // total fold-then-sign path (the debug asserts keep the
-                    // violation loud) instead of folding in the wrong
-                    // direction.
+                    // is always `Greater` — anything else is a violated
+                    // invariant and panics — while an honestly undecided read
+                    // (a top digit too small to clear the redundant-spelling
+                    // bound at this clearance) falls through to the total
+                    // fold-then-sign path.
                     if residue.digit_count() >= diff.digit_count() + 2 {
-                        let (sign, decided) = residue.sign_dominates_at(diff.digit_count() - 1);
-                        debug_assert!(
-                            !decided || sign == Ordering::Greater,
-                            "the residue is strictly positive"
-                        );
-                        if decided && sign == Ordering::Greater {
-                            // The residue dwarfs the difference: it dies by
-                            // its one fold into the surviving residue, which
-                            // stays positive and keeps dropping.
-                            residue.sub_accum(&diff);
-                            self.retire(diff);
-                            on_die(payload);
-                            zeros += 1;
-                            continue;
+                        match residue.sign_dominates_at(diff.digit_count() - 1) {
+                            (Ordering::Greater, true) => {
+                                // The residue dwarfs the difference: it dies by
+                                // its one fold into the surviving residue,
+                                // which stays positive and keeps dropping.
+                                residue.sub_accum(&diff);
+                                self.retire(diff);
+                                on_die(payload);
+                                zeros += 1;
+                                continue;
+                            }
+                            (_, true) => {
+                                unreachable!("undercut residues are strictly positive")
+                            }
+                            (_, false) => {}
                         }
                     }
                     if diff.digit_count() >= residue.digit_count() + 2 {
-                        let (sign, decided) = diff.sign_dominates_at(residue.digit_count() - 1);
-                        debug_assert!(
-                            !decided || sign == Ordering::Greater,
-                            "stacked differences are strictly positive"
-                        );
-                        if decided && sign == Ordering::Greater {
-                            // The difference dwarfs the residue: the drop stops
-                            // here, and the dying residue's terminal fold
-                            // shrinks the survivor.
-                            diff.sub_accum(&residue);
-                            self.retire(residue);
-                            self.diffs.push(Entry::Diff {
-                                boundary: Boundary::Wide(diff),
-                                payload,
-                            });
-                            break;
+                        match diff.sign_dominates_at(residue.digit_count() - 1) {
+                            (Ordering::Greater, true) => {
+                                // The difference dwarfs the residue: the drop
+                                // stops here, and the dying residue's terminal
+                                // fold shrinks the survivor.
+                                diff.sub_accum(&residue);
+                                self.retire(residue);
+                                self.diffs.push(Entry::Diff {
+                                    boundary: Boundary::Wide(diff),
+                                    payload,
+                                });
+                                break;
+                            }
+                            (_, true) => {
+                                unreachable!("stacked differences are strictly positive")
+                            }
+                            (_, false) => {}
                         }
                     }
                     // Comparable scales: the near-cancellation prices the fold

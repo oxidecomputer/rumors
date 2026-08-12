@@ -106,18 +106,6 @@
     "why": "grow inflates only the unchanged branch, where a fully-owned terminal covers a single event leaf: a full id over an event node collapses under fill and trips the changed flag first, so the inflation walk never meets one"
    }
   ],
-  "crates/before/src/version/skyline/literal.rs": [
-   {
-    "anchor": "(n, m, m) collapses to a leaf",
-    "disposition": "remediation",
-    "why": "constructible through the public TryFrom surface: a node literal with two equal-height zero-leaf children, e.g. (n, 0, 0); no negative-parse test drives the collapse rejection. Family needed: non-normal-form literal rejections."
-   },
-   {
-    "anchor": "prev.clone() - &magnitude",
-    "disposition": "remediation",
-    "why": "constructible: a nested literal whose later leaf sits lower than an earlier one takes the negative-delta branch; every committed literal ascends. Family needed: descending nested literals."
-   }
-  ],
   "crates/before/src/version/skyline/masked.rs": [
    {
     "anchor": "Self::B_MASK => self.b_mask.as_ref().map_or(0, PlateauCursor::depth),",
@@ -160,26 +148,16 @@
     "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly three"
    }
   ],
-  "crates/before/src/version/skyline/query/integral.rs": [
-   {
-    "anchor": ".add_magnitude_shl(&segment, segment_shift);",
-    "offset": 6,
-    "disposition": "remediation",
-    "why": "reachable in principle: the parked accumulator's spelling is lazy, so entries can cancel to an exact zero that is_literally_zero cannot see; no committed population cancels exactly at a later freeze. Family needed: exact parked cancellation across freezes."
-   },
-   {
-    "anchor": "self.banked_window = Accumulator::new();",
-    "offset": 1,
-    "disposition": "remediation",
-    "why": "reachable in principle: promote fires on the parked spelling's width, which an exactly-canceling spelling can trip at zero magnitude; the skip-arming reset then runs. Same exact-cancellation family as the settle_segment guard."
-   }
-  ],
   "crates/before/src/version/skyline/watermark.rs": [
    {
-    "anchor": "residue.sub_accum(&diff);",
-    "offset": 5,
-    "disposition": "remediation",
-    "why": "reachable in principle: the accumulator's redundant spelling can leave a residue two digits wider whose top-index domination read is undecided, falling through to the total fold; no committed population constructs one. Family needed: a redundant-spelling wide residue — or an argument that collapse keeps spellings canonical here, moving this to unreachable."
+    "anchor": "unreachable!(\"undercut residues are strictly positive\")",
+    "disposition": "panic-arm",
+    "why": "a violated positivity invariant panics: stacked differences and undercut residues are strictly positive by the propagation discipline, so a decided non-Greater domination read is programmer error, never a foldable state"
+   },
+   {
+    "anchor": "unreachable!(\"stacked differences are strictly positive\")",
+    "disposition": "panic-arm",
+    "why": "a violated positivity invariant panics: stacked differences and undercut residues are strictly positive by the propagation discipline, so a decided non-Greater domination read is programmer error, never a foldable state"
    }
   ]
  },
@@ -205,29 +183,11 @@
     "why": "the untaken directions are the assertion's failure arms"
    }
   ],
-  "crates/before/src/version/skyline/literal.rs": [
-   {
-    "anchor": "if left_topology.len() == 1 && right_topology.len() == 1",
-    "disposition": "remediation",
-    "why": "the all-true direction is the (n, m, m) collapse rejection, which no negative-parse test drives (the line pin's twin entry)"
-   },
-   {
-    "anchor": "if sign.is_negative() {",
-    "disposition": "remediation",
-    "why": "the negative direction is the descending nested literal, which no committed literal spells (the line pin's twin entry)"
-   }
-  ],
   "crates/before/src/version/skyline/masked.rs": [
    {
     "anchor": "directions.le && directions.ge,",
     "disposition": "panic-arm",
     "why": "the untaken directions are the assertion's failure arms"
-   },
-   {
-    "anchor": "self.b.skip_deeper(b_bound, &mut net);",
-    "offset": 2,
-    "disposition": "remediation",
-    "why": "reachable in principle: a one-sided population (B mask present, A mask absent) whose B side deep-skips takes the None direction; no committed masked family drives it. The dead direction carries no code (the height integrator does not exist), so the exposure is population blindness. Family needed: one-sided-mask deep skips."
    }
   ],
   "crates/before/src/version/skyline/sweep.rs": [
@@ -250,25 +210,6 @@
     "anchor": "digit != 0 && digit.unsigned_abs() <= 1 << 31,",
     "disposition": "panic-arm",
     "why": "the untaken directions are the assertion's failure arms"
-   },
-   {
-    "anchor": ".add_magnitude_shl(&segment, segment_shift);",
-    "offset": 5,
-    "disposition": "remediation",
-    "why": "an exactly-canceling parked spelling never arrives at a segment settle (the line pin's twin entry: the exact-cancellation family)"
-   },
-   {
-    "anchor": "fn promote(&mut self) {",
-    "offset": 2,
-    "disposition": "remediation",
-    "why": "promote never sees an exactly-canceling parked spelling (the line pin's twin entry: the exact-cancellation family)"
-   }
-  ],
-  "crates/before/src/version/skyline/query/web.rs": [
-   {
-    "anchor": "if drift != UBig::ZERO {",
-    "disposition": "remediation",
-    "why": "reachable in principle: a redundantly spelled zero drift at an epoch freeze; same exact-cancellation genre as the integral guards. Family needed: exact drift cancellation at a freeze."
    }
   ],
   "crates/before/src/version/skyline/signed.rs": [
@@ -286,32 +227,6 @@
     "anchor": "!sign.is_negative() || *mag != 0,",
     "disposition": "panic-arm",
     "why": "the untaken direction is the assertion's failure arm"
-   }
-  ],
-  "crates/before/src/version/skyline/watermark.rs": [
-   {
-    "anchor": "the residue is strictly positive",
-    "offset": -1,
-    "disposition": "remediation",
-    "why": "two untaken directions: the undecided wide-residue read (reachable in principle via a redundant spelling; the family shared with the guard's fall-through) and the assertion's failure arm"
-   },
-   {
-    "anchor": "residue.sign_dominates_at(diff.digit_count() - 1);",
-    "offset": 5,
-    "disposition": "remediation",
-    "why": "the undecided direction of the width guard (the redundant-spelling family, shared with the fall-through's line entry); the non-Greater direction is the positivity invariant's violation arm (the debug_assert above pins it)"
-   },
-   {
-    "anchor": "stacked differences are strictly positive",
-    "offset": -1,
-    "disposition": "panic-arm",
-    "why": "only the assertion's failure arm is untaken; the undecided read occurs on this guard"
-   },
-   {
-    "anchor": "diff.sign_dominates_at(residue.digit_count() - 1);",
-    "offset": 5,
-    "disposition": "unreachable",
-    "why": "the decided-non-Greater direction is the positivity invariant's violation arm: stacked differences are strictly positive (the debug_assert above pins it, and the inline comment keeps the fall-through total so a violated invariant folds safely instead of wrongly)"
    }
   ]
  }

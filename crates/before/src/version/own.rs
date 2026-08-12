@@ -122,6 +122,34 @@ fn view_eq_version(view: &OwnVersion<'_>, w: &Version) -> bool {
     )
 }
 
+/// The mirror three-stream comparison: `w ⋚ (v / p)`, the co-walk driven in
+/// its own orientation — mask on the second side — rather than the first
+/// orientation reversed.
+///
+/// The walk is total over every mask arrangement, and routing each matrix
+/// cell through its natural arrangement is what keeps them all exercised
+/// from the public surface; the two spellings agree by the antisymmetry of
+/// the pointwise order, which the differential family beside [`OwnVersion`]'s
+/// tests pins against the materialized projection.
+fn version_cmp_view(w: &Version, view: &OwnVersion<'_>) -> Option<Ordering> {
+    skyline::masked::causal_cmp(
+        w.view(),
+        None,
+        view.version.view(),
+        Some(view.party.as_bits()),
+    )
+}
+
+/// The mirror three-stream equality: `w == (v / p)`, mask on the second side.
+fn version_eq_view(w: &Version, view: &OwnVersion<'_>) -> bool {
+    skyline::masked::eq(
+        w.view(),
+        None,
+        view.version.view(),
+        Some(view.party.as_bits()),
+    )
+}
+
 /// The fused four-stream comparison: `(v₁ / p₁) ⋚ (v₂ / p₂)`.
 fn view_cmp_view(a: &OwnVersion<'_>, b: &OwnVersion<'_>) -> Option<Ordering> {
     skyline::masked::causal_cmp(
@@ -189,9 +217,6 @@ macro_rules! view_cmp_impls {
 
 view_cmp_impls! {
     OwnVersion<'a>, Version, view_eq_version, view_cmp_version, ('a);
-    Version, OwnVersion<'a>,
-        (|w: &Version, v: &OwnVersion<'_>| view_eq_version(v, w)),
-        (|w: &Version, v: &OwnVersion<'_>| view_cmp_version(v, w).map(Ordering::reverse)),
-        ('a);
+    Version, OwnVersion<'a>, version_eq_view, version_cmp_view, ('a);
     OwnVersion<'a>, OwnVersion<'b>, view_eq_view, view_cmp_view, ('a, 'b);
 }

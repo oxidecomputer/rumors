@@ -605,6 +605,65 @@ proptest! {
     }
 }
 
+/// Build a pair whose sibling walk stacks two armed boundaries — a word-scale
+/// `w` over a `m · 2^(32c)`-scale one — and drops to `eps` inside the
+/// innermost range.
+///
+/// The arming undercut's residue is then `m·2^(32c) + w − eps` (top digit `m`
+/// over a zero digit), meeting the word boundary at exactly two digits of
+/// clearance.
+///
+/// The clearance is the point: the propagation's width guard enters on the
+/// digit counts alone, and top-index domination at that clearance is honest —
+/// a residue whose top digit is 1 or 2 sits inside the redundant-spelling
+/// operand bound, so the read answers undecided and the fold falls through to
+/// the total comparable-scale path; a top digit of 3 or more certifies and
+/// takes the dominated arm. Every leaf of the sibling rides an id node, so
+/// the walk descends and emits per leaf (no block copy), and the trailing
+/// zero leaf keeps the root raise declined.
+fn undecided_residue_pair(m: u64, c: u32, w: u64, eps: u64) -> (Version, Party) {
+    use crate::oracle::{Party as P, Version as V};
+    let over_leaf = || P::node(P::seed(), P::Leaf(false));
+    let big = Base::from(m) << (32 * c);
+    let upper = V::node(
+        0u64,
+        V::leaf(big.clone() + &Base::from(w)),
+        V::leaf(Base::from(eps)),
+    );
+    let site = V::node(0u64, V::leaf(big), upper);
+    let er = V::node(0u64, site, V::leaf(0u64));
+    let root = V::node(0u64, V::leaf(0u64), er);
+    let i_upper = P::node(over_leaf(), over_leaf());
+    let i_site = P::node(over_leaf(), i_upper);
+    let ir = P::node(i_site, over_leaf());
+    let root_id = P::node(P::seed(), ir);
+    (from_oracle_version(&root), from_oracle_party(&root_id))
+}
+
+proptest! {
+    /// The undercut-residue family at the domination clearance ticks
+    /// byte-identically to the recursive oracle across the read's whole
+    /// decision boundary.
+    ///
+    /// Top digits of 1 and 2 leave the width guard's domination read
+    /// honestly undecided (the fall-through total fold carries the drop), 3
+    /// and above certify and take the dominated arm, and the surviving
+    /// boundary's shrunk difference feeds the enclosing minimum the root
+    /// raise reads — so a wrong direction on either side of the guard lands
+    /// in the output bytes.
+    #[test]
+    fn undercut_residue_at_the_domination_clearance_ticks_identically(
+        m in 1u64..=7,
+        c in 2u32..=6,
+        w in 2u64..=7,
+        eps_below in 1u64..=6,
+    ) {
+        let eps = eps_below.min(w - 1);
+        let (v, p) = undecided_residue_pair(m, c, w, eps);
+        assert_tick(&v, &p);
+    }
+}
+
 /// The left-full raise decision's height seam: the tick matches the oracle on
 /// a pair whose sibling range moves the height between the site's collapse
 /// scan and the site's close.

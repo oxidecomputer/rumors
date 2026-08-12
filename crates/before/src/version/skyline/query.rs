@@ -384,15 +384,16 @@ fn pair_fold(
         }
         // The freeze trigger, relative to this boundary's own codes: the widest
         // magnitude folded here is what funds the next interval's live add.
-        // The `1` is unreachable — the advance law always steps at least one
-        // side inside the loop — and kept only to stay total; the funded
-        // width is never fabricated.
+        // The advance law always steps at least one side inside the loop, so
+        // a boundary with no step is programmer error — and a fabricated
+        // funded width would silently misprice the trigger, so the violation
+        // fails loudly instead.
         let funded = step_a
             .iter()
             .chain(step_b.iter())
             .map(|step| int_digits(&step.magnitude))
             .max()
-            .unwrap_or(1);
+            .expect("the advance law steps at least one side per boundary");
         integral.boundary(funded);
     }
     let (sign, total) = integral.finish(overlay_depth as u64);

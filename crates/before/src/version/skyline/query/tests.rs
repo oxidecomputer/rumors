@@ -269,6 +269,117 @@ fn promoting_families_agree_with_the_oracle() {
     }
 }
 
+/// A right-spine version whose leaf heights, in stream order, are exactly
+/// `heights`.
+///
+/// The freeze-schedule vocabulary: each adjacent difference is one folded
+/// delta, so a height list is a delta script for the sweep's live component.
+fn spine_of(heights: &[crate::codec::Base]) -> Version {
+    use crate::oracle::Version as V;
+    let mut tree = V::leaf(heights[heights.len() - 1].clone());
+    for h in heights[..heights.len() - 1].iter().rev() {
+        tree = V::node(0u64, V::leaf(h.clone()), tree);
+    }
+    from_oracle_version(&tree)
+}
+
+/// The exact-cancellation freeze schedule.
+///
+/// Heights whose freezes park `+2^(32p)`, `−(2^32 − 1)·2^(32(p−1))`, and
+/// `−2^(32(p−1))` — a parked component valued zero but spelled `+1` at digit
+/// `p` over `−2^32` at digit `p − 1` — then trip a fourth freeze on a
+/// wide-spelled narrow drift (`2^(32q)` climbed and returned to a small
+/// `s`), which settles a segment against the zero-valued parked component
+/// and promotes it into the skip-arming reset.
+fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<crate::codec::Base> {
+    use crate::codec::Base;
+    let x = Base::from(1u8) << (32 * p);
+    let t = Base::from(1u8) << (32 * (p - 1));
+    let z = Base::from(1u8) << (32 * q);
+    vec![
+        Base::ZERO,
+        x.clone() - &Base::from(1u8),
+        x,
+        t.clone() + &Base::from(1u8),
+        t,
+        Base::from(1u8),
+        Base::ZERO,
+        z,
+        Base::from(s),
+        Base::from(s + 1),
+    ]
+}
+
+/// The redundantly-spelled zero-drift freeze schedule.
+///
+/// Deltas `+（2^(32p) + d)`, `−(2^32 − 1)·2^(32(p−1))`, `−2^(32(p−1))`, then
+/// `−d`: the last, narrow delta trips the width trigger with the live
+/// component's *value* exactly zero while its spelling still tops at digit
+/// `p`, so the freeze finds no drift to park and must keep the epoch.
+fn zero_drift_heights(p: u32, d: u64) -> Vec<crate::codec::Base> {
+    use crate::codec::Base;
+    let x = Base::from(1u8) << (32 * p);
+    let t = Base::from(1u8) << (32 * (p - 1));
+    vec![
+        Base::ZERO,
+        x + &Base::from(d),
+        t.clone() + &Base::from(d),
+        Base::from(d),
+        Base::ZERO,
+    ]
+}
+
+/// The worked point of the cancellation family, with the freeze tap proving
+/// the schedule really parks.
+///
+/// Four freezes fire, the fourth settling and promoting against a parked
+/// component that is valued zero but spelled redundantly — the arms
+/// `is_literally_zero` cannot answer — and every fold stays exact against
+/// the tree oracle.
+#[test]
+fn parked_cancellation_settles_and_promotes_exactly() {
+    let v = spine_of(&parked_cancellation_heights(11, 9, 5));
+    let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
+    assert_single(&v);
+    assert!(
+        super::integral::FREEZE_HITS.with(|hits| hits.get()) >= hits_before + 4,
+        "the cancellation schedule no longer parks four drifts: the zero-valued \
+         settle and promote arms it exists to drive are undriven"
+    );
+}
+
+proptest! {
+    /// The exact-cancellation family holds every fold to the tree oracle over
+    /// the cancellation scale, the trailing climb's scale, and the final
+    /// narrow drift.
+    ///
+    /// A parked component that cancels to a redundantly spelled zero must
+    /// charge nothing at later settles, and a promotion armed by a
+    /// wide-spelled narrow drift must skip its arming and still reset — any
+    /// misaccounting in either zero arm lands in the exact totals.
+    #[test]
+    fn parked_cancellation_family_agrees(p in 11u32..=14, q in 9u32..=12, s in 1u64..=6) {
+        let v = spine_of(&parked_cancellation_heights(p, q, s));
+        let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
+        assert_single(&v);
+        prop_assert!(
+            super::integral::FREEZE_HITS.with(|hits| hits.get()) >= hits_before + 4,
+            "a cancellation schedule stopped parking"
+        );
+    }
+
+    /// The zero-drift family: a width trigger tripped by a live component
+    /// whose value is exactly zero (spelled wide) freezes nothing.
+    ///
+    /// The rank integral parks no drift and min_ticks keeps its epoch, and
+    /// both folds stay exact against the tree oracle through the empty
+    /// freeze.
+    #[test]
+    fn zero_drift_freezes_keep_the_totals_exact(p in 9u32..=13, d in 1u64..=6) {
+        assert_single(&spine_of(&zero_drift_heights(p, d)));
+    }
+}
+
 /// `rank_cmp` agrees with the oracle rank order across the promoting pool and
 /// reads `Equal` on a mirrored equal-rank promoting pair, with the freeze tap
 /// proving both legs actually park drift.

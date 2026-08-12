@@ -820,7 +820,10 @@ impl Integrator {
             return;
         }
         let magnitude = Base::from(magnitude);
-        debug_assert_eq!(
+        // A hard assert, not a debug one: a non-monotone closure would
+        // otherwise fold the term in the wrong direction silently, and the
+        // check is one word compare per orientation change.
+        assert_eq!(
             coefficient < 0,
             sign == Ordering::Less,
             "a monotone orientation's change term is a debit"
