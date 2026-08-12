@@ -222,7 +222,8 @@ docs-internal:
 # invocation builds test binaries in the root target/, which is why this leg
 # rides the workspace stream, after test-all has warmed those artifacts.
 
-# Resolve every roster/bespoke citation against the collected test inventory.
+# Resolve every roster, bespoke, and adequacy-tripwire citation against the
+# collected test inventory.
 citecheck:
     ./tools/citecheck --self-test
     mkdir -p target && {{ justfile_directory() }}/tools/memwatch bash -c 'cargo nextest list -p before --all-features --message-format json > target/citecheck-tests.json'

@@ -5,14 +5,18 @@ Usage:
     citecheck --tests FILE --root DIR
     citecheck --self-test
 
-The `before` coverage roster (src/surface.rs) and the bespoke half of the
-pointwise-differential tiling (src/testing/diff_ops.rs) cite their binding
+The `before` coverage roster (src/surface.rs), the bespoke half of the
+pointwise-differential tiling (src/testing/diff_ops.rs), and the per-leg
+adequacy tripwires (src/testing/surface_coverage.rs) cite their binding
 checks as bare strings: `Leg::Bound`/`Law`/`Trans` names, exclusion `pins`
-arrays, `GridCap` guards, `RepresentationMechanics` licenses, and the
-`DIFF_BESPOKE` entries. The crate's own suite holds those names to the live
-law and descriptor tables and to a `#[test]`-attribute source scan — but no
-source scan can attest *collection*: a `#[test]` in a module the tree never
-wires, or behind a cfg the gate never lights, scans fine and never runs.
+arrays, `GridCap` guards, `RepresentationMechanics` licenses, the
+`DIFF_BESPOKE` entries, and the `TRIPWIRES` test names. The crate's own
+suite holds those names to the live law and descriptor tables and to a
+`#[test]`-attribute source scan — but no source scan can attest
+*collection*: a `#[test]` in a module the tree never wires, or behind a cfg
+the gate never lights, scans fine and never runs. Tripwire rot is the
+expensive kind: those names are the proofs each leg's criterion can fail,
+so one that silently stops being collected is a dead liveness guard.
 This checker closes that seam from outside the crate: a citation resolves
 only if its exact name is the final `::` segment of a test the runner
 collects (`cargo nextest list --message-format json`, captured whole to the
@@ -67,6 +71,7 @@ from pathlib import Path
 # The fixed shape of the crate under check, relative to --root.
 SURFACE = "src/surface.rs"
 DIFF_OPS = "src/testing/diff_ops.rs"
+SURFACE_COVERAGE = "src/testing/surface_coverage.rs"
 LAWS = "src/laws.rs"
 
 # Asserted absent from the haystack, then required to fail resolution, on
@@ -176,6 +181,25 @@ def extract_bespoke(diff_ops_code):
     )
 
 
+def extract_tripwires(coverage_code):
+    """The TRIPWIRES adequacy citations: each tuple's test name (its second
+    string; the first is the human-facing criterion description).
+
+    Returns `(names, problems)`.
+    """
+    m = re.search(r"TRIPWIRES\s*:[^=]*=\s*&\[", coverage_code)
+    if m is None:
+        return [], ["surface_coverage.rs no longer declares TRIPWIRES"]
+    end = coverage_code.find("];", m.end())
+    if end < 0:
+        return [], ["TRIPWIRES array never closes"]
+    block = coverage_code[m.end() : end]
+    return (
+        re.findall(r'\(\s*"[^"]*"\s*,\s*"([^"]+)"\s*,?\s*\)', block, re.S),
+        [],
+    )
+
+
 def macro_block_fn_names(text, macro_name):
     """Names of `fn` items inside top-level `macro_name! { ... }` blocks.
 
@@ -251,7 +275,7 @@ def resolve(citations, haystack):
     ]
 
 
-def run(surface_text, diff_ops_text, laws_text, listing):
+def run(surface_text, diff_ops_text, coverage_text, laws_text, listing):
     """One judgment over the raw inputs.
 
     Returns `(problems, cited)`: the problem list and the count of
@@ -259,11 +283,14 @@ def run(surface_text, diff_ops_text, laws_text, listing):
     """
     surface_code = strip_line_comments(surface_text)
     diff_ops_code = strip_line_comments(diff_ops_text)
+    coverage_code = strip_line_comments(coverage_text)
 
     legs = extract_legs(surface_code)
     pins, guards, licenses, problems = extract_payloads(surface_code)
     bespoke, bespoke_problems = extract_bespoke(diff_ops_code)
     problems += bespoke_problems
+    tripwires, tripwire_problems = extract_tripwires(coverage_code)
+    problems += tripwire_problems
 
     sources = [
         ("surface.rs legs", legs),
@@ -271,6 +298,7 @@ def run(surface_text, diff_ops_text, laws_text, listing):
         ("surface.rs guards", guards),
         ("surface.rs licenses", licenses),
         ("diff_ops.rs bespoke entries", bespoke),
+        ("surface_coverage.rs tripwires", tripwires),
     ]
     for label, found in sources:
         if not found:
@@ -383,6 +411,14 @@ fn helper_outside_blocks(a: &Version) -> bool {
     true
 }
 """
+    coverage = """
+pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
+    (
+        "prod↔tree: the alpha adequacy tripwire, held convicted",
+        "alpha_tripwire_test",
+    ),
+];
+"""
 
     def listing(*names, ignored=()):
         cases = {n: {"ignored": False} for n in names}
@@ -394,11 +430,12 @@ fn helper_outside_blocks(a: &Version) -> bool {
         "clock::tests::alpha_bespoke",
         "grid::tests::alpha_guard",
         "wire::tests::alpha_pin_test",
+        "adequacy::tests::alpha_tripwire_test",
     )
 
     cases = [
         # The honest fixture: every citation resolves.
-        ("green", surface, diff_ops, laws, green, []),
+        ("green", surface, diff_ops, coverage, laws, green, []),
         # A fabricated citation must fail by name.
         (
             "fabricated citation",
@@ -406,6 +443,7 @@ fn helper_outside_blocks(a: &Version) -> bool {
                 'Leg::Bound("alpha_diff")', 'Leg::Bound("no_such_test")', 1
             ),
             diff_ops,
+            coverage,
             laws,
             green,
             ["dead citation (surface.rs legs): 'no_such_test'"],
@@ -415,11 +453,13 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "stale citation",
             surface,
             diff_ops,
+            coverage,
             laws,
             listing(
                 "clock::tests::alpha_bespoke",
                 "grid::tests::alpha_guard",
                 "wire::tests::alpha_pin_test",
+                "adequacy::tests::alpha_tripwire_test",
             ),
             [
                 "dead citation (surface.rs legs): 'alpha_diff'",
@@ -434,11 +474,13 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "ignored test",
             surface,
             diff_ops,
+            coverage,
             laws,
             listing(
                 "clock::tests::alpha_bespoke",
                 "grid::tests::alpha_guard",
                 "wire::tests::alpha_pin_test",
+                "adequacy::tests::alpha_tripwire_test",
                 ignored=("party::tests::alpha_diff",),
             ),
             [
@@ -456,6 +498,7 @@ fn helper_outside_blocks(a: &Version) -> bool {
                 'Leg::Bound("alpha_diff")', 'Leg::Bound("alpha")', 1
             ),
             diff_ops,
+            coverage,
             laws,
             green,
             ["dead citation (surface.rs legs): 'alpha'"],
@@ -469,6 +512,7 @@ fn helper_outside_blocks(a: &Version) -> bool {
                 1,
             ),
             diff_ops,
+            coverage,
             laws,
             green,
             ["dead citation (surface.rs legs): 'tests::alpha_diff'"],
@@ -478,6 +522,7 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "dead leg extractor",
             surface.replace("Leg::", "Peg::"),
             diff_ops,
+            coverage,
             laws,
             green,
             ["liveness: extracted no citations from surface.rs legs"],
@@ -487,6 +532,7 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "dead pins extractor",
             surface.replace("pins:", "fins:"),
             diff_ops,
+            coverage,
             laws,
             green,
             ["liveness: extracted no citations from surface.rs pins"],
@@ -496,6 +542,7 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "dead bespoke table",
             surface,
             diff_ops.replace("DIFF_BESPOKE", "GONE"),
+            coverage,
             laws,
             green,
             [
@@ -509,6 +556,7 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "unknown pins spelling",
             surface.replace("pins: ALPHA_PINS", "pins: alpha_pins()"),
             diff_ops,
+            coverage,
             laws,
             green,
             ["unrecognized `pins:` spelling"],
@@ -519,12 +567,14 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "vacuous listing",
             surface,
             diff_ops,
+            coverage,
             laws,
             {"rust-suites": {}},
             # The floor, then every test-kind citation dead: the three
-            # `alpha_diff` legs, the pin, the guard, and both bespokes.
+            # `alpha_diff` legs, the pin, the guard, both bespokes, and
+            # the tripwire.
             ["liveness: the listing carries no collected"]
-            + ["dead citation"] * 7,
+            + ["dead citation"] * 8,
         ),
         # A law name doubling as a collected final segment trips the
         # shadow guard.
@@ -532,12 +582,14 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "shadowed law",
             surface,
             diff_ops,
+            coverage,
             laws,
             listing(
                 "party::tests::alpha_diff",
                 "clock::tests::alpha_bespoke",
                 "grid::tests::alpha_guard",
                 "wire::tests::alpha_pin_test",
+                "adequacy::tests::alpha_tripwire_test",
                 "laws::tests::alpha_law",
             ),
             ["shadow: alpha_law"],
@@ -548,6 +600,7 @@ fn helper_outside_blocks(a: &Version) -> bool {
             "dead laws scan",
             surface,
             diff_ops,
+            coverage,
             laws.replace("laws! {", "lawz! {"),
             green,
             [
@@ -557,9 +610,43 @@ fn helper_outside_blocks(a: &Version) -> bool {
                 "dead citation (surface.rs licenses): 'alpha_law'",
             ],
         ),
+        # A tripwire whose test the runner no longer collects must fail:
+        # the adequacy proof it names is a dead liveness guard.
+        (
+            "stale tripwire",
+            surface,
+            diff_ops,
+            coverage,
+            laws,
+            listing(
+                "party::tests::alpha_diff",
+                "clock::tests::alpha_bespoke",
+                "grid::tests::alpha_guard",
+                "wire::tests::alpha_pin_test",
+            ),
+            [
+                "dead citation (surface_coverage.rs tripwires): "
+                "'alpha_tripwire_test'"
+            ],
+        ),
+        # A vanished tripwires table must trip both its declaration check
+        # and its extraction floor.
+        (
+            "dead tripwires table",
+            surface,
+            diff_ops,
+            coverage.replace("TRIPWIRES", "GONE"),
+            laws,
+            green,
+            [
+                "surface_coverage.rs no longer declares TRIPWIRES",
+                "liveness: extracted no citations from "
+                "surface_coverage.rs tripwires",
+            ],
+        ),
     ]
-    for name, s, d, l, tests, needles in cases:
-        problems, _ = run(s, d, l, tests)
+    for name, s, d, cov, l, tests, needles in cases:
+        problems, _ = run(s, d, cov, l, tests)
         if len(problems) != len(needles) or not all(
             needle in problem
             for needle, problem in zip(needles, problems)
@@ -597,6 +684,7 @@ def main(argv):
     problems, cited = run(
         (root / SURFACE).read_text(encoding="utf-8"),
         (root / DIFF_OPS).read_text(encoding="utf-8"),
+        (root / SURFACE_COVERAGE).read_text(encoding="utf-8"),
         (root / LAWS).read_text(encoding="utf-8"),
         json.loads(Path(args.tests).read_text(encoding="utf-8")),
     )
