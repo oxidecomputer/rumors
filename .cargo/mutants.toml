@@ -122,7 +122,7 @@ exclude_re = [
     # shares the operator pattern and is killed): level 0 never defers a
     # first-child link, so its keeper is never read and the keeper fold is
     # skippable work.
-    "prescan\\.rs:325:26: replace > with >= in PreScan<'a, 'm>::record",
+    "prescan\\.rs:320:26: replace > with >= in PreScan<'a, 'm>::record",
 
     # Performance genre: the collapse skip's routing boundary moves only
     # work between extensionally equal paths, and both sides fold the
