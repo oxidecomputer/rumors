@@ -1,397 +1,318 @@
 {
-  "scope": "crates/before/src/version/skyline/",
-  "line": {
-    "crates/before/src/version/skyline/admit.rs": [
-      {
-        "anchor": "None => unreachable!(",
-        "disposition": "panic-arm",
-        "why": "the walk checks done() before advancing, so the pop always finds an open ancestor"
-      }
-    ],
-    "crates/before/src/version/skyline/build.rs": [
-      {
-        "anchor": "a leaf arrived after the final plateau",
-        "disposition": "panic-arm",
-        "why": "the builder's tiling is complete at the final plateau; a later leaf is programmer error"
-      }
-    ],
-    "crates/before/src/version/skyline/fill.rs": [
-      {
-        "anchor": "fill is idempotent: a filled tree cannot fill again",
-        "disposition": "panic-arm",
-        "why": "the committed fill_is_idempotent differential pins the second walk unchanged"
-      },
-      {
-        "anchor": "IdNode::Empty => {",
-        "offset": 1,
-        "disposition": "unreachable",
-        "why": "reachable only at an empty root, and no public Party is ever empty: finish_id in party.rs is the single gate every parsed/built Party passes and rejects the anonymous identity (Parse::Anonymous), and Party::without returns None rather than an empty share; below the root the walk descends only into present children. The arm realizes fill(0, e) = e totally."
-      },
-      {
-        "anchor": "IdNode::Empty => {",
-        "offset": 2,
-        "disposition": "unreachable",
-        "why": "the empty-root arm's cost, with the line above"
-      },
-      {
-        "anchor": "a consumed site keeps a relation",
-        "disposition": "panic-arm",
-        "why": "every site consume installs a Height or Min relation before the site closes"
-      }
-    ],
-    "crates/before/src/version/skyline/fill/fuse.rs": [
-      {
-        "anchor": "a verbatim emission is matched or has diverged",
-        "disposition": "panic-arm",
-        "why": "matched emissions return before their bodies and diverging ones materialize first (the method's Panics section)"
-      },
-      {
-        "anchor": "the region splice runs post-divergence",
-        "disposition": "panic-arm",
-        "why": "continue_verbatim runs only after a divergence built the output"
-      },
-      {
-        "anchor": "Out::Built(_) => return,",
-        "disposition": "unreachable",
-        "why": "the sole call site (fill.rs, the divergence epilogue) guards with is_verbatim(), so a built output never re-enters; the arm keeps materialize idempotent"
-      },
-      {
-        "anchor": "Out::Built(builder) => return Some(builder.finish()),",
-        "offset": 1,
-        "disposition": "unreachable",
-        "why": "finish sees Unstarted only for a stream with no plateaus, and a canonical skyline stream holds at least one leaf (the codec validation contract); the debug_assert beside the arm pins matched_end == event.len()"
-      },
-      {
-        "anchor": "a present id child is a real node",
-        "disposition": "panic-arm",
-        "why": "the walk descends only into children whose presence bits are set"
-      }
-    ],
-    "crates/before/src/version/skyline/fill/prescan.rs": [
-      {
-        "anchor": "IdNode::Empty => {",
-        "offset": 1,
-        "disposition": "unreachable",
-        "why": "the pre-scan enters at a present child (a left-full site's right sibling, peeked present at the fill.rs call site), so only an empty root could read Empty, and the entry is never the root; the arm realizes min(fill(0, e)) = min(e) totally"
-      },
-      {
-        "anchor": "IdNode::Empty => {",
-        "offset": 2,
-        "disposition": "unreachable",
-        "why": "the empty-root arm, with the line above"
-      },
-      {
-        "anchor": "IdNode::Full => {",
-        "offset": 1,
-        "disposition": "unreachable",
-        "why": "every entry hands in a full child's sibling (never full: a (1, 1) node collapses under idbits' normal form) or a child the caller peeked as not-full; the inline comment carries the argument"
-      },
-      {
-        "anchor": "IdNode::Full => {",
-        "offset": 2,
-        "disposition": "unreachable",
-        "why": "the full-arm body, with the line above"
-      },
-      {
-        "anchor": "IdNode::Full => {",
-        "offset": 3,
-        "disposition": "unreachable",
-        "why": "the full-arm body, with the line above"
-      }
-    ],
-    "crates/before/src/version/skyline/grow.rs": [
-      {
-        "anchor": "a full id over an event node collapses under fill",
-        "disposition": "panic-arm",
-        "why": "grow inflates only the unchanged branch, where a fully-owned terminal covers a single event leaf: a full id over an event node collapses under fill and trips the changed flag first, so the inflation walk never meets one"
-      }
-    ],
-    "crates/before/src/version/skyline/literal.rs": [
-      {
-        "anchor": "(n, m, m) collapses to a leaf",
-        "disposition": "remediation",
-        "why": "constructible through the public TryFrom surface: a node literal with two equal-height zero-leaf children, e.g. (n, 0, 0); no negative-parse test drives the collapse rejection. Family needed: non-normal-form literal rejections."
-      },
-      {
-        "anchor": "prev.clone() - &magnitude",
-        "disposition": "remediation",
-        "why": "constructible: a nested literal whose later leaf sits lower than an earlier one takes the negative-delta branch; every committed literal ascends. Family needed: descending nested literals."
-      }
-    ],
-    "crates/before/src/version/skyline/masked.rs": [
-      {
-        "anchor": "Self::B_MASK => self.b_mask.as_ref().map_or(0, PlateauCursor::depth),",
-        "offset": 1,
-        "disposition": "panic-arm",
-        "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly four"
-      },
-      {
-        "anchor": "Self::B_MASK => {",
-        "offset": 7,
-        "disposition": "panic-arm",
-        "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly four"
-      }
-    ],
-    "crates/before/src/version/skyline/overlay.rs": [
-      {
-        "anchor": "the advanced cursor is never at its final leaf: an all-right path means the stream is consumed",
-        "offset": -1,
-        "disposition": "panic-arm",
-        "why": "the sweep stops when both cursors are done; the module doc's bookkeeping shows a final leaf is never the advanced side"
-      },
-      {
-        "anchor": "the advanced cursor is never at its final region: an all-right path means the stream is consumed",
-        "offset": -1,
-        "disposition": "panic-arm",
-        "why": "the region walk's twin of the leaf walk's final-leaf invariant"
-      }
-    ],
-    "crates/before/src/version/skyline/place.rs": [
-      {
-        "anchor": "Self::END => self.end.as_ref().map_or(0, |side| side.cursor.depth()),",
-        "offset": 1,
-        "disposition": "panic-arm",
-        "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly three"
-      },
-      {
-        "anchor": "Self::END => Self::step_bound(&mut self.end),",
-        "offset": 1,
-        "disposition": "panic-arm",
-        "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly three"
-      }
-    ],
-    "crates/before/src/version/skyline/query/integral.rs": [
-      {
-        "anchor": "if digits.is_empty() || *factor == Base::ZERO {",
-        "offset": 1,
-        "disposition": "remediation",
-        "why": "reachable in principle: settle() hands charge_segment the final segment unfiltered, so a sweep frozen exactly at its last boundary charges a zero segment (empty digits); no committed population constructs one. Family needed: a final-boundary freeze \u2014 or an argument that the close always accrues interval mass, which would move this entry to unreachable."
-      },
-      {
-        "anchor": "self.live.sub_magnitude_shl(&magnitude, shift);",
-        "disposition": "remediation",
-        "why": "jump's credit polarity fires under no committed population. Family needed: an orientation flip whose coefficient and difference signs oppose \u2014 or a documented argument that the sweep's orientation algebra makes the polarity unreachable."
-      },
-      {
-        "anchor": ".add_magnitude_shl(&segment, segment_shift);",
-        "offset": 6,
-        "disposition": "remediation",
-        "why": "reachable in principle: the parked accumulator's spelling is lazy, so entries can cancel to an exact zero that is_literally_zero cannot see; no committed population cancels exactly at a later freeze. Family needed: exact parked cancellation across freezes."
-      },
-      {
-        "anchor": "self.banked_window = Accumulator::new();",
-        "offset": 1,
-        "disposition": "remediation",
-        "why": "reachable in principle: promote fires on the parked spelling's width, which an exactly-canceling spelling can trip at zero magnitude; the skip-arming reset then runs. Same exact-cancellation family as the settle_segment guard."
-      }
-    ],
-    "crates/before/src/version/skyline/watermark.rs": [
-      {
-        "anchor": "residue.sub_accum(&diff);",
-        "offset": 5,
-        "disposition": "remediation",
-        "why": "reachable in principle: the accumulator's redundant spelling can leave a residue two digits wider whose top-index domination read is undecided, falling through to the total fold; no committed population constructs one. Family needed: a redundant-spelling wide residue \u2014 or an argument that collapse keeps spellings canonical here, moving this to unreachable."
-      }
-    ]
-  },
-  "branch": {
-    "crates/before/src/version/skyline/build.rs": [
-      {
-        "anchor": "first_rel_depth >= 1 && last_rel_depth >= 1,",
-        "disposition": "panic-arm",
-        "why": "the untaken directions are the assertion's failure arms"
-      }
-    ],
-    "crates/before/src/version/skyline/fill.rs": [
-      {
-        "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
-        "disposition": "panic-arm",
-        "why": "the untaken directions are the assertion's failure arms"
-      }
-    ],
-    "crates/before/src/version/skyline/fill/prescan.rs": [
-      {
-        "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
-        "disposition": "panic-arm",
-        "why": "the untaken directions are the assertion's failure arms"
-      }
-    ],
-    "crates/before/src/version/skyline/literal.rs": [
-      {
-        "anchor": "if left_topology.len() == 1 && right_topology.len() == 1",
-        "disposition": "remediation",
-        "why": "the all-true direction is the (n, m, m) collapse rejection, which no negative-parse test drives (the line pin's twin entry)"
-      },
-      {
-        "anchor": "if sign.is_negative() {",
-        "disposition": "remediation",
-        "why": "the negative direction is the descending nested literal, which no committed literal spells (the line pin's twin entry)"
-      }
-    ],
-    "crates/before/src/version/skyline/masked.rs": [
-      {
-        "anchor": "directions.le && directions.ge,",
-        "disposition": "panic-arm",
-        "why": "the untaken directions are the assertion's failure arms"
-      },
-      {
-        "anchor": "self.b.skip_deeper(b_bound, &mut net);",
-        "offset": 2,
-        "disposition": "remediation",
-        "why": "reachable in principle: a one-sided population (B mask present, A mask absent) whose B side deep-skips takes the None direction; no committed masked family drives it. The dead direction carries no code (the height integrator does not exist), so the exposure is population blindness. Family needed: one-sided-mask deep skips."
-      }
-    ],
-    "crates/before/src/version/skyline/sweep.rs": [
-      {
-        "anchor": "directions.le && directions.ge,",
-        "disposition": "panic-arm",
-        "why": "the untaken directions are the assertion's failure arms"
-      }
-    ],
-    "crates/before/src/version/skyline/text.rs": [
-      {
-        "anchor": "open.is_empty() && lefts.is_empty(),",
-        "disposition": "panic-arm",
-        "why": "the untaken directions are the assertion's failure arms"
-      }
-    ],
-    "crates/before/src/version/skyline/place/filter.rs": [
-      {
-        "anchor": "let (flip, step) = self.probe.step();",
-        "offset": 2,
-        "disposition": "remediation",
-        "why": "the settled-pair continuation family: no committed population settles one demand pair while its side keeps sweeping, so the settled-pair fold skip never fires. Family needed: a filter query holding one pair settled while the other sweeps."
-      },
-      {
-        "anchor": "let side = self.sides[slot - 1]",
-        "offset": 4,
-        "disposition": "remediation",
-        "why": "the settled-pair continuation family, on the bound-step side"
-      },
-      {
-        "anchor": "if side.lo.live && !side.lo.directions.le {",
-        "disposition": "remediation",
-        "why": "the settled-pair continuation family: the boundary re-check never sees an already-settled lo pair"
-      },
-      {
-        "anchor": "if side.hi.live && !side.hi.directions.ge {",
-        "disposition": "remediation",
-        "why": "the settled-pair continuation family: the boundary re-check never sees an already-settled hi pair"
-      },
-      {
-        "anchor": "!side.lo.live || !matches!(lo, Some(Ordering::Less | Ordering::Equal))",
-        "disposition": "remediation",
-        "why": "the settled-pair continuation family: the finish read never sees a settled lo under NotBefore"
-      },
-      {
-        "anchor": "Demand::NotStrictlyBefore => !side.lo.live || lo != Some(Ordering::Less),",
-        "disposition": "remediation",
-        "why": "the settled-pair continuation family: the finish read never sees a settled lo under NotStrictlyBefore"
-      },
-      {
-        "anchor": "!side.hi.live || !matches!(hi, Some(Ordering::Greater | Ordering::Equal))",
-        "disposition": "remediation",
-        "why": "the settled-pair continuation family: the finish read never sees a settled hi under NotAfter"
-      },
-      {
-        "anchor": "Demand::NotStrictlyAfter => !side.hi.live || hi != Some(Ordering::Greater),",
-        "disposition": "remediation",
-        "why": "the settled-pair continuation family: the finish read never sees a settled hi under NotStrictlyAfter"
-      }
-    ],
-    "crates/before/src/version/skyline/query/integral.rs": [
-      {
-        "anchor": "if digits.is_empty() || *factor == Base::ZERO {",
-        "disposition": "remediation",
-        "why": "the identity backstop's directions never fire (the line pin's twin entry: a final-boundary freeze reaches them)"
-      },
-      {
-        "anchor": "digit != 0 && digit.unsigned_abs() <= 1 << 31,",
-        "disposition": "panic-arm",
-        "why": "the untaken directions are the assertion's failure arms"
-      },
-      {
-        "anchor": "if negative {",
-        "disposition": "remediation",
-        "why": "jump's credit polarity fires under no committed population (the line pin's twin entry)"
-      },
-      {
-        "anchor": ".add_magnitude_shl(&segment, segment_shift);",
-        "offset": 5,
-        "disposition": "remediation",
-        "why": "an exactly-canceling parked spelling never arrives at a segment settle (the line pin's twin entry: the exact-cancellation family)"
-      },
-      {
-        "anchor": "fn promote(&mut self) {",
-        "offset": 2,
-        "disposition": "remediation",
-        "why": "promote never sees an exactly-canceling parked spelling (the line pin's twin entry: the exact-cancellation family)"
-      },
-      {
-        "anchor": "if final_window_magnitude != UBig::ZERO {",
-        "disposition": "remediation",
-        "why": "reachable in principle: a promoting sweep whose final banked window is zero; no committed population. Family needed: promotion with an empty trailing window."
-      },
-      {
-        "anchor": "if segment_magnitude != UBig::ZERO {",
-        "disposition": "remediation",
-        "why": "reachable in principle: a promoting sweep whose final segment is empty (a freeze at the last boundary); same family as the charge_digits backstop."
-      }
-    ],
-    "crates/before/src/version/skyline/query/web.rs": [
-      {
-        "anchor": "if *factor == Base::ZERO || *digits == Base::ZERO {",
-        "disposition": "remediation",
-        "why": "the zero-digits direction never fires. Family needed: a charge whose watermark span nets zero \u2014 or an unreachability argument from the callers' pre-accumulation."
-      },
-      {
-        "anchor": "if drift != UBig::ZERO {",
-        "disposition": "remediation",
-        "why": "reachable in principle: a redundantly spelled zero drift at an epoch freeze; same exact-cancellation genre as the integral guards. Family needed: exact drift cancellation at a freeze."
-      }
-    ],
-    "crates/before/src/version/skyline/signed.rs": [
-      {
-        "anchor": "!sign.is_negative() || magnitude != Base::ZERO,",
-        "disposition": "panic-arm",
-        "why": "the untaken direction is the assertion's failure arm"
-      },
-      {
-        "anchor": "!sign.is_negative() || *magnitude != Base::ZERO,",
-        "disposition": "panic-arm",
-        "why": "the untaken direction is the assertion's failure arm"
-      },
-      {
-        "anchor": "!sign.is_negative() || *mag != 0,",
-        "disposition": "panic-arm",
-        "why": "the untaken direction is the assertion's failure arm"
-      }
-    ],
-    "crates/before/src/version/skyline/watermark.rs": [
-      {
-        "anchor": "the residue is strictly positive",
-        "offset": -1,
-        "disposition": "remediation",
-        "why": "two untaken directions: the undecided wide-residue read (reachable in principle via a redundant spelling; the family shared with the guard's fall-through) and the assertion's failure arm"
-      },
-      {
-        "anchor": "residue.sign_dominates_at(diff.digit_count() - 1);",
-        "offset": 5,
-        "disposition": "remediation",
-        "why": "the undecided direction of the width guard (the redundant-spelling family, shared with the fall-through's line entry); the non-Greater direction is the positivity invariant's violation arm (the debug_assert above pins it)"
-      },
-      {
-        "anchor": "stacked differences are strictly positive",
-        "offset": -1,
-        "disposition": "panic-arm",
-        "why": "only the assertion's failure arm is untaken; the undecided read occurs on this guard"
-      },
-      {
-        "anchor": "diff.sign_dominates_at(residue.digit_count() - 1);",
-        "offset": 5,
-        "disposition": "unreachable",
-        "why": "the decided-non-Greater direction is the positivity invariant's violation arm: stacked differences are strictly positive (the debug_assert above pins it, and the inline comment keeps the fall-through total so a violated invariant folds safely instead of wrongly)"
-      }
-    ]
-  }
+ "scope": "crates/before/src/version/skyline/",
+ "line": {
+  "crates/before/src/version/skyline/admit.rs": [
+   {
+    "anchor": "None => unreachable!(",
+    "disposition": "panic-arm",
+    "why": "the walk checks done() before advancing, so the pop always finds an open ancestor"
+   }
+  ],
+  "crates/before/src/version/skyline/build.rs": [
+   {
+    "anchor": "a leaf arrived after the final plateau",
+    "disposition": "panic-arm",
+    "why": "the builder's tiling is complete at the final plateau; a later leaf is programmer error"
+   }
+  ],
+  "crates/before/src/version/skyline/fill.rs": [
+   {
+    "anchor": "fill is idempotent: a filled tree cannot fill again",
+    "disposition": "panic-arm",
+    "why": "the committed fill_is_idempotent differential pins the second walk unchanged"
+   },
+   {
+    "anchor": "IdNode::Empty => {",
+    "offset": 1,
+    "disposition": "unreachable",
+    "why": "reachable only at an empty root, and no public Party is ever empty: finish_id in party.rs is the single gate every parsed/built Party passes and rejects the anonymous identity (Parse::Anonymous), and Party::without returns None rather than an empty share; below the root the walk descends only into present children. The arm realizes fill(0, e) = e totally."
+   },
+   {
+    "anchor": "IdNode::Empty => {",
+    "offset": 2,
+    "disposition": "unreachable",
+    "why": "the empty-root arm's cost, with the line above"
+   },
+   {
+    "anchor": "a consumed site keeps a relation",
+    "disposition": "panic-arm",
+    "why": "every site consume installs a Height or Min relation before the site closes"
+   }
+  ],
+  "crates/before/src/version/skyline/fill/fuse.rs": [
+   {
+    "anchor": "a verbatim emission is matched or has diverged",
+    "disposition": "panic-arm",
+    "why": "matched emissions return before their bodies and diverging ones materialize first (the method's Panics section)"
+   },
+   {
+    "anchor": "the region splice runs post-divergence",
+    "disposition": "panic-arm",
+    "why": "continue_verbatim runs only after a divergence built the output"
+   },
+   {
+    "anchor": "Out::Built(_) => return,",
+    "disposition": "unreachable",
+    "why": "the sole call site (fill.rs, the divergence epilogue) guards with is_verbatim(), so a built output never re-enters; the arm keeps materialize idempotent"
+   },
+   {
+    "anchor": "Out::Built(builder) => return Some(builder.finish()),",
+    "offset": 1,
+    "disposition": "unreachable",
+    "why": "finish sees Unstarted only for a stream with no plateaus, and a canonical skyline stream holds at least one leaf (the codec validation contract); the debug_assert beside the arm pins matched_end == event.len()"
+   },
+   {
+    "anchor": "a present id child is a real node",
+    "disposition": "panic-arm",
+    "why": "the walk descends only into children whose presence bits are set"
+   }
+  ],
+  "crates/before/src/version/skyline/fill/prescan.rs": [
+   {
+    "anchor": "IdNode::Empty => {",
+    "offset": 1,
+    "disposition": "unreachable",
+    "why": "the pre-scan enters at a present child (a left-full site's right sibling, peeked present at the fill.rs call site), so only an empty root could read Empty, and the entry is never the root; the arm realizes min(fill(0, e)) = min(e) totally"
+   },
+   {
+    "anchor": "IdNode::Empty => {",
+    "offset": 2,
+    "disposition": "unreachable",
+    "why": "the empty-root arm, with the line above"
+   },
+   {
+    "anchor": "IdNode::Full => {",
+    "offset": 1,
+    "disposition": "unreachable",
+    "why": "every entry hands in a full child's sibling (never full: a (1, 1) node collapses under idbits' normal form) or a child the caller peeked as not-full; the inline comment carries the argument"
+   },
+   {
+    "anchor": "IdNode::Full => {",
+    "offset": 2,
+    "disposition": "unreachable",
+    "why": "the full-arm body, with the line above"
+   },
+   {
+    "anchor": "IdNode::Full => {",
+    "offset": 3,
+    "disposition": "unreachable",
+    "why": "the full-arm body, with the line above"
+   }
+  ],
+  "crates/before/src/version/skyline/grow.rs": [
+   {
+    "anchor": "a full id over an event node collapses under fill",
+    "disposition": "panic-arm",
+    "why": "grow inflates only the unchanged branch, where a fully-owned terminal covers a single event leaf: a full id over an event node collapses under fill and trips the changed flag first, so the inflation walk never meets one"
+   }
+  ],
+  "crates/before/src/version/skyline/literal.rs": [
+   {
+    "anchor": "(n, m, m) collapses to a leaf",
+    "disposition": "remediation",
+    "why": "constructible through the public TryFrom surface: a node literal with two equal-height zero-leaf children, e.g. (n, 0, 0); no negative-parse test drives the collapse rejection. Family needed: non-normal-form literal rejections."
+   },
+   {
+    "anchor": "prev.clone() - &magnitude",
+    "disposition": "remediation",
+    "why": "constructible: a nested literal whose later leaf sits lower than an earlier one takes the negative-delta branch; every committed literal ascends. Family needed: descending nested literals."
+   }
+  ],
+  "crates/before/src/version/skyline/masked.rs": [
+   {
+    "anchor": "Self::B_MASK => self.b_mask.as_ref().map_or(0, PlateauCursor::depth),",
+    "offset": 1,
+    "disposition": "panic-arm",
+    "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly four"
+   },
+   {
+    "anchor": "Self::B_MASK => {",
+    "offset": 7,
+    "disposition": "panic-arm",
+    "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly four"
+   }
+  ],
+  "crates/before/src/version/skyline/overlay.rs": [
+   {
+    "anchor": "the advanced cursor is never at its final leaf: an all-right path means the stream is consumed",
+    "offset": -1,
+    "disposition": "panic-arm",
+    "why": "the sweep stops when both cursors are done; the module doc's bookkeeping shows a final leaf is never the advanced side"
+   },
+   {
+    "anchor": "the advanced cursor is never at its final region: an all-right path means the stream is consumed",
+    "offset": -1,
+    "disposition": "panic-arm",
+    "why": "the region walk's twin of the leaf walk's final-leaf invariant"
+   }
+  ],
+  "crates/before/src/version/skyline/place.rs": [
+   {
+    "anchor": "Self::END => self.end.as_ref().map_or(0, |side| side.cursor.depth()),",
+    "offset": 1,
+    "disposition": "panic-arm",
+    "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly three"
+   },
+   {
+    "anchor": "Self::END => Self::step_bound(&mut self.end),",
+    "offset": 1,
+    "disposition": "panic-arm",
+    "why": "advance_set steps only slots the roster's priority() yields (the overlay advance law), and the roster names exactly three"
+   }
+  ],
+  "crates/before/src/version/skyline/query/integral.rs": [
+   {
+    "anchor": ".add_magnitude_shl(&segment, segment_shift);",
+    "offset": 6,
+    "disposition": "remediation",
+    "why": "reachable in principle: the parked accumulator's spelling is lazy, so entries can cancel to an exact zero that is_literally_zero cannot see; no committed population cancels exactly at a later freeze. Family needed: exact parked cancellation across freezes."
+   },
+   {
+    "anchor": "self.banked_window = Accumulator::new();",
+    "offset": 1,
+    "disposition": "remediation",
+    "why": "reachable in principle: promote fires on the parked spelling's width, which an exactly-canceling spelling can trip at zero magnitude; the skip-arming reset then runs. Same exact-cancellation family as the settle_segment guard."
+   }
+  ],
+  "crates/before/src/version/skyline/watermark.rs": [
+   {
+    "anchor": "residue.sub_accum(&diff);",
+    "offset": 5,
+    "disposition": "remediation",
+    "why": "reachable in principle: the accumulator's redundant spelling can leave a residue two digits wider whose top-index domination read is undecided, falling through to the total fold; no committed population constructs one. Family needed: a redundant-spelling wide residue — or an argument that collapse keeps spellings canonical here, moving this to unreachable."
+   }
+  ]
+ },
+ "branch": {
+  "crates/before/src/version/skyline/build.rs": [
+   {
+    "anchor": "first_rel_depth >= 1 && last_rel_depth >= 1,",
+    "disposition": "panic-arm",
+    "why": "the untaken directions are the assertion's failure arms"
+   }
+  ],
+  "crates/before/src/version/skyline/fill.rs": [
+   {
+    "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
+    "disposition": "panic-arm",
+    "why": "the untaken directions are the assertion's failure arms"
+   }
+  ],
+  "crates/before/src/version/skyline/fill/prescan.rs": [
+   {
+    "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
+    "disposition": "panic-arm",
+    "why": "the untaken directions are the assertion's failure arms"
+   }
+  ],
+  "crates/before/src/version/skyline/literal.rs": [
+   {
+    "anchor": "if left_topology.len() == 1 && right_topology.len() == 1",
+    "disposition": "remediation",
+    "why": "the all-true direction is the (n, m, m) collapse rejection, which no negative-parse test drives (the line pin's twin entry)"
+   },
+   {
+    "anchor": "if sign.is_negative() {",
+    "disposition": "remediation",
+    "why": "the negative direction is the descending nested literal, which no committed literal spells (the line pin's twin entry)"
+   }
+  ],
+  "crates/before/src/version/skyline/masked.rs": [
+   {
+    "anchor": "directions.le && directions.ge,",
+    "disposition": "panic-arm",
+    "why": "the untaken directions are the assertion's failure arms"
+   },
+   {
+    "anchor": "self.b.skip_deeper(b_bound, &mut net);",
+    "offset": 2,
+    "disposition": "remediation",
+    "why": "reachable in principle: a one-sided population (B mask present, A mask absent) whose B side deep-skips takes the None direction; no committed masked family drives it. The dead direction carries no code (the height integrator does not exist), so the exposure is population blindness. Family needed: one-sided-mask deep skips."
+   }
+  ],
+  "crates/before/src/version/skyline/sweep.rs": [
+   {
+    "anchor": "directions.le && directions.ge,",
+    "disposition": "panic-arm",
+    "why": "the untaken directions are the assertion's failure arms"
+   }
+  ],
+  "crates/before/src/version/skyline/text.rs": [
+   {
+    "anchor": "open.is_empty() && lefts.is_empty(),",
+    "disposition": "panic-arm",
+    "why": "the untaken directions are the assertion's failure arms"
+   }
+  ],
+  "crates/before/src/version/skyline/place/filter.rs": [],
+  "crates/before/src/version/skyline/query/integral.rs": [
+   {
+    "anchor": "digit != 0 && digit.unsigned_abs() <= 1 << 31,",
+    "disposition": "panic-arm",
+    "why": "the untaken directions are the assertion's failure arms"
+   },
+   {
+    "anchor": ".add_magnitude_shl(&segment, segment_shift);",
+    "offset": 5,
+    "disposition": "remediation",
+    "why": "an exactly-canceling parked spelling never arrives at a segment settle (the line pin's twin entry: the exact-cancellation family)"
+   },
+   {
+    "anchor": "fn promote(&mut self) {",
+    "offset": 2,
+    "disposition": "remediation",
+    "why": "promote never sees an exactly-canceling parked spelling (the line pin's twin entry: the exact-cancellation family)"
+   }
+  ],
+  "crates/before/src/version/skyline/query/web.rs": [
+   {
+    "anchor": "if drift != UBig::ZERO {",
+    "disposition": "remediation",
+    "why": "reachable in principle: a redundantly spelled zero drift at an epoch freeze; same exact-cancellation genre as the integral guards. Family needed: exact drift cancellation at a freeze."
+   }
+  ],
+  "crates/before/src/version/skyline/signed.rs": [
+   {
+    "anchor": "!sign.is_negative() || magnitude != Base::ZERO,",
+    "disposition": "panic-arm",
+    "why": "the untaken direction is the assertion's failure arm"
+   },
+   {
+    "anchor": "!sign.is_negative() || *magnitude != Base::ZERO,",
+    "disposition": "panic-arm",
+    "why": "the untaken direction is the assertion's failure arm"
+   },
+   {
+    "anchor": "!sign.is_negative() || *mag != 0,",
+    "disposition": "panic-arm",
+    "why": "the untaken direction is the assertion's failure arm"
+   }
+  ],
+  "crates/before/src/version/skyline/watermark.rs": [
+   {
+    "anchor": "the residue is strictly positive",
+    "offset": -1,
+    "disposition": "remediation",
+    "why": "two untaken directions: the undecided wide-residue read (reachable in principle via a redundant spelling; the family shared with the guard's fall-through) and the assertion's failure arm"
+   },
+   {
+    "anchor": "residue.sign_dominates_at(diff.digit_count() - 1);",
+    "offset": 5,
+    "disposition": "remediation",
+    "why": "the undecided direction of the width guard (the redundant-spelling family, shared with the fall-through's line entry); the non-Greater direction is the positivity invariant's violation arm (the debug_assert above pins it)"
+   },
+   {
+    "anchor": "stacked differences are strictly positive",
+    "offset": -1,
+    "disposition": "panic-arm",
+    "why": "only the assertion's failure arm is untaken; the undecided read occurs on this guard"
+   },
+   {
+    "anchor": "diff.sign_dominates_at(residue.digit_count() - 1);",
+    "offset": 5,
+    "disposition": "unreachable",
+    "why": "the decided-non-Greater direction is the positivity invariant's violation arm: stacked differences are strictly positive (the debug_assert above pins it, and the inline comment keeps the fall-through total so a violated invariant folds safely instead of wrongly)"
+   }
+  ]
+ }
 }

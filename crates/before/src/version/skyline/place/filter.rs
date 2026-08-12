@@ -84,16 +84,13 @@ pub(crate) enum Demand {
 /// One (probe, bound) pair's running comparison: the difference `height_probe −
 /// height_bound` on the cliff-immune accumulator, and the pair's surviving
 /// directions.
+///
+/// Settlement — a pair whose verdict contribution is fixed mid-walk — is the
+/// coverage walk's own notion ([`GatedPair`]); the membership walk never
+/// settles a pair, so a bare `Pair` cannot spell the state.
 struct Pair {
     diff: Accumulator,
     directions: Directions,
-    /// Whether the pair still feeds a verdict.
-    ///
-    /// A pair is *settled* — `live == false` — when a refutation fixed
-    /// everything the verdict will ever need from it: a settled pair stops
-    /// folding and reading (its stream may still advance for the other pair
-    /// riding the same cursor).
-    live: bool,
 }
 
 impl Pair {
@@ -105,7 +102,6 @@ impl Pair {
         Pair {
             diff,
             directions: Directions::new(),
-            live: true,
         }
     }
 
@@ -117,6 +113,27 @@ impl Pair {
     /// The relation the completed sweep decided, as the causal order.
     fn relation(&self) -> Option<Ordering> {
         self.directions.relation()
+    }
+}
+
+/// A coverage pair and whether it still feeds the verdict.
+///
+/// A pair is *settled* — `live == false` — when a refutation fixed everything
+/// the verdict will ever need from it: a settled pair stops folding and
+/// reading (its stream may still advance for the other pair riding the same
+/// cursor).
+struct GatedPair {
+    pair: Pair,
+    live: bool,
+}
+
+impl GatedPair {
+    /// A live pair over the two streams' absolute first heights.
+    fn open(probe_first: &Int, bound_first: &Int) -> GatedPair {
+        GatedPair {
+            pair: Pair::open(probe_first, bound_first),
+            live: true,
+        }
     }
 }
 
@@ -252,17 +269,19 @@ impl CursorSet for MemberCursors<'_> {
         }
     }
 
-    /// The probe's step folds its crossing into every live pair as the `A`
-    /// operand; a bound's step folds into its own pair as the `B` operand
-    /// (skipped for a settled pair, whose stream advances unread).
+    /// The probe's step folds its crossing into every surviving side's pair as
+    /// the `A` operand; a bound's step folds into its own pair as the `B`
+    /// operand.
+    ///
+    /// Every present side's pair reads every interval: membership never
+    /// settles a pair — a satisfied hole drops its whole side — so presence
+    /// is the only gate.
     fn step(&mut self, slot: usize) -> usize {
         match slot {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
                 for side in self.sides.iter_mut().flatten() {
-                    if side.pair.live {
-                        fold(&mut side.pair.diff, Side::A, step.sign, &step.magnitude);
-                    }
+                    fold(&mut side.pair.diff, Side::A, step.sign, &step.magnitude);
                 }
                 flip
             }
@@ -271,9 +290,7 @@ impl CursorSet for MemberCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                if side.pair.live {
-                    fold(&mut side.pair.diff, Side::B, step.sign, &step.magnitude);
-                }
+                fold(&mut side.pair.diff, Side::B, step.sign, &step.magnitude);
                 flip
             }
         }
@@ -288,9 +305,9 @@ struct SpanSide<'a> {
     cursor: LeafCursor<'a>,
     demand: Demand,
     /// The pair against the segment's minimum endpoint.
-    lo: Pair,
+    lo: GatedPair,
     /// The pair against the segment's maximum endpoint.
-    hi: Pair,
+    hi: GatedPair,
 }
 
 /// How much of the segment `[lo, hi]` a query's demands admit, every stream
@@ -321,8 +338,8 @@ pub(crate) fn coverage<'a>(
             Some(SpanSide {
                 cursor,
                 demand,
-                lo: Pair::open(&lo_first, &first),
-                hi: Pair::open(&hi_first, &first),
+                lo: GatedPair::open(&lo_first, &first),
+                hi: GatedPair::open(&hi_first, &first),
             })
         })
         .collect();
@@ -343,23 +360,23 @@ pub(crate) fn coverage<'a>(
         for slot in &mut walk.sides {
             let Some(side) = slot else { continue };
             if side.lo.live {
-                side.lo.read();
+                side.lo.pair.read();
             }
             if side.hi.live {
-                side.hi.read();
+                side.hi.pair.read();
             }
             match side.demand {
                 // The floor admitting nothing — not even the segment's maximum
                 // — is a refutation: the earliest bail, the verdict a pruning
                 // walk wants fastest.
                 Demand::After => {
-                    if !side.hi.directions.ge {
+                    if !side.hi.pair.directions.ge {
                         return Coverage::Empty;
                     }
                     // Admitting everything needs `floor <= lo`; its refutation
                     // settles the lo pair (not Full, not this bound's emptiness
                     // — that reads the hi pair).
-                    if side.lo.live && !side.lo.directions.ge {
+                    if side.lo.live && !side.lo.pair.directions.ge {
                         full_possible = false;
                         side.lo.live = false;
                     }
@@ -367,10 +384,10 @@ pub(crate) fn coverage<'a>(
                 // The ceiling dually: admitting nothing is a refutation on the
                 // segment's minimum.
                 Demand::Before => {
-                    if !side.lo.directions.le {
+                    if !side.lo.pair.directions.le {
                         return Coverage::Empty;
                     }
-                    if side.hi.live && !side.hi.directions.le {
+                    if side.hi.live && !side.hi.pair.directions.le {
                         full_possible = false;
                         side.hi.live = false;
                     }
@@ -382,19 +399,27 @@ pub(crate) fn coverage<'a>(
                 // `lo <= v <= bound`, forcing the refuted `lo <= bound` (the
                 // up-set arm below dually, through `hi`). Both pairs settle by
                 // refutation, and a hole settled both ways drops its stream.
+                //
+                // Each arm re-tests only its dominated pair's liveness through
+                // the settle order: the segment's endpoints satisfy `lo <= hi`
+                // pointwise (`causally::Span`'s construction contract), so a
+                // refutation of the dominated endpoint forces the dominating
+                // one's at the same interval — checked first, in the same pass
+                // — and the joint settle drops the side before any later pass
+                // could find the dominated pair settled alone.
                 Demand::NotBefore | Demand::NotStrictlyBefore => {
-                    if side.hi.live && !side.hi.directions.le {
+                    if side.hi.live && !side.hi.pair.directions.le {
                         side.hi.live = false;
                     }
-                    if side.lo.live && !side.lo.directions.le {
+                    if !side.lo.pair.directions.le {
                         side.lo.live = false;
                     }
                 }
                 Demand::NotAfter | Demand::NotStrictlyAfter => {
-                    if side.lo.live && !side.lo.directions.ge {
+                    if side.lo.live && !side.lo.pair.directions.ge {
                         side.lo.live = false;
                     }
-                    if side.hi.live && !side.hi.directions.ge {
+                    if !side.hi.pair.directions.ge {
                         side.hi.live = false;
                     }
                 }
@@ -413,6 +438,16 @@ pub(crate) fn coverage<'a>(
         // A probe endpoint whose every pair is settled stops being scanned.
         walk.lo_live = walk.lo_live && walk.sides.iter().flatten().any(|side| side.lo.live);
         walk.hi_live = walk.hi_live && walk.sides.iter().flatten().any(|side| side.hi.live);
+        debug_assert!(
+            walk.sides.iter().flatten().all(|side| match side.demand {
+                Demand::After | Demand::Before => true,
+                Demand::NotBefore | Demand::NotStrictlyBefore => side.lo.live,
+                Demand::NotAfter | Demand::NotStrictlyAfter => side.hi.live,
+            }),
+            "a surviving hole keeps its dominated endpoint's pair live: settling \
+             it forces the dominating pair's settle at the same interval, and the \
+             joint settle drops the side"
+        );
         let exhausted = (!walk.lo_live || walk.lo.done())
             && (!walk.hi_live || walk.hi.done())
             && walk.sides.iter().flatten().all(|side| side.cursor.done());
@@ -427,19 +462,24 @@ pub(crate) fn coverage<'a>(
 
 /// Map the exhausted coverage walk's decided relations to the verdict.
 ///
-/// Division of labor with the walk: a settled pair's refutation already lives
-/// where the verdict needs it — a required demand's in `full_possible`, a
-/// hole's as the favorable answer itself — so the `!live` guards below keep
-/// `finish` from consulting a settled pair's stale `directions`. The stale
-/// directions would happen to agree (a settle-direction refutation is
-/// permanent), but that agreement is not part of the contract: only a pair
-/// alive at exhaustion answers by its decided relation.
+/// Division of labor with the walk: a settled *required* pair's refutation
+/// already lives in `full_possible`, so the `!live` guards on the two
+/// required arms keep `finish` from consulting a settled pair's stale
+/// `directions`. The stale directions would happen to agree (a
+/// settle-direction refutation is permanent), but that agreement is not part
+/// of the contract: only a pair alive at exhaustion answers by its decided
+/// relation. A hole needs no guard on its fullness endpoint: a surviving
+/// hole's dominated pair — `lo` for a down-set, `hi` for an up-set — is
+/// always alive here, because settling it forces the dominating pair's
+/// settle at the same interval and the joint settle drops the side (the walk
+/// arms' settle-order argument; the walk's per-interval assert keeps it
+/// loud).
 fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
     for side in sides.iter().flatten() {
         // Emptiness first: any bound whose subtraction covers the whole segment
         // (or whose requirement admits none of it — returned inline during the
         // walk) empties the verdict.
-        let (lo, hi) = (side.lo.relation(), side.hi.relation());
+        let (lo, hi) = (side.lo.pair.relation(), side.hi.pair.relation());
         let empty = match side.demand {
             // Their emptying refutations returned inline.
             Demand::After | Demand::Before => false,
@@ -454,22 +494,16 @@ fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
             return Coverage::Empty;
         }
         // Fullness: the bound must admit everything the segment covers
-        // (required demands inclusively: `After` admits equality). A settled
-        // pair already recorded its refutation in `full_possible`; a pair alive
-        // at exhaustion answers by its decided relation.
+        // (required demands inclusively: `After` admits equality).
         let admits_all = match side.demand {
             Demand::After => {
                 !side.lo.live || matches!(lo, Some(Ordering::Greater | Ordering::Equal))
             }
             Demand::Before => !side.hi.live || matches!(hi, Some(Ordering::Less | Ordering::Equal)),
-            Demand::NotBefore => {
-                !side.lo.live || !matches!(lo, Some(Ordering::Less | Ordering::Equal))
-            }
-            Demand::NotStrictlyBefore => !side.lo.live || lo != Some(Ordering::Less),
-            Demand::NotAfter => {
-                !side.hi.live || !matches!(hi, Some(Ordering::Greater | Ordering::Equal))
-            }
-            Demand::NotStrictlyAfter => !side.hi.live || hi != Some(Ordering::Greater),
+            Demand::NotBefore => !matches!(lo, Some(Ordering::Less | Ordering::Equal)),
+            Demand::NotStrictlyBefore => lo != Some(Ordering::Less),
+            Demand::NotAfter => !matches!(hi, Some(Ordering::Greater | Ordering::Equal)),
+            Demand::NotStrictlyAfter => hi != Some(Ordering::Greater),
         };
         full_possible &= admits_all;
     }
@@ -549,7 +583,7 @@ impl CursorSet for SpanCursors<'_> {
                 let (flip, step) = self.hi.step();
                 for side in self.sides.iter_mut().flatten() {
                     if side.hi.live {
-                        fold(&mut side.hi.diff, Side::A, step.sign, &step.magnitude);
+                        fold(&mut side.hi.pair.diff, Side::A, step.sign, &step.magnitude);
                     }
                 }
                 flip
@@ -558,7 +592,7 @@ impl CursorSet for SpanCursors<'_> {
                 let (flip, step) = self.lo.step();
                 for side in self.sides.iter_mut().flatten() {
                     if side.lo.live {
-                        fold(&mut side.lo.diff, Side::A, step.sign, &step.magnitude);
+                        fold(&mut side.lo.pair.diff, Side::A, step.sign, &step.magnitude);
                     }
                 }
                 flip
@@ -568,9 +602,9 @@ impl CursorSet for SpanCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                for pair in [&mut side.lo, &mut side.hi] {
-                    if pair.live {
-                        fold(&mut pair.diff, Side::B, step.sign, &step.magnitude);
+                for gated in [&mut side.lo, &mut side.hi] {
+                    if gated.live {
+                        fold(&mut gated.pair.diff, Side::B, step.sign, &step.magnitude);
                     }
                 }
                 flip

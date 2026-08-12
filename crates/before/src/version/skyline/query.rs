@@ -311,12 +311,15 @@ fn pair_integral(
 /// `orientation` is the integrand family's one degree of freedom (the module
 /// doc's σ table): handed `sign(D)`, it answers the coefficient `σ ∈ {−1, 0,
 /// +1}`, and the walk integrates `σ·D` on the anchored-segment split (the
-/// [`integral`] submodule). The contract is that σ depends on nothing but the
-/// sign — so σ is constant on intervals of constant `D`-sign, which is what
-/// prices every orientation change at the boundary that moved the sign. Each
-/// caller's closure is monomorphized, the [`super::overlay::advance`] /
-/// [`crate::fold::balanced_try_fold`] spelling for an open algebra over one
-/// fixed walk.
+/// [`integral`] submodule). The contract is two clauses. σ depends on nothing
+/// but the sign — so σ is constant on intervals of constant `D`-sign, which
+/// is what prices every orientation change at the boundary that moved the
+/// sign. And σ is **monotone non-decreasing in the sign** (every row of the
+/// module doc's table is) — which makes every orientation-change term `(σ′ −
+/// σ) · D′` a debit, the invariant [`Integrator::jump`]'s unconditional add
+/// rests on. Each caller's closure is monomorphized, the
+/// [`super::overlay::advance`] / [`crate::fold::balanced_try_fold`] spelling
+/// for an open algebra over one fixed walk.
 ///
 /// # Panics
 ///

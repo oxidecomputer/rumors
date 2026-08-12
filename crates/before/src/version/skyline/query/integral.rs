@@ -461,9 +461,13 @@ pub(super) fn charge_digits(
     factor: &Base,
     digits: &[(u64, i64)],
 ) {
-    if digits.is_empty() || *factor == Base::ZERO {
-        return;
-    }
+    // Total with no identity fast path: an empty digit run yields no
+    // clusters, so the loop is the no-op it should be, and both callers
+    // (the segment settles and the aggregate merges) already skip
+    // zero-valued factors at the sign reads that price them. A guard here
+    // would itself be metered width-scale work: `Base` equality records its
+    // operands' limbs, so a per-charge zero test taxes every settle by the
+    // factor's width.
     let gap_limit = base_digits(factor) as u64;
     for cluster in clusters(digits, gap_limit) {
         if let [(index, digit)] = *cluster {
@@ -802,19 +806,27 @@ impl Integrator {
     /// `|D′|` by the deltas the boundary folded; the sign read that decided the
     /// new orientation has already collapsed the difference's spelling, so the
     /// read is priced by those same codes.
+    ///
+    /// The term is always a debit. The orientation contract (the σ table's
+    /// monotonicity, [`pair_fold`](super::pair_fold)'s closure contract)
+    /// derives it: σ non-decreasing in `sign(D)` means a nonzero coefficient
+    /// `σ′ − σ` agrees in sign with the move `sign(D′) − sign(D)`, and a
+    /// changed sign whose new value is nonzero agrees with `D′` itself — a
+    /// zero `D′` returned above — so `(σ′ − σ) · D′ > 0` on every fold that
+    /// reaches the add.
     pub(super) fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
         let (sign, magnitude) = diff.sign_magnitude();
         if magnitude == UBig::ZERO {
             return;
         }
         let magnitude = Base::from(magnitude);
-        let negative = (coefficient < 0) != (sign == Ordering::Less);
+        debug_assert_eq!(
+            coefficient < 0,
+            sign == Ordering::Less,
+            "a monotone orientation's change term is a debit"
+        );
         let shift = if coefficient.abs() == 2 { 1 } else { 0 };
-        if negative {
-            self.live.sub_magnitude_shl(&magnitude, shift);
-        } else {
-            self.live.add_magnitude_shl(&magnitude, shift);
-        }
+        self.live.add_magnitude_shl(&magnitude, shift);
     }
 
     /// The end-of-boundary trigger: park the live drift when this boundary's
@@ -1033,10 +1045,12 @@ impl Integrator {
             windows.merge(&arming.window, arming.shift);
             leaves.push(Aggregate { parked, windows });
         }
+        // The final window is nonzero — the drivers' loops credit an interval
+        // after every boundary, so the segment banked behind the last freeze
+        // carries mass — but nothing here rests on it: a zero mass merges as
+        // the no-op its empty limb walk makes it.
         let mut windows = WindowMass::new();
-        if final_window_magnitude != UBig::ZERO {
-            windows.merge(&final_window_magnitude, final_window_shift);
-        }
+        windows.merge(&final_window_magnitude, final_window_shift);
         leaves.push(Aggregate {
             parked: Accumulator::new(),
             windows,
@@ -1112,10 +1126,11 @@ impl Integrator {
                 Ordering::Less,
                 "interval masses only accumulate"
             );
-            if segment_magnitude != UBig::ZERO {
-                self.banked_window
-                    .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
-            }
+            // Nonzero by the drivers' loop shape (an interval always follows
+            // the last freeze), and harmless when zero: a zero magnitude
+            // banks nothing.
+            self.banked_window
+                .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
             self.settle_armings();
         }
         if !self.base.is_literally_zero() {

@@ -125,7 +125,12 @@ pub(super) fn mul_into(
     shift: u64,
     subtract: bool,
 ) {
-    if *factor == Base::ZERO || *digits == Base::ZERO {
+    // Both callers hand in nonzero counts (a settled reign counts at least
+    // its one close; the ledger settle skips zero suffixes), and a zero
+    // `digits` operand would fall through the empty digit walk below as a
+    // no-op anyway; a zero factor is the one identity worth skipping — a
+    // reign offset sitting exactly at its epoch's frozen component.
+    if *factor == Base::ZERO {
         return;
     }
     let mut carry = 0u64;
