@@ -620,9 +620,8 @@ proptest! {
     /// exceeds the ticks actually performed.
     ///
     /// Cross-checks the fold itself against the recursive oracle's sum-of-bases
-    /// (`oracle::Version::min_ticks`); the function-space leg
-    /// (`min_ticks_realizes_base_sum`) supplies the independent second
-    /// computation.
+    /// (`oracle::Version::min_ticks`); the min_ticks descriptor's fs leg
+    /// supplies the independent second computation.
     #[test]
     fn min_ticks_floors_every_history(ops in world_strategy()) {
         let total = trace_ticks(&ops);

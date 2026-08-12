@@ -381,20 +381,20 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Party::is_disjoint",
         prod_tree: Leg::Bound("party_disjointness_matches_the_oracle"),
-        prod_fs: Leg::Bound("replay_matches_across_references"),
-        tree_fs: Leg::Bound("replay_matches_across_references"),
+        prod_fs: Leg::Trans("party_disjointness_matches_the_oracle"),
+        tree_fs: Leg::Bound("party_disjointness_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Party::covers",
         prod_tree: Leg::Bound("party_covers_matches_the_oracle"),
-        prod_fs: Leg::Trans("covers_realizes_containment"),
-        tree_fs: Leg::Bound("covers_realizes_containment"),
+        prod_fs: Leg::Trans("party_covers_matches_the_oracle"),
+        tree_fs: Leg::Bound("party_covers_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Party::without",
         prod_tree: Leg::Bound("party_without_matches_the_oracle"),
-        prod_fs: Leg::Trans("without_realizes_region_difference"),
-        tree_fs: Leg::Bound("without_realizes_region_difference"),
+        prod_fs: Leg::Trans("party_without_matches_the_oracle"),
+        tree_fs: Leg::Bound("party_without_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Party::dangerously_alias",
@@ -445,14 +445,14 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Version::min_ticks",
         prod_tree: Leg::Bound("version_min_ticks_matches_the_oracle"),
-        prod_fs: Leg::Trans("min_ticks_realizes_base_sum"),
-        tree_fs: Leg::Bound("min_ticks_realizes_base_sum"),
+        prod_fs: Leg::Trans("version_min_ticks_matches_the_oracle"),
+        tree_fs: Leg::Bound("version_min_ticks_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Version::rank",
         prod_tree: Leg::Bound("version_rank_matches_the_oracle"),
-        prod_fs: Leg::Bound("rank_realizes_riemann_sum"),
-        tree_fs: Leg::Bound("rank_realizes_riemann_sum"),
+        prod_fs: Leg::Trans("version_rank_matches_the_oracle"),
+        tree_fs: Leg::Bound("version_rank_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Version::ranked",
@@ -645,14 +645,14 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Clock::own_version",
         prod_tree: Leg::Bound("clock_own_version_matches_the_oracle"),
-        prod_fs: Leg::Trans("quotient_realizes_region_mask"),
-        tree_fs: Leg::Bound("quotient_realizes_region_mask"),
+        prod_fs: Leg::Trans("clock_own_version_matches_the_oracle"),
+        tree_fs: Leg::Bound("clock_own_version_matches_the_oracle"),
     },
     SurfaceRow {
         op: "OwnVersion::to_version",
         prod_tree: Leg::Bound("version_projection_matches_the_oracle"),
-        prod_fs: Leg::Trans("quotient_realizes_region_mask"),
-        tree_fs: Leg::Bound("quotient_realizes_region_mask"),
+        prod_fs: Leg::Trans("version_projection_matches_the_oracle"),
+        tree_fs: Leg::Bound("version_projection_matches_the_oracle"),
     },
     codec_row("Clock::encode"),
     encode_to_row("Clock::encode_to"),
@@ -980,8 +980,8 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Version & Version (BitAnd/BitAndAssign, owned and borrowed)",
         prod_tree: Leg::Bound("version_meet_matches_the_oracle"),
-        prod_fs: Leg::Trans("meet_realizes_pointwise_min"),
-        tree_fs: Leg::Bound("meet_realizes_pointwise_min"),
+        prod_fs: Leg::Trans("version_meet_matches_the_oracle"),
+        tree_fs: Leg::Bound("version_meet_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Version ^ Version (BitXor, owned and borrowed — the pair hull)",
@@ -1046,20 +1046,20 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "&Version / &Party (Div — the lazy projection view)",
         prod_tree: Leg::Bound("version_projection_matches_the_oracle"),
-        prod_fs: Leg::Trans("quotient_realizes_region_mask"),
-        tree_fs: Leg::Bound("quotient_realizes_region_mask"),
+        prod_fs: Leg::Trans("version_projection_matches_the_oracle"),
+        tree_fs: Leg::Bound("version_projection_matches_the_oracle"),
     },
     SurfaceRow {
         op: "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
         prod_tree: Leg::Bound("own_version_cmp_matches_the_oracle"),
         prod_fs: Leg::Trans("own_version_cmp_matches_materialized"),
-        tree_fs: Leg::Trans("quotient_realizes_region_mask"),
+        tree_fs: Leg::Trans("version_projection_matches_the_oracle"),
     },
     SurfaceRow {
         op: "OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)",
         prod_tree: Leg::Bound("own_version_pair_cmp_matches_the_oracle"),
         prod_fs: Leg::Trans("own_version_pair_cmp_matches_materialized"),
-        tree_fs: Leg::Trans("quotient_realizes_region_mask"),
+        tree_fs: Leg::Trans("version_projection_matches_the_oracle"),
     },
     SurfaceRow {
         op: "From<OwnVersion> for Version (explicit materialization)",

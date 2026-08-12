@@ -15,14 +15,13 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use super::{
-    descend, diff, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
-    lift_ev, lift_id, meet, min_ticks, project, rank, seed_id, sum, Dyadic, Event, FunctionClock,
-    Id, GRID_N,
+    descend, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
+    lift_ev, lift_id, meet, rank, seed_id, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
 use crate::testing::bridge::from_oracle_version;
-use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::MAX_TRACE_OPS;
 use crate::testing::optrace::{world_strategy, Op};
 use crate::Clock;
@@ -218,110 +217,6 @@ proptest! {
 
 // ───────────────────────────── operation cross-checks ─────────────────────────────
 
-proptest! {
-    /// The tree oracle's `meet` (`&`) realizes the function-space pointwise
-    /// minimum: lifting `a & b` to the function space equals `meet(⟦a⟧, ⟦b⟧)`.
-    ///
-    /// This is the explicit, shares-no-recursion proof that the tree recursion
-    /// computes the true GLB — the dual of the pointwise maximum that the
-    /// keystone replay exercises implicitly through `join`/`send`. Resolved at
-    /// the grid both lifted trees settle on.
-    #[test]
-    fn meet_realizes_pointwise_min(a in arb_oracle_version(), b in arb_oracle_version()) {
-        let g = grid_for(&[ev_depth(&a), ev_depth(&b)]);
-        let tree_meet = lift_ev(a.clone() & b.clone());
-        let fn_meet = meet(lift_ev(a), lift_ev(b));
-        prop_assert!(ev_eq(&tree_meet, &fn_meet, g));
-    }
-}
-
-proptest! {
-    /// The tree oracle's `without` (id region difference) realizes the
-    /// function-space pointwise mask `a ∧ ¬b`: lifting `a.without(&b)` equals
-    /// `diff(⟦a⟧, ⟦b⟧)`.
-    ///
-    /// The id-side analogue of [`meet_realizes_pointwise_min`], sharing no
-    /// recursion with the tree model — the independent witness that the tree
-    /// difference carves exactly the unowned-by-`b` part of `a`. Arbitrary
-    /// (often overlapping, sometimes covering) pairs reach the empty result,
-    /// the all-`false` function.
-    #[test]
-    fn without_realizes_region_difference(a in arb_oracle_party(), b in arb_oracle_party()) {
-        let g = grid_for(&[id_depth(&a), id_depth(&b)]);
-        let tree_diff = lift_id(a.without(&b));
-        let fn_diff = diff(lift_id(a), lift_id(b));
-        prop_assert!(id_eq(&tree_diff, &fn_diff, g));
-    }
-}
-
-proptest! {
-    /// The tree oracle's quotient `v / p` realizes the function-space mask
-    /// `project(⟦v⟧, ⟦p⟧)`: keep the value where `p` owns the region, zero it
-    /// everywhere else.
-    ///
-    /// Shares no recursion with the tree model — the independent witness that
-    /// projection masks exactly the owned region (the event-side analogue of
-    /// [`meet_realizes_pointwise_min`]).
-    #[test]
-    fn quotient_realizes_region_mask(v in arb_oracle_version(), p in arb_oracle_party_nonempty()) {
-        let g = grid_for(&[ev_depth(&v), id_depth(&p)]);
-        let tree_q = lift_ev(&v / &p);
-        let fn_q = project(lift_ev(v), lift_id(p));
-        prop_assert!(ev_eq(&tree_q, &fn_q, g));
-    }
-}
-
-proptest! {
-    /// The tree oracle's `covers` realizes function-space region containment:
-    /// `a.covers(&b)` holds exactly when `⟦a⟧ ⊇ ⟦b⟧`.
-    ///
-    /// Every point `b` owns is owned by `a` too — which `id_order` reports as
-    /// `Less`/`Equal` (an ancestor reads as `Less`). The independent witness
-    /// that tree covering is geometric containment, including the
-    /// partial-overlap case where neither covers the other (`id_order` is
-    /// `None`).
-    #[test]
-    fn covers_realizes_containment(a in arb_oracle_party(), b in arb_oracle_party()) {
-        let g = grid_for(&[id_depth(&a), id_depth(&b)]);
-        let covered = a.covers(&b);
-        let order = id_order(&lift_id(a), &lift_id(b), g);
-        prop_assert_eq!(covered, matches!(order, Some(Ordering::Less | Ordering::Equal)));
-    }
-}
-
-proptest! {
-    /// The tree oracle's `min_ticks` (sum of every base) is recovered from the
-    /// step function by `min_ticks` pulling up per-node floors over the dyadic
-    /// subdivision.
-    ///
-    /// The geometric mirror of normalization, sharing no code with the tree.
-    /// Resolved at the grid the lifted event settles on.
-    #[test]
-    fn min_ticks_realizes_base_sum(v in arb_oracle_version()) {
-        let g = grid_for(&[ev_depth(&v)]);
-        let want = v.min_ticks();
-        let got = crate::Ticks(min_ticks(&lift_ev(v), g));
-        prop_assert_eq!(got, want);
-    }
-}
-
-proptest! {
-    /// All three references agree on the causal rank: the impl's
-    /// cursor-threaded `rank` fold, the tree oracle's recursive fold, and the
-    /// function space's plain Riemann sum over the resolving grid.
-    ///
-    /// The Riemann sum shares no recursion, no per-node bases, and no
-    /// normalization with either tree, so a formula bug the folds shared could
-    /// not hide here.
-    #[test]
-    fn rank_realizes_riemann_sum(v in arb_oracle_version()) {
-        let g = grid_for(&[ev_depth(&v)]);
-        let want = from_oracle_version(&v).rank();
-        prop_assert_eq!(v.rank(), want.clone());
-        prop_assert_eq!(rank(&lift_ev(v), g), want);
-    }
-}
-
 // ───────────────────────────── law suite (the function-space model is a sound ITC) ─────────────────────────────
 
 proptest! {
@@ -511,7 +406,7 @@ fn right_comb(d: u32) -> oracle::Version {
 /// The committed known-bad reference for the prod↔fs leg
 /// (`crate::testing::surface_coverage`'s tripwire roster):
 /// [`rank_differential_convicts_the_cell_dropping_riemann_sum`] holds it
-/// convicted by the same comparison [`rank_realizes_riemann_sum`]
+/// convicted by the same comparison the rank descriptor's fs leg
 /// performs.
 fn riemann_sum_dropping_the_last_cell(e: &Event, g: u32) -> crate::Rank {
     let mut total = Base::ZERO;

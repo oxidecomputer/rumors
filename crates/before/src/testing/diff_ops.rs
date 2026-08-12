@@ -353,10 +353,14 @@ diff_ops! {
     ///
     /// Production answers lazily and materializes on demand, so the
     /// production leg spells the materialization the oracle's projection
-    /// returns directly.
+    /// returns directly. The function space realizes it as the pointwise
+    /// mask — keep the value where the id owns the region, zero it
+    /// everywhere else — the shares-no-recursion witness that projection
+    /// masks exactly the owned region.
     fn version_projection_matches_the_oracle {
         prod: (&a / &p).to_version(),
         tree: a / &p,
+        fs(_g): semantic_oracle::project(a, p),
     }
 }
 
@@ -406,11 +410,15 @@ diff_ops! {
     pub(crate) static CLOCK_SOLO: (c: clock);
 
     /// `own_version`: the clock's history inside the region its own id
-    /// holds, which production answers lazily and the oracle answers by
-    /// projection.
+    /// holds.
+    ///
+    /// Production answers lazily, the oracle answers by projection, and
+    /// the function space answers as the pointwise mask of the clock's
+    /// step function by its own characteristic function.
     fn clock_own_version_matches_the_oracle {
         prod: c.own_version().to_version(),
         tree: c.own_version(),
+        fs(_g): semantic_oracle::project(c.ev, c.id),
     }
 }
 
@@ -439,22 +447,41 @@ diff_ops! {
     pub(crate) static PARTY_PAIR: (a: party, b: party);
 
     /// `covers`: one region contains the other.
+    ///
+    /// Geometrically, every point `b` owns is owned by `a` too, which the
+    /// function space's containment order reports as `Less`/`Equal` (an
+    /// ancestor reads as `Less`), the partial-overlap `None` arm
+    /// included.
     fn party_covers_matches_the_oracle {
         prod: a.covers(&b),
         tree: a.covers(&b),
+        fs(g): matches!(
+            semantic_oracle::id_order(&a, &b, g),
+            Some(Ordering::Less | Ordering::Equal)
+        ),
     }
 
-    /// `is_disjoint`: the two regions share nothing.
+    /// `is_disjoint`: the two regions share nothing — geometrically, no
+    /// grid point owned by both.
+    ///
+    /// This population is where the fs leg's `false` arm lives: the
+    /// replay's single-seed populations keep every live pair disjoint, so
+    /// only the arbitrary overlapping pairs here drive the geometric scan
+    /// to a shared point.
     fn party_disjointness_matches_the_oracle {
         prod: a.is_disjoint(&b),
         tree: a.is_disjoint(&b),
+        fs(g): semantic_oracle::disjoint(&a, &b, g),
     }
 
     /// `without`: the region difference, which production answers as
-    /// `None` where the oracle answers with the empty region.
+    /// `None` where the oracle answers with the empty region — and the
+    /// function space as the pointwise mask `a ∧ ¬b`, the all-`false`
+    /// function when `b` covers `a`.
     fn party_without_matches_the_oracle {
         prod: a.without(&b),
         tree: a.without(&b),
+        fs(_g): semantic_oracle::diff(a, b),
     }
 }
 
@@ -467,15 +494,26 @@ diff_ops! {
     pub(crate) static VERSION_SOLO: (a: version);
 
     /// `min_ticks`: the events every region of the history has seen.
+    ///
+    /// The function space recovers it by pulling per-node floors up the
+    /// dyadic subdivision — the geometric mirror of tree normalization,
+    /// sharing no code with either fold.
     fn version_min_ticks_matches_the_oracle {
         prod: a.min_ticks(),
         tree: a.min_ticks(),
+        fs(g): crate::Ticks(semantic_oracle::min_ticks(&a, g)),
     }
 
-    /// `rank`: the area the history covers, against the oracle's fold.
+    /// `rank`: the area the history covers, against the oracle's fold and
+    /// the function space's plain Riemann sum over the resolving grid.
+    ///
+    /// The Riemann sum has no recursion, no per-node bases, and no
+    /// normalization sink, so a formula bug the two tree folds shared
+    /// could not hide here.
     fn version_rank_matches_the_oracle {
         prod: a.rank(),
         tree: a.rank(),
+        fs(g): semantic_oracle::rank(&a, g),
     }
 }
 
@@ -495,10 +533,16 @@ diff_ops! {
         tree: a | b,
     }
 
-    /// The meet (`&`): the greatest lower bound of two histories.
+    /// The meet (`&`): the greatest lower bound of two histories, realized
+    /// in the function space as the pointwise minimum.
+    ///
+    /// The fs leg is the explicit, shares-no-recursion witness that the
+    /// tree recursion computes the true GLB — the dual of the pointwise
+    /// maximum the keystone replay exercises through `join`/`send`.
     fn version_meet_matches_the_oracle {
         prod: a & b,
         tree: a & b,
+        fs(_g): semantic_oracle::meet(a, b),
     }
 
     /// The causal order's verdict, the concurrent `None` arm included.
@@ -599,10 +643,6 @@ impl BespokeGenre {
 /// tiling pin until it is classified, and an entry naming a citation no row
 /// makes is a phantom that fails the same pin.
 pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
-    (
-        "covers_realizes_containment",
-        BespokeGenre::FunctionSpaceRealization,
-    ),
     ("d_fork_join_roundtrip", BespokeGenre::FallibleHandBack),
     (
         "distance_and_lag_realize_both_oracles",
@@ -621,22 +661,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
     ("master_differential", BespokeGenre::TraceLockstep),
     ("meet_all_matches_oracle", BespokeGenre::NAryFold),
     (
-        "meet_realizes_pointwise_min",
-        BespokeGenre::FunctionSpaceRealization,
-    ),
-    (
-        "min_ticks_realizes_base_sum",
-        BespokeGenre::FunctionSpaceRealization,
-    ),
-    (
-        "quotient_realizes_region_mask",
-        BespokeGenre::FunctionSpaceRealization,
-    ),
-    (
-        "rank_realizes_riemann_sum",
-        BespokeGenre::FunctionSpaceRealization,
-    ),
-    (
         "replay_matches_across_references",
         BespokeGenre::TraceLockstep,
     ),
@@ -646,10 +670,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
         BespokeGenre::FunctionSpaceRealization,
     ),
     ("sync", BespokeGenre::FallibleHandBack),
-    (
-        "without_realizes_region_difference",
-        BespokeGenre::FunctionSpaceRealization,
-    ),
 ];
 
 /// Expands to every registered descriptor group: its static, the driver
