@@ -95,6 +95,17 @@ impl Matches<oracle::Party> for Option<Party> {
     }
 }
 
+impl Matches<oracle::Party> for Party {
+    /// A plain production id, for spellings whose population guarantees
+    /// the region is live: the reference must own something, and the trees
+    /// must agree across the bridge both ways.
+    fn matches(&self, reference: &oracle::Party) -> bool {
+        !reference.is_empty()
+            && *self == bridge::from_oracle_party(reference)
+            && bridge::to_oracle_party(self) == *reference
+    }
+}
+
 impl Matches<bool> for bool {
     fn matches(&self, reference: &bool) -> bool {
         self == reference
@@ -486,6 +497,34 @@ diff_ops! {
 }
 
 diff_ops! {
+    /// The region algebra on fork-derived disjoint pairs.
+    ///
+    /// The arbitrary pair population overlaps too often to drive the
+    /// success arm of the fallible region operations, so this population
+    /// is its complement: every pair is two nonempty halves of one
+    /// region, the disjoint-success arm runs on every case, and the
+    /// driver asserts the premise per case rather than assuming it. The
+    /// hand-back arm stays with the fallible operations' own bespoke
+    /// differentials, whose contract a verdict descriptor cannot carry.
+    pub(crate) static PARTY_DISJOINT_PAIR: (a: disjoint_party, b: disjoint_party);
+
+    /// `join` on disjoint ids: the union of the two regions, which every
+    /// reference realizes without a hand-back — the function space as the
+    /// pointwise `or`.
+    fn party_disjoint_join_matches_the_oracle {
+        prod: {
+            a.join(b).expect("disjoint parties join");
+            a
+        },
+        tree: {
+            a.join(b).expect("disjoint parties join");
+            a
+        },
+        fs(_g): semantic_oracle::sum(a, b),
+    }
+}
+
+diff_ops! {
     /// The scalar quantities one history carries.
     ///
     /// Both are folds over the whole tree, so the regime that matters is
@@ -641,14 +680,18 @@ pub(crate) enum BespokeGenre {
     /// about semantics: each cell must resolve to its own impl and agree
     /// with the one source of truth. A descriptor spells one cell.
     OperandFormMatrix,
-    /// A function-space realization: the recursive oracle's operation
-    /// lifted into the function space and compared with the combinator
-    /// there.
+    /// A function-space leg of an under-determined operation, bound by
+    /// policy soundness rather than equality.
     ///
-    /// These bodies are the function-space model's own soundness suite. A
-    /// body that binds the function-space leg and the recursive-oracle leg
-    /// in one walk is bespoke on both, since splitting the walk would
-    /// re-derive one leg from the other.
+    /// §4 fixes only laws for `fork` and `event` — a disjoint cover of the
+    /// owned region, a strictly advancing local inflation — and the
+    /// references deliberately realize different valid policies:
+    /// production the minimal grow and the paper's split, the function
+    /// space a fresh random draw per call. Equality between those legs is
+    /// therefore unassertable in principle, so no fs spelling can exist
+    /// for them; their binding is the per-operation policy-law bodies this
+    /// genre holds, with cross-policy agreement on the observable order
+    /// carried by the replay keystone.
     FunctionSpaceRealization,
     /// An n-ary fold against the reference's fold over the same family.
     ///
@@ -708,10 +751,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
         BespokeGenre::TraceLockstep,
     ),
     ("sum_arbitrary", BespokeGenre::FallibleHandBack),
-    (
-        "sum_of_disjoint_is_union",
-        BespokeGenre::FunctionSpaceRealization,
-    ),
     ("sync", BespokeGenre::FallibleHandBack),
 ];
 
@@ -734,6 +773,11 @@ macro_rules! for_each_diff_group {
             (VERSION_PARTY_TICKS, version_party_ticks_ops, (version, party, ticks)),
             (PARTY_SOLO, party_solo_ops, (party)),
             (PARTY_PAIR, party_pair_ops, (party, party)),
+            (
+                PARTY_DISJOINT_PAIR,
+                party_disjoint_pair_ops,
+                (disjoint_party, disjoint_party)
+            ),
             (CLOCK_SOLO, clock_solo_ops, (clock)),
             (
                 VERSION_PARTY_VERSION,

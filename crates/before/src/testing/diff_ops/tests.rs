@@ -280,6 +280,29 @@ macro_rules! group_drivers {
             }
         }
     };
+    (@one $group:ident, $driver:ident, (disjoint_party, disjoint_party)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// fork-derived disjoint id pairs.
+            ///
+            /// The pair is the paper split of one arbitrary nonempty
+            /// region — two nonempty disjoint halves, run in both operand
+            /// orders — so the population premise the group's descriptors
+            /// rest on holds on every case, and is asserted rather than
+            /// assumed.
+            #[test]
+            fn $driver(p in arb_oracle_party_nonempty(), swap in proptest::bool::ANY) {
+                let mut a = p;
+                let b = a.fork();
+                let (a, b) = if swap { (b, a) } else { (a, b) };
+                prop_assert!(
+                    a.is_disjoint(&b),
+                    "fork halves are disjoint by construction"
+                );
+                assert_diff_ops!(super::$group, &a, &b);
+            }
+        }
+    };
     (@one $group:ident, $driver:ident, (version, party, version)) => {
         proptest! {
             /// Every descriptor in the group agrees with the oracle on
@@ -348,8 +371,9 @@ for_each_diff_group!(group_drivers);
 struct Organic<'a> {
     /// Three versions from the trace, causally related.
     v: [&'a oracle::Version; 3],
-    /// Two live ids from the same trace: siblings of one seed, and so
-    /// disjoint by construction.
+    /// Two live ids from the same trace — distinct picks are disjoint by
+    /// single-seed linearity, but the pairing indices are independent, so
+    /// the two may be the same clock's id (overlapping with itself).
     p: [&'a oracle::Party; 2],
     /// A tick count from [`DRIVEN_TICK_COUNTS`].
     n: Ticks,
@@ -378,6 +402,15 @@ macro_rules! organic_drive {
     };
     (@one $env:expr, $group:ident, (party, party)) => {
         assert_diff_ops!(super::$group, $env.p[0], $env.p[1]);
+    };
+    // A disjoint organic pair is derived, never picked: the two picks may
+    // alias the same clock's id (the pairing indices are independent), so
+    // the arm forks one organic region into its two disjoint halves — the
+    // same derivation as the arbitrary driver, on organic shapes.
+    (@one $env:expr, $group:ident, (disjoint_party, disjoint_party)) => {
+        let mut left = ::core::clone::Clone::clone($env.p[0]);
+        let right = left.fork();
+        assert_diff_ops!(super::$group, &left, &right);
     };
     (@one $env:expr, $group:ident, (version, party, version)) => {
         assert_diff_ops!(super::$group, $env.v[0], $env.p[0], $env.v[1]);

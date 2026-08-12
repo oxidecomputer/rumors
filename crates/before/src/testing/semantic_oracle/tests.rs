@@ -318,17 +318,6 @@ proptest! {
         }
         prop_assert!(advanced, "event did not advance on a nonempty id");
     }
-
-    /// `sum` of disjoint ids owns exactly their union (commutatively).
-    #[test]
-    fn sum_of_disjoint_is_union(p in arb_oracle_party_nonempty(), seed in any::<u64>()) {
-        // Fork a nonempty id into two disjoint halves, then sum them back two ways.
-        let g = (id_depth(&p) + 3).min(GRID_N);
-        let i = lift_id(p);
-        let (l, r) = super::fork(&i, &mut StdRng::seed_from_u64(seed));
-        prop_assert!(id_eq(&sum(l.clone(), r.clone()), &sum(r.clone(), l.clone()), g)); // commutative
-        prop_assert!(id_eq(&sum(l, r), &i, g));                                          // union == original
-    }
 }
 
 // ───────────────────────────── unit anchors ─────────────────────────────

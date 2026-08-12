@@ -33,8 +33,10 @@
 //!
 //! **The pointwise differential table** ([`super::diff_ops`]). One
 //! descriptor per public operation that is a pure function of ids,
-//! histories, and clocks, spelled twice — once against production, once
-//! against the recursive oracle — and driven over shared populations by
+//! histories, and clocks, spelled once per reference — against
+//! production, against the recursive oracle, and (where the
+//! function-space realization is deterministic) against the
+//! function-space combinators — and driven over shared populations by
 //! roster expansion. What it alone catches: **population holes** — an
 //! operation bisimulated on arbitrary normal forms but not on organic
 //! op-trace values, or the reverse. The hand-written bodies it replaced
