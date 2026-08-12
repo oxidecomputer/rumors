@@ -273,9 +273,7 @@ pub(crate) fn seal_padding(bits: &mut BitsMut) {
 /// under which the bytes are injective on streams — the marker pins each
 /// stream's live length inside its final byte, so no two streams of any lengths
 /// share a byte spelling — and raw-byte equality alone is exactly bit equality,
-/// decided by one `memcmp` instead of a bit-domain-chunked compare (measured
-/// 2–54x faster on equal pairs from 23 bits to 32 Kbits, and 5x on a hash-map
-/// workload, in the 2026-07 storage-migration probe).
+/// decided by one `memcmp` instead of a bit-domain-chunked compare.
 pub(crate) fn canonical_eq(a: &Bits, b: &Bits) -> bool {
     debug_assert!(
         padding_is_canonical(a) && padding_is_canonical(b),
@@ -289,8 +287,8 @@ pub(crate) fn canonical_eq(a: &Bits, b: &Bits) -> bool {
 /// [`canonical_eq`]'s hash counterpart — marker padding makes the raw bytes a
 /// complete identity (injective on streams), so the hasher is fed exactly what
 /// equality compares and equal values hash equally by construction. An order of
-/// magnitude cheaper than hashing bit by bit (same probe as
-/// [`canonical_eq`]'s).
+/// magnitude cheaper than hashing bit by bit: the hasher consumes the byte
+/// slice in one call rather than one update per bit.
 pub(crate) fn canonical_hash<H: Hasher>(bits: &Bits, state: &mut H) {
     use core::hash::Hash;
     debug_assert!(
