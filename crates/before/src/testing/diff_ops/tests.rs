@@ -186,6 +186,16 @@ fn every_descriptor_group_is_registered() {
 // compile until each consumer grows an arm. The populations are held
 // oracle-side and raised through the bridge inside each descriptor, which
 // is also why `!Clone` production types cost nothing here.
+//
+// Every arm also owes the descriptors' fs spellings a bounded population:
+// an fs leg scans `2^g` grid points at the grid `fs_grid` derives from its
+// operands' structural depths, so each arm's operands must come from a
+// depth-capped source. Both populations satisfy it by construction — the
+// arbitrary generators recurse to `generators::ARB_DEPTH`, and the organic
+// traces bound tree depth by `optrace::MAX_TRACE_OPS` (one level per op at
+// most) — and `fs_grid`'s own assert holds the one representation bound
+// (the `Dyadic` u64 index width) against a population that escapes both
+// derivations.
 
 /// The tick counts the drivers sweep.
 ///
@@ -464,6 +474,25 @@ diff_ops! {
     }
 }
 
+diff_ops! {
+    /// The mis-transcribed fs column: both walk legs spell the meet, the
+    /// function-space leg spells the join.
+    ///
+    /// The likeliest fs transcription slip is the same dual-combinator
+    /// slip the prod/tree known-bad commits — the combinators read alike
+    /// and differ in one comparison — landed on the column where only the
+    /// [`super::FsMatches`] comparison stands between it and green.
+    pub(crate) static KNOWN_BAD_FS_VERSION_PAIR: (a: version, b: version);
+
+    /// `&` on both walk legs against the pointwise max in the function
+    /// space.
+    fn fs_meet_transcribed_as_join {
+        prod: a.clone() & b.clone(),
+        tree: a.clone() & b.clone(),
+        fs(_g): crate::testing::semantic_oracle::join(a, b),
+    }
+}
+
 /// Run a version-pair group through the drivers' assertion vehicle.
 // The group's element type is the signature it carries; naming it would
 // mint a synonym per signature to appease the lint.
@@ -535,5 +564,34 @@ fn the_drivers_convict_a_mis_transcribed_descriptor() {
         check_party_pair(KNOWN_BAD_PARTY_PAIR, &keep, &keep).is_ok(),
         "the same descriptor must pass where both operand orders yield the \
          empty region"
+    );
+}
+
+/// The assertion the drivers run convicts a mis-transcribed fs spelling,
+/// and passes it exactly where the mis-transcription makes no difference.
+///
+/// The fs column's own instance of the two-direction argument above, with
+/// one sharpening: the known-bad descriptor's walk legs agree with each
+/// other (both spell the meet), so the [`FsMatches`](super::FsMatches)
+/// comparison is the only thing standing between the wrong combinator and
+/// green — a conviction here is evidence about the fs comparison
+/// specifically, not about the walk comparison beside it.
+#[test]
+fn the_drivers_convict_a_mis_transcribed_fs_realization() {
+    use crate::oracle::Version as V;
+
+    // The join and the meet of an ordered pair differ, so the swapped
+    // combinator changes the fs answer while both walk legs agree.
+    assert!(
+        check_version_pair(KNOWN_BAD_FS_VERSION_PAIR, &V::leaf(1u64), &V::leaf(2u64)).is_err(),
+        "the join-transcribed fs spelling must be convicted where the join \
+         and the meet disagree"
+    );
+    // On a coincident pair every spelling agrees, so nothing is there to
+    // convict.
+    assert!(
+        check_version_pair(KNOWN_BAD_FS_VERSION_PAIR, &V::leaf(3u64), &V::leaf(3u64)).is_ok(),
+        "the same descriptor must pass where the join and the meet coincide: \
+         a comparison that convicts everything convicts nothing"
     );
 }

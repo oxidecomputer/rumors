@@ -78,6 +78,30 @@ use crate::testing::optrace;
 /// against the function space requires rederiving this ceiling first.
 pub(crate) const GRID_N: u32 = optrace::MAX_TRACE_OPS as u32 + 2;
 
+/// The comparison grid for a descriptor-table fs leg: one level below the
+/// operands' deepest structural boundary resolves every pointwise
+/// combination of them exactly.
+///
+/// Deliberately *not* capped at [`GRID_N`]: that ceiling is derived from
+/// the op-trace cap and belongs to the replay's populations, while the
+/// table's populations are bounded by their own generators (the arbitrary
+/// generators' recursion depth cap, and the op-trace cap again for the
+/// organic drivers), so a binding cap here could only alias a scan
+/// silently. What is asserted instead is the one hard bound the
+/// representation imposes: [`Dyadic`] indexes cells with a `u64`, so any
+/// grid must sit strictly under 64 levels. A population whose depth
+/// approaches that bound is out of every driver's derivation and fails
+/// loudly here.
+pub(crate) fn fs_grid(parts: &[u32]) -> u32 {
+    let g = parts.iter().copied().max().unwrap_or(0) + 1;
+    debug_assert!(
+        g < 64,
+        "fs comparison grid {g} reaches the Dyadic u64 index width: the population \
+         is deeper than any driver's derivation covers"
+    );
+    g
+}
+
 // ───────────────────────────── dyadic points ─────────────────────────────
 
 /// A point `num / 2^exp` in `[0, 1)` (`0 ≤ num < 2^exp`; `exp == 0` is the

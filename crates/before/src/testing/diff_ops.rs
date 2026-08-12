@@ -1,8 +1,10 @@
 //! The pointwise differential table: one descriptor per public operation
-//! whose prod↔tree leg is a pure function of version, id, and clock values.
+//! whose reference legs are pure functions of version, id, and clock values.
 //!
-//! A *descriptor* names an operation once and spells it twice — once on
-//! production, once on the recursive oracle — and the drivers in this
+//! A *descriptor* names an operation once and spells it per reference —
+//! once on production, once on the recursive oracle, and (where the
+//! operation is deterministic in the function space) once as a
+//! function-space combinator — and the drivers in this
 //! module's tests run every descriptor over shared populations. Registration
 //! is execution: a descriptor cannot be written without being registered
 //! under its own name, and every consumer expands the group roster
@@ -30,7 +32,15 @@
 //! # The boundary
 //!
 //! The table covers what a value-returning descriptor states honestly. The
-//! operations it does not cover keep their hand-written bodies and are
+//! prod and tree spellings are mandatory; the fs spelling is per-descriptor,
+//! because it exists only where the function-space realization is
+//! deterministic — the under-determined operations (`fork`, `event`) draw
+//! random §4-valid policies there, so equality against them is unassertable
+//! and their fs legs stay bespoke as the model's policy-soundness suite. A
+//! descriptor's fs spelling binds the tree↔fs leg directly (the oracle
+//! spelling sits beside it); the prod↔fs leg then rides transitively
+//! through the same descriptor's prod↔tree comparison. The
+//! operations the table does not cover keep their hand-written bodies and are
 //! rostered in [`DIFF_BESPOKE`] under a [`BespokeGenre`], so "bespoke" is a
 //! closed status a reviewer diffs rather than the default anything falls
 //! into. The tiling pin in this module's tests holds every `Bound` citation
@@ -39,7 +49,7 @@
 
 use std::cmp::Ordering;
 
-use crate::testing::bridge;
+use crate::testing::{bridge, semantic_oracle};
 use crate::{oracle, Party, Rank, Ticks, Version};
 
 /// One descriptor: its name and the check the drivers run.
@@ -109,26 +119,95 @@ impl Matches<Rank> for Rank {
     }
 }
 
+/// How a function-space result is compared with the recursive oracle's, at
+/// a comparison grid.
+///
+/// The fs-column counterpart of [`Matches`], implemented once per result
+/// type an fs spelling can produce, so a descriptor never spells its own
+/// comparison here either. Function-shaped results ([`semantic_oracle::Event`],
+/// [`semantic_oracle::Id`]) compare by scanning both functions over the
+/// grid; the reference tree is lifted for the scan, and its own depth is
+/// folded into the grid so a reference deeper than the operands (which no
+/// pointwise combinator produces, but the comparison does not assume that)
+/// is still resolved exactly. Scalar and verdict results compare directly,
+/// the grid unread.
+pub(crate) trait FsMatches<Reference> {
+    /// Whether this function-space result agrees with the oracle's, scanned
+    /// at (at least) `grid`.
+    fn fs_matches(&self, reference: &Reference, grid: u32) -> bool;
+}
+
+impl FsMatches<oracle::Version> for semantic_oracle::Event {
+    fn fs_matches(&self, reference: &oracle::Version, grid: u32) -> bool {
+        let g = grid.max(semantic_oracle::fs_grid(&[semantic_oracle::ev_depth(
+            reference,
+        )]));
+        semantic_oracle::ev_order(self, &semantic_oracle::lift_ev(reference.clone()), g)
+            == Some(Ordering::Equal)
+    }
+}
+
+impl FsMatches<oracle::Party> for semantic_oracle::Id {
+    fn fs_matches(&self, reference: &oracle::Party, grid: u32) -> bool {
+        let g = grid.max(semantic_oracle::fs_grid(&[semantic_oracle::id_depth(
+            reference,
+        )]));
+        semantic_oracle::id_order(self, &semantic_oracle::lift_id(reference.clone()), g)
+            == Some(Ordering::Equal)
+    }
+}
+
+impl FsMatches<bool> for bool {
+    fn fs_matches(&self, reference: &bool, _grid: u32) -> bool {
+        self == reference
+    }
+}
+
+impl FsMatches<Ticks> for Ticks {
+    fn fs_matches(&self, reference: &Ticks, _grid: u32) -> bool {
+        self == reference
+    }
+}
+
+impl FsMatches<Rank> for Rank {
+    fn fs_matches(&self, reference: &Rank, _grid: u32) -> bool {
+        self == reference
+    }
+}
+
 /// Declares one descriptor group: the group's `pub(crate) static` slice and
 /// every descriptor in it, from a single spelling.
 ///
 /// The header names the group and the input signature every descriptor in
-/// the block shares, each input tagged with the carrier it borrows
-/// (`version`, `party`, `clock`, `ticks`). Each `fn` that follows is one
-/// descriptor: it names the operation and spells it twice, `prod:` against
-/// the production types and `tree:` against the recursive oracle's, and the
-/// macro registers it in the slice under its own name (`stringify!`ed) — a
-/// descriptor cannot be written without being registered, nor registered
-/// under a name that is not its own.
+/// the block shares, each input tagged with the carrier it borrows and the
+/// population regime the drivers owe it (`version`, `party`,
+/// `disjoint_party`, `clock`, `ticks`). Each `fn` that follows is one
+/// descriptor: it names the operation and spells it per reference —
+/// `prod:` against the production types, `tree:` against the recursive
+/// oracle's, and optionally `fs(g):` against the function-space
+/// combinators — and the macro registers it in the slice under its own
+/// name (`stringify!`ed): a descriptor cannot be written without being
+/// registered, nor registered under a name that is not its own.
 ///
-/// The two spellings are written in one place, side by side, over
-/// identically named bindings: what the transcription centralizes, it also
-/// makes diffable. Each side gets its own scope holding its own values —
+/// The spellings are written in one place, side by side, over identically
+/// named bindings: what the transcription centralizes, it also makes
+/// diffable. Each side gets its own scope holding its own values —
 /// production values raised from the oracle carriers through the bridge,
-/// oracle values cloned — so both sides may consume or mutate freely, and
-/// `!Clone` production types are simply rebuilt per descriptor. Whether the
-/// two results agree is the result types' business, through [`Matches`];
-/// the descriptor states only the two spellings.
+/// oracle values cloned, function-space values lifted through the
+/// embedding — so every side may consume or mutate freely, and `!Clone`
+/// production types are simply rebuilt per descriptor. Whether the results
+/// agree is the result types' business, through [`Matches`] for the tree
+/// comparison and [`FsMatches`] for the fs one; the descriptor states only
+/// the spellings.
+///
+/// The fs spelling's header names one extra binding, `fs(g):` — the
+/// comparison grid ([`semantic_oracle::fs_grid`] over the operands'
+/// structural depths), in scope for spellings whose combinator scans
+/// (`id_order`, `disjoint`, `min_ticks`, `rank`); a spelling that never
+/// scans names it with an underscore. The fs result is compared against
+/// the *tree* spelling's result at that grid, so the fs column binds the
+/// tree↔fs leg, and the prod↔fs leg rides the same descriptor
+/// transitively.
 ///
 /// Group membership is the block, and registration in the roster
 /// (`for_each_diff_group!`) stays a separate step that the totality pin in
@@ -143,10 +222,7 @@ macro_rules! diff_ops {
         $(#[$group_meta:meta])* pub(crate) static $group:ident: ($($param:ident: $kind:tt),+ $(,)?);
         $(
             $(#[$op_meta:meta])*
-            fn $op:ident {
-                prod: $prod:expr,
-                tree: $tree:expr $(,)?
-            }
+            fn $op:ident { $($body:tt)* }
         )+
     ) => {
         $(#[$group_meta])* pub(crate) static $group: &[$crate::testing::diff_ops::DiffOp<
@@ -156,7 +232,7 @@ macro_rules! diff_ops {
             @ops ($($param: $kind),+);
             $(
                 $(#[$op_meta])*
-                fn $op { prod: $prod, tree: $tree }
+                fn $op { $($body)* }
             )+
         }
     };
@@ -169,16 +245,16 @@ macro_rules! diff_ops {
     (
         @ops ($($signature:tt)+);
         $(#[$op_meta:meta])*
-        fn $op:ident { prod: $prod:expr, tree: $tree:expr }
+        fn $op:ident { $($body:tt)* }
         $($rest:tt)*
     ) => {
-        diff_ops! { @op ($($signature)+); $(#[$op_meta])* fn $op { prod: $prod, tree: $tree } }
+        diff_ops! { @op ($($signature)+); $(#[$op_meta])* fn $op { $($body)* } }
         diff_ops! { @ops ($($signature)+); $($rest)* }
     };
     (
         @op ($($param:ident: $kind:tt),+ $(,)?);
         $(#[$op_meta:meta])*
-        fn $op:ident { prod: $prod:expr, tree: $tree:expr }
+        fn $op:ident { prod: $prod:expr, tree: $tree:expr $(,)? }
     ) => {
         $(#[$op_meta])*
         // The bindings are uniformly mutable so a descriptor may spell an
@@ -190,17 +266,71 @@ macro_rules! diff_ops {
             $crate::testing::diff_ops::Matches::matches(&prod, &tree)
         }
     };
+    (
+        @op ($($param:ident: $kind:tt),+ $(,)?);
+        $(#[$op_meta:meta])*
+        fn $op:ident { prod: $prod:expr, tree: $tree:expr, fs($grid:ident): $fs:expr $(,)? }
+    ) => {
+        $(#[$op_meta])*
+        // The bindings are uniformly mutable so a descriptor may spell an
+        // operation that mutates its receiver; most do not.
+        #[allow(unused_mut)]
+        fn $op($($param: &diff_ops!(@oracle $kind)),+) -> bool {
+            let prod = { $( let mut $param = diff_ops!(@lower $kind, $param); )+ $prod };
+            let tree = { $( let mut $param = ::core::clone::Clone::clone($param); )+ $tree };
+            // The grid derives from the oracle carriers before the fs
+            // scope shadows them, so a spelling can never scan a lifted
+            // value coarser than the value's own boundaries.
+            let $grid = $crate::testing::semantic_oracle::fs_grid(&[
+                $(diff_ops!(@depth $kind, $param)),+
+            ]);
+            let fs = { $( let mut $param = diff_ops!(@fslift $kind, $param); )+ $fs };
+            $crate::testing::diff_ops::Matches::matches(&prod, &tree)
+                && $crate::testing::diff_ops::FsMatches::fs_matches(&fs, &tree, $grid)
+        }
+    };
 
-    // The carrier tags: each names the oracle-side type a driver supplies
-    // and the production value raised from it.
+    // The carrier tags: each names the oracle-side type a driver supplies,
+    // the production value raised from it, the function-space value lifted
+    // from it, and the structural depth its fs comparison grid folds in.
     (@oracle version) => { $crate::oracle::Version };
     (@oracle party) => { $crate::oracle::Party };
+    (@oracle disjoint_party) => { $crate::oracle::Party };
     (@oracle clock) => { $crate::oracle::Clock };
     (@oracle ticks) => { $crate::Ticks };
     (@lower version, $carrier:expr) => { $crate::testing::bridge::from_oracle_version($carrier) };
     (@lower party, $carrier:expr) => { $crate::testing::bridge::from_oracle_party($carrier) };
+    (@lower disjoint_party, $carrier:expr) => { $crate::testing::bridge::from_oracle_party($carrier) };
     (@lower clock, $carrier:expr) => { $crate::testing::bridge::from_oracle_clock($carrier) };
     (@lower ticks, $carrier:expr) => { ::core::clone::Clone::clone($carrier) };
+    (@fslift version, $carrier:expr) => {
+        $crate::testing::semantic_oracle::lift_ev(::core::clone::Clone::clone($carrier))
+    };
+    (@fslift party, $carrier:expr) => {
+        $crate::testing::semantic_oracle::lift_id(::core::clone::Clone::clone($carrier))
+    };
+    (@fslift disjoint_party, $carrier:expr) => {
+        $crate::testing::semantic_oracle::lift_id(::core::clone::Clone::clone($carrier))
+    };
+    (@fslift clock, $carrier:expr) => {
+        $crate::testing::semantic_oracle::FunctionClock {
+            id: $crate::testing::semantic_oracle::lift_id(::core::clone::Clone::clone(
+                $carrier.party(),
+            )),
+            ev: $crate::testing::semantic_oracle::lift_ev($carrier.version()),
+        }
+    };
+    (@fslift ticks, $carrier:expr) => { ::core::clone::Clone::clone($carrier) };
+    (@depth version, $carrier:expr) => { $crate::testing::semantic_oracle::ev_depth($carrier) };
+    (@depth party, $carrier:expr) => { $crate::testing::semantic_oracle::id_depth($carrier) };
+    (@depth disjoint_party, $carrier:expr) => {
+        $crate::testing::semantic_oracle::id_depth($carrier)
+    };
+    (@depth clock, $carrier:expr) => {
+        $crate::testing::semantic_oracle::id_depth($carrier.party())
+            .max($crate::testing::semantic_oracle::ev_depth(&$carrier.version()))
+    };
+    (@depth ticks, $carrier:expr) => { 0u32 };
 }
 
 diff_ops! {

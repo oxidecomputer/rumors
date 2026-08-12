@@ -83,11 +83,12 @@
 //! of green (prod↔tree convicts the dropped-group fold, prod↔fs the
 //! cell-dropping Riemann sum, tree↔fs the mirrored embedding, whose
 //! conviction test also documents that the leg's pointwise differentials
-//! alone are blind to a twin-substituted mirror). The prod↔tree leg
-//! carries a second known-bad genre for the descriptors it derives: a
-//! mis-transcribed descriptor, convicted where its two spellings differ
-//! and passed where they coincide, so the vehicle is shown to
-//! discriminate rather than merely to fail.
+//! alone are blind to a twin-substituted mirror). The legs the descriptor
+//! table derives carry a second known-bad genre for what it derives: a
+//! mis-transcribed descriptor per column — a wrong walk spelling, and a
+//! wrong fs combinator whose walk legs agree — each convicted where its
+//! spellings differ and passed where they coincide, so each comparison is
+//! shown to discriminate rather than merely to fail.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -131,6 +132,10 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     (
         "prod↔fs: the grid-resolution premise guard",
         "grid_cap_is_never_reached",
+    ),
+    (
+        "tree↔fs: the known-bad mis-transcribed fs realization, held convicted",
+        "the_drivers_convict_a_mis_transcribed_fs_realization",
     ),
     (
         "prod↔fs: the known-bad cell-dropping Riemann sum, held convicted",
