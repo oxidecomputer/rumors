@@ -92,7 +92,12 @@ where
     /// entire child set was deleted. The group may also be empty outright — a
     /// scope that resolved to nothing at all, such as the pruned-to-nothing
     /// reply to a request — and resolves to `None` the same way. Given at least
-    /// one real child, construction should always yield a parent.
+    /// one real child, construction **must** yield a parent: under the default
+    /// [`assemble`](Self::assemble), a `None` here becomes a missing assembled
+    /// node, which the reply decoder treats as a backend contract violation
+    /// and enforces by panic. The backend conformance suite (see
+    /// [`crate::conformance`]) convicts a violating implementation in the
+    /// backend's own tests, before a live session can meet it.
     fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
@@ -144,6 +149,17 @@ where
     /// by default the leaves fold up through [`parent`](Self::parent) one
     /// level at a time, but a backend whose nodes are directly
     /// constructible may override it with a bulk builder.
+    ///
+    /// An override must preserve what the default guarantees — the reply
+    /// decoder enforces each by panic:
+    ///
+    /// - exactly one node per maximal run, in run order (never merged,
+    ///   split, or skipped);
+    /// - each node at its own run's height-`H` prefix.
+    ///
+    /// The backend conformance suite (see [`crate::conformance`]) convicts
+    /// a violating override in the backend's own tests, before a live
+    /// session can meet it.
     fn assemble<'a, H: Convert>(
         self,
         leaves: BoxNodeStream<'a, Self, T, Z>,
