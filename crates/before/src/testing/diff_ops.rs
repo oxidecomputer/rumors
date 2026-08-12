@@ -243,6 +243,50 @@ diff_ops! {
 }
 
 diff_ops! {
+    /// The fullness predicate over one id.
+    pub(crate) static PARTY_SOLO: (a: party);
+
+    /// `is_seed`: production's constant-time test against the oracle's
+    /// notion of the full region, which in normal form is exactly the
+    /// seed.
+    fn party_is_seed_matches_the_oracle {
+        prod: a.is_seed(),
+        tree: a == oracle::Party::seed(),
+    }
+}
+
+diff_ops! {
+    /// The region algebra over a pair of ids.
+    ///
+    /// The arbitrary population admits the anonymous id and pairs that
+    /// genuinely overlap, so the partial-overlap arms — neither region
+    /// covering the other, a difference that empties — are reachable at
+    /// all; a seed-derived pipeline produces only disjoint siblings. The
+    /// organic pairings run in both operand orders, which is what the
+    /// asymmetric operations need.
+    pub(crate) static PARTY_PAIR: (a: party, b: party);
+
+    /// `covers`: one region contains the other.
+    fn party_covers_matches_the_oracle {
+        prod: a.covers(&b),
+        tree: a.covers(&b),
+    }
+
+    /// `is_disjoint`: the two regions share nothing.
+    fn party_disjointness_matches_the_oracle {
+        prod: a.is_disjoint(&b),
+        tree: a.is_disjoint(&b),
+    }
+
+    /// `without`: the region difference, which production answers as
+    /// `None` where the oracle answers with the empty region.
+    fn party_without_matches_the_oracle {
+        prod: a.without(&b),
+        tree: a.without(&b),
+    }
+}
+
+diff_ops! {
     /// The scalar quantities one history carries.
     ///
     /// Both are folds over the whole tree, so the regime that matters is
@@ -392,13 +436,11 @@ impl BespokeGenre {
 /// tiling pin until it is classified, and an entry naming a citation no row
 /// makes is a phantom that fails the same pin.
 pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
-    ("covers_arbitrary", BespokeGenre::HandWrittenPointwise),
     (
         "covers_realizes_containment",
         BespokeGenre::FunctionSpaceRealization,
     ),
     ("d_fork_join_roundtrip", BespokeGenre::FallibleHandBack),
-    ("disjoint_arbitrary", BespokeGenre::HandWrittenPointwise),
     (
         "distance_and_lag_realize_both_oracles",
         BespokeGenre::FunctionSpaceRealization,
@@ -409,10 +451,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
     ),
     ("fork_partitions", BespokeGenre::FunctionSpaceRealization),
     ("heterogeneous_joins", BespokeGenre::OperandFormMatrix),
-    (
-        "is_seed_matches_the_oracle",
-        BespokeGenre::HandWrittenPointwise,
-    ),
     (
         "join_all_matches_the_recursive_oracle",
         BespokeGenre::FallibleHandBack,
@@ -457,7 +495,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
         "view_pair_cmp_matches_oracle_composed",
         BespokeGenre::HandWrittenPointwise,
     ),
-    ("without_arbitrary", BespokeGenre::HandWrittenPointwise),
     (
         "without_realizes_region_difference",
         BespokeGenre::FunctionSpaceRealization,
@@ -481,6 +518,8 @@ macro_rules! for_each_diff_group {
             (VERSION_PAIR, version_pair_ops, (version, version)),
             (VERSION_PARTY, version_party_ops, (version, party)),
             (VERSION_PARTY_TICKS, version_party_ticks_ops, (version, party, ticks)),
+            (PARTY_SOLO, party_solo_ops, (party)),
+            (PARTY_PAIR, party_pair_ops, (party, party)),
         }
     };
 }

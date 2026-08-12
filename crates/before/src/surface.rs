@@ -329,7 +329,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Party::is_seed",
-        prod_tree: Leg::Bound("is_seed_matches_the_oracle"),
+        prod_tree: Leg::Bound("party_is_seed_matches_the_oracle"),
         prod_fs: Leg::Excluded(Exclusion::DefinitionalCombinator {
             pins: &["is_seed_iff_equals_seed"],
         }),
@@ -380,19 +380,19 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Party::is_disjoint",
-        prod_tree: Leg::Bound("disjoint_arbitrary"),
+        prod_tree: Leg::Bound("party_disjointness_matches_the_oracle"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
     SurfaceRow {
         op: "Party::covers",
-        prod_tree: Leg::Bound("covers_arbitrary"),
+        prod_tree: Leg::Bound("party_covers_matches_the_oracle"),
         prod_fs: Leg::Trans("covers_realizes_containment"),
         tree_fs: Leg::Bound("covers_realizes_containment"),
     },
     SurfaceRow {
         op: "Party::without",
-        prod_tree: Leg::Bound("without_arbitrary"),
+        prod_tree: Leg::Bound("party_without_matches_the_oracle"),
         prod_fs: Leg::Trans("without_realizes_region_difference"),
         tree_fs: Leg::Bound("without_realizes_region_difference"),
     },

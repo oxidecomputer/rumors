@@ -317,20 +317,6 @@ proptest! {
 // ───────────────────────────── differential vs oracle ─────────────────────────────
 
 proptest! {
-    /// `is_seed` ⟺ the oracle party is the full region, over arbitrary
-    /// normal-form parties.
-    ///
-    /// In normal form the full region is exactly the oracle's `Leaf(true)` (=
-    /// `oracle::Party::seed()`), so the production O(1) test is bound to the
-    /// oracle's notion of fullness; the nonempty generator produces the full
-    /// leaf, so both arms are exercised.
-    #[test]
-    fn is_seed_matches_the_oracle(op in arb_oracle_party_nonempty()) {
-        prop_assert_eq!(from_oracle_party(&op).is_seed(), op == oracle::Party::seed());
-    }
-}
-
-proptest! {
     /// `fork` yields two disjoint halves, both matching the oracle's split;
     /// `join` of the two recovers the parent.
     #[test]
@@ -356,28 +342,6 @@ proptest! {
     }
 }
 
-// ───────────────────────────── covering (containment) ─────────────────────────────
-
-proptest! {
-    /// `covers` on arbitrary id pairs — typically *unrelated* and frequently
-    /// *overlapping* — agrees with the oracle, including the partial-overlap
-    /// case (neither covers the other) that the seed pipeline never produces.
-    #[test]
-    fn covers_arbitrary(
-        oa in arb_oracle_party(),
-        ob in arb_oracle_party(),
-    ) {
-        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
-        prop_assert_eq!(ia.covers(&ib), oa.covers(&ob));
-        prop_assert_eq!(ib.covers(&ia), ob.covers(&oa));
-    }
-}
-
-// The covering/fork-lattice laws, the join-overlap hand-back, and the aliasing
-// geometry live in `crate::laws` and are driven by the algebraic-laws suite
-// over both arbitrary and op-trace parties; this file keeps the oracle
-// differentials.
-
 // ───────────────────────── paper-notation TryFrom ─────────────────────────
 
 /// `TryFrom` numeric/tuple literals build parties via the same paper notation
@@ -399,24 +363,11 @@ fn parse_bare_notation() {
 // The op-trace differentials above only ever compare ids that descend from one
 // seed (so every pair is causally related and pairwise disjoint by
 // construction). These feed *arbitrary* normal-form ids — random shape, random
-// ownership, including genuinely *overlapping* and *unrelated* pairs — to every
-// id op and diff against the oracle. They reach the overlap/incomparable arms
-// (`is_disjoint == false`, `compare == None`, `sum == None`) that the
-// seed-derived pipeline cannot produce.
-
-proptest! {
-    /// `is_disjoint` on arbitrary id pairs — typically *unrelated* and
-    /// frequently *overlapping* — agrees with the oracle, including the
-    /// not-disjoint verdict the op pipeline never produces.
-    #[test]
-    fn disjoint_arbitrary(
-        oa in arb_oracle_party(),
-        ob in arb_oracle_party(),
-    ) {
-        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
-        prop_assert_eq!(ia.is_disjoint(&ib), oa.is_disjoint(&ob));
-    }
-}
+// ownership, including genuinely *overlapping* and *unrelated* pairs — to the
+// packed id walks and the wire surface. They reach the overlap arms
+// (`compare == None`, `sum == None`) that the seed-derived pipeline cannot
+// produce. The public region algebra reaches the same regime through the
+// descriptor table's id-pair drivers.
 
 proptest! {
     /// The per-call [`IdIndex`] answers disjointness with the identical verdict
@@ -986,42 +937,6 @@ mod diff_constructed {
                     "{name} k={k}: scanned {blocked} bits against the \
                      complement walk's {walk}",
                 );
-            }
-        }
-    }
-}
-
-proptest! {
-    /// `without` on arbitrary id pairs — typically *unrelated* and frequently
-    /// *overlapping* — agrees with the oracle's `without`, mapping the oracle's
-    /// empty result to `None`.
-    ///
-    /// Reaches the partial-overlap shapes the seed-derived pipeline never
-    /// produces.
-    ///
-    /// It also pins the two characterizations the type encodes: the result is
-    /// `None` exactly when `other` covers `self`, and whenever a remainder
-    /// survives it is a subregion of `self` that is disjoint from `other`
-    /// (`self \ other ⊆ self` and `(self \ other) ∩ other = ∅`).
-    #[test]
-    fn without_arbitrary(
-        oa in arb_oracle_party(),
-        ob in arb_oracle_party(),
-    ) {
-        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
-        let self_copy = from_oracle_party(&oa);
-        let oracle_diff = oa.without(&ob);
-
-        match ia.without(&ib) {
-            None => {
-                prop_assert!(oracle_diff.is_empty(), "impl emptied but oracle did not");
-                prop_assert!(ob.covers(&oa), "None iff `other` covers `self`");
-            }
-            Some(remainder) => {
-                prop_assert!(remainder == from_oracle_party(&oracle_diff));
-                prop_assert!(!ob.covers(&oa), "Some iff `other` does not cover `self`");
-                prop_assert!(self_copy.covers(&remainder), "the remainder is a subregion of `self`");
-                prop_assert!(remainder.is_disjoint(&ib), "the remainder shares nothing with `other`");
             }
         }
     }

@@ -14,7 +14,7 @@ use proptest::prelude::*;
 use super::{registered_names, BespokeGenre, DiffOp, DIFF_BESPOKE, REGISTERED_GROUPS};
 use crate::oracle;
 use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, world_strategy};
 use crate::Ticks;
 
@@ -245,6 +245,31 @@ macro_rules! group_drivers {
             }
         }
     };
+    (@one $group:ident, $driver:ident, (party)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary non-empty normal-form ids.
+            #[test]
+            fn $driver(a in arb_oracle_party_nonempty()) {
+                assert_diff_ops!(super::$group, &a);
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (party, party)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary normal-form id pairs.
+            ///
+            /// The pairs are typically unrelated and frequently
+            /// overlapping, and the anonymous id is admitted, so the
+            /// overlap and emptying arms a seed-derived pipeline never
+            /// produces are reachable here.
+            #[test]
+            fn $driver(a in arb_oracle_party(), b in arb_oracle_party()) {
+                assert_diff_ops!(super::$group, &a, &b);
+            }
+        }
+    };
     (@one $group:ident, $driver:ident, (version, version)) => {
         proptest! {
             /// Every descriptor in the group agrees with the oracle on
@@ -288,6 +313,12 @@ macro_rules! organic_drive {
     };
     (@one $env:expr, $group:ident, (version, party, ticks)) => {
         assert_diff_ops!(super::$group, $env.v[0], $env.p[0], &$env.n);
+    };
+    (@one $env:expr, $group:ident, (party)) => {
+        assert_diff_ops!(super::$group, $env.p[0]);
+    };
+    (@one $env:expr, $group:ident, (party, party)) => {
+        assert_diff_ops!(super::$group, $env.p[0], $env.p[1]);
     };
     (@one $env:expr, $group:ident, (version, version)) => {
         assert_diff_ops!(super::$group, $env.v[0], $env.v[1]);
