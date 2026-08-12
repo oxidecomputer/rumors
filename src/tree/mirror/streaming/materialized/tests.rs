@@ -12,7 +12,7 @@ use std::convert::Infallible;
 use futures::stream;
 
 use super::{
-    Error, Violation, absorb,
+    Error, SupplyLedger, Violation, absorb,
     channel::{QueueKind, QueueRole, channel},
 };
 use crate::tree::mirror::streaming::stats::Recorder;
@@ -39,15 +39,18 @@ fn ticked(index: usize) -> Version {
     version
 }
 
-/// Drive [`absorb`](super::absorb) against one scripted closing-leg reply:
-/// a single pending leaf request, answered by a single leaf supply carrying
-/// `leaf_version`, from a counterparty whose greeting declared `declared`.
+/// Drive [`absorb`](super::absorb) against one scripted closing-leg reply.
+///
+/// A single pending leaf request, answered by a single leaf supply carrying
+/// `leaf_version`, from a counterparty whose greeting declared `declared`
+/// and whose set-length ledger is `ledger`.
 ///
 /// Returns the loop's result and what, if anything, it passed up to the
 /// assembly above it.
 #[allow(clippy::type_complexity)]
 fn absorb_scripted(
     declared: Version,
+    ledger: SupplyLedger,
     leaf_version: Version,
 ) -> (
     Result<(), Error<Infallible>>,
@@ -73,6 +76,7 @@ fn absorb_scripted(
 
     let result = pollster::block_on(absorb::<Local, ()>(
         declared,
+        ledger,
         requests,
         queries_rx,
         returns,
@@ -90,7 +94,11 @@ fn absorb_scripted(
 #[test]
 fn terminal_absorb_accepts_a_contained_supply() {
     let declared = ticked(0);
-    let (result, returned) = absorb_scripted(declared.clone(), declared.clone());
+    let (result, returned) = absorb_scripted(
+        declared.clone(),
+        SupplyLedger::new(u64::MAX),
+        declared.clone(),
+    );
     assert!(result.is_ok(), "a contained supply is absorbed: {result:?}");
     let leaf = returned
         .expect("the absorbed leaf is passed up")
@@ -113,7 +121,7 @@ fn terminal_absorb_rejects_a_dominating_supply() {
     let declared = ticked(0);
     let mut escaped = declared.clone();
     escaped.tick(&nth_party(0));
-    let (result, returned) = absorb_scripted(declared, escaped);
+    let (result, returned) = absorb_scripted(declared, SupplyLedger::new(u64::MAX), escaped);
     assert!(
         matches!(result, Err(Error::Violation(Violation::UncontainedSupply))),
         "a dominating supply is rejected: {result:?}",
@@ -131,10 +139,29 @@ fn terminal_absorb_rejects_a_dominating_supply() {
 fn terminal_absorb_rejects_an_incomparable_supply() {
     let declared = ticked(0);
     let escaped = ticked(31);
-    let (result, returned) = absorb_scripted(declared, escaped);
+    let (result, returned) = absorb_scripted(declared, SupplyLedger::new(u64::MAX), escaped);
     assert!(
         matches!(result, Err(Error::Violation(Violation::UncontainedSupply))),
         "an incomparable supply is rejected: {result:?}",
+    );
+    assert!(returned.is_none(), "nothing is passed up past a rejection");
+}
+
+/// A terminal leaf supply past the declared set length fails the closing
+/// leg with `OverdrawnSupply`.
+///
+/// The closing leg is the one ingress the connected greeting-lie family
+/// cannot reach: an empty declaration trips at the session's first
+/// absorbed supply, never at a terminal leaf, so the terminal arm of the
+/// set-length guard is pinned here at its own seam — a spent ledger, one
+/// contained honest leaf.
+#[test]
+fn terminal_absorb_rejects_an_overdrawn_supply() {
+    let declared = ticked(0);
+    let (result, returned) = absorb_scripted(declared.clone(), SupplyLedger::new(0), declared);
+    assert!(
+        matches!(result, Err(Error::Violation(Violation::OverdrawnSupply))),
+        "a supply past the declared set length is rejected: {result:?}",
     );
     assert!(returned.is_none(), "nothing is passed up past a rejection");
 }

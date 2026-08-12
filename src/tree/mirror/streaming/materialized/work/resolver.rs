@@ -6,7 +6,7 @@ use crate::{
         mirror::contained,
         mirror::streaming::{
             Backend, Leaf, Node,
-            materialized::{Error, Query, Resolution, Resolve, Violation, violation},
+            materialized::{Error, Query, Resolution, Resolve, SupplyLedger, Violation, violation},
             message::Reaction,
             stats::Recorder,
         },
@@ -31,6 +31,10 @@ where
     /// ceiling must be contained in it
     /// ([`Violation::UncontainedSupply`]).
     their_version: &'v Version,
+    /// The peer's declared-set-length ledger: every absorbed supply
+    /// charges its exact live-leaf count
+    /// ([`Violation::OverdrawnSupply`]).
+    ledger: &'v SupplyLedger,
     /// The session's stats recorder: each absorbed supply credits its
     /// exact live-leaf count as
     /// [`messages_gained`](crate::SessionStats::messages_gained).
@@ -47,6 +51,7 @@ where
     pub fn new(
         Query { prefix, ours }: Query<B, T, H>,
         their_version: &'v Version,
+        ledger: &'v SupplyLedger,
         stats: Recorder,
     ) -> Self {
         Self {
@@ -54,6 +59,7 @@ where
             fan: ours.into_iter().peekable(),
             resolved: Vec::new(),
             their_version,
+            ledger,
             stats,
         }
     }
@@ -88,6 +94,7 @@ where
                         return violation(Violation::UncontainedSupply);
                     }
                     _ => {
+                        self.ledger.absorb(node.len() as u64)?;
                         // An absorbed supply is content this replica just
                         // learned: credit its exact live-leaf count.
                         self.stats.gained(node.len() as u64);

@@ -12,7 +12,7 @@ use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
-        Failing, FailingNode, Failure, Faulting, Local, Root as StreamingRoot,
+        Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, Root as StreamingRoot,
         materialized::{
             Error as MaterializedError, Handshaking, Violation,
             channel::{with_observation, with_schedule},
@@ -45,6 +45,17 @@ fn arb_connected_violation() -> impl Strategy<Value = Violation> {
     ]
 }
 
+/// Every greeting lie the harness can tell ([`GreetingLie`]): both
+/// detectable under-declarations and both tolerated over-declarations.
+fn arb_greeting_lie() -> impl Strategy<Value = GreetingLie> {
+    prop_oneof![
+        Just(GreetingLie::ShrunkenSetLen),
+        Just(GreetingLie::InflatedSetLen),
+        Just(GreetingLie::ShrunkenVersion),
+        Just(GreetingLie::InflatedVersion),
+    ]
+}
+
 proptest! {
     /// A genuine malformed reply crosses the fully connected driver as its
     /// detected violation while both materialized input roots remain untouched.
@@ -59,7 +70,7 @@ proptest! {
         let before = (client_root.clone(), server_root.clone());
         let local = Handshaking::start(Local, StreamingRoot::from(client_root.clone())).window(WindowConfig::FLOOR);
         let honest_server = Handshaking::start(Local, StreamingRoot::from(server_root.clone())).window(WindowConfig::FLOOR);
-        let faulting_server = Faulting::new(honest_server, server_steps, Some(violation));
+        let faulting_server = Faulting::new(honest_server, server_steps, Some(Fault::Reply(violation)));
         let result = run_to_quiescence(drive_streaming(local, faulting_server))
             .expect("the connected driver must surface the fault, not stall");
         match result {
@@ -73,7 +84,7 @@ proptest! {
         // Reversing the handshake sides also reverses initiator order: the
         // driver's frame-relative error is flipped back to the original client.
         let honest_client = Handshaking::start(Local, StreamingRoot::from(client_root.clone())).window(WindowConfig::FLOOR);
-        let faulting_client = Faulting::new(honest_client, client_steps, Some(violation));
+        let faulting_client = Faulting::new(honest_client, client_steps, Some(Fault::Reply(violation)));
         let local = Handshaking::start(Local, StreamingRoot::from(server_root.clone())).window(WindowConfig::FLOOR);
         let result = run_to_quiescence(drive_streaming(faulting_client, local))
             .expect("the reversed connected driver must surface the fault, not stall");
@@ -83,6 +94,88 @@ proptest! {
             }
             Err(other) => prop_assert!(false, "unexpected reversed driver error: {other:?}"),
             Ok(_) => prop_assert!(false, "the reversed faulting counterparty unexpectedly completed"),
+        }
+
+        prop_assert_eq!((client_root, server_root), before);
+    }
+
+    /// Every greeting lie classifies exactly against an honest counterparty,
+    /// in both orientations.
+    ///
+    /// The under-declarations are detected by the deceived side as their
+    /// named violation — through an entirely honest supply stream, the path
+    /// the reply-corruption faults never take — with both input roots
+    /// untouched. The over-declarations are tolerated: a declaration is an
+    /// upper premise, so the session completes and reconciles the same
+    /// content an honest run does (an inflated declared version widens the
+    /// deceived side's output ceiling by exactly the inflation, which
+    /// `ours | declared` absorbs by definition, so the ceiling comparison
+    /// is asserted only where the lie leaves it untouched).
+    #[test]
+    fn greeting_lies_classify_exactly(
+        lie in arb_greeting_lie(),
+        fault_client in any::<bool>(),
+    ) {
+        let (client_root, server_root) =
+            full_depth_comb_pair(2, LeafOrder::Interleaved);
+        let before = (client_root.clone(), server_root.clone());
+        let expected = match lie {
+            GreetingLie::ShrunkenSetLen => Some(Violation::OverdrawnSupply),
+            GreetingLie::ShrunkenVersion => Some(Violation::UncontainedSupply),
+            GreetingLie::InflatedSetLen | GreetingLie::InflatedVersion => None,
+        };
+
+        let client = Handshaking::start(Local, StreamingRoot::from(client_root.clone()))
+            .window(WindowConfig::FLOOR);
+        let server = Handshaking::start(Local, StreamingRoot::from(server_root.clone()))
+            .window(WindowConfig::FLOOR);
+        let result = if fault_client {
+            let faulting = Faulting::new(client, 0, Some(Fault::Greeting(lie)));
+            run_to_quiescence(drive_streaming(faulting, server))
+        } else {
+            let faulting = Faulting::new(server, 0, Some(Fault::Greeting(lie)));
+            run_to_quiescence(drive_streaming(client, faulting))
+        }
+        .expect("a greeting-lied session must terminate, not stall");
+
+        match (expected, result) {
+            (Some(violation), Err(error)) => {
+                // The deceived side raises the violation; the driver
+                // reports errors by the side that raised them.
+                match (fault_client, error) {
+                    (true, MirrorError::Server(MaterializedError::Violation(actual)))
+                    | (false, MirrorError::Client(MaterializedError::Violation(actual))) => {
+                        prop_assert_eq!(actual, violation);
+                    }
+                    (_, other) => {
+                        return Err(TestCaseError::fail(format!(
+                            "misrouted or mistyped greeting-lie error: {other:?}",
+                        )));
+                    }
+                }
+            }
+            (None, Ok((ours, theirs))) => {
+                let (ours, theirs): (crate::tree::Root<()>, crate::tree::Root<()>) =
+                    (ours.into(), theirs.into());
+                let (base_client, base_server) =
+                    streaming_mirror_sides(client_root.clone(), server_root.clone());
+                prop_assert_eq!(&ours.root, &base_client.root);
+                prop_assert_eq!(&theirs.root, &base_server.root);
+                if lie == GreetingLie::InflatedSetLen {
+                    prop_assert_eq!(&ours.ceiling, &base_client.ceiling);
+                    prop_assert_eq!(&theirs.ceiling, &base_server.ceiling);
+                }
+            }
+            (Some(violation), Ok(_)) => {
+                return Err(TestCaseError::fail(format!(
+                    "undetected greeting lie {lie:?}: expected {violation:?}",
+                )));
+            }
+            (None, Err(error)) => {
+                return Err(TestCaseError::fail(format!(
+                    "benign greeting lie {lie:?} faulted: {error:?}",
+                )));
+            }
         }
 
         prop_assert_eq!((client_root, server_root), before);
@@ -163,7 +256,7 @@ fn semantic_and_backend_failure_layers_compose() {
     let client =
         Handshaking::start(backend.clone(), failing_root(client_root)).window(WindowConfig::FLOOR);
     let server = Handshaking::start(backend, failing_root(server_root)).window(WindowConfig::FLOOR);
-    let server = Faulting::new(server, 0, Some(Violation::UnexpectedQuery));
+    let server = Faulting::new(server, 0, Some(Fault::Reply(Violation::UnexpectedQuery)));
     let error = run_to_quiescence(drive_streaming(client, server))
         .expect("the stacked session must terminate")
         .expect_err("the semantic decorator must fault");

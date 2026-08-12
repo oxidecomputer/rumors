@@ -99,6 +99,8 @@
 //! reply message.
 
 use std::pin::pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::tree::{
     mirror::contained,
@@ -188,6 +190,44 @@ pub use error::{Error, Violation};
 /// Construct a typed protocol-violation result.
 fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
     Err(Error::Violation(violation))
+}
+
+/// The session-total supplied-leaf ledger: the ingestion-side counterpart
+/// of the greeting's declared set length, shared by every stage that
+/// absorbs supplies.
+///
+/// An honest replica supplies each leaf at most once (disputed scopes
+/// partition the tree) and only leaves its own set holds, so the running
+/// total of absorbed live leaves is bounded by the `set_len` its greeting
+/// declared — a premise the session's window solve priced. Every
+/// ingestion site charges the ledger exactly where it checks version
+/// containment: the two declared premises are enforced side by side.
+#[derive(Clone, Debug)]
+pub(crate) struct SupplyLedger {
+    /// The sender's greeting-declared set length.
+    declared: u64,
+    /// Live leaves absorbed so far, across every ingestion site.
+    absorbed: Arc<AtomicU64>,
+}
+
+impl SupplyLedger {
+    fn new(declared: u64) -> Self {
+        SupplyLedger {
+            declared,
+            absorbed: Arc::default(),
+        }
+    }
+
+    /// Charge `leaves` absorbed supplies, failing the session at the first
+    /// leaf past the declaration ([`Violation::OverdrawnSupply`]).
+    pub(crate) fn absorb<E>(&self, leaves: u64) -> Result<(), Error<E>> {
+        let prior = self.absorbed.fetch_add(leaves, Ordering::Relaxed);
+        match prior.checked_add(leaves) {
+            Some(total) if total <= self.declared => Ok(()),
+            // A wrapped counter is past any declarable length too.
+            _ => violation(Violation::OverdrawnSupply),
+        }
+    }
 }
 
 /// A pending query, which we will resolve by a remote reply: the pairing
@@ -302,6 +342,9 @@ where
 {
     /// The version of the counterparty.
     their_version: Version,
+    /// The counterparty's declared-set-length ledger, charged by every
+    /// absorbed supply ([`SupplyLedger`]).
+    ledger: SupplyLedger,
     /// The questions we asked, awaiting their replies in order.
     queries: Receiver<Query<B, T, H>>,
     /// One resolved scope per query, in query order, to the stage above.
@@ -336,6 +379,9 @@ pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>
     /// supplied leaf is checked against
     /// ([`Violation::UncontainedSupply`]).
     their_version: Version,
+    /// The counterparty's declared-set-length ledger, charged by every
+    /// absorbed supply ([`SupplyLedger`]).
+    ledger: SupplyLedger,
     /// Where each requested leaf will sit, one per request, in order.
     queries: Receiver<Prefix<Z>>,
     /// The requested leaves' resolutions, in request order.
@@ -555,6 +601,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             B::node_bytes,
         );
         self.stats.window_granted(window.widest());
+        let ledger = SupplyLedger::new(their_len);
         let mut work = Work::new(self.backend, window, self.stats);
         let (responses, queries, returns, early, finish) =
             work.initiator_level(their_version.clone(), ceiling, fan, their_listing);
@@ -563,6 +610,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             responses,
             Descending {
                 their_version,
+                ledger,
                 queries,
                 returns,
                 early_survivors: Some(early),
@@ -601,14 +649,21 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             B::node_bytes,
         );
         self.stats.window_granted(window.widest());
+        let ledger = SupplyLedger::new(their_len);
         let mut work = Work::new(self.backend, window, self.stats);
-        let (responses, queries, returns, early, finish) =
-            work.responder_level(their_version.clone(), ceiling, fan, requests);
+        let (responses, queries, returns, early, finish) = work.responder_level(
+            their_version.clone(),
+            ledger.clone(),
+            ceiling,
+            fan,
+            requests,
+        );
 
         (
             responses,
             Descending {
                 their_version,
+                ledger,
                 queries,
                 returns,
                 early_survivors: None,
@@ -647,6 +702,7 @@ where
     ) -> (BoxResponses<B, T, S<H>, Self::Error>, Self::Next) {
         let (responses, queries, upper, lower) = self.work.internal_level(
             self.their_version.clone(),
+            self.ledger.clone(),
             self.early_survivors.take(),
             self.early_supplies.take(),
             requests,
@@ -659,6 +715,7 @@ where
             responses,
             Descending {
                 their_version: self.their_version,
+                ledger: self.ledger,
                 queries,
                 returns,
                 early_survivors: None,
@@ -685,9 +742,12 @@ where
             self.early_survivors.is_none() && self.early_supplies.is_none(),
             "the opening hand-off is consumed by the first descending stage"
         );
-        let (responses, queries, upper, lower) =
-            self.work
-                .leaf_parent_level(self.their_version.clone(), requests, self.queries);
+        let (responses, queries, upper, lower) = self.work.leaf_parent_level(
+            self.their_version.clone(),
+            self.ledger.clone(),
+            requests,
+            self.queries,
+        );
         let returns = self.work.assemble(self.returns, upper);
         let returns = self.work.assemble(returns, lower);
 
@@ -695,6 +755,7 @@ where
             responses,
             Completing {
                 their_version: self.their_version,
+                ledger: self.ledger,
                 queries,
                 returns,
                 work: self.work,
@@ -718,7 +779,7 @@ where
     ) {
         let (responses, resolutions) =
             self.work
-                .leaf_level(self.their_version, requests, self.queries);
+                .leaf_level(self.their_version, self.ledger, requests, self.queries);
         self.work.assemble_leaves(self.returns, resolutions);
         (responses, self.work.execute(self.finish))
     }
@@ -744,6 +805,7 @@ where
         let stats = self.work.stats();
         let mut absorb = pin!(absorb(
             self.their_version,
+            self.ledger,
             requests,
             self.queries,
             self.returns,
@@ -777,6 +839,7 @@ where
 /// the resolver's supply arm.
 async fn absorb<B, T>(
     their_version: Version,
+    ledger: SupplyLedger,
     requests: impl Requests<B, T, Z>,
     mut queries: Receiver<Prefix<Z>>,
     returns: Sender<Option<B::Node<Z>>>,
@@ -803,6 +866,7 @@ where
                 if !contained(leaf.span().hi(), &their_version) {
                     return violation(Violation::UncontainedSupply);
                 }
+                ledger.absorb(leaf.len() as u64)?;
                 stats.gained(1);
                 Some(leaf.clone())
             }

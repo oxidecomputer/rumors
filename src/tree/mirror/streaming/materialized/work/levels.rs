@@ -17,7 +17,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf, Node, Root,
         materialized::{
-            Error, OkReceiverStream, Query, Resolution, Resolve, Violation,
+            Error, OkReceiverStream, Query, Resolution, Resolve, SupplyLedger, Violation,
             channel::{Receiver, Sender},
             children_of, fan_listing,
             unknown::{Unknown, unknown, unknown_providing},
@@ -157,6 +157,7 @@ where
     pub fn responder_level(
         &mut self,
         their_version: Version,
+        ledger: SupplyLedger,
         ceiling: Version,
         fan: Vec<(u8, B::Node<UnderRoot>)>,
         requests: impl Requests<B, T, UnderRoot>,
@@ -195,11 +196,14 @@ where
                     return violation(Violation::UnexpectedQuery)?;
                 };
                 // Early supplies are absorbed here, ahead of the descent's
-                // resolver, so they pass the same containment check every
-                // other supply does.
+                // resolver, so they pass the same containment and ledger
+                // checks every other supply does. The ledger charges at
+                // this wire ingestion, never at the claim downstream: the
+                // claim consumes nodes already counted here.
                 if !contained(node.span().hi(), &their_version) {
                     return violation(Violation::UncontainedSupply)?;
                 }
+                ledger.absorb(node.len() as u64)?;
                 let children =
                     children_of(&backend, Prefix::new().push(radix), node).await?;
                 early.push((radix, children));
@@ -257,6 +261,7 @@ where
     pub fn internal_level<H>(
         &mut self,
         their_version: Version,
+        ledger: SupplyLedger,
         early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Node<S<S<H>>>>)>>>,
         early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<S<S<H>>>)>)>>>,
         requests: impl Requests<B, T, S<S<H>>>,
@@ -337,7 +342,7 @@ where
                     }
                 }
 
-                let mut resolver = Resolver::new(query, &their_version, stats.clone());
+                let mut resolver = Resolver::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -427,6 +432,7 @@ where
     pub fn leaf_parent_level(
         &mut self,
         their_version: Version,
+        ledger: SupplyLedger,
         requests: impl Requests<B, T, S<Z>>,
         mut queries: Receiver<Query<B, T, S<Z>>>,
     ) -> (
@@ -453,7 +459,7 @@ where
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver = Resolver::new(query, &their_version, stats.clone());
+                let mut resolver = Resolver::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -513,6 +519,7 @@ where
     pub fn leaf_level(
         &mut self,
         their_version: Version,
+        ledger: SupplyLedger,
         requests: impl Requests<B, T, Z>,
         mut queries: Receiver<Query<B, T, Z>>,
     ) -> (
@@ -531,7 +538,7 @@ where
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver = Resolver::new(query, &their_version, stats.clone());
+                let mut resolver = Resolver::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;

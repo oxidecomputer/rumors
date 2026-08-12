@@ -12,7 +12,7 @@ use crate::{
     tree::mirror::streaming::{
         Local,
         materialized::{
-            Error, Query, Violation, Work,
+            Error, Query, SupplyLedger, Violation, Work,
             channel::{Receiver, with_schedule},
             unknown::Unknown,
             work::queues::internal_child_queries,
@@ -245,7 +245,12 @@ impl InjectHeight for Z {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
-        let (responses, _resolutions) = work.leaf_level(declared, stream::iter(requests), queries);
+        let (responses, _resolutions) = work.leaf_level(
+            declared,
+            SupplyLedger::new(u64::MAX),
+            stream::iter(requests),
+            queries,
+        );
         reported_violation(work, responses)
     }
 }
@@ -255,8 +260,12 @@ impl InjectHeight for S<Z> {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
-        let (responses, _asked, _upper, _lower) =
-            work.leaf_parent_level(declared, stream::iter(requests), queries);
+        let (responses, _asked, _upper, _lower) = work.leaf_parent_level(
+            declared,
+            SupplyLedger::new(u64::MAX),
+            stream::iter(requests),
+            queries,
+        );
         reported_violation(work, responses)
     }
 }
@@ -272,8 +281,14 @@ where
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
-        let (responses, _asked, _upper, _lower) =
-            work.internal_level::<H>(declared, None, None, stream::iter(requests), queries);
+        let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
+            declared,
+            SupplyLedger::new(u64::MAX),
+            None,
+            None,
+            stream::iter(requests),
+            queries,
+        );
         reported_violation(work, responses)
     }
 }

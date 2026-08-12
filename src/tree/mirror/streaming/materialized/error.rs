@@ -37,16 +37,12 @@ pub enum Violation {
     /// A `Supply` whose radix violates the implicit ordering of children.
     #[error("reply attempted to supply a child out of order")]
     InvalidSupply,
-    /// A supplied subtree carrying a version outside the sender's declared
-    /// version.
-    ///
-    /// An honest replica transmits only versions causally contained in
-    /// its greeting's declared version, so an escaped version marks a
-    /// nonconforming sender. Rejected at ingestion so the escape cannot
-    /// outlive the session: absorbed, the leaf would sit above every
-    /// replica's session ceiling (the version ceiling the greeting
-    /// fixed), beyond the reach of redaction and the deletion filter
-    /// alike.
+    /// A supplied subtree carrying a version not in the causal past or present
+    /// of the sender's declared version.
     #[error("reply supplied a subtree with a version outside the sender's declared version")]
     UncontainedSupply,
+    /// The total number of leaves supplied was more than the sender's declared
+    /// set length, counted across the whole session.
+    #[error("reply supplied more leaves than the sender's declared set length")]
+    OverdrawnSupply,
 }

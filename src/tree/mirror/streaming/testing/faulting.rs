@@ -26,20 +26,73 @@ use futures::StreamExt;
 
 use super::failing::{Failing, FailingNode};
 
-/// An honest protocol state wrapped to fault once after a selected number of
-/// outgoing phases, then continue normally.
+/// One injected counterparty fault: a reply-stream corruption scheduled by
+/// the phase countdown, or a greeting lie told at the handshake.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// Corrupt one outgoing reply phase to commit the selected violation.
+    Reply(Violation),
+    /// Tell one lie in the outgoing greeting.
+    ///
+    /// The inner state keeps behaving from its true tree, so the
+    /// declaration and the behavior disagree — the shape a
+    /// greeting-premise guard exists to catch. Fires at the handshake;
+    /// the phase countdown does not apply.
+    Greeting(GreetingLie),
+}
+
+/// One dishonest field in an otherwise honest greeting.
+///
+/// The shrunken directions are detectable: honest behavior overruns the
+/// declaration, and the deceived counterparty must fail the session with
+/// the named violation. The inflated directions are tolerated: a
+/// declaration is an upper premise, so the session must complete cleanly
+/// — the no-false-positive half of each guard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GreetingLie {
+    /// Declare an empty set: the first absorbed honest supply overruns
+    /// the declared length ([`Violation::OverdrawnSupply`]).
+    ShrunkenSetLen,
+    /// Declare more leaves than the tree holds; the session must
+    /// complete cleanly.
+    InflatedSetLen,
+    /// Declare the empty version: every honest supply escapes it
+    /// ([`Violation::UncontainedSupply`]).
+    ShrunkenVersion,
+    /// Declare a version above the tree's truth (a tick on a party no
+    /// fixture uses); the deceived side absorbs it into its ceiling by
+    /// definition (`ours | declared`), and the reconciled content must
+    /// not move.
+    InflatedVersion,
+}
+
+/// Apply one lie to an outgoing greeting.
+fn tell(greeting: &mut message::Greeting, lie: GreetingLie) {
+    match lie {
+        GreetingLie::ShrunkenSetLen => greeting.set_len = 0,
+        GreetingLie::InflatedSetLen => greeting.set_len = greeting.set_len * 2 + 1,
+        GreetingLie::ShrunkenVersion => greeting.version = Version::new(),
+        GreetingLie::InflatedVersion => {
+            greeting.version = greeting.version.clone() | &escaped_version();
+        }
+    }
+}
+
+/// An honest protocol state wrapped to fault once — a reply corruption after
+/// a selected number of outgoing phases, or a greeting lie at the handshake —
+/// then continue normally.
 pub struct Faulting<P> {
     inner: P,
     remaining: usize,
-    violation: Option<Violation>,
+    fault: Option<Fault>,
 }
 
 impl<P> Faulting<P> {
-    pub fn new(inner: P, remaining: usize, violation: Option<Violation>) -> Self {
+    pub fn new(inner: P, remaining: usize, fault: Option<Fault>) -> Self {
         Self {
             inner,
             remaining,
-            violation,
+            fault,
         }
     }
 }
@@ -172,6 +225,9 @@ where
                     .replies
                     .push(message::Reaction::Supply(0xff, B::escaped::<H>()));
             }
+            Violation::OverdrawnSupply => {
+                unreachable!("a set-length overrun is a greeting lie (Fault::Greeting), never a reply corruption")
+            }
             Violation::UnaskedReply | Violation::UnansweredQuery => unreachable!(),
         }
         yield Ok(reply);
@@ -184,7 +240,7 @@ fn fault_phase<B, H, R, N>(
     responses: R,
     next: N,
     remaining: usize,
-    violation: Option<Violation>,
+    fault: Option<Fault>,
 ) -> (
     BoxResponses<B, (), H, MaterializedError<B::Error>>,
     Faulting<N>,
@@ -194,7 +250,7 @@ where
     H: FaultHeight,
     R: Responses<B, (), H, MaterializedError<B::Error>>,
 {
-    if let (0, Some(violation)) = (remaining, violation) {
+    if let (0, Some(Fault::Reply(violation))) = (remaining, fault) {
         (
             malformed_responses::<B, _, _>(responses, violation),
             Faulting::new(next, 0, None),
@@ -202,7 +258,7 @@ where
     } else {
         (
             Box::pin(responses),
-            Faulting::new(next, remaining.saturating_sub(1), violation),
+            Faulting::new(next, remaining.saturating_sub(1), fault),
         )
     }
 }
@@ -227,10 +283,13 @@ where
         let Faulting {
             inner,
             remaining,
-            violation,
+            fault,
         } = self;
-        let (handshake, next) = inner.connect().await?;
-        Ok((handshake, Faulting::new(next, remaining, violation)))
+        let (mut handshake, next) = inner.connect().await?;
+        if let Some(Fault::Greeting(lie)) = fault {
+            tell(&mut handshake, lie);
+        }
+        Ok((handshake, Faulting::new(next, remaining, fault)))
     }
 }
 
@@ -245,10 +304,10 @@ where
         let Faulting {
             inner,
             remaining,
-            violation,
+            fault,
         } = self;
         let next = inner.complete_connect(theirs).await?;
-        Ok(Faulting::new(next, remaining, violation))
+        Ok(Faulting::new(next, remaining, fault))
     }
 }
 
@@ -266,10 +325,13 @@ where
         let Faulting {
             inner,
             remaining,
-            violation,
+            fault,
         } = self;
-        let (handshake, next) = inner.accept(request).await?;
-        Ok((handshake, Faulting::new(next, remaining, violation)))
+        let (mut handshake, next) = inner.accept(request).await?;
+        if let Some(Fault::Greeting(lie)) = fault {
+            tell(&mut handshake, lie);
+        }
+        Ok((handshake, Faulting::new(next, remaining, fault)))
     }
 }
 
@@ -297,7 +359,7 @@ where
         Self::Next,
     ) {
         let (responses, next) = self.inner.initiator();
-        fault_phase(responses, next, self.remaining, self.violation)
+        fault_phase(responses, next, self.remaining, self.fault)
     }
 }
 
@@ -316,7 +378,7 @@ where
         Self::Next,
     ) {
         let (responses, next) = self.inner.responder(requests);
-        fault_phase(responses, next, self.remaining, self.violation)
+        fault_phase(responses, next, self.remaining, self.fault)
     }
 }
 
@@ -336,7 +398,7 @@ where
         Self::Next,
     ) {
         let (responses, next) = self.inner.reply(requests);
-        fault_phase(responses, next, self.remaining, self.violation)
+        fault_phase(responses, next, self.remaining, self.fault)
     }
 }
 
@@ -353,7 +415,7 @@ where
         impl Future<Output = Result<Self::Output, Self::Error>> + Send,
     ) {
         let (responses, output) = self.inner.complete_responder(requests);
-        let responses = if let (0, Some(violation)) = (self.remaining, self.violation) {
+        let responses = if let (0, Some(Fault::Reply(violation))) = (self.remaining, self.fault) {
             malformed_responses::<B, _, _>(responses, violation)
         } else {
             Box::pin(responses)
