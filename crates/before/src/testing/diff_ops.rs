@@ -557,6 +557,53 @@ diff_ops! {
         prod: a.concurrent(&b),
         tree: a.partial_cmp(&b).is_none(),
     }
+
+    /// `distance`: the causal area between two histories, the rank of
+    /// their join less the rank of their meet.
+    ///
+    /// Production computes it in one fused sweep; the tree leg pins the
+    /// arithmetic with rank differences over the oracle's own join and
+    /// meet, and the fs leg pins the meaning with Riemann sums over the
+    /// function space's — three computations sharing no walk, no
+    /// accumulator, and no normalization sink.
+    fn version_distance_matches_the_oracle {
+        prod: a.distance(&b),
+        tree: {
+            let met = (a.clone() & b.clone()).rank();
+            (a | b)
+                .rank()
+                .checked_sub(&met)
+                .expect("the join dominates the meet")
+        },
+        fs(g): {
+            let met = semantic_oracle::rank(&semantic_oracle::meet(a.clone(), b.clone()), g);
+            semantic_oracle::rank(&semantic_oracle::join(a, b), g)
+                .checked_sub(&met)
+                .expect("the join dominates the meet")
+        },
+    }
+
+    /// `lag`: how far `a` lags behind `b` — the rank of the history `b`
+    /// records that `a` does not, the join's rank less `a`'s own.
+    ///
+    /// The directed half of `distance`, pinned the same two independent
+    /// ways.
+    fn version_lag_matches_the_oracle {
+        prod: a.lag(&b),
+        tree: {
+            let own = a.rank();
+            (a | b)
+                .rank()
+                .checked_sub(&own)
+                .expect("the join dominates its operand")
+        },
+        fs(g): {
+            let own = semantic_oracle::rank(&a, g);
+            semantic_oracle::rank(&semantic_oracle::join(a, b), g)
+                .checked_sub(&own)
+                .expect("the join dominates its operand")
+        },
+    }
 }
 
 /// Why an operation's `Bound` differential resists a descriptor.
@@ -644,10 +691,6 @@ impl BespokeGenre {
 /// makes is a phantom that fails the same pin.
 pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
     ("d_fork_join_roundtrip", BespokeGenre::FallibleHandBack),
-    (
-        "distance_and_lag_realize_both_oracles",
-        BespokeGenre::FunctionSpaceRealization,
-    ),
     (
         "event_dominates_local_and_advances",
         BespokeGenre::FunctionSpaceRealization,

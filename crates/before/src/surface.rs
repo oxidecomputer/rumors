@@ -474,15 +474,15 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version::distance",
-        prod_tree: Leg::Bound("distance_and_lag_realize_both_oracles"),
-        prod_fs: Leg::Bound("distance_and_lag_realize_both_oracles"),
-        tree_fs: Leg::Bound("distance_and_lag_realize_both_oracles"),
+        prod_tree: Leg::Bound("version_distance_matches_the_oracle"),
+        prod_fs: Leg::Trans("version_distance_matches_the_oracle"),
+        tree_fs: Leg::Bound("version_distance_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Version::lag",
-        prod_tree: Leg::Bound("distance_and_lag_realize_both_oracles"),
-        prod_fs: Leg::Bound("distance_and_lag_realize_both_oracles"),
-        tree_fs: Leg::Bound("distance_and_lag_realize_both_oracles"),
+        prod_tree: Leg::Bound("version_lag_matches_the_oracle"),
+        prod_fs: Leg::Trans("version_lag_matches_the_oracle"),
+        tree_fs: Leg::Bound("version_lag_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Version::join",

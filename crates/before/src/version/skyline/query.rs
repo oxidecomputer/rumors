@@ -157,8 +157,9 @@
 //! re-ranked, subtracted through `Rank::checked_sub`) — the same identities on
 //! a code path the co-sweep shares nothing with past the cursors; that pin
 //! lives in this module's own test suite, and the cross-oracle triple (tree
-//! fold and function-space Riemann sums in one body) is `version/tests.rs`'s
-//! `distance_and_lag_realize_both_oracles`. Rank is additionally pinned against
+//! fold and function-space Riemann sums beside the production sweep) is the
+//! distance and lag descriptors in the pointwise differential table. Rank is
+//! additionally pinned against
 //! the semantic Riemann-sum oracle, which shares no structure with the sweep.
 //! The resource envelopes are the meter rows named above.
 

@@ -42,10 +42,11 @@
 //! # Leg vocabulary
 //!
 //! - [`Leg::Bound`]: a direct differential on that leg; the named test
-//!   or descriptor drives both sides. One test may bind several legs when
-//!   its body performs each comparison (the distance/lag triple asserts
-//!   prod, tree, and fs results equal in one proptest); the citation is
-//!   per-leg, the comparisons per-body.
+//!   or descriptor drives both sides. One binding may cover several legs
+//!   when its body performs each comparison (a descriptor with an fs
+//!   spelling compares both walk legs and the function space; the replay
+//!   keystone compares all three per trace); the citation is per-leg, the
+//!   comparisons per-body.
 //! - [`Leg::Law`]: pinned by an algebraic law on production alone (no
 //!   reference on the right-hand side); used where no reference counterpart
 //!   exists or the contract promises only a law.

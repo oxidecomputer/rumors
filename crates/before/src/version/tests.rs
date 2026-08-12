@@ -856,62 +856,6 @@ fn a_bits(r: &super::Rank) -> u64 {
 }
 
 proptest! {
-    /// `distance` and `lag` realize both reference oracles.
-    ///
-    /// The recursive tree fold's rank differences pin the arithmetic, and the
-    /// semantic oracle's Riemann sums over join/meet events pin the meaning —
-    /// the three computations share no walk, no accumulator, and no
-    /// normalization sink.
-    #[test]
-    fn distance_and_lag_realize_both_oracles(
-        oa in arb_oracle_version(),
-        ob in arb_oracle_version(),
-    ) {
-        use crate::testing::semantic_oracle;
-
-        let a = from_oracle_version(&oa);
-        let b = from_oracle_version(&ob);
-        let d = a.distance(&b);
-        let l = a.lag(&b);
-
-        // The tree oracle: rank differences over its own join and meet.
-        let tree_join = (oa.clone() | ob.clone()).rank();
-        let tree_meet = (oa.clone() & ob.clone()).rank();
-        prop_assert_eq!(
-            tree_join.checked_sub(&tree_meet).expect("join dominates meet"),
-            d.clone(),
-            "tree-fold distance disagrees: {} vs {}", a, b
-        );
-        prop_assert_eq!(
-            tree_join.checked_sub(&oa.rank()).expect("join dominates self"),
-            l.clone(),
-            "tree-fold lag disagrees: {} vs {}", a, b
-        );
-
-        // The semantic oracle: Riemann sums over the function space.
-        let ea = semantic_oracle::lift_ev(oa);
-        let eb = semantic_oracle::lift_ev(ob);
-        let joined = semantic_oracle::join(ea.clone(), eb.clone());
-        let met = semantic_oracle::meet(ea.clone(), eb);
-        let gj = semantic_oracle::ev_res(&joined);
-        let gm = semantic_oracle::ev_res(&met);
-        let ga = semantic_oracle::ev_res(&ea);
-        prop_assert_eq!(
-            semantic_oracle::rank(&joined, gj)
-                .checked_sub(&semantic_oracle::rank(&met, gm))
-                .expect("join dominates meet"),
-            d,
-            "Riemann-sum distance disagrees: {} vs {}", a, b
-        );
-        prop_assert_eq!(
-            semantic_oracle::rank(&joined, gj)
-                .checked_sub(&semantic_oracle::rank(&ea, ga))
-                .expect("join dominates self"),
-            l,
-            "Riemann-sum lag disagrees: {} vs {}", a, b
-        );
-    }
-
     /// Every `laws::RANK_TRIPLE` law (the monoid, order, and cross-path
     /// normalization laws) holds on adversarial seeded ranks.
     ///
