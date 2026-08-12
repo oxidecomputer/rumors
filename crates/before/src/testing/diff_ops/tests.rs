@@ -14,8 +14,9 @@ use proptest::prelude::*;
 use super::{registered_names, BespokeGenre, DiffOp, DIFF_BESPOKE, REGISTERED_GROUPS};
 use crate::oracle;
 use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
-use crate::testing::generators::arb_oracle_version;
+use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, world_strategy};
+use crate::Ticks;
 
 /// Assert every descriptor in a slice, naming the violated one on failure.
 ///
@@ -186,6 +187,15 @@ fn every_descriptor_group_is_registered() {
 // oracle-side and raised through the bridge inside each descriptor, which
 // is also why `!Clone` production types cost nothing here.
 
+/// The tick counts the drivers sweep.
+///
+/// The upper end is set by the recursive oracle, which iterates its
+/// `ticks` literally — one whole-tree rewrite per tick — so a count the
+/// differential can afford is a count that loop can afford, not one the
+/// production door can. Wide counts ride the composition law and the
+/// closed-form witnesses instead.
+const DRIVEN_TICK_COUNTS: std::ops::Range<u64> = 0..24;
+
 /// Expands the group roster into the arbitrary-population drivers: one
 /// proptest per group, named by the roster's driver column, keyed on the
 /// group's input signature.
@@ -203,6 +213,35 @@ macro_rules! group_drivers {
             #[test]
             fn $driver(a in arb_oracle_version()) {
                 assert_diff_ops!(super::$group, &a);
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, party)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary normal-form version/id pairings.
+            ///
+            /// The id's shape is unrelated to the history's, which is
+            /// where the full-subtree arms, the cost folding, and the
+            /// root-ward tie-break live.
+            #[test]
+            fn $driver(a in arb_oracle_version(), p in arb_oracle_party_nonempty()) {
+                assert_diff_ops!(super::$group, &a, &p);
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, party, ticks)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary normal-form version/id pairings across the
+            /// affordable tick counts, the zero count included.
+            #[test]
+            fn $driver(
+                a in arb_oracle_version(),
+                p in arb_oracle_party_nonempty(),
+                n in DRIVEN_TICK_COUNTS,
+            ) {
+                assert_diff_ops!(super::$group, &a, &p, &Ticks::from(n));
             }
         }
     };
@@ -227,6 +266,11 @@ for_each_diff_group!(group_drivers);
 struct Organic<'a> {
     /// Three versions from the trace, causally related.
     v: [&'a oracle::Version; 3],
+    /// Two live ids from the same trace: siblings of one seed, and so
+    /// disjoint by construction.
+    p: [&'a oracle::Party; 2],
+    /// A tick count from [`DRIVEN_TICK_COUNTS`].
+    n: Ticks,
 }
 
 /// Expands the group roster into the organic drive list: one
@@ -238,6 +282,12 @@ macro_rules! organic_drive {
     };
     (@one $env:expr, $group:ident, (version)) => {
         assert_diff_ops!(super::$group, $env.v[0]);
+    };
+    (@one $env:expr, $group:ident, (version, party)) => {
+        assert_diff_ops!(super::$group, $env.v[0], $env.p[0]);
+    };
+    (@one $env:expr, $group:ident, (version, party, ticks)) => {
+        assert_diff_ops!(super::$group, $env.v[0], $env.p[0], &$env.n);
     };
     (@one $env:expr, $group:ident, (version, version)) => {
         assert_diff_ops!(super::$group, $env.v[0], $env.v[1]);
@@ -253,21 +303,32 @@ proptest! {
     /// and causally related versions, where domination and equality are
     /// common rather than vanishing.
     ///
+    /// The drive list runs twice per case, over two pairings of the same
+    /// picks. In the first, each version travels with its *own* clock's
+    /// id — the regime where the id owns exactly the regions that history
+    /// may inflate. In the second the ids are exchanged, so a version
+    /// meets a sibling's region: the cross-region shapes masking and
+    /// projection answer non-trivially on.
     #[test]
     fn diff_ops_match_the_oracle_on_organic_populations(
         ops in world_strategy(),
         i in 0usize..64,
         j in 0usize..64,
         k in 0usize..64,
+        ticks in DRIVEN_TICK_COUNTS,
     ) {
         let cs = run(&ops);
-        let n = cs.len();
-        let (_, va) = cs[i % n].trees();
-        let (_, vb) = cs[j % n].trees();
-        let (_, vc) = cs[k % n].trees();
+        let len = cs.len();
+        let (pa, va) = cs[i % len].trees();
+        let (pb, vb) = cs[j % len].trees();
+        let (_, vc) = cs[k % len].trees();
+        let n = Ticks::from(ticks);
 
-        let picks = Organic { v: [va, vb, vc] };
-        for_each_diff_group!(organic_drive(&picks));
+        let own = Organic { v: [va, vb, vc], p: [pa, pb], n: n.clone() };
+        for_each_diff_group!(organic_drive(&own));
+
+        let crossed = Organic { v: [va, vb, vc], p: [pb, pa], n };
+        for_each_diff_group!(organic_drive(&crossed));
     }
 }
 

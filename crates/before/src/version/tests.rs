@@ -107,46 +107,6 @@ fn new_is_join_identity() {
 }
 
 proptest! {
-    /// The impl `tick` matches the oracle's `event` for every
-    /// clock's own `(party, version)` (the party owns the regions tick may inflate).
-    #[test]
-    fn tick_matches_oracle(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let (party, version) = cs[i % n].trees();
-
-        let mut oracle_after = version.clone();
-        oracle_after.tick(party);
-
-        let mut iv = from_oracle_version(version);
-        iv.tick(&from_oracle_party(party));
-
-        prop_assert!(iv == from_oracle_version(&oracle_after));
-    }
-
-    /// The impl's fused `ticks(n)` matches the oracle's literally iterated
-    /// `ticks(n)` for every clock's own `(party, version)`.
-    ///
-    /// The counts stay within what the oracle's `O(n · tree)` loop affords (the
-    /// oracle module doc's operating envelope caps `n` here; the wide counts
-    /// ride the composition law and the closed-form witnesses).
-    #[test]
-    fn ticks_matches_oracle(ops in world_strategy(), i in 0usize..64, n in 0u64..24) {
-        let cs = run(&ops);
-        let len = cs.len();
-        let (party, version) = cs[i % len].trees();
-
-        let mut oracle_after = version.clone();
-        oracle_after.ticks(party, n);
-
-        let mut iv = from_oracle_version(version);
-        iv.ticks(&from_oracle_party(party), n);
-
-        prop_assert!(iv == from_oracle_version(&oracle_after));
-    }
-}
-
-proptest! {
     /// The join is representationally subadditive: `encode(a | b).len() <=
     /// encode(a).len() + encode(b).len()`.
     ///
@@ -197,24 +157,6 @@ proptest! {
             "meet encoding outgrew its inputs: {} > {} + {}",
             meet.encode().len(), a.encode().len(), b.encode().len(),
         );
-    }
-}
-
-proptest! {
-    /// Differential. The impl projection's materialization (`(&v /
-    /// &p).to_version()`) matches the oracle's projection (mask `v` to `p`'s
-    /// region), over a shared population: arbitrary versions and parties drawn
-    /// from the clocks.
-    #[test]
-    fn div_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let oracle_proj = vs[i % n].clone() / cs[j % n].party();
-        let v = from_oracle_version(&vs[i % n]);
-        let p = from_oracle_party(cs[j % n].party());
-        let proj = (&v / &p).to_version();
-        prop_assert!(proj == from_oracle_version(&oracle_proj));
     }
 }
 
@@ -515,29 +457,6 @@ proptest! {
             "meet encoding outgrew its inputs: {} > {} + {}",
             meet.encode().len(), a.encode().len(), b.encode().len(),
         );
-    }
-}
-
-proptest! {
-    /// `tick` (= `fill` then, if no fill, `grow`) on an arbitrary `(id, event)`
-    /// pair with *unrelated* shapes matches the oracle's `event`.
-    ///
-    /// This is where the `Kind` arm selection, the cost folding, and the
-    /// root-ward tie-break live; feeding unrelated id/event shapes drives the
-    /// `fill` full-subtree arms and the multi-region `grow` cost comparison
-    /// that same-clock `(party, version)` pairs under-hit.
-    #[test]
-    fn tick_arbitrary(
-        op in arb_oracle_party_nonempty(),
-        ov in arb_oracle_version(),
-    ) {
-        let mut oracle_after = ov.clone();
-        oracle_after.tick(&op);
-
-        let mut iv = from_oracle_version(&ov);
-        iv.tick(&from_oracle_party(&op));
-
-        prop_assert!(iv == from_oracle_version(&oracle_after));
     }
 }
 

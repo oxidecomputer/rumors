@@ -204,6 +204,45 @@ macro_rules! diff_ops {
 }
 
 diff_ops! {
+    /// The operations that act on a history *through* a region.
+    ///
+    /// Both read the id as a mask over the history: one inflates inside
+    /// it, the other keeps only what lies inside it. Feeding an id whose
+    /// shape is unrelated to the history's is what drives the full-subtree
+    /// arms and the multi-region cost comparison that a clock's own pair
+    /// under-hits.
+    pub(crate) static VERSION_PARTY: (a: version, p: party);
+
+    /// `tick`: register one event, inflating the region the id owns.
+    fn version_tick_matches_the_oracle {
+        prod: { a.tick(&p); a },
+        tree: { a.tick(&p); a },
+    }
+
+    /// The projection (`/`): the history masked to the id's region.
+    ///
+    /// Production answers lazily and materializes on demand, so the
+    /// production leg spells the materialization the oracle's projection
+    /// returns directly.
+    fn version_projection_matches_the_oracle {
+        prod: (&a / &p).to_version(),
+        tree: a / &p,
+    }
+}
+
+diff_ops! {
+    /// The fused repeated tick.
+    pub(crate) static VERSION_PARTY_TICKS: (a: version, p: party, n: ticks);
+
+    /// `ticks(n)`: production's fused advance against the oracle's
+    /// literally iterated one.
+    fn version_ticks_matches_the_oracle {
+        prod: { a.ticks(&p, n); a },
+        tree: { a.ticks(&p, n); a },
+    }
+}
+
+diff_ops! {
     /// The scalar quantities one history carries.
     ///
     /// Both are folds over the whole tree, so the regime that matters is
@@ -364,7 +403,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
         "distance_and_lag_realize_both_oracles",
         BespokeGenre::FunctionSpaceRealization,
     ),
-    ("div_matches_oracle", BespokeGenre::HandWrittenPointwise),
     (
         "event_dominates_local_and_advances",
         BespokeGenre::FunctionSpaceRealization,
@@ -411,8 +449,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
         BespokeGenre::FunctionSpaceRealization,
     ),
     ("sync", BespokeGenre::FallibleHandBack),
-    ("tick_arbitrary", BespokeGenre::HandWrittenPointwise),
-    ("ticks_matches_oracle", BespokeGenre::HandWrittenPointwise),
     (
         "view_cmp_matches_oracle_composed",
         BespokeGenre::HandWrittenPointwise,
@@ -443,6 +479,8 @@ macro_rules! for_each_diff_group {
             args: ($($args)*);
             (VERSION_SOLO, version_solo_ops, (version)),
             (VERSION_PAIR, version_pair_ops, (version, version)),
+            (VERSION_PARTY, version_party_ops, (version, party)),
+            (VERSION_PARTY_TICKS, version_party_ticks_ops, (version, party, ticks)),
         }
     };
 }

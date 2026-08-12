@@ -339,7 +339,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Party::tick",
-        prod_tree: Leg::Trans("tick_matches_oracle"),
+        prod_tree: Leg::Trans("version_tick_matches_the_oracle"),
         prod_fs: Leg::Trans("event_dominates_local_and_advances"),
         tree_fs: Leg::Trans("replay_matches_across_references"),
     },
@@ -426,15 +426,15 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version::tick",
-        prod_tree: Leg::Bound("tick_arbitrary"),
+        prod_tree: Leg::Bound("version_tick_matches_the_oracle"),
         prod_fs: Leg::Bound("event_dominates_local_and_advances"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
     SurfaceRow {
         op: "Version::ticks",
-        prod_tree: Leg::Bound("ticks_matches_oracle"),
+        prod_tree: Leg::Bound("version_ticks_matches_the_oracle"),
         prod_fs: Leg::Trans("ticks_agrees_with_iterated_ticks"),
-        tree_fs: Leg::Trans("ticks_matches_oracle"),
+        tree_fs: Leg::Trans("version_ticks_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Version::concurrent",
@@ -650,7 +650,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "OwnVersion::to_version",
-        prod_tree: Leg::Bound("div_matches_oracle"),
+        prod_tree: Leg::Bound("version_projection_matches_the_oracle"),
         prod_fs: Leg::Trans("quotient_realizes_region_mask"),
         tree_fs: Leg::Bound("quotient_realizes_region_mask"),
     },
@@ -1045,7 +1045,7 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "&Version / &Party (Div — the lazy projection view)",
-        prod_tree: Leg::Bound("div_matches_oracle"),
+        prod_tree: Leg::Bound("version_projection_matches_the_oracle"),
         prod_fs: Leg::Trans("quotient_realizes_region_mask"),
         tree_fs: Leg::Bound("quotient_realizes_region_mask"),
     },
