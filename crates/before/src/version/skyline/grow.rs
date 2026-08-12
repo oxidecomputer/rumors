@@ -88,6 +88,8 @@
 //! silently rather than panic. Deep spines swap the native-frame oracle for
 //! closed-form expected values.
 
+use core::ops::Range;
+
 use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, Code};
 
 use super::build::SkylineBuilder;
@@ -251,7 +253,7 @@ impl<'a> EvScan<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
-    fn read(&mut self) -> Option<core::ops::Range<usize>> {
+    fn read(&mut self) -> Option<Range<usize>> {
         let leaf = self.cursor.read_bit().expect("canonical skyline bits");
         if !leaf {
             None
@@ -315,12 +317,12 @@ struct Subtree {
     /// Just past the subtree's last bit.
     end: usize,
     /// The first (leftmost) leaf's payload code range.
-    first_code: core::ops::Range<usize>,
+    first_code: Range<usize>,
     /// The first leaf's depth below the subtree root; `0` means the
     /// subtree is a single leaf.
     first_rel_depth: usize,
     /// The last (rightmost) leaf's payload code range.
-    last_code: core::ops::Range<usize>,
+    last_code: Range<usize>,
     /// The last leaf's depth below the subtree root.
     last_rel_depth: usize,
 }
@@ -338,7 +340,7 @@ fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
     let mut cursor = codec::DsiCursor::new_at(bits, start);
     // The first leaf's coordinates, recorded once; the last leaf's are whatever
     // the loop recorded most recently when the walk ends.
-    let mut first: Option<(core::ops::Range<usize>, usize)> = None;
+    let mut first: Option<(Range<usize>, usize)> = None;
     let mut last_code = 0..0;
     let mut last_rel_depth = 0;
     let mut walk = LeafWalk::new();
