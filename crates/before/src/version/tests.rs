@@ -367,20 +367,25 @@ fn path_sum_beyond_u64_compares_greater() {
 }
 
 proptest! {
-    /// A node literal over two equal-height leaves is refused at every base.
+    /// A node literal over two equal-height leaves is refused at every base
+    /// and every height.
     ///
     /// `(n, m, m)` collapses to the leaf `n + m`, so the leaf is the one
     /// canonical spelling and the `TryFrom` surface rejects the node form.
-    /// The min-lift rejection precedes the collapse check, so the collapse
-    /// arm's whole domain is `m = 0` — any other equal pair already fails
-    /// min-lifting — and the accepted neighbors on either side pin that the
+    /// The collapse check precedes min-lifting, so the collapse rejection
+    /// owns every equal pair, whatever `m` — and the accepted neighbors on
+    /// either side (the unequal pairs that stay min-lifted) pin that the
     /// rejection is the equality, not the shape.
     #[test]
-    fn equal_leaf_literals_are_refused(n in 0u64..=u64::MAX / 2, z in 1u64..=1u64 << 40) {
+    fn equal_leaf_literals_are_refused(
+        n in 0u64..=u64::MAX / 2,
+        m in 0u64..=1u64 << 40,
+        z in 1u64..=1u64 << 40,
+    ) {
         prop_assert_eq!(
-            Version::try_from((n, 0u64, 0u64)),
+            Version::try_from((n, m, m)),
             Err(crate::error::Parse::NotCanonical),
-            "(n, 0, 0) must collapse-reject"
+            "(n, m, m) must collapse-reject"
         );
         prop_assert!(Version::try_from((n, 0u64, z)).is_ok());
         prop_assert!(Version::try_from((n, z, 0u64)).is_ok());

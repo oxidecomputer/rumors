@@ -25,10 +25,10 @@ pub(crate) fn leaf(base: u64) -> BitsMut {
 /// Compose an event node with base `base` from two already-canonical child
 /// streams, enforcing normal form.
 ///
-/// Rejects [`Parse::NotCanonical`] when the node hoards a liftable minimum
-/// (neither child's minimum leaf height is zero — normal form stores the shared
-/// minimum at the parent) or when the node is collapsible (two leaf children of
-/// equal height, which is just the leaf itself).
+/// Rejects [`Parse::NotCanonical`] when the node is collapsible (two leaf
+/// children of equal height, which is just the leaf itself) or when the node
+/// hoards a liftable minimum (neither child's minimum leaf height is zero —
+/// normal form stores the shared minimum at the parent).
 pub(crate) fn node(base: u64, left: &BitsSlice, right: &BitsSlice) -> Result<BitsMut, Parse> {
     let (left_topology, left_heights) = scan(left);
     let (right_topology, right_heights) = scan(right);
@@ -41,12 +41,12 @@ pub(crate) fn node(base: u64, left: &BitsSlice, right: &BitsSlice) -> Result<Bit
         .iter()
         .min()
         .expect("a tree has at least one leaf");
-    if *left_min != Base::ZERO && *right_min != Base::ZERO {
-        return Err(Parse::NotCanonical); // a liftable minimum: not min-lifted
-    }
     if left_topology.len() == 1 && right_topology.len() == 1 && left_heights[0] == right_heights[0]
     {
-        return Err(Parse::NotCanonical); // (n, m, m) collapses to a leaf
+        return Err(Parse::NotCanonical); // (n, m, m) collapses to a leaf, whatever m
+    }
+    if *left_min != Base::ZERO && *right_min != Base::ZERO {
+        return Err(Parse::NotCanonical); // a liftable minimum: not min-lifted
     }
 
     let base = Base::from(base);
