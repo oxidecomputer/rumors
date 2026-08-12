@@ -306,34 +306,28 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>) -> RegionSkip {
 /// contract; the pre-scan's collapse skip runs behind the fill walk's own
 /// consuming scan).
 ///
+/// The caller descends the range's first leaf before handing the walk over, so
+/// a payload is always waiting: the fold runs before the first descent, and the
+/// range is never empty.
+///
 /// # Panics
 ///
 /// The stream must be canonical. The violations this walk structurally
 /// notices — truncation, malformation — panic; the rest walk silently
 /// with an unspecified result (the contract of
 /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
-pub(super) fn net_leaves(
-    walk: &mut LeafWalk,
-    cursor: &mut DsiCursor<'_>,
-    pending: Option<usize>,
-) -> Option<Signed> {
+pub(super) fn net_leaves(walk: &mut LeafWalk, cursor: &mut DsiCursor<'_>) -> Signed {
     let mut net = Accumulator::new();
-    let mut pending = pending;
-    let mut consumed = false;
     loop {
-        if pending.take().is_none() && walk.descend(cursor).is_none() {
-            break;
-        }
         let code = cursor.read_int().expect("canonical skyline bits");
         let (sign, magnitude) = unzigzag(code);
         fold_signed_int(&mut net, sign, &magnitude);
-        consumed = true;
-    }
-    if !consumed {
-        return None;
+        if walk.descend(cursor).is_none() {
+            break;
+        }
     }
     let (sign, magnitude) = net.sign_magnitude();
-    Some(Signed::from_sign_magnitude(sign, magnitude))
+    Signed::from_sign_magnitude(sign, magnitude)
 }
 
 /// Block-scan the remaining leaves of a subtree whose walk is already open —

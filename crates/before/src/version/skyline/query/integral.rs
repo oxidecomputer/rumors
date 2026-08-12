@@ -1006,9 +1006,14 @@ impl Integrator {
     /// offline mass balancer whose combiner charges the running total as a side
     /// effect of every merge.
     fn settle_armings(&mut self) {
-        if self.promotions.is_empty() {
-            return;
-        }
+        // The ledger must hold armings: an empty one would still push the
+        // virtual closing entry and charge the final window against nobody's
+        // debt. The one caller tests this immediately above the call, so the
+        // check lives there rather than being re-taken here.
+        debug_assert!(
+            !self.promotions.is_empty(),
+            "the ledger settles only behind a non-empty check"
+        );
         let armings = core::mem::take(&mut self.promotions);
         let (final_window_sign, final_window_magnitude, final_window_shift) =
             self.banked_window.sign_magnitude_shl();

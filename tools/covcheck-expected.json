@@ -65,12 +65,6 @@
         "anchor": "a present id child is a real node",
         "disposition": "panic-arm",
         "why": "the walk descends only into children whose presence bits are set"
-      },
-      {
-        "anchor": "return if distance == Cost::INFEASIBLE {",
-        "offset": 1,
-        "disposition": "unreachable",
-        "why": "an Internal node in normal form has a present child (idbits' normal-form precondition: decode rejects non-normal ids, every op produces normal form), so the fold's min never returns infeasible at the root; the method doc keeps the arm total"
       }
     ],
     "crates/before/src/version/skyline/fill/prescan.rs": [
@@ -189,20 +183,6 @@
         "offset": 1,
         "disposition": "remediation",
         "why": "reachable in principle: promote fires on the parked spelling's width, which an exactly-canceling spelling can trip at zero magnitude; the skip-arming reset then runs. Same exact-cancellation family as the settle_segment guard."
-      },
-      {
-        "anchor": "if self.promotions.is_empty() {",
-        "offset": 1,
-        "disposition": "unreachable",
-        "why": "the sole call site (finish) pre-checks promotions non-empty; the guard keeps the method total"
-      }
-    ],
-    "crates/before/src/version/skyline/walk.rs": [
-      {
-        "anchor": "if !consumed {",
-        "offset": 1,
-        "disposition": "unreachable",
-        "why": "the empty-walk return never fires: net_leaves' sole caller hands it a pending descended leaf, so the first iteration always consumes a payload (the call site's expect reads the Some)"
       }
     ],
     "crates/before/src/version/skyline/watermark.rs": [
@@ -211,24 +191,6 @@
         "offset": 5,
         "disposition": "remediation",
         "why": "reachable in principle: the accumulator's redundant spelling can leave a residue two digits wider whose top-index domination read is undecided, falling through to the total fold; no committed population constructs one. Family needed: a redundant-spelling wide residue \u2014 or an argument that collapse keeps spellings canonical here, moving this to unreachable."
-      },
-      {
-        "anchor": "web_traffic::record(web_traffic::Decision::DominatedUndercut);",
-        "offset": 7,
-        "disposition": "remediation",
-        "why": "dominated undercut with live followers never runs: the committed regression family drives the decision followerless. Family needed: a dominated undercut under at least one live follower, checking sub_accum polarity."
-      },
-      {
-        "anchor": "web_traffic::record(web_traffic::Decision::DominatedUndercut);",
-        "offset": 8,
-        "disposition": "remediation",
-        "why": "the follower-propagation loop's close, with the line above"
-      },
-      {
-        "anchor": "pub(super) fn undercuts_here(&mut self) -> bool {",
-        "offset": 7,
-        "disposition": "remediation",
-        "why": "reachable in principle: an emission dropping below the anchor but not past the latent-parked minimum refuses the undercut here; only generated populations graze it, nondeterministically (this function's branch entry names the same gap). Family needed: a directed emission at a height between a latent-parked minimum and its stale anchor"
       }
     ]
   },
@@ -245,13 +207,6 @@
         "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
         "disposition": "panic-arm",
         "why": "the untaken directions are the assertion's failure arms"
-      }
-    ],
-    "crates/before/src/version/skyline/fill/fuse.rs": [
-      {
-        "anchor": "return if distance == Cost::INFEASIBLE {",
-        "disposition": "unreachable",
-        "why": "the infeasible direction never fires: an Internal node in normal form has a present child (idbits' normal-form precondition), so the root fold is always feasible (the line pin's twin entry)"
       }
     ],
     "crates/before/src/version/skyline/fill/prescan.rs": [
@@ -373,11 +328,6 @@
         "why": "promote never sees an exactly-canceling parked spelling (the line pin's twin entry: the exact-cancellation family)"
       },
       {
-        "anchor": "if self.promotions.is_empty() {",
-        "disposition": "unreachable",
-        "why": "the sole call site pre-checks promotions non-empty (the line pin's twin entry)"
-      },
-      {
         "anchor": "if final_window_magnitude != UBig::ZERO {",
         "disposition": "remediation",
         "why": "reachable in principle: a promoting sweep whose final banked window is zero; no committed population. Family needed: promotion with an empty trailing window."
@@ -418,12 +368,6 @@
       }
     ],
     "crates/before/src/version/skyline/watermark.rs": [
-      {
-        "anchor": "pub(super) fn undercuts_here(&mut self) -> bool {",
-        "offset": 6,
-        "disposition": "remediation",
-        "why": "an undercut probe with a live latent whose drop does not pass the latent never fires. Family needed: the latent-ladder family's non-passing variant."
-      },
       {
         "anchor": "the residue is strictly positive",
         "offset": -1,

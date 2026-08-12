@@ -364,8 +364,7 @@ impl RouteProbe {
     ///
     /// Every internal node costs one expansion and one depth whichever child it
     /// descends, so its cost is `(k, k)` for `k` the distance to its nearest
-    /// owned terminal ([`Cost::MAX`] where no child is present — unreachable in
-    /// normal form, kept total). Feasible distances saturate at `ceiling`
+    /// owned terminal. Feasible distances saturate at `ceiling`
     /// ([`Cost::CEILING`] in production, [`Cost::deepen`]'s contract), so an
     /// arbitrarily deep feasible chain stays strictly below the infeasible
     /// sentinel and the recorded route never turns into an absent child; the
@@ -378,6 +377,13 @@ impl RouteProbe {
     /// transient per level, not a machine-word frame (the same discipline as
     /// the walk's other bit stacks); the depth-recursion guard is unneeded
     /// because nothing recurses.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the id is not in normal form. An internal node with no present
+    /// child leaves the root fold infeasible, which `decode` rejects and no
+    /// operation produces, so reaching it is programmer error: the fold's own
+    /// answer would be a fabricated cost the caller cannot tell from a real one.
     pub(super) fn expand_subtree(&mut self, id: &mut IdReader, ceiling: u64) -> Cost {
         // Phase per frame: false = the left child's distance is outstanding,
         // true = the right child's.
@@ -413,13 +419,14 @@ impl RouteProbe {
             loop {
                 match phase.last() {
                     None => {
-                        return if distance == Cost::INFEASIBLE {
-                            Cost::MAX
-                        } else {
-                            Cost {
-                                expansions: distance,
-                                depth: distance,
-                            }
+                        assert_ne!(
+                            distance,
+                            Cost::INFEASIBLE,
+                            "an internal node in normal form has a present child"
+                        );
+                        return Cost {
+                            expansions: distance,
+                            depth: distance,
                         };
                     }
                     Some(false) => {

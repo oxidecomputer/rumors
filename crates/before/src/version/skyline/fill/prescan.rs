@@ -506,8 +506,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             }
             return;
         }
-        let net = net_leaves(&mut walk, &mut self.cursor, Some(first_leaf_depth))
-            .expect("the descended leaf is pending");
+        let net = net_leaves(&mut walk, &mut self.cursor);
         self.web.fold_height(net.sign, &net.magnitude);
         if let Some(entry) = &mut self.entry_net {
             fold_signed_int(entry, net.sign, &net.magnitude);
