@@ -96,17 +96,23 @@ fn roster_is_total_over_the_public_fn_surface() {
 /// Every test name the roster or a tripwire cites resolves to an
 /// executable binding.
 ///
-/// The bindings: a `#[test]`-attributed item under `src/`, or a law
-/// name registered in [`crate::laws`]'s tables (the entries the
-/// algebraic-laws drivers run). A renamed or deleted binding test fails
-/// here by name, so a disposition can never silently point at nothing,
-/// and a same-named helper or kernel can never stand in for the test a
-/// row claims.
+/// The bindings: a `#[test]`-attributed item under `src/`, a law name
+/// registered in [`crate::laws`]'s tables (the entries the algebraic-laws
+/// drivers run), or a descriptor name registered in the pointwise
+/// differential table (the entries its drivers run). A renamed or deleted
+/// binding fails here by name, so a disposition can never silently point
+/// at nothing, and a same-named helper or kernel can never stand in for
+/// the test a row claims.
 #[test]
 fn every_cited_binding_test_exists() {
     let mut declared = declared_test_names();
     declared.extend(
         crate::laws::registered_names()
+            .into_iter()
+            .map(str::to_owned),
+    );
+    declared.extend(
+        crate::testing::diff_ops::registered_names()
             .into_iter()
             .map(str::to_owned),
     );
@@ -183,6 +189,11 @@ fn exclusion_payload_citations_resolve() {
     let mut resolvable = declared_test_names();
     resolvable.extend(
         crate::laws::registered_names()
+            .into_iter()
+            .map(str::to_owned),
+    );
+    resolvable.extend(
+        crate::testing::diff_ops::registered_names()
             .into_iter()
             .map(str::to_owned),
     );
@@ -291,24 +302,32 @@ fn duplicate_test_names_are_rostered() {
     );
 }
 
-/// No registered law name is also a `#[test]` name: a citation must resolve
-/// to exactly one binding kind.
+/// No name is a binding of two kinds at once: a citation must resolve to
+/// exactly one of a `#[test]` item, a registered law, or a registered
+/// descriptor.
 ///
-/// The haystack the citation checks search is the union of the declared
-/// tests and the law tables; a name living in both is doubly satisfiable,
-/// so deleting either binding leaves every citation green while the
-/// coverage it named silently halves.
+/// The haystack the citation checks search is the union of the three; a
+/// name living in two of them is doubly satisfiable, so deleting either
+/// binding leaves every citation green while the coverage it named
+/// silently halves.
 #[test]
-fn law_names_never_shadow_test_names() {
-    let declared = declared_test_names();
-    let shadowed: Vec<&str> = crate::laws::registered_names()
+fn binding_kinds_never_shadow_each_other() {
+    let tests = declared_test_names();
+    let laws: BTreeSet<&str> = crate::laws::registered_names().into_iter().collect();
+    let descriptors: BTreeSet<&str> = crate::testing::diff_ops::registered_names()
         .into_iter()
-        .filter(|name| declared.contains(*name))
+        .collect();
+    let shadowed: Vec<&str> = laws
+        .iter()
+        .chain(&descriptors)
+        .copied()
+        .filter(|name| tests.contains(*name))
+        .chain(laws.intersection(&descriptors).copied())
         .collect();
     assert!(
         shadowed.is_empty(),
-        "law names doubling as #[test] names make citations ambiguous: \
-         {shadowed:?}"
+        "names bound twice (as a #[test], a law, or a descriptor) make \
+         citations ambiguous: {shadowed:?}"
     );
 }
 

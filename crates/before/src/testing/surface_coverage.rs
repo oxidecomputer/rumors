@@ -31,10 +31,13 @@
 //! Every test name a row cites must resolve to an executable binding:
 //! a `#[test]`-attributed item under `src/` ([`cited_test_names`] against
 //! [`declared_test_names`], a source scan that admits only attributed
-//! tests — proptest properties included, helpers and kernels never) or a
-//! law name registered in [`crate::laws`]'s tables (read from the tables
+//! tests — proptest properties included, helpers and kernels never), a
+//! law name registered in [`crate::laws`]'s tables, or a descriptor name
+//! registered in [`super::diff_ops`]'s tables (both read from the tables
 //! the drivers run, never from a text scan). A renamed or deleted binding
 //! test fails the roster by name even when a same-named helper survives.
+//! Which `Bound` citations are descriptors and which are hand-written is
+//! itself pinned, in the descriptor table's own tiling test.
 //!
 //! # Leg vocabulary
 //!

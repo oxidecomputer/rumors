@@ -9,7 +9,9 @@
 //! The cross-cutting suites: exhaustive small-scope enumeration
 //! ([`exhaustive`]), the function-space semantic oracle ([`semantic_oracle`]),
 //! the algebraic-law harness ([`algebraic_laws`] — a thin binding; the named
-//! law predicates are [`crate::laws`]'s, shared with the fuzz targets),
+//! law predicates are [`crate::laws`]'s, shared with the fuzz targets), the
+//! pointwise differential table ([`diff_ops`] — one descriptor per pure
+//! public operation, driven over shared populations),
 //! representation compactness ([`compactness`]), documentation snapshots
 //! ([`snapshots`]), the documented-asymptotics liveness pins ([`asymptotics`]),
 //! and the public-surface coverage suite ([`surface_coverage`] — the committed
@@ -37,6 +39,7 @@ pub(crate) mod rng;
 mod algebraic_laws;
 mod asymptotics;
 pub(crate) mod compactness;
+pub(crate) mod diff_ops;
 pub(crate) mod exhaustive;
 pub(crate) mod semantic_oracle;
 mod snapshots;
