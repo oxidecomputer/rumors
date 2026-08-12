@@ -203,6 +203,42 @@ macro_rules! diff_ops {
     (@lower ticks, $carrier:expr) => { ::core::clone::Clone::clone($carrier) };
 }
 
+diff_ops! {
+    /// The lattice and the order over a pair of histories.
+    ///
+    /// The regime the arbitrary population reaches is the *unrelated*
+    /// pair — independent shapes and independent base magnitudes, where
+    /// arm selection and the normalization corners live; the organic
+    /// populations supply the causally related pairs, where domination and
+    /// equality actually occur.
+    pub(crate) static VERSION_PAIR: (a: version, b: version);
+
+    /// The join (`|`): the least upper bound of two histories.
+    fn version_join_matches_the_oracle {
+        prod: a | b,
+        tree: a | b,
+    }
+
+    /// The meet (`&`): the greatest lower bound of two histories.
+    fn version_meet_matches_the_oracle {
+        prod: a & b,
+        tree: a & b,
+    }
+
+    /// The causal order's verdict, the concurrent `None` arm included.
+    fn version_order_matches_the_oracle {
+        prod: a.partial_cmp(&b),
+        tree: a.partial_cmp(&b),
+    }
+
+    /// Concurrency: production's predicate against incomparability under
+    /// the oracle's order, which is what concurrency means in the model.
+    fn version_concurrency_matches_the_oracle {
+        prod: a.concurrent(&b),
+        tree: a.partial_cmp(&b).is_none(),
+    }
+}
+
 /// Why an operation's `Bound` differential resists a descriptor.
 ///
 /// A descriptor states one thing: that a pure function of the carriers
@@ -296,14 +332,6 @@ impl BespokeGenre {
 /// tiling pin until it is classified, and an entry naming a citation no row
 /// makes is a phantom that fails the same pin.
 pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
-    (
-        "clock_observers_match_oracle",
-        BespokeGenre::HandWrittenPointwise,
-    ),
-    (
-        "compare_matrix_matches_oracle",
-        BespokeGenre::OperandFormMatrix,
-    ),
     ("covers_arbitrary", BespokeGenre::HandWrittenPointwise),
     (
         "covers_realizes_containment",
@@ -332,12 +360,10 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
     ),
     ("master_differential", BespokeGenre::TraceLockstep),
     ("meet_all_matches_oracle", BespokeGenre::NAryFold),
-    ("meet_arbitrary", BespokeGenre::HandWrittenPointwise),
     (
         "meet_realizes_pointwise_min",
         BespokeGenre::FunctionSpaceRealization,
     ),
-    ("merge_arbitrary", BespokeGenre::HandWrittenPointwise),
     (
         "min_ticks_matches_oracle",
         BespokeGenre::HandWrittenPointwise,
@@ -399,6 +425,7 @@ macro_rules! for_each_diff_group {
     ($callback:ident($($args:tt)*)) => {
         $callback! {
             args: ($($args)*);
+            (VERSION_PAIR, version_pair_ops, (version, version)),
         }
     };
 }

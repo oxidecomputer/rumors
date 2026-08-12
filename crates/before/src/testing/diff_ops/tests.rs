@@ -14,6 +14,8 @@ use proptest::prelude::*;
 use super::{registered_names, BespokeGenre, DiffOp, DIFF_BESPOKE, REGISTERED_GROUPS};
 use crate::oracle;
 use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
+use crate::testing::generators::arb_oracle_version;
+use crate::testing::optrace::{run, world_strategy};
 
 /// Assert every descriptor in a slice, naming the violated one on failure.
 ///
@@ -173,6 +175,87 @@ fn every_descriptor_group_is_registered() {
          for_each_diff_group! roster must be the same set: an unrostered \
          group never executes, and a rostered phantom names nothing"
     );
+}
+
+// ───────────────────── the drivers ─────────────────────
+//
+// Two populations, one drive list each, both expanded from the group
+// roster: a descriptor added to a group with a known signature meets both
+// with no further wiring, and a group with a novel signature refuses to
+// compile until each consumer grows an arm. The populations are held
+// oracle-side and raised through the bridge inside each descriptor, which
+// is also why `!Clone` production types cost nothing here.
+
+/// Expands the group roster into the arbitrary-population drivers: one
+/// proptest per group, named by the roster's driver column, keyed on the
+/// group's input signature.
+///
+/// The arms carry each signature's input regime and its doc comment; the
+/// *list* of groups lives only in `for_each_diff_group!`.
+macro_rules! group_drivers {
+    (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
+        $( group_drivers!(@one $group, $driver, $shape); )*
+    };
+    (@one $group:ident, $driver:ident, (version, version)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary normal-form version pairs: independent shapes,
+            /// and base magnitudes whose root-to-leaf path sums run past
+            /// what a machine word holds.
+            #[test]
+            fn $driver(a in arb_oracle_version(), b in arb_oracle_version()) {
+                assert_diff_ops!(super::$group, &a, &b);
+            }
+        }
+    };
+}
+
+for_each_diff_group!(group_drivers);
+
+/// One organic population's picks: the oracle-side carriers the
+/// roster-derived drive list selects each group's inputs from.
+struct Organic<'a> {
+    /// Three versions from the trace, causally related.
+    v: [&'a oracle::Version; 3],
+}
+
+/// Expands the group roster into the organic drive list: one
+/// `assert_diff_ops!` per group, keyed on the group's input signature,
+/// selecting that signature's inputs from an [`Organic`] environment.
+macro_rules! organic_drive {
+    (args: ($env:expr); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
+        $( organic_drive!(@one $env, $group, $shape); )*
+    };
+    (@one $env:expr, $group:ident, (version, version)) => {
+        assert_diff_ops!(super::$group, $env.v[0], $env.v[1]);
+    };
+}
+
+proptest! {
+    /// Every registered descriptor agrees with the oracle over organic
+    /// op-trace populations.
+    ///
+    /// The same descriptors the arbitrary drivers run, landed on the value
+    /// shapes real fork/tick/join/sync schedules produce: live sibling ids
+    /// and causally related versions, where domination and equality are
+    /// common rather than vanishing.
+    ///
+    #[test]
+    fn diff_ops_match_the_oracle_on_organic_populations(
+        ops in world_strategy(),
+        i in 0usize..64,
+        j in 0usize..64,
+        k in 0usize..64,
+    ) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let (_, va) = cs[i % n].trees();
+        let (_, vb) = cs[j % n].trees();
+        let (_, vc) = cs[k % n].trees();
+
+        let picks = Organic { v: [va, vb, vc] };
+        for_each_diff_group!(organic_drive(&picks));
+    }
 }
 
 // ───────────────────── the known-bad descriptors, held convicted ─────────────────────

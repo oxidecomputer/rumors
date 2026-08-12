@@ -438,7 +438,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version::concurrent",
-        prod_tree: Leg::Bound("clock_observers_match_oracle"),
+        prod_tree: Leg::Bound("version_concurrency_matches_the_oracle"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
@@ -973,13 +973,13 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
 pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
-        prod_tree: Leg::Bound("merge_arbitrary"),
+        prod_tree: Leg::Bound("version_join_matches_the_oracle"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
     SurfaceRow {
         op: "Version & Version (BitAnd/BitAndAssign, owned and borrowed)",
-        prod_tree: Leg::Bound("meet_arbitrary"),
+        prod_tree: Leg::Bound("version_meet_matches_the_oracle"),
         prod_fs: Leg::Trans("meet_realizes_pointwise_min"),
         tree_fs: Leg::Bound("meet_realizes_pointwise_min"),
     },
@@ -1069,7 +1069,7 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version PartialOrd (the comparison matrix, owned and borrowed)",
-        prod_tree: Leg::Bound("compare_matrix_matches_oracle"),
+        prod_tree: Leg::Bound("version_order_matches_the_oracle"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },

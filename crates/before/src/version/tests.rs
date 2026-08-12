@@ -23,22 +23,6 @@ fn le(a: &Version, b: &Version) -> bool {
 
 // ───────────────────────────── causal order ─────────────────────────────
 
-proptest! {
-    /// Differential. The impl causal order agrees with the oracle's on every
-    /// generated pair; this subsumes the order laws since the oracle satisfies
-    /// them (its `version_partial_order` property) and the impl matches it
-    /// exactly.
-    #[test]
-    fn compare_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let (oa, ob) = (&vs[i % n], &vs[j % n]);
-        let (ia, ib) = (from_oracle_version(oa), from_oracle_version(ob));
-        prop_assert_eq!(ia.partial_cmp(&ib), oa.partial_cmp(ob));
-    }
-}
-
 // The order laws (reflexivity, antisymmetry, transitivity, `==` ⟺
 // `Some(Equal)`, concurrency ⟺ `None`) are `laws::VERSION_SOLO` /
 // `VERSION_PAIR` / `VERSION_TRIPLE` entries (order_reflexive,
@@ -163,19 +147,6 @@ proptest! {
 }
 
 proptest! {
-    /// Differential. The impl version join (`|`) matches the oracle's `join`.
-    #[test]
-    fn merge_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let oracle_join = vs[i % n].clone() | vs[j % n].clone();
-        let merged = from_oracle_version(&vs[i % n]) | from_oracle_version(&vs[j % n]);
-        prop_assert!(merged == from_oracle_version(&oracle_join));
-    }
-}
-
-proptest! {
     /// The join is representationally subadditive: `encode(a | b).len() <=
     /// encode(a).len() + encode(b).len()`.
     ///
@@ -230,20 +201,6 @@ proptest! {
 }
 
 proptest! {
-    /// Differential. The impl version meet (`&`) matches the oracle's `meet`,
-    /// dual to [`merge_matches_oracle`].
-    #[test]
-    fn meet_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let oracle_meet = vs[i % n].clone() & vs[j % n].clone();
-        let met = from_oracle_version(&vs[i % n]) & from_oracle_version(&vs[j % n]);
-        prop_assert!(met == from_oracle_version(&oracle_meet));
-    }
-}
-
-proptest! {
     /// Differential. The impl projection's materialization (`(&v /
     /// &p).to_version()`) matches the oracle's projection (mask `v` to `p`'s
     /// region), over a shared population: arbitrary versions and parties drawn
@@ -275,7 +232,8 @@ proptest! {
 
 proptest! {
     /// Every assigning join surface on `Version` yields the same result as `a |
-    /// b`, which `merge_matches_oracle` already pins to the oracle's `join`.
+    /// b`, which the `version_join_matches_the_oracle` descriptor already pins
+    /// to the oracle's `join`.
     ///
     /// Covers `Version |= Version` and `Version |= &Version` — neither of which
     /// the by-value `|` differential reaches.
@@ -304,8 +262,9 @@ proptest! {
     /// The full `|` (BitOr) matrix over owned and borrowed `Version` operands
     /// equals the oracle's `join`.
     ///
-    /// `merge_matches_oracle` already pins the bare owned/owned case; each of
-    /// the four reference cells must agree with it.
+    /// The `version_join_matches_the_oracle` descriptor pins the semantics on
+    /// both differential populations; each of the four reference cells must
+    /// agree with it.
     #[test]
     fn join_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -345,8 +304,9 @@ proptest! {
     /// The full `&` (BitAnd) matrix over owned and borrowed `Version` operands
     /// equals the oracle's `meet`, dual to [`join_matrix_matches_oracle`].
     ///
-    /// `meet_matches_oracle` pins the bare owned/owned cell; each of the four
-    /// reference cells must agree with it.
+    /// The `version_meet_matches_the_oracle` descriptor pins the semantics on
+    /// both differential populations; each of the four reference cells must
+    /// agree with it.
     #[test]
     fn meet_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -500,25 +460,6 @@ fn stored_base_beyond_u64_ticks_and_merges() {
 // for the large-base (path-sum-overflow) regression class.
 
 proptest! {
-    /// `partial_cmp` on arbitrary, typically *unrelated* event-tree pairs
-    /// agrees with the oracle.
-    ///
-    /// Including the concurrent (`None`) verdict the op pipeline rarely
-    /// produces, and large-base pairs whose root-to-leaf path sums exceed
-    /// `u64::MAX`: with arbitrary-precision bases the answer must still match.
-    #[test]
-    fn causal_cmp_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-        let (ia, ib) = (from_oracle_version(&oa), from_oracle_version(&ob));
-        prop_assert_eq!(ia.partial_cmp(&ib), oa.partial_cmp(&ob));
-        // Symmetry of the verdict under swap, on the impl directly.
-        prop_assert_eq!(
-            ib.partial_cmp(&ia),
-            ia.partial_cmp(&ib).map(Ordering::reverse)
-        );
-    }
-}
-
-proptest! {
     /// `==` agrees with the full causal-compare walk.
     ///
     /// The equality cells decide by a byte compare of the two stored streams
@@ -586,38 +527,6 @@ proptest! {
             "meet encoding outgrew its inputs: {} > {} + {}",
             meet.encode().len(), a.encode().len(), b.encode().len(),
         );
-    }
-}
-
-proptest! {
-    /// `|` (merge / LUB) on arbitrary unrelated event trees agrees with the
-    /// oracle's `join`, structurally. Exercises the join's arm selection on
-    /// shapes the op pipeline never builds, with large bases threaded
-    /// losslessly.
-    #[test]
-    fn merge_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-        let merged = from_oracle_version(&oa) | from_oracle_version(&ob);
-        let oracle_join = oa.clone() | ob.clone();
-        prop_assert!(merged == from_oracle_version(&oracle_join));
-        // The result is a normal-form tree that lowers back to the same oracle value.
-        prop_assert_eq!(to_oracle_version(&merged), oracle_join);
-    }
-}
-
-proptest! {
-    /// `&` (meet / GLB) on arbitrary unrelated event trees agrees with the
-    /// oracle's `meet`, structurally — dual to [`merge_arbitrary`].
-    ///
-    /// Exercises the meet's arm selection and `close_node` sink/collapse on
-    /// shapes the op pipeline never builds, with large bases threaded
-    /// losslessly.
-    #[test]
-    fn meet_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-        let met = from_oracle_version(&oa) & from_oracle_version(&ob);
-        let oracle_meet = oa.clone() & ob.clone();
-        prop_assert!(met == from_oracle_version(&oracle_meet));
-        // The result is a normal-form tree that lowers back to the same oracle value.
-        prop_assert_eq!(to_oracle_version(&met), oracle_meet);
     }
 }
 
