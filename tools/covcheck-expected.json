@@ -51,11 +51,6 @@
     "why": "continue_verbatim runs only after a divergence built the output"
    },
    {
-    "anchor": "Out::Built(_) => return,",
-    "disposition": "unreachable",
-    "why": "the sole call site (fill.rs, the divergence epilogue) guards with is_verbatim(), so a built output never re-enters; the arm keeps materialize idempotent"
-   },
-   {
     "anchor": "Out::Built(builder) => return Some(builder.finish()),",
     "offset": 1,
     "disposition": "unreachable",

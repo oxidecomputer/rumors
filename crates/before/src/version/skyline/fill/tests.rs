@@ -40,7 +40,7 @@ use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Version};
 
 use super::super::grow::Cost;
-use super::fuse::RouteProbe;
+use super::fuse::{Out, RouteProbe};
 use super::{fused_fill, tick, ticks, FillOutcome};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
@@ -382,6 +382,53 @@ fn flag_compares_offsets_at_full_width() {
         "a wide value-reproducing raise reads a full-width zero: the flag stays clear"
     );
     assert_tick(&v, &p);
+}
+
+/// [`Out::materialize`] is a no-op once the output is built: the idempotent
+/// contract its rustdoc states, which the divergence epilogue's
+/// `is_verbatim()` guard in `fill.rs` relies on. Two identical verbatim
+/// walks over one canonical stream — the whole stream matched, the one
+/// matched prefix whose builder holds a complete tiling and so may finish —
+/// materialize once and twice respectively; the twice-materialized output
+/// must finish byte-identical to the once-materialized one, and both to the
+/// stream itself (a fully matched prefix copies verbatim, byte-exact by
+/// canonical uniqueness). Deliberate internal entry: no public path
+/// re-enters `materialize` post-build by construction, so this pin binds
+/// the contract at the seam the public surface cannot reach.
+#[test]
+fn materialize_is_a_noop_once_built() {
+    let v: Version = "(2, (0, 1, 0), 3)"
+        .parse()
+        .expect("test version literals parse");
+    let event = encode(&v);
+    let matched_end = event.len();
+
+    let mut once = Out::Verbatim { matched_end };
+    once.materialize(&event);
+
+    let mut twice = Out::Verbatim { matched_end };
+    twice.materialize(&event);
+    assert!(
+        !twice.is_verbatim(),
+        "the first materialize leaves the output built"
+    );
+    // The second call runs against the built output: the no-op contract.
+    twice.materialize(&event);
+
+    let once_out = once
+        .finish(&event)
+        .expect("a built output finishes to a stream");
+    let twice_out = twice
+        .finish(&event)
+        .expect("a built output finishes to a stream");
+    assert_eq!(
+        once_out, event,
+        "a fully matched prefix materializes byte-identically"
+    );
+    assert_eq!(
+        twice_out, once_out,
+        "a second materialize must leave the built output untouched"
+    );
 }
 
 /// A dominated undercut's residue carries the emission's offset at the
