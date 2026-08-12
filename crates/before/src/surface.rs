@@ -644,7 +644,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Clock::own_version",
-        prod_tree: Leg::Bound("own_version_matches_oracle"),
+        prod_tree: Leg::Bound("clock_own_version_matches_the_oracle"),
         prod_fs: Leg::Trans("quotient_realizes_region_mask"),
         tree_fs: Leg::Bound("quotient_realizes_region_mask"),
     },

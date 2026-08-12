@@ -302,6 +302,21 @@ macro_rules! group_drivers {
             }
         }
     };
+    (@one $group:ident, $driver:ident, (clock)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary canonical id/history pairings.
+            ///
+            /// Every such pairing is a valid clock, including ones no op
+            /// sequence reaches: the id's region need bear no relation to
+            /// where the history is live.
+            #[test]
+            fn $driver(p in arb_oracle_party_nonempty(), a in arb_oracle_version()) {
+                let c = oracle::Clock::from_parts(p, a);
+                assert_diff_ops!(super::$group, &c);
+            }
+        }
+    };
     (@one $group:ident, $driver:ident, (version, version)) => {
         proptest! {
             /// Every descriptor in the group agrees with the oracle on
@@ -328,6 +343,8 @@ struct Organic<'a> {
     p: [&'a oracle::Party; 2],
     /// A tick count from [`DRIVEN_TICK_COUNTS`].
     n: Ticks,
+    /// A reachable clock from the same trace.
+    c: &'a oracle::Clock,
 }
 
 /// Expands the group roster into the organic drive list: one
@@ -357,6 +374,9 @@ macro_rules! organic_drive {
     };
     (@one $env:expr, $group:ident, (version, party, version, party)) => {
         assert_diff_ops!(super::$group, $env.v[0], $env.p[0], $env.v[1], $env.p[1]);
+    };
+    (@one $env:expr, $group:ident, (clock)) => {
+        assert_diff_ops!(super::$group, $env.c);
     };
     (@one $env:expr, $group:ident, (version, version)) => {
         assert_diff_ops!(super::$group, $env.v[0], $env.v[1]);
@@ -393,10 +413,12 @@ proptest! {
         let (_, vc) = cs[k % len].trees();
         let n = Ticks::from(ticks);
 
-        let own = Organic { v: [va, vb, vc], p: [pa, pb], n: n.clone() };
+        let c = &cs[i % len];
+
+        let own = Organic { v: [va, vb, vc], p: [pa, pb], n: n.clone(), c };
         for_each_diff_group!(organic_drive(&own));
 
-        let crossed = Organic { v: [va, vb, vc], p: [pb, pa], n };
+        let crossed = Organic { v: [va, vb, vc], p: [pb, pa], n, c };
         for_each_diff_group!(organic_drive(&crossed));
     }
 }

@@ -272,6 +272,19 @@ diff_ops! {
 }
 
 diff_ops! {
+    /// The clock's view of its own history.
+    pub(crate) static CLOCK_SOLO: (c: clock);
+
+    /// `own_version`: the clock's history inside the region its own id
+    /// holds, which production answers lazily and the oracle answers by
+    /// projection.
+    fn clock_own_version_matches_the_oracle {
+        prod: c.own_version().to_version(),
+        tree: c.own_version(),
+    }
+}
+
+diff_ops! {
     /// The fullness predicate over one id.
     pub(crate) static PARTY_SOLO: (a: party);
 
@@ -421,13 +434,6 @@ pub(crate) enum BespokeGenre {
     /// The contract is quantified over arity and feed order, so the
     /// population is a family rather than a fixed tuple of carriers.
     NAryFold,
-    /// A pointwise pure operation still bound by a hand-written body per
-    /// population.
-    ///
-    /// This is the shape the descriptor table's drivers derive, so a
-    /// citation here records coverage the table has not absorbed. The
-    /// inhabitation pin dissolves this genre when the last entry leaves it.
-    HandWrittenPointwise,
 }
 
 impl BespokeGenre {
@@ -440,7 +446,6 @@ impl BespokeGenre {
         "OperandFormMatrix",
         "FunctionSpaceRealization",
         "NAryFold",
-        "HandWrittenPointwise",
     ];
 
     /// The genre's name, as [`GENRES`](BespokeGenre::GENRES) spells it.
@@ -451,7 +456,6 @@ impl BespokeGenre {
             BespokeGenre::OperandFormMatrix => "OperandFormMatrix",
             BespokeGenre::FunctionSpaceRealization => "FunctionSpaceRealization",
             BespokeGenre::NAryFold => "NAryFold",
-            BespokeGenre::HandWrittenPointwise => "HandWrittenPointwise",
         }
     }
 }
@@ -493,10 +497,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
     (
         "min_ticks_realizes_base_sum",
         BespokeGenre::FunctionSpaceRealization,
-    ),
-    (
-        "own_version_matches_oracle",
-        BespokeGenre::HandWrittenPointwise,
     ),
     (
         "quotient_realizes_region_mask",
@@ -541,6 +541,7 @@ macro_rules! for_each_diff_group {
             (VERSION_PARTY_TICKS, version_party_ticks_ops, (version, party, ticks)),
             (PARTY_SOLO, party_solo_ops, (party)),
             (PARTY_PAIR, party_pair_ops, (party, party)),
+            (CLOCK_SOLO, clock_solo_ops, (clock)),
             (
                 VERSION_PARTY_VERSION,
                 version_party_version_ops,
