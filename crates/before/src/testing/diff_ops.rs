@@ -37,8 +37,171 @@
 //! in [`crate::surface`] to exactly one side: derived from this table, or
 //! bespoke with a declared genre — never both, never neither.
 
-#[cfg(test)]
-mod tests;
+use std::cmp::Ordering;
+
+use crate::testing::bridge;
+use crate::{oracle, Party, Rank, Ticks, Version};
+
+/// One descriptor: its name and the check the drivers run.
+///
+/// The same shape as [`crate::laws::Law`], and for the same reason: an
+/// assertion that fails names the entry it came from.
+pub(crate) type DiffOp<F> = (&'static str, F);
+
+/// How a production result is compared with the recursive oracle's.
+///
+/// Implemented once per result type a descriptor can produce, so a
+/// descriptor never spells its own comparison and the drivers never carry
+/// an assert-kind switch: the result types decide. Verdicts and carrier
+/// quantities compare directly; tree-shaped results compare *both ways*
+/// across the bridge — the production value equals the oracle value raised
+/// through it, and lowering the production value returns the oracle value —
+/// so a result that is right in meaning but not in normal form is a
+/// failure, not a pass.
+pub(crate) trait Matches<Reference> {
+    /// Whether this production result agrees with the oracle's.
+    fn matches(&self, reference: &Reference) -> bool;
+}
+
+impl Matches<oracle::Version> for Version {
+    fn matches(&self, reference: &oracle::Version) -> bool {
+        *self == bridge::from_oracle_version(reference)
+            && bridge::to_oracle_version(self) == *reference
+    }
+}
+
+impl Matches<oracle::Party> for Option<Party> {
+    /// The oracle carries the empty region as a value where production
+    /// carries it as `None`, so the arms are matched before the trees.
+    fn matches(&self, reference: &oracle::Party) -> bool {
+        match self {
+            None => reference.is_empty(),
+            Some(party) => {
+                !reference.is_empty()
+                    && *party == bridge::from_oracle_party(reference)
+                    && bridge::to_oracle_party(party) == *reference
+            }
+        }
+    }
+}
+
+impl Matches<bool> for bool {
+    fn matches(&self, reference: &bool) -> bool {
+        self == reference
+    }
+}
+
+impl Matches<Option<Ordering>> for Option<Ordering> {
+    fn matches(&self, reference: &Option<Ordering>) -> bool {
+        self == reference
+    }
+}
+
+impl Matches<Ticks> for Ticks {
+    fn matches(&self, reference: &Ticks) -> bool {
+        self == reference
+    }
+}
+
+impl Matches<Rank> for Rank {
+    fn matches(&self, reference: &Rank) -> bool {
+        self == reference
+    }
+}
+
+/// Declares one descriptor group: the group's `pub(crate) static` slice and
+/// every descriptor in it, from a single spelling.
+///
+/// The header names the group and the input signature every descriptor in
+/// the block shares, each input tagged with the carrier it borrows
+/// (`version`, `party`, `clock`, `ticks`). Each `fn` that follows is one
+/// descriptor: it names the operation and spells it twice, `prod:` against
+/// the production types and `tree:` against the recursive oracle's, and the
+/// macro registers it in the slice under its own name (`stringify!`ed) — a
+/// descriptor cannot be written without being registered, nor registered
+/// under a name that is not its own.
+///
+/// The two spellings are written in one place, side by side, over
+/// identically named bindings: what the transcription centralizes, it also
+/// makes diffable. Each side gets its own scope holding its own values —
+/// production values raised from the oracle carriers through the bridge,
+/// oracle values cloned — so both sides may consume or mutate freely, and
+/// `!Clone` production types are simply rebuilt per descriptor. Whether the
+/// two results agree is the result types' business, through [`Matches`];
+/// the descriptor states only the two spellings.
+///
+/// Group membership is the block, and registration in the roster
+/// (`for_each_diff_group!`) stays a separate step that the totality pin in
+/// this module's tests closes — which is why the header keeps the literal
+/// `pub(crate) static` spelling that pin scans for.
+macro_rules! diff_ops {
+    // In both the matcher and the transcriber, the attributes and the
+    // declaration share a line: the registration totality pin's source scan
+    // reads any line starting `pub(crate) static` as a group declaration,
+    // and must see the invocations' headers only, never this definition.
+    (
+        $(#[$group_meta:meta])* pub(crate) static $group:ident: ($($param:ident: $kind:tt),+ $(,)?);
+        $(
+            $(#[$op_meta:meta])*
+            fn $op:ident {
+                prod: $prod:expr,
+                tree: $tree:expr $(,)?
+            }
+        )+
+    ) => {
+        $(#[$group_meta])* pub(crate) static $group: &[$crate::testing::diff_ops::DiffOp<
+            fn($(&diff_ops!(@oracle $kind)),+) -> bool,
+        >] = &[$((stringify!($op), $op)),+];
+        diff_ops! {
+            @ops ($($param: $kind),+);
+            $(
+                $(#[$op_meta])*
+                fn $op { prod: $prod, tree: $tree }
+            )+
+        }
+    };
+
+    // Peel one descriptor at a time: the header signature is re-carried to
+    // every descriptor as a plain token list, which sidesteps the
+    // transcriber depth rule (a header-level repetition cannot be
+    // re-expanded inside the per-descriptor repetition above).
+    (@ops ($($signature:tt)+);) => {};
+    (
+        @ops ($($signature:tt)+);
+        $(#[$op_meta:meta])*
+        fn $op:ident { prod: $prod:expr, tree: $tree:expr }
+        $($rest:tt)*
+    ) => {
+        diff_ops! { @op ($($signature)+); $(#[$op_meta])* fn $op { prod: $prod, tree: $tree } }
+        diff_ops! { @ops ($($signature)+); $($rest)* }
+    };
+    (
+        @op ($($param:ident: $kind:tt),+ $(,)?);
+        $(#[$op_meta:meta])*
+        fn $op:ident { prod: $prod:expr, tree: $tree:expr }
+    ) => {
+        $(#[$op_meta])*
+        // The bindings are uniformly mutable so a descriptor may spell an
+        // operation that mutates its receiver; most do not.
+        #[allow(unused_mut)]
+        fn $op($($param: &diff_ops!(@oracle $kind)),+) -> bool {
+            let prod = { $( let mut $param = diff_ops!(@lower $kind, $param); )+ $prod };
+            let tree = { $( let mut $param = ::core::clone::Clone::clone($param); )+ $tree };
+            $crate::testing::diff_ops::Matches::matches(&prod, &tree)
+        }
+    };
+
+    // The carrier tags: each names the oracle-side type a driver supplies
+    // and the production value raised from it.
+    (@oracle version) => { $crate::oracle::Version };
+    (@oracle party) => { $crate::oracle::Party };
+    (@oracle clock) => { $crate::oracle::Clock };
+    (@oracle ticks) => { $crate::Ticks };
+    (@lower version, $carrier:expr) => { $crate::testing::bridge::from_oracle_version($carrier) };
+    (@lower party, $carrier:expr) => { $crate::testing::bridge::from_oracle_party($carrier) };
+    (@lower clock, $carrier:expr) => { $crate::testing::bridge::from_oracle_clock($carrier) };
+    (@lower ticks, $carrier:expr) => { ::core::clone::Clone::clone($carrier) };
+}
 
 /// Why an operation's `Bound` differential resists a descriptor.
 ///
@@ -268,3 +431,6 @@ macro_rules! emit_diff_registration {
 }
 
 for_each_diff_group!(emit_diff_registration);
+
+#[cfg(test)]
+mod tests;

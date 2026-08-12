@@ -9,8 +9,23 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use super::{registered_names, BespokeGenre, DIFF_BESPOKE, REGISTERED_GROUPS};
+use proptest::prelude::*;
+
+use super::{registered_names, BespokeGenre, DiffOp, DIFF_BESPOKE, REGISTERED_GROUPS};
+use crate::oracle;
 use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
+
+/// Assert every descriptor in a slice, naming the violated one on failure.
+///
+/// The vehicle every driver asserts through: the drivers differ only in
+/// which population they feed it.
+macro_rules! assert_diff_ops {
+    ($group:expr, $($input:expr),+) => {
+        for (name, check) in $group {
+            prop_assert!(check($($input),+), "descriptor violated: {}", name);
+        }
+    };
+}
 
 /// Every test name a `Leg::Bound` disposition cites, across both rosters.
 ///
@@ -157,5 +172,120 @@ fn every_descriptor_group_is_registered() {
         "the descriptor-group statics in diff_ops.rs and the \
          for_each_diff_group! roster must be the same set: an unrostered \
          group never executes, and a rostered phantom names nothing"
+    );
+}
+
+// ───────────────────── the known-bad descriptors, held convicted ─────────────────────
+//
+// A table centralizes each operation's oracle spelling: one descriptor is
+// the only transcription every population sees, where a body per population
+// was an independent transcription each. That trade is only payable if a
+// wrong transcription cannot pass, so the wrong ones are committed here and
+// held convicted. These groups are deliberately absent from the roster —
+// registering them would drive them as if they were real — and the
+// registration totality pin scans only the table's own file, so their
+// `pub(crate) static`s do not reach it.
+
+diff_ops! {
+    /// The mis-transcribed version-pair descriptor: the oracle leg spells
+    /// the join where the production leg spells the meet.
+    ///
+    /// The likeliest transcription slip is a dual operation, since the two
+    /// sides read alike and differ only in one operator.
+    pub(crate) static KNOWN_BAD_VERSION_PAIR: (a: version, b: version);
+
+    /// `&` on production against `|` on the oracle.
+    fn meet_transcribed_as_join {
+        prod: a.clone() & b.clone(),
+        tree: a.clone() | b.clone(),
+    }
+}
+
+diff_ops! {
+    /// The mis-transcribed id-pair descriptor: the oracle leg takes the
+    /// region difference in the opposite operand order.
+    ///
+    /// The other likely slip is an operand swap on an asymmetric
+    /// operation, which no amount of type checking catches.
+    pub(crate) static KNOWN_BAD_PARTY_PAIR: (a: party, b: party);
+
+    /// `a \ b` on production against `b \ a` on the oracle.
+    fn without_transcribed_with_swapped_operands {
+        prod: a.without(&b),
+        tree: b.without(&a),
+    }
+}
+
+/// Run a version-pair group through the drivers' assertion vehicle.
+// The group's element type is the signature it carries; naming it would
+// mint a synonym per signature to appease the lint.
+#[allow(clippy::type_complexity)]
+fn check_version_pair(
+    group: &[DiffOp<fn(&oracle::Version, &oracle::Version) -> bool>],
+    a: &oracle::Version,
+    b: &oracle::Version,
+) -> Result<(), TestCaseError> {
+    assert_diff_ops!(group, a, b);
+    Ok(())
+}
+
+/// Run an id-pair group through the drivers' assertion vehicle.
+// The group's element type is the signature it carries; naming it would
+// mint a synonym per signature to appease the lint.
+#[allow(clippy::type_complexity)]
+fn check_party_pair(
+    group: &[DiffOp<fn(&oracle::Party, &oracle::Party) -> bool>],
+    a: &oracle::Party,
+    b: &oracle::Party,
+) -> Result<(), TestCaseError> {
+    assert_diff_ops!(group, a, b);
+    Ok(())
+}
+
+/// The assertion the drivers run convicts a mis-transcribed descriptor, and
+/// passes it exactly where the mis-transcription makes no difference.
+///
+/// Two directions, and the second is what makes the first mean anything. A
+/// comparison that had gone blind — a `Matches` implementation that always
+/// agrees, a bridge that erases the result — would let the wrong descriptor
+/// through, which the conviction witnesses catch. A comparison stuck at
+/// "disagree" would convict everything, including correct descriptors,
+/// which the agreement witnesses catch. Each known-bad descriptor is
+/// therefore committed with an input pair where its two spellings genuinely
+/// differ and one where they coincide, so the vehicle is shown to
+/// discriminate rather than merely to fail.
+#[test]
+fn the_drivers_convict_a_mis_transcribed_descriptor() {
+    use crate::oracle::Version as V;
+
+    // The join and the meet of an ordered pair differ, so the swapped
+    // operator changes the answer.
+    assert!(
+        check_version_pair(KNOWN_BAD_VERSION_PAIR, &V::leaf(1u64), &V::leaf(2u64)).is_err(),
+        "the meet-transcribed-as-join descriptor must be convicted where \
+         the join and the meet disagree"
+    );
+    // On a coincident pair they agree, so nothing is there to convict.
+    assert!(
+        check_version_pair(KNOWN_BAD_VERSION_PAIR, &V::leaf(3u64), &V::leaf(3u64)).is_ok(),
+        "the same descriptor must pass where the join and the meet coincide: \
+         a comparison that convicts everything convicts nothing"
+    );
+
+    // Two disjoint halves: each survives the other's removal, and the two
+    // remainders are different regions, so the operand swap changes the
+    // answer.
+    let mut keep = oracle::Party::seed();
+    let give = keep.fork();
+    assert!(
+        check_party_pair(KNOWN_BAD_PARTY_PAIR, &keep, &give).is_err(),
+        "the operand-swapped difference descriptor must be convicted where \
+         the two orders yield different regions"
+    );
+    // Against itself the difference is empty in either order.
+    assert!(
+        check_party_pair(KNOWN_BAD_PARTY_PAIR, &keep, &keep).is_ok(),
+        "the same descriptor must pass where both operand orders yield the \
+         empty region"
     );
 }
