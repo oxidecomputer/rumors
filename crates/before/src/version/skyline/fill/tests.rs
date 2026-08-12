@@ -430,17 +430,20 @@ fn dominated_undercut_residue_carries_its_offset() {
 /// rise, and a wide climb `m · 2^b` with most of the width range past the
 /// domination read's decision bound — so the family keeps generator mass
 /// on emissions the post-sign domination arms answer, with the smaller
-/// widths exercising the fold-and-restore path beside them. The
-/// `dominated-undercut` meter family pins the arm's decision count and
-/// touch cost at committed scales; this differential pins the values over
-/// the whole knob space.
+/// widths exercising the fold-and-restore path beside them. The raise
+/// value reaches down to zero, which seats the site's raise exactly at its
+/// sibling region's minimum: the tie at the raise decision's own boundary,
+/// where the comparison deciding which side arms reads neither strictly
+/// below nor strictly above. The `dominated-undercut` meter family pins
+/// the arm's decision count and touch cost at committed scales; this
+/// differential pins the values over the whole knob space.
 #[test]
 fn dominated_undercut_family_ticks_identically() {
     let site = |c: u64, m: u64, b: usize, r: u64| -> String {
         let wide = UBig::from(m) << b;
         format!("({c}, (0, {wide}, 0), {r})")
     };
-    let strategy = proptest::collection::vec((1u64..=6, 1u64..=7, 64usize..=192, 1u64..=4), 1..=4);
+    let strategy = proptest::collection::vec((0u64..=6, 1u64..=7, 64usize..=192, 1u64..=4), 1..=4);
     proptest!(|(sites in strategy)| {
         let mut text = String::new();
         for (c, m, b, r) in &sites {
@@ -1641,5 +1644,50 @@ mod prescan_raise_shapes {
             Party::decode(&id.into_vec()[..]).is_err(),
             "id (1, 1) must be rejected as non-normal"
         );
+    }
+}
+
+proptest! {
+    /// A wide climb-and-return region copied under a left-full raise spine
+    /// ticks identically to the recursive oracle at every knob.
+    ///
+    /// The spine is `k` nested left-full sites: each level owns its raise leaf
+    /// and copies its right sibling, and the innermost sibling is the
+    /// scale-disparate region `(c, (0, m · 2^b, 0), r)` — a climb past the
+    /// domination read's decision bound, a return to the region's minimum, and
+    /// an exit `r` above it.
+    ///
+    /// Crossing those two shapes is what this family is for. A raise spine
+    /// alone re-anchors the sibling relation across its closes but emits
+    /// nothing scale-disparate; a wide region alone arrives at a block-minimum
+    /// emission with no relation riding the web. Together the relation is live
+    /// *across* a wide-negative block-minimum emission, so the residue the
+    /// undercut moves out must also move every relation the walk is still
+    /// carrying — a coupling neither shape exercises on its own, and one whose
+    /// polarity the oracle differential pins here byte for byte.
+    #[test]
+    fn wide_region_under_a_left_full_spine_ticks_identically(
+        raises in proptest::collection::vec(0u64..=6, 1..=4),
+        m in 1u64..=7,
+        b in 128usize..=200,
+        c in 1u64..=4,
+        r in 1u64..=4,
+    ) {
+        let k = raises.len();
+        let wide = UBig::from(m) << b;
+        let mut text = String::new();
+        for (level, raise) in raises.iter().enumerate() {
+            // The innermost site's raise meets the region's own base at zero;
+            // the outer ones meet the level below, whose minimum is already
+            // zero, so they are free.
+            let leaf = if level + 1 == k { 0 } else { *raise };
+            text.push_str(&format!("(0, {leaf}, "));
+        }
+        text.push_str(&format!("({c}, (0, {wide}, 0), {r})"));
+        text.push_str(&")".repeat(k));
+        let v: Version = text.parse().expect("the spine literal is normal form");
+        let id = "(1, ".repeat(k) + "0" + &")".repeat(k);
+        let p: Party = id.parse().expect("the spine id literal parses");
+        assert_tick(&v, &p);
     }
 }
