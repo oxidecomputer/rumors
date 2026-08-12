@@ -243,6 +243,35 @@ diff_ops! {
 }
 
 diff_ops! {
+    /// The fused three-stream comparison: a projected view against a whole
+    /// history.
+    ///
+    /// Production walks the projection and the comparison together, never
+    /// materializing; the oracle materializes and then compares. The
+    /// descriptor is that seam.
+    pub(crate) static VERSION_PARTY_VERSION: (a: version, p: party, b: version);
+
+    /// `(a / p) ⋚ b`: the fused walk against materialize-then-compare.
+    fn own_version_cmp_matches_the_oracle {
+        prod: (&a / &p).partial_cmp(&b),
+        tree: (a / &p).partial_cmp(&b),
+    }
+}
+
+diff_ops! {
+    /// The fused four-stream comparison: two projected views, each through
+    /// its own region.
+    pub(crate) static VERSION_PARTY_VERSION_PARTY: (a: version, p: party, b: version, q: party);
+
+    /// `(a / p) ⋚ (b / q)`: the four-stream co-walk against
+    /// materialize-then-compare.
+    fn own_version_pair_cmp_matches_the_oracle {
+        prod: (&a / &p).partial_cmp(&(&b / &q)),
+        tree: (a / &p).partial_cmp(&(b / &q)),
+    }
+}
+
+diff_ops! {
     /// The fullness predicate over one id.
     pub(crate) static PARTY_SOLO: (a: party);
 
@@ -488,14 +517,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
     ),
     ("sync", BespokeGenre::FallibleHandBack),
     (
-        "view_cmp_matches_oracle_composed",
-        BespokeGenre::HandWrittenPointwise,
-    ),
-    (
-        "view_pair_cmp_matches_oracle_composed",
-        BespokeGenre::HandWrittenPointwise,
-    ),
-    (
         "without_realizes_region_difference",
         BespokeGenre::FunctionSpaceRealization,
     ),
@@ -520,6 +541,16 @@ macro_rules! for_each_diff_group {
             (VERSION_PARTY_TICKS, version_party_ticks_ops, (version, party, ticks)),
             (PARTY_SOLO, party_solo_ops, (party)),
             (PARTY_PAIR, party_pair_ops, (party, party)),
+            (
+                VERSION_PARTY_VERSION,
+                version_party_version_ops,
+                (version, party, version)
+            ),
+            (
+                VERSION_PARTY_VERSION_PARTY,
+                version_party_version_party_ops,
+                (version, party, version, party)
+            ),
         }
     };
 }

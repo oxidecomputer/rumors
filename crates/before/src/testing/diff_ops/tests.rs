@@ -270,6 +270,38 @@ macro_rules! group_drivers {
             }
         }
     };
+    (@one $group:ident, $driver:ident, (version, party, version)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary normal-form operands: an unrelated history, an
+            /// unrelated region to project through, and an unrelated
+            /// history to compare against.
+            #[test]
+            fn $driver(
+                a in arb_oracle_version(),
+                p in arb_oracle_party_nonempty(),
+                b in arb_oracle_version(),
+            ) {
+                assert_diff_ops!(super::$group, &a, &p, &b);
+            }
+        }
+    };
+    (@one $group:ident, $driver:ident, (version, party, version, party)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary normal-form operands, each history projected
+            /// through its own unrelated region.
+            #[test]
+            fn $driver(
+                a in arb_oracle_version(),
+                p in arb_oracle_party_nonempty(),
+                b in arb_oracle_version(),
+                q in arb_oracle_party_nonempty(),
+            ) {
+                assert_diff_ops!(super::$group, &a, &p, &b, &q);
+            }
+        }
+    };
     (@one $group:ident, $driver:ident, (version, version)) => {
         proptest! {
             /// Every descriptor in the group agrees with the oracle on
@@ -319,6 +351,12 @@ macro_rules! organic_drive {
     };
     (@one $env:expr, $group:ident, (party, party)) => {
         assert_diff_ops!(super::$group, $env.p[0], $env.p[1]);
+    };
+    (@one $env:expr, $group:ident, (version, party, version)) => {
+        assert_diff_ops!(super::$group, $env.v[0], $env.p[0], $env.v[1]);
+    };
+    (@one $env:expr, $group:ident, (version, party, version, party)) => {
+        assert_diff_ops!(super::$group, $env.v[0], $env.p[0], $env.v[1], $env.p[1]);
     };
     (@one $env:expr, $group:ident, (version, version)) => {
         assert_diff_ops!(super::$group, $env.v[0], $env.v[1]);

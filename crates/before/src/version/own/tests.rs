@@ -1,102 +1,19 @@
-//! [`OwnVersion`] tests: the fused projected comparisons against the recursive
-//! oracle's composed projection-and-compare, and the view's semantic-equality
-//! contract.
+//! [`OwnVersion`] tests: the view's semantic-equality contract and its
+//! explicit materialization.
 //!
-//! The materialized-form coherence (`view ⋚ w ≡ view.to_version() ⋚ w`, three-
-//! and four-stream, plus the seed-mask coherence) lives in [`crate::laws`] and
-//! runs through every law consumer; the suites here bind the fused walks to the
-//! *oracle* — the independent recursive implementation the impl shares nothing
-//! with — over arbitrary normal-form operands and organic op-trace populations.
-
-use proptest::prelude::*;
+//! The fused projected walks are bound to the *oracle* — the independent
+//! recursive implementation the impl shares nothing with — by the
+//! differential table's three- and four-stream descriptors, over arbitrary
+//! normal-form operands and organic op-trace populations alike. The
+//! materialized-form coherence (`view ⋚ w ≡ view.to_version() ⋚ w`, both
+//! comparison directions and `==`, plus the seed-mask coherence) lives in
+//! [`crate::laws`] and runs through every law consumer. What remains here
+//! is what neither of those states: that equality on the view is semantic
+//! rather than representational, and that the `From` impl is the
+//! materialization.
 
 use super::OwnVersion;
-use crate::testing::bridge::{from_oracle_party, from_oracle_version};
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
-use crate::testing::optrace::{run, versions, world_strategy};
-use crate::{oracle, Clock, Version};
-
-/// The oracle's composed verdict for `(v / p) ⋚ w`: materialize the projection
-/// on the recursive trees, then compare.
-fn oracle_view_cmp(
-    v: &oracle::Version,
-    p: &oracle::Party,
-    w: &oracle::Version,
-) -> Option<std::cmp::Ordering> {
-    (v.clone() / p).partial_cmp(w)
-}
-
-proptest! {
-    /// Differential. The fused three-stream comparison `(v / p) ⋚ w` matches
-    /// the oracle's materialize-then-compare on arbitrary normal-form operands,
-    /// in both operand orders and under `==`.
-    #[test]
-    fn view_cmp_matches_oracle_composed(
-        v in arb_oracle_version(),
-        w in arb_oracle_version(),
-        p in arb_oracle_party_nonempty(),
-    ) {
-        let (iv, iw, ip) = (from_oracle_version(&v), from_oracle_version(&w), from_oracle_party(&p));
-        let expected = oracle_view_cmp(&v, &p, &w);
-        prop_assert_eq!((&iv / &ip).partial_cmp(&iw), expected);
-        prop_assert_eq!(iw.partial_cmp(&(&iv / &ip)), expected.map(std::cmp::Ordering::reverse));
-        prop_assert_eq!((&iv / &ip) == iw, expected == Some(std::cmp::Ordering::Equal));
-    }
-}
-
-proptest! {
-    /// Differential. The fused four-stream comparison `(v/p) ⋚ (w/q)` matches
-    /// the oracle's materialize-then-compare on arbitrary normal-form operands,
-    /// under `partial_cmp` and `==` alike.
-    #[test]
-    fn view_pair_cmp_matches_oracle_composed(
-        v in arb_oracle_version(),
-        w in arb_oracle_version(),
-        p in arb_oracle_party_nonempty(),
-        q in arb_oracle_party_nonempty(),
-    ) {
-        let (iv, iw) = (from_oracle_version(&v), from_oracle_version(&w));
-        let (ip, iq) = (from_oracle_party(&p), from_oracle_party(&q));
-        let expected = (v.clone() / &p).partial_cmp(&(w.clone() / &q));
-        prop_assert_eq!((&iv / &ip).partial_cmp(&(&iw / &iq)), expected);
-        prop_assert_eq!(
-            (&iv / &ip) == (&iw / &iq),
-            expected == Some(std::cmp::Ordering::Equal)
-        );
-    }
-}
-
-proptest! {
-    /// Differential. Both fused walks match the oracle's composed verdicts over
-    /// organic op-trace populations.
-    ///
-    /// Live sibling parties and causally related versions — the value shapes
-    /// real fork/tick/join/sync schedules produce, where domination and
-    /// equality actually occur.
-    #[test]
-    fn view_cmp_matches_oracle_on_organic_populations(
-        ops in world_strategy(),
-        i in 0usize..64,
-        j in 0usize..64,
-        k in 0usize..64,
-    ) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let (ov, ow) = (&vs[i % n], &vs[j % n]);
-        let (op_, oq) = (cs[k % n].party(), cs[(k + 1) % n].party());
-        let (iv, iw) = (from_oracle_version(ov), from_oracle_version(ow));
-        let (ip, iq) = (from_oracle_party(op_), from_oracle_party(oq));
-        prop_assert_eq!(
-            (&iv / &ip).partial_cmp(&iw),
-            oracle_view_cmp(ov, op_, ow)
-        );
-        prop_assert_eq!(
-            (&iv / &ip).partial_cmp(&(&iw / &iq)),
-            (ov.clone() / op_).partial_cmp(&(ow.clone() / oq))
-        );
-    }
-}
+use crate::{Clock, Version};
 
 /// Equality on the view is semantic, not representational: `view == w` requires
 /// `w` to be zero outside the party's region.

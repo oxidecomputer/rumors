@@ -1051,13 +1051,13 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
-        prod_tree: Leg::Bound("view_cmp_matches_oracle_composed"),
+        prod_tree: Leg::Bound("own_version_cmp_matches_the_oracle"),
         prod_fs: Leg::Trans("own_version_cmp_matches_materialized"),
         tree_fs: Leg::Trans("quotient_realizes_region_mask"),
     },
     SurfaceRow {
         op: "OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)",
-        prod_tree: Leg::Bound("view_pair_cmp_matches_oracle_composed"),
+        prod_tree: Leg::Bound("own_version_pair_cmp_matches_the_oracle"),
         prod_fs: Leg::Trans("own_version_pair_cmp_matches_materialized"),
         tree_fs: Leg::Trans("quotient_realizes_region_mask"),
     },
