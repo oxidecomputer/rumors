@@ -17,7 +17,10 @@ use crate::tree::{
     arb::{early_first_child_dispute_pair, nth_party},
     mirror::{
         Error as MirrorError,
-        streaming::remote::{DecodeError, Error as RemoteError},
+        streaming::{
+            materialized::{Error as MaterializedError, Violation},
+            remote::{DecodeError, Error as RemoteError},
+        },
     },
 };
 
@@ -85,6 +88,68 @@ fn understated_version_bytes_fail_the_session() {
         ));
         assert!(left.is_err());
         assert!(right.is_err());
+    }
+}
+
+/// A supply stream past the declared `set_len` fails the session typed.
+///
+/// The dual of the oversized-version guard, completing the declaration
+/// matrix: the declared set length is a premise of the window solve's
+/// occupancy envelopes and per-slot pricing, so honest supplies overrunning
+/// it void what the window priced. The receiving side reports
+/// `OverdrawnSupply` at the first leaf past the declaration; the peer's
+/// endpoint is left to whatever its schedule surfaces — here it may even
+/// complete, having already reconciled before the deceived side's late
+/// ingestion tripped — which is not this tripwire's concern (the
+/// containment wire test draws the same line).
+///
+/// The rewrite shrinks the heard length of the honestly-smaller side, so
+/// the role election stays complementary — a real under-declaring peer
+/// elects from its own declared value, so only election-preserving
+/// rewrites model one. The smaller side therefore still initiates; its
+/// early supplies ride the opening stream, land at the deceived side's
+/// first descending level, and trip the resolver's ledger there.
+#[test]
+fn understated_set_len_fails_the_session() {
+    for receiver_left in [false, true] {
+        let (small, large) = uneven_pair();
+        // The receiver holds the large tree and hears the small
+        // (initiating) side's declared length as zero.
+        let rewrite = GreetingRewrite::set_len(0);
+        let ((left, right), hears) = if receiver_left {
+            ((large, small), (Some(rewrite), None))
+        } else {
+            ((small, large), (None, Some(rewrite)))
+        };
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
+            left, right, hears.0, hears.1,
+        ))
+        .expect("an overdrawn supply stream must terminate both sessions");
+        // The violation rises from the receiver's materialized walk, which
+        // sits in the opposite mirror seat from its proxy — so the side
+        // labels mirror the oversized-version test's, where the proxy's
+        // decoder reports instead.
+        if receiver_left {
+            assert!(
+                matches!(
+                    &left,
+                    Err(MirrorError::Client(MaterializedError::Violation(
+                        Violation::OverdrawnSupply
+                    ))),
+                ),
+                "the left walk did not report the violation: {left:?}",
+            );
+        } else {
+            assert!(
+                matches!(
+                    &right,
+                    Err(MirrorError::Server(MaterializedError::Violation(
+                        Violation::OverdrawnSupply
+                    ))),
+                ),
+                "the right walk did not report the violation: {right:?}",
+            );
+        }
     }
 }
 
