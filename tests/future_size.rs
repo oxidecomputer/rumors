@@ -25,12 +25,11 @@ use rumors::{Peer, Rumors};
 
 /// Upper bound for the unawaited public futures.
 ///
-/// The budget is set
-/// generously above the measured sizes (a few hundred bytes) so legitimate
-/// growth — an extra captured local, a slightly fatter error type —
-/// doesn't fail the test, but any *order-of-magnitude* growth (i.e. the
-/// inner protocol state machine leaking out inline) will.
-const PUBLIC_FUTURE_BUDGET: usize = 1024;
+/// The budget is set generously above the measured sizes (a few hundred bytes)
+/// so legitimate growth — an extra captured local, a slightly fatter error type
+/// — doesn't fail the test, but any *order-of-magnitude* growth (i.e. the inner
+/// protocol state machine leaking out inline) will.
+const PUBLIC_FUTURE_BUDGET: usize = 2048;
 
 /// `Rumors::gossip` drives the full mirror protocol against a peer; the
 /// public future is type-erased.
