@@ -489,10 +489,11 @@ proptest! {
 }
 
 proptest! {
-    /// [`Party::join`] on arbitrary pairs agrees with the oracle: a disjoint
-    /// pair returns `Ok(())` and leaves `self` holding the oracle's join,
-    /// and an overlapping pair returns `Err(other)` with the refused party
-    /// handed back unchanged and `self` unmodified.
+    /// [`Party::join`] on arbitrary pairs agrees with the oracle.
+    ///
+    /// A disjoint pair returns `Ok(())` and leaves `self` holding the
+    /// oracle's join; an overlapping pair returns `Err(other)` with the
+    /// refused party handed back unchanged and `self` unmodified.
     ///
     /// The op pipeline only ever joins disjoint halves, so the overlap arm
     /// is otherwise untested at arbitrary shapes.

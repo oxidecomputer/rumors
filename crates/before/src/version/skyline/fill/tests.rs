@@ -384,17 +384,20 @@ fn flag_compares_offsets_at_full_width() {
     assert_tick(&v, &p);
 }
 
-/// [`Out::materialize`] is a no-op once the output is built: the idempotent
-/// contract its rustdoc states, which the divergence epilogue's
-/// `is_verbatim()` guard in `fill.rs` relies on. Two identical verbatim
-/// walks over one canonical stream — the whole stream matched, the one
-/// matched prefix whose builder holds a complete tiling and so may finish —
-/// materialize once and twice respectively; the twice-materialized output
-/// must finish byte-identical to the once-materialized one, and both to the
-/// stream itself (a fully matched prefix copies verbatim, byte-exact by
-/// canonical uniqueness). Deliberate internal entry: no public path
-/// re-enters `materialize` post-build by construction, so this pin binds
-/// the contract at the seam the public surface cannot reach.
+/// [`Out::materialize`] is a no-op once the output is built.
+///
+/// This is the idempotent contract its rustdoc states, which the divergence
+/// epilogue's `is_verbatim()` guard in `fill.rs` relies on. Two identical
+/// verbatim walks over one canonical stream — the whole stream matched, the
+/// one matched prefix whose builder holds a complete tiling and so may
+/// finish — materialize once and twice respectively; the twice-materialized
+/// output must finish byte-identical to the once-materialized one, and both
+/// to the stream itself (a fully matched prefix copies verbatim, byte-exact
+/// by canonical uniqueness).
+///
+/// Deliberate internal entry: no public path re-enters `materialize`
+/// post-build by construction, so this pin binds the contract at the seam
+/// the public surface cannot reach.
 #[test]
 fn materialize_is_a_noop_once_built() {
     let v: Version = "(2, (0, 1, 0), 3)"
