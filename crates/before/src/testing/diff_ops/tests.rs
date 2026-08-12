@@ -196,6 +196,16 @@ macro_rules! group_drivers {
     (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         $( group_drivers!(@one $group, $driver, $shape); )*
     };
+    (@one $group:ident, $driver:ident, (version)) => {
+        proptest! {
+            /// Every descriptor in the group agrees with the oracle on
+            /// arbitrary normal-form versions, large-base events included.
+            #[test]
+            fn $driver(a in arb_oracle_version()) {
+                assert_diff_ops!(super::$group, &a);
+            }
+        }
+    };
     (@one $group:ident, $driver:ident, (version, version)) => {
         proptest! {
             /// Every descriptor in the group agrees with the oracle on
@@ -225,6 +235,9 @@ struct Organic<'a> {
 macro_rules! organic_drive {
     (args: ($env:expr); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         $( organic_drive!(@one $env, $group, $shape); )*
+    };
+    (@one $env:expr, $group:ident, (version)) => {
+        assert_diff_ops!(super::$group, $env.v[0]);
     };
     (@one $env:expr, $group:ident, (version, version)) => {
         assert_diff_ops!(super::$group, $env.v[0], $env.v[1]);

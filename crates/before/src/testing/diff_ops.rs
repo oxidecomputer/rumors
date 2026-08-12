@@ -204,6 +204,27 @@ macro_rules! diff_ops {
 }
 
 diff_ops! {
+    /// The scalar quantities one history carries.
+    ///
+    /// Both are folds over the whole tree, so the regime that matters is
+    /// depth and base magnitude rather than the relationship between two
+    /// values.
+    pub(crate) static VERSION_SOLO: (a: version);
+
+    /// `min_ticks`: the events every region of the history has seen.
+    fn version_min_ticks_matches_the_oracle {
+        prod: a.min_ticks(),
+        tree: a.min_ticks(),
+    }
+
+    /// `rank`: the area the history covers, against the oracle's fold.
+    fn version_rank_matches_the_oracle {
+        prod: a.rank(),
+        tree: a.rank(),
+    }
+}
+
+diff_ops! {
     /// The lattice and the order over a pair of histories.
     ///
     /// The regime the arbitrary population reaches is the *unrelated*
@@ -365,10 +386,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
         BespokeGenre::FunctionSpaceRealization,
     ),
     (
-        "min_ticks_matches_oracle",
-        BespokeGenre::HandWrittenPointwise,
-    ),
-    (
         "min_ticks_realizes_base_sum",
         BespokeGenre::FunctionSpaceRealization,
     ),
@@ -380,7 +397,6 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
         "quotient_realizes_region_mask",
         BespokeGenre::FunctionSpaceRealization,
     ),
-    ("rank_matches_oracle", BespokeGenre::HandWrittenPointwise),
     (
         "rank_realizes_riemann_sum",
         BespokeGenre::FunctionSpaceRealization,
@@ -425,6 +441,7 @@ macro_rules! for_each_diff_group {
     ($callback:ident($($args:tt)*)) => {
         $callback! {
             args: ($($args)*);
+            (VERSION_SOLO, version_solo_ops, (version)),
             (VERSION_PAIR, version_pair_ops, (version, version)),
         }
     };

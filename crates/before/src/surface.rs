@@ -444,13 +444,13 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Version::min_ticks",
-        prod_tree: Leg::Bound("min_ticks_matches_oracle"),
+        prod_tree: Leg::Bound("version_min_ticks_matches_the_oracle"),
         prod_fs: Leg::Trans("min_ticks_realizes_base_sum"),
         tree_fs: Leg::Bound("min_ticks_realizes_base_sum"),
     },
     SurfaceRow {
         op: "Version::rank",
-        prod_tree: Leg::Bound("rank_matches_oracle"),
+        prod_tree: Leg::Bound("version_rank_matches_the_oracle"),
         prod_fs: Leg::Bound("rank_realizes_riemann_sum"),
         tree_fs: Leg::Bound("rank_realizes_riemann_sum"),
     },

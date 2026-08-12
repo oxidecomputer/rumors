@@ -219,18 +219,6 @@ proptest! {
 }
 
 proptest! {
-    /// Differential. The impl's `min_ticks` matches the oracle's base sum on
-    /// every generated version.
-    #[test]
-    fn min_ticks_matches_oracle(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        prop_assert_eq!(from_oracle_version(&vs[i % n]).min_ticks(), vs[i % n].min_ticks());
-    }
-}
-
-proptest! {
     /// Every assigning join surface on `Version` yields the same result as `a |
     /// b`, which the `version_join_matches_the_oracle` descriptor already pins
     /// to the oracle's `join`.
@@ -805,22 +793,6 @@ fn rank_known_values() {
         peaks.rank(),
         "equal rank is fine when concurrent"
     );
-}
-
-proptest! {
-    /// Differential. The impl's cursor-threaded `rank` fold matches the
-    /// recursive oracle's area fold (`oracle::Version::rank`) on every version
-    /// any causal history produces.
-    ///
-    /// The function-space leg (`rank_realizes_riemann_sum`) supplies the
-    /// independent second computation.
-    #[test]
-    fn rank_matches_oracle(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        prop_assert_eq!(from_oracle_version(&vs[i % n]).rank(), vs[i % n].rank());
-    }
 }
 
 // Strict rank monotonicity on the causal order is the
