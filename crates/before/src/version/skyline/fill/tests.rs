@@ -458,6 +458,153 @@ fn dominated_undercut_family_ticks_identically() {
     });
 }
 
+/// Build an undercut-under-a-live-relation pair: a chain of covered left-full
+/// sites around an id-absent region whose block-minimum emission undercuts the
+/// web while the ledger relation rides its follower slot.
+///
+/// The walk order, under one outermost site whose fresh pre-scan covers the
+/// whole chain: the root site's raise declines and reproduces its single-leaf
+/// collapse range, so the walk enters the chain verbatim. Each `pre` site's
+/// multi-leaf collapse (peak `z`, over a sibling leaf `y`) diverges the walk,
+/// and its close re-anchors the ledger relation onto the web's follower slot
+/// (`pop_site`). The id-absent region then arms the web at its `climb` leaf
+/// and drops back to a minimum sitting `exit_rise` above the region's exit,
+/// so its block-minimum emission undercuts the freshly-armed anchor with the
+/// follower live — through the post-sign domination arm when the climb
+/// dominates at scale, the fold-and-restore path when it is comparable, and
+/// the at-height emission when the exit rise is zero. The `posts` sites then
+/// nest — each inside the previous site's sibling — so consecutive raise
+/// decisions read the relation with no intervening `pop_site`; the terminal
+/// site's decision is directed by `(min_side, margin)`: the minimum side
+/// raises a zero collapse leaf to a sibling minimum sitting `margin` above
+/// it, the declined side emits a collapse leaf sitting `margin` over a zero
+/// sibling minimum. A follower displaced by a wrong-polarity residue fold —
+/// an error at the dying anchor gap's own width — reads the other side of
+/// those decisions and emits the wrong bytes.
+fn live_relation_undercut_pair(
+    outer: u64,
+    pre: &[(u64, u64)],
+    climb: &Base,
+    exit_rise: u64,
+    posts: &[u64],
+    (min_side, margin): (bool, u64),
+) -> (Version, Party) {
+    use crate::oracle::{Party as P, Version as V};
+    let full = P::seed;
+    let empty = || P::Leaf(false);
+    // (1, 0): an id node over a consumed leaf — the leaf arm.
+    let over_leaf = || P::node(full(), empty());
+
+    let (xl, xr) = if min_side { (0, margin) } else { (margin, 0) };
+    let mut post = V::node(0u64, V::leaf(xl), V::leaf(xr));
+    let mut post_id = P::node(full(), over_leaf());
+    for &w in posts.iter().rev() {
+        post = V::node(0u64, V::leaf(w), post);
+        post_id = P::node(full(), post_id);
+    }
+    let region = V::node(
+        0u64,
+        V::node(0u64, V::leaf(climb.clone()), V::leaf(0u64)),
+        V::leaf(exit_rise),
+    );
+    let mut er = V::node(0u64, region, post);
+    let mut ir = P::node(empty(), post_id);
+    for &(z, y) in pre.iter().rev() {
+        let site = V::node(0u64, V::node(0u64, V::leaf(0u64), V::leaf(z)), V::leaf(y));
+        er = V::node(0u64, site, er);
+        ir = P::node(P::node(full(), over_leaf()), ir);
+    }
+    let root = V::node(0u64, V::leaf(outer), er);
+    let root_id = P::node(full(), ir);
+    (from_oracle_version(&root), from_oracle_party(&root_id))
+}
+
+/// A dominated undercut under a live ledger relation moves the relation's
+/// follower by exactly its residue: a later covered site's raise decision
+/// reads the follower, and the tick matches the oracle.
+///
+/// The worked point of [`live_relation_undercut_pair`]: one diverging site
+/// re-anchors the relation, the region's climb sits past the domination
+/// read's decision bound so the undercut is answered scale-disparately with
+/// the follower live, and the terminal site's raise then reads the minimum
+/// side by the thinnest margin — where a follower displaced by a
+/// wrong-polarity residue fold reads the other side and emits the declined
+/// raise value in place of the oracle's raise. `pop_site` does not intervene
+/// between the undercut and that read: only ordinary node closes separate
+/// them, and those never touch a follower's value.
+///
+/// The witness binds to the domination arm only through the walk's current
+/// routing, so the binding is asserted via the decision counter, not
+/// assumed (`≥`, not `=`: the counter is process-global, and other work in
+/// a shared process only adds).
+#[test]
+fn dominated_undercut_moves_the_live_ledger_relation() {
+    let climb = (Base::from(1u8) << 96u32) + (Base::from(1u8) << 98u32);
+    let (v, p) = live_relation_undercut_pair(7, &[(5, 3)], &climb, 9, &[], (true, 1));
+    crate::meter::reset_emit_traffic();
+    assert_tick(&v, &p);
+    assert!(
+        crate::meter::emit_traffic().dominated_undercut >= 1,
+        "the witness pair no longer routes its block-minimum emission through \
+         the dominated-undercut arm: the path it exists to pin is undriven"
+    );
+}
+
+/// A word-scale at-height undercut under a live ledger relation moves the
+/// relation's follower by exactly its residue: the terminal site's raise
+/// decision reads the follower, and the tick matches the oracle.
+///
+/// The narrow twin of the domination witness above, at the family's shrink
+/// floor: a unit climb and a zero exit rise route the region's block-minimum
+/// emission through the at-height undercut instead of the domination arm, so
+/// the residue reaches the live follower through the propagation fold that
+/// resolves anchor tags. The terminal raise then reads the minimum side by
+/// the thinnest margin, where a wrong-polarity fold reads the other side.
+/// This exact pair is the family's shrunk counterexample under that
+/// polarity error, kept as a worked point so the narrow arm stays pinned
+/// independently of the generator.
+#[test]
+fn narrow_undercut_moves_the_live_ledger_relation() {
+    let (v, p) = live_relation_undercut_pair(0, &[(1, 0)], &Base::from(1u8), 0, &[], (true, 1));
+    assert_tick(&v, &p);
+}
+
+proptest! {
+    /// The undercut-under-a-live-relation family ticks byte-identically to
+    /// the recursive oracle at every knob.
+    ///
+    /// The shape- and width-generic generalization of the worked witness
+    /// above, over [`live_relation_undercut_pair`]: swept over the outer
+    /// raise value, the diverging pre-site chain's length and heights (an
+    /// empty chain leaves the relation height-carried through the region,
+    /// covering the height-anchored consume beside the follower reads), the
+    /// region's climb `m · 2^b` across the full width range (narrow climbs
+    /// route the undercut through the fold-and-restore path, wide ones
+    /// through the post-sign domination arm), its exit rise (zero routes
+    /// through the at-height emission), the nested post-site chain's depth,
+    /// and the terminal decision's side at margins down to one. Every arm
+    /// lands in a residue propagation that folds the live follower, and
+    /// every follower read surfaces in the output bytes the oracle
+    /// differential pins.
+    #[test]
+    fn undercut_under_a_live_relation_family_ticks_identically(
+        outer in 0u64..=8,
+        // Pre-sites (z, y): peaks are nonzero so each collapse range stays a
+        // real plateau split (a zero peak joins to a single leaf and the site
+        // no longer diverges the walk).
+        pre in proptest::collection::vec((1u64..=6, 0u64..=6), 0..=2),
+        climb in (1u64..=7, 0u32..=192),
+        exit_rise in 0u64..=9,
+        posts in proptest::collection::vec(0u64..=6, 0..=2),
+        terminal in (proptest::bool::ANY, 1u64..=6),
+    ) {
+        let (m, b) = climb;
+        let climb = Base::from(m) << b;
+        let (v, p) = live_relation_undercut_pair(outer, &pre, &climb, exit_rise, &posts, terminal);
+        assert_tick(&v, &p);
+    }
+}
+
 /// The left-full raise decision's height seam: the tick matches the oracle on
 /// a pair whose sibling range moves the height between the site's collapse
 /// scan and the site's close.
