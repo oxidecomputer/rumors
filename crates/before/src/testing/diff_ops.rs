@@ -744,13 +744,13 @@ pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
         "join_all_matches_the_recursive_oracle",
         BespokeGenre::FallibleHandBack,
     ),
+    ("join_arbitrary", BespokeGenre::FallibleHandBack),
     ("master_differential", BespokeGenre::TraceLockstep),
     ("meet_all_matches_oracle", BespokeGenre::NAryFold),
     (
         "replay_matches_across_references",
         BespokeGenre::TraceLockstep,
     ),
-    ("sum_arbitrary", BespokeGenre::FallibleHandBack),
     ("sync", BespokeGenre::FallibleHandBack),
 ];
 

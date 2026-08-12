@@ -368,7 +368,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     },
     SurfaceRow {
         op: "Party::join",
-        prod_tree: Leg::Bound("sum_arbitrary"),
+        prod_tree: Leg::Bound("join_arbitrary"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("party_disjoint_join_matches_the_oracle"),
     },

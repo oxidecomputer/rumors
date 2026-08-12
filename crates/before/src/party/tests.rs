@@ -364,10 +364,10 @@ fn parse_bare_notation() {
 // seed (so every pair is causally related and pairwise disjoint by
 // construction). These feed *arbitrary* normal-form ids — random shape, random
 // ownership, including genuinely *overlapping* and *unrelated* pairs — to the
-// packed id walks and the wire surface. They reach the overlap arms
-// (`compare == None`, `sum == None`) that the seed-derived pipeline cannot
-// produce. The public region algebra reaches the same regime through the
-// descriptor table's id-pair drivers.
+// packed id walks, the public `Party::join`, and the wire surface. They reach
+// the overlap arms (`compare == None`, `sum == None`, `join == Err`) that the
+// seed-derived pipeline cannot produce. The public region algebra reaches the
+// same regime through the descriptor table's id-pair drivers.
 
 proptest! {
     /// The per-call [`IdIndex`] answers disjointness with the identical verdict
@@ -489,27 +489,40 @@ proptest! {
 }
 
 proptest! {
-    /// `sum` on arbitrary id pairs agrees with the oracle: it returns the
-    /// merged id exactly when the pair is disjoint (matching
-    /// `oracle::Party::join`), and `None` on overlap.
+    /// [`Party::join`] on arbitrary pairs agrees with the oracle: a disjoint
+    /// pair returns `Ok(())` and leaves `self` holding the oracle's join,
+    /// and an overlapping pair returns `Err(other)` with the refused party
+    /// handed back unchanged and `self` unmodified.
     ///
-    /// The op pipeline only ever sums disjoint halves, so the overlap `None`
-    /// arm is otherwise untested at arbitrary shapes.
+    /// The op pipeline only ever joins disjoint halves, so the overlap arm
+    /// is otherwise untested at arbitrary shapes.
     #[test]
-    fn sum_arbitrary(
+    fn join_arbitrary(
         oa in arb_oracle_party(),
         ob in arb_oracle_party(),
     ) {
-        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
-        let summed = IdReader::root(ia.as_bits()).sum(IdReader::root(ib.as_bits()));
+        let mut a = from_oracle_party(&oa);
+        let b = from_oracle_party(&ob);
 
         if oa.is_disjoint(&ob) {
             let mut oracle_sum = oa.clone();
             oracle_sum.join(ob.clone()).expect("disjoint, just checked");
-            let bits = summed.expect("disjoint pair sums");
-            prop_assert!(Party::from_bits(bits) == from_oracle_party(&oracle_sum));
+            prop_assert!(a.join(b).is_ok(), "disjoint parties must join");
+            prop_assert!(a == from_oracle_party(&oracle_sum));
         } else {
-            prop_assert!(summed.is_none(), "overlapping ids must not sum");
+            match a.join(b) {
+                Ok(()) => prop_assert!(false, "overlapping parties must not join"),
+                Err(returned) => {
+                    prop_assert!(
+                        returned == from_oracle_party(&ob),
+                        "the refused party comes back unchanged"
+                    );
+                    prop_assert!(
+                        a == from_oracle_party(&oa),
+                        "`self` is unmodified on overlap"
+                    );
+                }
+            }
         }
     }
 }
