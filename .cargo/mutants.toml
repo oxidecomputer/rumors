@@ -30,7 +30,18 @@
 # replacements size the densified images by something other than the
 # cluster's span), killed by the densify tap's span pin
 # (densify_tap_prices_the_cluster_span, the query fold's test suite)
-# and the hoisted-window densify band in tests/meter.rs.
+# and the hoisted-window densify band in tests/meter.rs. Also absent:
+# the residue-dominates side of propagate's wide-hop guard machinery
+# (its `>=` guard, its `==` sign test, and — should the tool visit
+# call-argument operators — its `sign_dominates_at` floor), killed by
+# the propagate-seam bands (the plunge ceiling and clearance band trip
+# on the rerouted hops, demonstrated by direct application); and the
+# watermark pool-recycle deletions — MinWeb::retire replaced with ()
+# and MinWeb::lease replaced with a bare Default::default() — killed by
+# the pool-miss row (the seam-stop pool row in tests/meter.rs: a dead
+# recycle reads misses proportional to churn against a derived
+# peak-demand ceiling, and a bypassed lease reads zero against the
+# fill-phase liveness floor).
 
 exclude_re = [
     # --- suanpan::accumulator ---
@@ -54,18 +65,22 @@ exclude_re = [
     # --- before::version::skyline::watermark ---
 
     # Performance genre: propagate's dwarf-domination fast arms fold and
-    # retire exactly what the total fold-then-sign path folds and retires;
-    # the engagement thresholds, probe floors, and sign guards route cost
-    # between extensionally equal paths, verified value-equivalent under
-    # mutation with all meters lit.
-    "watermark\\.rs.*: replace \\+ with \\* in MinWeb<P>::propagate",
-    "watermark\\.rs.*: replace - with \\+ in MinWeb<P>::propagate",
-    "watermark\\.rs.*: replace - with / in MinWeb<P>::propagate",
+    # retire exactly what the total fold-then-sign path folds and retires,
+    # and the surviving guard mutants route only work. An eager width
+    # guard (either arm's `+ 2` clearance test loosened to `- 2`) spends
+    # a wasted domination read on hops whose certificate then honestly
+    # refuses; the boundary-dominates arm's guard and sign mutants
+    # (line-pinned below) route its hops onto the comparable-scale fold,
+    # which is touch-identical on that arm (the seam-stop band's readings
+    # are byte-equal under the swap). The residue-dominates arm's
+    # same-shaped mutants are killed — the ascending-cliff cascade band
+    # prices its total death and the propagate-seam bands price its
+    # clearance line — so they carry no exclusion (the header's
+    # deliberately-absent roster).
+    "watermark\\.rs.*: replace \\+ with - in MinWeb<P>::propagate",
     "watermark\\.rs.*: replace && with \\|\\| in MinWeb<P>::propagate",
-    # Line-pinned: the dual arm's same-shaped guard mutants are killed, so
-    # these two entries name the equivalent occurrence exactly.
-    "watermark\\.rs:736:43: replace >= with < in MinWeb<P>::propagate",
-    "watermark\\.rs:742:44: replace == with != in MinWeb<P>::propagate",
+    "watermark\\.rs:773:43: replace >= with < in MinWeb<P>::propagate",
+    "watermark\\.rs:779:44: replace == with != in MinWeb<P>::propagate",
 
     # Performance genre: the undercut decision's scale probes read
     # domination at a floor index; a shifted floor changes which side of
@@ -87,10 +102,6 @@ exclude_re = [
     # survivor still lists as MISSED. The pattern matches the printed name
     # and engages when the filter gap closes upstream.
     "watermark\\.rs.*: delete field compact_words from struct MinWeb expression in MinWeb<P>::compacting",
-
-    # Performance genre: retire recycles a dying accumulator into the
-    # allocation pool; skipping it costs allocations, never values.
-    "watermark\\.rs.*: replace MinWeb<P>::retire with \\(\\)",
 
     # --- before::version::skyline::grow ---
 

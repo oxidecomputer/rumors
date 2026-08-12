@@ -11,10 +11,11 @@ use super::{
     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
     cliff_comb, cliff_fan, collapse_hole, concurrent_pair, copy_hole, dense, dense_suffix,
     dense_suffix_mate, dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position,
-    harmonic, hoisted_window, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze,
+    harmonic, hoisted_window, hugeleaf, id_spine, jump_comb, jump_pair, latent_ladder, lone_freeze,
     mask_drift_quadruple, mask_drift_triple, masked_hole, plateau_puncture,
     plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole, scattered_id,
-    site_hole, tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Packed,
+    seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole, tooth_tail,
+    weight_comb, wide_arming, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -1019,6 +1020,172 @@ fn hoisted_window_decodes_canonically_at_predicted_length() {
         hoisted.rank().checked_sub(&deeper.rank()).is_some(),
         "a deeper tail only shrinks the tail sliver's area"
     );
+}
+
+/// The seam shapes' shared narrow rung, as the tests' oracle-side value.
+fn seam_rung_ubig() -> UBig {
+    UBig::from(5u8) << 64usize
+}
+
+/// The seam shapes' `w`-digit wide operand `5·2^(32(w−1))`, as the tests'
+/// oracle-side value.
+fn seam_wide_ubig(w: usize) -> UBig {
+    UBig::from(5u8) << (32 * (w - 1))
+}
+
+/// `seam_plunge(k, r)` is canonical normal form at exactly
+/// `(k + 1)(64r − 56) + 2` bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum — the `k + 1` ascending
+/// leaves over all-zero node bases and the zero plunge:
+/// `(k + 1)·5·2^(32(r−1)) + 5·2^64·(k + 1)(k + 2)/2` — pinned so the seam
+/// band reasons about the tree the generator actually builds.
+#[test]
+fn seam_plunge_decodes_canonically_at_predicted_length() {
+    for (k, r) in [(1usize, 5usize), (4, 5), (3, 7)] {
+        let p = seam_plunge(k, r);
+        check_version(&p, (k + 1) * (64 * r - 56) + 2);
+        let expected = seam_wide_ubig(r) * UBig::from((k + 1) as u64)
+            + seam_rung_ubig() * UBig::from(((k + 1) * (k + 2) / 2) as u64);
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            p.version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+    }
+}
+
+/// `seam_plunge_control(k, r)` is canonical normal form at exactly
+/// `136k + 64r + 78` bits, and its stored wire differs from
+/// `seam_plunge(k, r)`'s only in the final delta code.
+///
+/// Its `min_ticks` is exactly the stored-base sum `5·2^(32(r−1)) +
+/// 5·2^64·(k + 2)` (the ascent carried on the bases, the terminal one rung
+/// up); the wire-prefix identity is what lets the seam band read the pair's
+/// difference as the plunge's own propagation.
+#[test]
+fn seam_plunge_control_decodes_canonically_at_predicted_length() {
+    for (k, r) in [(1usize, 5usize), (4, 5), (3, 7)] {
+        let p = seam_plunge_control(k, r);
+        check_version(&p, 136 * k + 64 * r + 78);
+        let expected = seam_wide_ubig(r) + seam_rung_ubig() * UBig::from((k + 2) as u64);
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            p.version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+        // The wire-prefix identity: the pair's stored streams agree byte for
+        // byte up to the control's full length less its final code and
+        // padding — asserted structurally instead of byte-wise here, by the
+        // leaf heights: both trees walk the identical ascent.
+        let plunge = seam_plunge(k, r).version();
+        let control = p.version();
+        let plunge_wire = plunge.encode();
+        let control_wire = control.encode();
+        // The shared prefix: topology and all but the last delta agree, so
+        // the shorter stream's first bytes match the longer's (the final
+        // codes differ in length, so compare up to the divergence).
+        let shared = control_wire
+            .iter()
+            .zip(plunge_wire.iter())
+            .take_while(|(c, p)| c == p)
+            .count();
+        assert!(
+            shared * 8 + 200 >= control_wire.len() * 8,
+            "the control's wire diverges from the plunge's more than one \
+             final code early: {shared} shared bytes of {}",
+            control_wire.len(),
+        );
+    }
+}
+
+/// `seam_stop(k)` is canonical normal form at exactly `164k + 266` bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum `5·2^128 + (k − 1)·2^80 +
+/// 5·2^64·k(k − 1)/2` — the descent node's base plus the `k` descending
+/// leaves — pinned so the seam band reasons about the tree the generator
+/// actually builds.
+#[test]
+fn seam_stop_decodes_canonically_at_predicted_length() {
+    for k in [1usize, 5, 32] {
+        let p = seam_stop(k);
+        check_version(&p, 164 * k + 266);
+        let expected = seam_stop_ticks(k);
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            p.version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+    }
+}
+
+/// The seam-stop shapes' shared stored-base sum: the pair differs only in
+/// zero-base wrapping, so one closed form serves both pins.
+fn seam_stop_ticks(k: usize) -> UBig {
+    (UBig::from(5u8) << 128usize)
+        + (UBig::from((k - 1) as u64) << 80usize)
+        + seam_rung_ubig() * UBig::from((k * (k - 1) / 2) as u64)
+}
+
+/// `seam_stop_control(k)` is canonical normal form at exactly `164k + 262`
+/// bits, with the same stored-base sum as `seam_stop(k)`.
+///
+/// The control drops only the zero-based root and floor leaf, so its
+/// `min_ticks` is unchanged — the removed boundary lives in the *walk's*
+/// difference stack, never in the total.
+#[test]
+fn seam_stop_control_decodes_canonically_at_predicted_length() {
+    for k in [1usize, 5, 32] {
+        let p = seam_stop_control(k);
+        check_version(&p, 164 * k + 262);
+        let ticks: crate::Ticks = seam_stop_ticks(k)
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            p.version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+    }
+}
+
+/// `latent_ladder(w, k)` is canonical normal form at exactly
+/// `k(64w − 56) + 64w − 48` bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum `(k + 1)·5·2^(32(w−1)) +
+/// 1 − k(k + 1)/2` (the parked pair's base and `(0, 1)` leaves, plus the
+/// `k` ladder leaves one to `k` under the anchor) — pinned so the ladder
+/// band reasons about the tree the generator actually builds.
+#[test]
+fn latent_ladder_decodes_canonically_at_predicted_length() {
+    for (w, k) in [(3usize, 1usize), (4, 5), (10, 8)] {
+        let p = latent_ladder(w, k);
+        check_version(&p, k * (64 * w - 56) + 64 * w - 48);
+        let expected = seam_wide_ubig(w) * UBig::from((k + 1) as u64) + UBig::ONE
+            - UBig::from((k * (k + 1) / 2) as u64);
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            p.version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+    }
 }
 
 /// `plateau_puncture(w, d)` is canonical normal form at exactly `d(64w + 262) +

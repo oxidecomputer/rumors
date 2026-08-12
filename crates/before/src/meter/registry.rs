@@ -182,6 +182,18 @@ pub enum Shape {
     DominatedUndercut,
     /// The dominated-undercut id: [`Shape::packed1`]`(k)`.
     DominatedUndercutId,
+    /// The seam-plunge spine `SP(k, r)`: [`Shape::packed2`]`(k, r)`.
+    SeamPlunge,
+    /// The seam-plunge control (the ascent kept, the plunge leveled away):
+    /// [`Shape::packed2`]`(k, r)`.
+    SeamPlungeControl,
+    /// The seam-stop spine `SS(k)`: [`Shape::packed1`]`(k)`.
+    SeamStop,
+    /// The seam-stop control (the descent kept, the stacked boundary
+    /// removed): [`Shape::packed1`]`(k)`.
+    SeamStopControl,
+    /// The latent-ladder comb `LL(w, k)`: [`Shape::packed2`]`(w, k)`.
+    LatentLadder,
     /// The freeze-position spine `FP(k)`: [`Shape::packed1`]`(k)`.
     FreezePosition,
     /// The promotion re-arm spine `PR(p)`: [`Shape::packed1`]`(p)`.
@@ -332,6 +344,11 @@ impl Shape {
             Shape::AscendCliffId => Builder::P1(super::ascend_cliff_id),
             Shape::DominatedUndercut => Builder::P2(super::dominated_undercut),
             Shape::DominatedUndercutId => Builder::P1(super::dominated_undercut_id),
+            Shape::SeamPlunge => Builder::P2(super::seam_plunge),
+            Shape::SeamPlungeControl => Builder::P2(super::seam_plunge_control),
+            Shape::SeamStop => Builder::P1(super::seam_stop),
+            Shape::SeamStopControl => Builder::P1(super::seam_stop_control),
+            Shape::LatentLadder => Builder::P2(super::latent_ladder),
             Shape::FreezePosition => Builder::P1(super::freeze_position),
             Shape::PromotionRearm => Builder::P1(super::promotion_rearm),
             Shape::PromotionRearmMate => Builder::P1(super::promotion_rearm_mate),
@@ -959,6 +976,47 @@ pub enum FamilyId {
     /// `hoisted_window` band in `tests/meter.rs` prices the family). Designed
     /// against the settle's densified-image allocation in `charge_digits`.
     HoistedWindow,
+    /// The propagate-seam family: the anchor web's wide-hop domination
+    /// guards at their clearance line, both arms.
+    ///
+    /// An undercut's residue penetrates the difference stack by top-index
+    /// domination: a hop with two digits of clearance is decided before any
+    /// fold, and the dying side — whichever it is — folds once at its own
+    /// width. Every other committed cascade sits far from that line: the
+    /// ascending cliff's dying differences are word-scale (one digit) under
+    /// a residue dozens wide, and the dominated-undercut sites annihilate
+    /// exactly. Four shapes: the plunge (`SP(k, r)`, `k` three-digit
+    /// boundaries dying into one `r`-digit residue at exactly `r = 5`'s
+    /// minimal clearance, the `r` knob moving the clearance alone) and its
+    /// leveled control, the stop (`SS(k)`, `k` three-digit residues dying
+    /// against one five-digit surviving boundary) and its unstacked control
+    /// — each control isolating the hops by wire-near-identical run
+    /// difference. What each side enforces differs, deliberately: a
+    /// clearance regression reroutes the *plunge*'s hops onto the
+    /// comparable-scale fold, whose per-hop cost is the residue's width
+    /// instead of the dying boundary's — the plunge bands trip — while the
+    /// *stop*'s rerouted hop is touch-identical to its guarded arm (the
+    /// survivor's top digit decides its sign fold at one touch either way),
+    /// so the stop band's charge is width conservation alone: the surviving
+    /// boundary is never read across its width while it survives, and the
+    /// arm's value flow rides the closed form. The
+    /// `skyline_min_ticks_seam_*` bands price the family; the seam-stop
+    /// pair doubles as the pool-miss row's steady-state churn shape.
+    PropagateSeam,
+    /// The latent-ladder family `LL(w, k)`: the parked-latent undercut
+    /// decision's O(1) claim, on the axis that would falsify it.
+    ///
+    /// A drop below a stale anchor while a latent boundary is parked is
+    /// decided against the true minimum by top-index domination
+    /// (`decide_undercut_through_latent`), documented O(1) for
+    /// scale-disparate operands. The shape parks one `w`-digit boundary and
+    /// then presents `k` word-scale drops just under the anchor — `k`
+    /// dominating-latent reads whose only wide operand is the one the
+    /// decision must not read across — so the per-decision marginal cost
+    /// (the `k`-marginal at fixed `w`) is the claim's meter, and a decision
+    /// that reads the latent's width doubles that marginal when `w`
+    /// doubles. The `latent_ladder` band in `tests/meter.rs` prices it.
+    LatentLadder,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -1054,7 +1112,7 @@ impl FamilyId {
     /// Every registered family, in the roster order of record: the
     /// board columns first, in render order, then the envelope-only
     /// probe families.
-    pub const ALL: [FamilyId; 50] = [
+    pub const ALL: [FamilyId; 52] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1105,6 +1163,8 @@ impl FamilyId {
         FamilyId::ScanHole,
         FamilyId::MaskedHole,
         FamilyId::HoistedWindow,
+        FamilyId::PropagateSeam,
+        FamilyId::LatentLadder,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1162,6 +1222,8 @@ impl FamilyId {
             FamilyId::ScanHole => 47,
             FamilyId::MaskedHole => 48,
             FamilyId::HoistedWindow => 49,
+            FamilyId::PropagateSeam => 50,
+            FamilyId::LatentLadder => 51,
         }
     }
 
@@ -1841,6 +1903,53 @@ impl FamilyId {
                     "min_ticks(HW(w, d, t)) = d + 2^(32w) + 2^288 + 3, independent of \
                      the tail knob (the meter module's tests pin it beside the bit \
                      length)",
+                ),
+            },
+            FamilyId::PropagateSeam => FamilySpec {
+                name: "propagate-seam",
+                shapes: &[
+                    Shape::SeamPlunge,
+                    Shape::SeamPlungeControl,
+                    Shape::SeamStop,
+                    Shape::SeamStopControl,
+                ],
+                coverage: Coverage::EnvelopeOnly {
+                    reason: "kernel-seam probe for the anchor web's wide-hop domination \
+                             guards at their clearance line: the knobs move only which \
+                             side of the decision boundary each propagation hop sits on, \
+                             an axis no public-operation column denominates; the undercut \
+                             cascade genre itself is board-priced on the ascending-cliff \
+                             column",
+                    decided: "2026-08-11",
+                },
+                bands: Bands::Priced(&[
+                    "skyline_min_ticks_seam_plunge_is_flat_per_unit",
+                    "skyline_min_ticks_seam_plunge_clearance_band",
+                    "skyline_min_ticks_seam_stop_is_flat_per_unit",
+                ]),
+                denominator: "packed input bytes; each control-paired leg is judged as \
+                              the run difference against its wire-near-identical control",
+                closed_form: Some(
+                    "min_ticks is each shape's stored-base sum, closed-form in the knobs \
+                     (the meter module's tests pin each beside the bit length)",
+                ),
+            },
+            FamilyId::LatentLadder => FamilySpec {
+                name: "latent-ladder",
+                shapes: &[Shape::LatentLadder],
+                coverage: Coverage::EnvelopeOnly {
+                    reason: "kernel-seam probe for the parked-latent undercut decision's \
+                             O(1) claim: the width knob moves only the parked operand the \
+                             decision must not read across, an axis no public-operation \
+                             column denominates",
+                    decided: "2026-08-11",
+                },
+                bands: Bands::Priced(&["skyline_min_ticks_latent_ladder_is_flat_per_unit"]),
+                denominator: "packed input bytes; the decision leg is judged as the \
+                              k-marginal at fixed width across a width doubling",
+                closed_form: Some(
+                    "min_ticks(LL(w, k)) = (k + 1)·5·2^(32(w−1)) + 1 − k(k + 1)/2 (the \
+                     meter module's tests pin it beside the bit length)",
                 ),
             },
         }

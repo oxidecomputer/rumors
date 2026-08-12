@@ -198,6 +198,9 @@ mod walk;
 // The anchored-minimum web the fill walk and the min-ticks fold share: the
 // range-minimum discipline stated once, each client thin over it.
 mod watermark;
+// The web's accumulator-pool miss counter: leases the pool could not
+// serve, read through `meter::pool_misses`.
+pub(crate) mod pool_traffic;
 // The web's domination-read counters: which emission arm answered, read
 // through `meter::emit_traffic`.
 pub(crate) mod web_traffic;

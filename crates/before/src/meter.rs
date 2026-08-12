@@ -2664,6 +2664,298 @@ fn dominated_undercut_id(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The narrow rung of the propagate-seam shapes: `5·2^64`.
+///
+/// The smallest magnitude that is three base-2^32 digits wide with its top
+/// digit at the sign fold's decision bound (a top digit of 5 decides a
+/// domination read at its first touch).
+///
+/// Every stacked boundary and every dying residue the seam shapes mint holds
+/// exactly this width: wide enough that the compacting instantiation cannot
+/// store it inline (`u64` covers two digits), narrow enough that the dying
+/// side's one fold is three digit touches — the unit the seam bands' floors
+/// count in.
+fn seam_rung() -> Base {
+    pow2(66) + pow2(64)
+}
+
+/// A `w`-digit magnitude whose top digit is 5: `5·2^(32(w−1))`, the seam
+/// shapes' wide-operand constructor.
+///
+/// The top digit of 5 makes every domination read a closed form: the sign
+/// fold's running partial reaches the decision bound (magnitude 3) at the top
+/// digit itself, so `sign_dominates_at` decides — or honestly refuses — on
+/// the digit-index clearance alone, with no descent.
+fn seam_wide(w: usize) -> Base {
+    pow2(32 * (w - 1) + 2) + pow2(32 * (w - 1))
+}
+
+/// The seam-plunge spine `SP(k, r)`: `k + 1` ascending three-digit armings
+/// over a floor `r` digits below, then one plunge to the floor,
+/// `(k + 1)(64r − 56) + 2` bits.
+///
+/// Layout: a right-leaning spine of `k + 1` zero-base nodes `1 · γ(0)`, node
+/// `i` carrying the left leaf `0 · γ(5·2^(32(r−1)) + i·5·2^64)`, terminated by
+/// the plunge leaf `0 · γ(0)`. The sweep arms each spine range one rung
+/// ([`seam_rung`], three digits) above its parent's minimum — `k` stacked
+/// three-digit `Boundary::Wide` differences, each funded by its own consumed
+/// delta code — and the plunge then drives one `r`-digit residue
+/// ([`seam_wide`]`(r) + (k + 1)` rungs, same digit count) through all of
+/// them. At `r = 5` every hop sits exactly at the wide-hop guards' two-digit
+/// clearance line (`residue digits = boundary digits + 2`, the least
+/// clearance `sign_dominates_at` can certify), so each boundary dies by one
+/// fold of its own three digits into the residue — the
+/// residue-dominates arm at its decision boundary, which no other committed
+/// shape reaches (their dying differences are word-scale or the hop is an
+/// exact annihilation). Growing `r` at fixed `k` moves only the residue's
+/// clearance while the dying width stays put: the axis the clearance band
+/// prices.
+///
+/// Normal form: every node's child minima meet 0 (the plunge leaf bottoms
+/// the spine and every suffix contains it), and no sibling leaves are equal.
+/// The size formula reads each ascending leaf at `bitlen = 32(r − 1) + 3`
+/// (the rung sum stays under the top digit for every admitted `k`).
+///
+/// # Panics
+///
+/// Panics if `k == 0`, `r < 5` (two-digit clearance over a three-digit
+/// boundary needs a top index of at least 4), or `k > 2^28` (the rung sum
+/// must stay three digits, below the plunge base's own bit length).
+fn seam_plunge(k: usize, r: usize) -> Packed {
+    assert!(
+        k >= 1,
+        "the seam plunge needs at least one stacked boundary"
+    );
+    assert!(
+        r >= 5,
+        "the plunge residue must clear a three-digit boundary by two digits"
+    );
+    assert!(
+        k <= 1 << 28,
+        "the rung sum must stay within the ascending leaves' shared bit length"
+    );
+    let rung = seam_rung();
+    let base = seam_wide(r);
+    let leaf_bits = 64 * r - 58;
+    let mut bits = BitsMut::with_capacity((k + 1) * (leaf_bits + 2) + 2);
+    let mut value = base;
+    for _ in 0..=k {
+        value += &rung;
+        bits.push(true); // spine node, base 0
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf_wide(&mut bits, &value); // the ascending arming leaf
+    }
+    ev_leaf(&mut bits, 0); // the plunge: the whole tree's floor
+    Packed::from_bits(bits)
+}
+
+/// The seam-plunge control `SPC(k, r)`: the same spine, arming schedule, and
+/// wire prefix as [`seam_plunge`], with the plunge leaf replaced by one more
+/// ascent, `136k + 64r + 78` bits.
+///
+/// Layout: the ascent rides the bases instead of the leaves — node 1 is `1 ·
+/// γ(5·2^(32(r−1)) + 5·2^64)` over the leaf `0 · γ(0)`, nodes 2..=k+1 are `1
+/// · γ(5·2^64)` over `0 · γ(0)`, and the terminal right leaf is `0 ·
+/// γ(5·2^64)` — so the *stored wire* is identical to `SP(k, r)`'s except its
+/// final delta code (one rung up instead of the plunge). The web stacks the
+/// same `k` three-digit boundaries; the final leaf reads one positive sign
+/// and drives nothing, so the run's difference against `SP(k, r)` isolates
+/// the plunge's propagation: per boundary, one domination read plus the
+/// boundary's dying three-digit fold, less the control's drain (each of its
+/// surviving boundaries parks into the latent register at its close). The
+/// seam-plunge band prices that difference.
+///
+/// Normal form: minima ascend inward, so every node's leaf child sits at its
+/// own subtree minimum (rel 0) and the bases carry the ascent; the terminal
+/// pair is `(0, rung)`.
+///
+/// # Panics
+///
+/// As [`seam_plunge`].
+fn seam_plunge_control(k: usize, r: usize) -> Packed {
+    assert!(
+        k >= 1,
+        "the seam plunge needs at least one stacked boundary"
+    );
+    assert!(
+        r >= 5,
+        "the plunge residue must clear a three-digit boundary by two digits"
+    );
+    assert!(
+        k <= 1 << 28,
+        "the rung sum must stay within the ascending leaves' shared bit length"
+    );
+    let rung = seam_rung();
+    let mut bits = BitsMut::with_capacity(136 * k + 64 * r + 78);
+    bits.push(true); // node 1: base = the first arming's absolute height
+    codec::encode_int(&mut bits, &(seam_wide(r) + &rung));
+    ev_leaf(&mut bits, 0);
+    for _ in 0..k {
+        bits.push(true); // each deeper node climbs one rung
+        codec::encode_int(&mut bits, &rung);
+        ev_leaf(&mut bits, 0);
+    }
+    ev_leaf_wide(&mut bits, &rung); // the terminal: one more rung up
+    Packed::from_bits(bits)
+}
+
+/// The seam-stop spine `SS(k)`: one five-digit boundary absorbing `k`
+/// three-digit dying residues, `164k + 266` bits.
+///
+/// Layout: a root `1 · γ(0)` over the floor leaf `0 · γ(0)` and the descent
+/// subtree — a node `1 · γ(B)` (`B = 5·2^128 − 2^80 − k·5·2^64`) whose spine
+/// of `k − 1` zero-base nodes carries the leaves `0 · γ(2^80 + j·5·2^64)`
+/// for `j = k..=1` in preorder, terminated by `0 · γ(0)`. The floor leaf
+/// arms the root at the floor; the subtree's first leaf arms one boundary of
+/// exactly `5·2^128` (five digits, top digit 5) above it; and each later
+/// leaf descends one rung ([`seam_rung`]) — an arming undercut whose
+/// three-digit residue climbs to the stacked boundary, is decided by the
+/// wide-hop guard's other arm (`boundary digits = residue digits + 2` at
+/// every hop, the survivor's clearance never leaving the decision bound's
+/// reach), and dies by one fold of its own three digits into the survivor.
+/// The final leaf drops to the subtree's own floor (`2^80 + 5·2^64`, still
+/// three digits) as a plain undercut through the same arm. No other
+/// committed shape reaches the boundary-dominates arm at all: their
+/// cascades either annihilate exactly or penetrate to the stack's end.
+///
+/// Each cycle leases one fresh accumulator at its arming and retires its
+/// dead residue in propagation, so the shape is also the steady-state
+/// arm/retire churn family the pool-miss row drives: the pool's fill phase
+/// is the peak outstanding lease count, not the churn length.
+///
+/// Normal form: the descent subtree's minimum is its final leaf (rel 0), the
+/// root's children minima are `(0, B)`, and no sibling leaves are equal. All
+/// descending leaves share `bitlen = 81` (the rung sum stays under `2^80`
+/// for every admitted `k`).
+///
+/// # Panics
+///
+/// Panics if `k == 0` or `k > 2^11` (the descending leaves must share one
+/// bit length and stay strictly positive under the shared base).
+fn seam_stop(k: usize) -> Packed {
+    let mut bits = BitsMut::with_capacity(164 * k + 266);
+    bits.push(true); // the root, base 0
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the floor leaf: arms the root at 0
+    seam_stop_descent(&mut bits, k);
+    Packed::from_bits(bits)
+}
+
+/// The seam-stop control `SSC(k)`: [`seam_stop`]'s descent subtree standing
+/// alone, `164k + 262` bits.
+///
+/// With no floor leaf below it, the subtree's first leaf is the web's first
+/// arming — no boundary stacks — so each descending residue propagates into
+/// an empty difference stack and retires: the same leaf codes, folds, sign
+/// reads, and lease/retire churn as [`seam_stop`], less exactly the
+/// per-cycle boundary hop (and the drain's one park). The seam-stop band
+/// prices the difference.
+///
+/// # Panics
+///
+/// As [`seam_stop`].
+fn seam_stop_control(k: usize) -> Packed {
+    let mut bits = BitsMut::with_capacity(164 * k + 262);
+    seam_stop_descent(&mut bits, k);
+    Packed::from_bits(bits)
+}
+
+/// Append the seam-stop descent subtree: the based node over `k` descending
+/// three-digit leaves and the rel-0 terminal (the layouts above).
+fn seam_stop_descent(bits: &mut BitsMut, k: usize) {
+    assert!(
+        k >= 1,
+        "the seam stop needs at least one descending residue"
+    );
+    assert!(
+        k <= 1 << 11,
+        "the descending leaves must share one bit length over a positive base"
+    );
+    let rung = seam_rung();
+    let ladder = |j: usize| {
+        // 2^80 + j·5·2^64: the descending leaves, one rung apart.
+        let mut climb = rung.clone();
+        climb *= u32::try_from(j).expect("the admitted k fits u32");
+        pow2(80) + climb
+    };
+    // B = 5·2^128 − 2^80 − k·5·2^64: the first arming's absolute height is
+    // then exactly 5·2^128, the stacked boundary's value.
+    let base = (pow2(130) + pow2(128)) - &ladder(k);
+    bits.push(true); // the descent node carries the subtree's floor
+    codec::encode_int(bits, &base);
+    for j in (1..=k).rev() {
+        if j < k {
+            bits.push(true); // spine node, base 0
+            codec::encode_int(bits, &Base::ZERO);
+        }
+        ev_leaf_wide(bits, &ladder(j));
+    }
+    ev_leaf(bits, 0); // the subtree's floor: the final plain undercut
+}
+
+/// The latent-ladder comb `LL(w, k)`: one parked `w`-digit latent boundary
+/// read by `k` scale-disparate undercut decisions, `k(64w − 56) + 64w − 48`
+/// bits.
+///
+/// Layout: a left-leaning spine of `k` zero-base nodes, node `i` carrying
+/// the right leaf `0 · γ(5·2^(32(w−1)) − (k − i + 1))`; the spine bottoms in
+/// a head node `1 · γ(0)` over the floor leaf `0 · γ(0)` and the parked
+/// pair `1 · γ(5·2^(32(w−1)))` over leaves `0 · γ(0) · 0 · γ(1)`. The floor
+/// leaf arms every spine range at the floor; the parked pair's first leaf
+/// arms one `w`-digit boundary above it ([`seam_wide`]`(w)`, funded by its
+/// own consumed delta); and the pair's close *parks* that boundary in the
+/// latent register. Each spine leaf then arrives one to `k` below the
+/// stale anchor with no pending range — a strictly negative word-scale
+/// `gap` against a live `w`-digit latent, the scale-disparate undercut
+/// decision `decide_undercut_through_latent` answers by top-index
+/// domination (the latent's top digit of 5 decides at its first touch),
+/// returning "no undercut" with nothing changed. The `k` axis counts
+/// decisions; the `w` axis widens only the parked operand the decisions
+/// must *not* read across — the marginal decision cost across a `w`
+/// doubling is the O(1) claim's meter.
+///
+/// Normal form: every spine node's child minima meet 0 through the floor
+/// leaf, the parked pair's leaves are `(0, 1)`, and no sibling leaves are
+/// equal (each ladder leaf is `w` digits, its sibling subtree bottoms at 0).
+///
+/// # Panics
+///
+/// Panics if `w < 3` (domination over a one-digit gap needs a top index of
+/// at least 2), `k == 0`, or `k > 2^20` (the ladder leaves must stay one
+/// word-scale step apart below the anchor, sharing one bit length).
+fn latent_ladder(w: usize, k: usize) -> Packed {
+    assert!(
+        w >= 3,
+        "the parked latent must decide domination over a word-scale gap"
+    );
+    assert!(k >= 1, "the ladder needs at least one decision leaf");
+    assert!(
+        k <= 1 << 20,
+        "the ladder leaves must share one bit length just under the anchor"
+    );
+    let anchor = seam_wide(w);
+    let leaf_bits = 64 * w - 58;
+    let mut bits = BitsMut::with_capacity(k * (leaf_bits + 2) + 64 * w - 48);
+    for _ in 0..k {
+        bits.push(true); // spine node, base 0
+        codec::encode_int(&mut bits, &Base::ZERO);
+    }
+    bits.push(true); // the head node, base 0
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the floor leaf: arms every open range at 0
+    bits.push(true); // the parked pair: base = the anchor
+    codec::encode_int(&mut bits, &anchor);
+    ev_leaf(&mut bits, 0);
+    ev_leaf(&mut bits, 1);
+    // The ladder: preorder emits the deepest spine node's right leaf first,
+    // so the values descend one per leaf from anchor − 1 to anchor − k.
+    for j in 1..=k {
+        let value = anchor.clone() - &Base::from(j as u64);
+        ev_leaf_wide(&mut bits, &value);
+    }
+    Packed::from_bits(bits)
+}
+
 /// Shared-spine levels per isolated position digit in [`jump_pair`].
 ///
 /// Each right-descent turn sets one isolated bit of every absolute position
@@ -3379,6 +3671,30 @@ pub fn emit_traffic() -> EmitTraffic {
 /// Reset the decision counters behind [`emit_traffic`] to zero.
 pub fn reset_emit_traffic() {
     crate::version::skyline::web_traffic::reset()
+}
+
+/// The anchor web's pool misses since the last [`reset_pool_misses`]:
+/// leases the accumulator pool could not serve.
+///
+/// The deterministic stand-in for steady-state churn allocation, which no
+/// other meter can see: the web recycles dying accumulators through a pool,
+/// and a dead recycle changes no peak-heap reading (each dropped buffer is
+/// released before the fresh allocation replacing it) and no touch or limb
+/// reading (a fresh accumulator folds exactly like a reset one) — only the
+/// miss count separates a pool that recycles (misses bounded by peak
+/// simultaneous demand) from one that leaks its churn (misses proportional
+/// to it). The seam-stop pool row in `tests/meter.rs` pins both directions.
+/// Process-global, same isolation requirement as [`stack_segments`]; only
+/// compiled under the `limb-meter` feature.
+#[cfg(feature = "limb-meter")]
+pub fn pool_misses() -> u64 {
+    crate::version::skyline::pool_traffic::misses()
+}
+
+/// Reset the pool-miss counter behind [`pool_misses`] to zero.
+#[cfg(feature = "limb-meter")]
+pub fn reset_pool_misses() {
+    crate::version::skyline::pool_traffic::reset()
 }
 
 /// The packed-stream bits scanned and written since the last

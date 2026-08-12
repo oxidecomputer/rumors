@@ -778,7 +778,9 @@ impl FamilyData {
             | FamilyId::ArmingTrain
             | FamilyId::ScanHole
             | FamilyId::MaskedHole
-            | FamilyId::HoistedWindow => unreachable!(
+            | FamilyId::HoistedWindow
+            | FamilyId::PropagateSeam
+            | FamilyId::LatentLadder => unreachable!(
                 "{kind:?} is envelope-only in the registry: it has no operand bundle, \
                  and the board sweeps FamilyId::board() alone"
             ),

@@ -80,7 +80,11 @@
 //!     the residue the input or the emission already paid for;
 //!   - the residue is never folded into ranges it passes.
 //! - Dying accumulators return to a pool and are re-armed cleared, so
-//!   range churn allocates nothing in steady state.
+//!   range churn allocates nothing in steady state: misses (leases the
+//!   pool could not serve, counted by the [`pool_traffic`](super::pool_traffic)
+//!   meter) are bounded by the walk's peak simultaneous demand, never its
+//!   churn length — the seam-stop pool row of `tests/meter.rs` pins it,
+//!   the heap meter being structurally blind to a dead recycle.
 //!
 //! # Followers
 //!
@@ -468,6 +472,16 @@ impl<P> MinWeb<P> {
     /// (the near-cancellation funds the merge, and re-widening it costs the
     /// input a fresh climb) and return true for the caller's plain re-test
     /// against the re-based anchor.
+    ///
+    /// The O(1) cost claim is owned by the
+    /// `skyline_min_ticks_latent_ladder_is_flat_per_unit` band of
+    /// `tests/meter.rs`: the per-decision marginal cost of the
+    /// dominating-latent read stays flat across a doubling of the parked
+    /// latent's width, so a decision that reads the latent across its width
+    /// trips the band. The value flow of all four arms — both dominations
+    /// and both post-collapse re-test sides — is pinned against the
+    /// recursive oracle by the latent-ladder differentials in
+    /// `fill/tests.rs`.
     fn decide_undercut_through_latent(&mut self) -> bool {
         let gap_floor = self.gap.digit_count() - 1;
         let latent = self.latent.as_mut().expect("the caller saw a live latent");
@@ -664,6 +678,14 @@ impl<P> MinWeb<P> {
     /// only comparable scales fold undecided, the near-cancellation pricing
     /// either direction. The caller has already adjusted `gap` and the
     /// followers.
+    ///
+    /// The `skyline_min_ticks_seam_*` bands of `tests/meter.rs` hold both
+    /// wide-hop arms at the guards' minimal clearance: the plunge bands
+    /// price the residue-dominates arm's dying-width folds (a hop rerouted
+    /// onto the comparable fold pays the residue's width instead, and the
+    /// clearance band reads the decision boundary itself), and the stop
+    /// band pins the boundary-dominates arm's width conservation — the
+    /// surviving boundary never read across its width per hop.
     fn propagate(&mut self, residue: Accumulator, mut on_die: impl FnMut(P)) {
         let mut residue = residue;
         // Deferred zero-run bookkeeping: every consumed entry whose range's
@@ -836,8 +858,18 @@ impl<P> MinWeb<P> {
     }
 
     /// A cleared accumulator, pooled when one is available.
+    ///
+    /// An empty pool records one miss ([`pool_traffic`](super::pool_traffic))
+    /// — the observable behind the steady-state claim above: misses count
+    /// the walk's peak simultaneous demand, never its churn.
     pub(super) fn lease(&mut self) -> Accumulator {
-        self.pool.pop().unwrap_or_default()
+        match self.pool.pop() {
+            Some(cleared) => cleared,
+            None => {
+                super::pool_traffic::record_miss();
+                Accumulator::default()
+            }
+        }
     }
 
     /// Retire a dying accumulator into the pool, clearing it.
