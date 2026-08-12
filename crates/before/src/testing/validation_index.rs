@@ -31,6 +31,24 @@
 //! crates bind to the same enumeration instead of hand-maintaining a
 //! second one.
 //!
+//! **The pointwise differential table** ([`super::diff_ops`]). One
+//! descriptor per public operation that is a pure function of ids,
+//! histories, and clocks, spelled twice — once against production, once
+//! against the recursive oracle — and driven over shared populations by
+//! roster expansion. What it alone catches: **population holes** — an
+//! operation bisimulated on arbitrary normal forms but not on organic
+//! op-trace values, or the reverse. The hand-written bodies it replaced
+//! could not prevent one: each chose its own population, so coverage was
+//! a product nobody enumerated. Here the population belongs to the driver
+//! and the operation to the descriptor, and the two meet by construction.
+//! Its own adequacy is the committed known-bad descriptors held
+//! convicted, since centralizing each operation's oracle transcription is
+//! only payable if a wrong transcription cannot pass. Beside it, a tiling
+//! pin holds every `Bound` citation in the coverage roster to exactly one
+//! side — derived from the table, or bespoke under a declared genre — so
+//! a pointwise operation cannot quietly land as one more hand-written
+//! body.
+//!
 //! **The algebraic laws** (`crate::laws`, driven by
 //! [`super::algebraic_laws`] and shared with the fuzz targets). Law
 //! predicates over production alone: lattice identities, monotonicity,

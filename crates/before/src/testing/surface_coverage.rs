@@ -42,9 +42,9 @@
 //! # Leg vocabulary
 //!
 //! - [`Leg::Bound`]: a direct differential on that leg; the named test
-//!   drives both sides. One test may bind several legs when its body
-//!   performs each comparison (the distance/lag triple asserts prod,
-//!   tree, and fs results equal in one proptest); the citation is
+//!   or descriptor drives both sides. One test may bind several legs when
+//!   its body performs each comparison (the distance/lag triple asserts
+//!   prod, tree, and fs results equal in one proptest); the citation is
 //!   per-leg, the comparisons per-body.
 //! - [`Leg::Law`]: pinned by an algebraic law on production alone (no
 //!   reference on the right-hand side); used where no reference counterpart
@@ -83,7 +83,11 @@
 //! of green (prod↔tree convicts the dropped-group fold, prod↔fs the
 //! cell-dropping Riemann sum, tree↔fs the mirrored embedding, whose
 //! conviction test also documents that the leg's pointwise differentials
-//! alone are blind to a twin-substituted mirror).
+//! alone are blind to a twin-substituted mirror). The prod↔tree leg
+//! carries a second known-bad genre for the descriptors it derives: a
+//! mis-transcribed descriptor, convicted where its two spellings differ
+//! and passed where they coincide, so the vehicle is shown to
+//! discriminate rather than merely to fail.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -119,6 +123,10 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     (
         "prod↔tree: the known-bad dropped-group fold, held convicted",
         "join_all_differential_convicts_the_dropped_group_oracle",
+    ),
+    (
+        "prod↔tree: the known-bad mis-transcribed descriptors, held convicted",
+        "the_drivers_convict_a_mis_transcribed_descriptor",
     ),
     (
         "prod↔fs: the grid-resolution premise guard",
