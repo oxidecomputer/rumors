@@ -190,10 +190,17 @@ readme-check:
 
 # This catches broken intra-doc links. AGENTS.md calls the rustdoc the
 # documentation of record, so it's load-bearing and part of the gate.
+#
+# The header flag injects the fuelscape widget assets (the interactive
+# measured-growth explorers in before's # Complexity sections) into
+# every page's head. RUSTDOCFLAGS is workspace-wide — cargo has no
+# per-crate rustdocflags — so non-before pages carry ~40 KB of inert
+# head weight; the script activates only on .fuelscape elements.
+# docs.rs applies the same flag through before's package metadata.
 
 # Build the rustdoc with warnings denied.
 docs:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+    RUSTDOCFLAGS="-D warnings --html-in-header {{ justfile_directory() }}/crates/before/docs/fuelscape-header.html" cargo doc --workspace --all-features --no-deps
 
 # The public build above never renders private items, so a stale intra-doc
 # link inside a private module sails through it. This pass documents private
@@ -205,7 +212,7 @@ docs:
 
 # Build the rustdoc including private items, warnings denied.
 docs-internal:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
+    RUSTDOCFLAGS="-D warnings --html-in-header {{ justfile_directory() }}/crates/before/docs/fuelscape-header.html" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
 
 # The before coverage roster (crates/before/src/surface.rs) and the bespoke
 # half of the pointwise-differential tiling (src/testing/diff_ops.rs) cite
@@ -546,6 +553,46 @@ fuelscape-test: fuzzfit-build
 fuelscape *args: fuzzfit-build
     FUELSCAPE_TIP=$(git rev-parse HEAD) FUZZFIT_GUEST_WASM={{ justfile_directory() }}/target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm cargo run --release --bin fuelscape -- --out {{ justfile_directory() }}/target/fuelscape {{ args }}
 
+# The rustdoc fuelscape islands' committed inputs are derived artifacts:
+# the widget datasets (crates/before/fuelscape) derive by pure compaction
+# from the committed gzipped dump (crates/before-fuelscape/dump), and the
+# doc header derives from the widget stylesheet and script by
+# concatenation. Every derivation carries a freshness pin — before's
+# build.rs refuses a stale header outright, and fuelscape-verify
+# re-derives the datasets and byte-compares (ci tier: the strict dump
+# read prices about a minute). Re-measuring is a deliberate re-pin:
+# `just fuelscape --dump --samples <n> --max-bytes <n>`, gzip the dump
+# into crates/before-fuelscape/dump (`gzip -9 -n`, byte-stable), then
+# `just fuelscape-compact`, and commit dump, datasets, and any roster
+# claim changes together.
+
+# Re-derive the fuelscape widget datasets from the committed dump.
+[working-directory("crates/before-fuelscape")]
+fuelscape-compact:
+    cargo run --release --bin fuelscape -- --compact-from dump --out {{ justfile_directory() }}/crates/before/fuelscape
+
+# Verify the committed widget datasets equal a fresh compaction of the committed dump.
+[working-directory("crates/before-fuelscape")]
+fuelscape-verify:
+    rm -rf {{ justfile_directory() }}/target/fuelscape-verify
+    cargo run --release --bin fuelscape -- --compact-from dump --out {{ justfile_directory() }}/target/fuelscape-verify
+    diff -r {{ justfile_directory() }}/target/fuelscape-verify {{ justfile_directory() }}/crates/before/fuelscape
+
+# Regenerate the rustdoc widget header from the committed stylesheet and script.
+fuelscape-header:
+    { printf '<style>'; cat crates/before/docs/fuelscape.css; printf '</style>\n<script>'; cat crates/before/docs/fuelscape.js; printf '</script>\n'; } > crates/before/docs/fuelscape-header.html
+
+# The widget bundle and the claim strings meet only in the reader's
+# browser, so nothing compiled checks them; this leg loads the bundle
+# under node and parses every committed claim with the widget's own
+# exported grammar (ci tier: node is already a ci prerequisite, and the
+# gate stays node-free).
+
+# Check the widget bundle's syntax and every committed claim's grammar.
+fuelscape-claims:
+    node --check crates/before/docs/fuelscape.js
+    ./tools/fuelscape-claims
+
 # ── the formal tier (formal/lean; needs elan) ────────────────────────────────
 # The proofs are kernel-checked by `lake build` (pins, negative controls,
 # invariant preservation); `eventdag` is the progress-lemma oracle and
@@ -818,7 +865,7 @@ worst-cases-pin:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc readme-check clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build viz
+ci: fmt-check doclint testdoc readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire

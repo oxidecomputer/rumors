@@ -1,0 +1,62 @@
+#!/usr/bin/env node
+// fuelscape-claims — every committed widget claim parses in the widget's
+// own expression grammar and evaluates positive and finite over its
+// measured sizes.
+//
+// Why this exists: the claim strings ride from the ops roster through the
+// committed datasets into the doc islands, where the widget parses each
+// as its pre-selected compensation hypothesis. The parse happens only in
+// the reader's browser, so without this check a claim typo — or a claim
+// like `log n` over a dataset whose smallest column is n=1, where it
+// evaluates to zero — renders every visit as a silently unselected
+// hypothesis (or an error chip) forever. The grammar's single truth is
+// fuelscape.js itself: this check loads the widget bundle and asks its
+// exported parser, so the two can never drift.
+//
+// Usage: tools/fuelscape-claims  (from the repository root)
+
+"use strict";
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+
+const bundle = fs.readFileSync("crates/before/docs/fuelscape.js", "utf8");
+vm.runInThisContext(bundle, { filename: "fuelscape.js" });
+if (typeof globalThis.Fuelscape?.parse !== "function") {
+  console.error("fuelscape.js did not export Fuelscape.parse");
+  process.exit(1);
+}
+
+const dir = "crates/before/fuelscape";
+const index = JSON.parse(fs.readFileSync(path.join(dir, "index.json"), "utf8"));
+let failures = 0;
+for (const op of index.ops) {
+  const doc = JSON.parse(fs.readFileSync(path.join(dir, `${op}.json`), "utf8"));
+  const { claim, sizes } = doc.op;
+  const parsed = globalThis.Fuelscape.parse(claim);
+  if (parsed.err) {
+    console.error(`${op}: claim ${JSON.stringify(claim)} does not parse: ${parsed.err}`);
+    failures++;
+    continue;
+  }
+  for (const n of sizes) {
+    let v;
+    try {
+      v = parsed.f(n);
+    } catch (e) {
+      console.error(`${op}: claim ${JSON.stringify(claim)} throws at n=${n}: ${e}`);
+      failures++;
+      break;
+    }
+    if (!(v.s > 0 && isFinite(v.l))) {
+      console.error(
+        `${op}: claim ${JSON.stringify(claim)} is not positive and finite at n=${n}: ` +
+          "the widget would refuse it as the default hypothesis"
+      );
+      failures++;
+      break;
+    }
+  }
+}
+if (failures) process.exit(1);
+console.log(`fuelscape-claims: ${index.ops.length} claims parse and evaluate positive`);

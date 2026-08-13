@@ -110,6 +110,7 @@ dependencies = [
  "bytes",
  "dashu-int",
  "dsi-bitstream",
+ "serde_json",
  "static_assertions",
  "suanpan",
  "thiserror",
