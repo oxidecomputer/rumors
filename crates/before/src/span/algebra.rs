@@ -43,7 +43,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html"))]
     ///
     /// # Example
     ///
@@ -69,8 +69,9 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` space, with `k`
-    /// the count of `iter`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -105,7 +106,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect.html"))]
     ///
     /// # Example
     ///
@@ -132,8 +133,9 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` space, with `k`
-    /// the count of `iter`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -170,7 +172,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html"))]
     ///
     /// # Example
     ///
@@ -197,8 +199,9 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` space, with `k`
-    /// the count of `iter`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -230,7 +233,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html"))]
     ///
     /// # Example
     ///
@@ -255,8 +258,9 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` space, with `k`
-    /// the count of `iter`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///

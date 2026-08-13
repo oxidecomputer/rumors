@@ -271,8 +271,9 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖self‖ + ‖other‖)`, the operands' numeric sizes; a [`None`] or zero
-    /// result costs only the comparison, which allocates nothing.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html"))]
+    ///
+    /// A `None` or zero result allocates nothing.
     ///
     /// # Example
     ///
@@ -347,7 +348,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖self‖)` time and space.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html"))]
     ///
     /// # Example
     ///
@@ -416,7 +417,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(n)`, with `n` the bytes read, whether accepted or rejected.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_decode.html"))]
     ///
     /// # Example
     ///
@@ -714,6 +715,14 @@ impl BitSink {
     }
 }
 
+/// Orders ranks as the exact rationals they are.
+///
+/// # Complexity
+///
+/// Linear in the operands' numeric sizes at worst; unequal magnitude
+/// classes settle in `O(1)`:
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_cmp.html"))]
 impl Ord for Rank {
     fn cmp(&self, other: &Self) -> Ordering {
         // Class first: `bits(num) − exp` is `floor(log2 value) + 1`, so unequal
@@ -765,6 +774,12 @@ impl PartialOrd for Rank {
 /// its directed halves recombine (`a.lag(b) + b.lag(a) == a.distance(b)`). Use
 /// `+` to aggregate measures (a total replication backlog across peers, a
 /// budget consumed so far) not to combine histories.
+///
+/// # Complexity
+///
+/// `O(‖a‖ + ‖b‖)`, the operands' numeric sizes:
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_add.html"))]
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {
@@ -871,6 +886,11 @@ impl Default for Rank {
 /// let half: Version = "(0, 1, 0)".parse().unwrap();
 /// assert_eq!(half.rank().to_string(), "1/2");
 /// ```
+/// # Complexity
+///
+/// Superlinear, subquadratic in the rank's width: decimal conversion.
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html"))]
 impl Display for Rank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.exp {

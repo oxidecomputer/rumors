@@ -86,6 +86,11 @@ impl PartialEq for Party {
 
 impl Eq for Party {}
 
+/// Hashes the canonical bytes, consistently with `Eq`'s byte compare.
+///
+/// # Complexity
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_hash.html"))]
 impl core::hash::Hash for Party {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         codec::canonical_hash(&self.0, state);
@@ -213,7 +218,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fork.html"))]
     ///
     /// # Example
     ///
@@ -247,8 +252,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// A full drain costs `O(|self| + n (|self| + log n))` at worst. Shares are
-    /// built on demand (see [`Forks`] for the per-step and early-drop costs).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html"))]
+    ///
+    /// Shares are built on demand; see [`Forks`] for the per-step and early-drop costs.
     ///
     /// # Example
     ///
@@ -277,7 +283,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`, regardless of acceptance or rejection.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_join.html"))]
     ///
     /// # Example
     ///
@@ -312,8 +318,9 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, where
-    /// `k` is the count of `iter`, `O(|self| + |iter|)` auxiliary space.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_join_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -375,7 +382,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`, no allocations.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_is_disjoint.html"))]
     ///
     /// # Example
     ///
@@ -399,7 +406,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`, no allocations.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_covers.html"))]
     ///
     /// # Example
     ///
@@ -431,7 +438,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_without.html"))]
     ///
     /// # Example
     ///
@@ -497,7 +504,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html"))]
     ///
     /// # Example
     ///
@@ -558,8 +565,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(n)` with `n` the size of the input, regardless of whether accepted or
-    /// rejected.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_decode.html"))]
     ///
     /// # Example
     ///
@@ -682,8 +688,9 @@ impl Party {
 ///
 /// # Complexity
 ///
-/// `O(|self|)` time and space: the text spells `O(1)` bytes per id-tree node,
-/// so it is itself `O(|self|)` bytes.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_display.html"))]
+///
+/// The text spells `O(1)` bytes per id-tree node, so it is itself `O(|self|)` bytes.
 ///
 /// # Example
 ///
@@ -714,8 +721,9 @@ impl core::fmt::Debug for Party {
 ///
 /// # Complexity
 ///
-/// `O(|s|)` time and space, accepted or rejected; the parsed party is itself
-/// `O(|s|)` bytes.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fromstr.html"))]
+///
+/// The parsed party is itself `O(|s|)` bytes.
 ///
 /// # Example
 ///

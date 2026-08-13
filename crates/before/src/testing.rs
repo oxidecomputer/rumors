@@ -38,6 +38,7 @@ pub(crate) mod rng;
 // The suites.
 mod algebraic_laws;
 mod asymptotics;
+mod fuelscape_islands;
 pub(crate) mod compactness;
 pub(crate) mod diff_ops;
 pub(crate) mod exhaustive;

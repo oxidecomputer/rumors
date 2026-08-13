@@ -218,7 +218,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_place.html"))]
     ///
     /// # Example
     ///
@@ -273,7 +273,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_dominance.html"))]
     ///
     /// # Example
     ///
@@ -333,7 +333,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_precedence.html"))]
     ///
     /// # Example
     ///
@@ -382,7 +382,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_contains.html"))]
     ///
     /// # Example
     ///

@@ -91,8 +91,16 @@ impl<'a, P: Polarity> Query<'a, P> {
     ///
     /// # Complexity
     ///
-    /// `O(|version| + |self|)`, `|self|` the stored bounds' total size
-    /// in bytes: one traversal of `version` and the bounds.
+    /// One traversal of `version` and the stored bounds; one fuelscape
+    /// per bounds shape:
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_ceiling.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_ceiling.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_hole.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_hole.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_ceiling_hole.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_ceiling_hole.html"))]
     pub fn contains(&self, version: &Version) -> bool {
         filter::admits(version.view(), self.demands())
     }
@@ -104,9 +112,16 @@ impl<'a, P: Polarity> Query<'a, P> {
     ///
     /// # Complexity
     ///
-    /// `O(|span| + |self|)`, `|self|` the stored bounds' total size in
-    /// bytes: at most two traversals of the span's endpoints and the
-    /// bounds.
+    /// At most two traversals of the span's endpoints and the stored
+    /// bounds; one fuelscape per bounds shape:
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_ceiling.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_ceiling.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_hole.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_hole.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_ceiling_hole.html"))]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_ceiling_hole.html"))]
     pub fn coverage<'s>(&self, span: impl Into<Span<'s>>) -> Coverage {
         let span = span.into();
         let (lo, hi) = (span.lo(), span.hi());

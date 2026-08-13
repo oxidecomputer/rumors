@@ -91,8 +91,9 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|lo| + |hi| + |p| + |version|)`, with `lo`/`hi` the viewed span's
-    /// endpoints and `p` the projecting party.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_place.html"))]
+    ///
+    /// `lo`/`hi` are the viewed span's endpoints and `p` the projecting party.
     ///
     /// # Example
     ///
@@ -147,8 +148,9 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|lo| + |hi| + |p| + |version|)`, with `lo`/`hi` the viewed span's
-    /// endpoints and `p` the projecting party.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_dominance.html"))]
+    ///
+    /// `lo`/`hi` are the viewed span's endpoints and `p` the projecting party.
     ///
     /// # Example
     ///
@@ -198,8 +200,9 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|lo| + |hi| + |p| + |version|)`, with `lo`/`hi` the viewed span's
-    /// endpoints and `p` the projecting party.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_precedence.html"))]
+    ///
+    /// `lo`/`hi` are the viewed span's endpoints and `p` the projecting party.
     ///
     /// # Example
     ///
@@ -238,8 +241,9 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|lo| + |hi| + |p| + |version|)`, with `lo`/`hi` the viewed span's
-    /// endpoints and `p` the projecting party.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_contains.html"))]
+    ///
+    /// `lo`/`hi` are the viewed span's endpoints and `p` the projecting party.
     ///
     /// # Example
     ///
@@ -275,9 +279,7 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|lo| + |hi| + |p| + |r|)`, with `lo`/`hi` the viewed span's
-    /// endpoints, `p` the projecting party, and `r` the resulting [`Span`],
-    /// which has a maximum size `|r| = O((|lo| + |hi|) · |p|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html"))]
     ///
     /// # Example
     ///

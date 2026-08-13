@@ -144,10 +144,9 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)` space; in the worst case, time is `O(M(|self|) · log
-    /// |self|)` (but usually much better), where `M` is the complexity of
-    /// unbounded-integer multiplication (something like `O(n log n)` in this
-    /// implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -200,10 +199,9 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)` space; in the worst case, time is `O(M(|self|) · log
-    /// |self|)` (but usually much better), where `M` is the complexity of
-    /// unbounded-integer multiplication (something like `O(n log n)` in this
-    /// implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -253,10 +251,9 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)` space; in the worst case, time is `O(M(|self|) · log
-    /// |self|)` (but usually much better), where `M` is the complexity of
-    /// unbounded-integer multiplication (something like `O(n log n)` in this
-    /// implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_decode.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -375,6 +372,13 @@ impl core::hash::Hash for Ranked<'_> {
     }
 }
 
+/// The total order: rank first, canonical bytes on rank ties.
+///
+/// # Complexity
+///
+/// One fused signed rank co-sweep over the two viewed versions:
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_cmp.html"))]
 impl Ord for Ranked<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         total_cmp(self, other)

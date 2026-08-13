@@ -26,7 +26,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_encode.html"))]
     ///
     /// # Example
     ///
@@ -92,8 +92,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(n)`, with `n` the bytes read, regardless of whether accepted or
-    /// rejected.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_decode.html"))]
     ///
     /// # Example
     ///

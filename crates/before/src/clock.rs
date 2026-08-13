@@ -90,7 +90,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_tick.html"))]
     ///
     /// # Example
     ///
@@ -140,7 +140,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fork.html"))]
     ///
     /// # Example
     ///
@@ -173,9 +173,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// A full drain costs at most `O(|self| + n (|self| + log n))` (as
-    /// [`Party::forks`]); children are built on demand (see [`Forks`] for the
-    /// per-step and early-drop costs).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html"))]
+    ///
+    /// Children are built on demand; see [`Forks`] for the per-step and early-drop costs.
     ///
     /// # Example
     ///
@@ -203,8 +203,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`, regardless of whether or not an error is
-    /// returned.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_join.html"))]
     ///
     /// # Example
     ///
@@ -242,8 +241,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, where
-    /// `k` is the count of `iter`, `O(|self| + |iter|)` auxiliary space.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_join_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -307,8 +307,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`, regardless of whether or not an error is
-    /// returned.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_sync.html"))]
     ///
     /// # Example
     ///
@@ -353,8 +352,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time,
-    /// `O(|self| + |iter|)` auxiliary space, where `k` is the count of `iter`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_sync_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -433,7 +433,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`, exactly as [`tick`](Clock::tick).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_send.html"))]
+    ///
+    /// Exactly as [`tick`](Clock::tick).
     ///
     /// # Example
     ///
@@ -456,7 +458,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_recv.html"))]
     ///
     /// # Example
     ///
@@ -513,8 +515,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` space, where
-    /// `k` is the count of `iter`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_recv_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -573,7 +576,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_from_parts.html"))]
     ///
     /// # Example
     ///
@@ -593,7 +596,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_into_parts.html"))]
     ///
     /// # Example
     ///
@@ -647,8 +650,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)`. The view borrows the clock's parts; this method does no work by
-    /// itself.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_own_version.html"))]
+    ///
+    /// The view borrows the clock's parts and does no work by itself; the fuelscape prices materializing it.
     ///
     /// # Example
     ///
@@ -677,7 +681,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html"))]
     ///
     /// # Example
     ///
@@ -730,8 +734,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(n)` with `n` the size of the input, regardless of whether accepted or
-    /// rejected.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_decode.html"))]
     ///
     /// # Example
     ///
@@ -845,7 +848,7 @@ impl Clock {
 ///
 /// # Complexity
 ///
-/// Superlinear but subquadratic time, `O(|self|)` space.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_display.html"))]
 ///
 /// # Example
 ///
@@ -875,7 +878,7 @@ impl Debug for Clock {
 ///
 /// # Complexity
 ///
-/// Superlinear but subquadratic time, `O(|s|)` space.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fromstr.html"))]
 ///
 /// # Example
 ///

@@ -19,6 +19,15 @@ mod tests;
 /// Materializing a projection can outgrow its operands by a multiplicative
 /// factor of its operands' sizes, so is kept explicit.
 ///
+/// # Complexity
+///
+/// Comparisons are fused co-walks over the operands' streams — three
+/// streams against a [`Version`], four against another `OwnVersion` — with
+/// no materialization; view construction itself is `O(1)`:
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_cmp.html"))]
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_pair_cmp.html"))]
+///
 /// # Example
 ///
 /// ```
@@ -54,9 +63,10 @@ impl OwnVersion<'_> {
     ///
     /// # Complexity
     ///
-    /// `O(|v| + |p| + |r|)`, where `v`/`p` are the viewed version and
-    /// projecting party, and `r` is the result, with the worst case size of
-    /// `|r| = O(|v| · |p|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html"))]
+    ///
+    /// `v`/`p` are the viewed version and projecting party, and `r` is the
+    /// result.
     ///
     /// # Example
     ///
@@ -84,8 +94,9 @@ impl OwnVersion<'_> {
 ///
 /// # Complexity
 ///
-/// `O(|v| + |p| + |r|)` with the worst case size of `|r| = O(|v| · |p|)`, as
-/// [`to_version`](OwnVersion::to_version).
+/// `O(|v| + |p| + |r|)`, where `v`/`p` are the viewed version and
+/// projecting party, and `r` is the result, with the worst case size of
+/// `|r| = O(|v| · |p|)`.
 ///
 /// # Example
 ///

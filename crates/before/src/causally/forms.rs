@@ -127,6 +127,10 @@ pub fn all<'a>() -> Query<'a> {
 
 impl<'a> Floor<'a> {
     /// Whether `version` is at or above the bound: `at <= v`.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/floor_contains.html"))]
     pub fn contains(&self, version: &Version) -> bool {
         le(&self.at, version)
     }
@@ -147,6 +151,10 @@ impl<'a> Floor<'a> {
 
 impl<'a> Ceiling<'a> {
     /// Whether `version` is at or below the bound: `v <= at`.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ceiling_contains.html"))]
     pub fn contains(&self, version: &Version) -> bool {
         le(version, &self.at)
     }

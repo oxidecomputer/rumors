@@ -58,6 +58,15 @@ mod tests;
 /// versions can be [`concurrent`](Version::concurrent), and then `a < b`, `a ==
 /// b`, and `a > b` are all false.
 ///
+/// # Complexity
+///
+/// Ordering is one causal comparison sweep over the two streams; equality
+/// is a canonical byte compare (the skyline coding is a unique
+/// representation, so byte equality is exactly causal equality):
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html"))]
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_eq.html"))]
+///
 /// # Example
 ///
 /// ```
@@ -87,6 +96,11 @@ mod tests;
 #[derive(Clone, Eq)]
 pub struct Version(codec::Bits);
 
+/// Hashes the canonical bytes, consistently with `Eq`'s byte compare.
+///
+/// # Complexity
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_hash.html"))]
 impl core::hash::Hash for Version {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         codec::canonical_hash(&self.0, state);
@@ -155,7 +169,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |party|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.html"))]
     ///
     /// # Example
     ///
@@ -176,7 +190,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |party| + log n)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html"))]
     ///
     /// # Example
     ///
@@ -209,7 +223,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_concurrent.html"))]
     ///
     /// # Example
     ///
@@ -242,7 +256,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_min_ticks.html"))]
     ///
     /// # Example
     ///
@@ -276,10 +290,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)` space; in the worst case, time is `O(M(|self|) · log
-    /// |self|)` (but usually much better), where `M` is the complexity of
-    /// unbounded-integer multiplication (something like `O(n log n)` in this
-    /// implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -349,10 +362,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)` in space; in the worst case, time is `O(M(|self|)
-    /// · log |self|)` worst case (but usually much better), where `M` is the
-    /// complexity of unbounded-integer multiplication (something like `O(n log
-    /// n)` in this implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_distance.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -395,10 +407,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)` in space; in the worst case, time is `O(M(|self|)
-    /// · log |self|)` worst case (but usually much better), where `M` is the
-    /// complexity of unbounded-integer multiplication (something like `O(n log
-    /// n)` in this implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_lag.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -430,7 +441,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html"))]
     ///
     /// # Example
     ///
@@ -458,8 +469,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |others|) log k)` time, `O(|self| + |others|)` auxiliary
-    /// space, where `k` is the count of `others`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |others|)`.
     ///
     /// # Example
     ///
@@ -489,7 +501,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet.html"))]
     ///
     /// # Example
     ///
@@ -521,8 +533,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |others|) log k)` time, `O(|self| + |others|)` auxiliary
-    /// space, where `k` is the count of `others`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |others|)`.
     ///
     /// # Example
     ///
@@ -555,7 +568,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |other|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_span.html"))]
     ///
     /// # Example
     ///
@@ -593,8 +606,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` auxiliary space,
-    /// where `k` is the count of `iter`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_span_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -954,7 +968,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_encode.html"))]
     ///
     /// # Example
     ///
@@ -1031,8 +1045,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(n)`, `n` the bytes read, accepted or rejected: strict validation is
-    /// one pass over the stream, and the result reuses the read buffer.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_decode.html"))]
+    ///
+    /// Strict validation is one pass over the stream, and the result reuses the read buffer.
     ///
     /// # Example
     ///
@@ -1326,7 +1341,7 @@ impl<'a> FromIterator<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-/// Superlinear but subquadratic time, `O(|self|)` space.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_display.html"))]
 ///
 /// # Example
 ///
@@ -1359,7 +1374,7 @@ impl Debug for Version {
 ///
 /// # Complexity
 ///
-/// Superlinear but subquadratic time, `O(|s|)` space.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_fromstr.html"))]
 ///
 /// # Example
 ///

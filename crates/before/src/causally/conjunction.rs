@@ -73,7 +73,7 @@ impl<'a, P: Polarity> Query<'a, P> {
 ///
 /// # Complexity
 ///
-/// `O(|a| + |b|)`: one fused join walk over the two bounds.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_floors.html"))]
 impl<'a> BitAnd for Floor<'a> {
     type Output = Floor<'a>;
 
@@ -89,7 +89,7 @@ impl<'a> BitAnd for Floor<'a> {
 ///
 /// # Complexity
 ///
-/// `O(|a| + |b|)`: one fused meet walk over the two bounds.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_ceilings.html"))]
 impl<'a> BitAnd for Ceiling<'a> {
     type Output = Ceiling<'a>;
 
