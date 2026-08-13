@@ -106,9 +106,10 @@ Notes:
   a histogram column whose counts don't sum to `samples_per_column`
   (modulo rejection accounting), an op present in the dump but absent
   from the ops roster or vice versa.
-- Committed known-bad fixtures (wrong banner; meta mismatch; unsorted
-  sizes) live beside the compactor's tests and must keep failing —
-  the standing adequacy discipline.
+- The known-bad artifacts (wrong banner; meta mismatch; unsorted sizes;
+  untight histograms; empty claims) are constructed by JSON tampering
+  inside the compactor's tests — the dump suite's established idiom for
+  the same adequacy discipline — and each rejection must keep firing.
 - `build.rs` re-validates structurally at doc build (banner, meta
   uniformity, sorted sizes, non-empty cols) and panics naming the file
   and check. Build-time validation of committed repo data is programmer
