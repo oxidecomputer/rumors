@@ -1,0 +1,1019 @@
+<style>/* fuelscape widget — inherits rustdoc theme variables and fonts */
+.fs-details {
+  color-scheme: light dark;
+  --fs-bg: var(--main-background-color, light-dark(#ffffff, #353535));
+  --fs-ink: var(--main-color, light-dark(#2b2b2b, #dddddd));
+  --fs-muted: color-mix(in srgb, var(--fs-ink) 58%, var(--fs-bg));
+  --fs-hair: color-mix(in srgb, var(--fs-ink) 11%, var(--fs-bg));
+  --fs-axis: color-mix(in srgb, var(--fs-ink) 30%, var(--fs-bg));
+  --fs-teal: light-dark(#12876b, #37c393);
+  --fs-violet: light-dark(#7e63c9, #a08fe0); --fs-bad: light-dark(#c0392b, #e57368);
+  --fs-mono: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+  border: 1px solid var(--fs-hair); border-radius: 6px; margin: 0.6em 0 1em;
+  font-family: inherit;
+}
+.fs-details > summary { cursor: pointer; padding: 10px 16px; font-size: 11.5pt; line-height: 1.5;
+  color: var(--fs-ink); }
+.fs-details > summary code { font-family: var(--fs-mono); font-size: 10.5pt; }
+.fs-details > summary:hover { background: color-mix(in srgb, var(--fs-ink) 4%, transparent); }
+.fs-details[open] > summary { border-bottom: 1px solid var(--fs-hair); }
+.fs-details .fs-claim { color: var(--fs-muted); }
+.fs-root { padding: 14px 16px 12px; }
+.fs-title { font-size: 14pt; font-weight: 600; color: var(--fs-ink); font-family: inherit;
+  margin: 0 0 2px; }
+.fs-subtitle { font-size: 10.5pt; color: var(--fs-muted); font-family: inherit; margin: 0 0 12px; }
+.fs-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 2px 0 4px; }
+.fs-hyplabel { font: 12pt var(--fs-mono); color: var(--fs-violet); cursor: help; align-self: center; margin-right: 2px; }
+.fs-chips { display: inline-flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+.fs-chip { font-family: var(--fs-mono); font-size: 10.5pt; color: var(--fs-ink); background: transparent;
+  border: 1px solid var(--fs-axis); border-radius: 6px; padding: 5px 11px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px; line-height: 1.3; }
+.fs-chip:hover { border-color: var(--fs-ink); }
+.fs-chip:focus-visible { outline: 2px solid var(--fs-teal); outline-offset: 1px; }
+.fs-chip.fs-on { background: var(--fs-violet); color: #fff; border-color: var(--fs-violet); }
+.fs-chipx { opacity: .5; margin-left: 2px; padding-left: 7px; border-left: 1px solid var(--fs-hair); }
+.fs-chipx:hover { opacity: 1; }
+.fs-chipplus { opacity: .5; cursor: pointer; padding: 5px 11px 5px 3px; }
+.fs-chipplus:hover { opacity: 1; }
+.fs-newchip { position: relative; padding: 0; cursor: text; }
+.fs-newchip:focus-within { border-color: var(--fs-ink); }
+.fs-newchip.fs-bad { border-color: var(--fs-bad); }
+.fs-expr { font: 10.5pt var(--fs-mono); color: var(--fs-ink); background: transparent;
+  border: none; padding: 5px 5px 5px 11px; width: 240px; }
+.fs-expr:focus { outline: none; }
+.fs-err { position: absolute; top: calc(100% + 5px); left: 0; z-index: 3;
+  font-size: 9.5pt; color: var(--fs-bad); white-space: nowrap;
+  background: color-mix(in srgb, var(--fs-bad) 10%, var(--fs-bg));
+  border: 1px solid var(--fs-bad); border-radius: 5px; padding: 2px 8px; }
+.fs-err:empty { display: none; }
+@keyframes fs-born {
+  from { background: transparent; color: var(--fs-ink); border-color: var(--fs-axis); }
+}
+.fs-chip.fs-born { animation: fs-born 0.35s ease; }
+.fs-root svg { display: block; }
+.fs-plotbg { fill: color-mix(in srgb, var(--fs-ink) 2.5%, transparent); }
+.fs-caption { font-size: 12pt; fill: var(--fs-muted); font-family: inherit; }
+.fs-slcaption { font: 12pt var(--fs-mono); fill: var(--fs-teal); cursor: ns-resize; }
+.fs-tick { font: 11pt var(--fs-mono); fill: var(--fs-muted); }
+.fs-grid { stroke: var(--fs-hair); stroke-width: 1; }
+.fs-axis { stroke: var(--fs-axis); stroke-width: 1; }
+.fs-refhalo { fill: none; stroke: var(--fs-bg); stroke-width: 4.4; opacity: .9; }
+.fs-ref { fill: none; stroke: var(--fs-violet); stroke-width: 1.4; opacity: .8; }
+.guide.fs-hover .fs-ref { opacity: 1; stroke-width: 2; }
+.fs-active-guide .fs-ref { opacity: 1; stroke-width: 2.3; }
+.fs-hit { fill: none; stroke: transparent; stroke-width: 18; pointer-events: stroke; cursor: pointer; }
+.fs-hit:focus-visible { outline: none; stroke: color-mix(in srgb, var(--fs-teal) 25%, transparent); }
+.fs-active-hit { cursor: ns-resize; }
+.fs-reflabel { font: 11.5pt var(--fs-mono); fill: var(--fs-violet); cursor: pointer;
+  paint-order: stroke; stroke: var(--fs-bg); stroke-width: 5px; stroke-linejoin: round; }
+.fs-active-label { font-weight: 700; }
+.fs-qhalo { fill: none; stroke: var(--fs-bg); stroke-width: 3.6; opacity: .85; }
+.fs-qline { fill: none; stroke: var(--fs-teal); }
+.fs-q-med { stroke-width: 2; stroke-dasharray: 5 5.5; stroke-linecap: round; }
+.fs-qlabel { font: 11pt var(--fs-mono); fill: var(--fs-teal); cursor: ns-resize;
+  paint-order: stroke; stroke: var(--fs-bg); stroke-width: 3px; stroke-linejoin: round; }
+.fs-readout { font: 11pt var(--fs-mono); fill: var(--fs-ink);
+  paint-order: stroke; stroke: var(--fs-bg); stroke-width: 3px; stroke-linejoin: round; }
+.fs-sl-track { stroke: var(--fs-axis); stroke-width: 2; stroke-linecap: round; }
+.fs-sl-notch { stroke: var(--fs-teal); stroke-width: 1.6; }
+.fs-sl-handle { fill: var(--fs-teal); stroke: var(--fs-bg); stroke-width: 2; cursor: ns-resize; }
+.fs-hoverrect { fill: transparent; }
+.fs-hoverrect:hover { fill: color-mix(in srgb, var(--fs-ink) 3.5%, transparent); }
+.fs-footer { font-size: 10.5pt; color: var(--fs-muted); margin-top: 18px;
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-end; text-align: right; }
+.fs-prov { font-family: inherit; font-size: 9.5pt; overflow-wrap: anywhere; }
+.fs-prov code { font-family: var(--fs-mono); font-size: 9pt; }
+</style>
+<script>// fuelscape widget: the interactive measured-growth explorer embedded in
+// the rustdoc's # Complexity islands. Dependency-free single-file source,
+// served verbatim inside every rustdoc page's head via
+// docs/fuelscape-header.html (`just fuelscape-header` regenerates the
+// header; build.rs refuses a stale one).
+//
+// Honesty rule: instruction counts are a deterministic guest measure, so
+// the widget presents shapes and ratios only — growth against a
+// compensation hypothesis, quantile bands, spread — and never an absolute
+// count. Axis gridlines carry no numbers; readouts are ratios.
+
+"use strict";
+(function () {
+
+// ---------- tiny DOM helpers (replaces d3-selection) ----------
+const NS = "http://www.w3.org/2000/svg";
+const SVGTAGS = new Set(["svg","g","rect","line","circle","text","tspan",
+  "polyline","path","defs","clipPath","filter","feGaussianBlur","title"]);
+function mk(parent, tag, cls) {
+  const el = SVGTAGS.has(tag) ? document.createElementNS(NS, tag) : document.createElement(tag);
+  if (cls) el.setAttribute("class", cls);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+function attrs(el, o) { for (const k in o) el.setAttribute(k, o[k]); return el; }
+
+// ---------- linear scale (replaces d3-scale) ----------
+function scaleLinear(d0, d1, r0, r1) {
+  const f = v => r0 + (v - d0) / (d1 - d0) * (r1 - r0);
+  f.invert = p => d0 + (p - r0) / (r1 - r0) * (d1 - d0);
+  return f;
+}
+
+// ---------- attribute tweening (replaces d3-transition/ease) ----------
+const easeCubicOut = t => (--t) * t * t + 1;
+const NUMRE = /-?\d*\.?\d+(?:e-?\d+)?/g;
+function interp(from, to) {
+  const fa = from.match(NUMRE), ta = to.match(NUMRE);
+  if (!fa || !ta || fa.length !== ta.length) return null;
+  const parts = to.split(NUMRE);           // static text between numbers
+  const f = fa.map(Number), t = ta.map(Number);
+  return e => {
+    let s = parts[0];
+    for (let i = 0; i < t.length; i++)
+      s += (f[i] + (t[i] - f[i]) * e) + parts[i + 1];
+    return s;
+  };
+}
+const ANIMS = new Set();
+let RAF = null;
+function stepAnims(now) {
+  for (const a of ANIMS) {
+    const t = Math.min(1, (now - a.t0) / a.dur), e = easeCubicOut(t);
+    for (const [k, fn] of a.props) a.el.setAttribute(k, fn(e));
+    if (t >= 1) ANIMS.delete(a);
+  }
+  RAF = ANIMS.size ? requestAnimationFrame(stepAnims) : null;
+}
+function tween(el, props, dur) {
+  for (const a of ANIMS) if (a.el === el) ANIMS.delete(a);
+  const compiled = [];
+  for (const k in props) {
+    const to = String(props[k]);
+    const from = el.getAttribute(k);
+    if (from == null || from === to || dur <= 0) { el.setAttribute(k, to); continue; }
+    const fn = interp(from, to);
+    if (!fn) { el.setAttribute(k, to); continue; }
+    compiled.push([k, fn]);
+  }
+  if (!compiled.length) return;
+  ANIMS.add({ el, props: compiled, t0: performance.now(), dur });
+  if (!RAF) RAF = requestAnimationFrame(stepAnims);
+}
+
+// ---------- monotone cubic path (replaces d3-shape curveMonotoneX) ----------
+// Fritsch–Carlson tangents; port of d3-shape's monotoneX, string-emitting.
+function monotonePath(pts) {
+  const n = pts.length;
+  if (n === 0) return "";
+  if (n === 1) return "M" + pts[0][0] + "," + pts[0][1];
+  const sign = x => x < 0 ? -1 : 1;
+  const slope3 = (x0, y0, x1, y1, x2, y2) => {
+    const h0 = x1 - x0, h1 = x2 - x1;
+    const s0 = (y1 - y0) / (h0 || (h1 < 0 && -0));
+    const s1 = (y2 - y1) / (h1 || (h0 < 0 && -0));
+    const p = (s0 * h1 + s1 * h0) / (h0 + h1);
+    return (sign(s0) + sign(s1)) * Math.min(Math.abs(s0), Math.abs(s1), 0.5 * Math.abs(p)) || 0;
+  };
+  const slope2 = (x0, y0, x1, y1, t) => {
+    const h = x1 - x0;
+    return h ? (3 * (y1 - y0) / h - t) / 2 : t;
+  };
+  let d = "M" + pts[0][0].toFixed(2) + "," + pts[0][1].toFixed(2);
+  const bez = (x0, y0, x1, y1, t0, t1) => {
+    const dx = (x1 - x0) / 3;
+    d += "C" + (x0 + dx).toFixed(2) + "," + (y0 + dx * t0).toFixed(2) +
+         "," + (x1 - dx).toFixed(2) + "," + (y1 - dx * t1).toFixed(2) +
+         "," + x1.toFixed(2) + "," + y1.toFixed(2);
+  };
+  let t0;
+  for (let i = 1; i < n; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    let t1;
+    if (i < n - 1) t1 = slope3(x0, y0, x1, y1, pts[i + 1][0], pts[i + 1][1]);
+    else t1 = slope2(x0, y0, x1, y1, t0 === undefined ? 0 : t0);
+    if (i === 1) t0 = slope2(x0, y0, x1, y1, t1);
+    bez(x0, y0, x1, y1, t0, t1);
+    t0 = t1;
+  }
+  return d;
+}
+
+// ---------- log-domain arithmetic: {s: sign, l: log2|x|} ----------
+const LN = {
+  real(v) { return v === 0 ? { s: 1, l: -Infinity } : { s: v < 0 ? -1 : 1, l: Math.log2(Math.abs(v)) }; },
+  neg(a) { return { s: -a.s, l: a.l }; },
+  mul(a, b) { return { s: a.s * b.s, l: a.l + b.l }; },
+  div(a, b) { return { s: a.s * b.s, l: a.l - b.l }; },
+  add(a, b) {
+    if (a.l === -Infinity) return b;
+    if (b.l === -Infinity) return a;
+    const hi = a.l >= b.l ? a : b, lo = a.l >= b.l ? b : a;
+    const d = Math.pow(2, lo.l - hi.l);
+    if (a.s === b.s) return { s: a.s, l: hi.l + Math.log2(1 + d) };
+    if (a.l === b.l) return { s: 1, l: -Infinity };
+    return { s: hi.s, l: hi.l + Math.log2(1 - d) };
+  },
+  sub(a, b) { return LN.add(a, LN.neg(b)); },
+  pow(a, b) {
+    const e = b.s * Math.pow(2, b.l);
+    if (!isFinite(e)) throw "exponent overflows";
+    if (a.l === -Infinity) return { s: 1, l: e > 0 ? -Infinity : Infinity };
+    if (a.s < 0) throw "negative base under ^";
+    return { s: 1, l: e * a.l };
+  },
+};
+const LNFN = {
+  log2: a => { if (a.s <= 0) throw "log of non-positive value"; return LN.real(a.l); },
+  ln: a => { if (a.s <= 0) throw "log of non-positive value"; return LN.real(a.l * Math.LN2); },
+  log10: a => { if (a.s <= 0) throw "log of non-positive value"; return LN.real(a.l * Math.log10(2)); },
+  sqrt: a => { if (a.s < 0) throw "sqrt of negative value"; return { s: 1, l: a.l / 2 }; },
+};
+LNFN.log = LNFN.log2; LNFN.lg = LNFN.log2;
+
+// ---------- expression grammar (compiles to n -> LogNum) ----------
+function parseBound(src) {
+  const toks = [];
+  const re = /\s*([0-9]*\.?[0-9]+|[A-Za-z][A-Za-z0-9]*|\*\*|[-+*/^()\u00b7])/y;
+  let i = 0;
+  while (i < src.length) {
+    re.lastIndex = i;
+    const m = re.exec(src);
+    if (!m) return { err: 'unexpected "' + src[i] + '"' };
+    toks.push(m[1] === "**" ? "^" : m[1] === "\u00b7" ? "*" : m[1]);
+    i = re.lastIndex;
+  }
+  if (!/\S/.test(src)) return { err: "empty expression" };
+  let p = 0;
+  const peek = () => toks[p];
+  const FN = LNFN;
+  function primary() {
+    const t = toks[p];
+    if (t === undefined) throw "incomplete expression";
+    if (/^[0-9]/.test(t)) { p++; const v = LN.real(parseFloat(t)); return () => v; }
+    if (t === "(") {
+      p++; const e = expr();
+      if (toks[p] !== ")") throw 'missing ")"';
+      p++; return e;
+    }
+    if (t === "n" || t === "N") { p++; return n => LN.real(n); }
+    throw 'unknown "' + t + '" \u2014 try n, log, ln, log10, sqrt';
+  }
+  // paren-free application with calculator precedence: operators bind
+  // tighter than application, so "log n^2" = log(n^2) and "log log n"
+  // nests, while multiplication is not absorbed: "n log n" = n * log n
+  function funcapp() {
+    const t = toks[p];
+    if (t !== undefined && FN[t]) {
+      p++;
+      let arg;
+      if (toks[p] === "(") {
+        p++; arg = expr();
+        if (toks[p] !== ")") throw 'missing ")"';
+        p++;
+      } else {
+        arg = unary();
+      }
+      const fn = FN[t];
+      return n => fn(arg(n));
+    }
+    return primary();
+  }
+  function power() {
+    const base = funcapp();
+    if (peek() === "^") { p++; const ex = unary(); return n => LN.pow(base(n), ex(n)); }
+    return base;
+  }
+  function unary() {
+    if (peek() === "-") { p++; const e = unary(); return n => LN.neg(e(n)); }
+    if (peek() === "+") { p++; return unary(); }
+    return power();
+  }
+  function term() {
+    let l = unary();
+    for (;;) {
+      const t = peek();
+      if (t === "*") { p++; const r = unary(); const a = l; l = n => LN.mul(a(n), r(n)); }
+      else if (t === "/") { p++; const r = unary(); const a = l; l = n => LN.div(a(n), r(n)); }
+      else if (t !== undefined && t !== ")" && (t === "(" || /^[0-9A-Za-z]/.test(t))) {
+        const r = unary(); const a = l; l = n => LN.mul(a(n), r(n));
+      } else break;
+    }
+    return l;
+  }
+  function expr() {
+    let l = term();
+    for (;;) {
+      const t = peek();
+      if (t === "+") { p++; const r = term(); const a = l; l = n => LN.add(a(n), r(n)); }
+      else if (t === "-") { p++; const r = term(); const a = l; l = n => LN.sub(a(n), r(n)); }
+      else break;
+    }
+    return l;
+  }
+  try {
+    const f = expr();
+    if (p !== toks.length) return { err: "unexpected '" + toks[p] + "'" };
+    return { f };
+  } catch (e) { return { err: String(e) }; }
+}
+
+
+function densRamp(dark) {
+  const stops = dark
+    ? [[0, [58, 70, 92]], [0.35, [88, 124, 176]], [0.7, [132, 170, 220]], [1, [190, 218, 250]]]
+    : [[0, [227, 236, 247]], [0.35, [160, 190, 224]], [0.7, [80, 122, 176]], [1, [22, 60, 105]]];
+  return v => {
+    let a = stops[0], b = stops[stops.length - 1];
+    for (let i = 0; i < stops.length - 1; i++)
+      if (v >= stops[i][0] && v <= stops[i + 1][0]) { a = stops[i]; b = stops[i + 1]; break; }
+    const t = (v - a[0]) / (b[0] - a[0] || 1);
+    return "rgb(" + a[1].map((x, i) => Math.round(x + (b[1][i] - x) * t)).join(",") + ")";
+  };
+}
+
+// centered gaussian smoothing with mirror-extension padding: endpoints are
+// preserved exactly (so trace ends agree with the raw right-hand labels and
+// the guide anchor), while interior sampling noise is averaged out
+function smoothSeries(vals, radius, sigma) {
+  const n = vals.length;
+  const at = j => {
+    if (j >= 0 && j < n) return vals[j];
+    if (j < 0) return 2 * vals[0] - vals[-j];
+    return 2 * vals[n - 1] - vals[2 * (n - 1) - j];
+  };
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    let acc = 0, wsum = 0;
+    for (let d = -radius; d <= radius; d++) {
+      const w = Math.exp(-(d * d) / (2 * sigma * sigma));
+      acc += at(i + d) * w; wsum += w;
+    }
+    out[i] = acc / wsum;
+  }
+  return out;
+}
+
+
+
+// ---------- formatting ----------
+// A platform-transferable ratio from a log2 difference: spread and
+// compensation readouts show these, never absolute counts.
+function fmtRatio(l) {
+  if (!isFinite(l)) return "?";
+  const v = Math.pow(2, l);
+  return "×" + (v >= 100 ? Math.round(v).toLocaleString("en-US") : v.toPrecision(2));
+}
+function pow2Text(t, k) {
+  t.textContent = "2";
+  const ts = mk(t, "tspan");
+  attrs(ts, { dy: "-0.45em", "font-size": "72%" });
+  ts.textContent = String(k);
+}
+
+const W = 960, H = 480;
+const M = { l: 88, r: 168, t: 34, b: 60 };
+const PW = W - M.l - M.r, PH = H - M.t - M.b;
+const SLX = 26;
+let UID = 0;
+
+// ---------- widget ----------
+class Widget {
+  constructor(host, data) {
+    // res is required, never defaulted: a dataset missing its binning
+    // resolution would render at the wrong bin height forever, silently.
+    if (!(typeof data.res === "number" && data.res > 0))
+      throw new Error("fuelscape dataset carries no positive res");
+    this.data = data;
+    this.res = data.res;
+    this.sizes = data.sizes;
+    this.lx = this.sizes.map(Math.log2);
+    this.uid = ++UID;
+    this.detectTheme();
+    if (typeof MutationObserver === "function") {
+      new MutationObserver(() => this.retheme())
+        .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    }
+    if (typeof matchMedia === "function")
+      matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => this.retheme());
+
+    this.q = 0.5;
+    this.qref = {};
+    for (const [key, qq] of [["min", 0], ["med", 0.5], ["max", 1]])
+      this.qref[key] = data.cols.map(col => this.quantAt(col, qq));
+
+    this.guides = [];
+    for (const g of ["1", "n", "n log n", "n^2"]) this.addGuideSilent(g);
+    const def = (data.default || "").trim();
+    if (def && !this.guides.some(g => g.text === def)) this.addGuideSilent(def);
+    this.active = this.guides.some(g => g.text === def) ? def : null;
+
+    this.buildDom(host);
+    this.buildStatic();
+    this.update(false);
+  }
+
+  detectTheme() {
+    const rdTheme = document.documentElement.getAttribute("data-theme");
+    this.dark = rdTheme ? rdTheme !== "light"
+      : (typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches);
+    this.ramp = densRamp(this.dark);
+  }
+
+  retheme() {
+    const was = this.dark;
+    this.detectTheme();
+    if (this.dark !== was && this.binEls)
+      for (const [el, v] of this.binEls) el.setAttribute("fill", this.ramp(v));
+  }
+
+  quantAt(col, q) {
+    const res = this.res;
+    if (q <= 0) {
+      for (let j = 0; j < col.c.length; j++) if (col.c[j]) return (col.k0 + j) * res;
+    }
+    if (q >= 1) {
+      for (let j = col.c.length - 1; j >= 0; j--) if (col.c[j]) return (col.k0 + j + 1) * res;
+    }
+    const total = col.c.reduce((a, b) => a + b, 0);
+    let target = q * total, cum = 0;
+    for (let j = 0; j < col.c.length; j++) {
+      if (cum + col.c[j] >= target) {
+        const frac = col.c[j] ? (target - cum) / col.c[j] : 0.5;
+        return (col.k0 + j + frac) * res;
+      }
+      cum += col.c[j];
+    }
+    return (col.k0 + col.c.length) * res;
+  }
+
+  cdfLast(ly) {
+    const col = this.data.cols[this.data.cols.length - 1];
+    const li = this.sizes.length - 1;
+    if (ly <= this.qref.min[li] + 1e-9) return 0;
+    if (ly >= this.qref.max[li] - 1e-9) return 1;
+    const total = col.c.reduce((a, b) => a + b, 0);
+    const pos = ly / this.res - col.k0;
+    let cum = 0;
+    for (let j = 0; j < col.c.length; j++) {
+      if (j + 1 <= pos) { cum += col.c[j]; continue; }
+      if (j < pos) cum += col.c[j] * (pos - j);
+      break;
+    }
+    return Math.min(1, Math.max(0, cum / total));
+  }
+
+  traceValues(q) {
+    const raw = this.data.cols.map(col => this.quantAt(col, q));
+    const sm = (q <= 0 || q >= 1) ? raw.slice() : smoothSeries(raw, 2, 0.9);
+    return { raw, sm };
+  }
+
+  setAnchorValue(lyRaw) {
+    const li = this.sizes.length - 1;
+    const lo = this.qref.min[li], hi = this.qref.max[li], med = this.qref.med[li];
+    let ly = Math.min(hi, Math.max(lo, lyRaw));
+    if (this.Y && this.lastShift !== undefined &&
+        Math.abs(this.Y(ly - this.lastShift) - this.Y(med - this.lastShift)) < 3) ly = med;
+    this.q = ly === med ? 0.5 : this.cdfLast(ly);
+    this.update(false);
+  }
+
+  setQ(q) {
+    this.q = Math.min(1, Math.max(0, q));
+    this.update(false);
+  }
+
+  dragStart(ev) {
+    const svgEl = this.svg;
+    const move = e => {
+      const rect = svgEl.getBoundingClientRect();
+      const py = (e.clientY - rect.top) * (H / (rect.height || H));
+      if (Math.abs(e.clientY - ev.clientY) > 3) this._dragMoved = true;
+      if (this._dragMoved)
+        this.setAnchorValue(this.Y.invert(py) + this.lastShift);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      if (this._dragMoved) this._squelch = true;
+      this._dragMoved = false;
+    };
+    this._dragMoved = false;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    if (ev.preventDefault) ev.preventDefault();
+  }
+
+  addGuideSilent(text) {
+    const r = parseBound(text);
+    if (r.err) return r.err;
+    let l0 = null, l1 = null;
+    try {
+      for (const n of this.sizes) {
+        const v = r.f(n);
+        if (v.s <= 0 || !isFinite(v.l)) return "not positive at n=" + n;
+        if (n === this.sizes[0]) l0 = v.l;
+        if (n === this.sizes[this.sizes.length - 1]) l1 = v.l;
+      }
+    } catch (e) { return String(e); }
+    // sort key: log-slope across the measured range (constants cancel),
+    // tiebroken by magnitude at the largest n, then text
+    this.guides.push({ text: text.trim(), f: r.f, slope: l1 - l0, end: l1 });
+    this.guides.sort((a, b) => a.slope - b.slope || a.end - b.end || (a.text < b.text ? -1 : 1));
+    return null;
+  }
+
+  setActive(text) {
+    this.active = text === this.active ? null : text;
+    this.update(true);
+  }
+
+  removeGuide(text) {
+    this.guides = this.guides.filter(g => g.text !== text);
+    if (this.active === text) this.active = null;
+    this.update(true);
+  }
+
+  isRaw() { return this.active === null; }
+  shiftAt(n) {
+    if (this.active === null) return 0;
+    return this.guides.find(g => g.text === this.active).f(n).l;
+  }
+
+  buildDom(host) {
+    host.classList.add("fs-root");
+    const title = mk(host, "div", "fs-title");
+    title.textContent = "Measured growth";
+    const sub = mk(host, "div", "fs-subtitle");
+    sub.textContent = "Flat bands indicate agreement with the selected hypothesis";
+    const bar1 = mk(host, "div", "fs-bar");
+    const hyp = mk(bar1, "span", "fs-hyplabel");
+    hyp.title = "divide instructions by a growth rate \u2014 the right one flattens the band";
+    hyp.textContent = "Hypothesis:";
+    this.chipBox = mk(bar1, "span", "fs-chips");
+    this.entryWrap = mk(this.chipBox, "span", "fs-chip fs-newchip");
+    this.addInput = mk(this.entryWrap, "input", "fs-expr");
+    attrs(this.addInput, { type: "text", spellcheck: "false",
+      placeholder: "n^1.5, 2^n, sqrt n log n \u2026",
+      "aria-label": "add a compensation guide expression" });
+    this.addInput.addEventListener("keydown", ev => { if (ev.key === "Enter") this.tryAdd(); });
+    const plus = mk(this.entryWrap, "span", "fs-chipplus");
+    plus.title = "add this hypothesis"; plus.textContent = "+";
+    plus.addEventListener("click", () => this.tryAdd());
+    this.errEl = mk(this.entryWrap, "span", "fs-err");
+    this.errEl.setAttribute("role", "alert");
+
+    this.svg = mk(host, "svg");
+    attrs(this.svg, { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img",
+      "aria-label": this.data.name + ": distribution of instruction counts by input size, log-log" });
+    this.footer = mk(host, "div", "fs-footer");
+    const d = this.data;
+    const prov = mk(this.footer, "span", "fs-prov");
+    prov.innerHTML = "commit <code>" + d.commit + "</code> \u00b7 seed <code>" + d.seed +
+      "</code> \u00b7 avg <code>" + d.spc + "</code> samples/column";
+    const measure = mk(this.footer, "span", "fs-prov");
+    measure.textContent = "size measure: " + d.size_measure;
+    const honesty = mk(this.footer, "span", "fs-prov");
+    honesty.textContent =
+      "instructions are a deterministic guest measure: compare shapes and ratios, not absolute counts";
+  }
+
+  tryAdd() {
+    const text = this.addInput.value.trim();
+    if (!text) return;
+    if (this.guides.some(g => g.text === text)) {
+      if (this.active !== text) { this.active = text; this.update(true); }
+      this.addInput.value = ""; this.errEl.textContent = "";
+      this.entryWrap.classList.remove("fs-bad"); return;
+    }
+    const err = this.addGuideSilent(text);
+    if (err) { this.errEl.textContent = err; this.entryWrap.classList.add("fs-bad"); return; }
+    this.errEl.textContent = ""; this.entryWrap.classList.remove("fs-bad");
+    this.addInput.value = "";
+    this.active = text;
+    this._justAdded = text;
+    this.update(true);
+  }
+
+  buildStatic() {
+    const svg = this.svg;
+    const clipId = "fsclip" + this.uid, blurId = "fsblur" + this.uid;
+    const defs = mk(svg, "defs");
+    const clip = mk(defs, "clipPath"); clip.setAttribute("id", clipId);
+    attrs(mk(clip, "rect"), { x: M.l, y: M.t - 2, width: PW, height: PH + 4 });
+    const filt = mk(defs, "filter");
+    attrs(filt, { id: blurId, x: "-4%", y: "-4%", width: "108%", height: "108%" });
+    attrs(mk(filt, "feGaussianBlur"), { stdDeviation: "0 1.6" });
+
+    // stacking, bottom to top: grid < density < guides < quantile probe
+    // < column hover < guide hit strokes < labels < slider
+    attrs(mk(svg, "rect", "fs-plotbg"), { x: M.l, y: M.t, width: PW, height: PH });
+    this.gGrid = mk(svg, "g");
+    this.gCols = mk(svg, "g");
+    attrs(this.gCols, { "clip-path": `url(#${clipId})`, filter: `url(#${blurId})` });
+    this.gGuides = mk(svg, "g"); this.gGuides.setAttribute("clip-path", `url(#${clipId})`);
+    this.gQuants = mk(svg, "g"); this.gQuants.setAttribute("clip-path", `url(#${clipId})`);
+    this.gHover = mk(svg, "g");
+    this.gHits = mk(svg, "g"); this.gHits.setAttribute("clip-path", `url(#${clipId})`);
+    this.gLabels = mk(svg, "g");
+
+    this.ylabel = mk(svg, "text", "fs-caption");
+    attrs(this.ylabel, { transform: `translate(16,${M.t + PH / 2}) rotate(-90)`, "text-anchor": "middle" });
+    const xcap = mk(svg, "text", "fs-caption");
+    attrs(xcap, { x: M.l + PW / 2, y: H - 12, "text-anchor": "middle" });
+    xcap.textContent = "total input size (bytes, log scale)";
+    attrs(mk(svg, "line", "fs-axis"), { x1: M.l, x2: M.l, y1: M.t, y2: H - M.b });
+    attrs(mk(svg, "line", "fs-axis"), { x1: M.l, x2: W - M.r, y1: H - M.b, y2: H - M.b });
+
+    const x0 = this.lx[0] - 0.62, x1 = this.lx[this.lx.length - 1] + 0.62;
+    this.X = scaleLinear(x0, x1, M.l, W - M.r);
+    const gaps = this.lx.slice(1).map((v, i) => v - this.lx[i]);
+    const minGap = gaps.length ? Math.min(...gaps) : 1;
+    this.colW = PW / (x1 - x0) * 0.86 * minGap;
+    this.halfLx = 0.43 * minGap;
+    for (let ci = 0; ci < this.sizes.length; ci++) {
+      const t = mk(svg, "text", "fs-tick");
+      attrs(t, { "text-anchor": "middle", x: this.X(this.lx[ci]), y: H - M.b + 18 });
+      if (this.sizes[ci] < 1024) t.textContent = String(this.sizes[ci]);
+      else pow2Text(t, Math.round(this.lx[ci]));
+    }
+
+    // display bins: data-side kernel + SVG blur; quantiles use raw counts
+    const R = 3, SIG = 1.0;
+    const kern = [];
+    for (let i = -R; i <= R; i++) kern.push(Math.exp(-(i * i) / (2 * SIG * SIG)));
+    this.bins = [];
+    this.smExt = [];
+    for (let ci = 0; ci < this.data.cols.length; ci++) {
+      const col = this.data.cols[ci];
+      const sm = new Array(col.c.length + 2 * R).fill(0);
+      for (let j = 0; j < col.c.length; j++)
+        for (let i = -R; i <= R; i++) sm[j + R + i] += col.c[j] * kern[i + R];
+      const peak = Math.max(...sm);
+      for (let j = 0; j < sm.length; j++) {
+        const v = sm[j] / peak;
+        if (v <= 0) continue;
+        const vv = Math.max(v, 0.015);
+        this.bins.push({ ci, vTop: (col.k0 - R + j + 1) * this.res, v: Math.pow(vv, 0.6) });
+      }
+      this.smExt.push([(col.k0 - R) * this.res, (col.k0 + col.c.length + R) * this.res]);
+    }
+    this.binEls = new Map();
+    for (const b of this.bins) {
+      const r = mk(this.gCols, "rect");
+      attrs(r, { x: this.X(this.lx[b.ci]) - this.colW / 2, width: this.colW, fill: this.ramp(b.v) });
+      r.__bin = b;
+      this.binEls.set(r, b.v);
+    }
+
+    this.qHalo = mk(this.gQuants, "path", "fs-qhalo");
+    this.qLine = mk(this.gQuants, "path", "fs-qline fs-q-med");
+    this.gSlider = mk(svg, "g", "fs-slider");
+    this.slTrack = mk(this.gSlider, "line", "fs-sl-track");
+    this.slNotch = mk(this.gSlider, "line", "fs-sl-notch");
+    this.slHandle = mk(this.gSlider, "circle", "fs-sl-handle");
+    attrs(this.slHandle, { r: 6.5, cx: W - M.r + SLX, tabindex: 0, role: "slider",
+      "aria-label": "quantile probe, arrow keys step one percentile" });
+    this.slHandle.addEventListener("pointerdown", ev => this.dragStart(ev));
+    this.slHandle.addEventListener("keydown", ev => {
+      const step = ev.shiftKey ? 0.05 : 0.01;
+      if (ev.key === "ArrowUp" || ev.key === "ArrowRight") this.setQ(Math.round((this.q + step) * 100) / 100);
+      else if (ev.key === "ArrowDown" || ev.key === "ArrowLeft") this.setQ(Math.round((this.q - step) * 100) / 100);
+      else if (ev.key === "Home") this.setQ(0);
+      else if (ev.key === "End") this.setQ(1);
+      else if (ev.key === "m" || ev.key === "M") this.setQ(0.5);
+      else return;
+      ev.preventDefault();
+    });
+    const htitle = mk(this.slHandle, "title");
+    htitle.textContent = "drag to sweep P0\u2013P100 (snaps to median)";
+    this.slCaption = mk(this.gSlider, "text", "fs-slcaption");
+    this.slCaption.addEventListener("pointerdown", ev => this.dragStart(ev));
+    this.qLabel = mk(this.gLabels, "text", "fs-qlabel");
+    this.qLabel.setAttribute("x", W - M.r + SLX + 13);
+    this.qLabel.addEventListener("pointerdown", ev => this.dragStart(ev));
+    // The label's tooltip is created once here: a per-update mk() would
+    // append one <title> child per repaint, and they accumulate.
+    this.qLabelTip = mk(this.qLabel, "title");
+    this.qLabelTip.textContent = "drag to sweep P0–P100";
+
+    this.readout = mk(this.gLabels, "text", "fs-readout");
+    attrs(this.readout, { x: W - M.r, y: M.t - 8, "text-anchor": "end" });
+    for (let ci = 0; ci < this.sizes.length; ci++) {
+      const r = mk(this.gHover, "rect", "fs-hoverrect");
+      attrs(r, { x: this.X(this.lx[ci]) - this.colW / 2 - 2, y: M.t,
+        width: this.colW + 4, height: PH });
+      r.addEventListener("mouseenter", () => this.showReadout(ci));
+      r.addEventListener("mouseleave", () => { this.readout.textContent = ""; });
+    }
+
+    // keyed element maps for dynamic layers
+    this.tickEls = new Map();    // k -> {g, line, text}
+    this.guideEls = new Map();   // text -> {g, halo, ref}
+    this.hitEls = new Map();     // text -> {poly, title}
+    this.glabelEls = new Map();  // text -> text el
+    this.chipEls = new Map();    // text -> {btn, label, x}
+  }
+
+  showReadout(ci) {
+    // Ratios only: the column's min-to-max spread, and where the median
+    // sits above the column minimum \u2014 both platform-transferable.
+    const n = this.sizes[ci];
+    const spread = fmtRatio(this.qref.max[ci] - this.qref.min[ci]);
+    const medUp = fmtRatio(this.qref.med[ci] - this.qref.min[ci]);
+    this.readout.textContent =
+      `n=${n.toLocaleString("en-US")} \u00b7 spread ${spread} \u00b7 median ${medUp} above min`;
+  }
+
+  update(animate) {
+    const res = this.res;
+    const shifts = this.sizes.map(n => this.shiftAt(n));
+    const shiftOf = n => this.shiftAt(n);
+    const raw = this.isRaw();
+    this.readout && (this.readout.textContent = "");
+
+    let ylo = Infinity, yhi = -Infinity;
+    this.smExt.forEach((ext, ci) => {
+      ylo = Math.min(ylo, ext[0] - shifts[ci]);
+      yhi = Math.max(yhi, ext[1] - shifts[ci]);
+    });
+    const pad = (yhi - ylo) * 0.03;
+    ylo -= pad; yhi += pad;
+    const Y = scaleLinear(ylo, yhi, H - M.b, M.t);
+    this.Y = Y;
+
+    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const noAnim = typeof window !== "undefined" && window.__FS_NO_ANIM;
+    const dur = reduce ? 160 : 500;
+    const T = (el, props) => {
+      if (animate && !noAnim) tween(el, props, dur);
+      else for (const k in props) el.setAttribute(k, props[k]);
+    };
+
+    this.ylabel.textContent = raw ? "instructions (log scale)"
+      : `instructions / (${this.active})  (log scale)`;
+
+    // gridlines at whole octaves, deliberately unnumbered: absolute
+    // counts are a guest measure, and the constant-ratio spacing still
+    // reads as log-scale structure
+    const step = Math.max(1, Math.round((yhi - ylo) / 6));
+    const ticks = new Set();
+    for (let k = Math.ceil(ylo); k <= Math.floor(yhi); k += step) ticks.add(k);
+    for (const [k, t] of this.tickEls)
+      if (!ticks.has(k)) { t.g.remove(); this.tickEls.delete(k); }
+    for (const k of ticks) {
+      let t = this.tickEls.get(k);
+      if (!t) {
+        const g = mk(this.gGrid, "g");
+        g.setAttribute("opacity", 0);
+        const line = mk(g, "line", "fs-grid");
+        attrs(line, { x1: M.l, x2: W - M.r, y1: Y(k), y2: Y(k) });
+        t = { g, line };
+        this.tickEls.set(k, t);
+      }
+      T(t.g, { opacity: 1 });
+      T(t.line, { y1: Y(k), y2: Y(k) });
+    }
+
+    // density: pure vertical shear
+    const binH = Math.max(res / (yhi - ylo) * PH + 0.35, 0.9);
+    for (const [el] of this.binEls) {
+      const b = el.__bin;
+      T(el, { y: Y(b.vTop - shifts[b.ci]), height: binH });
+    }
+
+    // probe values + anchor
+    const tv = this.traceValues(this.q);
+    const li = this.sizes.length - 1;
+    this.lastShift = shifts[li];
+    const aI = li;                       // anchor at largest n in every view,
+    const aN = this.sizes[aI];           // so guides always intersect the probe
+    const anchorLy = tv.raw[aI];         // at the asymptotic end
+
+    // guide geometry
+    const samples = 60;
+    const lxLo = this.lx[0] - this.halfLx, lxHi = this.lx[this.lx.length - 1] + this.halfLx;
+    const geom = new Map();
+    for (const g of this.guides) {
+      const rel = n => g.f(n).l - shiftOf(n);
+      const off = anchorLy - shiftOf(aN) - rel(aN);
+      const pts = [];
+      const vals = [];
+      let tip = null;
+      for (let i = 0; i <= samples; i++) {
+        const lx = lxLo + (lxHi - lxLo) * i / samples;
+        const v = off + rel(Math.pow(2, lx));
+        vals.push([lx, v]);
+        pts.push(this.X(lx).toFixed(1) + "," + Y(Math.min(yhi + 1, Math.max(ylo - 1, v))).toFixed(1));
+      }
+      for (let i = 0; i <= samples; i++) {
+        const lx = lxLo + (lxHi - lxLo) * i / samples;
+        const v = off + rel(Math.pow(2, lx));
+        if (v >= ylo + 0.1 && v <= yhi - 0.1) { tip = [lx, v]; break; }
+      }
+      if (!tip)
+        tip = [lxLo, Math.min(yhi - 0.15, Math.max(ylo + 0.15, off + rel(Math.pow(2, lxLo))))];
+      geom.set(g.text, { points: pts.join(" "), tip, vals });
+    }
+    const hoverLink = (text, on) => {
+      for (const [t, e] of this.guideEls) e.g.classList.toggle("fs-hover", on && t === text);
+    };
+
+    // guide traces
+    const liveTexts = new Set(this.guides.map(g => g.text));
+    for (const [t, e] of this.guideEls)
+      if (!liveTexts.has(t)) { e.g.remove(); this.guideEls.delete(t); }
+    for (const g of this.guides) {
+      let e = this.guideEls.get(g.text);
+      if (!e) {
+        const grp = mk(this.gGuides, "g", "guide");
+        e = { g: grp, halo: mk(grp, "polyline", "fs-refhalo"), ref: mk(grp, "polyline", "fs-ref") };
+        e.halo.setAttribute("points", geom.get(g.text).points);
+        e.ref.setAttribute("points", geom.get(g.text).points);
+        this.guideEls.set(g.text, e);
+      }
+      e.g.classList.toggle("fs-active-guide", g.text === this.active);
+      T(e.halo, { points: geom.get(g.text).points });
+      T(e.ref, { points: geom.get(g.text).points });
+    }
+    const act = this.guideEls.get(this.active);
+    if (act) act.g.parentNode.appendChild(act.g);   // active hypothesis on top
+
+    // hit strokes
+    for (const [t, e] of this.hitEls)
+      if (!liveTexts.has(t)) { e.poly.remove(); this.hitEls.delete(t); }
+    for (const g of this.guides) {
+      let e = this.hitEls.get(g.text);
+      if (!e) {
+        const poly = mk(this.gHits, "polyline", "fs-hit");
+        attrs(poly, { tabindex: 0, role: "button" });
+        poly.addEventListener("pointerdown", ev => { if (g.text === this.active) this.dragStart(ev); });
+        poly.addEventListener("click", () => {
+          if (this._squelch) { this._squelch = false; return; }
+          this.setActive(g.text);
+        });
+        poly.addEventListener("keydown", ev => {
+          if (ev.key === "Enter" || ev.key === " ") this.setActive(g.text);
+        });
+        poly.addEventListener("mouseenter", () => hoverLink(g.text, true));
+        poly.addEventListener("mouseleave", () => hoverLink(g.text, false));
+        e = { poly, title: mk(poly, "title") };
+        this.hitEls.set(g.text, e);
+      }
+      e.poly.classList.toggle("fs-active-hit", g.text === this.active);
+      e.poly.setAttribute("points", geom.get(g.text).points);
+      e.title.textContent = (g.text === this.active ? "deselect " : "compensate by ") + g.text;
+    }
+
+    // guide labels
+    for (const [t, el] of this.glabelEls)
+      if (!liveTexts.has(t)) { el.remove(); this.glabelEls.delete(t); }
+    for (const g of this.guides) {
+      let el = this.glabelEls.get(g.text);
+      const tip = geom.get(g.text).tip;
+      // slide the label along the trace (staying above the line) until the
+      // above-line placement clears the ceiling; if that slide would run the
+      // text into the right border, flip below the line, anchored leftward
+      const lift = g.text === this.active ? -9 : -6;
+      const vals = geom.get(g.text).vals;
+      const onPlot = ([, v]) => v >= ylo + 0.1 && v <= yhi - 0.02;
+      let pos = vals.find(p => onPlot(p) && Y(p[1]) + lift >= M.t + 14);
+      let flip = false;
+      if (!pos) {
+        flip = true;
+        for (let i = vals.length - 1; i >= 0; i--) if (onPlot(vals[i])) { pos = vals[i]; break; }
+      }
+      if (!pos) pos = tip;
+      const wpx = (g.text.length + (g.text === this.active ? 2 : 0)) * 9.5 + 8;
+      let lx = this.X(pos[0]) + 6;
+      if (!flip && lx + wpx > W - M.r - 2) flip = true;
+      let ly;
+      if (flip) { lx = this.X(pos[0]) - 6; ly = Y(pos[1]) + 16; }
+      else ly = Y(pos[1]) + lift;
+      if (!el) {
+        el = mk(this.gLabels, "text", "fs-reflabel fs-guidelabel");
+        el.addEventListener("click", () => this.setActive(g.text));
+        el.addEventListener("mouseenter", () => hoverLink(g.text, true));
+        el.addEventListener("mouseleave", () => hoverLink(g.text, false));
+        attrs(el, { x: lx, y: ly });
+        this.glabelEls.set(g.text, el);
+      }
+      el.textContent = g.text + (g.text === this.active ? " \u25c0" : "");
+      el.classList.toggle("fs-active-label", g.text === this.active);
+      el.setAttribute("text-anchor", flip ? "end" : "start");
+      T(el, { x: lx, y: ly });
+    }
+
+    // the probe trace
+    const ends = (() => {
+      const v = tv.sm;
+      const nCol = this.sizes.length;
+      const sL = nCol > 1 ? (v[1] - shifts[1] - (v[0] - shifts[0])) / (this.lx[1] - this.lx[0]) : 0;
+      const sR = nCol > 1 ? (v[nCol - 1] - shifts[nCol - 1] - (v[nCol - 2] - shifts[nCol - 2])) / (this.lx[nCol - 1] - this.lx[nCol - 2]) : 0;
+      return {
+        left: [this.lx[0] - this.halfLx, v[0] - shifts[0] - sL * this.halfLx],
+        right: [this.lx[nCol - 1] + this.halfLx, v[nCol - 1] - shifts[nCol - 1] + sR * this.halfLx],
+      };
+    })();
+    const pts = [[this.X(ends.left[0]), Y(ends.left[1])]];
+    this.sizes.forEach((n, ci) => pts.push([this.X(this.lx[ci]), Y(tv.sm[ci] - shifts[ci])]));
+    pts.push([this.X(ends.right[0]), Y(ends.right[1])]);
+    const qd = monotonePath(pts);
+    T(this.qHalo, { d: qd });
+    T(this.qLine, { d: qd });
+
+    // slider
+    const slx = W - M.r + SLX;
+    const yMin = Math.min(H - M.b, Y(this.qref.min[li] - shifts[li]));
+    const yMax = Math.max(M.t, Y(this.qref.max[li] - shifts[li]));
+    const yMed = Y(this.qref.med[li] - shifts[li]);
+    const yCur = Math.max(M.t, Math.min(H - M.b, Y(tv.raw[li] - shifts[li])));
+    T(this.slTrack, { x1: slx, x2: slx, y1: yMax, y2: yMin });
+    T(this.slNotch, { x1: slx - 5, x2: slx + 5, y1: yMed, y2: yMed });
+    attrs(this.slHandle, { "aria-valuenow": Math.round(this.q * 100),
+      "aria-valuemin": 0, "aria-valuemax": 100 });
+    T(this.slHandle, { cx: slx, cy: yCur });
+    const qName = this.q <= 0 ? "min" : this.q >= 1 ? "max"
+      : Math.abs(this.q - 0.5) < 1e-9 ? "med" : "p" + Math.round(this.q * 100);
+    // The quantile's name only: its absolute height is a guest count.
+    this.qLabel.textContent = qName;
+    this.qLabel.appendChild(this.qLabelTip);
+    T(this.qLabel, { y: yCur + 4 });
+    T(this.slCaption, { y: yCur - 13 });
+    this.slCaption.setAttribute("x", W - M.r + SLX + 13);
+    this.slCaption.textContent = "Quantile";
+
+    this.renderChips();
+  }
+
+  renderChips() {
+    const liveTexts = new Set(this.guides.map(g => g.text));
+    for (const [t, e] of this.chipEls)
+      if (!liveTexts.has(t)) { e.btn.remove(); this.chipEls.delete(t); }
+    for (const g of this.guides) {
+      let e = this.chipEls.get(g.text);
+      if (!e) {
+        const btn = document.createElement("button");
+        btn.className = "fs-chip";
+        btn.type = "button";
+        if (g.text === this._justAdded) btn.classList.add("fs-born");
+        const label = document.createElement("span");
+        label.className = "fs-chiplabel";
+        label.addEventListener("click", () => this.setActive(g.text));
+        const x = document.createElement("span");
+        x.className = "fs-chipx";
+        x.textContent = "\u00d7";
+        x.title = "remove guide";
+        x.addEventListener("click", ev => { ev.stopPropagation(); this.removeGuide(g.text); });
+        btn.appendChild(label); btn.appendChild(x);
+        this.chipBox.appendChild(btn);
+        e = { btn, label, x };
+        this.chipEls.set(g.text, e);
+      }
+      e.btn.classList.toggle("fs-on", g.text === this.active);
+      e.btn.setAttribute("aria-pressed", String(g.text === this.active));
+      e.label.textContent = g.text;
+    }
+    this._justAdded = null;
+    for (const g of this.guides)                 // DOM order = growth order
+      this.chipBox.appendChild(this.chipEls.get(g.text).btn);
+    this.chipBox.appendChild(this.entryWrap);   // entry stays last
+  }
+}
+
+function hydrateOne(el) {
+  if (el.__fs) return;
+  const island = el.querySelector('script[type="application/json"]');
+  if (!island) return;
+  el.__fs = new Widget(el, JSON.parse(island.textContent));
+}
+
+const Fuelscape = {
+  parse: parseBound,
+  // Hydration is lazy, per island, on its expander's first opening: a
+  // rustdoc type page carries every method's island, and each widget is
+  // thousands of SVG nodes \u2014 building them all at page load would tax
+  // every visit for expanders never opened. The `toggle` event fires for
+  // programmatic `open` changes too, so rustdoc's expand-all control
+  // still hydrates what it reveals.
+  hydrate(scope) {
+    (scope || document).querySelectorAll(".fuelscape").forEach(el => {
+      if (el.__fs || el.__fsArmed) return;
+      const details = el.closest("details");
+      if (!details) { hydrateOne(el); return; }
+      el.__fsArmed = true;
+      if (details.open) { hydrateOne(el); return; }
+      details.addEventListener(
+        "toggle",
+        () => { if (details.open) hydrateOne(el); },
+        { once: true }
+      );
+    });
+  },
+};
+globalThis.Fuelscape = Fuelscape;
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  if (document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => Fuelscape.hydrate());
+  else Fuelscape.hydrate();
+}
+})();
+</script>
