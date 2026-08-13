@@ -52,6 +52,7 @@
 //! operation's panel can be re-measured without paying for the whole
 //! atlas.
 
+pub mod compact;
 pub mod count;
 pub mod dump;
 pub mod enumerate;

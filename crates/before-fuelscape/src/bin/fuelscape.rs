@@ -10,18 +10,12 @@
 //! never a silent empty run ([`before_fuelscape::select`] owns and pins
 //! these semantics).
 //!
-//! Flags (all optional): `--list` (print the selected operations' names,
-//! one per line, without measuring), `--samples <n>` per column (default
-//! 300), `--max-bytes <n>` grid top (default 256), `--seed <u64>` base
-//! seed (default 0xa71a5), `--out <dir>` output directory (default
-//! `target/fuelscape` under the current directory), `--dump` (persist
-//! every selected operation's raw atlas as JSON beside the SVGs, in the
-//! `before_fuelscape::dump` layout), `--render-from <dump>` (skip
-//! measurement: load a dump — its `atlas.json` or the directory holding
-//! it — and render its SVGs and gallery into `--out`; the measuring
-//! flags `--samples`/`--max-bytes`/`--seed`, `--dump`, `--list`, and the
-//! positional filters do not combine with it), and `--font-scale <f64>`
-//! (scale all SVG text for print, default 1.0; usable in both modes).
+//! The flags, their defaults, and which combine with which are
+//! documented by the command itself: `--help` (the [`Args`] struct is
+//! their single source). Three modes share the binary: a measuring
+//! survey (the default), `--render-from <dump>` (replay a dump's SVGs
+//! and gallery, no guest), and `--compact-from <dump>` (derive the
+//! compact widget dataset `before`'s doc build consumes, no guest).
 //!
 //! Provenance: the `FUELSCAPE_TIP` environment variable (the recipe
 //! passes `git rev-parse HEAD`) is stamped into every measuring run's
@@ -50,6 +44,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use before_fuelscape::dump::{self, DumpWriter};
+use clap::Parser;
 
 /// The sampler is allocator-bound under the system allocator;
 /// mimalloc's per-thread heaps keep the workers on the cores.
@@ -79,68 +74,80 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 /// display carries at once.
 const CONCURRENT_PANELS: usize = 1;
 
-fn main() {
-    let mut plan = Plan {
-        base_seed: 0xa71a5,
-        samples_per_column: 300,
-        max_bytes: 256,
-    };
-    let mut out = PathBuf::from("target/fuelscape");
-    let mut dump_measurements = false;
-    let mut render_from: Option<PathBuf> = None;
-    let mut font_scale = 1.0f64;
-    let mut measuring_flags = false;
-    let mut list = false;
-    let mut filters: Vec<String> = Vec::new();
-    let mut args = std::env::args().skip(1);
-    while let Some(flag) = args.next() {
-        let mut value = || {
-            args.next()
-                .unwrap_or_else(|| panic!("flag {flag} needs a value"))
-        };
-        match flag.as_str() {
-            "--samples" => {
-                plan.samples_per_column = value().parse().expect("--samples <count>");
-                measuring_flags = true;
-            }
-            "--max-bytes" => {
-                plan.max_bytes = value().parse().expect("--max-bytes <bytes>");
-                measuring_flags = true;
-            }
-            "--seed" => {
-                plan.base_seed = value().parse().expect("--seed <u64>");
-                measuring_flags = true;
-            }
-            "--out" => out = PathBuf::from(value()),
-            "--dump" => dump_measurements = true,
-            "--render-from" => render_from = Some(PathBuf::from(value())),
-            "--font-scale" => font_scale = value().parse().expect("--font-scale <f64>"),
-            "--list" => list = true,
-            other if other.starts_with('-') => {
-                panic!("unknown flag {other} (see the module doc for the flag list)")
-            }
-            _ => filters.push(flag),
-        }
-    }
+/// Survey the roster's fuel landscape, or replay a recorded dump.
+///
+/// The mode exclusions (a replay or a compaction takes no measuring
+/// flags) are declared per argument, so clap reports a conflicting
+/// invocation instead of a mode silently ignoring a flag.
+#[derive(Parser)]
+struct Args {
+    /// Substring filters selecting roster operations, `cargo bench`
+    /// style (union, roster order); none selects the whole roster
+    #[arg(conflicts_with_all = ["render_from", "compact_from"])]
+    filters: Vec<String>,
+    /// Print the selected operations' names, one per line, without
+    /// measuring
+    #[arg(long, conflicts_with_all = ["render_from", "compact_from"])]
+    list: bool,
+    /// Samples per size column, on average
+    #[arg(long, default_value_t = 300, conflicts_with_all = ["render_from", "compact_from"])]
+    samples: usize,
+    /// Top of the size grid, in packed input bytes
+    #[arg(long, default_value_t = 256, conflicts_with_all = ["render_from", "compact_from"])]
+    max_bytes: usize,
+    /// Base seed of the deterministic per-cell RNG streams
+    #[arg(long, default_value_t = 0xa71a5, conflicts_with_all = ["render_from", "compact_from"])]
+    seed: u64,
+    /// Output directory
+    #[arg(long, default_value = "target/fuelscape")]
+    out: PathBuf,
+    /// Persist every selected operation's raw atlas as JSON beside the
+    /// SVGs (the dump layout `--render-from` and `--compact-from` read)
+    #[arg(long, conflicts_with_all = ["render_from", "compact_from"])]
+    dump: bool,
+    /// Skip measurement: load a dump (its atlas.json or the directory
+    /// holding it) and render its SVGs and gallery into --out
+    #[arg(long, value_name = "DUMP")]
+    render_from: Option<PathBuf>,
+    /// Skip measurement: load a dump and write the compact widget
+    /// dataset (the layout before's doc build consumes) into --out
+    #[arg(long, value_name = "DUMP", conflicts_with_all = ["render_from", "font_scale"])]
+    compact_from: Option<PathBuf>,
+    /// Scale all SVG text, for print
+    #[arg(long, default_value_t = 1.0)]
+    font_scale: f64,
+}
 
-    if let Some(dump_path) = render_from {
-        assert!(
-            !measuring_flags && !dump_measurements && !list && filters.is_empty(),
-            "--render-from replays a recorded dump; the measuring flags \
-             (--samples/--max-bytes/--seed), --dump, --list, and the positional \
-             filters configure a measuring run"
-        );
-        render_from_dump(&dump_path, &out, font_scale);
+fn main() {
+    let args = Args::parse();
+    let plan = Plan {
+        base_seed: args.seed,
+        samples_per_column: args.samples,
+        max_bytes: args.max_bytes,
+    };
+    let out = args.out;
+
+    if let Some(dump_path) = args.compact_from {
+        let ops = before_fuelscape::compact::compact_dump(&dump_path, &out)
+            .expect("compaction must succeed");
+        println!("{} operations → {}", ops.len(), out.display());
         return;
     }
 
+    if let Some(dump_path) = args.render_from {
+        render_from_dump(&dump_path, &out, args.font_scale);
+        return;
+    }
+    let font_scale = args.font_scale;
+    let dump_measurements = args.dump;
+
     // A filter that matches nothing must never become a silent empty
     // survey; `select` errors with the roster's names instead.
-    let selected = select(ROSTER, &filters).unwrap_or_else(|no_match| {
+    let selected = select(ROSTER, &args.filters).unwrap_or_else(|no_match| {
         eprintln!("{no_match}");
         std::process::exit(1);
     });
-    if list {
+    if args.list {
         print!("{}", listing(&selected));
         return;
     }

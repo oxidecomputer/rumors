@@ -33,6 +33,11 @@ fuzzfit-harness = { path = "../before/fuzzfit/harness" }
 # can watch a long survey; bars draw only on a tty, so nohup logs keep
 # the plain per-panel lines.
 indicatif = "0.18"
+# Argument parsing for the runner binaries: per-flag help and defaults
+# beside their declarations, and the mode exclusions (a replay or a
+# compaction takes no measuring flags) enforced declaratively instead of
+# by hand-rolled asserts.
+clap = { version = "4", features = ["derive"] }
 
 # Exact-integer counting tables and proportional choice: uniform sampling
 # is arithmetic over exact counts, never floats.
@@ -63,9 +68,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 # The grid math (log2 bin geometry) must produce identical bits on every
 # host: a dump commits its HeatGrid, and the loader re-derives it
-# bit-for-bit wherever the dump is opened. Platform math libraries
-# disagree by an ulp at bin boundaries; libm's pure-Rust kernels do not.
+# bit-for-bit wherever the dump is opened — and the compact widget
+# datasets are committed and re-derived the same way (fuelscape-verify).
+# Platform math libraries disagree by an ulp at bin boundaries; libm's
+# pure-Rust kernels do not.
 libm = "0.2"
+# The committed dump stores its documents gzipped for tree weight
+# (~242 MB of JSON → ~24 MB); the dump reader decompresses `.json.gz`
+# siblings transparently, so replays and verification read the committed
+# form directly.
+flate2 = "1"
 
 [dev-dependencies]
 proptest = "1"

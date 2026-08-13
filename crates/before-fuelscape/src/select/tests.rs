@@ -9,6 +9,8 @@ fn spec(name: &'static str) -> OpSpec {
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["unused"],
         size_measure: "unused",
+        contract: "unused",
+        claim: "unused",
         measure: |_, _, _| unreachable!("selection never measures"),
     }
 }

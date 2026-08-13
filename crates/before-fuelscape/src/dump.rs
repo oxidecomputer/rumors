@@ -26,6 +26,10 @@
 //! (typst's `json()` loader) reads both the raw samples and the
 //! render-ready cell matrix directly — no converter, no re-binning.
 //!
+//! A committed dump stores its documents gzipped (`<name>.json.gz`, for
+//! tree weight); [`read`] finds and decompresses them transparently
+//! wherever the plain file is absent.
+//!
 //! # Strictness
 //!
 //! A dump is environmental input, so [`read`] rejects malformed dumps
@@ -158,7 +162,7 @@ impl DumpWriter {
 /// Write `bytes` to `path` atomically: a sibling temporary file, then a
 /// rename, so a crash never leaves a torn document where a whole one
 /// stood.
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
@@ -184,7 +188,13 @@ pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<AtlasData>)> {
         .map(Path::to_path_buf)
         .unwrap_or_default();
     let index: IndexDoc = parse(&index_path)?;
-    check_banner(&index_path, &index.format, INDEX_FORMAT, index.version)?;
+    check_banner(
+        &index_path,
+        &index.format,
+        INDEX_FORMAT,
+        index.version,
+        FORMAT_VERSION,
+    )?;
     if index.ops.is_empty() {
         return Err(malformed(&index_path, "the dump names no operations"));
     }
@@ -193,7 +203,13 @@ pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<AtlasData>)> {
     for name in &index.ops {
         let op_path = dir.join(format!("{name}.json"));
         let doc: OpDoc = parse(&op_path)?;
-        check_banner(&op_path, &doc.format, OP_FORMAT, doc.version)?;
+        check_banner(
+            &op_path,
+            &doc.format,
+            OP_FORMAT,
+            doc.version,
+            FORMAT_VERSION,
+        )?;
         if doc.meta != index.meta {
             return Err(malformed(&op_path, "meta differs from the index's"));
         }
@@ -222,19 +238,50 @@ pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<AtlasData>)> {
 }
 
 /// Read and strictly deserialize one dump document.
-fn parse<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
+///
+/// A document may be stored gzipped under `<name>.json.gz` (the
+/// committed dump is, for tree weight); when `path` itself is absent,
+/// the `.gz` sibling is read and decompressed transparently, and every
+/// strictness rejection still names the file it came from.
+pub(crate) fn parse<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            let mut gz = path.as_os_str().to_owned();
+            gz.push(".gz");
+            let gz = Path::new(&gz);
+            let file = std::fs::File::open(gz).map_err(|_| {
+                // Report the plain path's absence: it is the name the
+                // caller asked for; the `.gz` probe is an implementation
+                // detail of the storage.
+                io::Error::new(
+                    e.kind(),
+                    format!("{}: {e} (nor a .gz sibling)", path.display()),
+                )
+            })?;
+            let mut bytes = Vec::new();
+            io::Read::read_to_end(&mut flate2::read::GzDecoder::new(file), &mut bytes)
+                .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", gz.display())))?;
+            bytes
+        }
+        Err(e) => return Err(io::Error::new(e.kind(), format!("{}: {e}", path.display()))),
+    };
     serde_json::from_slice(&bytes).map_err(|e| malformed(path, &e.to_string()))
 }
 
 /// Reject a document whose format banner is not the expected one.
-fn check_banner(path: &Path, format: &str, expected: &str, version: u32) -> io::Result<()> {
-    if format != expected || version != FORMAT_VERSION {
+pub(crate) fn check_banner(
+    path: &Path,
+    format: &str,
+    expected: &str,
+    version: u32,
+    expected_version: u32,
+) -> io::Result<()> {
+    if format != expected || version != expected_version {
         return Err(malformed(
             path,
             &format!(
-                "format {format:?} v{version}, this reader wants {expected:?} v{FORMAT_VERSION}"
+                "format {format:?} v{version}, this reader wants {expected:?} v{expected_version}"
             ),
         ));
     }
@@ -242,7 +289,7 @@ fn check_banner(path: &Path, format: &str, expected: &str, version: u32) -> io::
 }
 
 /// A strictness rejection, named after the offending file.
-fn malformed(path: &Path, why: &str) -> io::Error {
+pub(crate) fn malformed(path: &Path, why: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidData,
         format!("{}: {why}", path.display()),
