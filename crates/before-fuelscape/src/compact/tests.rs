@@ -205,9 +205,11 @@ fn gzipped_documents_read_transparently() {
 }
 
 /// `compact_dump` joins the dump against the roster by operation name
-/// and stamps the row's contract and claim; a dump whose recorded size
-/// measure differs from the roster row's is refused (the measurements
-/// describe an input space the roster no longer declares).
+/// and stamps the row's contract and claim.
+///
+/// A dump whose recorded size measure differs from the roster row's is
+/// refused, as is an operation the roster does not name: the
+/// measurements describe an input space the roster no longer declares.
 #[test]
 fn compact_dump_joins_the_roster_and_rejects_measure_drift() {
     let spec = ROSTER

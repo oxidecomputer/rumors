@@ -878,6 +878,12 @@ impl Default for Rank {
 /// Renders as the exact rational: the numerator alone when integral,
 /// `num/2` if `exp = 1`, `num/2^exp` otherwise.
 ///
+/// # Complexity
+///
+/// Superlinear, subquadratic in the rank's width: decimal conversion.
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html"))]
+///
 /// # Example
 ///
 /// ```
@@ -886,11 +892,6 @@ impl Default for Rank {
 /// let half: Version = "(0, 1, 0)".parse().unwrap();
 /// assert_eq!(half.rank().to_string(), "1/2");
 /// ```
-/// # Complexity
-///
-/// Superlinear, subquadratic in the rank's width: decimal conversion.
-///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html"))]
 impl Display for Rank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.exp {

@@ -39,11 +39,16 @@ fn main() {
     let ops = index["ops"]
         .as_array()
         .expect("fuelscape/index.json: ops is a list");
-    assert!(!ops.is_empty(), "fuelscape/index.json: the dataset names no operations");
+    assert!(
+        !ops.is_empty(),
+        "fuelscape/index.json: the dataset names no operations"
+    );
 
     let mut emitted = String::new();
     for name in ops {
-        let name = name.as_str().expect("fuelscape/index.json: op names are strings");
+        let name = name
+            .as_str()
+            .expect("fuelscape/index.json: op names are strings");
         let file = format!("fuelscape/{name}.json");
         let doc = read_json(Path::new(&file));
         check_banner(&file, &doc, "fuelscape-widget-data");
@@ -59,8 +64,7 @@ fn main() {
         );
         validate(&file, op);
         let island = island(&doc["meta"], op);
-        std::fs::write(dst.join(format!("{name}.html")), island)
-            .expect("island file is writable");
+        std::fs::write(dst.join(format!("{name}.html")), island).expect("island file is writable");
         writeln!(emitted, "{name}").expect("string writes are infallible");
     }
     std::fs::write(dst.join("index"), emitted).expect("island index is writable");
@@ -117,7 +121,9 @@ fn code_spans(contract: &str) -> String {
 }
 
 fn escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn read_json(path: &Path) -> serde_json::Value {
@@ -140,7 +146,10 @@ fn check_banner(file: &str, doc: &serde_json::Value, expected: &str) {
 fn validate(file: &str, op: &serde_json::Value) {
     for key in ["contract", "claim"] {
         let s = op[key].as_str().unwrap_or("");
-        assert!(!s.trim().is_empty(), "{file}: {key} must be a non-empty string");
+        assert!(
+            !s.trim().is_empty(),
+            "{file}: {key} must be a non-empty string"
+        );
     }
     assert!(
         op["res"].as_f64().is_some_and(|r| r.is_finite() && r > 0.0),
@@ -149,7 +158,11 @@ fn validate(file: &str, op: &serde_json::Value) {
     let sizes = op["sizes"].as_array().expect("sizes is a list");
     let cols = op["cols"].as_array().expect("cols is a list");
     assert!(!sizes.is_empty(), "{file}: the size axis is empty");
-    assert_eq!(sizes.len(), cols.len(), "{file}: one histogram per size column");
+    assert_eq!(
+        sizes.len(),
+        cols.len(),
+        "{file}: one histogram per size column"
+    );
     assert!(
         sizes.windows(2).all(|w| w[0].as_u64() < w[1].as_u64()),
         "{file}: the size axis must be strictly ascending"
@@ -158,14 +171,18 @@ fn validate(file: &str, op: &serde_json::Value) {
         let c = col["c"].as_array().expect("histogram counts are a list");
         let ends_nonzero = c.first().is_some_and(|v| v.as_u64() != Some(0))
             && c.last().is_some_and(|v| v.as_u64() != Some(0));
-        assert!(ends_nonzero, "{file}: histograms must be tight and non-empty");
+        assert!(
+            ends_nonzero,
+            "{file}: histograms must be tight and non-empty"
+        );
     }
 }
 
 /// The committed header must be exactly the concatenation of the
-/// committed stylesheet and script: rustdoc flags cannot point into
-/// `$OUT_DIR`, so the header is a derived committed file, and this check
-/// is what keeps it from rotting.
+/// committed stylesheet and script.
+///
+/// rustdoc flags cannot point into `$OUT_DIR`, so the header is a
+/// derived committed file, and this check is what keeps it from rotting.
 fn check_header_fresh() {
     let css = std::fs::read_to_string("docs/fuelscape.css").expect("docs/fuelscape.css");
     let js = std::fs::read_to_string("docs/fuelscape.js").expect("docs/fuelscape.js");

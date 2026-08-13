@@ -143,14 +143,16 @@ pub struct OpSpec {
     pub covers: &'static [&'static str],
     /// The declared size measure, stamped verbatim on the render.
     pub size_measure: &'static str,
-    /// The rustdoc complexity contract this panel's doc island shows,
-    /// display text with backticked code spans (e.g.
-    /// ``"`O(|self| + |party|)`."``); where one doc site carries several
+    /// The rustdoc complexity contract this panel's doc island shows.
+    ///
+    /// Display text with backticked code spans (e.g.
+    /// ``"`O(|self| + |party|)`"``); where one doc site carries several
     /// panels, a leading label distinguishes them ("floor + ceiling:
     /// …"). Compaction stamps it into the committed widget data.
     pub contract: &'static str,
-    /// The claimed bulk growth in the widget's expression grammar,
-    /// denominated in total packed input bytes (e.g. `"n"`,
+    /// The claimed bulk growth, in the widget's expression grammar.
+    ///
+    /// Denominated in total packed input bytes (e.g. `"n"`,
     /// `"n log n"`): the island's default compensation hypothesis, the
     /// one that flattens the measured band. Deliberately the *bulk*
     /// claim, not the contract's worst case — uniform sampling shows
