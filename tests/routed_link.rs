@@ -28,7 +28,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
-use crate::common::routed_tcp::{TcpDial, TcpListen};
+use crate::common::routed_tcp::{PoolingTcpDial, TcpDial, TcpListen};
 use crate::common::wire::bootstrap_fork_async;
 
 /// Bound on one whole suite run; loopback and in-memory checks finish
@@ -161,6 +161,58 @@ async fn conforms_over_tcp_at_minimal_buffers() {
 #[tokio::test]
 async fn conforms_over_tcp_at_minimal_buffers_swapped() {
     tcp_conformance(Some(MINIMAL_BUFFER_REQUEST), false).await;
+}
+
+/// Mint a routed-link pair whose shared dialer pools recycled
+/// connections, so the suite's completed streams ride recycled
+/// connections wherever a pooled one is available.
+async fn pooled_tcp_pair(
+    dialer_first: bool,
+) -> (RoutedLink<PoolingTcpDial>, RoutedLink<PoolingTcpDial>) {
+    let dial = PoolingTcpDial::default();
+    let pooled_endpoint = async |dial: PoolingTcpDial| {
+        let (listen, addr) = TcpListen::bind(None)
+            .await
+            .expect("bind a loopback listener");
+        let (endpoint, incoming, router) = Endpoint::new(listen, addr, dial, Config::default())
+            .expect("an unscoped loopback name is routable");
+        tokio::spawn(router);
+        (endpoint, incoming, addr)
+    };
+    let (_a, mut a_incoming, a_addr) = pooled_endpoint(dial.clone()).await;
+    let (b, _b_incoming, _b_addr) = pooled_endpoint(dial).await;
+    let (linked, arrival) = tokio::join!(b.link(a_addr), a_incoming.accept());
+    let dialed = linked.expect("establishment succeeds");
+    let (_info, accepted) = arrival.expect("the router delivers the link");
+    if dialer_first {
+        (dialed, accepted)
+    } else {
+        (accepted, dialed)
+    }
+}
+
+/// The suite holds when completed streams ride recycled connections:
+/// pooling is invisible to every clause the contract states.
+#[tokio::test]
+async fn conforms_over_tcp_with_a_pooling_dial() {
+    timeout(
+        SUITE_TIMEOUT,
+        rumors::conformance::link::check(async || pooled_tcp_pair(true).await),
+    )
+    .await
+    .expect("conformance suite ran past its liveness bound");
+}
+
+/// The pooling suite with the pair's seats swapped, as for the plain
+/// TCP variants.
+#[tokio::test]
+async fn conforms_over_tcp_with_a_pooling_dial_swapped() {
+    timeout(
+        SUITE_TIMEOUT,
+        rumors::conformance::link::check(async || pooled_tcp_pair(false).await),
+    )
+    .await
+    .expect("conformance suite ran past its liveness bound");
 }
 
 /// The adapter conforms over the in-memory network too: nothing in

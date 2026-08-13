@@ -39,7 +39,7 @@ use std::time::Duration;
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
-use rumors::link::{Acceptor, Connector, Link, STREAM_COUNT};
+use rumors::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
 use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Key, Peer, Protocol, Rumors};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
@@ -234,7 +234,7 @@ struct TracedConnector {
 impl Connector for TracedConnector {
     type Tx = TracedWriter;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         let (tx, rx) = delayed_pipe(CAPACITY, DELAY);
         let pipe = PipeId {
             side: self.side,
@@ -248,11 +248,14 @@ impl Connector for TracedConnector {
             })
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "peer link is gone"))?;
-        Ok(TracedWriter {
-            inner: tx,
-            pipe,
-            trace: self.trace.clone(),
-        })
+        Ok((
+            TracedWriter {
+                inner: tx,
+                pipe,
+                trace: self.trace.clone(),
+            },
+            Done::discard(),
+        ))
     }
 }
 
@@ -264,10 +267,11 @@ struct TracedAcceptor {
 impl Acceptor for TracedAcceptor {
     type Rx = TracedReader;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         self.streams
             .recv()
             .await
+            .map(|rx| (rx, Done::discard()))
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "peer link is gone"))
     }
 }

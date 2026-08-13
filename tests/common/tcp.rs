@@ -24,7 +24,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use rumors::link::{Acceptor, Connector, Link, STREAM_COUNT};
+use rumors::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{
     TcpListener, TcpSocket, TcpStream,
@@ -108,7 +108,7 @@ pub struct TcpConnector(Arc<Target>);
 impl Connector for TcpConnector {
     type Tx = OwnedWriteHalf;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         let stream = match self.0.send_buffer {
             None => TcpStream::connect(self.0.peer).await?,
             Some(send) => {
@@ -122,7 +122,7 @@ impl Connector for TcpConnector {
         // dropping it later half-closes toward the peer. The unread half is
         // dropped now; the peer never writes on this socket.
         drop(read);
-        Ok(write)
+        Ok((write, Done::discard()))
     }
 }
 
@@ -132,12 +132,12 @@ pub struct TcpAcceptor(TcpListener);
 impl Acceptor for TcpAcceptor {
     type Rx = OwnedReadHalf;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         let (stream, _) = self.0.accept().await?;
         let (read, write) = stream.into_split();
         // Half-close our unused direction immediately; the peer never reads
         // this socket, so the shutdown is invisible to it.
         drop(write);
-        Ok(read)
+        Ok((read, Done::discard()))
     }
 }

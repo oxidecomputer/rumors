@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use tokio::io::ReadBuf;
 
-use crate::link::{Acceptor, Connector, Link, MemoryLink, memory_with_capacity};
+use crate::link::{Acceptor, Connector, Done, Link, MemoryLink, memory_with_capacity};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
 use crate::tree::mirror::framing::{GREETING_WORD_LEN, LENGTH_HEADER_LEN};
 use crate::tree::mirror::streaming::window::WindowConfig;
@@ -244,9 +244,9 @@ pub struct ScriptedConnector<C> {
 impl<C: Connector> Connector for ScriptedConnector<C> {
     type Tx = ScriptedWrite<C::Tx>;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
-        let tx = self.inner.connect().await?;
-        Ok(ScriptedWrite::new(tx, self.script.clone()))
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
+        let (tx, _) = self.inner.connect().await?;
+        Ok((ScriptedWrite::new(tx, self.script.clone()), Done::discard()))
     }
 }
 

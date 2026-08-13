@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::future::Future;
 use std::io;
 use std::pin::pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::{Either, select, try_join};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 
 use super::header::{self, Token};
 use super::{Config, Dial, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, RoutedLink};
@@ -78,11 +81,11 @@ async fn transfer<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     Ab: Acceptor,
 {
     let open = async {
-        let mut tx = opener.connector.connect().await.expect("stream opens");
+        let (mut tx, _) = opener.connector.connect().await.expect("stream opens");
         tx.write_all(payload).await.expect("payload writes");
     };
     let read = async {
-        let mut rx = acceptor.acceptor.accept().await.expect("stream arrives");
+        let (mut rx, _) = acceptor.acceptor.accept().await.expect("stream arrives");
         let mut received = Vec::new();
         rx.read_to_end(&mut received)
             .await
@@ -429,14 +432,14 @@ fn cancelled_opens_leave_the_link_usable() {
             // a connection that closes unwritten; drain any such
             // orphans until the genuine payload arrives.
             let open = async {
-                let mut tx = at_b.connector.connect().await.expect("stream opens");
+                let (mut tx, _) = at_b.connector.connect().await.expect("stream opens");
                 tx.write_all(b"after cancellations")
                     .await
                     .expect("payload writes");
             };
             let read = async {
                 loop {
-                    let mut rx = at_a.acceptor.accept().await.expect("stream arrives");
+                    let (mut rx, _) = at_a.acceptor.accept().await.expect("stream arrives");
                     let mut received = Vec::new();
                     rx.read_to_end(&mut received)
                         .await
@@ -448,6 +451,133 @@ fn cancelled_opens_leave_the_link_usable() {
             };
             let ((), received) = futures::join!(open, read);
             assert_eq!(received, b"after cancellations");
+            drop((a, b));
+        })
+        .await;
+    });
+}
+
+/// Open one stream from `opener` to `acceptor`, move `payload` across
+/// it, and end it by completion on both halves: the receiver reads
+/// exactly the payload and completes there, never probing for
+/// end-of-stream.
+async fn transfer_completed<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
+    opener: &Link<CRa, CWa, Ca, Aa>,
+    acceptor: &mut Link<CRb, CWb, Cb, Ab>,
+    payload: &[u8],
+) where
+    Ca: Connector,
+    Ab: Acceptor,
+{
+    let open = async {
+        let (mut tx, done) = opener.connector.connect().await.expect("stream opens");
+        tx.write_all(payload).await.expect("payload writes");
+        tx.flush().await.expect("payload flushes");
+        done.complete(tx);
+    };
+    let read = async {
+        let (mut rx, done) = acceptor.acceptor.accept().await.expect("stream arrives");
+        let mut received = vec![0u8; payload.len()];
+        rx.read_exact(&mut received)
+            .await
+            .expect("the completed stream delivers its bytes");
+        done.complete(rx);
+        received
+    };
+    let ((), received) = futures::join!(open, read);
+    assert_eq!(received, payload);
+}
+
+/// A dialer that pools recycled connections per peer and counts the
+/// fresh dials it performs: how the reuse tests observe which streams
+/// paid for a connection.
+#[derive(Clone)]
+struct PoolingDial {
+    inner: MemoryDial,
+    pool: Arc<Mutex<HashMap<String, Vec<DuplexStream>>>>,
+    fresh: Arc<AtomicUsize>,
+}
+
+impl PoolingDial {
+    fn new(net: &MemoryNet) -> Self {
+        PoolingDial {
+            inner: net.dial(),
+            pool: Arc::default(),
+            fresh: Arc::default(),
+        }
+    }
+
+    fn fresh_dials(&self) -> usize {
+        self.fresh.load(Ordering::Relaxed)
+    }
+}
+
+impl Dial for PoolingDial {
+    type Addr = MemoryName;
+    type Conn = DuplexStream;
+
+    async fn dial(&self, addr: &MemoryName) -> io::Result<DuplexStream> {
+        let pooled = self
+            .pool
+            .lock()
+            .expect("pool lock")
+            .get_mut(&addr.0)
+            .and_then(Vec::pop);
+        if let Some(conn) = pooled {
+            return Ok(conn);
+        }
+        self.fresh.fetch_add(1, Ordering::Relaxed);
+        self.inner.dial(addr).await
+    }
+
+    fn recycle(&self, peer: &MemoryName, conn: DuplexStream) {
+        self.pool
+            .lock()
+            .expect("pool lock")
+            .entry(peer.0.clone())
+            .or_default()
+            .push(conn);
+    }
+}
+
+/// A completed stream's connection carries the next stream instead of
+/// a fresh dial.
+///
+/// The write half hands it back through [`Dial::recycle`], the read
+/// half returns it to the router for its next connect header, and the
+/// recycled connection routes exactly as a dialed one would — in both
+/// directions of the link.
+#[test]
+fn completed_streams_reuse_their_connection() {
+    pollster::block_on(async {
+        let net = MemoryNet::new();
+        let dial = PoolingDial::new(&net);
+        let a_name = MemoryName::new("a");
+        let (a, mut a_incoming, a_router) =
+            Endpoint::new(net.listen(&a_name), a_name, dial.clone(), Config::default())
+                .expect("a valid construction");
+        let b_name = MemoryName::new("b");
+        let (b, _b_incoming, b_router) =
+            Endpoint::new(net.listen(&b_name), b_name, dial.clone(), Config::default())
+                .expect("a valid construction");
+        drive(routers(a_router, b_router), async {
+            let (linked, arrival) =
+                futures::join!(b.link(MemoryName::new("a")), a_incoming.accept());
+            let at_b = linked.expect("establishment succeeds");
+            let (_info, mut at_a) = arrival.expect("the router delivers the link");
+            let established = dial.fresh_dials();
+
+            // Forward: the first stream dials, the second rides its
+            // recycled connection.
+            transfer_completed(&at_b, &mut at_a, b"paid by a dial").await;
+            transfer_completed(&at_b, &mut at_a, b"rides recycled").await;
+            assert_eq!(dial.fresh_dials(), established + 1);
+
+            // Reverse: the accepting side's dial-back pools the same way.
+            let mut at_b = at_b;
+            transfer_completed(&at_a, &mut at_b, b"paid by a dial").await;
+            transfer_completed(&at_a, &mut at_b, b"rides recycled").await;
+            assert_eq!(dial.fresh_dials(), established + 2);
             drop((a, b));
         })
         .await;

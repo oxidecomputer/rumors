@@ -1,4 +1,10 @@
 //! One link's stream supply: dial-per-open out, routed queue in.
+//!
+//! Completion recovers the connection on both sides. The write half
+//! goes back to its [`Dial`] through [`Dial::recycle`], and the read
+//! half returns to the router, which reads its next connect header
+//! there. A dropped half drops its connection instead, whose close is
+//! the transport half-close the peer observes as an abort.
 
 use std::io;
 
@@ -7,16 +13,14 @@ use tokio::sync::mpsc;
 
 use super::header::{self, Token};
 use super::router::Registration;
-use super::{Acceptor, Conn, Connector, Dial};
+use super::{Acceptor, Conn, Connector, Dial, Done};
 
-/// A routed link's [`Connector`]: every open dials one fresh
-/// connection to the peer's router and labels it with the link's
-/// token.
+/// A routed link's [`Connector`]: every open dials one connection to
+/// the peer's router and labels it with the link's token.
 ///
-/// The returned stream *is* the connection, so dropping it is the
-/// transport half-close (the peer reads the final bytes, then
-/// end-of-stream), and no open ever waits on another stream's
-/// progress: the opens share nothing but the dialer.
+/// Whether "dials" means a fresh connection or a recovered one is the
+/// [`Dial`]'s policy: a dial that pools what [`Dial::recycle`] hands
+/// back pays no new connection setup for the next stream.
 pub struct StreamConnector<D: Dial> {
     dial: D,
     peer: D::Addr,
@@ -43,10 +47,12 @@ impl<D: Dial> Clone for StreamConnector<D> {
 impl<D: Dial> Connector for StreamConnector<D> {
     type Tx = D::Conn;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         let mut conn = self.dial.dial(&self.peer).await?;
         conn.write_all(&header::stream_header(&self.token)).await?;
-        Ok(conn)
+        let dial = self.dial.clone();
+        let peer = self.peer.clone();
+        Ok((conn, Done::new(move |conn| dial.recycle(&peer, conn))))
     }
 }
 
@@ -58,7 +64,7 @@ impl<D: Dial> Connector for StreamConnector<D> {
 /// link's claim on its routing token, tying the routing to the link's
 /// own lifetime: dropping the link revokes its token at that moment.
 pub struct StreamAcceptor<C> {
-    streams: mpsc::Receiver<C>,
+    streams: mpsc::Receiver<(C, Done<C>)>,
     /// Revokes this link's token when the acceptor drops.
     _registration: Registration<C>,
 }
@@ -66,7 +72,10 @@ pub struct StreamAcceptor<C> {
 impl<C> StreamAcceptor<C> {
     /// Bundle a link's incoming supply around its routed queue and
     /// token claim.
-    pub(super) fn new(streams: mpsc::Receiver<C>, registration: Registration<C>) -> Self {
+    pub(super) fn new(
+        streams: mpsc::Receiver<(C, Done<C>)>,
+        registration: Registration<C>,
+    ) -> Self {
         StreamAcceptor {
             streams,
             _registration: registration,
@@ -77,7 +86,7 @@ impl<C> StreamAcceptor<C> {
 impl<C: Conn> Acceptor for StreamAcceptor<C> {
     type Rx = C;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         // The router holds this queue's only sender, and removes it
         // exactly when it evicts the link (a queue overflow, which
         // proves peer misbehavior). Queued deliveries drain first, so

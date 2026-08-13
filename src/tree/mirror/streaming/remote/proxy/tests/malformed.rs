@@ -182,10 +182,16 @@ fn duplicated_reply_is_rejected_as_unasked() {
     assert!(right_result.is_err());
 }
 
-/// Duplicating a stream-end frame is rejected as traffic after closure rather
-/// than being mistaken for a second clean end.
+/// Bytes past a stream's end control belong to the transport, not the
+/// session: a duplicated stream-end frame is never read, and the session
+/// completes as if it were absent.
+///
+/// The receiver completes its transport half exactly at the end control
+/// (the link contract's completion clause), so trailing bytes are left
+/// where they lie — on a reusing link they would be the next stream's
+/// connect header — rather than parsed as protocol.
 #[test]
-fn duplicate_stream_end_is_rejected_by_the_session() {
+fn bytes_past_the_stream_end_are_never_read() {
     const STREAM_END_STATE: u8 = 9;
 
     for corrupt_left in [false, true] {
@@ -200,13 +206,12 @@ fn duplicate_stream_end_is_rejected_by_the_session() {
             corrupt_left.then(|| script.clone()),
             (!corrupt_left).then(|| script.clone()),
         ))
-        .expect("duplicate stream end must terminate both sessions");
+        .expect("sessions complete despite the trailing frame");
         assert!(script.fired(), "no stream-end frame reached the mutator");
-        assert!(matches!(
-            receiving_error(corrupt_left, &left_result, &right_result),
-            RemoteError::Stream(StreamError::AfterEnd { .. })
-        ));
-        assert!(left_result.is_err());
-        assert!(right_result.is_err());
+        assert!(left_result.is_ok(), "left session failed: {left_result:?}");
+        assert!(
+            right_result.is_ok(),
+            "right session failed: {right_result:?}"
+        );
     }
 }

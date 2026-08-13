@@ -297,12 +297,15 @@ struct FusedConnector {
 impl Connector for FusedConnector {
     type Tx = Fuse<tokio::io::DuplexStream>;
 
-    async fn connect(&self) -> std::io::Result<Self::Tx> {
-        let inner = self.inner.connect().await?;
-        Ok(Fuse {
-            inner,
-            remaining: Arc::clone(&self.remaining),
-        })
+    async fn connect(&self) -> std::io::Result<(Self::Tx, crate::link::Done<Self::Tx>)> {
+        let (inner, _) = self.inner.connect().await?;
+        Ok((
+            Fuse {
+                inner,
+                remaining: Arc::clone(&self.remaining),
+            },
+            crate::link::Done::discard(),
+        ))
     }
 }
 

@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use rumors::link::{
-    Acceptor, Connector, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink,
+    Acceptor, Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink,
 };
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
@@ -149,15 +149,19 @@ impl<C: Clone> Clone for FaultConnector<C> {
 impl<C: Connector> Connector for FaultConnector<C> {
     type Tx = Fuse<C::Tx>;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         // A dead write direction cannot open new streams either; this is
         // what lets a cut exercise `SendError::Connect` deterministically
         // instead of only through real-transport races.
         if *self.budget.lock().expect("write budget lock") == 0 {
             return Err(write_severed());
         }
-        let tx = self.inner.connect().await?;
-        Ok(Fuse::new(tx, self.budget.clone()))
+        let (tx, done) = self.inner.connect().await?;
+        // Completion unwraps the fuse and passes the half through.
+        Ok((
+            Fuse::new(tx, self.budget.clone()),
+            Done::new(move |fuse: Fuse<C::Tx>| done.complete(fuse.inner)),
+        ))
     }
 }
 
@@ -171,15 +175,19 @@ pub struct FaultAcceptor<A> {
 impl<A: Acceptor> Acceptor for FaultAcceptor<A> {
     type Rx = Cut<A::Rx>;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         // A dead read direction cannot deliver new streams either; this
         // reaches the session's deferred supply-failure path (the parked
         // accept driver) deterministically rather than only via races.
         if *self.budget.lock().expect("read budget lock") == 0 {
             return Err(read_severed());
         }
-        let rx = self.inner.accept().await?;
-        Ok(Cut::new(rx, self.budget.clone()))
+        let (rx, done) = self.inner.accept().await?;
+        // Completion unwraps the cut and passes the half through.
+        Ok((
+            Cut::new(rx, self.budget.clone()),
+            Done::new(move |cut: Cut<A::Rx>| done.complete(cut.inner)),
+        ))
     }
 }
 

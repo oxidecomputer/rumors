@@ -318,6 +318,24 @@ Accepted failure modes, stated rather than hidden:
   the cross-stream wait the concurrency clause forbids (and qorb's
   default `max_slots = 16` is below one session's worst-case 18).
   Recorded here so the future evaluation starts from these facts.
+- **DECIDED (2026-08-13): completed streams recover their
+  connections.** Supersedes the single-use decision above; the future
+  case it named arrived (an attested-handshake transport whose RoT
+  serializes handshakes at roughly one per second). The door was not
+  the header after all: no new kind, and no layer-A framing either.
+  The protocol already ends every stream with an in-band end control,
+  so the receiver stopped demanding transport EOF behind it, and the
+  link contract now pairs every stream half with a completion handle
+  (`Done`) invoked exactly at that boundary. The write half goes back
+  to the `Dial` (`recycle`, defaulting to today's drop), the read half
+  back to the router to await its next connect header; a dropped half
+  remains the abort, observed as EOF. Trailing-byte ambiguity does not
+  arise: the codec's reads are exact, so a completed stream leaves the
+  next header untouched, and bytes past an end control belong to the
+  transport, never the session. The half-close rows in the mapping
+  table above describe the abort path only. The qorb facts in the
+  previous entry stand for the pooling `Dial` a deployment builds on
+  `recycle`.
 - **DECIDED (2026-07-29): no peer discovery.** `link()` takes an
   explicit `Addr`. Discovery composes above the adapter (any resolver
   feeding addresses in the caller's namespace) and below it (a `Dial`

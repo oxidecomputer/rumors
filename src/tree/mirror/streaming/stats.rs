@@ -247,6 +247,11 @@ impl<W> CountedWrite<W> {
     pub fn new(inner: W, recorder: Recorder) -> Self {
         Self { inner, recorder }
     }
+
+    /// Recover the transport half; the counter holds no bytes.
+    pub fn into_inner(self) -> W {
+        self.inner
+    }
 }
 
 impl<W: AsyncWrite + Unpin> AsyncWrite for CountedWrite<W> {
@@ -290,6 +295,11 @@ impl<R> CountedRead<R> {
     /// Wrap `inner`, crediting its delivered bytes to `recorder`.
     pub fn new(inner: R, recorder: Recorder) -> Self {
         Self { inner, recorder }
+    }
+
+    /// Recover the transport half; the counter holds no bytes.
+    pub fn into_inner(self) -> R {
+        self.inner
     }
 }
 

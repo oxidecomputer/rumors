@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::link::{
-    Acceptor, Connector, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink,
+    Acceptor, Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink,
     STREAM_COUNT, memory, memory_with_capacity,
 };
 use crate::testing::{Quiescence, run_to_quiescence};
@@ -49,7 +49,7 @@ fn one_byte_windows_conform() {
 /// loudly instead of silently.
 struct ReversingAcceptor<A: Acceptor> {
     inner: A,
-    held: VecDeque<A::Rx>,
+    held: VecDeque<(A::Rx, Done<A::Rx>)>,
     /// Arrivals buffered before each reversed release.
     batch: usize,
     /// Batches of two or more released: genuine inversions.
@@ -59,7 +59,7 @@ struct ReversingAcceptor<A: Acceptor> {
 impl<A: Acceptor> Acceptor for ReversingAcceptor<A> {
     type Rx = A::Rx;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         if let Some(held) = self.held.pop_front() {
             return Ok(held);
         }
@@ -165,7 +165,7 @@ struct LossyAcceptor<A: Acceptor> {
 impl<A: Acceptor> Acceptor for LossyAcceptor<A> {
     type Rx = A::Rx;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         let rx = self.inner.accept().await?;
         // The loss window: one self-waking yield with the dequeued stream
         // held only in this future's state.
@@ -269,7 +269,7 @@ struct MuxConnector {
 impl Connector for MuxConnector {
     type Tx = MuxTx;
 
-    async fn connect(&self) -> io::Result<MuxTx> {
+    async fn connect(&self) -> io::Result<(MuxTx, Done<MuxTx>)> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         // Reserve the close frame's FIFO slot up front, so the drop-time
         // close can be sent synchronously and is never lost to a full FIFO.
@@ -283,13 +283,16 @@ impl Connector for MuxConnector {
             .send(MuxFrame::Open(id))
             .await
             .map_err(|_| mux_gone())?;
-        Ok(MuxTx {
-            id,
-            wire: self.wire.clone(),
-            close: Some(close),
-            in_flight: None,
-            claimed: 0,
-        })
+        Ok((
+            MuxTx {
+                id,
+                wire: self.wire.clone(),
+                close: Some(close),
+                in_flight: None,
+                claimed: 0,
+            },
+            Done::discard(),
+        ))
     }
 }
 
@@ -431,19 +434,22 @@ struct MuxAcceptor {
 impl Acceptor for MuxAcceptor {
     type Rx = MuxRx;
 
-    async fn accept(&mut self) -> io::Result<MuxRx> {
+    async fn accept(&mut self) -> io::Result<(MuxRx, Done<MuxRx>)> {
         loop {
             {
                 let mut state = self.demux.lock().await;
                 if let Some(queue) = state.announced.pop_front() {
-                    return Ok(MuxRx {
-                        queue,
-                        demux: self.demux.clone(),
-                        buffer: Vec::new(),
-                        cursor: 0,
-                        pump: None,
-                        ended: false,
-                    });
+                    return Ok((
+                        MuxRx {
+                            queue,
+                            demux: self.demux.clone(),
+                            buffer: Vec::new(),
+                            cursor: 0,
+                            pump: None,
+                            ended: false,
+                        },
+                        Done::discard(),
+                    ));
                 }
             }
             mux_pump(&self.demux).await?;
@@ -601,18 +607,21 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for CappedTx<T> {
 impl<C: Connector> Connector for CappedConnector<C> {
     type Tx = CappedTx<C::Tx>;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         let permit = self
             .permits
             .clone()
             .acquire_owned()
             .await
             .expect("the fixture semaphore is never closed");
-        let inner = self.inner.connect().await?;
-        Ok(CappedTx {
-            inner,
-            _permit: permit,
-        })
+        let (inner, _) = self.inner.connect().await?;
+        Ok((
+            CappedTx {
+                inner,
+                _permit: permit,
+            },
+            Done::discard(),
+        ))
     }
 }
 
@@ -743,12 +752,15 @@ struct WindowedConnector {
 impl Connector for WindowedConnector {
     type Tx = WindowedTx<DuplexStream>;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
-        let inner = self.inner.connect().await?;
-        Ok(WindowedTx {
-            inner,
-            window: self.window.clone(),
-        })
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
+        let (inner, _) = self.inner.connect().await?;
+        Ok((
+            WindowedTx {
+                inner,
+                window: self.window.clone(),
+            },
+            Done::discard(),
+        ))
     }
 }
 
@@ -762,12 +774,15 @@ struct WindowedAcceptor {
 impl Acceptor for WindowedAcceptor {
     type Rx = WindowedRx<DuplexStream>;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
-        let inner = self.inner.accept().await?;
-        Ok(WindowedRx {
-            inner,
-            window: self.window.clone(),
-        })
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
+        let (inner, _) = self.inner.accept().await?;
+        Ok((
+            WindowedRx {
+                inner,
+                window: self.window.clone(),
+            },
+            Done::discard(),
+        ))
     }
 }
 

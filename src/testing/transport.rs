@@ -13,6 +13,8 @@ use std::{
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use crate::link::Done;
+
 /// Which endpoint owns an observed transport operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Side {
@@ -51,8 +53,8 @@ pub enum FaultUnit {
 /// A read fault fires in place of the first *payload-bearing* read beyond
 /// the prefix: end-of-stream probes pass through untouched. This keeps
 /// "would the fault fire?" a function of the clean run's successful-read
-/// counts alone — the link world checks for end-of-stream after every
-/// stream's end control, so attempts-after-last-success are structural and
+/// counts alone — the control stream reads for a clean goodbye at every
+/// session boundary, so attempts-after-last-success are structural and
 /// must not trip an operations-counted fault.
 ///
 /// Stream-supply faults follow the same discipline, counted in operations
@@ -561,7 +563,7 @@ impl<C: Clone> Clone for AdversarialConnector<C> {
 impl<C: crate::link::Connector> crate::link::Connector for AdversarialConnector<C> {
     type Tx = AdversarialWrite<C::Tx>;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         // The fault fires in place of the call: a healthy supply's connects
         // always succeed, so the clean run's success count is also its call
         // count and "would the fault fire?" remains a function of it.
@@ -573,13 +575,17 @@ impl<C: crate::link::Connector> crate::link::Connector for AdversarialConnector<
         {
             return Err(error);
         }
-        let tx = self.inner.connect().await?;
+        let (tx, done) = self.inner.connect().await?;
         self.state
             .lock()
             .expect("transport state lock")
             .report
             .connects += 1;
-        Ok(wrap_write(tx, self.state.clone()))
+        // Completion unwraps the adversity and passes the half through.
+        Ok((
+            wrap_write(tx, self.state.clone()),
+            Done::new(move |wrapped: AdversarialWrite<C::Tx>| done.complete(wrapped.inner)),
+        ))
     }
 }
 
@@ -593,7 +599,7 @@ pub struct AdversarialAcceptor<A> {
 impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> {
     type Rx = AdversarialRead<A::Rx>;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         // An already-injected accept fault keeps failing without consuming
         // further arrivals.
         {
@@ -604,7 +610,7 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> 
                 return Err(error);
             }
         }
-        let rx = self.inner.accept().await?;
+        let (rx, done) = self.inner.accept().await?;
         let mut state = self.state.lock().expect("transport state lock");
         // The fault fires in place of a successful accept, so the final
         // forever-pending accept a session parks on against an honest peer
@@ -617,11 +623,15 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> 
         }
         state.report.accepts += 1;
         drop(state);
-        Ok(AdversarialRead {
-            inner: rx,
-            state: self.state.clone(),
-            delay: None,
-        })
+        // Completion unwraps the adversity and passes the half through.
+        Ok((
+            AdversarialRead {
+                inner: rx,
+                state: self.state.clone(),
+                delay: None,
+            },
+            Done::new(move |wrapped: AdversarialRead<A::Rx>| done.complete(wrapped.inner)),
+        ))
     }
 }
 
@@ -659,7 +669,7 @@ const REORDER_PATIENCE: u8 = 32;
 /// does not depend on the public `conformance` feature.
 pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
     inner: A,
-    held: VecDeque<A::Rx>,
+    held: VecDeque<(A::Rx, Done<A::Rx>)>,
     /// Arrivals buffered before each reversed release.
     batch: usize,
     /// Batches of two or more released: genuine inversions.
@@ -669,7 +679,7 @@ pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
 impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
     type Rx = A::Rx;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         if let Some(held) = self.held.pop_front() {
             return Ok(held);
         }

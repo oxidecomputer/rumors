@@ -25,8 +25,9 @@ impl<W> FrameWrite<W> {
         Self { speaker, write }
     }
 
-    /// Recover the transport writer without buffered frame state.
-    #[cfg(test)]
+    /// Recover the transport writer without buffered frame state. Every
+    /// frame is flushed as it is written, so between frames the writer
+    /// rests exactly at a frame boundary.
     pub fn into_inner(self) -> W {
         self.write
     }

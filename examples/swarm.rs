@@ -148,7 +148,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
-use rumors::link::{Connector, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink};
+use rumors::link::{Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink};
 use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
@@ -1159,13 +1159,16 @@ struct CountConnector {
 impl Connector for CountConnector {
     type Tx = CountWrite<DuplexStream>;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
-        let tx = self.inner.connect().await?;
-        Ok(CountWrite {
-            inner: tx,
-            wire_bytes: Arc::clone(&self.wire_bytes),
-            rounds: None,
-        })
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
+        let (tx, _) = self.inner.connect().await?;
+        Ok((
+            CountWrite {
+                inner: tx,
+                wire_bytes: Arc::clone(&self.wire_bytes),
+                rounds: None,
+            },
+            Done::discard(),
+        ))
     }
 }
 

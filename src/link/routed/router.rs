@@ -40,17 +40,18 @@ use tokio::sync::mpsc::error::TrySendError;
 use super::endpoint::{Arrival, LinkInfo};
 use super::header::{self, Header, Token};
 use super::stream::{StreamAcceptor, StreamConnector};
-use super::{Dial, Link, Listen};
+use super::{Dial, Done, Link, Listen};
 use crate::link::STREAM_COUNT;
 
 /// The routing table: each live link's token, mapped to the bounded
-/// queue its acceptor drains.
+/// queue its acceptor drains. Each delivery carries the [`Done`] that
+/// returns a completed stream's connection to the router.
 ///
 /// Shared between the router (inserts on inbound links, removes on
 /// eviction), the endpoint (inserts on outbound links), and every
 /// link's [`Registration`] (removes on drop). The mutex is never held
 /// across an await.
-pub(super) type Table<C> = Arc<Mutex<HashMap<Token, mpsc::Sender<C>>>>;
+pub(super) type Table<C> = Arc<Mutex<HashMap<Token, mpsc::Sender<(C, Done<C>)>>>>;
 
 /// Lock the table, riding through a poisoning panic.
 ///
@@ -58,9 +59,10 @@ pub(super) type Table<C> = Arc<Mutex<HashMap<Token, mpsc::Sender<C>>>>;
 /// elsewhere cannot leave the map torn; continuing lets the surviving
 /// side of a panicked test observe eviction rather than a poison
 /// cascade.
+#[allow(clippy::type_complexity)]
 fn entries<C>(
-    table: &Mutex<HashMap<Token, mpsc::Sender<C>>>,
-) -> MutexGuard<'_, HashMap<Token, mpsc::Sender<C>>> {
+    table: &Mutex<HashMap<Token, mpsc::Sender<(C, Done<C>)>>>,
+) -> MutexGuard<'_, HashMap<Token, mpsc::Sender<(C, Done<C>)>>> {
     table
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -96,7 +98,10 @@ impl<C> Drop for Registration<C> {
 ///
 /// Collisions are astronomically unlikely at the token's width; the
 /// loop makes the vacancy structural rather than probabilistic.
-pub(super) fn register<C>(table: &Table<C>) -> (Token, Registration<C>, mpsc::Receiver<C>) {
+#[allow(clippy::type_complexity)]
+pub(super) fn register<C>(
+    table: &Table<C>,
+) -> (Token, Registration<C>, mpsc::Receiver<(C, Done<C>)>) {
     let (sender, receiver) = mpsc::channel(STREAM_COUNT);
     let mut sender = Some(sender);
     let token = loop {
@@ -127,6 +132,13 @@ where
     D: Dial,
     L: Listen<Conn = D::Conn>,
 {
+    // Connections coming back from completed streams, to await their
+    // next header beside fresh arrivals. The queue is bounded by the
+    // same budget as the pending reads it feeds, and its send never
+    // blocks: a return finding it full is dropped, the eviction the
+    // pending bound would deal it anyway. (Declared before `pending`,
+    // whose futures borrow the sender.)
+    let (returns, mut returned) = mpsc::channel::<D::Conn>(pending_headers);
     let mut pending = FuturesUnordered::new();
     // Insertion-ordered abort handles for the pending reads, so the
     // count bound evicts oldest-first; ids reconcile the two
@@ -134,29 +146,29 @@ where
     let mut order: VecDeque<(u64, AbortHandle)> = VecDeque::new();
     let mut next_id: u64 = 0;
     loop {
-        tokio::select! {
-            accepted = listen.accept() => {
-                let conn = accepted?;
-                if order.len() >= pending_headers
-                    && let Some((_, oldest)) = order.pop_front()
-                {
-                    oldest.abort();
-                }
-                let (abort, registration) = AbortHandle::new_pair();
-                let id = next_id;
-                next_id += 1;
-                order.push_back((id, abort));
-                pending.push(Abortable::new(
-                    route(conn, dial.clone(), &table, &incoming, id),
-                    registration,
-                ));
-            }
+        let conn = tokio::select! {
+            accepted = listen.accept() => accepted?,
+            Some(conn) = returned.recv() => conn,
             Some(finished) = pending.next() => {
                 if let Ok(id) = finished {
                     order.retain(|(pending_id, _)| *pending_id != id);
                 }
+                continue;
             }
+        };
+        if order.len() >= pending_headers
+            && let Some((_, oldest)) = order.pop_front()
+        {
+            oldest.abort();
         }
+        let (abort, registration) = AbortHandle::new_pair();
+        let id = next_id;
+        next_id += 1;
+        order.push_back((id, abort));
+        pending.push(Abortable::new(
+            route(conn, dial.clone(), &table, &incoming, &returns, id),
+            registration,
+        ));
     }
 }
 
@@ -170,12 +182,13 @@ async fn route<D: Dial>(
     dial: D,
     table: &Table<D::Conn>,
     incoming: &mpsc::Sender<Arrival<D>>,
+    returns: &mpsc::Sender<D::Conn>,
     id: u64,
 ) -> u64 {
     // A failure here is a connection that never became anyone's
     // stream: the dialer observes the drop as transport failure, and
     // there is no one else to tell.
-    let _ = deliver(conn, dial, table, incoming).await;
+    let _ = deliver(conn, dial, table, incoming, returns).await;
     id
 }
 
@@ -185,6 +198,7 @@ async fn deliver<D: Dial>(
     dial: D,
     table: &Table<D::Conn>,
     incoming: &mpsc::Sender<Arrival<D>>,
+    returns: &mpsc::Sender<D::Conn>,
 ) -> io::Result<()> {
     match header::read::<D::Addr, _>(&mut conn).await? {
         Header::Stream { token } => {
@@ -194,7 +208,15 @@ async fn deliver<D: Dial>(
                 // on the dialing side, which owns the retry.
                 return Ok(());
             };
-            match queue.try_send(conn) {
+            let returns = returns.clone();
+            // A completed stream hands its connection back through this
+            // sender, which never blocks (the module's no-await
+            // discipline). A return dropped on a full queue or stopped
+            // router degrades to an abort, which the dialer heals.
+            let done = Done::new(move |conn| {
+                let _ = returns.try_send(conn);
+            });
+            match queue.try_send((conn, done)) {
                 Ok(()) => {}
                 // A full queue proves peer misbehavior (an honest peer
                 // never exceeds a session's complement, and the queue

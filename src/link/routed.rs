@@ -19,8 +19,16 @@
 //! header and hands the connection — whole, never its bytes — to that
 //! link's bounded queue, where the link's [`Acceptor`] collects it. A
 //! link's first connection carries the control stream; each later one
-//! is a single unidirectional data stream, closed by dropping its write
-//! end.
+//! carries a single unidirectional data stream at a time.
+//!
+//! A data stream ends one of two ways, the link contract's completion
+//! clause. Completed at its clean end, the connection outlives the
+//! stream: the write half goes back to its [`Dial`] (see
+//! [`Dial::recycle`]), the read half back to the router, which reads
+//! the connection's next header there — so a dial that pools recycled
+//! connections carries stream after stream over one connection, paying
+//! connection setup once. Dropped instead, the connection closes with
+//! the stream, which is how the peer observes the abort.
 //!
 //! # Driving the router
 //!
@@ -66,10 +74,14 @@
 //! - A silently dead path hangs a stream open or write until the
 //!   caller's session timeout cancels the session, the same backstop
 //!   every transport relies on. Liveness probing (keepalive) belongs in
-//!   the caller's [`Dial`].
-//! - Every lazy stream open pays one dial. This adapter is the
-//!   compatibility shape, not the latency shape; a transport with
-//!   native substreams avoids the per-stream dial entirely.
+//!   the caller's [`Dial`] — as does discovering that a pooled
+//!   connection died while idle, which surfaces as the recycled
+//!   stream's transport failure and heals at session granularity.
+//! - Every lazy stream open pays one dial. Where the dial itself is
+//!   the expensive step (an authenticating transport, say), a [`Dial`]
+//!   that pools recycled connections pays it once per connection
+//!   rather than once per stream; a transport with native substreams
+//!   avoids the per-stream open entirely.
 //!
 //! # What the transport must provide
 //!
@@ -158,7 +170,7 @@ use std::io;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use super::{Acceptor, Connector, Link};
+use super::{Acceptor, Connector, Done, Link};
 
 mod endpoint;
 mod header;
@@ -184,10 +196,12 @@ pub use stream::{StreamAcceptor, StreamConnector};
 ///   unflushed writes. A connection wrapped in a write buffer that
 ///   holds bytes until it fills stalls the first such exchange.
 /// - **Drop is half-close.** Dropping the connection must deliver all
-///   already-written bytes and then end-of-stream to the peer: the
-///   session ends every data stream by dropping its write end, and the
+///   already-written bytes and then end-of-stream to the peer: an
+///   aborted data stream ends by dropping its connection, and the
 ///   peer reads to end-of-stream. A drop that discards queued bytes,
-///   or never signals the peer, breaks stream teardown.
+///   or never signals the peer, breaks stream teardown. (A *completed*
+///   stream never drops its connection — the adapter recovers it; see
+///   [`Dial::recycle`].)
 ///
 /// `tokio::net::TcpStream` satisfies both, as does anything else whose
 /// writes land in the transport as they are accepted.
@@ -216,6 +230,27 @@ pub trait Dial: Clone + Send + Sync + 'static {
 
     /// Open one connection to the router reachable at `addr`.
     fn dial(&self, addr: &Self::Addr) -> impl Future<Output = io::Result<Self::Conn>> + Send;
+
+    /// Take back a connection to `peer` whose stream completed cleanly.
+    ///
+    /// The connection rests exactly where a fresh dial's would: the
+    /// peer's router is reading for its next connect header, so a dial
+    /// that hands it out again reuses the connection for another stream
+    /// in place of a new connection's setup. The default drops it,
+    /// which suits transports whose connections are cheap; implement it
+    /// (a pool keyed by peer, typically) where connection setup is the
+    /// latency that matters. A connection whose stream failed or was
+    /// abandoned never comes back through here: the adapter drops it,
+    /// so a recycled connection is never mid-stream.
+    ///
+    /// Two cautions. Recycle runs on the session's task at the
+    /// stream's completion, so it must not block. And recycling
+    /// certifies nothing about liveness: the peer's router evicts idle
+    /// connections by count, so a pooled connection may be dead and
+    /// discovered only by the stream that draws it.
+    fn recycle(&self, _peer: &Self::Addr, conn: Self::Conn) {
+        drop(conn);
+    }
 }
 
 /// Yields inbound connections to an endpoint's router.

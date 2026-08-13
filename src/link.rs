@@ -17,7 +17,7 @@
 //!   order the transport delivers them.
 //!
 //! Data streams are session-scoped and cheap: a session opens them lazily
-//! and sparsely (up to [`STREAM_COUNT`], typically far fewer) and closes
+//! and sparsely (up to [`STREAM_COUNT`], typically far fewer) and ends
 //! every one before it completes. Only the control stream survives into
 //! the next session.
 //!
@@ -52,9 +52,15 @@
 //!   open at once, while [`Connector::connect`] calls arrive sparsely and
 //!   mid-session. An instantiation must not require a full complement of
 //!   streams, nor serialize an open behind unrelated stream progress.
-//! - **Half-close.** Dropping a [`Connector::Tx`] ends that stream; the
-//!   peer's [`Acceptor::Rx`] then observes end-of-stream after the final
-//!   bytes. The control stream outlives all data streams of its session.
+//! - **Completion.** A producer ends its stream by handing the
+//!   [`Connector::Tx`] to its [`Done`] after the final bytes, or
+//!   aborts by dropping it. Every written byte reaches the peer either
+//!   way. When the peer aborts, it surfaces at its counterparty's
+//!   [`Acceptor::Rx`] as end-of-stream. A completion may surface as
+//!   nothing at all (a reusing instantiation recovers the connection),
+//!   so a consumer finds the end of the data in the bytes themselves,
+//!   hands its `Rx` back there, and never reads past it. The control
+//!   stream outlives all data streams of its session.
 //! - **Cancellation.** A pending [`Acceptor::accept`] future may be dropped
 //!   at any moment (session teardown is the common source, and the
 //!   conformance suite drops them mid-session); instantiations must tolerate
@@ -158,6 +164,42 @@ use tokio::sync::mpsc;
 /// test, so it cannot drift silently.
 pub const STREAM_COUNT: usize = 17;
 
+/// Where a data-stream half goes at its stream's clean end.
+///
+/// Every [`Connector::connect`] and [`Acceptor::accept`] pairs the
+/// half with one of these. The session invokes it exactly at the
+/// protocol's end of the data, handing the half back; a half dropped
+/// anywhere else (its handle unused) is an abort. A transport that
+/// reuses connections recovers them here; the rest pair every stream
+/// with [`discard`](Self::discard).
+pub struct Done<Half>(Box<dyn FnOnce(Half) + Send>);
+
+impl<Half> Done<Half> {
+    /// For single-use streams, whose clean end is the drop.
+    pub fn discard() -> Self
+    where
+        Half: 'static,
+    {
+        Done(Box::new(drop))
+    }
+
+    /// Hand the completed half to `f`.
+    pub fn new(f: impl FnOnce(Half) + Send + 'static) -> Self {
+        Done(Box::new(f))
+    }
+
+    /// Release `half` at its stream's clean end.
+    pub fn complete(self, half: Half) {
+        (self.0)(half)
+    }
+}
+
+impl<Half> std::fmt::Debug for Done<Half> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Done(..)")
+    }
+}
+
 /// Opens outgoing unidirectional data streams for one link.
 ///
 /// Opens may arrive concurrently, through clones and through shared
@@ -171,13 +213,14 @@ pub trait Connector: Clone + Send + Sync + 'static {
     /// The write half of one outgoing data stream.
     type Tx: AsyncWrite + Unpin + Send + 'static;
 
-    /// Open one outgoing unidirectional stream.
+    /// Open one outgoing unidirectional stream, paired with where the
+    /// half goes at its clean end.
     ///
     /// # Errors
     ///
     /// Fails only for transport reasons (the link is gone); the session
     /// treats any error as fatal to the session, never retries.
-    fn connect(&self) -> impl Future<Output = io::Result<Self::Tx>> + Send;
+    fn connect(&self) -> impl Future<Output = io::Result<(Self::Tx, Done<Self::Tx>)>> + Send;
 }
 
 /// Accepts incoming unidirectional data streams for one link.
@@ -190,7 +233,8 @@ pub trait Acceptor: Send {
     /// The read half of one incoming data stream.
     type Rx: AsyncRead + Unpin + Send + 'static;
 
-    /// Accept one incoming unidirectional stream.
+    /// Accept one incoming unidirectional stream, paired with where
+    /// the half goes at its clean end.
     ///
     /// Order across streams is the transport's own: the session pairs
     /// streams by the label written as each stream's first bytes, never by
@@ -207,13 +251,13 @@ pub trait Acceptor: Send {
     /// teardown is the common source). A stream that was mid-delivery must
     /// surface from a later `accept` call; it must not be lost while the
     /// link stays healthy.
-    fn accept(&mut self) -> impl Future<Output = io::Result<Self::Rx>> + Send;
+    fn accept(&mut self) -> impl Future<Output = io::Result<(Self::Rx, Done<Self::Rx>)>> + Send;
 }
 
 impl<A: Acceptor> Acceptor for &mut A {
     type Rx = A::Rx;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         A::accept(self).await
     }
 }
@@ -549,13 +593,13 @@ pub struct MemoryConnector {
 impl Connector for MemoryConnector {
     type Tx = DuplexStream;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         let (tx, rx) = tokio::io::duplex(self.capacity);
         self.announce
             .send(rx)
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "peer link is gone"))?;
-        Ok(tx)
+        Ok((tx, Done::discard()))
     }
 }
 
@@ -568,10 +612,11 @@ pub struct MemoryAcceptor {
 impl Acceptor for MemoryAcceptor {
     type Rx = DuplexStream;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         self.streams
             .recv()
             .await
+            .map(|rx| (rx, Done::discard()))
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "peer link is gone"))
     }
 }

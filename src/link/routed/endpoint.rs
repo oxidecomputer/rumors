@@ -45,8 +45,14 @@ pub struct Config {
     /// The bound is hygiene against connections that stall inside
     /// their connect header (the router has no clock, so it evicts by
     /// count, oldest first); wall-clock deadlines belong in the
-    /// caller's [`Listen`] wrapper. Anything past the burst of
-    /// simultaneous dials the deployment expects is enough.
+    /// caller's [`Listen`] wrapper. Connections recovered from
+    /// completed streams wait here for their next header too, so a
+    /// deployment whose [`Dial`] pools connections sizes this past its
+    /// pooled idle count plus the burst of simultaneous dials it
+    /// expects. Eviction of an idle recovered connection is silent: no
+    /// invalidation reaches the dialer's pool, and the next stream
+    /// drawn on the dead entry fails, or hangs to the caller's session
+    /// timeout. Size generously.
     pub pending_headers: usize,
 }
 

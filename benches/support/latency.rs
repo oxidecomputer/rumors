@@ -81,7 +81,7 @@ use std::time::Duration;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::Rumors;
-use rumors::link::{Acceptor, Connector, Link, STREAM_COUNT};
+use rumors::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, Sleep};
@@ -303,13 +303,13 @@ pub struct DelayedConnector {
 impl Connector for DelayedConnector {
     type Tx = DelayedWriter;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         let (tx, rx) = delayed_pipe(self.capacity, self.delay);
         self.announce
             .send(rx)
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "peer link is gone"))?;
-        Ok(tx)
+        Ok((tx, Done::discard()))
     }
 }
 
@@ -322,10 +322,11 @@ pub struct DelayedAcceptor {
 impl Acceptor for DelayedAcceptor {
     type Rx = DelayedReader;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         self.streams
             .recv()
             .await
+            .map(|rx| (rx, Done::discard()))
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "peer link is gone"))
     }
 }
