@@ -17,3 +17,7 @@ formal/lean/eventdag-out/
 
 # macOS Finder metadata; never content.
 .DS_Store
+
+# Scan/threat-model working state (session scratch, resumable checkpoints)
+/.ccsec-state/
+/.threat-model-state/
