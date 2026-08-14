@@ -481,12 +481,27 @@ impl<T> Tree<T> {
         // no observation means no leaf was inserted, replaced, or removed
         // and no version was joined, so the tree — hash and ceiling both —
         // is exactly what it was.
+        //
+        // Panic atomicity: the traversal is fallible (it drains the
+        // caller-supplied iterator inside its radix sort), so nothing of
+        // `self` mutates until it returns. The pre-image is retained by an
+        // O(1) structural clone of the root (nodes are Arc-shared; the
+        // traversal copies on write where they stay shared), the observer
+        // accumulates the ceiling in a local, and root and ceiling are
+        // assigned together at the commit point below — an unwind out of
+        // the traversal leaves the tree byte-identical, never an emptied
+        // root under a live ceiling (the shape of "everything was
+        // redacted"; the unwind pins in `tests` hold this).
         let mut changed = false;
-        let root_version = &mut self.root.ceiling;
-        self.root.root = traverse::act(self.root.root.take(), actions, |v: &Version| {
-            *root_version |= v;
+        let mut new_ceiling = self.root.ceiling.clone();
+        let new_root = traverse::act(self.root.root.clone(), actions, |v: &Version| {
+            new_ceiling |= v;
             changed = true;
         });
+
+        // The commit point: the traversal returned without unwinding.
+        self.root.root = new_root;
+        self.root.ceiling = new_ceiling;
         changed
     }
 
@@ -522,11 +537,16 @@ impl<T> Tree<T> {
             root: their_root,
         } = other.root;
 
-        // Take our root out so the recursion owns it uniquely (structural ops
-        // are then plain moves, never `Arc::make_mut` deep-clones); the merged
-        // root is written straight back below. Our version stays in place to be
-        // read as the deletion filter, then joined with theirs.
-        let our_root = std::mem::take(&mut self.root.root);
+        // Panic atomicity: the merge walk is fallible, so nothing of `self`
+        // mutates until it returns. The recursion is handed an O(1)
+        // structural clone of our root (nodes are Arc-shared; the walk
+        // copies on write where they stay shared) while the pre-image stays
+        // in place, our ceiling is read in place as the deletion filter,
+        // and root and ceiling are assigned together at the commit point
+        // below — an unwind out of the walk leaves the tree byte-identical,
+        // never an emptied root under a live ceiling (the shape of
+        // "everything was redacted"; the unwind pins in `tests` hold this).
+        let our_root = self.root.root.clone();
         let mut changed = false;
         let merged = traverse::join(
             our_root,
@@ -536,6 +556,7 @@ impl<T> Tree<T> {
             &mut changed,
         );
 
+        // The commit point: the walk returned without unwinding.
         self.root.ceiling |= their_version;
         self.root.root = merged;
         changed

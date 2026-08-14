@@ -1455,15 +1455,16 @@ mod span_door_traffic {
     }
 }
 
-/// Pins today's panic-atomicity hole in `Tree::act`'s commit section: a
-/// panic unwinding out of the fallible traversal (here from the
-/// caller-supplied actions iterator, which the traversal's root-level radix
-/// sort drains inside the critical section) corrupts the tree. The
-/// post-unwind state is the root emptied while the causal ceiling stays
-/// live: byte-for-byte the shape of "everything was redacted", which a
-/// subsequent gossip session honors by deleting every peer's holdings.
+/// `Tree::act`'s commit section is panic-atomic: a panic unwinding out of
+/// the fallible traversal (here from the caller-supplied actions iterator,
+/// which the traversal's root-level radix sort drains inside the critical
+/// section) leaves the tree byte-identical — root hash and causal ceiling
+/// both unchanged. The hazard this rules out is an emptied root published
+/// under a live ceiling: byte-for-byte the shape of "everything was
+/// redacted", which a subsequent gossip session would honor by deleting
+/// every peer's holdings.
 #[test]
-fn act_unwind_empties_root_under_live_ceiling() {
+fn act_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<Bytes> = Tree::new();
     tree.act(
         &party_of("P"),
@@ -1474,7 +1475,7 @@ fn act_unwind_empties_root_under_live_ceiling() {
     assert!(!tree.is_empty());
 
     // One well-formed action, then a panic mid-drain: the unwind starts
-    // inside the traversal, after the commit section has begun mutating.
+    // inside the traversal, before the commit point can be reached.
     let panicking_actions = [insert_action(Bytes::from_static(b"casualty"))]
         .into_iter()
         .chain(std::iter::once_with(|| -> Action<Bytes> {
@@ -1485,25 +1486,25 @@ fn act_unwind_empties_root_under_live_ceiling() {
     }));
     assert!(unwound.is_err(), "the injected panic must unwind out");
 
-    // Today's corrupted post-unwind state: the root is gone, the ceiling
-    // survives untouched.
-    assert!(tree.is_empty(), "the unwind publishes an emptied root");
-    assert_ne!(tree.hash(), hash_before, "the root hash moves");
+    // The contained panic published nothing: root hash and ceiling are
+    // byte-identical to the pre-call state.
+    assert!(!tree.is_empty(), "the unwind publishes no emptied root");
+    assert_eq!(tree.hash(), hash_before, "the root hash is unchanged");
     assert_eq!(
         tree.latest(),
         &ceiling_before,
-        "the ceiling stays live over the emptied root"
+        "the ceiling is unchanged: no partial advance escapes the unwind"
     );
 }
 
-/// Pins today's panic-atomicity hole in `Tree::join`'s commit section: a
-/// panic unwinding out of the merge traversal (injected at its entry via
-/// `panic_injection`) corrupts the tree. The post-unwind state is the root
-/// emptied while the causal ceiling stays live: byte-for-byte the shape of
-/// "everything was redacted", which a subsequent gossip session honors by
-/// deleting every peer's holdings.
+/// `Tree::join`'s commit section is panic-atomic: a panic unwinding out of
+/// the merge traversal (injected at its entry via `panic_injection`) leaves
+/// the tree byte-identical — root hash and causal ceiling both unchanged.
+/// The hazard this rules out is an emptied root published under a live
+/// ceiling: byte-for-byte the shape of "everything was redacted", which a
+/// subsequent gossip session would honor by deleting every peer's holdings.
 #[test]
-fn join_unwind_empties_root_under_live_ceiling() {
+fn join_unwind_leaves_tree_byte_identical() {
     let mut ours: Tree<Bytes> = Tree::new();
     ours.act(&party_of("A"), [insert_action(Bytes::from_static(b"ours"))]);
     let mut theirs: Tree<Bytes> = Tree::new();
@@ -1521,13 +1522,14 @@ fn join_unwind_empties_root_under_live_ceiling() {
     }));
     assert!(unwound.is_err(), "the injected panic must unwind out");
 
-    // Today's corrupted post-unwind state: the root is gone, the ceiling
-    // survives untouched (their frontier was never joined).
-    assert!(ours.is_empty(), "the unwind publishes an emptied root");
-    assert_ne!(ours.hash(), hash_before, "the root hash moves");
+    // The contained panic published nothing: root hash and ceiling are
+    // byte-identical to the pre-call state, and their frontier was not
+    // partially joined.
+    assert!(!ours.is_empty(), "the unwind publishes no emptied root");
+    assert_eq!(ours.hash(), hash_before, "the root hash is unchanged");
     assert_eq!(
         ours.latest(),
         &ceiling_before,
-        "the ceiling stays live over the emptied root"
+        "the ceiling is unchanged: no partial advance escapes the unwind"
     );
 }
