@@ -150,15 +150,25 @@ fmt-check:
 
 # ── commit gate: everything a commit must pass, fully clean ──────────────────
 
-# rustdoc renders a doc comment's first paragraph as the item's summary: the
-# one-liner shown in module index tables and search. tools/doclint fails the
-# gate when that paragraph grows past a one-liner; the fix is to move the
-# rest below a blank `///` line. It covers every Rust source in the
-# workspace (libraries, tests, benches, examples, the demo crate), and it
-# needs no build, so it runs first for fast failure.
+# tools/doclint enforces the two doc-comment layout rules rustdoc renders by
+# but never reports on. First, a doc comment's opening paragraph becomes the
+# item's summary — the one-liner in module index tables and search — so it
+# fails the gate when that paragraph grows past one; the fix is to move the
+# rest below a blank `///` line. Second, an `#[doc = include_str!(…)]` needs a
+# blank doc line between it and the doc prose on each side, or Markdown never
+# gives the included file a block of its own: a figure spliced into an open
+# paragraph collects that paragraph's `</p>` mid-SVG and vanishes from the
+# rendered page, and prose left inside an unclosed HTML block renders as its
+# literal source. The tool's own header carries both derivations.
+#
+# It covers every Rust source in the workspace (libraries, tests, benches,
+# examples, the demo crate), and it needs no build, so it runs first for fast
+# failure. `--self-test` leads, so a bug in the checker surfaces as a tool
+# failure rather than as a silent all-clear.
 
-# Flag doc-comment summaries that have outgrown a one-liner.
+# Flag doc-comment summaries and included-figure layouts that render wrong.
 doclint:
+    ./tools/doclint --self-test
     ./tools/doclint benches crates examples src tests
 
 # Require every Rust test to document the behavior and invariant it protects.

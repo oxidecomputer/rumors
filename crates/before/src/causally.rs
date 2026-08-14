@@ -38,6 +38,41 @@
 //! Together these are all the atomic causal bounds: each keeps some subset of
 //! the four relations `v` can have to the bound (`<`, `=`, `>`, `∥`).
 //!
+//! # Relationship to [`Span`]s
+//!
+//! Two concrete versions `lo <= hi` form a [`Span`], which is at first blush
+//! similar to a [`Query`]. So, when should you use a [`Span`] and when should
+//! you use a [`Query`]?
+//!
+//! A [`Span`] can answer more detailed questions than [`Query`]'s
+//! coarse-grained [`coverage`](Query::coverage) and
+//! [`contains`](Query::contains) (i.e. [`dominance`](Span::dominance),
+//! [`precedence`](Span::precedence), and [`place`](Span::place)). However, it
+//! gains these additional *questions you can ask* in exchange for a reduction
+//! in *things you can ask them about*. While every [`Span`] `lo <= hi` is
+//! convertible [`into`](Into::into) the [`Query`] `after(lo) & before(hi)`, the
+//! converse is not true; a [`Query`] can articulate a large number of
+//! predicates on [`Version`]s which are not expressible as a [`Span`], because
+//! they do not take the form `lo <= v <= hi`.
+//!
+//! Additionally, the expressive limitations (and thereby representational
+//! simplicity) of a [`Span`]s grant them a stable canonical wire format and a
+//! much wider variety of meaningful operations beyond merely the analogues of
+//! [`Query`]'s predicates over [`Version`]s. Over an arbitrary pair of
+//! [`Span`]s, we can compute the [`union`](Span::union),
+//! [`intersect`](Span::intersect), [`join`](Span::join), and
+//! [`meet`](Span::meet); we can [`project`](Span::project) them over a
+//! [`Party`](crate::Party), etc.
+//!
+//! So, in short:
+//!
+//! - Do you want a flexible and idiomatic language which can answer whether a
+//!   [`Query`] [`contains`](Query::contains) a [`Version`], or how much
+//!   [`coverage`](Query::coverage) it has of a [`Span`]?
+//! - Or do you want a richer algebraic [`Span`] which can be serialized,
+//!   manipulated, and interrogated in a more fine-grained manner, but which
+//!   cannot express things like one-sided ranges or strict containment?
+//!
 //! # Polarity
 //!
 //! While it might seem desirable to permit any queries to be composed using
@@ -62,14 +97,6 @@
 //! observe that the verdict returned by such a hypothetical [`Query`] is the
 //! same as the logical-`&&` of its expressible components; you can just ask
 //! both questions in sequence and branch on both verdicts.
-//!
-//! # Relationship to [`Span`]s
-//!
-//! Two concrete versions `lo <= hi` form a [`Span`]: not a query but a value
-//! proper, with further operations available on it and a stable wire form. A
-//! span converts [`Into`] the query `after(lo) & before(hi)`, which admits
-//! exactly the versions the span covers; a [`Version`] converts into the
-//! singleton query admitting only itself.
 //!
 //! # Complexity
 //!

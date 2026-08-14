@@ -1,34 +1,58 @@
 #!/usr/bin/env python3
-# doclint — flag doc comments whose summary paragraph is too long to be a
-# one-liner.
+# doclint — enforce the two rules about doc-comment layout that decide whether
+# rustdoc renders a doc comment the way its author reads it. Both failures are
+# silent: `cargo doc` reports nothing, and the damage is visible only in the
+# rendered page.
 #
-# Why this exists: rustdoc treats the first paragraph of a doc comment (every
-# line up to the first blank `///`) as the item's *summary*. That summary is
-# what renders in module index tables, search results, and tooltips, where it
-# is expected to be a single, self-contained sentence. When the first paragraph
-# grows into a multi-sentence block, rustdoc concatenates it into one over-long
-# cell and the listing reads as a wall of text instead of a scannable
-# one-liner.
+# 1. Summary length. rustdoc treats the first paragraph of a doc comment (every
+#    line up to the first blank `///`) as the item's *summary*. That summary is
+#    what renders in module index tables, search results, and tooltips, where
+#    it is expected to be a single, self-contained sentence. When the first
+#    paragraph grows into a multi-sentence block, rustdoc concatenates it into
+#    one over-long cell and the listing reads as a wall of text instead of a
+#    scannable one-liner.
 #
-# The rule this enforces: a doc comment's first paragraph stays under
-# MAX_SUMMARY_CHARS once its soft-wrapped source lines are joined the way
-# Markdown renders them. The codebase idiomatically wraps a single-sentence
-# summary across two or three 80-column lines — those join to well under the
-# budget. Crossing it signals a paragraph of several sentences, whose tail
-# belongs below a blank `///` line where it becomes body prose that never
-# reaches the summary. This applies to both outer (`///`) and inner (`//!`)
-# doc comments — a module's first paragraph is the summary the *parent* listing
-# shows for it. The one exemption is the crate root's own module doc: a crate
-# root has no parent listing, so its opening paragraph is the crate's
-# front-page lede, not a summary cell, and carries no one-liner budget.
+#    The rule: a doc comment's first paragraph stays under MAX_SUMMARY_CHARS
+#    once its soft-wrapped source lines are joined the way Markdown renders
+#    them. The codebase idiomatically wraps a single-sentence summary across
+#    two or three 80-column lines — those join to well under the budget.
+#    Crossing it signals a paragraph of several sentences, whose tail belongs
+#    below a blank `///` line where it becomes body prose that never reaches
+#    the summary. This applies to both outer (`///`) and inner (`//!`) doc
+#    comments — a module's first paragraph is the summary the *parent* listing
+#    shows for it. The one exemption is the crate root's own module doc: a
+#    crate root has no parent listing, so its opening paragraph is the crate's
+#    front-page lede, not a summary cell, and carries no one-liner budget.
+#
+# 2. Included-file separation. An `#[doc = include_str!(…)]` splices a whole
+#    file — a figure, a chart, a prose fragment — into the doc stream. Markdown
+#    gives that file a block of its own only when a blank line stands on each
+#    side of it, and doc prose abutting either side takes the block away:
+#
+#    - Prose *before* leaves a paragraph open, and an `<svg>` (or any tag
+#      outside CommonMark's block-level whitelist) cannot interrupt one. The
+#      figure is parsed as *inline* HTML instead, so the paragraph's `</p>`
+#      lands in the middle of it, and a browser abandons the rest of an SVG
+#      at that point: the figure disappears from the page.
+#    - Prose *after* falls inside an HTML block that no blank line has closed,
+#      so rustdoc emits it verbatim: links, code spans, and emphasis all
+#      render as their literal source.
+#
+#    The rule: a blank doc line separates every such attribute from adjacent
+#    doc prose, on both sides. A blank line written as an attribute
+#    (`#[doc = ""]`, the form macro-generated docs use) counts; a blank
+#    *source* line does not, because it reaches rustdoc as nothing at all and
+#    the doc lines around it still join directly.
 #
 # Usage:
+#   doclint --self-test    # pin the layouts each rule accepts and rejects
 #   doclint PATH...        # lint every .rs file under each PATH (file or dir)
 #
-# Exits non-zero if any violation is found, printing `file:line` for the start
-# of each offending doc comment followed by the summary paragraph it found, so
-# the offender is named the way the rest of the gate names its failures.
+# Exits non-zero if any violation is found, printing `file:line` for each
+# offender followed by the source it found there, so the offender is named the
+# way the rest of the gate names its failures.
 
+import re
 import sys
 from pathlib import Path
 
@@ -43,6 +67,15 @@ MAX_SUMMARY_CHARS = 220
 # file — before any item — is the crate doc; later `//!` runs, and module
 # files everywhere else, stay in scope.
 CRATE_ROOT_NAMES = {"lib.rs", "main.rs"}
+
+# The doc-attribute forms the separation rule distinguishes. `include_str!` is
+# the form that splices a whole file in, and so the form that needs a Markdown
+# block of its own; `#[doc = ""]` is a blank doc line written as an attribute,
+# which is how macro-generated docs spell their separators. Any other
+# `#[doc = …]` carries a string that renders as prose.
+INCLUDE_ATTR = re.compile(r"#!?\[\s*doc\s*=\s*include_str!")
+EMPTY_DOC_ATTR = re.compile(r'#!?\[\s*doc\s*=\s*""\s*\]')
+DOC_ATTR = re.compile(r"#!?\[\s*doc\s*=")
 
 # A doc-comment line is `///` or `//!` followed by end-of-line or a non-slash
 # character. The non-slash guard excludes `////…` separator rules, which
@@ -67,14 +100,15 @@ def rendered_length(summary):
     return len(" ".join(line.strip() for line in summary if line.strip()))
 
 
-def violations(path):
+def long_summaries(lines, filename):
     """Yield (line_number, summary_lines) for each over-long summary in a file.
 
-    `line_number` is 1-based and points at the first line of the doc comment;
-    `summary_lines` is the list of content lines making up its first paragraph.
-    A summary is over-long when its rendered length exceeds MAX_SUMMARY_CHARS.
+    `filename` is the source file's bare name, which decides whether a leading
+    `//!` run is an exempt crate doc (see CRATE_ROOT_NAMES). `line_number` is
+    1-based and points at the first line of the doc comment; `summary_lines`
+    is the list of content lines making up its first paragraph. A summary is
+    over-long when its rendered length exceeds MAX_SUMMARY_CHARS.
     """
-    lines = path.read_text(encoding="utf-8").splitlines()
     i = 0
     n = len(lines)
     # True until the first line that is neither blank, a comment, nor an
@@ -95,7 +129,7 @@ def violations(path):
         # blank doc line. A fenced code block can hold blank lines that are not
         # paragraph breaks, so track fence state while scanning.
         start = i
-        crate_doc = prelude and marker == "//!" and path.name in CRATE_ROOT_NAMES
+        crate_doc = prelude and marker == "//!" and filename in CRATE_ROOT_NAMES
         prelude = False
         summary = []
         in_fence = False
@@ -116,6 +150,109 @@ def violations(path):
             yield (start + 1, summary)
 
 
+def doc_stream_kind(stripped):
+    """Classify a source line by what it contributes to the rendered doc stream.
+
+    `"include"` splices a file in; `"blank"` is a blank line in the rendered
+    Markdown; `"text"` is prose; `"invisible"` reaches rustdoc as nothing at
+    all (an empty source line, an ordinary `//` comment, or a `////` rule);
+    `"code"` is anything else, which ends the doc run.
+    """
+    if INCLUDE_ATTR.match(stripped):
+        return "include"
+    if EMPTY_DOC_ATTR.match(stripped):
+        return "blank"
+    if DOC_ATTR.match(stripped):
+        return "text"
+    marker = doc_marker(stripped)
+    if marker is not None:
+        return "blank" if not doc_content(stripped, marker).strip() else "text"
+    if not stripped or stripped.startswith("//"):
+        return "invisible"
+    return "code"
+
+
+def unseparated_includes(lines):
+    """Yield (line_number, side) for each included file that abuts doc prose.
+
+    `line_number` is 1-based and points at the `#[doc = include_str!(…)]`
+    attribute; `side` is `"before"` or `"after"`, naming which neighbor is
+    prose. Invisible lines are stepped over rather than counted as separators:
+    rustdoc joins the doc lines around them with nothing in between, so a
+    blank source line looks like a fix while leaving the rendering broken.
+    Running off either end of the file reads as `"code"` — the doc run simply
+    ends there, which separates the include from everything.
+    """
+    kinds = [doc_stream_kind(line.lstrip()) for line in lines]
+
+    def neighbor(index, step):
+        index += step
+        while 0 <= index < len(kinds) and kinds[index] == "invisible":
+            index += step
+        return kinds[index] if 0 <= index < len(kinds) else "code"
+
+    for index, kind in enumerate(kinds):
+        if kind != "include":
+            continue
+        for side, step in (("before", -1), ("after", 1)):
+            if neighbor(index, step) == "text":
+                yield (index + 1, side)
+
+
+def self_test():
+    """Pin the layouts each rule accepts and rejects."""
+    include = '#[doc = include_str!("figure.html")]'
+    separation_cases = [
+        # A blank doc line on each side is the shape that renders correctly.
+        (f"/// Prose.\n///\n{include}\n///\n/// More prose.", []),
+        # Prose abutting either side takes the figure's Markdown block away.
+        (f"/// Prose.\n{include}\n///\n/// More prose.", [(2, "before")]),
+        (f"/// Prose.\n///\n{include}\n/// More prose.", [(3, "after")]),
+        (f"/// Prose.\n{include}\n/// More prose.", [(2, "before"), (2, "after")]),
+        # A blank *source* line contributes nothing to the doc stream, so the
+        # prose around it still joins directly onto the include. So does an
+        # ordinary comment, and so does a `////` rule.
+        (f"/// Prose.\n\n{include}\n///\n/// More.", [(3, "before")]),
+        (f"/// Prose.\n// rationale.\n{include}\n///\n/// More.", [(3, "before")]),
+        (f"/// Prose.\n//// rule\n{include}\n///\n/// More.", [(3, "before")]),
+        # Those same invisible lines are stepped over on the way to a real
+        # separator, which is the shape that carries a figure's rationale.
+        (f"/// Prose.\n///\n// rationale.\n{include}\n///\n/// More.", []),
+        # A blank line spelled as an attribute separates, as macro-generated
+        # docs spell it; a non-empty one is prose like any other.
+        (f'#[doc = "Prose."]\n#[doc = ""]\n{include}\n#[doc = ""]', []),
+        (f'#[doc = "Prose."]\n{include}\n#[doc = ""]', [(2, "before")]),
+        # Consecutive includes are all raw content: no separator is owed.
+        (f"///\n{include}\n{include}\n///", []),
+        # Code on either side ends the doc run, which separates by itself.
+        (f"pub fn f() {{}}\n{include}\npub fn g() {{}}", []),
+        (include, []),
+    ]
+    for source, expected in separation_cases:
+        actual = list(unseparated_includes(source.splitlines()))
+        if actual != expected:
+            raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
+
+    over = "word " * 60
+    summary_cases = [
+        # A one-sentence summary passes; a first paragraph over the budget is
+        # reported at the line the doc comment opens on.
+        ("/// Removes the value.\n///\n/// Body.", "party.rs", []),
+        (f"/// {over}\n///\n/// Body.", "party.rs", [1]),
+        # Only the first paragraph is the summary: the body below a blank doc
+        # line never reaches the listing, however long it runs.
+        (f"/// Removes the value.\n///\n/// {over}", "party.rs", []),
+        # A crate root's opening `//!` run is the front-page lede, not a
+        # summary cell, and carries no budget; the same run elsewhere does.
+        (f"//! {over}\n///\n/// Body.", "lib.rs", []),
+        (f"//! {over}\n///\n/// Body.", "party.rs", [1]),
+    ]
+    for source, filename, expected in summary_cases:
+        actual = [line for line, _ in long_summaries(source.splitlines(), filename)]
+        if actual != expected:
+            raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
+
+
 def rust_files(root):
     if root.is_file():
         return [root] if root.suffix == ".rs" else []
@@ -123,9 +260,13 @@ def rust_files(root):
 
 
 def main(argv):
+    if argv[1:] == ["--self-test"]:
+        self_test()
+        return 0
+
     roots = [Path(a) for a in argv[1:]]
     if not roots:
-        print("usage: doclint PATH...", file=sys.stderr)
+        print("usage: doclint [--self-test | PATH...]", file=sys.stderr)
         return 2
 
     # A nonexistent root would match no files and read as a clean sweep, so a
@@ -137,25 +278,41 @@ def main(argv):
             print(f"doclint: no such file or directory: {root}", file=sys.stderr)
         return 2
 
-    found = False
+    long_summary_found = False
+    unseparated_found = False
     for root in roots:
         for path in rust_files(root):
-            for line, summary in violations(path):
-                found = True
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for line, summary in long_summaries(lines, path.name):
+                long_summary_found = True
                 length = rendered_length(summary)
                 print(f"{path}:{line}: doc summary renders to {length} chars "
                       f"(max {MAX_SUMMARY_CHARS})")
                 for text in summary:
                     print(f"    | {text}")
-    if found:
+            for line, side in unseparated_includes(lines):
+                unseparated_found = True
+                print(f"{path}:{line}: included doc file abuts doc prose "
+                      f"{side} it")
+                print(f"    | {lines[line - 1].strip()}")
+
+    if long_summary_found:
         print(
             f"\nA doc comment's first paragraph is its summary: keep it under "
             f"{MAX_SUMMARY_CHARS}\nrendered characters. Move the rest below a "
             f"blank `///` line.",
             file=sys.stderr,
         )
-        return 1
-    return 0
+    if unseparated_found:
+        print(
+            "\nAn `#[doc = include_str!(…)]` renders as its own Markdown block "
+            "only when a\nblank doc line (`///`, `//!`, or `#[doc = \"\"]`) "
+            "stands between it and the doc\nprose on each side. A blank "
+            "*source* line does not count: rustdoc joins the\ndoc lines "
+            "around it with nothing in between.",
+            file=sys.stderr,
+        )
+    return 1 if long_summary_found or unseparated_found else 0
 
 
 if __name__ == "__main__":
