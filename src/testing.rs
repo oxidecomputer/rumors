@@ -81,6 +81,36 @@ pub fn supply_decode_envelope_bytes() -> usize {
     crate::tree::mirror::streaming::window::SUPPLY_DECODE_ENVELOPE_BYTES
 }
 
+/// Read one exact length-delimited mirror frame, returning its payload.
+///
+/// This is the framing layer's frame read, unwrapped from any session
+/// machinery. The allocator meter (`tests/decode_alloc.rs`) drives it to
+/// price a framed payload in bytes requested from the allocator.
+pub async fn read_framed_payload(
+    read: impl tokio::io::AsyncRead + Unpin,
+) -> std::io::Result<Vec<u8>> {
+    crate::tree::mirror::framing::FrameRead::new(read)
+        .frame()
+        .await
+}
+
+/// The signal byte opening one streaming-codec supply frame.
+///
+/// Prepend it to a length-headed supply body to hand
+/// [`decode_supply_frame`] a decodable byte stream.
+pub fn supply_signal_byte() -> u8 {
+    crate::tree::mirror::streaming::remote::supply_signal_byte()
+}
+
+/// Decode one streaming-codec supply frame, discarding the decoded run.
+///
+/// The allocator meter (`tests/decode_alloc.rs`) drives the codec's supply
+/// read path through this; the decoded value is noise to that meter, so
+/// errors flatten to their display form.
+pub async fn decode_supply_frame(read: impl tokio::io::AsyncRead + Unpin) -> Result<(), String> {
+    crate::tree::mirror::streaming::remote::decode_frame_discarded(read).await
+}
+
 /// Renders the sync-budget trade-off table that
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)'s docs
 /// include, from the real window derivation.

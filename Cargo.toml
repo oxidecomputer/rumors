@@ -95,6 +95,10 @@ rand = { version = "0.8", features = ["small_rng"] }
 arc-swap = "1"
 pollster = { version = "0.4", features = ["macro"] }
 ratatui = "0.30"
+# Counting global allocator for the decoder allocation meter
+# (`tests/decode_alloc.rs`): prices decodes in bytes requested from the
+# allocator, so a declared-length pre-allocation is observable.
+stats_alloc = "0.1"
 
 [profile.dev]
 debug = "line-tables-only"

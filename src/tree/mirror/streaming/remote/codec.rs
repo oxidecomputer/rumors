@@ -67,5 +67,35 @@ pub use signal::{
     StreamClass,
 };
 
+/// The signal byte opening one initiator-spoken, reply-ending supply frame.
+///
+/// The allocator meter (`tests/decode_alloc.rs`) prepends it to a hand-built
+/// supply body so the codec's supply read path is drivable from outside the
+/// crate.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) fn supply_signal_byte() -> u8 {
+    signal::WireSignal::encode(
+        Stream::new(0).expect("stream 0 is within the stream range"),
+        signal::Signal::Supply(Flow::End),
+    )
+}
+
+/// Decode one initiator-spoken frame from `read`, dropping the decoded value.
+///
+/// The allocator meter (`tests/decode_alloc.rs`) drives the supply read path
+/// through this to price a supply body in bytes requested from the
+/// allocator; the decoded value is noise to that meter, so errors flatten to
+/// their display form.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) async fn decode_frame_discarded(
+    read: impl tokio::io::AsyncRead + Unpin,
+) -> Result<(), String> {
+    let mut read = FrameRead::new(Speaker::Initiator, read);
+    read.frame::<u64>()
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests;
