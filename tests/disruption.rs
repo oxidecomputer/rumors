@@ -516,6 +516,122 @@ proptest! {
     }
 }
 
+// ---- re-minted inter-process counterexamples ---------------------------------
+//
+// Historical shrunk counterexamples, preserved as explicit constructions:
+// their committed seeds regenerate through the fault strategy's cut range,
+// so a range change re-maps the offsets and the seed no longer replays the
+// case it pinned. Each test runs the exact plan its seed's shrink recorded,
+// under the same invariants as the proptest above. The seed files stay
+// committed; these constructions carry the counterexamples themselves.
+
+/// Shorthand for one endpoint's fault plan in a re-minted construction.
+fn fp(write_cut: Option<usize>, read_cut: Option<usize>) -> FaultPlan {
+    FaultPlan {
+        write_cut,
+        read_cut,
+    }
+}
+
+/// Re-minted counterexample: a single clean child whose final retirement
+/// wire dies at the very first written byte, forcing the
+/// recovered-then-retry path against a live parent.
+#[test]
+fn remint_child_retire_cut_at_first_byte() {
+    mt_runtime().block_on(run_proc_plan(ProcPlan {
+        n_parent_peers: 1,
+        seed_messages: vec![],
+        children: vec![ChildPlan {
+            n_sends: 0,
+            boot: FaultPlan::NONE,
+            sessions: vec![FaultPlan::NONE],
+            retire: fp(Some(0), None),
+        }],
+    }));
+}
+
+/// Re-minted counterexample: one child whose deliberately lossy first
+/// bootstrap dies mid-transfer and whose gossip sessions are cut in both
+/// directions, retiring cleanly afterward.
+#[test]
+fn remint_child_faulted_boot_and_sessions() {
+    mt_runtime().block_on(run_proc_plan(ProcPlan {
+        n_parent_peers: 1,
+        seed_messages: vec![8910283091],
+        children: vec![ChildPlan {
+            n_sends: 2,
+            boot: fp(Some(1198), None),
+            sessions: vec![fp(Some(124), None), fp(Some(1308), Some(935))],
+            retire: FaultPlan::NONE,
+        }],
+    }));
+}
+
+/// Re-minted counterexample: three children with cuts across every phase
+/// (bootstrap, sessions, retirement), overlapping at the parent.
+#[test]
+fn remint_three_children_cut_across_phases() {
+    mt_runtime().block_on(run_proc_plan(ProcPlan {
+        n_parent_peers: 1,
+        seed_messages: vec![16893878652516216069, 17088246115921829969],
+        children: vec![
+            ChildPlan {
+                n_sends: 1,
+                boot: fp(None, Some(595)),
+                sessions: vec![FaultPlan::NONE],
+                retire: fp(None, Some(1243)),
+            },
+            ChildPlan {
+                n_sends: 2,
+                boot: fp(Some(1733), Some(1980)),
+                sessions: vec![fp(Some(151), Some(348))],
+                retire: fp(Some(1390), None),
+            },
+            ChildPlan {
+                n_sends: 2,
+                boot: fp(Some(637), Some(259)),
+                sessions: vec![
+                    FaultPlan::NONE,
+                    fp(Some(1206), Some(1750)),
+                    fp(Some(954), Some(25)),
+                ],
+                retire: fp(Some(98), Some(1600)),
+            },
+        ],
+    }));
+}
+
+/// Re-minted counterexample: three children whose cuts sit near the deep
+/// end of the fault range the case was found under, severing sessions and
+/// retirements late in their byte streams.
+#[test]
+fn remint_three_children_deep_cuts() {
+    mt_runtime().block_on(run_proc_plan(ProcPlan {
+        n_parent_peers: 1,
+        seed_messages: vec![597761422003064892],
+        children: vec![
+            ChildPlan {
+                n_sends: 4,
+                boot: fp(None, Some(670)),
+                sessions: vec![fp(Some(559), None), fp(Some(2047), None)],
+                retire: fp(Some(1947), Some(1274)),
+            },
+            ChildPlan {
+                n_sends: 0,
+                boot: fp(None, Some(1943)),
+                sessions: vec![FaultPlan::NONE, FaultPlan::NONE, fp(Some(1489), None)],
+                retire: fp(Some(695), None),
+            },
+            ChildPlan {
+                n_sends: 5,
+                boot: FaultPlan::NONE,
+                sessions: vec![fp(None, Some(1511)), FaultPlan::NONE, fp(None, Some(28))],
+                retire: fp(Some(1124), None),
+            },
+        ],
+    }));
+}
+
 async fn run_proc_plan(plan: ProcPlan) {
     // Parent fleet: the seed and its clean forks, as shared-state handles
     // so inbound sessions can overlap arbitrarily.

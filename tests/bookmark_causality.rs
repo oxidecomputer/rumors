@@ -1259,6 +1259,70 @@ proptest! {
     }
 }
 
+// Historical shrunk counterexamples for the property above, preserved as
+// explicit constructions: their committed seeds regenerate gossip fault
+// plans through the strategy's cut range, so a range change re-maps the
+// offsets and the seed no longer replays the case it pinned. The seed
+// files stay committed; these constructions carry the counterexamples.
+
+/// Re-minted counterexample: both peers crash around a send, then the
+/// crashed-and-rebooted peer retires into the sender — the bookmark must
+/// not recycle a version across the crash/retire pair, and the heal must
+/// still converge.
+#[test]
+fn remint_crash_pair_then_retire() {
+    let world = run_plan(Plan {
+        n: 2,
+        steps: vec![
+            Step::Crash(0),
+            Step::Send(0),
+            Step::Crash(1),
+            Step::Retire(1, 0),
+        ],
+        read_faults: vec![vec![], vec![]],
+        write_faults: vec![vec![], vec![]],
+    });
+    world.assert_healed();
+}
+
+/// Re-minted counterexample: a send, one gossip cut in both directions
+/// mid-frame, then a retirement, under bookmark read/write fail schedules
+/// on every node — versions must survive the faulted persistence without
+/// recycling.
+#[test]
+fn remint_cut_gossip_then_retire_under_bookmark_faults() {
+    let world = run_plan(Plan {
+        n: 3,
+        steps: vec![
+            Step::Send(0),
+            Step::Gossip(
+                1,
+                2,
+                FaultPlan {
+                    write_cut: Some(1324),
+                    read_cut: None,
+                },
+                FaultPlan {
+                    write_cut: None,
+                    read_cut: Some(134),
+                },
+            ),
+            Step::Retire(1, 2),
+        ],
+        read_faults: vec![
+            vec![false, true, false, false, false, false],
+            vec![false, true, false, true],
+            vec![false],
+        ],
+        write_faults: vec![
+            vec![],
+            vec![false, false, false, true],
+            vec![false, false, false, false, true, false],
+        ],
+    });
+    world.assert_healed();
+}
+
 proptest! {
     /// Under arbitrary crash/restart and retirement of a fleet that shares one
     /// network, bookmarking never leaks identity space:
