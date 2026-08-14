@@ -26,6 +26,12 @@
 # memwatch's swap backstop is sysctl-based and degrades to a no-op off macOS, so
 # wrapping the test/doctest/bench recipes is harmless here; its 8 GiB per-process
 # cap sits well above anything a normal Linux build reaches.
+#
+# Every action is pinned to a full commit SHA, with the ref it was resolved
+# from in a trailing comment — no step executes code that is neither committed
+# in-tree nor identified by an immutable digest (tools/workflowlint holds every
+# workflow to this). Bump procedure: Dependabot rewrites each pin and its
+# trailing comment together; .github/dependabot.yml is its configuration.
 name: ci
 
 on:
@@ -45,19 +51,26 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # Install nightly *first* so the stable install below wins the default:
       # each dtolnay/rust-toolchain step runs `rustup default`, last one sticks.
       # The doctest and fuzz recipes invoke `cargo +nightly`, so nightly only
       # needs to exist, not be the default — whereas the gate's bare
       # `cargo fmt`/`clippy`/`check` must hit stable.
+      #
+      # Pinned by SHA, the action's ref no longer names a toolchain (the
+      # mutable stable/nightly branches carry that as a default), so every
+      # dtolnay step states `toolchain:` explicitly.
       - name: Install nightly toolchain (merged doctests and fuzz build)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        with:
+          toolchain: nightly
 
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          toolchain: stable
           components: clippy, rustfmt
           targets: wasm32-unknown-unknown
 
@@ -68,20 +81,20 @@ jobs:
       # in the repo, turning the sweep red on a tree nobody touched. The others
       # report findings rather than generate bytes, so they track latest.
       - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, and wasm-pack
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
         with:
           tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,wasm-pack
 
-      # The viz bundle (`just viz`) runs `npm install`, a strict TypeScript
+      # The viz bundle (`just viz`) runs `npm ci`, a strict TypeScript
       # typecheck, and an esbuild bundle.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: crates/before-viz/www/package-lock.json
 
       - name: Cache cargo build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # The root workspace contains the isolated nightly doctest target;
           # the detached fuzz workspace has its own lockfile and target. Cache
@@ -120,28 +133,31 @@ jobs:
   instruments:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # Nightly first, stable last (each dtolnay/rust-toolchain step runs
       # `rustup default`, last one sticks): only the surface-json recipe
       # invokes `cargo +nightly`; every other step must hit stable.
       - name: Install nightly toolchain (surface-totality rustdoc JSON)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        with:
+          toolchain: nightly
 
       # clippy and rustfmt are for the surfacecheck workspace's own lint
       # legs, which the surface-totality recipe carries.
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          toolchain: stable
           components: clippy, rustfmt
 
       - name: Install just, cargo-nextest, cargo-audit, and cargo-deny
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
         with:
           tool: just,cargo-nextest,cargo-audit,cargo-deny
 
       - name: Cache cargo build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # The detached surfacecheck workspace has its own lockfile and
           # target directory; cache it beside the root workspace.
@@ -180,29 +196,31 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # Nightly first, stable last (each dtolnay/rust-toolchain step runs
       # `rustup default`, last one sticks): only the branch leg invokes
       # `cargo +nightly`; the line leg must hit stable. llvm-tools is the
       # coverage instrumentation's profdata component, needed on both.
       - name: Install nightly toolchain (branch coverage)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
         with:
+          toolchain: nightly
           components: llvm-tools
 
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          toolchain: stable
           components: llvm-tools
 
       - name: Install just, cargo-nextest, and cargo-llvm-cov
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
       - name: Cache cargo build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: just coverage-kernel (line, stable)
         run: just coverage-kernel

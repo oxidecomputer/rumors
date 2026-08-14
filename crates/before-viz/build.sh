@@ -8,7 +8,10 @@ cd "$(dirname "$0")"
 wasm-pack build . --target web --out-dir www/pkg
 
 cd www
-npm install
+# npm ci: install exactly what package-lock.json commits, never resolve anew —
+# the Pages deploy runs this script, so its dependency set must be the
+# committed one.
+npm ci
 npm run typecheck
 npm run bundle
 

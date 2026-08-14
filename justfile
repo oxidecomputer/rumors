@@ -176,6 +176,23 @@ testdoc:
     ./tools/testdoc --self-test
     ./tools/testdoc .
 
+# The supply-chain leg below polices the crate graph through committed
+# lockfiles; nothing there polices what the CI workflows themselves execute.
+# A `uses:` reference held only by a mutable tag runs whatever commit the
+# tag points at on the day the job runs, and a curl|sh installer runs
+# whatever the host serves that day — both inside jobs holding credentials
+# (the Pages deploy holds an OIDC id-token). tools/workflowlint fails the
+# gate on any `uses:` not identified immutably (a 40-hex commit SHA, or a
+# sha256 digest for docker actions; local `./` actions are committed code)
+# and on any curl/wget piped into a shell, with liveness floors so a vacant
+# scan reads as failure and a self-test pinning its red paths. Build-free,
+# so it rides the lint tier.
+
+# Hold every workflow step to committed or immutably-pinned code.
+workflowlint:
+    ./tools/workflowlint --self-test
+    ./tools/workflowlint .github/workflows
+
 # tools/readme mirrors each crate's crate-level rustdoc into its README via
 # cargo-rdme, then strips the intra-doc links cargo-rdme can't resolve (the
 # public types are re-exported from private submodules, and the docs use
@@ -321,7 +338,7 @@ fuzz-build:
 gate: gate-lints gate-streams
 
 # The build-free tier, sequential: a lint failure should cost seconds.
-gate-lints: fmt-check doclint testdoc readme-check
+gate-lints: fmt-check doclint testdoc workflowlint readme-check
 
 # Each stream's output is captured rather than interleaved, and a failing
 # stream's log is replayed in full at the end, so a parallel failure reads
@@ -882,7 +899,7 @@ worst-cases-pin:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
+ci: fmt-check doclint testdoc workflowlint readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire

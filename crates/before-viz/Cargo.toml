@@ -22,3 +22,11 @@ default = ["console_error_panic_hook"]
 
 [dev-dependencies]
 proptest = "1"
+
+# On release-profile builds wasm-pack otherwise downloads and executes a
+# binaryen `wasm-opt` fetched from GitHub releases at build time — code no
+# commit in this tree identifies, running inside the Pages deploy's build
+# job. The demo wasm ships unoptimized so the build runs only committed or
+# immutably-pinned code.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
