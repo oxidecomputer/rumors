@@ -561,7 +561,16 @@ class Widget {
     const title = mk(host, "div", "fs-title");
     title.textContent = "Measured growth";
     const sub = mk(host, "div", "fs-subtitle");
-    sub.textContent = "Flat bands indicate agreement with the selected hypothesis";
+    sub.appendChild(document.createTextNode(
+      "Flat bands indicate agreement with the selected hypothesis ("));
+    // The full explanation lives in the crate docs' Complexity section;
+    // rustdoc's own root-path meta bridges the varying page depths
+    // (these islands render only in before's docs).
+    const more = mk(sub, "a");
+    const vars = document.querySelector('meta[name="rustdoc-vars"]');
+    more.href = ((vars && vars.dataset.rootPath) || "../") + "before/index.html#complexity";
+    mk(more, "i").textContent = "more details";
+    sub.appendChild(document.createTextNode(")"));
     const bar1 = mk(host, "div", "fs-bar");
     const hyp = mk(bar1, "span", "fs-hyplabel");
     hyp.title = "divide instructions by a growth rate \u2014 the right one flattens the band";

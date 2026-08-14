@@ -301,6 +301,31 @@
 //! documented, the *size* of an argument `|x|` means that argument's *size in
 //! encoded bytes*.
 //!
+//! Most operations also carry an interactive **measured-growth chart** in
+//! these API docs: the expander under the complexity claim. Each chart
+//! plots the operation's measured cost — instructions, counted
+//! deterministically as WASM operations in a sandboxed build of this
+//! crate — against total input size in bytes, over thousands of inputs
+//! drawn uniformly at random from the canonical inputs of each exact
+//! size. The blue bands are the cost distribution at each size; the
+//! dotted trace follows one quantile (drag it, or the slider, to sweep);
+//! the curves are growth hypotheses, with the documented bound
+//! pre-selected — dividing the chart by a hypothesis flattens the band
+//! exactly when cost grows at that rate. Click a hypothesis to
+//! re-compensate (or type your own), and click a column to anchor the
+//! comparison at that size instead of the largest.
+//!
+//! Read the charts as *shape, not magnitude*. Absolute counts are a
+//! property of the measurement guest and do not transfer to native
+//! builds — growth shapes and ratios do — so the axes carry no absolute
+//! numbers. Uniform sampling shows the *bulk* of the input space: an
+//! operation whose worst case is rare reads far below its documented
+//! bound, which remains correct — adversarial shapes are measure-zero
+//! under uniform draws. The x-axis starts at the operation's smallest
+//! expressible input (a three-operand operation starts at three bytes).
+//! The charts are an audit view for building intuition; the enforced
+//! performance guarantees live in the crate's metering and fuzz suites.
+//!
 //! ## Crate features
 //!
 //! Every feature is off by default.
