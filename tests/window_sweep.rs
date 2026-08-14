@@ -2,28 +2,41 @@
 //! (`common::window`): proof that the swept population cannot silently
 //! degenerate to floor-everywhere.
 //!
-//! The sweep's value rests on two facts, each pinned here: the generator
-//! actually emits every regime (floor, tight budget, default — and
-//! budgets on both sides of the width-granting threshold), and a
-//! non-floor choice at suite-scale content actually reaches the session
-//! as a granted window wider than one slot. Either fact could rot
+//! The sweep's value rests on three facts, each pinned here: the
+//! generator actually emits every arm (floor, budget, default, with
+//! budgets reaching both endpoints of its exponent range), a non-floor
+//! choice at suite-scale content actually reaches the session as a
+//! granted window wider than one slot, and an explicit budget actually
+//! reaches the session's solve (a `Budget` no-op would leave every
+//! suite green while sweeping nothing). Any of these could rot
 //! silently — a strategy edit could drop an arm, or a plumbing change
-//! could quietly stop applying the choice — and every swept suite would
-//! keep passing while testing the floor alone.
+//! could quietly stop applying the choice.
 
 mod common;
 
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::TestRunner;
-use rumors::Peer;
+use rumors::Gossiped;
 
-use crate::common::window::{WindowChoice, arb_window_choice};
-use crate::common::wire::{LINK_BUF, block_on, bootstrap_fork_with_window_async};
+use crate::common::window::{
+    MAX_BUDGET_EXPONENT, MIN_BUDGET_EXPONENT, WindowChoice, arb_window_choice,
+};
+use crate::common::wire::{block_on, divergent_pair, gossip_pair_async};
 
-/// Values each endpoint originates in the widening pin's session: enough
-/// that the default budget's population clamp sits well above one slot,
-/// at a size the schedule suites' generators routinely reach.
+/// Values each endpoint originates in the widening pins' sessions:
+/// enough that a wide window's population clamp sits well above one
+/// slot, at a size the schedule suites' generators routinely reach.
 const DIVERGENT_VALUES_PER_SIDE: u64 = 24;
+
+/// One fully-divergent session between endpoints at the two given window
+/// choices, returning each side's granted window width.
+fn granted_widths(window_a: WindowChoice, window_b: WindowChoice) -> (u64, u64) {
+    block_on(async {
+        let (a, b) = divergent_pair(DIVERGENT_VALUES_PER_SIDE, window_a, window_b).await;
+        let (a_report, b_report): (Gossiped, Gossiped) = gossip_pair_async(&a, &b).await;
+        (a_report.stats.window_granted, b_report.stats.window_granted)
+    })
+}
 
 /// A non-floor window choice must reach the wire as a granted window
 /// wider than one slot, at content sizes the swept suites reach.
@@ -33,37 +46,8 @@ const DIVERGENT_VALUES_PER_SIDE: u64 = 24;
 /// floor side at one slot while the default side widens.
 #[test]
 fn non_floor_choice_widens_the_granted_window() {
-    let (floor_granted, default_granted) = block_on(async {
-        let seed = WindowChoice::Default
-            .apply(Peer::<u64>::seed())
-            .into_rumors();
-        let floor_side = bootstrap_fork_with_window_async(&seed, WindowChoice::Floor).await;
-        let default_side = bootstrap_fork_with_window_async(&seed, WindowChoice::Default).await;
-        {
-            let mut batch = floor_side.batch();
-            for v in 0..DIVERGENT_VALUES_PER_SIDE {
-                batch.send(v);
-            }
-        }
-        {
-            let mut batch = default_side.batch();
-            for v in 0..DIVERGENT_VALUES_PER_SIDE {
-                batch.send(1_000_000 + v);
-            }
-        }
-        let (mut link_f, mut link_d) = rumors::link::memory_with_capacity(LINK_BUF);
-        let (out_f, out_d) = tokio::join!(
-            floor_side.gossip(&mut link_f),
-            default_side.gossip(&mut link_d),
-        );
-        (
-            out_f.expect("floor endpoint session").stats.window_granted,
-            out_d
-                .expect("default endpoint session")
-                .stats
-                .window_granted,
-        )
-    });
+    let (floor_granted, default_granted) =
+        granted_widths(WindowChoice::Floor, WindowChoice::Default);
     assert_eq!(
         floor_granted, 1,
         "the floor endpoint of an asymmetric session must stay at the \
@@ -77,13 +61,38 @@ fn non_floor_choice_widens_the_granted_window() {
     );
 }
 
-/// The sweep generator's population covers every regime.
+/// Explicit budgets reach the session's solve, and the generator's
+/// budget range provably straddles the width-granting threshold.
+///
+/// At the range's bottom endpoint (`2^MIN_BUDGET_EXPONENT` bytes) the
+/// granted window is exactly one slot — the budget-resolution path's
+/// floor-equivalent regime — while at its top endpoint
+/// (`2^MAX_BUDGET_EXPONENT` bytes) it is wider than one. A `Budget`
+/// no-op regression would collapse the two readings.
+#[test]
+fn budget_endpoints_straddle_the_width_threshold() {
+    let (tight_granted, wide_granted) = granted_widths(
+        WindowChoice::Budget(1 << MIN_BUDGET_EXPONENT),
+        WindowChoice::Budget(1 << MAX_BUDGET_EXPONENT),
+    );
+    assert_eq!(
+        tight_granted, 1,
+        "the minimum generated budget must resolve to the one-slot floor \
+         at suite-scale content"
+    );
+    assert!(
+        wide_granted > 1,
+        "the maximum generated budget granted {wide_granted} slot(s): \
+         explicit budgets are not reaching the session's window solve"
+    );
+}
+
+/// The sweep generator's population covers every arm.
 ///
 /// Sampled under proptest's deterministic runner, [`arb_window_choice`]
-/// emits the floor, the default, and budgets spanning both sides of the
-/// width-granting threshold (budgets at or below 64 KiB resolve back to
-/// one slot at suite scale; budgets at or above 1 MiB grant the
-/// population clamp).
+/// emits the floor, the default, and budgets from both endpoint decades
+/// of its exponent range — the regimes whose session effects
+/// [`budget_endpoints_straddle_the_width_threshold`] pins.
 #[test]
 fn window_choice_population_covers_every_regime() {
     let mut runner = TestRunner::deterministic();
@@ -105,12 +114,12 @@ fn window_choice_population_covers_every_regime() {
     assert!(floors > 0, "the population must keep the floor exercised");
     assert!(defaults > 0, "the population must include the default");
     assert!(
-        budgets.iter().any(|&b| b <= 64 << 10),
-        "the budget arm must reach floor-equivalent budgets, exercising \
-         the budget resolution path at one slot"
+        budgets.iter().any(|&b| b < 1 << (MIN_BUDGET_EXPONENT + 1)),
+        "the budget arm must reach its bottom decade (floor-equivalent \
+         budgets, exercising the budget-resolution path at one slot)"
     );
     assert!(
-        budgets.iter().any(|&b| b >= 1 << 20),
-        "the budget arm must reach width-granting budgets"
+        budgets.iter().any(|&b| b >= 1 << MAX_BUDGET_EXPONENT),
+        "the budget arm must reach its top decade (width-granting budgets)"
     );
 }

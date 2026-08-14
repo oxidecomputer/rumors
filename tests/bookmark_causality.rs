@@ -1266,9 +1266,10 @@ proptest! {
 // files stay committed; these constructions carry the counterexamples.
 
 /// Re-minted counterexample: both peers crash around a send, then the
-/// crashed-and-rebooted peer retires into the sender — the bookmark must
-/// not recycle a version across the crash/retire pair, and the heal must
-/// still converge.
+/// crashed-and-rebooted peer retires into the sender.
+///
+/// The bookmark must not recycle a version across the crash/retire
+/// pair, and the heal must still converge.
 #[test]
 fn remint_crash_pair_then_retire() {
     let world = run_plan(Plan {
@@ -1286,9 +1287,10 @@ fn remint_crash_pair_then_retire() {
 }
 
 /// Re-minted counterexample: a send, one gossip cut in both directions
-/// mid-frame, then a retirement, under bookmark read/write fail schedules
-/// on every node — versions must survive the faulted persistence without
-/// recycling.
+/// mid-frame, then a retirement, under bookmark read/write fail
+/// schedules on every node.
+///
+/// Versions must survive the faulted persistence without recycling.
 #[test]
 fn remint_cut_gossip_then_retire_under_bookmark_faults() {
     let world = run_plan(Plan {

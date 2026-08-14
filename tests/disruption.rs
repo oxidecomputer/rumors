@@ -29,14 +29,14 @@ use rumors::{Peer, Retire, Rumors};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::common::fault::{self, FaultPlan};
-use crate::common::oracle::readout;
 use crate::common::sim::{
-    Activity, Plan, Redaction, RetireOp, Session, Transfer, arb_fault, arb_plan, assert_converged,
-    assert_deletion_honored, assert_honest_error, assert_honest_gossip, assert_party_invariants,
-    assert_value_oracle, is_honest_error, lost_custody, probe_disjointness, quiesce, run_plan,
+    Activity, MAX_PLAN_PEERS, MAX_PLAN_SCRIPT_OPS, MAX_PLAN_SEED_MESSAGES, Plan, Redaction,
+    RetireOp, Session, Transfer, arb_fault, arb_plan, assert_converged, assert_deletion_honored,
+    assert_honest_error, assert_honest_gossip, assert_party_invariants, assert_value_oracle,
+    is_honest_error, lost_custody, probe_disjointness, quiesce, run_plan, survivor_readouts,
 };
 use crate::common::tcp;
-use crate::common::window::WindowChoice;
+use crate::common::window::{WindowAssignment, WindowChoice};
 use crate::common::wire::bootstrap_fork_async;
 
 /// A fresh multi-thread runtime per simulation, so tasks interleave with
@@ -83,20 +83,43 @@ proptest! {
     /// retirements.
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants(plan in arb_plan()) {
-        mt_runtime().block_on(async {
-            let outcome = run_plan(plan).await;
-            quiesce(&outcome.peers).await;
-            assert_converged(&outcome.peers);
-            assert_party_invariants(&outcome.peers, outcome.possible_losses);
-            assert_deletion_honored(&outcome.peers, &outcome.redactions);
-            assert_value_oracle(
-                &outcome.peers,
-                outcome.possible_losses,
-                &outcome.inserted,
-                &outcome.redactions,
-            );
-        });
+        mt_runtime().block_on(check_plan(plan));
     }
+
+    /// The floor-everywhere baseline leg: the same invariants as
+    /// `disrupted_concurrent_gossip_upholds_party_invariants`, with
+    /// every window pinned at the serialization floor on every
+    /// iteration.
+    ///
+    /// The capacity-one orderings the deadlock-freedom argument
+    /// certifies are deterministically exercised in this engine, not
+    /// merely with the probability the swept leg happens to draw.
+    #[test]
+    fn disrupted_concurrent_gossip_upholds_party_invariants_at_floor(
+        plan in arb_plan().prop_map(|mut plan| {
+            plan.windows = WindowAssignment::floor();
+            plan
+        }),
+    ) {
+        mt_runtime().block_on(check_plan(plan));
+    }
+}
+
+/// Run one plan through the full invariant battery: execute, heal,
+/// then convergence, party, deletion-honoring, and value-ledger checks.
+async fn check_plan(plan: Plan) {
+    let outcome = run_plan(plan).await;
+    quiesce(&outcome.peers).await;
+    let readouts = survivor_readouts(&outcome.peers);
+    assert_converged(&outcome.peers, &readouts);
+    assert_party_invariants(&outcome.peers, outcome.possible_losses);
+    assert_deletion_honored(&readouts, &outcome.redactions);
+    assert_value_oracle(
+        &readouts,
+        outcome.possible_losses,
+        &outcome.inserted,
+        &outcome.redactions,
+    );
 }
 
 // ---- value-oracle adequacy tripwires -----------------------------------------
@@ -129,7 +152,7 @@ fn tripwire_plan() -> Plan {
         retires: vec![],
         // One floor and one default endpoint: the corruption checks run
         // against an asymmetric-window session, the sweep's general case.
-        windows: vec![WindowChoice::Floor, WindowChoice::Default],
+        windows: WindowAssignment::new(vec![WindowChoice::Floor, WindowChoice::Default]),
     }
 }
 
@@ -154,15 +177,16 @@ fn value_oracle_tripwires_catch_known_bad_mechanisms() {
             "a fault-free plan must be loss-free by construction"
         );
         quiesce(&outcome.peers).await;
-        assert_converged(&outcome.peers);
+        let readouts = survivor_readouts(&outcome.peers);
+        assert_converged(&outcome.peers, &readouts);
 
         // Green on the honest run: both checks pass the uncorrupted ledger.
-        assert_deletion_honored(&outcome.peers, &outcome.redactions);
-        assert_value_oracle(&outcome.peers, 0, &outcome.inserted, &outcome.redactions);
+        assert_deletion_honored(&readouts, &outcome.redactions);
+        assert_value_oracle(&readouts, 0, &outcome.inserted, &outcome.redactions);
 
         // Known-bad mechanism 1: a suppressed redaction. Its ledger entry
         // names a key still live in the converged fleet.
-        let (&key, &value) = readout(&outcome.peers[0].snapshot())
+        let (&key, &value) = readouts[0]
             .iter()
             .next()
             .expect("the tripwire plan leaves live content");
@@ -173,11 +197,11 @@ fn value_oracle_tripwires_catch_known_bad_mechanisms() {
             retained: true,
         });
         assert!(
-            panics(|| assert_deletion_honored(&outcome.peers, &suppressed)),
+            panics(|| assert_deletion_honored(&readouts, &suppressed)),
             "the deletion-honoring check must catch a suppressed redaction"
         );
         assert!(
-            panics(|| assert_value_oracle(&outcome.peers, 0, &outcome.inserted, &suppressed)),
+            panics(|| assert_value_oracle(&readouts, 0, &outcome.inserted, &suppressed)),
             "the multiset check must catch a suppressed redaction"
         );
 
@@ -186,7 +210,7 @@ fn value_oracle_tripwires_catch_known_bad_mechanisms() {
         let mut dropped = outcome.inserted.clone();
         dropped.push(0xDEAD_BEEF);
         assert!(
-            panics(|| assert_value_oracle(&outcome.peers, 0, &dropped, &outcome.redactions)),
+            panics(|| assert_value_oracle(&readouts, 0, &dropped, &outcome.redactions)),
             "the multiset check must catch a dropped insert"
         );
     });
@@ -222,12 +246,17 @@ fn custody_chain_loss_is_transitive() {
 }
 
 /// An unbroken chain of committed transfers retains custody end to end:
-/// nothing is reported lost, so every logger's redactions stay subject to
-/// the unconditional deletion-honoring check. The transitive weakening in
-/// [`lost_custody`] must never eat honest coverage.
+/// nothing is reported lost, so every logger's redactions stay subject
+/// to the unconditional deletion-honoring check.
+///
+/// The transitive weakening in [`lost_custody`] must never eat honest
+/// coverage.
 #[test]
 fn custody_committed_chain_retains() {
-    let lost = lost_custody(3, &[(1, 2, Transfer::Committed), (2, 0, Transfer::Committed)]);
+    let lost = lost_custody(
+        3,
+        &[(1, 2, Transfer::Committed), (2, 0, Transfer::Committed)],
+    );
     assert!(
         lost.is_empty(),
         "a fully committed chain loses nothing: {lost:?}"
@@ -235,11 +264,13 @@ fn custody_committed_chain_retains() {
 }
 
 /// End-to-end deterministic run of a committed retire chain over clean
-/// wires: founder 1 redacts a seed message, retires into 2, which retires
-/// into 0 — both transfers commit, the run is loss-free, the redaction
-/// rides the chain into the survivor, and both ledger checks hold. The
-/// corruption half then re-proves the checks' liveness in the presence of
-/// retires: a fabricated retained redaction of a live key must fail
+/// wires.
+///
+/// Founder 1 redacts a seed message, retires into 2, which retires into
+/// 0 — both transfers commit, the run is loss-free, the redaction rides
+/// the chain into the survivor, and both ledger checks hold. The
+/// corruption half then re-proves the checks' liveness in the presence
+/// of retires: a fabricated retained redaction of a live key must fail
 /// deletion honoring and the multiset equality.
 #[test]
 fn value_oracle_survives_committed_retire_chain() {
@@ -267,7 +298,11 @@ fn value_oracle_survives_committed_retire_chain() {
                     fault: FaultPlan::NONE,
                 },
             ],
-            windows: vec![WindowChoice::Floor, WindowChoice::Default, WindowChoice::Floor],
+            windows: WindowAssignment::new(vec![
+                WindowChoice::Floor,
+                WindowChoice::Default,
+                WindowChoice::Floor,
+            ]),
         };
         let outcome = run_plan(plan).await;
         assert_eq!(
@@ -283,13 +318,14 @@ fn value_oracle_survives_committed_retire_chain() {
             "a fully committed chain retains every redaction"
         );
         quiesce(&outcome.peers).await;
-        assert_converged(&outcome.peers);
-        assert_deletion_honored(&outcome.peers, &outcome.redactions);
-        assert_value_oracle(&outcome.peers, 0, &outcome.inserted, &outcome.redactions);
+        let readouts = survivor_readouts(&outcome.peers);
+        assert_converged(&outcome.peers, &readouts);
+        assert_deletion_honored(&readouts, &outcome.redactions);
+        assert_value_oracle(&readouts, 0, &outcome.inserted, &outcome.redactions);
 
         // Liveness after the custody weakening: fabricating a retained
         // redaction of a live key must still fire both checks.
-        let (&key, &value) = readout(&outcome.peers[0].snapshot())
+        let (&key, &value) = readouts[0]
             .iter()
             .next()
             .expect("live content survives the chain");
@@ -300,11 +336,11 @@ fn value_oracle_survives_committed_retire_chain() {
             retained: true,
         });
         assert!(
-            panics(|| assert_deletion_honored(&outcome.peers, &corrupted)),
+            panics(|| assert_deletion_honored(&readouts, &corrupted)),
             "deletion honoring must still fire through a retire chain"
         );
         assert!(
-            panics(|| assert_value_oracle(&outcome.peers, 0, &outcome.inserted, &corrupted)),
+            panics(|| assert_value_oracle(&readouts, 0, &outcome.inserted, &corrupted)),
             "the multiset check must still fire through a retire chain"
         );
     });
@@ -312,38 +348,62 @@ fn value_oracle_survives_committed_retire_chain() {
 
 // ---- MAX_CUT derivation pin --------------------------------------------------
 
-/// Distinct values per side of the envelope session.
+/// Distinct values per side of the envelope session: one more than the
+/// most content an entire plan can mint anywhere.
 ///
-/// Strictly more unique content on *each* endpoint than an entire plan
-/// can mint anywhere (at most 7 seed messages plus 5 scripts of at most
-/// 7 sends), so any real plan session's divergence is dominated.
-const ENVELOPE_VALUES_PER_SIDE: u64 = 48;
+/// Derived from the generator's own bounds so the dominance premise
+/// cannot drift from the strategy.
+const ENVELOPE_VALUES_PER_SIDE: u64 =
+    (MAX_PLAN_SEED_MESSAGES + MAX_PLAN_PEERS * MAX_PLAN_SCRIPT_OPS + 1) as u64;
 
 /// Byte extent of the envelope session, per endpoint.
 ///
-/// Two peers forked from an empty seed, each holding
-/// [`ENVELOPE_VALUES_PER_SIDE`] unique values (full divergence: every
-/// leaf disputed, everything transferred both ways), gossiping at the
-/// sweep's widest window. Metered with the same counters the fault
-/// cuts spend, so the result is directly comparable to cut offsets.
+/// The construction dominates a plan's *value count* exactly — each
+/// endpoint holds more unique content than an entire plan can mint —
+/// and exercises the version shapes plans produce at the generator's
+/// bounds: the fleet sits on a `MAX_PLAN_PEERS`-party fork lattice,
+/// every party contributes a send tick and a redaction tick, and two
+/// star rounds entangle every party's ticks into both endpoints'
+/// version bounds before the measured, fully-divergent session runs at
+/// the sweep's widest window. Byte extent is not *proven* maximal over
+/// version shapes (plan versions vary in dimensions no single
+/// construction dominates); the two-sided band in
+/// [`max_cut_spans_the_envelope_session`] is what keeps the constant
+/// tracking reality. Metered with the same counters the fault cuts
+/// spend, so the result is directly comparable to cut offsets.
 async fn envelope_session_bytes() -> usize {
     let seed = WindowChoice::Default
         .apply(Peer::<u64>::seed())
         .into_rumors();
-    let a = common::wire::bootstrap_fork_with_window_async(&seed, WindowChoice::Default).await;
-    let b = common::wire::bootstrap_fork_with_window_async(&seed, WindowChoice::Default).await;
-    {
-        let mut batch = a.batch();
-        for v in 0..ENVELOPE_VALUES_PER_SIDE {
-            batch.send(v);
+    let mut fleet = vec![seed];
+    for _ in 1..MAX_PLAN_PEERS {
+        fleet.push(
+            common::wire::bootstrap_fork_with_window_async(&fleet[0], WindowChoice::Default).await,
+        );
+    }
+    // One send tick and one redaction tick per party: each peer marks
+    // and immediately redacts its own marker (its snapshot holds only
+    // the marker — nothing has gossiped yet), leaving every party's
+    // ticks in its version bounds without leaving shared live content
+    // that would blunt the divergence.
+    for (i, peer) in fleet.iter().enumerate() {
+        peer.send(2_000_000 + i as u64);
+        let (marker, _, _) = peer
+            .snapshot()
+            .iter()
+            .next()
+            .expect("the peer holds exactly its own marker");
+        peer.redact(marker);
+    }
+    // Two star rounds spread every party's ticks into every peer's
+    // bounds (the first collects at the hub, the second redistributes).
+    for _ in 0..2 {
+        for i in 1..fleet.len() {
+            common::wire::wire_gossip_async(&fleet[0], &fleet[i]).await;
         }
     }
-    {
-        let mut batch = b.batch();
-        for v in 0..ENVELOPE_VALUES_PER_SIDE {
-            batch.send(1_000_000 + v);
-        }
-    }
+    let (a, b) = (&fleet[1], &fleet[2]);
+    common::wire::diverge(a, b, ENVELOPE_VALUES_PER_SIDE);
     let (link_a, link_b) = rumors::link::memory();
     let (mut link_a, meter_a) = fault::metered(link_a);
     let (mut link_b, meter_b) = fault::metered(link_b);
@@ -356,17 +416,19 @@ async fn envelope_session_bytes() -> usize {
 /// Pins `MAX_CUT` to the envelope session's measured byte extent, from
 /// both sides.
 ///
-/// Every byte of the deepest session a plan can produce is a reachable
-/// cut offset (`measured <= MAX_CUT`), and the cut range is not
-/// vacuously wide (`MAX_CUT <= 2 * measured`), so generated cuts keep
-/// landing inside real sessions rather than past their end.
+/// Every byte of the envelope session is a reachable cut offset
+/// (`measured <= MAX_CUT`), and the cut range is not vacuously wide
+/// (`MAX_CUT <= 2 * measured`), so generated cuts keep landing inside
+/// real sessions rather than past their end. The envelope's dominance
+/// premise (exact on value count, representative on version shapes) is
+/// stated at [`envelope_session_bytes`].
 #[test]
 fn max_cut_spans_the_envelope_session() {
     let measured = mt_runtime().block_on(envelope_session_bytes());
     println!("envelope session bytes per endpoint: {measured}");
     assert!(
         measured <= crate::common::sim::MAX_CUT,
-        "a plan session can move {measured} bytes per endpoint, beyond \
+        "the envelope session moves {measured} bytes per endpoint, beyond \
          MAX_CUT ({}): deep-session cut offsets are unreachable",
         crate::common::sim::MAX_CUT,
     );
@@ -778,12 +840,13 @@ async fn run_proc_plan(plan: ProcPlan) {
     );
 
     quiesce(&survivors).await;
-    assert_converged(&survivors);
+    let readouts = survivor_readouts(&survivors);
+    assert_converged(&survivors, &readouts);
 
     // Every cleanly-retired child's sends must have survived into the
     // parent's converged content: its final retirement reconciled before
     // the party hand-off, so nothing it published may be lost.
-    let live: BTreeSet<u64> = readout(&survivors[0].snapshot()).into_values().collect();
+    let live: BTreeSet<u64> = readouts[0].values().copied().collect();
     for (index, child) in plan.children.iter().enumerate() {
         if clean_children[index] {
             for s in 0..child.n_sends {

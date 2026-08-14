@@ -1,12 +1,11 @@
 //! Run a [`Schedule<T>`] against a fresh fleet of peers and a
 //! spec-shaped oracle.
 //!
-//! The single primitive is [`execute_slots`], which runs the full event
-//! alphabet — membership events included — over a slot-per-peer fleet
-//! (a retired peer vacates its slot). [`execute_with`], [`execute`],
-//! and [`execute_and_quiesce`] are the membership-free entry points:
-//! they run schedules whose peers all survive and return the fleet as a
-//! plain `Vec`. [`execute_membership`] and
+//! One private core runs the full event alphabet — membership events
+//! included — over a slot-per-peer fleet (a retired peer vacates its
+//! slot). [`execute_with`], [`execute`], and [`execute_and_quiesce`]
+//! are the membership-free entry points: they validate the alphabet and
+//! return the fleet as a plain `Vec`. [`execute_membership`] and
 //! [`execute_membership_and_quiesce`] expose the slotted result for
 //! membership schedules.
 
@@ -100,8 +99,10 @@ where
 /// # Panics
 ///
 /// Panics if the schedule carries membership events: this entry point
-/// promises a fleet with every peer present, so membership schedules
-/// must run through [`execute_membership`] instead.
+/// promises a fleet with every peer present at its original index, so
+/// membership schedules must run through [`execute_membership`]. The
+/// alphabet is validated up front — a bootstrap-only schedule would
+/// otherwise return an oversized fleet instead of the promised panic.
 pub fn execute_with<T, F>(
     schedule: &Schedule<T>,
     windows: &WindowAssignment,
@@ -111,11 +112,18 @@ where
     T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
+    assert!(
+        !schedule
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Bootstrap { .. } | Event::Retire { .. })),
+        "membership schedules run through execute_membership"
+    );
     let result = execute_slots(schedule, windows, allow_gossip);
     let peers = result
         .slots
         .into_iter()
-        .map(|slot| slot.expect("membership schedules run through execute_membership"))
+        .map(|slot| slot.expect("a membership-free schedule retires nobody"))
         .collect();
     ExecutionResult {
         peers,
@@ -161,7 +169,7 @@ where
 /// plain gossip) and vacate the retiree's slot, saving its observation
 /// log. All peers descend from one seed and live parties stay pairwise
 /// disjoint, so every session can always merge.
-pub fn execute_slots<T, F>(
+fn execute_slots<T, F>(
     schedule: &Schedule<T>,
     windows: &WindowAssignment,
     allow_gossip: F,

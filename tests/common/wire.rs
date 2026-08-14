@@ -132,12 +132,66 @@ pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
+    let _ = gossip_pair_async(a, b).await;
+}
+
+/// [`wire_gossip_async`], returning both endpoints' session reports so
+/// callers can assert on [`SessionStats`](rumors::SessionStats).
+///
+/// The window-sweep liveness pins read `window_granted` from here.
+/// Drains the control stream like every successful in-memory session.
+pub async fn gossip_pair_async<T>(
+    a: &Rumors<T>,
+    b: &Rumors<T>,
+) -> (rumors::Gossiped, rumors::Gossiped)
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
     let (a_result, b_result) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
-    a_result.expect("wire gossip A");
-    b_result.expect("wire gossip B");
+    let a_report = a_result.expect("wire gossip A");
+    let b_report = b_result.expect("wire gossip B");
     assert_control_drained(a_link, b_link);
+    (a_report, b_report)
+}
+
+/// Give each side `values_per_side` values the other lacks: `a` draws
+/// from one range, `b` from a disjoint one, so the pair ends fully
+/// divergent (every leaf disputed in their next session).
+pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
+    {
+        let mut batch = a.batch();
+        for v in 0..values_per_side {
+            batch.send(v);
+        }
+    }
+    {
+        let mut batch = b.batch();
+        for v in 0..values_per_side {
+            batch.send(1_000_000 + v);
+        }
+    }
+}
+
+/// Two party-disjoint forks of one fresh universe, fully divergent by
+/// [`diverge`], each at its own window choice.
+///
+/// The shared fixture for session-effect measurements: the window-sweep
+/// pins use it directly, and the fault engine's envelope calibration
+/// builds its richer variant on [`diverge`].
+pub async fn divergent_pair(
+    values_per_side: u64,
+    window_a: WindowChoice,
+    window_b: WindowChoice,
+) -> (Rumors<u64>, Rumors<u64>) {
+    let seed = WindowChoice::Default
+        .apply(Peer::<u64>::seed())
+        .into_rumors();
+    let a = bootstrap_fork_with_window_async(&seed, window_a).await;
+    let b = bootstrap_fork_with_window_async(&seed, window_b).await;
+    diverge(&a, &b, values_per_side);
+    (a, b)
 }
 
 /// Mint a genuine, party-disjoint `Rumors` from `parent` by serving it a

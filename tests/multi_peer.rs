@@ -17,7 +17,7 @@ use rumors::Key;
 use crate::common::oracle::{readout, readout_multiset};
 use crate::common::peer::gossip_step;
 use crate::common::schedule::{Schedule, arb_schedule, execute_and_quiesce};
-use crate::common::window::arb_window_assignment;
+use crate::common::window::{WindowAssignment, arb_window_assignment};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;
@@ -156,6 +156,27 @@ proptest! {
         prop_assert_eq!(fingerprint(&result.peers[b]), before_b);
         prop_assert_eq!(result.peers[a].observations.len(), obs_a_before);
         prop_assert_eq!(result.peers[b].observations.len(), obs_b_before);
+    }
+
+    /// The floor-everywhere baseline leg of the oracle check: every
+    /// window pinned at the serialization floor on every iteration.
+    ///
+    /// The capacity-one orderings the deadlock-freedom argument
+    /// certifies stay deterministically exercised in this engine
+    /// regardless of what the swept legs draw.
+    #[test]
+    fn readout_matches_oracle_after_quiesce_at_floor(
+        schedule in schedule_u64(),
+    ) {
+        let result = execute_and_quiesce(&schedule, &WindowAssignment::floor());
+        let expected = result.oracle.expected_live();
+        for (i, peer) in result.peers.iter().enumerate() {
+            let actual = readout_multiset(&peer.local.snapshot());
+            prop_assert_eq!(
+                &actual, &expected,
+                "peer {} readout does not match oracle at the floor", i,
+            );
+        }
     }
 
     /// String-T variant of `readout_matches_oracle_after_quiesce`,

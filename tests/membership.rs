@@ -13,16 +13,16 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use before::Party;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
-use rumors::Key;
+use rumors::{Key, Rumors};
 
 use crate::common::oracle::{readout, readout_multiset};
 use crate::common::schedule::events::Event;
 use crate::common::schedule::{arb_membership_schedule, execute_membership_and_quiesce};
-use crate::common::window::arb_window_assignment;
+use crate::common::sim::assert_party_invariants;
+use crate::common::window::{WindowAssignment, arb_window_assignment};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=6;
 const MAX_EVENTS: usize = 40;
@@ -34,12 +34,15 @@ proptest! {
     /// 1. every live peer's readout multiset equals the oracle's
     ///    `expected_live()` — content crosses retirements and
     ///    bootstraps without loss or invention;
-    /// 2. no redacted event's key is live anywhere — deletion honoring
-    ///    survives absorption and newcomer copies;
-    /// 3. every live peer agrees on the full `Key → value` map;
-    /// 4. the live parties fold-join back to exactly `Party::seed()` —
-    ///    retirement moves id-regions without duplication or leak
-    ///    (clean wires: no hand-off can be lost).
+    /// 2. every live peer agrees on the full `Key → value` map (built
+    ///    from the oracle minus its redaction set, so a live redacted
+    ///    key is a mismatch here — deletion honoring survives
+    ///    absorption and newcomer copies);
+    /// 3. the global party invariants hold sharply: live parties are
+    ///    pairwise disjoint and fold-join back to exactly
+    ///    `Party::seed()` — the engine runs one session at a time over
+    ///    clean wires, so no hand-off can be lost and the
+    ///    zero-possible-losses form applies.
     #[test]
     fn membership_churn_converges_to_oracle(
         schedule in arb_membership_schedule(any::<u64>(), N_PEERS, MAX_EVENTS),
@@ -54,43 +57,42 @@ proptest! {
             .map(|(id, k)| (*k, result.oracle.all_inserts()[id]))
             .collect();
 
-        let mut parties: Vec<Party> = Vec::new();
         for (i, peer) in result.live() {
             let actual = readout(&peer.local.snapshot());
             prop_assert_eq!(
                 readout_multiset(&peer.local.snapshot()), expected.clone(),
                 "live peer {} diverged from the oracle multiset", i,
             );
-            for (id, key) in &result.resolved_keys {
-                if result.oracle.is_redacted(*id) {
-                    prop_assert!(
-                        !actual.contains_key(key),
-                        "redacted key {:?} (event {}) is live at peer {}",
-                        key, id, i,
-                    );
-                }
-            }
             prop_assert_eq!(
                 &actual, &canonical,
                 "live peer {} readout key→value map does not match canonical", i,
             );
-            parties.push(
-                peer.local
-                    .dangerously_alias_party()
-                    .expect("a live peer holds its party"),
-            );
         }
 
-        let mut parties = parties.into_iter();
-        let mut whole = parties.next().expect("at least one peer survives");
-        for party in parties {
-            whole.join(party).expect("live parties are pairwise disjoint");
+        let survivors: Vec<Rumors<u64>> =
+            result.live().map(|(_, peer)| peer.local.clone()).collect();
+        assert_party_invariants(&survivors, 0);
+    }
+
+    /// The floor-everywhere baseline leg of the membership engine:
+    /// every window pinned at the serialization floor on every
+    /// iteration.
+    ///
+    /// Mid-schedule bootstraps and retirements keep exercising the
+    /// capacity-one orderings the deadlock-freedom argument certifies
+    /// regardless of what the swept leg draws.
+    #[test]
+    fn membership_churn_converges_to_oracle_at_floor(
+        schedule in arb_membership_schedule(any::<u64>(), N_PEERS, MAX_EVENTS),
+    ) {
+        let result = execute_membership_and_quiesce(&schedule, &WindowAssignment::floor());
+        let expected = result.oracle.expected_live();
+        for (i, peer) in result.live() {
+            prop_assert_eq!(
+                readout_multiset(&peer.local.snapshot()), expected.clone(),
+                "live peer {} diverged from the oracle multiset at the floor", i,
+            );
         }
-        prop_assert_eq!(
-            whole,
-            Party::seed(),
-            "the live parties must reconstitute the seed's whole id-space",
-        );
     }
 }
 

@@ -84,21 +84,24 @@ use rumors::{Error, Key, MirrorError, Peer, Retire, Rumors, Version};
 
 use crate::common::fault::{self, FaultPlan};
 use crate::common::oracle::{readout, readout_multiset};
-use crate::common::window::{WindowChoice, arb_window_choice};
+use crate::common::window::{WindowAssignment, WindowChoice, arb_window_choice};
 use crate::common::wire::wire_gossip_async;
 
 /// Upper bound on the byte offset at which a cut can land.
 ///
 /// Derived from measurement, not transcribed: the envelope session —
-/// two fully-divergent peers, each holding more unique content than an
-/// entire plan can mint, at the sweep's widest window — moves fewer
-/// bytes per endpoint than this bound, and the bound stays within twice
-/// that measurement, so generated cuts both reach the deepest byte any
-/// plan session can produce and land inside real sessions often. The
-/// measurement is pinned two-sided by
-/// `max_cut_spans_the_envelope_session` in `tests/disruption.rs`;
+/// a fully-divergent pair on the generator's maximal fork lattice, each
+/// endpoint holding more unique content than an entire plan can mint,
+/// every party's ticks entangled into the version bounds, at the
+/// sweep's widest window — moves fewer bytes per endpoint than this
+/// bound, and the bound stays within twice that measurement, so
+/// generated cuts reach every byte of the envelope and keep landing
+/// inside real sessions. The envelope dominates plan sessions exactly
+/// on value count and representatively on version shapes (the boundary
+/// is stated at the pin); the two-sided pin is
+/// `max_cut_spans_the_envelope_session` in `tests/disruption.rs` —
 /// re-measure there before touching this number.
-pub const MAX_CUT: usize = 4096;
+pub const MAX_CUT: usize = 3072;
 
 /// Headroom on the heal loop, as in `peer::quiesce`.
 const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;
@@ -124,13 +127,13 @@ pub struct Plan {
     pub sessions: Vec<Session>,
     /// Retirements run after the chaos phase settles.
     pub retires: Vec<RetireOp>,
-    /// Per-founder window choices (length `n_peers`): founder `i` runs at
-    /// `windows[i]`, and a newcomer bootstrapped by `faulty_boots[j]`
-    /// takes `windows[j % n_peers]`.
+    /// Window choices for the whole fleet: founder `i` runs at
+    /// `windows.choice(i)`, and a newcomer bootstrapped by
+    /// `faulty_boots[j]` takes `windows.choice(j)`.
     ///
     /// Founders draw independently, so the chaos includes sessions
     /// between differently-configured endpoints.
-    pub windows: Vec<WindowChoice>,
+    pub windows: WindowAssignment,
 }
 
 /// One local operation in a peer's concurrent activity script.
@@ -174,10 +177,12 @@ pub struct Redaction {
     /// the same pass that selected the key.
     pub value: u64,
     /// Whether the redaction is guaranteed present in the surviving
-    /// fleet's causal history: some logging founder's final content
-    /// reached the survivors through an unbroken chain of committed
-    /// transfers ([`lost_custody`]) — it survived to the heal phase
-    /// itself, or every hop of its retire chain committed.
+    /// fleet's causal history.
+    ///
+    /// Retention means some logging founder's final content reached the
+    /// survivors through an unbroken chain of committed transfers
+    /// ([`lost_custody`]): it survived to the heal phase itself, or
+    /// every hop of its retire chain committed.
     ///
     /// A redaction whose every logger's custody chain was broken by a
     /// loss arm may honestly never reach the survivors, so only
@@ -193,11 +198,13 @@ pub enum Transfer {
     /// The retiree recovered whole: custody never moved.
     Recovered,
     /// The absorber committed its session: everything the retiree carried
-    /// now rides in the absorber. Sound by [`Peer::retire`]'s contract —
-    /// a retirement session reconciles content exactly as gossip would,
-    /// *then* the peer absorbs the identity — so an absorber whose
-    /// session committed has completed the content reconciliation and
-    /// holds the full union; no commit-before-transfer ordering exists.
+    /// now rides in the absorber.
+    ///
+    /// Sound by [`Peer::retire`]'s contract — a retirement session
+    /// reconciles content exactly as gossip would, *then* the peer
+    /// absorbs the identity — so an absorber whose session committed has
+    /// completed the content reconciliation and holds the full union; no
+    /// commit-before-transfer ordering exists.
     Committed,
     /// The absorber's session failed: everything the retiree carried may
     /// be gone with it.
@@ -207,13 +214,14 @@ pub enum Transfer {
 /// Which founders' final content may have failed to reach the surviving
 /// fleet, given the executed retire sequence.
 ///
-/// Custody is transitive: a founder's content is retained only through an
-/// unbroken chain of committed transfers. A founder that retired into a
-/// committed absorber rides in that absorber — and is lost with it if the
-/// absorber is later dropped in a loss arm. Each slot starts carrying its
-/// own founder; a committed transfer moves the retiree's whole cargo into
-/// the absorber, a lost transfer forfeits it, and a recovery moves
-/// nothing.
+/// Custody is transitive: a founder's content is retained only through
+/// an unbroken chain of committed transfers.
+///
+/// A founder that retired into a committed absorber rides in that
+/// absorber — and is lost with it if the absorber is later dropped in a
+/// loss arm. Each slot starts carrying its own founder; a committed
+/// transfer moves the retiree's whole cargo into the absorber, a lost
+/// transfer forfeits it, and a recovery moves nothing.
 pub fn lost_custody(n_founders: usize, transfers: &[(usize, usize, Transfer)]) -> BTreeSet<usize> {
     // carriers[slot] = the founders whose final content currently rides
     // in that slot's peer.
@@ -253,6 +261,18 @@ pub struct SimOutcome {
 }
 
 // ---- strategies ------------------------------------------------------------
+
+/// Most peers a plan's founding fleet can hold. Every bound here is
+/// public so dominance arguments (the envelope session pin in
+/// `tests/disruption.rs`) derive from the generator instead of
+/// transcribing it.
+pub const MAX_PLAN_PEERS: usize = 5;
+
+/// Most messages a plan can insert at the seed before forking.
+pub const MAX_PLAN_SEED_MESSAGES: usize = 7;
+
+/// Most operations one founder's activity script can carry.
+pub const MAX_PLAN_SCRIPT_OPS: usize = 7;
 
 /// Strategy for one endpoint's fault plan.
 ///
@@ -307,14 +327,17 @@ fn arb_retire(n: usize, faults: bool) -> impl Strategy<Value = RetireOp> {
 /// seed-reconstitution invariant is exercised as often as the disruption
 /// paths.
 pub fn arb_plan() -> impl Strategy<Value = Plan> {
-    (any::<bool>(), 2usize..=5).prop_flat_map(|(faults, n)| {
-        // `windows` draws after every pre-existing field so committed
-        // regression seeds regenerate the same plans they pinned, with
-        // the new dimension appended.
+    // Draw order is part of the seed-compatibility surface: committed
+    // regression seeds regenerate each field from a stable prefix of the
+    // RNG stream, so `windows` draws last.
+    (any::<bool>(), 2usize..=MAX_PLAN_PEERS).prop_flat_map(|(faults, n)| {
         (
-            prop::collection::vec(any::<u64>(), 0..8),
+            prop::collection::vec(any::<u64>(), 0..=MAX_PLAN_SEED_MESSAGES),
             prop::collection::vec(arb_fault(faults), 0..=3),
-            prop::collection::vec(prop::collection::vec(arb_activity(), 0..8), n),
+            prop::collection::vec(
+                prop::collection::vec(arb_activity(), 0..=MAX_PLAN_SCRIPT_OPS),
+                n,
+            ),
             prop::collection::vec(arb_session(n, faults), 1..16),
             prop::collection::vec(arb_retire(n, faults), 0..=2),
             prop::collection::vec(arb_window_choice(), n),
@@ -327,7 +350,7 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
                     scripts,
                     sessions,
                     retires,
-                    windows,
+                    windows: WindowAssignment::new(windows),
                 },
             )
     })
@@ -643,7 +666,11 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     // Phase 1: fleet. The seed's content predates every fork. Each
     // founder runs at its planned window choice, so the chaos phase mixes
     // floor, budgeted, and default windows across concurrent sessions.
-    let seed = plan.windows[0].apply(Peer::<u64>::seed()).into_rumors();
+    let seed = plan
+        .windows
+        .choice(0)
+        .apply(Peer::<u64>::seed())
+        .into_rumors();
     {
         let mut batch = seed.batch();
         for &v in &plan.seed_messages {
@@ -652,8 +679,11 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     }
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
     for i in 1..plan.n_peers {
-        let child =
-            crate::common::wire::bootstrap_fork_with_window_async(&fleet[0], plan.windows[i]).await;
+        let child = crate::common::wire::bootstrap_fork_with_window_async(
+            &fleet[0],
+            plan.windows.choice(i),
+        )
+        .await;
         fleet.push(child);
     }
 
@@ -689,7 +719,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             tokio::spawn(run_boot(
                 casts[i % casts.len()].clone(),
                 *fault,
-                plan.windows[i % plan.windows.len()],
+                plan.windows.choice(i),
             ))
         })
         .collect();
@@ -842,48 +872,49 @@ pub async fn quiesce(peers: &[Rumors<u64>]) {
     if n < 2 {
         return;
     }
+    let fingerprint = |p: &Rumors<u64>| {
+        let snapshot = p.snapshot();
+        (snapshot.hash(), snapshot.latest().clone())
+    };
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let before: Vec<([u8; rumors::MERKLE_HASH_LEN], Version)> = peers
-            .iter()
-            .map(|p| {
-                let snapshot = p.snapshot();
-                (snapshot.hash(), snapshot.latest().clone())
-            })
-            .collect();
+        // Identical fingerprints are the fixed point itself: peers with
+        // equal content and version exchange nothing, so no confirming
+        // mesh round is owed.
+        let first: ([u8; rumors::MERKLE_HASH_LEN], Version) = fingerprint(&peers[0]);
+        if peers[1..].iter().all(|p| fingerprint(p) == first) {
+            return;
+        }
         for i in 0..n {
             for j in (i + 1)..n {
                 wire_gossip_async(&peers[i], &peers[j]).await;
             }
         }
-        let changed = peers.iter().zip(&before).any(|(p, (hash, latest))| {
-            let snapshot = p.snapshot();
-            snapshot.hash() != *hash || snapshot.latest() != latest
-        });
-        if !changed {
-            return;
-        }
     }
     panic!("heal phase did not converge within {max_rounds} rounds for {n} peers");
 }
 
+/// One readout per survivor, in fleet order: the `Key → value` lens
+/// every converged-fleet assertion consumes.
+///
+/// Compute once after the heal and thread through [`assert_converged`],
+/// [`assert_deletion_honored`], and [`assert_value_oracle`].
+pub fn survivor_readouts(peers: &[Rumors<u64>]) -> Vec<BTreeMap<Key, u64>> {
+    peers.iter().map(|p| readout(&p.snapshot())).collect()
+}
+
 /// After healing, every survivor holds identical live content: equal
 /// `Key → value` readouts, equal observable hashes, equal causal versions.
-pub fn assert_converged(peers: &[Rumors<u64>]) {
+///
+/// `readouts` is the fleet's [`survivor_readouts`], indexed like `peers`.
+pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Key, u64>]) {
+    assert_eq!(peers.len(), readouts.len(), "one readout per survivor");
     let Some(first) = peers.first() else { return };
     let snapshot = first.snapshot();
-    let expected = (
-        readout(&snapshot),
-        snapshot.hash(),
-        snapshot.latest().clone(),
-    );
+    let expected = (&readouts[0], snapshot.hash(), snapshot.latest().clone());
     for (i, peer) in peers.iter().enumerate().skip(1) {
         let snapshot = peer.snapshot();
-        let actual = (
-            readout(&snapshot),
-            snapshot.hash(),
-            snapshot.latest().clone(),
-        );
+        let actual = (&readouts[i], snapshot.hash(), snapshot.latest().clone());
         assert_eq!(
             actual, expected,
             "peer {i} diverged from peer 0 after the heal phase"
@@ -899,8 +930,7 @@ pub fn assert_converged(peers: &[Rumors<u64>]) {
 /// redaction (its every logger dropped in a retire loss arm) may honestly
 /// never have reached the survivors, so it is exempt: asserting it would
 /// fail runs in which the protocol did nothing wrong.
-pub fn assert_deletion_honored(peers: &[Rumors<u64>], redactions: &[Redaction]) {
-    let readouts: Vec<BTreeMap<Key, u64>> = peers.iter().map(|p| readout(&p.snapshot())).collect();
+pub fn assert_deletion_honored(readouts: &[BTreeMap<Key, u64>], redactions: &[Redaction]) {
     for redaction in redactions.iter().filter(|r| r.retained) {
         for (i, live) in readouts.iter().enumerate() {
             assert!(
@@ -930,7 +960,7 @@ pub fn assert_deletion_honored(peers: &[Rumors<u64>], redactions: &[Redaction]) 
 /// loss-free run conserves every insert and propagates every redaction,
 /// so the multiset equality is exact.
 pub fn assert_value_oracle(
-    peers: &[Rumors<u64>],
+    readouts: &[BTreeMap<Key, u64>],
     possible_losses: usize,
     inserted: &[u64],
     redactions: &[Redaction],
@@ -956,8 +986,11 @@ pub fn assert_value_oracle(
         }
     }
     expected.retain(|_, count| *count > 0);
-    for (i, peer) in peers.iter().enumerate() {
-        let actual = readout_multiset(&peer.snapshot());
+    for (i, live) in readouts.iter().enumerate() {
+        let mut actual: BTreeMap<u64, usize> = BTreeMap::new();
+        for value in live.values() {
+            *actual.entry(*value).or_insert(0) += 1;
+        }
         assert_eq!(
             actual, expected,
             "silent divergence from the value ledger: survivor {i}'s \

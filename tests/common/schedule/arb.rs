@@ -78,19 +78,8 @@ where
     T: Clone + Debug + 'static,
     S: Strategy<Value = T> + Clone + 'static,
 {
-    n_peers_range.prop_flat_map(move |n_peers| {
-        // Alongside the event choices, draw raw entropy for the fork topology:
-        // one value per non-seed peer, folded into a valid parent index by
-        // [`fork_tree`]. Drawing it here (rather than fixing a star) exercises
-        // imbalanced fork lattices, which stress the ITC party arithmetic.
-        (
-            vec(any::<usize>(), n_peers.saturating_sub(1)),
-            vec(arb_choice(value_strategy.clone(), n_peers), 0..=max_events),
-        )
-            .prop_map(move |(raw_parents, choices)| {
-                let fork_parents = fork_tree(n_peers, &raw_parents);
-                build_schedule(n_peers, fork_parents, choices)
-            })
+    arb_schedule_with_shadow_using(n_peers_range, max_events, move |n_peers| {
+        arb_choice(value_strategy.clone(), n_peers)
     })
 }
 
@@ -125,13 +114,34 @@ where
     T: Clone + Debug + 'static,
     S: Strategy<Value = T> + Clone + 'static,
 {
+    arb_schedule_with_shadow_using(n_peers_range, max_events, move |_n_peers| {
+        arb_membership_choice(value_strategy.clone())
+    })
+}
+
+/// The shared schedule-generation core, parameterized by the per-fleet
+/// choice strategy (the alphabet): both the membership-free and the
+/// membership generators are this function with their own alphabets.
+///
+/// Alongside the event choices, it draws raw entropy for the fork
+/// topology: one value per non-seed peer, folded into a valid parent
+/// index by [`fork_tree`]. Drawing it here (rather than fixing a star)
+/// exercises imbalanced fork lattices, which stress the ITC party
+/// arithmetic.
+fn arb_schedule_with_shadow_using<T, C, F>(
+    n_peers_range: RangeInclusive<usize>,
+    max_events: usize,
+    choice_strategy: F,
+) -> impl Strategy<Value = (Schedule<T>, ShadowFinal)>
+where
+    T: Clone + Debug + 'static,
+    C: Strategy<Value = Choice<T>>,
+    F: Fn(usize) -> C + Clone + 'static,
+{
     n_peers_range.prop_flat_map(move |n_peers| {
         (
             vec(any::<usize>(), n_peers.saturating_sub(1)),
-            vec(
-                arb_membership_choice(value_strategy.clone()),
-                0..=max_events,
-            ),
+            vec(choice_strategy(n_peers), 0..=max_events),
         )
             .prop_map(move |(raw_parents, choices)| {
                 let fork_parents = fork_tree(n_peers, &raw_parents);
@@ -287,34 +297,42 @@ impl SimState {
     /// Retire `retiree` into `absorber`, freezing the retiree's log and
     /// live set.
     ///
-    /// The absorber ends holding the union of both contents: it learns
-    /// the retiree's novel live keys (observing them) and both sides'
-    /// redactions prevail. One direction of [`gossip`](Self::gossip):
-    /// the retiree's state is never read again, and the real executor
-    /// consumes the peer before anything could observe what the session
-    /// taught it.
+    /// One [`absorb`](Self::absorb): the retiree's state is never read
+    /// again, and the real executor consumes the peer before anything
+    /// could observe what the session taught it.
     fn record_retire(&mut self, retiree: usize, absorber: usize) {
-        let combined: BTreeSet<EventIdx> = self.ever_known[retiree]
-            .union(&self.ever_known[absorber])
+        self.absorb(retiree, absorber);
+        self.alive[retiree] = false;
+    }
+
+    /// One direction of a reconciliation: `dst` ends holding the union
+    /// of both contents — it learns `src`'s novel live keys (observing
+    /// them) and either side's redaction prevails in `dst` — while `src`
+    /// is untouched.
+    ///
+    /// A full gossip is an absorb each way; a retirement is one absorb
+    /// into the survivor.
+    fn absorb(&mut self, src: usize, dst: usize) {
+        let combined: BTreeSet<EventIdx> = self.ever_known[src]
+            .union(&self.ever_known[dst])
             .copied()
             .collect();
         for k in combined {
-            let r_known = self.ever_known[retiree].contains(&k);
-            let r_live = self.live[retiree].contains(&k);
-            let a_known = self.ever_known[absorber].contains(&k);
-            let a_live = self.live[absorber].contains(&k);
-            let any_redacted = (r_known && !r_live) || (a_known && !a_live);
+            let src_known = self.ever_known[src].contains(&k);
+            let src_live = self.live[src].contains(&k);
+            let dst_known = self.ever_known[dst].contains(&k);
+            let dst_live = self.live[dst].contains(&k);
+            let any_redacted = (src_known && !src_live) || (dst_known && !dst_live);
 
             if any_redacted {
-                self.ever_known[absorber].insert(k);
-                self.live[absorber].remove(&k);
-            } else if !a_known {
-                self.ever_known[absorber].insert(k);
-                self.live[absorber].insert(k);
-                self.observed_log[absorber].push(k);
+                self.ever_known[dst].insert(k);
+                self.live[dst].remove(&k);
+            } else if !dst_known {
+                self.ever_known[dst].insert(k);
+                self.live[dst].insert(k);
+                self.observed_log[dst].push(k);
             }
         }
-        self.alive[retiree] = false;
     }
 
     fn record_insert(&mut self, peer: usize, event_idx: EventIdx) {
@@ -335,55 +353,13 @@ impl SimState {
             return;
         }
         // The hash-tree mirror reconciles *every* tree position that
-        // differs. The receiver learns live values (with an `on_message`
-        // callback) and also converges on redactions — but a redaction
-        // carries no marker: the mirror infers it from the version frontier
-        // (one side's version dominates a leaf the other has dropped) and
-        // silently removes the leaf, firing no callback. Walking the union of
-        // each side's `ever_known` lets us model both in one pass.
-        //
-        // For each key any side has ever held:
-        //
-        //  - If either side has it redacted (in `ever_known` but
-        //    not in `live`), the redaction is contagious: both
-        //    sides end up with the key in `ever_known` and out of
-        //    `live`. No observation fires.
-        //  - Otherwise (no side has redacted yet), the value
-        //    propagates to whichever side hasn't seen it; that side
-        //    appends the `EventIdx` to its `observed_log`.
-        let combined: BTreeSet<EventIdx> = self.ever_known[a]
-            .union(&self.ever_known[b])
-            .copied()
-            .collect();
-        for k in combined {
-            let a_known = self.ever_known[a].contains(&k);
-            let b_known = self.ever_known[b].contains(&k);
-            let a_live = self.live[a].contains(&k);
-            let b_live = self.live[b].contains(&k);
-            let any_redacted = (a_known && !a_live) || (b_known && !b_live);
-
-            if any_redacted {
-                if !a_known {
-                    self.ever_known[a].insert(k);
-                }
-                if !b_known {
-                    self.ever_known[b].insert(k);
-                }
-                self.live[a].remove(&k);
-                self.live[b].remove(&k);
-            } else {
-                if !a_known {
-                    self.ever_known[a].insert(k);
-                    self.live[a].insert(k);
-                    self.observed_log[a].push(k);
-                }
-                if !b_known {
-                    self.ever_known[b].insert(k);
-                    self.live[b].insert(k);
-                    self.observed_log[b].push(k);
-                }
-            }
-        }
+        // differs; an absorb in each direction reproduces its fixed
+        // point (the second pass reads the first's updates, so a
+        // redaction on either side prevails in both), and per-peer
+        // observation order is unchanged: each side still gains novel
+        // keys in sorted combined order.
+        self.absorb(a, b);
+        self.absorb(b, a);
     }
 
     fn lookup_observation(&self, peer: usize, idx: usize) -> Option<EventIdx> {
