@@ -13,6 +13,8 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{Key, Peer, Rumors, Version, causally};
 
+use crate::common::wire::block_on;
+
 /// Commit `values` to `peer` as one batch, returning the `(Key, Version)`
 /// pairs it minted (recovered as the live leaves above the pre-commit
 /// frontier).
@@ -190,7 +192,8 @@ fn a_panicked_batch_commits_nothing() {
     assert_eq!(
         rumors.snapshot().len(),
         0,
-        "a batch interrupted by a panic must commit nothing: never a prefix"
+        "a batch interrupted by a panic must commit nothing: an unwound \
+         batch aborts"
     );
 }
 
@@ -201,27 +204,31 @@ fn a_panicked_batch_commits_nothing() {
 /// the drop is indistinguishable from an ordinary end-of-statement commit
 /// and publishes the prefix queued before the cancellation point. This is
 /// the documented hazard behind the rule that a batch must not be held
-/// across an `.await` in a cancellable task — a batch is a performance
+/// across an `.await` in a cancellable task: a batch is a performance
 /// optimization, and all-or-nothing delivery bundles into one
 /// application-level message instead.
-#[tokio::test]
-async fn a_cancelled_batch_commits_its_prefix() {
+#[test]
+fn a_cancelled_batch_commits_its_prefix() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let work = async {
-        let mut batch = rumors.batch();
-        batch.send(1);
-        // The cancellation point: parked mid-build, holding the batch.
-        std::future::pending::<()>().await;
-        batch.send(2);
-    };
-    // A biased select polls `work` first (queuing the prefix, then parking)
-    // and completes on the ready branch, dropping `work` — and the batch it
-    // holds — mid-await.
-    tokio::select! {
-        biased;
-        _ = work => unreachable!("the parked future never completes"),
-        _ = std::future::ready(()) => {}
-    }
+    // The select needs no runtime facilities, so the closed-future driver
+    // suffices: the whole select completes on its first poll.
+    block_on(async {
+        let work = async {
+            let mut batch = rumors.batch();
+            batch.send(1);
+            // The cancellation point: parked mid-build, holding the batch.
+            std::future::pending::<()>().await;
+            batch.send(2);
+        };
+        // A biased select polls `work` first (queuing the prefix, then
+        // parking) and completes on the ready branch, dropping `work` (and
+        // the batch it holds) mid-await.
+        tokio::select! {
+            biased;
+            _ = work => unreachable!("the parked future never completes"),
+            _ = std::future::ready(()) => {}
+        }
+    });
 
     // The documented behavior, exactly: the prefix committed as a batch
     // of one; the send queued after the cancellation point never ran.

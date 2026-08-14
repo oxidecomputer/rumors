@@ -135,7 +135,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// Returns a [`Batch`] that commits when dropped: a bare
     /// `rumors.send(message);` commits at the end of the statement, and
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit.
+    /// accumulates them into one commit. A batch dropped by async
+    /// cancellation commits its queued prefix, so never hold one across an
+    /// `.await` in a cancellable task ([`Batch`] states the drop semantics).
     ///
     /// `send` does not return the message's [`Key`]. Keys come back through
     /// observation: the observers and [`Snapshot`] attach every message to
@@ -172,7 +174,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// Returns a [`Batch`] that commits when dropped: a bare
     /// `rumors.redact(key);` commits at the end of the statement, and chaining
     /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit.
+    /// accumulates them into one commit. A batch dropped by async
+    /// cancellation commits its queued prefix, so never hold one across an
+    /// `.await` in a cancellable task ([`Batch`] states the drop semantics).
     ///
     /// # Deletion is honored
     ///
@@ -213,9 +217,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// A batch is a performance optimization, not an atomicity guarantee:
     /// it coalesces its actions into one tree traversal and one commit,
     /// but what commits is whatever the batch holds when it drops.
-    /// [`Batch`] states the drop semantics — nothing under a panic's
-    /// unwind, and the queued prefix under async cancellation, so a batch
-    /// must not be held across an `.await` in a cancellable task — and the
+    /// [`Batch`] states the drop semantics (nothing under a panic's
+    /// unwind; the queued prefix under async cancellation, so a batch must
+    /// not be held across an `.await` in a cancellable task) and the
     /// pattern for delivery that must be all-or-nothing under panic or
     /// cancellation: bundle the pieces into one application-level message
     /// in `T`.

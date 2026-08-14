@@ -116,9 +116,9 @@ impl<T> Clone for Root<T> {
     }
 }
 
-/// The empty root: the empty [`Version`] over no nodes. Lets callers
-/// `mem::take` a root out of a `&mut` borrow (e.g. to move it into a mirror
-/// exchange and write the merged result back) without an interim clone.
+/// The empty root: the empty [`Version`] over no nodes. The state a mirror
+/// exchange starts from when the local side holds nothing yet: a
+/// bootstrapping peer mirrors the provider's tree into it.
 impl<T> Default for Root<T> {
     fn default() -> Self {
         Root {
@@ -461,9 +461,14 @@ impl<T> Tree<T> {
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Key, Version, M)>,
     {
-        // Convert the specified actions, lazily, into the action specification
-        // required by the inductive traversal of the tree
-        let actions = reactions
+        // Materialize the caller's action stream before the commit section
+        // begins: draining this iterator is the only place caller code runs
+        // (`act`'s version ticks and key derivations ride the same chain),
+        // so every caller-reachable panic surfaces here, while `self` is
+        // still untouched. The traversal's root-level radix sort would
+        // materialize the stream anyway; collecting up front costs one Vec
+        // the radix sort immediately consumes.
+        let actions: Vec<_> = reactions
             .into_iter()
             .map(|(key, version, message)| match message.into() {
                 None => (typed::Path::from(key), version, traverse::Action::Forget),
@@ -472,7 +477,8 @@ impl<T> Tree<T> {
                     version,
                     traverse::Action::Insert(value),
                 ),
-            });
+            })
+            .collect();
 
         // Traverse the tree from the root, batch-applying the actions.
         // The version join is deferred to the effectual-action observer so
@@ -482,24 +488,26 @@ impl<T> Tree<T> {
         // and no version was joined, so the tree — hash and ceiling both —
         // is exactly what it was.
         //
-        // Panic atomicity: the traversal is fallible (it drains the
-        // caller-supplied iterator inside its radix sort), so nothing of
-        // `self` mutates until it returns. The pre-image is retained by an
-        // O(1) structural clone of the root (nodes are Arc-shared; the
-        // traversal copies on write where they stay shared), the observer
+        // Panic atomicity: with the caller's stream drained above, no
+        // caller-reachable unwind can originate past this point, so the walk
+        // takes the root and owns it uniquely (structural ops are plain
+        // moves, never `Arc::make_mut` copies). The observer still
         // accumulates the ceiling in a local, and root and ceiling are
-        // assigned together at the commit point below — an unwind out of
-        // the traversal leaves the tree byte-identical, never an emptied
-        // root under a live ceiling (the shape of "everything was
-        // redacted"; the unwind pins in `tests` hold this).
+        // assigned together at the commit point below: what this rules out
+        // is an unwind publishing an emptied root under a live ceiling, the
+        // byte-for-byte shape of "everything was redacted".
+        // `act_unwind_leaves_tree_byte_identical` pins the entry unwind; the
+        // only panic sources left mid-walk are contract violations
+        // (programmer error, panicking `Message<T>` destructors included),
+        // which the take-and-move walk does not defend against.
         let mut changed = false;
         let mut new_ceiling = self.root.ceiling.clone();
-        let new_root = traverse::act(self.root.root.clone(), actions, |v: &Version| {
+        let new_root = traverse::act(self.root.root.take(), actions, |v: &Version| {
             new_ceiling |= v;
             changed = true;
         });
 
-        // The commit point: the traversal returned without unwinding.
+        // The commit point: the walk returned without unwinding.
         self.root.root = new_root;
         self.root.ceiling = new_ceiling;
         changed
@@ -537,15 +545,19 @@ impl<T> Tree<T> {
             root: their_root,
         } = other.root;
 
-        // Panic atomicity: the merge walk is fallible, so nothing of `self`
-        // mutates until it returns. The recursion is handed an O(1)
-        // structural clone of our root (nodes are Arc-shared; the walk
-        // copies on write where they stay shared) while the pre-image stays
-        // in place, our ceiling is read in place as the deletion filter,
-        // and root and ceiling are assigned together at the commit point
-        // below — an unwind out of the walk leaves the tree byte-identical,
-        // never an emptied root under a live ceiling (the shape of
-        // "everything was redacted"; the unwind pins in `tests` hold this).
+        // Panic atomicity, to the same end as `react`'s commit section:
+        // nothing of `self` mutates until the commit point below assigns
+        // root and ceiling together. Unlike `react`, unwind sources survive
+        // inside this walk (deletion honoring drops leaves, running `T`
+        // destructors), so the pre-image retention is load-bearing: the
+        // walk is handed an O(1) structural clone of our root (nodes are
+        // Arc-shared; the walk copies on write where they stay shared)
+        // while the pre-image stays in place, and the merged ceiling is
+        // computed into a local first, because folding in place would
+        // stake unwind atomicity on the fold's internal ordering, which no
+        // contract states. `join_unwind_leaves_tree_byte_identical` pins
+        // the atomicity with an unwind injected mid-walk, after
+        // copy-on-write work has begun.
         let our_root = self.root.root.clone();
         let mut changed = false;
         let merged = traverse::join(
@@ -555,9 +567,11 @@ impl<T> Tree<T> {
             &their_version,
             &mut changed,
         );
+        let new_ceiling = &self.root.ceiling | their_version;
 
-        // The commit point: the walk returned without unwinding.
-        self.root.ceiling |= their_version;
+        // The commit point: the walk and the ceiling fold both completed
+        // without unwinding.
+        self.root.ceiling = new_ceiling;
         self.root.root = merged;
         changed
     }
@@ -599,16 +613,20 @@ pub(crate) mod meter {
     }
 }
 
-/// Test-only panic injection for the commit critical sections.
+/// Test-only panic injection for `Tree::join`'s commit critical section.
 ///
-/// The panic-atomicity pins in [`crate::tree::tests`] arm this to make a
-/// fallible traversal unwind mid-commit; [`traverse::join`] fires it at the
-/// start of the merge walk. The injection is one-shot: firing disarms the
-/// flag first, so the pin's post-unwind assertions run without re-tripping.
+/// The join unwind pin in [`crate::tree::tests`] arms this to make the
+/// merge walk unwind mid-commit. [`traverse::join`] burns one fuse step at
+/// the walk's entry and one per branch-level merge step, so a fuse armed
+/// at `n` unwinds only after `n` earlier fire points ran: deep enough to
+/// land after copy-on-write work has begun. (`Tree::act` needs no hook:
+/// its only caller-reachable unwind source is the action stream, drained
+/// before its commit section begins, and its pin panics from the stream
+/// itself.)
 ///
 /// Thread-local for the same reason as [`meter`]: every commit critical
 /// section runs synchronously on its caller's thread, so a test arms and
-/// observes a flag no concurrent test can perturb.
+/// burns a fuse no concurrent test can perturb.
 #[cfg(test)]
 pub(crate) mod panic_injection {
     use std::cell::Cell;
@@ -619,20 +637,39 @@ pub(crate) mod panic_injection {
     // `-D warnings` honest on every platform the gate runs.
     thread_local! {
         #[allow(clippy::missing_const_for_thread_local)]
-        static ARMED: Cell<bool> = const { Cell::new(false) };
+        static FUSE: Cell<Option<u64>> = const { Cell::new(None) };
     }
 
-    /// Arms the injection: the next [`fire_if_armed`] on this thread panics.
-    pub(crate) fn arm() {
-        ARMED.with(|c| c.set(true));
-    }
+    /// Disarms the fuse when dropped; returned by [`arm`] so a pin that
+    /// fails before the fuse burns down cannot leak an armed fuse into the
+    /// next test on the same thread.
+    pub(crate) struct Armed;
 
-    /// Panics iff armed, disarming first so the unwind is one-shot.
-    pub(crate) fn fire_if_armed() {
-        if ARMED.with(Cell::get) {
-            ARMED.with(|c| c.set(false));
-            panic!("injected: panic inside the commit critical section");
+    impl Drop for Armed {
+        fn drop(&mut self) {
+            FUSE.with(|c| c.set(None));
         }
+    }
+
+    /// Arms the fuse: after `steps` further [`fire_if_armed`] calls on this
+    /// thread, the next one panics (`0` panics on the very next call).
+    #[must_use = "dropping the guard disarms the fuse"]
+    pub(crate) fn arm(steps: u64) -> Armed {
+        FUSE.with(|c| c.set(Some(steps)));
+        Armed
+    }
+
+    /// Burns one fuse step, panicking when the fuse reaches zero (and
+    /// disarming first, so the unwind is one-shot).
+    pub(crate) fn fire_if_armed() {
+        FUSE.with(|c| match c.get() {
+            None => {}
+            Some(0) => {
+                c.set(None);
+                panic!("injected: panic inside the commit critical section");
+            }
+            Some(n) => c.set(Some(n - 1)),
+        });
     }
 }
 

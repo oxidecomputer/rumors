@@ -1455,16 +1455,17 @@ mod span_door_traffic {
     }
 }
 
-/// `Tree::act`'s commit section is panic-atomic: a panic unwinding out of
-/// the fallible traversal leaves the tree byte-identical.
+/// `Tree::act`'s only caller-reachable unwind, a panic from the actions
+/// stream, leaves the tree byte-identical.
 ///
-/// The unwind source is the caller-supplied actions iterator, which the
-/// traversal's root-level radix sort drains inside the critical section;
-/// root hash and causal ceiling must both come through unchanged. The
-/// hazard this rules out is an emptied root published under a live
-/// ceiling: byte-for-byte the shape of "everything was redacted", which a
-/// subsequent gossip session would honor by deleting every peer's
-/// holdings.
+/// The stream is drained before the commit section begins, so this unwind
+/// fires at the entry: root hash and causal ceiling must both come through
+/// unchanged. No mid-walk companion pin exists because no caller-reachable
+/// unwind source survives inside the walk; `Tree::react`'s commit-section
+/// comment states that structure. The hazard the invariant rules out is an
+/// emptied root published under a live ceiling: byte-for-byte the shape of
+/// "everything was redacted", which a subsequent gossip session would
+/// honor by deleting every peer's holdings.
 #[test]
 fn act_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<Bytes> = Tree::new();
@@ -1477,7 +1478,8 @@ fn act_unwind_leaves_tree_byte_identical() {
     assert!(!tree.is_empty());
 
     // One well-formed action, then a panic mid-drain: the unwind starts
-    // inside the traversal, before the commit point can be reached.
+    // in the caller's stream, which `react` drains before its commit
+    // section touches the tree.
     let panicking_actions = [insert_action(Bytes::from_static(b"casualty"))]
         .into_iter()
         .chain(std::iter::once_with(|| -> Action<Bytes> {
@@ -1500,32 +1502,50 @@ fn act_unwind_leaves_tree_byte_identical() {
 }
 
 /// `Tree::join`'s commit section is panic-atomic: a panic unwinding out of
-/// the merge traversal leaves the tree byte-identical.
+/// the merge walk, after copy-on-write work has begun, leaves the tree
+/// byte-identical.
 ///
-/// The unwind is injected at the merge walk's entry via `panic_injection`;
-/// root hash and causal ceiling must both come through unchanged. The
-/// hazard this rules out is an emptied root published under a live
-/// ceiling: byte-for-byte the shape of "everything was redacted", which a
-/// subsequent gossip session would honor by deleting every peer's
-/// holdings.
+/// The unwind is injected via `panic_injection`, with the fuse armed past
+/// the walk's entry and the root-level step: by the time it burns down,
+/// the root frame has cloned its fan and merged earlier divergent radixes
+/// into it, so the unwind abandons genuinely in-progress merge work (the
+/// unwind occurring at all proves the walk reached that depth: the fuse is
+/// the test's only panic source). Root hash and causal ceiling must both
+/// come through unchanged. The hazard the invariant rules out is an
+/// emptied root published under a live ceiling: byte-for-byte the shape of
+/// "everything was redacted", which a subsequent gossip session would
+/// honor by deleting every peer's holdings.
 #[test]
 fn join_unwind_leaves_tree_byte_identical() {
+    // Several divergent leaves per side spread the root fan across
+    // multiple radixes (paths are content hashes), so the root frame
+    // performs several merge steps for the fuse to count.
     let mut ours: Tree<Bytes> = Tree::new();
-    ours.act(&party_of("A"), [insert_action(Bytes::from_static(b"ours"))]);
+    ours.act(
+        &party_of("A"),
+        [b"ours-1" as &[u8], b"ours-2", b"ours-3"].map(|b| insert_action(Bytes::from_static(b))),
+    );
     let mut theirs: Tree<Bytes> = Tree::new();
     theirs.act(
         &party_of("B"),
-        [insert_action(Bytes::from_static(b"theirs"))],
+        [b"theirs-1" as &[u8], b"theirs-2", b"theirs-3"]
+            .map(|b| insert_action(Bytes::from_static(b))),
     );
     let hash_before = ours.hash();
     let ceiling_before = ours.latest().clone();
     assert!(!ours.is_empty());
 
-    super::panic_injection::arm();
+    // Fuse step 0 is the walk's entry, step 1 the root-level frame; step 3
+    // is a branch-level step with at least one earlier divergent radix
+    // already merged into the root frame's copied fan.
+    let _fuse = super::panic_injection::arm(3);
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         ours.join(theirs);
     }));
-    assert!(unwound.is_err(), "the injected panic must unwind out");
+    assert!(
+        unwound.is_err(),
+        "the fuse must burn down mid-walk and unwind out"
+    );
 
     // The contained panic published nothing: root hash and ceiling are
     // byte-identical to the pre-call state, and their frontier was not

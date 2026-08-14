@@ -27,8 +27,8 @@ use crate::{Inner, Key};
 ///   land at once, never a partially applied commit.
 /// - **Dropped by a panic's unwind**, the batch commits nothing: the
 ///   caller never finished building it, so nothing it holds publishes.
-/// - **Dropped by async cancellation** — the future holding it across an
-///   `.await` is dropped — the batch commits the prefix queued before the
+/// - **Dropped by async cancellation** (the future holding it across an
+///   `.await` is dropped), the batch commits the prefix queued before the
 ///   cancellation point. Cancellation runs no unwind, so this drop is
 ///   indistinguishable from an ordinary end-of-statement commit. **Do not
 ///   hold a batch across an `.await` in a task that can be cancelled**
@@ -94,7 +94,7 @@ impl<T: Send + Sync> Drop for Batch<'_, T> {
         // unwinding over a held batch: RAII-transaction style, an unwound
         // batch aborts. The guard sees only unwinds: a drop by async
         // cancellation arrives outside any panic and commits the queued
-        // prefix — the documented hazard the type docs state, pinned by
+        // prefix, the documented hazard the type docs state, pinned by
         // `a_cancelled_batch_commits_its_prefix` in `tests/single_peer.rs`.
         if std::thread::panicking() {
             return;

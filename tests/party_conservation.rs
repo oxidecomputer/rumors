@@ -383,9 +383,9 @@ proptest! {
 }
 
 proptest! {
-    // Population scale is this property's sampling axis — each case runs a
+    // Population scale is this property's sampling axis: each case runs a
     // fleet an order of magnitude past the cycle schedules above, paying
-    // two wire sessions per peer — so the case count is pared to keep the
+    // two wire sessions per peer, so the case count is pared to keep the
     // suite inside its runtime budget while the schedule within each case
     // stays fully random (provider choice, retirement order, absorber
     // choice).
@@ -406,28 +406,30 @@ proptest! {
             proptest::collection::vec((any::<usize>(), any::<usize>()), n - 1),
         )),
     ) {
-        // Grow the fleet one bootstrap at a time; provider indices resolve
-        // modulo the live fleet (the `Op` idiom above), so any random
-        // topology — chain, fan, or mixture — is reachable.
+        // Grow the fleet one bootstrap at a time through `apply`, which
+        // resolves provider indices modulo the live fleet: any random
+        // topology (chain, fan, or mixture) is reachable. Each newcomer
+        // originates once (`Bootstrap` pushes it at the fleet's end), so
+        // retirements move content, not just identity.
         let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
         for (i, &provider) in providers.iter().enumerate() {
-            let newcomer = bootstrap_fork(&fleet[provider % fleet.len()]);
-            // Each peer originates once, so retirements move content, not
-            // just identity.
-            newcomer.send(i as u64);
-            fleet.push(newcomer);
+            apply(&mut fleet, Op::Bootstrap { provider });
+            let newest = fleet.len() - 1;
+            apply(
+                &mut fleet,
+                Op::Send {
+                    peer: newest,
+                    value: i as u64,
+                },
+            );
         }
 
         // Retire until one peer holds everything: retiree and absorber both
-        // random, distinct by construction.
+        // random, distinct by construction. `apply`'s two-peer guard never
+        // skips here: this schedule runs exactly fleet-size-minus-one
+        // retirements, so every one executes with at least two peers live.
         for &(retiree, off) in &retirements {
-            let n = fleet.len();
-            let r = retiree % n;
-            let a = (r + 1 + off % (n - 1)) % n;
-            let retiring = fleet.remove(r);
-            // Removing index `r` shifted every index above it down by one.
-            let a = if a > r { a - 1 } else { a };
-            retire_into(retiring, &fleet[a]);
+            apply(&mut fleet, Op::Retire { retiree, off });
         }
 
         let survivor = alias(&fleet[0]);
