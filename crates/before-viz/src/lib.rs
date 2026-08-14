@@ -57,9 +57,11 @@ pub enum EngineError {
     Decode(String),
     BadFragment(String),
     /// The log would exceed the engine's op budget; carries the offending
-    /// length. The budget bounds replay cost at teaching scale, and the
-    /// fragment codec enforces the same bound on the wire, so every
-    /// fragment the engine mints reloads.
+    /// length.
+    ///
+    /// The budget bounds replay cost at teaching scale, and the fragment
+    /// codec enforces the same bound on the wire, so every fragment the
+    /// engine mints reloads.
     TooManyOps(usize),
 }
 

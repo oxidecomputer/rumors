@@ -225,12 +225,14 @@ fn overlong_varint_fragment_rejects_cleanly() {
     }
 }
 
-/// The op budget covers every entry: a fragment at the budget loads
-/// through the engine; an `apply` that would grow the log past it rejects
-/// as `TooManyOps` with the state intact, so the engine can never mint a
-/// fragment the decoder refuses; and a past-budget log rejects at both
-/// remaining entries (the wire as `BadFragment`, direct `load` as
-/// `TooManyOps`).
+/// The op budget covers every entry — the wire, direct `load`, and
+/// `apply`.
+///
+/// A fragment at the budget loads through the engine; an `apply` that
+/// would grow the log past it rejects as `TooManyOps` with the state
+/// intact, so the engine can never mint a fragment the decoder refuses;
+/// and a past-budget log rejects at both remaining entries (the wire as
+/// `BadFragment`, direct `load` as `TooManyOps`).
 ///
 /// A log is caller input (any shared link carries one), and op count is
 /// what bounds replay work, arena size, and the front-end's per-level
@@ -267,11 +269,14 @@ fn op_budget_covers_every_entry() {
     }
 }
 
-/// The fragment-length precheck admits every fragment a within-budget log
-/// can encode and rejects longer strings before any base64 work: the
-/// widest op (a join of two maximal varint operands) encodes to 21 bytes,
-/// so a budget-full log of them is the longest legitimate fragment —
-/// exactly `MAX_FRAGMENT_CHARS` — and one more such op pushes past it.
+/// The fragment-length precheck is exact: it admits every fragment a
+/// within-budget log can encode and rejects longer strings before any
+/// base64 work.
+///
+/// The widest op (a join of two maximal varint operands) encodes to 21
+/// bytes, so a budget-full log of them is the longest legitimate
+/// fragment — exactly `MAX_FRAGMENT_CHARS` — and one more such op pushes
+/// past it.
 #[test]
 fn fragment_length_precheck_is_exact() {
     let fat = Op::Join {
