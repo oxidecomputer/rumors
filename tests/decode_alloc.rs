@@ -27,6 +27,12 @@ const HONEST_LEN: usize = 8 * 1024 * 1024;
 /// run body.
 const RECORD_HEADER_LEN: usize = 4;
 
+/// Allocator-noise allowance for a metered decode beyond the payload
+/// chunk: error construction and other sub-KiB incidentals. Orders of
+/// magnitude below the chunk bound, so it cannot mask a declared-length
+/// prepay.
+const METER_SLACK: usize = 1024;
+
 /// Bytes requested from the allocator while `f` runs: fresh allocations
 /// plus positive reallocation growth, so an up-front `with_capacity` of a
 /// declared length and incremental growth both count.
@@ -76,41 +82,42 @@ fn run_body(len: usize) -> Vec<u8> {
     body
 }
 
-/// Baseline pin: a frame declaring 256 MiB with zero delivered payload
-/// bytes requests at least the declared size from the allocator.
+/// Ceiling: a frame declaring 256 MiB with zero delivered payload bytes
+/// requests at most one payload chunk (plus sub-KiB noise).
 ///
-/// The framing read prices a frame by its peer-declared length before any
-/// payload byte arrives.
+/// Decoder memory tracks bytes actually received, never the peer-declared
+/// length: with nothing delivered, at most one chunk is pre-touched.
 #[test]
-fn framing_zero_delivered_prepays_declared_length() {
+fn framing_zero_delivered_costs_at_most_one_chunk() {
     let bytes = framed(DECLARED_LEN, &[]);
     let (requested, result) =
         requested_bytes(|| pollster::block_on(rumors::testing::read_framed_payload(&bytes[..])));
     let error = result.expect_err("a frame with nothing behind its header cannot complete");
     assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+    let ceiling = rumors::testing::frame_payload_chunk_len() + METER_SLACK;
     assert!(
-        requested >= DECLARED_LEN,
-        "framing read requested {requested} bytes; \
-         the declared-length prepay is {DECLARED_LEN}"
+        requested <= ceiling,
+        "framing read requested {requested} bytes with zero delivered; \
+         the ceiling is one payload chunk plus slack, {ceiling}"
     );
 }
 
-/// Baseline pin: a supply frame declaring a 256 MiB run with zero
-/// delivered body bytes requests at least the declared size from the
-/// allocator.
+/// Ceiling: a supply frame declaring a 256 MiB run with zero delivered
+/// body bytes requests at most one payload chunk (plus sub-KiB noise).
 ///
-/// The codec's supply read prices a run by its peer-declared length before
-/// any body byte arrives.
+/// Decoder memory tracks bytes actually received, never the peer-declared
+/// length: with nothing delivered, at most one chunk is pre-touched.
 #[test]
-fn supply_zero_delivered_prepays_declared_length() {
+fn supply_zero_delivered_costs_at_most_one_chunk() {
     let bytes = supply_frame(DECLARED_LEN, &[]);
     let (requested, result) =
         requested_bytes(|| pollster::block_on(rumors::testing::decode_supply_frame(&bytes[..])));
     result.expect_err("a supply frame with nothing behind its header cannot complete");
+    let ceiling = rumors::testing::frame_payload_chunk_len() + METER_SLACK;
     assert!(
-        requested >= DECLARED_LEN,
-        "supply read requested {requested} bytes; \
-         the declared-length prepay is {DECLARED_LEN}"
+        requested <= ceiling,
+        "supply read requested {requested} bytes with zero delivered; \
+         the ceiling is one payload chunk plus slack, {ceiling}"
     );
 }
 

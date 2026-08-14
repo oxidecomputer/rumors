@@ -94,6 +94,15 @@ pub async fn read_framed_payload(
         .await
 }
 
+/// Per-step pre-touch bound of the framed-payload readers.
+///
+/// Exposed so the allocator meter (`tests/decode_alloc.rs`) states its
+/// ceiling in the decoder's own chunk constant rather than a transcribed
+/// copy.
+pub fn frame_payload_chunk_len() -> usize {
+    crate::tree::mirror::framing::PAYLOAD_CHUNK_LEN
+}
+
 /// The signal byte opening one streaming-codec supply frame.
 ///
 /// Prepend it to a length-headed supply body to hand

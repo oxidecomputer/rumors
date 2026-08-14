@@ -425,3 +425,47 @@ fn reader_errors_are_contextual() {
         ));
     }
 }
+
+/// Supply-body truncation cuts landing one byte short of, exactly on, and
+/// one byte past each payload chunk boundary all classify as a truncated
+/// `SupplyRun` with an `UnexpectedEof` source.
+///
+/// The chunked body read preserves the typed truncation contract at every
+/// seam.
+#[test]
+fn supply_truncation_at_chunk_boundaries_is_typed() {
+    use crate::tree::mirror::framing::PAYLOAD_CHUNK_LEN;
+
+    let declared = 2 * PAYLOAD_CHUNK_LEN + 5;
+    let stream = stream(6);
+    for speaker in SPEAKERS {
+        for delivered in [
+            0,
+            1,
+            PAYLOAD_CHUNK_LEN - 1,
+            PAYLOAD_CHUNK_LEN,
+            PAYLOAD_CHUNK_LEN + 1,
+            2 * PAYLOAD_CHUNK_LEN - 1,
+            2 * PAYLOAD_CHUNK_LEN,
+            2 * PAYLOAD_CHUNK_LEN + 1,
+            declared - 1,
+        ] {
+            let mut encoded = vec![signal(stream, Signal::Supply(Flow::Continue))];
+            encoded.extend_from_slice(&u32::try_from(declared).unwrap().to_be_bytes());
+            encoded.extend(vec![0xA5; delivered]);
+            let mut reader = FrameRead::new(speaker, encoded.as_slice());
+            let error = pollster::block_on(reader.frame::<u64>()).unwrap_err();
+            assert_eq!(error.origin, Origin::stream(speaker, stream));
+            assert!(
+                matches!(
+                    error.kind,
+                    DecodeErrorKind::Truncated {
+                        missing: FramePart::SupplyRun,
+                        ref source,
+                    } if source.kind() == borsh::io::ErrorKind::UnexpectedEof
+                ),
+                "cut after {delivered} delivered body bytes"
+            );
+        }
+    }
+}
