@@ -1454,3 +1454,80 @@ mod span_door_traffic {
         );
     }
 }
+
+/// Pins today's panic-atomicity hole in `Tree::act`'s commit section: a
+/// panic unwinding out of the fallible traversal (here from the
+/// caller-supplied actions iterator, which the traversal's root-level radix
+/// sort drains inside the critical section) corrupts the tree. The
+/// post-unwind state is the root emptied while the causal ceiling stays
+/// live: byte-for-byte the shape of "everything was redacted", which a
+/// subsequent gossip session honors by deleting every peer's holdings.
+#[test]
+fn act_unwind_empties_root_under_live_ceiling() {
+    let mut tree: Tree<Bytes> = Tree::new();
+    tree.act(
+        &party_of("P"),
+        [insert_action(Bytes::from_static(b"survivor"))],
+    );
+    let hash_before = tree.hash();
+    let ceiling_before = tree.latest().clone();
+    assert!(!tree.is_empty());
+
+    // One well-formed action, then a panic mid-drain: the unwind starts
+    // inside the traversal, after the commit section has begun mutating.
+    let panicking_actions = [insert_action(Bytes::from_static(b"casualty"))]
+        .into_iter()
+        .chain(std::iter::once_with(|| -> Action<Bytes> {
+            panic!("injected: actions iterator panics mid-drain")
+        }));
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tree.act(&party_of("P"), panicking_actions);
+    }));
+    assert!(unwound.is_err(), "the injected panic must unwind out");
+
+    // Today's corrupted post-unwind state: the root is gone, the ceiling
+    // survives untouched.
+    assert!(tree.is_empty(), "the unwind publishes an emptied root");
+    assert_ne!(tree.hash(), hash_before, "the root hash moves");
+    assert_eq!(
+        tree.latest(),
+        &ceiling_before,
+        "the ceiling stays live over the emptied root"
+    );
+}
+
+/// Pins today's panic-atomicity hole in `Tree::join`'s commit section: a
+/// panic unwinding out of the merge traversal (injected at its entry via
+/// `panic_injection`) corrupts the tree. The post-unwind state is the root
+/// emptied while the causal ceiling stays live: byte-for-byte the shape of
+/// "everything was redacted", which a subsequent gossip session honors by
+/// deleting every peer's holdings.
+#[test]
+fn join_unwind_empties_root_under_live_ceiling() {
+    let mut ours: Tree<Bytes> = Tree::new();
+    ours.act(&party_of("A"), [insert_action(Bytes::from_static(b"ours"))]);
+    let mut theirs: Tree<Bytes> = Tree::new();
+    theirs.act(
+        &party_of("B"),
+        [insert_action(Bytes::from_static(b"theirs"))],
+    );
+    let hash_before = ours.hash();
+    let ceiling_before = ours.latest().clone();
+    assert!(!ours.is_empty());
+
+    super::panic_injection::arm();
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ours.join(theirs);
+    }));
+    assert!(unwound.is_err(), "the injected panic must unwind out");
+
+    // Today's corrupted post-unwind state: the root is gone, the ceiling
+    // survives untouched (their frontier was never joined).
+    assert!(ours.is_empty(), "the unwind publishes an emptied root");
+    assert_ne!(ours.hash(), hash_before, "the root hash moves");
+    assert_eq!(
+        ours.latest(),
+        &ceiling_before,
+        "the ceiling stays live over the emptied root"
+    );
+}

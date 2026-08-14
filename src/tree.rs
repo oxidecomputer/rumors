@@ -578,6 +578,43 @@ pub(crate) mod meter {
     }
 }
 
+/// Test-only panic injection for the commit critical sections.
+///
+/// The panic-atomicity pins in [`crate::tree::tests`] arm this to make a
+/// fallible traversal unwind mid-commit; [`traverse::join`] fires it at the
+/// start of the merge walk. The injection is one-shot: firing disarms the
+/// flag first, so the pin's post-unwind assertions run without re-tripping.
+///
+/// Thread-local for the same reason as [`meter`]: every commit critical
+/// section runs synchronously on its caller's thread, so a test arms and
+/// observes a flag no concurrent test can perturb.
+#[cfg(test)]
+pub(crate) mod panic_injection {
+    use std::cell::Cell;
+
+    // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
+    // fallback-TLS lowering (illumos among the gate's targets) and denies
+    // initializers that already sit in `const` blocks; the allow keeps
+    // `-D warnings` honest on every platform the gate runs.
+    thread_local! {
+        #[allow(clippy::missing_const_for_thread_local)]
+        static ARMED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Arms the injection: the next [`fire_if_armed`] on this thread panics.
+    pub(crate) fn arm() {
+        ARMED.with(|c| c.set(true));
+    }
+
+    /// Panics iff armed, disarming first so the unwind is one-shot.
+    pub(crate) fn fire_if_armed() {
+        if ARMED.with(Cell::get) {
+            ARMED.with(|c| c.set(false));
+            panic!("injected: panic inside the commit critical section");
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod arb;
 

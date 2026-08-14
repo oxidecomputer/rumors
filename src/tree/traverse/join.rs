@@ -64,6 +64,12 @@ pub fn join<T>(
 where
     T: Send + Sync,
 {
+    // Test-only unwind source for the panic-atomicity pins: the merge walk
+    // is the fallible region of `Tree::join`'s commit section, and this is
+    // its entry.
+    #[cfg(test)]
+    crate::tree::panic_injection::fire_if_armed();
+
     Join::join(a, b, a_version, b_version, changed)
 }
 
