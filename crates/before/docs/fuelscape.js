@@ -558,7 +558,7 @@ class Widget {
 
   buildDom(host) {
     host.classList.add("fs-root");
-    const title = mk(host, "div", "fs-title");
+    const title = mk(host, "h5", "fs-title");
     title.textContent = "Measured growth";
     const sub = mk(host, "div", "fs-subtitle");
     sub.appendChild(document.createTextNode(
@@ -806,7 +806,7 @@ class Widget {
     };
 
     this.ylabel.textContent = raw ? "instructions (log scale)"
-      : `instructions / (${this.active})  (log scale)`;
+      : `instructions / ${this.active}  (log scale)`;
 
     // gridlines at whole octaves, deliberately unnumbered: absolute
     // counts are a guest measure, and the constant-ratio spacing still

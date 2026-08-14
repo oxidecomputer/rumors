@@ -64,6 +64,18 @@ fn main() {
         );
         validate(&file, op);
         let island = island(&doc["meta"], op);
+        // The crate-level Complexity section shows one island expanded
+        // as its worked example; the `.open` variant exists for that
+        // include (the dot keeps it outside the totality scan's
+        // island-name charset — the op's own doc site still owes the
+        // closed island).
+        if name == "version_tick" {
+            std::fs::write(
+                dst.join(format!("{name}.open.html")),
+                island.replacen("<details ", "<details open ", 1),
+            )
+            .expect("open island variant is writable");
+        }
         std::fs::write(dst.join(format!("{name}.html")), island).expect("island file is writable");
         writeln!(emitted, "{name}").expect("string writes are infallible");
     }
@@ -198,9 +210,9 @@ fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
     let data = data.to_string().replace("</", "<\\/");
     let claim_html = escape(claim);
     format!(
-        "<details class=\"toggle fs-details\"><summary>{contract} · \
+        "<details class=\"toggle fs-details\"><summary>\
          <span class=\"fs-claim\"><code>O({claim_html})</code> \
-         in total input bytes</span></summary>\
+         in total input bytes</span>; {contract}</summary>\
          <div class=\"fuelscape\"><script type=\"application/json\">{data}</script></div>\
          <noscript><p>The interactive chart requires JavaScript; the bound \
          is O({claim_html}) in total input bytes.</p></noscript>\

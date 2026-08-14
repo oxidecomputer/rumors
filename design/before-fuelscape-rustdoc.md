@@ -361,8 +361,9 @@ and the contract string relocates from doc source into the `OpSpec`
 roster (§3, §5) — a diff-reviewable pure move, with rendered docs
 unchanged in what they state. (3) The claim is **contract-shaped**: the
 pre-selected hypothesis is the contract's worst-case asymptote in total
-input bytes, so the summary — "`O(|self| + |other|)` · O(n) in total
-input bytes" — and the chart always assert the same bound. An
+input bytes, so the summary — "O(n) in total input
+bytes; `O(|self| + |other|)`" — and the chart always assert the same
+bound. An
 early-exit operation therefore opens with a visibly falling band: the
 uniform-sampling bulk beating the claimed worst case is the finding,
 and the flatter guides are one click away. (The earlier bulk-shaped

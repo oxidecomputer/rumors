@@ -43,10 +43,8 @@ details.fs-details.toggle[open] > summary:not(.hideme)::before {
 .fs-details[open] > summary { border-bottom: 1px solid var(--fs-hair); }
 .fs-details .fs-claim { color: var(--fs-muted); }
 .fs-root { padding: 14px 16px 12px; }
-.fs-title { font-size: 1.125rem; font-weight: 600; color: var(--fs-ink);
-  font-family: "Fira Sans", Arial, NanumBarunGothic, sans-serif;
-  margin: 0 0 2px; }
-.fs-subtitle { font-size: 10.5pt; color: var(--fs-muted); font-family: inherit; margin: 0 0 12px; }
+.fs-title { color: var(--fs-ink); margin: 0 0 2px; }
+.fs-subtitle { font-size: 12pt; color: var(--fs-muted); font-family: inherit; margin: 0 0 12px; }
 .fs-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 2px 0 4px; }
 .fs-hyplabel { font-size: 11pt; font-weight: 600; font-family: "Fira Sans", Arial, NanumBarunGothic, sans-serif;
   color: var(--fs-hyp); cursor: help; align-self: center; margin-right: 2px; }
@@ -672,7 +670,7 @@ class Widget {
 
   buildDom(host) {
     host.classList.add("fs-root");
-    const title = mk(host, "div", "fs-title");
+    const title = mk(host, "h5", "fs-title");
     title.textContent = "Measured growth";
     const sub = mk(host, "div", "fs-subtitle");
     sub.appendChild(document.createTextNode(
@@ -920,7 +918,7 @@ class Widget {
     };
 
     this.ylabel.textContent = raw ? "instructions (log scale)"
-      : `instructions / (${this.active})  (log scale)`;
+      : `instructions / ${this.active}  (log scale)`;
 
     // gridlines at whole octaves, deliberately unnumbered: absolute
     // counts are a guest measure, and the constant-ratio spacing still
