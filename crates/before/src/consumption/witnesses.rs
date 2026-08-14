@@ -14,7 +14,9 @@
 //!   `sign_dominates_at(floor)` certifies when that happens at digit
 //!   index `floor + 2` or higher (the `sign` and `sign_dominates_at`
 //!   rustdoc), so a top digit of 5 decides on its first step and a top
-//!   digit of 2 cannot;
+//!   digit of 2 cannot; a register-held value certifies by direct
+//!   magnitude comparison instead, which is why every witness below
+//!   spills its operands past the register;
 //! - `sign_magnitude_shl` returns the all-zero prefix below the lowest
 //!   written position as the shift, sign queries count as writers, and
 //!   a collapsing sign read can lower the returned shift (the
@@ -22,21 +24,32 @@
 //!
 //! Each witness carries its adequacy leg in the same test: the
 //! known-bad counterpart failing or reading undecided, so no witness
-//! passes vacuously. The touch-metered witnesses ride the `limb-meter`
-//! feature, which lights `suanpan/touch-meter`; nextest's
-//! process-per-test isolation keeps the process-global touch counter
-//! private to each witness.
+//! passes vacuously. The semantic witnesses compile and run in every
+//! test build; only the touch-count witnesses ride the `limb-meter`
+//! feature (which lights `suanpan/touch-meter`), and those serialize
+//! on [`METER_LOCK`] so a threaded runner cannot race the
+//! process-global counter between a reset and its reads.
 
 use core::cmp::Ordering;
 
 use dashu_int::UBig;
-use suanpan::Accumulator;
+use suanpan::{Accumulator, Magnitude};
 
-#[cfg(feature = "limb-meter")]
-use suanpan::{touch_meter, Magnitude};
-
-#[cfg(feature = "limb-meter")]
 use crate::codec::Base;
+
+#[cfg(feature = "limb-meter")]
+use suanpan::touch_meter;
+
+/// Serializes the touch-metered witnesses: the touch counter is
+/// process-global, and a threaded runner (plain `cargo test`) would
+/// otherwise interleave one witness's `reset` with another's reads.
+///
+/// nextest's process-per-test isolation makes the lock moot there; a
+/// poisoned lock is taken anyway, since the counter's state is
+/// re-established by the `reset` each witness opens its metered
+/// section with.
+#[cfg(feature = "limb-meter")]
+static METER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// After a sign read, `digit_count` reports the collapsed top, and a
 /// domination floor derived from that count decides; derived from the
@@ -68,9 +81,11 @@ fn sign_collapse_tightens_the_top_and_arms_domination() {
     residue.add_wide(&(UBig::from(5u8) << 128usize));
     // Adequacy leg (sign read omitted): a floor derived from the stale
     // count demands clearance no honest operand of the latent's true
-    // scale needs, and the read refuses.
+    // scale needs, and the read refuses. The read rewrites nothing
+    // here (a decision-bound top answers on its first step), so the
+    // decided read below sees the same spelling.
     assert_eq!(
-        residue.clone().sign_dominates_at(stale - 1),
+        residue.sign_dominates_at(stale - 1),
         (Ordering::Greater, false),
         "a domination floor derived from the stale count must refuse"
     );
@@ -90,16 +105,21 @@ fn sign_collapse_tightens_the_top_and_arms_domination() {
     );
 }
 
-/// `sign_dominates_at` decides with a decision-bound top exactly two
-/// digit indexes above the floor, and refuses one digit short or with
-/// a below-bound top: clearance is sufficient and necessary.
+/// In the digit engine, `sign_dominates_at` decides with a
+/// decision-bound top exactly two digit indexes above the floor, and
+/// refuses one digit short or with a below-bound top.
 ///
-/// The undercut propagation's width guards skip domination reads
+/// Clearance is sufficient and necessary at that tier. The undercut
+/// propagation's width guards skip domination reads
 /// unless one side clears the other's digit count by two
 /// (watermark.rs, `propagate`): this witness pins that the skipped
-/// reads are exactly the ones that could never decide, and that the
-/// decided certificate is semantically good: folding in the largest
-/// covered adjustment leaves the sign fixed.
+/// digit-engine reads are exactly the ones that could never decide,
+/// and that the decided certificate is semantically good: folding in
+/// the largest covered adjustment leaves the sign fixed. Every
+/// operand is spilled past the register's 2^96 bound, because a
+/// register-held value certifies by direct magnitude comparison and
+/// can decide one digit short (the `sign_dominates_at` rustdoc): the
+/// necessity leg is a digit-engine fact.
 #[test]
 fn domination_clearance_two_digits_suffice_and_one_short_refuses() {
     // Top digit 5 at index 4: 5 * 2^128 exceeds the register's 2^96
@@ -191,6 +211,34 @@ fn collapsing_sign_read_lowers_the_scaled_read_shift() {
     );
 }
 
+/// `Magnitude::to_word` on `Base` answers the width dispatch: a
+/// word-scale magnitude reports its word, a spilled one defers to the
+/// wide path, and both agree with `as_wide` on the value.
+///
+/// The semantic half of the dispatch row; the touch pricing of the
+/// same reads is the limb-meter-gated companion witness. Adequacy: the
+/// two arms answer differently, so a dispatch stuck on either path
+/// fails one of them.
+#[test]
+fn base_dispatch_answers_at_word_scale() {
+    let word_held = Base::from(7u64);
+    let spilled = Base::from(UBig::ONE << 200usize);
+    assert_eq!(
+        Magnitude::to_word(&word_held),
+        Some(7),
+        "a word-scale magnitude reports its word"
+    );
+    assert_eq!(
+        Magnitude::to_word(&spilled),
+        None,
+        "a spilled magnitude defers to the wide path"
+    );
+    // The trait's self-agreement rule: as_wide denotes the same value
+    // to_word reports (the Magnitude rustdoc).
+    assert_eq!(Magnitude::as_wide(&word_held), &UBig::from(7u8));
+    assert_eq!(Magnitude::as_wide(&spilled), &(UBig::ONE << 200usize));
+}
+
 /// `Magnitude::to_word` on `Base` answers the width dispatch with zero
 /// digit touches, word-held and spilled both: the O(1) dispatch read
 /// the small path's cost accounting assumes free.
@@ -203,6 +251,9 @@ fn collapsing_sign_read_lowers_the_scaled_read_shift() {
 #[cfg(feature = "limb-meter")]
 #[test]
 fn base_dispatch_read_touches_no_digits() {
+    let _serialized = METER_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let word_held = Base::from(7u64);
     let spilled = Base::from(UBig::ONE << 200usize);
     touch_meter::reset();
@@ -223,6 +274,40 @@ fn base_dispatch_read_touches_no_digits() {
 }
 
 /// A magnitude with top digit 5 at index `i` decides
+/// `sign_dominates_at(i - 2)`, refuses one digit short, and refuses
+/// with a below-bound top: the decisions the seam fixtures' closed
+/// forms rely on, meter-free.
+///
+/// The semantic half of the closed-form row; the touch pricing of the
+/// same shapes is the limb-meter-gated companion witness. Adequacy:
+/// both refusal legs read undecided in the same test.
+#[test]
+fn decision_bound_top_decides_two_below_its_index() {
+    // Top digit 5 at index 4, spilled past the register's 2^96 bound:
+    // the fold's first partial is 5, past the decision bound 3, at
+    // index 4 = floor + 2 for floor 2.
+    let mut acc = Accumulator::new();
+    acc.add_wide(&(UBig::from(5u8) << 128usize));
+    assert_eq!(
+        acc.sign_dominates_at(2),
+        (Ordering::Greater, true),
+        "top digit 5 at index 4 decides floor 2"
+    );
+    assert_eq!(
+        acc.sign_dominates_at(3),
+        (Ordering::Greater, false),
+        "one digit short of clearance refuses"
+    );
+    let mut low_top = Accumulator::new();
+    low_top.add_wide(&(UBig::from(2u8) << 128usize));
+    assert_eq!(
+        low_top.sign_dominates_at(2),
+        (Ordering::Greater, false),
+        "a below-bound top refuses at the clearance line"
+    );
+}
+
+/// A magnitude with top digit 5 at index `i` decides
 /// `sign_dominates_at(i - 2)` on its first digit touch: exactly one
 /// metered touch, decided, sign exact.
 ///
@@ -236,6 +321,9 @@ fn base_dispatch_read_touches_no_digits() {
 #[cfg(feature = "limb-meter")]
 #[test]
 fn decision_bound_top_decides_on_the_first_touch() {
+    let _serialized = METER_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     // Top digit 5 at index 4, spilled past the register's 2^96 bound.
     let mut acc = Accumulator::new();
     acc.add_wide(&(UBig::from(5u8) << 128usize));
