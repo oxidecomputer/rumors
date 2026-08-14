@@ -450,4 +450,7 @@ mod serde_impls;
 mod borsh_impls;
 
 #[cfg(test)]
+mod consumption;
+
+#[cfg(test)]
 mod testing;
