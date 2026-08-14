@@ -1456,13 +1456,15 @@ mod span_door_traffic {
 }
 
 /// `Tree::act`'s commit section is panic-atomic: a panic unwinding out of
-/// the fallible traversal (here from the caller-supplied actions iterator,
-/// which the traversal's root-level radix sort drains inside the critical
-/// section) leaves the tree byte-identical — root hash and causal ceiling
-/// both unchanged. The hazard this rules out is an emptied root published
-/// under a live ceiling: byte-for-byte the shape of "everything was
-/// redacted", which a subsequent gossip session would honor by deleting
-/// every peer's holdings.
+/// the fallible traversal leaves the tree byte-identical.
+///
+/// The unwind source is the caller-supplied actions iterator, which the
+/// traversal's root-level radix sort drains inside the critical section;
+/// root hash and causal ceiling must both come through unchanged. The
+/// hazard this rules out is an emptied root published under a live
+/// ceiling: byte-for-byte the shape of "everything was redacted", which a
+/// subsequent gossip session would honor by deleting every peer's
+/// holdings.
 #[test]
 fn act_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<Bytes> = Tree::new();
@@ -1498,11 +1500,14 @@ fn act_unwind_leaves_tree_byte_identical() {
 }
 
 /// `Tree::join`'s commit section is panic-atomic: a panic unwinding out of
-/// the merge traversal (injected at its entry via `panic_injection`) leaves
-/// the tree byte-identical — root hash and causal ceiling both unchanged.
-/// The hazard this rules out is an emptied root published under a live
+/// the merge traversal leaves the tree byte-identical.
+///
+/// The unwind is injected at the merge walk's entry via `panic_injection`;
+/// root hash and causal ceiling must both come through unchanged. The
+/// hazard this rules out is an emptied root published under a live
 /// ceiling: byte-for-byte the shape of "everything was redacted", which a
-/// subsequent gossip session would honor by deleting every peer's holdings.
+/// subsequent gossip session would honor by deleting every peer's
+/// holdings.
 #[test]
 fn join_unwind_leaves_tree_byte_identical() {
     let mut ours: Tree<Bytes> = Tree::new();

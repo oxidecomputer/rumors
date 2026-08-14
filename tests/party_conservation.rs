@@ -391,13 +391,14 @@ proptest! {
     // choice).
     #![proptest_config(ProptestConfig::with_cases(32))]
 
-    /// Terminal collapse at fleet scale: bootstrap a population of up to a
-    /// hundred peers, each newcomer off a randomly chosen live provider,
-    /// then retire peers into one another in random order until one
-    /// remains. The survivor's party is exactly [`Party::seed`]'s whole
-    /// interval: every donated fork and absorbed identity renormalizes
-    /// back to the baseline, so lifecycle churn at population scale
-    /// neither loses nor fragments identity.
+    /// Terminal collapse at fleet scale: a fully retired population's last
+    /// survivor holds exactly [`Party::seed`]'s whole interval.
+    ///
+    /// Bootstrap a population of up to a hundred peers, each newcomer off
+    /// a randomly chosen live provider, then retire peers into one another
+    /// in random order until one remains. Every donated fork and absorbed
+    /// identity renormalizes back to the baseline, so lifecycle churn at
+    /// population scale neither loses nor fragments identity.
     #[test]
     fn fleet_scale_retirement_collapses_to_seed_party(
         (providers, retirements) in (2usize..=100).prop_flat_map(|n| (

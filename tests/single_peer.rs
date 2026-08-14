@@ -195,13 +195,15 @@ fn a_panicked_batch_commits_nothing() {
 }
 
 /// Pins the drop semantics [`Batch`](rumors::Batch) documents for async
-/// cancellation: dropping the future holding a batch across an await runs
-/// no unwind, so the drop is indistinguishable from an ordinary
-/// end-of-statement commit and publishes the prefix queued before the
-/// cancellation point. This is the documented hazard behind the rule that
-/// a batch must not be held across an `.await` in a cancellable task — a
-/// batch is a performance optimization, and all-or-nothing delivery
-/// bundles into one application-level message instead.
+/// cancellation: a batch dropped mid-await commits its queued prefix.
+///
+/// Dropping the future holding a batch across an await runs no unwind, so
+/// the drop is indistinguishable from an ordinary end-of-statement commit
+/// and publishes the prefix queued before the cancellation point. This is
+/// the documented hazard behind the rule that a batch must not be held
+/// across an `.await` in a cancellable task — a batch is a performance
+/// optimization, and all-or-nothing delivery bundles into one
+/// application-level message instead.
 #[tokio::test]
 async fn a_cancelled_batch_commits_its_prefix() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
