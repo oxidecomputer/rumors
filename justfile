@@ -246,6 +246,32 @@ citecheck:
     mkdir -p target && {{ justfile_directory() }}/tools/memwatch bash -c 'cargo nextest list -p before --all-features --message-format json > target/citecheck-tests.json'
     ./tools/citecheck --tests target/citecheck-tests.json --root crates/before
 
+# The mutants exclusion roster (.cargo/mutants.toml) names every mutant
+# that survives the suites for a reason that is not a test gap, as regexes
+# over `cargo mutants --list` names. Nothing else holds those regexes to
+# the live inventory: a pattern whose site is refactored away silently
+# excludes nothing, a function-scoped pattern silently swallows every NEW
+# mutant its function later grows, and an exclusion the tool declines to
+# apply filters nothing. tools/mutantcheck judges two captured list runs
+# (never a campaign — list runs parse sources and build nothing): the raw
+# inventory (--no-config) pins each pattern's LISTED count, and the
+# filtered inventory pins its SUPPRESSED count, both committed literals in
+# tools/mutantcheck-expected.json whose diff a reviewer sees — the checker
+# never writes that file. The delete-field entry pins suppressed 0
+# (cargo-mutants 27.1.0 never applies name filters to delete-field
+# mutants; that number moving means the upstream gap closed). The counts
+# derive from the installed cargo-mutants release, so the pin carries the
+# tool version and a bump re-pins in the same reviewed diff.
+# Needs cargo-mutants: `cargo install cargo-mutants`.
+
+# Hold the mutants exclusion roster to its pinned counts (list-only, never a campaign).
+mutants-list:
+    ./tools/mutantcheck --self-test
+    @mkdir -p target
+    cargo mutants --list --no-config --workspace > target/mutants-raw.txt
+    cargo mutants --list --workspace > target/mutants-filtered.txt
+    ./tools/mutantcheck --raw target/mutants-raw.txt --filtered target/mutants-filtered.txt --config .cargo/mutants.toml --expected tools/mutantcheck-expected.json --tool-version "$(cargo mutants --version)"
+
 # The supply-chain leg, two build-free checks over the committed lockfiles.
 # cargo-audit sweeps every lockfile in the repository — the root workspace
 # and each detached workspace (fuzz, fuzzfit, fuelscape, surfacecheck) —
@@ -321,7 +347,9 @@ fuzz-build:
 gate: gate-lints gate-streams
 
 # The build-free tier, sequential: a lint failure should cost seconds.
-gate-lints: fmt-check doclint testdoc readme-check
+# `mutants-list` rides here because its two list runs parse sources
+# without building, so the whole tier stays seconds.
+gate-lints: fmt-check doclint testdoc readme-check mutants-list
 
 # Each stream's output is captured rather than interleaved, and a failing
 # stream's log is replayed in full at the end, so a parallel failure reads

@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""Hold the cargo-mutants exclusion roster to a committed count pin.
+
+Usage:
+    mutantcheck --raw FILE --filtered FILE --config FILE --expected FILE \\
+        --tool-version STRING
+    mutantcheck --self-test
+
+The exclusion roster (.cargo/mutants.toml) names every mutant that
+survives the suites for a reason that is not a test gap, each entry a
+regex over the names `cargo mutants --list` prints. Nothing else holds
+those regexes to the live mutant inventory: a pattern whose site is
+refactored away silently excludes nothing, and a function-scoped pattern
+silently swallows every NEW mutant the function later grows — both rot
+invisibly because no gate leg runs cargo-mutants at all. This checker
+closes that seam from two captured `--list` runs (never a campaign):
+
+  - `--raw` is `cargo mutants --list --no-config --workspace`: the whole
+    inventory, exclusions visible. Each entry's LISTED count — how many
+    inventory mutants its regex matches — is a committed literal, so a
+    new mutant swallowed by an existing pattern moves a number a
+    reviewer sees, and a pattern matching nothing reds as dead config.
+  - `--filtered` is the same listing with the config applied. Each
+    entry's SUPPRESSED count — listed minus the matches that survive
+    filtering — pins that the exclusion actually engages. An entry the
+    tool declines to apply (the delete-field filter gap documented at
+    its entry) pins suppressed 0; the gap closing upstream then moves
+    that number, deliberately.
+
+The judgment is tamper-evident in both directions: the expected file's
+patterns must equal the config's `exclude_re` set exactly (a pattern
+added without a reviewed count, or a pinned count whose pattern left the
+config, both fail by name), and every count mismatch fails naming the
+pattern and both numbers. The counts are committed literals in
+tools/mutantcheck-expected.json whose diff a reviewer sees; this tool
+never writes that file — on mismatch it prints the observed table for a
+human to review and commit deliberately.
+
+Counting is over the DEDUPLICATED listing: the tree declares one module
+subtree under two mutually exclusive cfg spellings (`version.rs` declares
+`mod skyline` once for test/meter builds and once for the rest), and
+cargo-mutants' syntactic walk prints that subtree's mutants once per
+declaration. A mutant is a source site, not a listing line, so duplicate
+lines collapse before counting and the pin survives the cfg pair
+collapsing to one declaration.
+
+Provenance: the counts derive from the installed cargo-mutants release
+(its operator set and name spellings move between releases), so the
+expected file pins the `--tool-version` string and a mismatch is a
+finding, never a silent re-baseline. Bumping the tool re-pins the counts
+in the same reviewed diff.
+
+Liveness floors: both listings must be nonzero, every line must parse as
+a mutant name (`path.rs:line:col: replace|delete ...`), and the filtered
+listing can never exceed the raw one — a polluted or truncated capture
+reads as failure, never as a shifted baseline.
+"""
+
+import argparse
+import json
+import re
+import sys
+import tomllib
+from pathlib import Path
+
+# The shape of one printed mutant name; anything else in a capture is
+# pollution (a warning, a partial line), which must fail, not count.
+MUTANT_LINE = re.compile(r"^\S+\.rs:\d+:\d+: (replace|delete) ")
+
+
+def parse_listing(text, label):
+    """Deduplicate one captured listing into a set of mutant names.
+
+    Returns `(mutants, problems)`; a line that does not parse as a
+    mutant name is a problem, because a polluted capture would otherwise
+    shift every count it touches.
+    """
+    problems = []
+    mutants = set()
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if not MUTANT_LINE.match(line):
+            problems.append(
+                f"{label}: unparseable listing line (a polluted capture "
+                f"must not count): {line[:80]}"
+            )
+            continue
+        mutants.add(line)
+    if not mutants:
+        problems.append(
+            f"liveness: the {label} listing holds no mutants; the "
+            "capture is empty or the list run produced nothing"
+        )
+    return mutants, problems
+
+
+def run(raw_text, filtered_text, patterns, expected, tool_version):
+    """One judgment over the two captures, the config roster, and the pin.
+
+    Returns the problem list; empty means every committed count still
+    tells the truth.
+    """
+    problems = []
+
+    pinned_tool = expected.get("tool")
+    if tool_version != pinned_tool:
+        problems.append(
+            f"tool version {tool_version!r} does not match the pinned "
+            f"{pinned_tool!r}: operator sets move between releases, so "
+            "re-pin the counts in the same diff as the tool bump"
+        )
+
+    raw, raw_problems = parse_listing(raw_text, "raw")
+    filtered, filtered_problems = parse_listing(filtered_text, "filtered")
+    problems += raw_problems + filtered_problems
+    extra = filtered - raw
+    if extra:
+        problems.append(
+            f"{len(extra)} filtered-listing mutant(s) absent from the raw "
+            "listing; the two captures are not from the same tree"
+        )
+
+    pinned = expected.get("patterns", {})
+    for pattern in patterns:
+        if pattern not in pinned:
+            problems.append(
+                f"config pattern has no pinned counts (pin it in a "
+                f"reviewed diff): {pattern}"
+            )
+    for pattern in pinned:
+        if pattern not in patterns:
+            problems.append(
+                f"pinned pattern is no longer in the config's exclude_re "
+                f"(retire the pin deliberately): {pattern}"
+            )
+
+    for pattern in patterns:
+        if pattern not in pinned:
+            continue
+        rx = re.compile(pattern)
+        listed = sum(1 for name in raw if rx.search(name))
+        suppressed = listed - sum(1 for name in filtered if rx.search(name))
+        want = pinned[pattern]
+        if listed == 0:
+            problems.append(
+                f"pattern matches no listed mutant (dead config: its "
+                f"site was refactored away — remove or re-aim the "
+                f"entry): {pattern}"
+            )
+        if listed != want.get("listed") or suppressed != want.get("suppressed"):
+            problems.append(
+                f"counts moved for {pattern}: listed {listed} (pinned "
+                f"{want.get('listed')}), suppressed {suppressed} (pinned "
+                f"{want.get('suppressed')}) — a swallowed new mutant, a "
+                "drifted site, or a filter change; re-verify the entry "
+                "and re-pin deliberately"
+            )
+    return problems
+
+
+def observed_table(raw_text, filtered_text, patterns, tool_version):
+    """The observed counts, printed on failure as re-pinning input."""
+    raw, _ = parse_listing(raw_text, "raw")
+    filtered, _ = parse_listing(filtered_text, "filtered")
+    table = {"tool": tool_version, "patterns": {}}
+    for pattern in patterns:
+        rx = re.compile(pattern)
+        listed = sum(1 for name in raw if rx.search(name))
+        suppressed = listed - sum(1 for name in filtered if rx.search(name))
+        table["patterns"][pattern] = {
+            "listed": listed,
+            "suppressed": suppressed,
+        }
+    return table
+
+
+def self_test():
+    """Pin the checker's own red paths: each tamper direction must fail,
+    and the honest fixture (duplicate listing lines included) must pass."""
+    a = "src/a.rs:10:5: replace + with - in f"
+    b = "src/a.rs:20:5: replace < with <= in g"
+    c = "src/b.rs:30:5: delete field w from struct S expression in S::h"
+    pat_a = r"a\.rs.*: replace \+ with - in f"
+    pat_b = r"a\.rs.*: replace < with <= in g"
+    pat_c = r"b\.rs.*: delete field w from struct S"
+
+    def listing(*names):
+        return "\n".join(names) + "\n"
+
+    def expected(**counts):
+        return {
+            "tool": "cargo-mutants 0.0.0",
+            "patterns": {
+                pat: {"listed": l, "suppressed": s}
+                for pat, (l, s) in counts.items()
+            },
+        }
+
+    # The honest pin: a and b suppressed, c listed but unfiltered (the
+    # documented filter-gap shape, pinned suppressed 0).
+    patterns = [pat_a, pat_b, pat_c]
+    green_expected = expected(**{pat_a: (1, 1), pat_b: (1, 1), pat_c: (1, 0)})
+    tool = "cargo-mutants 0.0.0"
+
+    cases = [
+        ("green", listing(a, b, c), listing(c), patterns, green_expected, tool,
+         []),
+        # Duplicate listing lines (the cfg-double module walk) must not
+        # move a count: a mutant is a site, not a line.
+        ("duplicates collapse", listing(a, a, b, c, c), listing(c, c),
+         patterns, green_expected, tool, []),
+        # A new mutant swallowed by an existing pattern must move the
+        # listed count and fail by name.
+        ("swallowed new mutant",
+         listing(a, "src/a.rs:11:9: replace + with - in f", b, c), listing(c),
+         patterns, green_expected, tool,
+         ["counts moved for " + pat_a]),
+        # A pattern matching nothing is dead config, never a quiet zero
+        # (its count mismatch reports alongside).
+        ("dead pattern", listing(b, c), listing(c), patterns, green_expected,
+         tool,
+         ["pattern matches no listed mutant", "counts moved for " + pat_a]),
+        # An exclusion that stops engaging (its mutant survives the
+        # filtered listing) must move the suppressed count.
+        ("filter stopped engaging", listing(a, b, c), listing(b, c), patterns,
+         green_expected, tool,
+         ["counts moved for " + pat_b]),
+        # A config pattern without pinned counts must fail by name...
+        ("unpinned config pattern", listing(a, b, c), listing(c),
+         patterns + [r"b\.rs.*: replace new"],
+         green_expected, tool,
+         ["config pattern has no pinned counts"]),
+        # ...and so must a pinned pattern gone from the config.
+        ("orphaned pin", listing(a, b, c), listing(c), [pat_a, pat_b],
+         green_expected, tool,
+         ["pinned pattern is no longer in the config"]),
+        # An empty raw capture must trip the liveness floor (the filtered
+        # side then out-counts it, and every count reads dead).
+        ("vacuous raw listing", "", listing(c), patterns, green_expected,
+         tool,
+         ["liveness: the raw listing holds no mutants",
+          "filtered-listing mutant(s) absent from the raw listing",
+          "pattern matches no listed mutant",
+          "counts moved for " + pat_a,
+          "pattern matches no listed mutant",
+          "counts moved for " + pat_b,
+          "pattern matches no listed mutant",
+          "counts moved for " + pat_c]),
+        # A polluted capture must fail, never count.
+        ("polluted capture", listing(a, "warning: something", b, c),
+         listing(c), patterns, green_expected, tool,
+         ["raw: unparseable listing line"]),
+        # A tool bump must re-pin deliberately, never re-baseline
+        # silently.
+        ("tool version drift", listing(a, b, c), listing(c), patterns,
+         green_expected, "cargo-mutants 9.9.9",
+         ["tool version 'cargo-mutants 9.9.9' does not match"]),
+    ]
+    for name, raw, filtered, pats, exp, tool_v, needles in cases:
+        problems = run(raw, filtered, pats, exp, tool_v)
+        if len(problems) != len(needles) or not all(
+            needle in problem
+            for needle, problem in zip(needles, problems)
+        ):
+            raise AssertionError(
+                f"self-test {name!r}: expected {needles}, got {problems}"
+            )
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(prog="mutantcheck", description=__doc__)
+    parser.add_argument("--raw", help="cargo mutants --list --no-config capture")
+    parser.add_argument("--filtered", help="cargo mutants --list capture (config applied)")
+    parser.add_argument("--config", help="the mutants.toml whose exclude_re is under pin")
+    parser.add_argument("--expected", help="committed per-pattern count pin (JSON)")
+    parser.add_argument("--tool-version", help="`cargo mutants --version` output")
+    parser.add_argument(
+        "--self-test", action="store_true",
+        help="pin the checker's own red paths",
+    )
+    args = parser.parse_args(argv[1:])
+
+    if args.self_test:
+        self_test()
+        print("mutantcheck: self-test ok")
+        return 0
+    if not (args.raw and args.filtered and args.config and args.expected
+            and args.tool_version):
+        parser.error(
+            "--raw, --filtered, --config, --expected, and --tool-version "
+            "are all required"
+        )
+
+    config = tomllib.loads(Path(args.config).read_text(encoding="utf-8"))
+    patterns = config.get("exclude_re", [])
+    expected = json.loads(Path(args.expected).read_text(encoding="utf-8"))
+    raw_text = Path(args.raw).read_text(encoding="utf-8")
+    filtered_text = Path(args.filtered).read_text(encoding="utf-8")
+    tool_version = args.tool_version.strip()
+
+    problems = run(raw_text, filtered_text, patterns, expected, tool_version)
+    if problems:
+        for problem in problems:
+            print(problem)
+        print(
+            "\nmutantcheck: the exclusion roster disagrees with the live "
+            f"mutant inventory in {len(problems)} place(s). Observed "
+            "counts, for a reviewed re-pin:",
+            file=sys.stderr,
+        )
+        table = observed_table(raw_text, filtered_text, patterns, tool_version)
+        print(json.dumps(table, indent=2), file=sys.stderr)
+        return 1
+    total = len(expected.get("patterns", {}))
+    print(
+        f"mutantcheck: all {total} exclusion patterns match their pinned "
+        "listed/suppressed counts"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
