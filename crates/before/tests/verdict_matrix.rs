@@ -80,11 +80,15 @@
 //!   violations and a complete census.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 
+use before::causally::{self, Coverage};
 use before::meter::registry::{FamilyId, Shape};
 use before::meter::Packed;
-use before::{Clock, Party, Version};
+use before::{
+    Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
+};
 use suanpan::UBig;
 
 // ─── the roster-derived operand pool ─────────────────────────────────────────
@@ -498,6 +502,647 @@ fn verdict_classes(versions: &[Version]) -> BTreeSet<&'static str> {
 /// Every sweep verdict class, the floors' completeness reference.
 const ALL_CLASSES: [&str; 4] = ["concurrent", "equal", "greater", "less"];
 
+// ─── the checker ─────────────────────────────────────────────────────────────
+
+/// The five verdict surfaces, as violation labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Axis {
+    /// The pair sweep's own coherence (antisymmetry, equality, concurrency).
+    Sweep,
+    /// The masked co-walk against the sweep and the materialized projections.
+    Masked,
+    /// The placement walk against its composed-relation transcription.
+    Placement,
+    /// The fused rank compare against strict causal order and the tiebreak.
+    Ranked,
+    /// The coverage filter walks against their relation-level transcription.
+    Query,
+}
+
+/// What one checker run witnessed: the liveness census the floors assert.
+#[derive(Default)]
+struct Census {
+    /// Sweep verdict classes seen in the pool cross.
+    classes: BTreeSet<&'static str>,
+    /// Top-level placement verdicts seen across the span grid.
+    placements: BTreeSet<&'static str>,
+    /// Dominance verdicts seen across the span grid.
+    dominances: BTreeSet<&'static str>,
+    /// Precedence verdicts seen across the span grid.
+    precedences: BTreeSet<&'static str>,
+    /// Coverage verdicts seen across the query grid.
+    coverages: BTreeSet<&'static str>,
+    /// Membership verdicts seen across the query grid.
+    memberships: BTreeSet<bool>,
+    /// Distinct-version rank ties seen in the pool: the tiebreak witness.
+    rank_ties: usize,
+}
+
+/// One checker run's result: per-axis violation counts, a bounded sample
+/// of violation details, and the liveness census.
+struct Outcome {
+    /// Violations per axis (absent means zero).
+    counts: BTreeMap<Axis, usize>,
+    /// The first few violation details, for diagnosis.
+    samples: Vec<String>,
+    /// The classes this run witnessed.
+    census: Census,
+}
+
+impl Outcome {
+    /// Violations recorded against `axis`.
+    fn count(&self, axis: Axis) -> usize {
+        self.counts.get(&axis).copied().unwrap_or(0)
+    }
+}
+
+/// `probe >= bound` under a pairwise verdict.
+fn ge(rel: Option<Ordering>) -> bool {
+    matches!(rel, Some(Ordering::Greater | Ordering::Equal))
+}
+
+/// `probe <= bound` under a pairwise verdict.
+fn le(rel: Option<Ordering>) -> bool {
+    matches!(rel, Some(Ordering::Less | Ordering::Equal))
+}
+
+/// The composed-relation transcription of the nine-way placement verdict
+/// from the probe's relations to the span's endpoints.
+fn expected_place(lo_rel: Option<Ordering>, hi_rel: Option<Ordering>) -> Placement {
+    match lo_rel {
+        Some(Ordering::Less) => Placement::Before,
+        Some(Ordering::Equal) => match hi_rel {
+            Some(Ordering::Equal) => Placement::At(Endpoint::Both),
+            _ => Placement::At(Endpoint::Start),
+        },
+        Some(Ordering::Greater) => match hi_rel {
+            Some(Ordering::Less) => Placement::Between,
+            Some(Ordering::Equal) => Placement::At(Endpoint::End),
+            Some(Ordering::Greater) => Placement::After,
+            None => Placement::Concurrent(Endpoint::End),
+        },
+        None => match hi_rel {
+            None => Placement::Concurrent(Endpoint::Both),
+            _ => Placement::Concurrent(Endpoint::Start),
+        },
+    }
+}
+
+/// The transcription of the three-way dominance verdict: after on
+/// dominating both endpoints, between on dominating only the start.
+fn expected_dominance(lo_rel: Option<Ordering>, hi_rel: Option<Ordering>) -> Dominance {
+    if ge(lo_rel) && ge(hi_rel) {
+        Dominance::After
+    } else if ge(lo_rel) {
+        Dominance::Between
+    } else {
+        Dominance::Before
+    }
+}
+
+/// The transcription of the three-way precedence verdict, dominance
+/// mirrored.
+fn expected_precedence(lo_rel: Option<Ordering>, hi_rel: Option<Ordering>) -> Precedence {
+    if le(lo_rel) && le(hi_rel) {
+        Precedence::Before
+    } else if le(hi_rel) {
+        Precedence::Between
+    } else {
+        Precedence::After
+    }
+}
+
+/// The top-level placement label, for the census.
+fn placement_label(p: Placement) -> &'static str {
+    match p {
+        Placement::Before => "before",
+        Placement::At(_) => "at",
+        Placement::Between => "between",
+        Placement::After => "after",
+        Placement::Concurrent(_) => "concurrent",
+    }
+}
+
+/// The coverage label, for the census.
+fn coverage_label(c: Coverage) -> &'static str {
+    match c {
+        Coverage::Full => "full",
+        Coverage::Partial => "partial",
+        Coverage::Empty => "empty",
+    }
+}
+
+/// How many violation details to retain verbatim for diagnosis.
+const SAMPLE_CAP: usize = 40;
+
+/// Runs the full consistency matrix over the pool with `sweep` as the
+/// pairwise verdict of record, returning per-axis violations and the
+/// liveness census.
+///
+/// Under the production sweep (`Version::partial_cmp`) every leg must
+/// agree; under the polarity-flipped twin every cross-surface axis must
+/// dissent, which is the committed proof that each leg can fail.
+fn check(pool: &Pool, sweep: &dyn Fn(&Version, &Version) -> Option<Ordering>) -> Outcome {
+    let seed = Party::seed();
+    let mut outcome = Outcome {
+        counts: BTreeMap::new(),
+        samples: Vec::new(),
+        census: Census::default(),
+    };
+
+    // The pairwise verdict matrix of record: every transcription below
+    // reads from here, so a dissenting kernel separates from `sweep`.
+    let rel: Vec<Vec<Option<Ordering>>> = pool
+        .versions
+        .iter()
+        .map(|a| pool.versions.iter().map(|b| sweep(a, b)).collect())
+        .collect();
+    for row in &rel {
+        for &r in row {
+            outcome.census.classes.insert(class(r));
+        }
+    }
+
+    // Materialized projections: proj[i][m] is pool version i projected by
+    // mask m, through the public materialization door. The masked axis
+    // holds every fused verdict to the sweep over these.
+    let proj: Vec<Vec<Version>> = pool
+        .versions
+        .iter()
+        .map(|v| pool.masks.iter().map(|p| (v / p).to_version()).collect())
+        .collect();
+
+    // Rank folds, once per pool version, for the ranked axis.
+    let ranks: Vec<Rank> = pool.versions.iter().map(Version::rank).collect();
+    for (i, ri) in ranks.iter().enumerate() {
+        for (j, rj) in ranks.iter().enumerate().skip(i + 1) {
+            if ri == rj && pool.versions[i] != pool.versions[j] {
+                outcome.census.rank_ties += 1;
+            }
+        }
+    }
+
+    let flag = |outcome: &mut Outcome, axis: Axis, detail: String| {
+        *outcome.counts.entry(axis).or_insert(0) += 1;
+        if outcome.samples.len() < SAMPLE_CAP {
+            outcome.samples.push(format!("{axis:?}: {detail}"));
+        }
+    };
+
+    // ── the ordered-pair cross: sweep, masked, ranked, degenerate spans,
+    //    and the per-pair query legs ──
+    for (j, vj) in pool.versions.iter().enumerate() {
+        // Queries bound at vj, built once per bound and probed by every i.
+        // Expected membership is the relation-level transcription of each
+        // form's documented meaning, from rel[i][j].
+        #[allow(clippy::type_complexity)]
+        let membership_forms: Vec<(
+            &'static str,
+            Box<dyn Fn(&Version) -> bool + '_>,
+            Box<dyn Fn(Option<Ordering>) -> bool>,
+        )> = {
+            let q_floor = causally::after(vj) & causally::all();
+            let q_ceiling = causally::before(vj) & causally::all();
+            let q_gt = causally::strictly_after(vj);
+            let q_lt = causally::strictly_before(vj);
+            let q_since = causally::since(vj);
+            let q_until = causally::until(vj);
+            let q_floor_wide = causally::after(vj).or_concurrent();
+            let q_ceiling_wide = causally::before(vj).or_concurrent();
+            let q_point = causally::after(vj) & causally::before(vj);
+            vec![
+                (
+                    "after",
+                    Box::new(move |v: &Version| q_floor.contains(v)),
+                    Box::new(ge),
+                ),
+                (
+                    "before",
+                    Box::new(move |v: &Version| q_ceiling.contains(v)),
+                    Box::new(le),
+                ),
+                (
+                    "strictly_after",
+                    Box::new(move |v: &Version| q_gt.contains(v)),
+                    Box::new(|r| r == Some(Ordering::Greater)),
+                ),
+                (
+                    "strictly_before",
+                    Box::new(move |v: &Version| q_lt.contains(v)),
+                    Box::new(|r| r == Some(Ordering::Less)),
+                ),
+                (
+                    "since",
+                    Box::new(move |v: &Version| q_since.contains(v)),
+                    Box::new(|r| matches!(r, Some(Ordering::Greater) | None)),
+                ),
+                (
+                    "until",
+                    Box::new(move |v: &Version| q_until.contains(v)),
+                    Box::new(|r| matches!(r, Some(Ordering::Less) | None)),
+                ),
+                (
+                    "after.or_concurrent",
+                    Box::new(move |v: &Version| q_floor_wide.contains(v)),
+                    Box::new(|r| r != Some(Ordering::Less)),
+                ),
+                (
+                    "before.or_concurrent",
+                    Box::new(move |v: &Version| q_ceiling_wide.contains(v)),
+                    Box::new(|r| r != Some(Ordering::Greater)),
+                ),
+                (
+                    "after & before (point)",
+                    Box::new(move |v: &Version| q_point.contains(v)),
+                    Box::new(|r| r == Some(Ordering::Equal)),
+                ),
+            ]
+        };
+        let q_floor_cov = causally::after(vj) & causally::all();
+        let q_ceiling_cov = causally::before(vj) & causally::all();
+        let q_gt_cov = causally::strictly_after(vj);
+        let at_j = Span::at(vj);
+
+        for (i, vi) in pool.versions.iter().enumerate() {
+            let r = rel[i][j];
+
+            // Sweep axis: antisymmetry, equality, and concurrency cohere
+            // with the verdict of record.
+            if r != rel[j][i].map(Ordering::reverse) {
+                flag(
+                    &mut outcome,
+                    Axis::Sweep,
+                    format!("antisymmetry broke at pool pair ({i}, {j})"),
+                );
+            }
+            if (vi == vj) != (r == Some(Ordering::Equal)) {
+                flag(
+                    &mut outcome,
+                    Axis::Sweep,
+                    format!("equality disagrees with the verdict at ({i}, {j})"),
+                );
+            }
+            if vi.concurrent(vj) != r.is_none() {
+                flag(
+                    &mut outcome,
+                    Axis::Sweep,
+                    format!("concurrent() disagrees with the verdict at ({i}, {j})"),
+                );
+            }
+
+            // Masked axis. The unmasked (seed-party) comparison must equal
+            // the verdict of record exactly; every masked cell must equal
+            // the verdict of record over the materialized projections.
+            if (vi / &seed).partial_cmp(vj) != r {
+                flag(
+                    &mut outcome,
+                    Axis::Masked,
+                    format!("seed-projected compare dissents from the sweep at ({i}, {j})"),
+                );
+            }
+            if !pool.masks.is_empty() {
+                let m = (i + j) % pool.masks.len();
+                let mask = &pool.masks[m];
+                let fused3 = (vi / mask).partial_cmp(vj);
+                if fused3 != sweep(&proj[i][m], vj) {
+                    flag(
+                        &mut outcome,
+                        Axis::Masked,
+                        format!("three-stream verdict dissents at ({i}, {j}) under mask {m}"),
+                    );
+                }
+                if vj.partial_cmp(&(vi / mask)) != fused3.map(Ordering::reverse) {
+                    flag(
+                        &mut outcome,
+                        Axis::Masked,
+                        format!("mirror orientation dissents at ({i}, {j}) under mask {m}"),
+                    );
+                }
+                if ((vi / mask) == *vj) != (sweep(&proj[i][m], vj) == Some(Ordering::Equal)) {
+                    flag(
+                        &mut outcome,
+                        Axis::Masked,
+                        format!("masked equality dissents at ({i}, {j}) under mask {m}"),
+                    );
+                }
+                let fused4 = (vi / mask).partial_cmp(&(vj / mask));
+                if fused4 != sweep(&proj[i][m], &proj[j][m]) {
+                    flag(
+                        &mut outcome,
+                        Axis::Masked,
+                        format!("four-stream verdict dissents at ({i}, {j}) under mask {m}"),
+                    );
+                }
+                if ((vi / mask) == (vj / mask))
+                    != (sweep(&proj[i][m], &proj[j][m]) == Some(Ordering::Equal))
+                {
+                    flag(
+                        &mut outcome,
+                        Axis::Masked,
+                        format!("four-stream equality dissents at ({i}, {j}) under mask {m}"),
+                    );
+                }
+            }
+
+            // Ranked axis: strict causal order implies strict Ranked and
+            // Rank order, and the whole comparison is the rank-then-bytes
+            // transcription.
+            let ranked = Ranked::from(vi).cmp(&Ranked::from(vj));
+            match r {
+                Some(strict @ (Ordering::Less | Ordering::Greater)) => {
+                    if ranked != strict {
+                        flag(
+                            &mut outcome,
+                            Axis::Ranked,
+                            format!("Ranked order dissents from strict causal order at ({i}, {j})"),
+                        );
+                    }
+                    if ranks[i].cmp(&ranks[j]) != strict {
+                        flag(
+                            &mut outcome,
+                            Axis::Ranked,
+                            format!("Rank is not strictly monotone at ({i}, {j})"),
+                        );
+                    }
+                }
+                Some(Ordering::Equal) | None => {}
+            }
+            let transcribed = ranks[i]
+                .cmp(&ranks[j])
+                .then_with(|| vi.as_bytes().cmp(vj.as_bytes()));
+            if ranked != transcribed {
+                flag(
+                    &mut outcome,
+                    Axis::Ranked,
+                    format!("Ranked order is not rank-then-bytes at ({i}, {j})"),
+                );
+            }
+
+            // Placement axis, degenerate spans: a coincident span's four
+            // verdicts collapse to the pairwise relation, and Span::new
+            // accepts exactly the ordered pairs.
+            let place = at_j.place(vi);
+            outcome.census.placements.insert(placement_label(place));
+            let place_expected = match r {
+                Some(Ordering::Less) => Placement::Before,
+                Some(Ordering::Equal) => Placement::At(Endpoint::Both),
+                Some(Ordering::Greater) => Placement::After,
+                None => Placement::Concurrent(Endpoint::Both),
+            };
+            if place != place_expected {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("coincident placement dissents at ({i}, {j})"),
+                );
+            }
+            if at_j.contains(vi) != (r == Some(Ordering::Equal)) {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("coincident containment dissents at ({i}, {j})"),
+                );
+            }
+            let dom = at_j.dominance(vi);
+            let dom_expected = if ge(r) {
+                Dominance::After
+            } else {
+                Dominance::Before
+            };
+            if dom != dom_expected {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("coincident dominance dissents at ({i}, {j})"),
+                );
+            }
+            let prec = at_j.precedence(vi);
+            let prec_expected = if le(r) {
+                Precedence::Before
+            } else {
+                Precedence::After
+            };
+            if prec != prec_expected {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("coincident precedence dissents at ({i}, {j})"),
+                );
+            }
+            if Span::new(vi, vj).is_ok() != le(r) {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("span construction disagrees with the verdict at ({i}, {j})"),
+                );
+            }
+
+            // Query axis, membership: every form's verdict equals its
+            // relation-level transcription.
+            for (name, admits, expected) in &membership_forms {
+                let got = admits(vi);
+                outcome.census.memberships.insert(got);
+                if got != expected(r) {
+                    flag(
+                        &mut outcome,
+                        Axis::Query,
+                        format!("membership under `{name}` dissents at ({i}, {j})"),
+                    );
+                }
+            }
+
+            // Query axis, coverage over the pair's hull [meet, join]: by
+            // lattice absorption a floor-only query is full exactly when
+            // the bound sits below the probe, a ceiling-only one exactly
+            // when it sits above, and neither can empty the hull.
+            let hull = vi.span(vj);
+            let floor_cov = q_floor_cov.coverage(hull.reborrow());
+            outcome.census.coverages.insert(coverage_label(floor_cov));
+            let floor_expected = if ge(r) {
+                Coverage::Full
+            } else {
+                Coverage::Partial
+            };
+            if floor_cov != floor_expected {
+                flag(
+                    &mut outcome,
+                    Axis::Query,
+                    format!("floor coverage over the hull dissents at ({i}, {j})"),
+                );
+            }
+            let ceiling_cov = q_ceiling_cov.coverage(hull.reborrow());
+            outcome.census.coverages.insert(coverage_label(ceiling_cov));
+            let ceiling_expected = if le(r) {
+                Coverage::Full
+            } else {
+                Coverage::Partial
+            };
+            if ceiling_cov != ceiling_expected {
+                flag(
+                    &mut outcome,
+                    Axis::Query,
+                    format!("ceiling coverage over the hull dissents at ({i}, {j})"),
+                );
+            }
+            // Coverage of a point span collapses to membership.
+            let point_cov = q_gt_cov.coverage(vi);
+            outcome.census.coverages.insert(coverage_label(point_cov));
+            let point_expected = if r == Some(Ordering::Greater) {
+                Coverage::Full
+            } else {
+                Coverage::Empty
+            };
+            if point_cov != point_expected {
+                flag(
+                    &mut outcome,
+                    Axis::Query,
+                    format!("point coverage dissents at ({i}, {j})"),
+                );
+            }
+        }
+    }
+
+    // ── the span grid: proper spans from the closure records, every pool
+    //    version as a probe, all four verdicts transcribed ──
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for &[a, _, m, j] in &pool.adjacent {
+        spans.push((m, j));
+        spans.push((a, j));
+        spans.push((m, a));
+    }
+    for &(lo, hi) in &spans {
+        let span = Span::new(&pool.versions[lo], &pool.versions[hi])
+            .expect("closure endpoints are ordered by construction");
+        for (i, vi) in pool.versions.iter().enumerate() {
+            let (lo_rel, hi_rel) = (rel[i][lo], rel[i][hi]);
+            let place = span.place(vi);
+            outcome.census.placements.insert(placement_label(place));
+            if place != expected_place(lo_rel, hi_rel) {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("placement dissents at probe {i} against span ({lo}, {hi})"),
+                );
+            }
+            let dom = span.dominance(vi);
+            outcome.census.dominances.insert(match dom {
+                Dominance::Before => "before",
+                Dominance::Between => "between",
+                Dominance::After => "after",
+            });
+            if dom != expected_dominance(lo_rel, hi_rel) {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("dominance dissents at probe {i} against span ({lo}, {hi})"),
+                );
+            }
+            let prec = span.precedence(vi);
+            outcome.census.precedences.insert(match prec {
+                Precedence::Before => "before",
+                Precedence::Between => "between",
+                Precedence::After => "after",
+            });
+            if prec != expected_precedence(lo_rel, hi_rel) {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("precedence dissents at probe {i} against span ({lo}, {hi})"),
+                );
+            }
+            if span.contains(vi) != (ge(lo_rel) && le(hi_rel)) {
+                flag(
+                    &mut outcome,
+                    Axis::Placement,
+                    format!("containment dissents at probe {i} against span ({lo}, {hi})"),
+                );
+            }
+        }
+    }
+
+    // ── the conjunction-coverage grid: floor-and-ceiling queries from the
+    //    closure records against the closure spans, with the exact
+    //    full/partial/empty transcription ──
+    for &[_, _, qm, qj] in &pool.adjacent {
+        let q = causally::after(&pool.versions[qm]) & causally::before(&pool.versions[qj]);
+        for &[_, _, sm, sj] in &pool.adjacent {
+            let span = Span::new(&pool.versions[sm], &pool.versions[sj])
+                .expect("closure endpoints are ordered by construction");
+            let got = q.coverage(span);
+            outcome.census.coverages.insert(coverage_label(got));
+            // Full exactly when the segment sits inside the bounds; empty
+            // exactly when the clamped segment crosses; partial otherwise.
+            let expected = if ge(rel[sm][qm]) && le(rel[sj][qj]) {
+                Coverage::Full
+            } else {
+                let clamped_lo = pool.versions[sm].join(&pool.versions[qm]);
+                let clamped_hi = pool.versions[sj].meet(&pool.versions[qj]);
+                if le(sweep(&clamped_lo, &clamped_hi)) {
+                    Coverage::Partial
+                } else {
+                    Coverage::Empty
+                }
+            };
+            if got != expected {
+                flag(
+                    &mut outcome,
+                    Axis::Query,
+                    format!(
+                        "conjunction coverage dissents for bounds ({qm}, {qj}) over span \
+                         ({sm}, {sj})"
+                    ),
+                );
+            }
+        }
+    }
+
+    outcome
+}
+
+// ─── the committed tripwire roster ───────────────────────────────────────────
+
+/// Every `_reads_inverted` adequacy tripwire, as `(file relative to the
+/// crate root, test fn name)`.
+///
+/// A polarity-flipped twin binds nowhere mechanically unless something
+/// names it: this roster is the jaw that makes deleting or renaming one a
+/// reviewable diff, in the committed style of the crate's superlinear
+/// tripwire roster.
+const TRIPWIRE_ROSTER: &[(&str, &str)] = &[(
+    "tests/verdict_matrix.rs",
+    "polarity_flipped_sweep_reads_inverted_through_the_matrix",
+)];
+
+/// Collect every `fn` whose name carries `_reads_inverted` under `dir`,
+/// keyed by the path relative to the crate root.
+fn scan(dir: &Path, root: &Path, found: &mut BTreeSet<(String, String)>) {
+    for entry in std::fs::read_dir(dir).expect("source directory is readable") {
+        let path = entry.expect("directory entry is readable").path();
+        if path.is_dir() {
+            scan(&path, root, found);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            let text = std::fs::read_to_string(&path).expect("source file is readable");
+            for line in text.lines() {
+                let Some(rest) = line.trim_start().strip_prefix("fn ") else {
+                    continue;
+                };
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if name.contains("_reads_inverted") {
+                    let rel = path
+                        .strip_prefix(root)
+                        .expect("scanned file lives under the crate root")
+                        .to_string_lossy()
+                        .into_owned();
+                    found.insert((rel, name));
+                }
+            }
+        }
+    }
+}
+
 // ─── the tests ───────────────────────────────────────────────────────────────
 
 /// Every roster family answers the matrix-coverage question with at least
@@ -561,5 +1206,55 @@ fn verdict_class_floors_read_red_on_degenerate_pools() {
         concurrent_only,
         BTreeSet::from(ALL_CLASSES),
         "an all-concurrent pool passed the class floor"
+    );
+}
+
+/// The committed adequacy twin: the production verdict with strict
+/// orders reversed (equal and concurrent untouched) dissents on every
+/// cross-surface axis of the matrix.
+///
+/// The sweep's own coherence legs stay quiet — a global flip is
+/// antisymmetric, so only the sibling surfaces can catch a verdict
+/// inversion, and this pins that every one of them does. This is the
+/// failure the oracle differentials do not commit: a kernel-local
+/// verdict inversion on adversarial shapes the law populations
+/// under-hit.
+#[test]
+fn polarity_flipped_sweep_reads_inverted_through_the_matrix() {
+    let pool = build_pool();
+    let outcome = check(&pool, &|a, b| a.partial_cmp(b).map(Ordering::reverse));
+    for axis in [Axis::Masked, Axis::Placement, Axis::Ranked, Axis::Query] {
+        assert!(
+            outcome.count(axis) > 0,
+            "the flipped twin passed the {axis:?} axis: that leg of the matrix \
+             cannot catch a verdict inversion"
+        );
+    }
+    assert_eq!(
+        outcome.count(Axis::Sweep),
+        0,
+        "the flipped twin tripped the sweep's own coherence legs: a global flip \
+         is antisymmetric, so those legs firing means they read something other \
+         than the verdict of record"
+    );
+}
+
+/// The committed-failing inverted-verdict twins match the roster exactly,
+/// in both directions, so deleting or renaming one is a reviewable diff.
+#[test]
+fn inverted_verdict_tripwires_match_the_committed_roster() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut found = BTreeSet::new();
+    scan(&root.join("src"), &root, &mut found);
+    scan(&root.join("tests"), &root, &mut found);
+    let expected: BTreeSet<(String, String)> = TRIPWIRE_ROSTER
+        .iter()
+        .map(|&(file, name)| (file.to_owned(), name.to_owned()))
+        .collect();
+    assert_eq!(
+        found, expected,
+        "the _reads_inverted twin set drifted from the committed roster: an \
+         adequacy twin that binds nowhere is silently deletable, and the matrix \
+         green as decoration"
     );
 }
