@@ -381,3 +381,59 @@ proptest! {
         );
     }
 }
+
+proptest! {
+    // Population scale is this property's sampling axis — each case runs a
+    // fleet an order of magnitude past the cycle schedules above, paying
+    // two wire sessions per peer — so the case count is pared to keep the
+    // suite inside its runtime budget while the schedule within each case
+    // stays fully random (provider choice, retirement order, absorber
+    // choice).
+    #![proptest_config(ProptestConfig::with_cases(32))]
+
+    /// Terminal collapse at fleet scale: bootstrap a population of up to a
+    /// hundred peers, each newcomer off a randomly chosen live provider,
+    /// then retire peers into one another in random order until one
+    /// remains. The survivor's party is exactly [`Party::seed`]'s whole
+    /// interval: every donated fork and absorbed identity renormalizes
+    /// back to the baseline, so lifecycle churn at population scale
+    /// neither loses nor fragments identity.
+    #[test]
+    fn fleet_scale_retirement_collapses_to_seed_party(
+        (providers, retirements) in (2usize..=100).prop_flat_map(|n| (
+            proptest::collection::vec(any::<usize>(), n - 1),
+            proptest::collection::vec((any::<usize>(), any::<usize>()), n - 1),
+        )),
+    ) {
+        // Grow the fleet one bootstrap at a time; provider indices resolve
+        // modulo the live fleet (the `Op` idiom above), so any random
+        // topology — chain, fan, or mixture — is reachable.
+        let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
+        for (i, &provider) in providers.iter().enumerate() {
+            let newcomer = bootstrap_fork(&fleet[provider % fleet.len()]);
+            // Each peer originates once, so retirements move content, not
+            // just identity.
+            newcomer.send(i as u64);
+            fleet.push(newcomer);
+        }
+
+        // Retire until one peer holds everything: retiree and absorber both
+        // random, distinct by construction.
+        for &(retiree, off) in &retirements {
+            let n = fleet.len();
+            let r = retiree % n;
+            let a = (r + 1 + off % (n - 1)) % n;
+            let retiring = fleet.remove(r);
+            // Removing index `r` shifted every index above it down by one.
+            let a = if a > r { a - 1 } else { a };
+            retire_into(retiring, &fleet[a]);
+        }
+
+        let survivor = alias(&fleet[0]);
+        prop_assert!(
+            survivor == Party::seed(),
+            "after the whole fleet retires into one node, its party must be \
+             exactly the seed's whole interval, got {survivor:?}"
+        );
+    }
+}
