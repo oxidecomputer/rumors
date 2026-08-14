@@ -430,10 +430,21 @@ impl FillWalk<'_> {
         let mut frames = Frames::new();
         // Derived state: always equal to `frames.len()` (the assert below),
         // carried as a word so the hot loop never recounts a bit stack.
-        // `usize` is the contract width: the counter mirrors a `usize`
-        // container length, so it cannot wrap before the container itself
-        // fails; the pre-scan's non-mirror counters carry their own width
-        // contract (the `prescan` module doc).
+        // Width: `usize`, justified per target rather than by the mirror
+        // alone — the mirrored `frames.len()` is itself a `usize` that
+        // would wrap in step, the frame stacks' own bit lengths included.
+        // On 64-bit targets, 2^64 open frames is unreachable outright. On
+        // 32-bit targets (wasm32), the derivation is the load-bearing
+        // fact and its margin is thin: every open frame has consumed at
+        // least 3 live input bits (an id tag and an event flag) and holds
+        // at least 4 transient bits (the site/phase/aux stacks and the
+        // route-key delta), so 2^32 open frames demand upwards of 3.5 GiB
+        // across live input and frame stacks alone — nearly the whole
+        // 4 GiB address space, before the web, memo, and output are
+        // counted — and allocation fails loudly before this counter or
+        // any stack's own bit length (which crosses 2^32 at the same
+        // instant) can wrap. The pre-scan's counters carry their own
+        // width contract (the `prescan` module doc).
         let mut depth = 0usize;
         'descend: loop {
             debug_assert_eq!(depth, frames.len(), "one frame per open branch level");

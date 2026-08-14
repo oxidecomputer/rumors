@@ -32,17 +32,19 @@
 //! # Counter widths
 //!
 //! The recorder's site-nesting counters ([`run`](PreScan::run)'s `level`,
-//! `head_level`, [`SuspendedLevel`]'s `level`) are `u64`: pure comparands,
-//! never indices, and a `u64` wrap needs 2^64 sequential increments —
-//! unreachability priced in work the caller must perform, never in input
-//! shape (a `usize` counter would be wrap-free only via a memory-pricing
-//! derivation from per-frame cost, a premise that would have to be stated
-//! and maintained on every target). The ledger's capacity contract is
-//! different in kind: stored-link indices fail loudly at their `u32` cap
+//! `head_level`, [`SuspendedLevel`]'s `level`) are `u64` because reaching
+//! that cap would take 2^64 sequential increments: unreachable on every
+//! target unconditionally, so the width carries no per-target derivation
+//! to state or maintain (a `usize` counter would be wrap-free only via a
+//! memory-pricing derivation from per-frame cost). The counters are not
+//! free-standing quantities: `suspend.len() == head_level` is a recorder
+//! invariant, so they mirror container occupancy — the argument for the
+//! width is unconditional unreachability, not independence from the
+//! containers. The ledger's capacity contract is different in kind:
+//! stored-link indices fail loudly at their `u32` cap
 //! ([`Memo::set_link`]). The fill walk's near-synonymous `depth` (the
-//! [`run`](PreScan::run) doc contrasts the two notions) stays `usize`: it
-//! is derived state equal to its frame stack's `usize` length, dominated by
-//! that memory-backed container by construction.
+//! [`run`](PreScan::run) doc contrasts the two notions) stays `usize`,
+//! with its width argument stated at its declaration.
 
 use core::cmp::Ordering;
 
