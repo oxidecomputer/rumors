@@ -257,11 +257,12 @@ citecheck:
 # inventory (--no-config) pins each pattern's LISTED count, and the
 # filtered inventory pins its SUPPRESSED count, both committed literals in
 # tools/mutantcheck-expected.json whose diff a reviewer sees — the checker
-# never writes that file. The delete-field entry pins suppressed 0
-# (cargo-mutants 27.1.0 never applies name filters to delete-field
-# mutants; that number moving means the upstream gap closed). The counts
-# derive from the installed cargo-mutants release, so the pin carries the
-# tool version and a bump re-pins in the same reviewed diff.
+# never writes that file. The delete-field entry pins suppressed 0 (the
+# tool's documented delete-field filter gap, argued at its roster entry;
+# that number moving means the upstream gap closed). The counts derive
+# from the installed cargo-mutants release, so the pin of record
+# (tools/mutantcheck-expected.json) carries the tool version and a bump
+# re-pins in the same reviewed diff.
 # Needs cargo-mutants: `cargo install cargo-mutants`.
 
 # Hold the mutants exclusion roster to its pinned counts (list-only, never a campaign).
@@ -348,7 +349,8 @@ gate: gate-lints gate-streams
 
 # The build-free tier, sequential: a lint failure should cost seconds.
 # `mutants-list` rides here because its two list runs parse sources
-# without building, so the whole tier stays seconds.
+# without building; the two list captures are independent, so if the
+# tier ever grows slow they can move into their own gate stream.
 gate-lints: fmt-check doclint testdoc readme-check mutants-list
 
 # Each stream's output is captured rather than interleaved, and a failing
@@ -910,7 +912,7 @@ worst-cases-pin:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
+ci: fmt-check doclint testdoc readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire

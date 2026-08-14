@@ -108,6 +108,17 @@ def strip_line_comments(text):
     return "\n".join(out)
 
 
+def spelling_snippet(rest):
+    """The offending spelling's first line, total on any input.
+
+    An occurrence at end-of-file leaves nothing to quote; the snippet
+    must still name the site rather than crash the run and discard every
+    accumulated problem.
+    """
+    lines = rest[:40].strip().splitlines()
+    return lines[0] if lines else "<end of file>"
+
+
 def extract_legs(surface_code):
     """Every `Leg::Bound`/`Law`/`Trans` citation string, in table order.
 
@@ -129,7 +140,7 @@ def extract_legs(surface_code):
             continue  # a match-arm binding, not a citation
         problems.append(
             f"unrecognized `Leg::{m.group(1)}(` spelling (extend the "
-            "extractor deliberately): " + rest[:40].strip().splitlines()[0]
+            "extractor deliberately): " + spelling_snippet(rest)
         )
     return legs, problems
 
@@ -172,7 +183,7 @@ def extract_payloads(surface_code):
             continue
         problems.append(
             "unrecognized `pins:` spelling (extend the extractor "
-            "deliberately): " + rest[:40].strip().splitlines()[0]
+            "deliberately): " + spelling_snippet(rest)
         )
     guards, licenses = [], []
     for field, sink in (("guard", guards), ("license", licenses)):
@@ -186,7 +197,7 @@ def extract_payloads(surface_code):
                 continue
             problems.append(
                 f"unrecognized `{field}:` spelling (extend the extractor "
-                "deliberately): " + rest[:40].strip().splitlines()[0]
+                "deliberately): " + spelling_snippet(rest)
             )
     return pins, guards, licenses, problems
 
@@ -684,6 +695,18 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
             laws,
             green,
             ["TRIPWIRES holds 2 entries but only 1"],
+        ),
+        # An occurrence at end-of-file has nothing to quote and must
+        # still report as a spelling problem, never crash the run and
+        # discard every accumulated problem.
+        (
+            "leg spelling at end of file",
+            surface.rstrip() + "\nconst TAIL: Leg = Leg::Bound(",
+            diff_ops,
+            coverage,
+            laws,
+            green,
+            ["unrecognized `Leg::Bound(` spelling"],
         ),
         # An empty listing must trip the collected-tests floor (the dead
         # test citations follow it).

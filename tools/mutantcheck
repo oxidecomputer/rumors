@@ -36,6 +36,26 @@ tools/mutantcheck-expected.json whose diff a reviewer sees; this tool
 never writes that file — on mismatch it prints the observed table for a
 human to review and commit deliberately.
 
+Model of record — the pin meters NET movement per pattern, an accepted
+residual stated here deliberately: a count-preserving swap (one matched
+mutant vanishing while another appears under the same pattern) passes.
+Pinning full mutant names instead would re-red on every line drift in
+the mutated files — the printed names carry line:col — converting the
+instrument into churn a reviewer learns to wave through. The residual
+is bounded by each pattern's own file, operator, and function scope,
+and a full campaign remains the authority on any individual mutant's
+fate.
+
+Dialect boundary: cargo-mutants itself applies these regexes with the
+Rust `regex` crate; this checker recompiles them under Python `re`.
+Roster patterns must stay inside the two dialects' common subset
+(escaped literals, ASCII character classes, alternation, `.*`). A
+pattern using a Rust-only form such as a `\\p{...}` class fails
+compilation here and reports as a named problem, never a crash that
+discards the diagnostic table; a POSIX `[[:alpha:]]` class is worse —
+Python parses it as an ordinary character class meaning something
+else — which is why the subset rule is stated at all.
+
 Counting is over the DEDUPLICATED listing: the tree declares one module
 subtree under two mutually exclusive cfg spellings (`version.rs` declares
 `mod skyline` once for test/meter builds and once for the rest), and
@@ -138,7 +158,10 @@ def run(raw_text, filtered_text, patterns, expected, tool_version):
     for pattern in patterns:
         if pattern not in pinned:
             continue
-        rx = re.compile(pattern)
+        rx, compile_problem = compile_pattern(pattern)
+        if rx is None:
+            problems.append(compile_problem)
+            continue
         listed = sum(1 for name in raw if rx.search(name))
         suppressed = listed - sum(1 for name in filtered if rx.search(name))
         want = pinned[pattern]
@@ -159,13 +182,34 @@ def run(raw_text, filtered_text, patterns, expected, tool_version):
     return problems
 
 
+def compile_pattern(pattern):
+    """Compile one roster regex under Python `re`, totally.
+
+    Returns `(regex, None)` or `(None, problem)`: a pattern outside the
+    Python/Rust-regex common subset (the docstring's dialect boundary)
+    must surface as a named problem, never as a traceback that discards
+    every other finding and the observed table.
+    """
+    try:
+        return re.compile(pattern), None
+    except re.error as err:
+        return None, (
+            "pattern does not compile under Python re (roster patterns "
+            "must stay in the Python/Rust-regex common subset; see the "
+            f"dialect boundary in this tool's docstring): {pattern}: {err}"
+        )
+
+
 def observed_table(raw_text, filtered_text, patterns, tool_version):
     """The observed counts, printed on failure as re-pinning input."""
     raw, _ = parse_listing(raw_text, "raw")
     filtered, _ = parse_listing(filtered_text, "filtered")
     table = {"tool": tool_version, "patterns": {}}
     for pattern in patterns:
-        rx = re.compile(pattern)
+        rx, _problem = compile_pattern(pattern)
+        if rx is None:
+            table["patterns"][pattern] = "does not compile under Python re"
+            continue
         listed = sum(1 for name in raw if rx.search(name))
         suppressed = listed - sum(1 for name in filtered if rx.search(name))
         table["patterns"][pattern] = {
@@ -256,6 +300,16 @@ def self_test():
         ("tool version drift", listing(a, b, c), listing(c), patterns,
          green_expected, "cargo-mutants 9.9.9",
          ["tool version 'cargo-mutants 9.9.9' does not match"]),
+        # A Rust-only regex form (here a \p{...} class) must report as a
+        # named problem — never a traceback that discards every other
+        # finding and the observed table.
+        ("rust-only regex dialect",
+         listing(a, b, c), listing(c),
+         patterns + [r"c\.rs.*\p{Alpha}+"],
+         expected(**{pat_a: (1, 1), pat_b: (1, 1), pat_c: (1, 0),
+                     r"c\.rs.*\p{Alpha}+": (1, 1)}),
+         tool,
+         ["pattern does not compile under Python re"]),
     ]
     for name, raw, filtered, pats, exp, tool_v, needles in cases:
         problems = run(raw, filtered, pats, exp, tool_v)

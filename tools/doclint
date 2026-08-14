@@ -140,20 +140,24 @@ def long_summaries(lines, filename):
         # Walk to the end of this contiguous run of doc-comment lines, then
         # measure only its first paragraph: the content lines before the first
         # blank doc line. A fenced code block can hold blank lines that are not
-        # paragraph breaks, so track fence state while scanning.
+        # paragraph breaks, so track fence state while scanning. CommonMark
+        # admits two fence markers, backtick and tilde, and a fence closes
+        # only on its own marker — the other marker inside it is literal
+        # content — so the opening character is part of the state.
         start = i
         crate_doc = prelude and marker == "//!" and filename in CRATE_ROOT_NAMES
         prelude = False
         summary = []
-        in_fence = False
+        fence_char = None
         paragraph_open = True
         while i < n and doc_marker(lines[i].lstrip()) is not None:
             content = doc_content(lines[i].lstrip(), marker)
             if paragraph_open:
-                if content.lstrip().startswith("```"):
-                    in_fence = not in_fence
+                lead = content.lstrip()[:3]
+                if lead in ("```", "~~~") and fence_char in (None, lead[0]):
+                    fence_char = None if fence_char else lead[0]
                     summary.append(content)
-                elif content.strip(" \t") == "" and not in_fence:
+                elif content.strip(" \t") == "" and fence_char is None:
                     paragraph_open = False
                 else:
                     summary.append(content)
@@ -309,9 +313,20 @@ def self_test():
         ("module-file inner doc is not exempt", "tree.rs",
          f"{doc(over, '//!')}\nfn f() {{}}\n", [1]),
         # A blank doc line inside a fenced code block is not a paragraph
-        # break: the summary keeps accumulating across the fence.
+        # break: the summary keeps accumulating across the fence...
         ("fenced blank does not end the paragraph", "fence.rs",
          f"/// {wide}\n/// ```\n///\n/// code\n/// ```\n/// {wide}\n"
+         "fn f() {}\n", [1]),
+        # ...and a tilde fence is a fence too: a blank line inside `~~~`
+        # must not end the paragraph either.
+        ("tilde-fenced blank does not end the paragraph", "tilde.rs",
+         f"/// {wide}\n/// ~~~\n///\n/// code\n/// ~~~\n/// {wide}\n"
+         "fn f() {}\n", [1]),
+        # The other marker inside an open fence is literal content, not a
+        # closer: a backtick fence stays open across a `~~~` line, so the
+        # blank after it is still inside the fence.
+        ("mixed marker does not close a fence", "mixed.rs",
+         f"/// {wide}\n/// ```\n/// ~~~\n///\n/// ```\n/// {wide}\n"
          "fn f() {}\n", [1]),
         # `////…` separator rules are ordinary comments, not docs: no
         # budget, however wide.
