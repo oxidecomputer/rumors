@@ -15,6 +15,15 @@
 //!   model of a real disk-backed store, which sees bytes and not records. Tests
 //!   that need to inspect *what* was persisted decode through
 //!   [`persisted_record`].
+//! - **It can roll back.** Alongside the fail decisions, a [`FaultFeed`]
+//!   carries a schedule of *rollback* decisions: a load flagged `true` serves
+//!   the frame the most recent commit displaced instead of the current one —
+//!   a store regressing exactly one commit, the violation of
+//!   [`Bookmark::store`]'s atomic-replace obligation that the rollback probes
+//!   demonstrate the consequences of. The crate declares this violation
+//!   undetectable (the bookmark is a peer's only durable state, so there is
+//!   nothing to compare a served frame against); these faults exist to show
+//!   what it corrupts, not to be caught.
 //!
 //! The `store` and `faults` are held behind [`Arc`]s so a crashed peer recovers
 //! by wrapping a *fresh* `FlakyInMemoryBookmark` around the *same* durable
@@ -79,21 +88,47 @@ impl std::error::Error for FlakyError {}
 pub struct FaultFeed {
     reads: VecDeque<bool>,
     writes: VecDeque<bool>,
+    rollbacks: VecDeque<bool>,
+    /// The frame the most recent successful commit displaced: what a
+    /// scheduled rollback serves.
+    ///
+    /// Lives in the feed (not the [`DurableStore`]) so it rides the same
+    /// [`Arc`] across a peer's incarnations without changing the durable
+    /// bytes' shape.
+    displaced: Option<Vec<u8>>,
     enabled: bool,
 }
 
 impl FaultFeed {
-    /// A feed that fails the reads and writes flagged `true`, in order.
+    /// A feed that fails the reads and writes flagged `true`, in order, and
+    /// never rolls back.
     pub fn new(reads: Vec<bool>, writes: Vec<bool>) -> Self {
         Self {
             reads: reads.into(),
             writes: writes.into(),
+            rollbacks: VecDeque::new(),
+            displaced: None,
             enabled: true,
         }
     }
 
-    /// Stop injecting faults: every later read and write succeeds. Irreversible,
-    /// and called on every feed before the heal phase.
+    /// Schedule rollback decisions: each *serving* load (one that returns
+    /// bytes rather than failing) pops the next, and `true` makes it serve
+    /// the displaced frame instead of the current one.
+    ///
+    /// # Panics
+    ///
+    /// A load whose rollback decision fires before any commit has displaced a
+    /// frame panics: the schedule is misplaced, and a silent fallback would
+    /// turn the probe into a no-op.
+    pub fn with_rollbacks(mut self, rollbacks: Vec<bool>) -> Self {
+        self.rollbacks = rollbacks.into();
+        self
+    }
+
+    /// Stop injecting faults: every later read and write succeeds (and serves
+    /// current bytes). Irreversible, and called on every feed before the heal
+    /// phase.
     pub fn disable(&mut self) {
         self.enabled = false;
     }
@@ -104,6 +139,15 @@ impl FaultFeed {
 
     fn next_write(&mut self) -> bool {
         self.enabled && self.writes.pop_front().unwrap_or(false)
+    }
+
+    fn next_rollback(&mut self) -> bool {
+        self.enabled && self.rollbacks.pop_front().unwrap_or(false)
+    }
+
+    /// Record that a commit has replaced `frame`: the one-step rollback target.
+    fn displace(&mut self, frame: Option<Vec<u8>>) {
+        self.displaced = frame;
     }
 }
 
@@ -150,10 +194,24 @@ impl Bookmark for FlakyInMemoryBookmark {
 
     async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
         let _ = self.label;
-        if self.faults.lock().unwrap().next_read() {
+        let mut faults = self.faults.lock().unwrap();
+        if faults.next_read() {
             return Err(FlakyError { op: "read" });
         }
-        Ok(self.store.lock().unwrap().clone().map(std::io::Cursor::new))
+        // A serving load consumes one rollback decision: `true` serves the
+        // frame the most recent commit displaced — the store regressing one
+        // commit — instead of the current bytes.
+        let bytes = if faults.next_rollback() {
+            Some(
+                faults
+                    .displaced
+                    .clone()
+                    .expect("rollback fault fired before any commit displaced a frame"),
+            )
+        } else {
+            self.store.lock().unwrap().clone()
+        };
+        Ok(bytes.map(std::io::Cursor::new))
     }
 
     async fn store<F>(&self, write: F) -> Result<(), Self::Error>
@@ -170,7 +228,10 @@ impl Bookmark for FlakyInMemoryBookmark {
         write(&mut buf)
             .await
             .expect("writing to an in-memory buffer is infallible");
-        *self.store.lock().unwrap() = Some(buf);
+        let replaced = self.store.lock().unwrap().replace(buf);
+        // The commit landed: what it replaced becomes the one-step rollback
+        // target a scheduled rollback serves.
+        self.faults.lock().unwrap().displace(replaced);
         Ok(())
     }
 }

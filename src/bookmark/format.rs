@@ -48,6 +48,19 @@ pub const BOOKMARK_MAGIC: [u8; 14] = *b"RUMORSBOOKMARK";
 /// rather than misread; there is no migration path.
 pub const BOOKMARK_FORMAT_VERSION: u16 = 2;
 
+/// The most bytes the crate will read back from a stored bookmark: the
+/// obligation boundary on [`Bookmark::load`](super::Bookmark::load)'s reader.
+///
+/// A record's payload grows with the universes a peer has joined and the
+/// incarnations still stranded in each, so no exact size is an invariant; this
+/// ceiling is instead *generous headroom* — several orders of magnitude above
+/// any record reachable without pathological churn — that bounds the
+/// allocation a corrupt, foreign, or endless byte source can force before
+/// validation sees a single byte. A stored record that exceeds it surfaces as
+/// [`FormatError::Oversized`] through the same typed error path as any other
+/// unusable frame, never as an unbounded read.
+pub const BOOKMARK_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Byte offset of the version field within a frame.
 const VERSION_OFFSET: usize = BOOKMARK_MAGIC.len();
 /// Byte offset of the integrity hash within a frame.
@@ -98,6 +111,12 @@ pub enum FormatError {
     /// The lent reader failed mid-stream, before a frame could be examined.
     #[error("reading the stored bookmark failed: {0}")]
     Read(#[source] std::io::Error),
+
+    /// The stored bytes exceed [`BOOKMARK_MAX_BYTES`]: the frame is refused
+    /// before it is buffered whole, so a runaway byte source cannot force an
+    /// unbounded allocation.
+    #[error("bookmark too large: more than {BOOKMARK_MAX_BYTES} bytes")]
+    Oversized,
 
     /// The frame was well-formed and intact, but its payload would not decode —
     /// a logic error, since a matching hash means the bytes are the ones that

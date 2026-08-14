@@ -307,8 +307,8 @@ pub use ::borsh;
 pub use batch::Batch;
 pub use before::{Ticks, Version, causally};
 pub use bookmark::{
-    BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, Bookmark, BookmarkError, BookmarkIo, FormatError,
-    NoBookmark, Serialized,
+    BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, BOOKMARK_MAX_BYTES, Bookmark, BookmarkError,
+    BookmarkIo, FormatError, NoBookmark, Serialized,
 };
 pub use error::{Error, MirrorError};
 pub use link::{Acceptor, Connector, Link};

@@ -4,7 +4,11 @@
 //! [`Peer`](crate::Peer) is and how far it has advanced, so a peer that crashed
 //! can recover its identity instead of leaking it. You supply raw byte
 //! storage; the crate owns the format, decides when to load and store, and
-//! keeps the record in step with the live identity.
+//! keeps the record in step with the live identity. The storage carries two
+//! obligations the crate cannot check for you — commit atomically, and never
+//! roll back to an earlier committed frame — whose statements and
+//! consequences live on [`Bookmark`] ([`store`](Bookmark::store)'s contract
+//! and the trait's *Rollback* section).
 //!
 //! The default [`NoBookmark`] persists nothing: a peer that never retires simply
 //! strands its identity, which costs a few bits of timestamp width but corrupts
@@ -21,7 +25,10 @@ use crate::Network;
 
 pub(crate) mod format;
 
-pub use format::{BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, FormatError};
+#[cfg(test)]
+mod tests;
+
+pub use format::{BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, BOOKMARK_MAX_BYTES, FormatError};
 
 /// The error a [`Bookmark`] reports when persistence fails.
 pub trait BookmarkError {
@@ -59,15 +66,29 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// ([`Bootstrap::bookmark`](crate::Bootstrap::bookmark), or
 /// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining).
 /// The prior incarnation's identity is then reclaimed out of the record at
-/// the first gossip that causally dominates everything that incarnation
-/// had itself recorded: its own writes, not everything it had observed.
-/// A party that has not yet obtained everything its own prior
-/// incarnation wrote does not yet trigger the reclamation; the identity waits
-/// in the record until it learns everything it once wrote.
+/// the first gossip whose frontier causally dominates everything that
+/// incarnation had observed when it last recorded itself. A party that has
+/// not yet caught back up to its prior incarnation's record does not yet
+/// trigger the reclamation; the identity waits in the record until it does.
 ///
-/// It is *not safe* to revert a stored bookmark to a prior-written version, as
-/// this can trigger a peer's identity to be reclaimed *too early*, violating
-/// causality.
+/// # Rollback
+///
+/// The stored record **must never regress**: a [`load`](Bookmark::load) must
+/// never serve bytes older than the last [`store`](Bookmark::store) that
+/// committed. The bookmark is the peer's *only* durable state, so the crate
+/// has nothing to compare a loaded frame against and **cannot detect** a
+/// rolled-back record — enforcing this is entirely the implementor's
+/// obligation, exactly like the atomic replacement documented on
+/// [`store`](Bookmark::store).
+///
+/// The consequence of violation is silent causality corruption, not an error:
+/// a rolled-back record understates how far the recorded identity advanced,
+/// so the reclamation above frees it *too early*, and the revived peer
+/// re-mints causal coordinates the network already durably holds. Sessions
+/// keep completing normally throughout. Replicas that hold distinct messages
+/// under one recycled coordinate can no longer tell them apart — redacting
+/// either then destroys the other network-wide — which is the
+/// deletion-honoring corruption this crate otherwise rules out.
 ///
 /// Every unreclaimed incarnation
 /// stays in the record, so under repeated restarts the bookmark can in
@@ -99,6 +120,13 @@ pub trait Bookmark: BookmarkError {
     /// `Ok(None)` means *nothing has ever been written*. A present-but-short or
     /// unreadable bookmark is **not** `None`: it surfaces as a corruption error
     /// once the crate validates the frame.
+    ///
+    /// The crate reads at most [`BOOKMARK_MAX_BYTES`] from the returned
+    /// reader before validating anything: a longer byte source — a corrupt or
+    /// foreign file, or a reader that never ends — is refused as
+    /// [`FormatError::Oversized`] rather than buffered without bound. Every
+    /// record the crate itself stores fits far under the ceiling; see the
+    /// constant for the boundary this places on the implementor.
     fn load(&self) -> impl Future<Output = Result<Option<Self::Reader>, Self::Error>> + Send;
 
     /// Atomically replace the stored record.
@@ -110,12 +138,11 @@ pub trait Bookmark: BookmarkError {
     ///
     /// Atomicity here is a safety obligation the crate cannot check, not
     /// storage hygiene: a torn or reordered store whose next `load` yields
-    /// *valid but stale* bytes is indistinguishable from a record that never
-    /// covered the session, and its consequence is unspecified corruption:
-    /// after a crash, the peer can reclaim its identity below a frontier it
-    /// already transmitted and re-issue causal coordinates the network
-    /// durably holds, exactly the failure the bookmark exists to prevent.
-    /// A frame
+    /// *valid but stale* bytes is a rollback (see the trait's *Rollback*
+    /// section), and its consequence is silent causality corruption — after a
+    /// crash, the peer reclaims its identity below a frontier it already
+    /// transmitted and re-issues causal coordinates the network durably
+    /// holds, exactly the failure the bookmark exists to prevent. A frame
     /// that loads as garbage, by contrast, is caught and surfaces as a
     /// [`FormatError`].
     fn store<F>(&self, write: F) -> impl Future<Output = Result<(), Self::Error>> + Send
@@ -164,15 +191,23 @@ impl<B: Bookmark> Persist for B {
     ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send
     {
         Bookmark::load(self).then(|loaded| async move {
-            let mut reader = match loaded.map_err(BookmarkIo::Io)? {
+            let reader = match loaded.map_err(BookmarkIo::Io)? {
                 None => return Ok(BTreeMap::new()),
                 Some(reader) => reader,
             };
             let mut bytes = Vec::new();
+            // Read one byte past the ceiling, never to EOF: an oversized or
+            // endless byte source is refused with a bounded buffer, and the
+            // one extra byte is what distinguishes "exactly at the ceiling"
+            // from "over it".
             reader
+                .take(BOOKMARK_MAX_BYTES + 1)
                 .read_to_end(&mut bytes)
                 .await
                 .map_err(|e| BookmarkIo::Format(FormatError::Read(e)))?;
+            if bytes.len() as u64 > BOOKMARK_MAX_BYTES {
+                return Err(BookmarkIo::Format(FormatError::Oversized));
+            }
             format::decode(&bytes).map_err(BookmarkIo::Format)
         })
     }
@@ -441,14 +476,20 @@ impl<B: Persist> Bookmarked<B> {
         // Reclaim every dominated identity disjoint from our party by joining
         // it back in, setting aside any that overlap.
         let mut overlapping = Vec::new();
-        // We use `.own_version()` because we can more-eagerly reclaim a `Party`
-        // if only the identity space *it owns* is causally dominated by the
-        // current version: we just need to guarantee that any events we
-        // generate using that identity will be causally future to any
-        // previously generated by it, which does not require knowing
-        // *everything it knew*; it merely requires knowing *everything it
-        // did*.
-        for clock in clocks.extract_if(.., |clock| clock.own_version() <= *version) {
+        // The gate compares the stored clock's *full* version — everything the
+        // recorded incarnation had observed — not merely the projection onto
+        // the identity it owns. Linearity itself needs only the projection
+        // (events minted by a reclaimed identity must causally follow what
+        // that identity *did*, not what it *knew*), so the full comparison is
+        // deliberate surplus strictness: it needs no second copy of anything
+        // to check against, and when a store serves a stale frame (violating
+        // the rollback obligation in the `Bookmark` docs), a frontier that has
+        // not yet re-covered everything the stale record observed delays the
+        // reclaim instead of freeing the identity early. The price is
+        // eagerness, not safety: a record whose observations were erased from
+        // the network (a counterparty crash) waits in the store, recoverable,
+        // instead of folding back at the first own-writes-dominating gossip.
+        for clock in clocks.extract_if(.., |clock| *clock.version() <= *version) {
             let (p, v) = clock.into_parts();
             if let Err(p) = party.join(p) {
                 overlapping.push(Clock::from_parts(p, v));

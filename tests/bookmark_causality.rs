@@ -1184,6 +1184,45 @@ async fn boot_from_async(
     boot_out.unwrap().into_rumors()
 }
 
+/// Run one gossip session between two raw handles over a clean in-memory
+/// wire, returning both outcomes. Diagnostic helper for the rollback probes.
+async fn gossip_raw(
+    a: &Rumors<Msg, FlakyInMemoryBookmark>,
+    b: &Rumors<Msg, FlakyInMemoryBookmark>,
+) -> (
+    Result<rumors::Gossiped, Error<FlakyInMemoryBookmark>>,
+    Result<rumors::Gossiped, Error<FlakyInMemoryBookmark>>,
+) {
+    let (a, b) = (a.clone(), b.clone());
+    let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+    // Each side owns its link inside its own task, so an aborting side drops
+    // its half and the survivor sees EOF instead of hanging (see `gossip`).
+    let task_a = tokio::spawn(async move {
+        let mut link = side_a;
+        a.gossip(&mut link).await
+    });
+    let task_b = tokio::spawn(async move {
+        let mut link = side_b;
+        b.gossip(&mut link).await
+    });
+    let (out_a, out_b) = tokio::join!(task_a, task_b);
+    (out_a.expect("gossip task a"), out_b.expect("gossip task b"))
+}
+
+/// The live leaf version of the message with payload `id`, or `None` if the
+/// replica does not hold it. Diagnostic helper for the rollback probes.
+fn version_of(rumors: &Rumors<Msg, FlakyInMemoryBookmark>, id: Msg) -> Option<Version> {
+    let snapshot = rumors.snapshot();
+    let mut version = None;
+    for (_key, leaf_version, value) in snapshot.iter() {
+        if **value == id {
+            version = Some(leaf_version.clone());
+            break;
+        }
+    }
+    version
+}
+
 /// Execute a reliable-recovery plan to its post-heal end state.
 ///
 /// The fleet shares one network from the start, and the only departure from
@@ -1234,6 +1273,311 @@ fn negative_control_recycled_durable_emission_panics() {
         network,
         seq: 1,
         version,
+    });
+}
+
+// ---- the rollback probes ----------------------------------------------------
+//
+// [`Bookmark::store`] obliges the application's storage to replace the record
+// atomically and never serve a frame older than the last committed one. The
+// crate cannot detect a violation: the bookmark is a peer's only durable
+// state, so a served frame has nothing to be compared against. These probes
+// demonstrate what the violation corrupts — they are the evidence behind the
+// documented obligation, not regressions awaiting a fix.
+
+/// A store that serves a rolled-back frame across a restart makes the revived
+/// peer recycle a causal coordinate the network durably holds.
+///
+/// The frame before last omits the final persisted emission, so the reclaim
+/// gate frees the identity below what it already wrote, and its next emission
+/// re-mints the same version — the emission-log oracle rejects it as a
+/// recycle.
+///
+/// Two frames are in play: F2, the last commit, covers emission `e2` (persisted
+/// before any wire traffic in a session its counterparty aborts, so `e2` is
+/// durable by persist alone and propagated nowhere); F1, the frame F2
+/// displaced, covers only the earlier `e1`. The rollback serves F1 to the
+/// revived peer, whose post-reclaim emission `e3` then collides with `e2`.
+///
+/// The corruption is *silent* at the library boundary: every session in this
+/// schedule that the rollback poisons completes `Ok`. Only the oracle sees it.
+#[test]
+#[should_panic(expected = "recycled version identifier")]
+fn rollback_across_restart_recycles_a_version() {
+    let store_a = Arc::new(Mutex::new(None));
+    // A's loads: one honest (serving B's bootstrap), then the revival load,
+    // rolled back: it serves the frame the last commit displaced.
+    let faults_a = Arc::new(Mutex::new(
+        FaultFeed::new(Vec::new(), Vec::new()).with_rollbacks(vec![false, true]),
+    ));
+    // B is the honest survivor A revives from; its frontier at the revival is
+    // exactly the base e2 ticked from, which is what makes the collision exact.
+    let store_b = Arc::new(Mutex::new(None));
+    let faults_b = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
+    // C exists to sever the e2 session without touching B: its second write —
+    // the update opening its first gossip session — fails, aborting that
+    // session after the preambles but before reconciliation. A has then
+    // already persisted F2 (covering e2), but e2 never crosses the wire.
+    let store_c = Arc::new(Mutex::new(None));
+    let faults_c = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), vec![false, true])));
+    let bm_a = || FlakyInMemoryBookmark::new(store_a.clone(), faults_a.clone(), 0);
+    let bm_b = || FlakyInMemoryBookmark::new(store_b.clone(), faults_b.clone(), 1);
+    let bm_c = || FlakyInMemoryBookmark::new(store_c.clone(), faults_c.clone(), 2);
+    let durable_a = store_a.clone();
+
+    block_on(async move {
+        // A seeds; B and C bootstrap from A.
+        let a = Peer::<Msg>::seed()
+            .sync_window_floor()
+            .bookmark(bm_a())
+            .await
+            .expect("a pristine seed attaches its bookmark without touching storage")
+            .into_rumors();
+        let b = boot_from_async(&a, bm_b()).await;
+        let c = boot_from_async(&a, bm_c()).await;
+        let network = a.network();
+
+        // e1: emitted by A, propagated to B, and covered by A's frame F1.
+        a.send(1);
+        let (ra, rb) = gossip_raw(&a, &b).await;
+        ra.expect("the e1 session is clean on A's side");
+        rb.expect("the e1 session is clean on B's side");
+
+        // e2: emitted by A. The session persists A's frame F2 — the bookmark
+        // update runs before any post-preamble wire traffic — then dies when
+        // C aborts on its scheduled bookmark-write failure.
+        a.send(2);
+        let v2 = version_of(&a, 2).expect("a just-sent message is live on its sender");
+        let (ra, rc) = gossip_raw(&a, &c).await;
+        assert!(
+            ra.is_err(),
+            "A's e2 session must die on the severed wire, after its persist",
+        );
+        assert!(
+            matches!(rc, Err(Error::Bookmark(_))),
+            "C must abort the e2 session on its injected bookmark failure",
+        );
+        assert!(
+            version_of(&c, 2).is_none(),
+            "e2 must not have reached C: its durability rests on F2 alone",
+        );
+
+        // The oracle: e2 is durable because A's store covers it.
+        let log = EmissionLog::default();
+        let e2 = Emission {
+            network,
+            seq: 2,
+            version: v2,
+        };
+        assert!(
+            store_covers(&decompose_store(&durable_a), &e2),
+            "A's persisted frame F2 must cover e2",
+        );
+        log.promote(e2);
+
+        // A crashes. Its store violates the rollback obligation: the revival
+        // load serves F1, whose own-frontier stops at e1.
+        drop(a);
+        let a = boot_from_async(&b, bm_a()).await;
+
+        // First gossip after revival: the reclaim gate sees only F1, whose
+        // frontier the fleet dominates, and frees A's old identity early.
+        let (ra, rb) = gossip_raw(&a, &b).await;
+        ra.expect("the reclaim session is clean on A's side");
+        rb.expect("the reclaim session is clean on B's side");
+
+        // e3 ticks the prematurely reclaimed region from the same base e2
+        // ticked it from; propagating it makes it durable, and the oracle
+        // rejects the recycled coordinate.
+        a.send(3);
+        let v3 = version_of(&a, 3).expect("a just-sent message is live on its sender");
+        let (ra, rb) = gossip_raw(&a, &b).await;
+        ra.expect("the e3 session is clean on A's side");
+        rb.expect("the e3 session is clean on B's side");
+        log.promote(Emission {
+            network,
+            seq: 3,
+            version: v3,
+        });
+    });
+}
+
+/// The blast radius of a recycled coordinate reaches deletion honoring:
+/// once two distinct messages share one version stamp, redacting either one
+/// destroys the other, network-wide, though nobody redacted it.
+///
+/// Redaction rides on version bounds — a peer whose causal ceiling covers a
+/// version treats content it lacks at that version as redacted — so the stamp
+/// is the *only* identity a redaction propagates. The rollback schedule from
+/// [`rollback_across_restart_recycles_a_version`] mints `e3` at exactly the
+/// stamp the surviving copy of `e2` occupies; this probe then redacts `e3`
+/// and shows the redaction consuming `e2` on a replica that held it the whole
+/// time.
+#[test]
+fn rollback_recycled_coordinate_breaks_deletion_honoring() {
+    let store_a = Arc::new(Mutex::new(None));
+    // A's loads: one honest (serving B's bootstrap), then the revival load,
+    // rolled back to the frame the last commit displaced.
+    let faults_a = Arc::new(Mutex::new(
+        FaultFeed::new(Vec::new(), Vec::new()).with_rollbacks(vec![false, true]),
+    ));
+    // B: the honest survivor A revives from; it never sees e2 before the
+    // revival, so the rolled-back reclaim gate has nothing to wait for.
+    let store_b = Arc::new(Mutex::new(None));
+    let faults_b = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
+    // D: the honest replica that receives e2 before A crashes and keeps its
+    // copy alive — the network's memory of the recycled stamp.
+    let store_d = Arc::new(Mutex::new(None));
+    let faults_d = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
+    let bm_a = || FlakyInMemoryBookmark::new(store_a.clone(), faults_a.clone(), 0);
+    let bm_b = || FlakyInMemoryBookmark::new(store_b.clone(), faults_b.clone(), 1);
+    let bm_d = || FlakyInMemoryBookmark::new(store_d.clone(), faults_d.clone(), 3);
+
+    block_on(async move {
+        // A seeds; B and D bootstrap from A.
+        let a = Peer::<Msg>::seed()
+            .sync_window_floor()
+            .bookmark(bm_a())
+            .await
+            .expect("a pristine seed attaches its bookmark without touching storage")
+            .into_rumors();
+        let b = boot_from_async(&a, bm_b()).await;
+        let d = boot_from_async(&a, bm_d()).await;
+
+        // e1 reaches everyone: the shared causal base.
+        a.send(1);
+        let (ra, rb) = gossip_raw(&a, &b).await;
+        ra.expect("the e1 session is clean on A's side");
+        rb.expect("the e1 session is clean on B's side");
+        let (ra, rd) = gossip_raw(&a, &d).await;
+        ra.expect("the e1 relay is clean on A's side");
+        rd.expect("the e1 relay is clean on D's side");
+
+        // e2 reaches D — and only D — before A crashes.
+        a.send(2);
+        let v2 = version_of(&a, 2).expect("a just-sent message is live on its sender");
+        let (ra, rd) = gossip_raw(&a, &d).await;
+        ra.expect("the e2 session is clean on A's side");
+        rd.expect("the e2 session is clean on D's side");
+
+        // A crashes; its store serves the pre-e2 frame; A revives from B,
+        // whose frontier is exactly the base e2 ticked from.
+        drop(a);
+        let a = boot_from_async(&b, bm_a()).await;
+        let (ra, rb) = gossip_raw(&a, &b).await;
+        ra.expect("the reclaim session is clean on A's side");
+        rb.expect("the reclaim session is clean on B's side");
+
+        // e3 recycles e2's stamp exactly: same reclaimed region, same base.
+        a.send(3);
+        let v3 = version_of(&a, 3).expect("a just-sent message is live on its sender");
+        assert_eq!(
+            v3, v2,
+            "the rolled-back reclaim must re-mint exactly e2's version stamp",
+        );
+
+        // Redact e3 at its emitter, then let the redaction reach D. D held
+        // e2 — a different message, never redacted by anyone — but the
+        // redaction's only identity is the stamp both messages now share.
+        let key3 = {
+            let snapshot = a.snapshot();
+            snapshot
+                .iter()
+                .find(|(_, _, value)| ***value == 3)
+                .map(|(key, _, _)| key)
+                .expect("e3 is live on its sender")
+        };
+        a.redact(key3);
+        let (ra, rd) = gossip_raw(&a, &d).await;
+        ra.expect("the redaction session is clean on A's side");
+        rd.expect("the redaction session is clean on D's side");
+
+        assert!(
+            version_of(&d, 2).is_none(),
+            "deletion honoring is corrupted: redacting e3 destroyed D's copy \
+             of e2, which shared the recycled stamp and was never redacted",
+        );
+    });
+}
+
+/// A rollback served through the *in-process* reload window regresses the
+/// durable record to re-claim a region the peer already donated.
+///
+/// That window is the post-persist-failure recovery, the only path that
+/// re-reads storage inside one process; the resurrected claim is the fuel for
+/// a delayed double-own of the donated region.
+///
+/// The schedule: A donates a fork to bootstrapping B (the donation's `slice`
+/// commits a record without the donated region); A's next persist fails,
+/// which is exactly the arm that discards the in-memory record; the reload
+/// that recovery forces is served the pre-donation frame. A's next honest
+/// persist then durably re-commits a claim on B's live region. Unlike the
+/// cross-restart case, this window is detectable in principle — the process
+/// has already seen the newer frame — but the crate declares the whole
+/// rollback class the store's obligation (see the `Bookmark` docs); this
+/// probe is the measurement of that window's blast radius.
+#[test]
+fn rollback_in_persist_failure_window_resurrects_donated_region() {
+    let store_a = Arc::new(Mutex::new(None));
+    // A: writes are [serve-B update: ok, donation slice: ok, next update:
+    // FAIL]; loads are [serve-B session: honest, post-failure reload:
+    // ROLLED BACK to the frame the donation's commit displaced].
+    let faults_a = Arc::new(Mutex::new(
+        FaultFeed::new(Vec::new(), vec![false, false, true]).with_rollbacks(vec![false, true]),
+    ));
+    let store_b = Arc::new(Mutex::new(None));
+    let faults_b = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
+    let bm_a = || FlakyInMemoryBookmark::new(store_a.clone(), faults_a.clone(), 0);
+    let bm_b = || FlakyInMemoryBookmark::new(store_b.clone(), faults_b.clone(), 1);
+    let durable_a = store_a.clone();
+
+    block_on(async move {
+        // A seeds; B bootstraps from A, taking a donated fork of A's identity.
+        let a = Peer::<Msg>::seed()
+            .sync_window_floor()
+            .bookmark(bm_a())
+            .await
+            .expect("a pristine seed attaches its bookmark without touching storage")
+            .into_rumors();
+        let b = boot_from_async(&a, bm_b()).await;
+        let network = a.network();
+        let pb = b
+            .dangerously_alias_party()
+            .expect("a live peer holds its party");
+
+        // The donation's commit holds: nothing durable claims B's region.
+        assert!(
+            store_parties(&durable_a, network)
+                .iter()
+                .all(|p| p.is_disjoint(&pb)),
+            "after the donation, A's durable record must not claim B's region",
+        );
+
+        // A's next persist fails — the one arm that discards the in-memory
+        // record — so this session aborts before any wire traffic.
+        let (ra, rb) = gossip_raw(&a, &b).await;
+        assert!(
+            matches!(ra, Err(Error::Bookmark(_))),
+            "A must abort on its injected persist failure",
+        );
+        drop(rb);
+
+        // Recovery reloads storage; the store serves the pre-donation frame.
+        // A's reclaim keeps the stale full-party clock (it overlaps the live
+        // party without being covered by it), and the session's honest write
+        // makes the regression durable.
+        let (ra, rb) = gossip_raw(&a, &b).await;
+        ra.expect("the post-recovery session is clean on A's side");
+        rb.expect("the post-recovery session is clean on B's side");
+
+        assert!(
+            store_parties(&durable_a, network)
+                .iter()
+                .any(|p| !p.is_disjoint(&pb)),
+            "the rolled-back reload regressed A's durable record to re-claim \
+             the donated region B holds live: a future incarnation that folds \
+             it back in owns B's identity twice",
+        );
     });
 }
 
