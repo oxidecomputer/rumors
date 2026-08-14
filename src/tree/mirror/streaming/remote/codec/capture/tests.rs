@@ -124,3 +124,39 @@ fn query_children_decode_to_radix_and_hash() {
         format!("  child 0xf: {}", "9d".repeat(MERKLE_HASH_LEN))
     );
 }
+
+/// The renderer decodes queries through the codec's own path, canonical
+/// child order included: descending radixes convict the frame with an
+/// explicit failure line, never silent hex.
+#[test]
+fn non_canonical_query_renders_failure_not_silent_hex() {
+    let mut children = Vec::new();
+    children.push(0xf_u8);
+    children.extend_from_slice(&[0x9d; MERKLE_HASH_LEN]);
+    children.push(0x0_u8);
+    children.extend_from_slice(&[0x22; MERKLE_HASH_LEN]);
+    let lines = query_lines(&children);
+    assert_eq!(lines.len(), 1);
+    assert!(
+        lines[0].contains("query undecodable"),
+        "descending children must convict the query: {lines:?}"
+    );
+}
+
+/// The listing is held to the same canonical child order the handshake
+/// enforces before building scope from it: out-of-order children render
+/// an explicit conviction, never a quietly decoded tree.
+#[test]
+fn non_canonical_listing_renders_failure_not_silent_hex() {
+    let children = vec![
+        (0xc_u8, Hash([0x01; MERKLE_HASH_LEN])),
+        (0x3_u8, Hash([0xab; MERKLE_HASH_LEN])),
+    ];
+    let body = borsh::to_vec(&children).expect("a listing serializes");
+    let lines = listing_lines(&body);
+    assert_eq!(lines.len(), 1);
+    assert!(
+        lines[0].contains("listing not canonical"),
+        "descending children must convict the listing: {lines:?}"
+    );
+}

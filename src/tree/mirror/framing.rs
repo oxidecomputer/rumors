@@ -36,6 +36,23 @@ pub(crate) const GREETING_WORD_LEN: usize = std::mem::size_of::<u64>();
 /// change in one place.
 pub(crate) const GREETING_SIZE_WORDS_LEN: usize = 3 * GREETING_WORD_LEN;
 
+/// Split a greeting version frame's body into its three leading size
+/// words: the sender's set size, version-size bound, and target message
+/// size, in wire order (the version encoding follows the fixed prefix).
+///
+/// `None` when the body is shorter than the prefix. Defined beside the
+/// width constants so every reader of the layout — the handshake and the
+/// capture renderer — decodes it through one function.
+pub(crate) fn greeting_words(body: &[u8]) -> Option<(u64, u64, u64)> {
+    let word = |index: usize| {
+        let at = index * GREETING_WORD_LEN;
+        body.get(at..at + GREETING_WORD_LEN)
+            .and_then(|prefix| <[u8; GREETING_WORD_LEN]>::try_from(prefix).ok())
+            .map(u64::from_le_bytes)
+    };
+    Some((word(0)?, word(1)?, word(2)?))
+}
+
 /// A payload length which cannot be represented by the framing header.
 #[derive(Debug, thiserror::Error)]
 #[error("payload length {len} exceeds the u32 framing limit")]

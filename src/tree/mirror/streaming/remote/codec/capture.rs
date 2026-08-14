@@ -17,13 +17,14 @@ use std::{collections::BTreeMap, fmt::Write as _};
 use borsh::BorshDeserialize;
 
 use crate::Version;
-use crate::tree::mirror::framing::{GREETING_WORD_LEN, LENGTH_HEADER_LEN};
+use crate::tree::mirror::framing::{GREETING_SIZE_WORDS_LEN, LENGTH_HEADER_LEN, greeting_words};
 use crate::tree::mirror::streaming::message::initiates;
 use crate::tree::typed::Hash;
 
 use super::{
     End, Speaker, Stream,
-    frame::{LeafRun, QUERY_CHILD_LEN, QUERY_COUNT_BIAS},
+    decode::parse_query,
+    frame::{LeafRun, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, QUERY_COUNT_LEN, validate_children},
     signal::{Signal, WireSignal},
 };
 
@@ -153,25 +154,15 @@ impl Control {
             };
         }
         let (version_frame, rest) = split_frame(rest, "version");
-        // The version frame's body leads with the sender's eight-byte set
-        // size, version-size bound, and message-size target; the version
-        // encoding follows them.
-        let word = |index: usize| {
-            let at = LENGTH_HEADER_LEN + index * GREETING_WORD_LEN;
-            u64::from_le_bytes(
-                version_frame[at..at + GREETING_WORD_LEN]
-                    .try_into()
-                    .expect("captured version frame carries its three size words"),
-            )
-        };
-        let set_len = word(0);
-        let max_version_bytes = word(1);
-        let target_message_size = word(2);
-        let version = Version::try_from_slice(
-            &version_frame
-                [LENGTH_HEADER_LEN + crate::tree::mirror::framing::GREETING_SIZE_WORDS_LEN..],
-        )
-        .expect("captured version frame is canonical");
+        // The version frame's body leads with its three size words,
+        // decoded through the same framing helper the handshake reads
+        // them with; the version encoding follows them.
+        let (set_len, max_version_bytes, target_message_size) =
+            greeting_words(&version_frame[LENGTH_HEADER_LEN..])
+                .expect("captured version frame carries its three size words");
+        let version =
+            Version::try_from_slice(&version_frame[LENGTH_HEADER_LEN + GREETING_SIZE_WORDS_LEN..])
+                .expect("captured version frame is canonical");
         // The greeting always carries its listing frame directly behind the
         // version frame (empty tree = empty listing, still framed).
         let (listing_frame, rest) = split_frame(rest, "listing");
@@ -260,7 +251,7 @@ fn raw_frame(speaker: Speaker, bytes: &[u8]) -> (Stream, Signal, usize) {
         Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => 0,
         Signal::Query(_) => {
             let (&count, _) = body.split_first().expect("captured query has a count");
-            1 + (usize::from(count) + QUERY_COUNT_BIAS) * QUERY_CHILD_LEN
+            QUERY_COUNT_LEN + (usize::from(count) + QUERY_COUNT_BIAS) * QUERY_CHILD_LEN
         }
         Signal::Supply(_) => {
             assert!(
@@ -272,7 +263,7 @@ fn raw_frame(speaker: Speaker, bytes: &[u8]) -> (Stream, Signal, usize) {
             LENGTH_HEADER_LEN + len as usize
         }
     };
-    let consumed = 1 + body_len;
+    let consumed = WireSignal::ENCODED_LEN + body_len;
     assert!(bytes.len() >= consumed, "captured frame is truncated");
     (stream, signal, consumed)
 }
@@ -287,11 +278,6 @@ struct CapturedFrame {
     bytes: Vec<u8>,
 }
 
-/// Render a byte string as bare lowercase hex, for hash and field lines.
-fn hex_string(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 /// Decode one captured frame's peer-supplied payload into rendered lines.
 ///
 /// Match, empty-query, and end frames carry no payload. A query decodes
@@ -304,24 +290,30 @@ fn payload_lines(signal: &Signal, frame: &[u8]) -> Vec<String> {
         Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => Vec::new(),
         // Signal byte, count byte, then the exact children — the frame
         // boundary already validated the arithmetic.
-        Signal::Query(_) => query_lines(&frame[2..]),
+        Signal::Query(_) => query_lines(&frame[WireSignal::ENCODED_LEN + QUERY_COUNT_LEN..]),
         // Signal byte and length header, then the run body.
-        Signal::Supply(_) => supply_lines(frame[1 + LENGTH_HEADER_LEN..].to_vec()),
+        Signal::Supply(_) => {
+            supply_lines(frame[WireSignal::ENCODED_LEN + LENGTH_HEADER_LEN..].to_vec())
+        }
     }
 }
 
-/// Render a nonempty query's children: each child's radix and hash.
+/// Render a nonempty query's children: each child's radix and hash,
+/// decoded through the codec's own `parse_query` (canonical child order
+/// included), so the renderer cannot drift from what the decoder
+/// accepts.
 fn query_lines(children: &[u8]) -> Vec<String> {
-    let mut lines = vec![format!(
-        "query: {} child(ren)",
-        children.len() / QUERY_CHILD_LEN
-    )];
-    for child in children.chunks(QUERY_CHILD_LEN) {
-        lines.push(format!(
-            "  child 0x{:x}: {}",
-            child[0],
-            hex_string(&child[1..]),
-        ));
+    let children = match parse_query(children) {
+        Ok(children) => children,
+        Err(err) => {
+            return vec![format!(
+                "query undecodable ({err}); the exact bytes stand below"
+            )];
+        }
+    };
+    let mut lines = vec![format!("query: {} child(ren)", children.len())];
+    for (radix, hash) in &children {
+        lines.push(format!("  child 0x{radix:x}: {}", hex::encode(hash.0)));
     }
     lines
 }
@@ -360,20 +352,29 @@ fn supply_lines(run: Vec<u8>) -> Vec<String> {
 
 /// Render one root-fan listing frame's children, or its explicit decode
 /// failure (the listing is peer-controlled borsh, so the renderer must
-/// never present undecodable bytes as a quietly hex-only frame).
+/// never present undecodable bytes as a quietly hex-only frame). The
+/// canonical child order is held by the codec's own `validate_children`,
+/// the same rule the handshake applies before building scope from a
+/// received listing.
 fn listing_lines(body: &[u8]) -> Vec<String> {
-    match <Vec<(u8, Hash)>>::try_from_slice(body) {
-        Ok(children) => {
-            let mut lines = vec![format!("listing: {} child(ren)", children.len())];
-            for (radix, hash) in &children {
-                lines.push(format!("  child 0x{radix:x}: {}", hex_string(&hash.0)));
-            }
-            lines
+    let children = match <Vec<(u8, Hash)>>::try_from_slice(body) {
+        Ok(children) => children,
+        Err(err) => {
+            return vec![format!(
+                "listing undecodable ({err}); the exact bytes stand below"
+            )];
         }
-        Err(err) => vec![format!(
-            "listing undecodable ({err}); the exact bytes stand below"
-        )],
+    };
+    if let Err(err) = validate_children(&children) {
+        return vec![format!(
+            "listing not canonical ({err}); the exact bytes stand below"
+        )];
     }
+    let mut lines = vec![format!("listing: {} child(ren)", children.len())];
+    for (radix, hash) in &children {
+        lines.push(format!("  child 0x{radix:x}: {}", hex::encode(hash.0)));
+    }
+    lines
 }
 
 /// Render one physical direction in stable logical order.

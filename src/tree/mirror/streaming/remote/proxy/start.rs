@@ -268,15 +268,8 @@ where
             "greeting version frame is shorter than its size prefixes",
         ))
     };
-    let word = |at: usize| {
-        bytes
-            .get(at..at + framing::GREETING_WORD_LEN)
-            .and_then(|prefix| <[u8; framing::GREETING_WORD_LEN]>::try_from(prefix).ok())
-            .map(u64::from_le_bytes)
-    };
-    let set_len = word(0).ok_or_else(short)?;
-    let max_version_bytes = word(framing::GREETING_WORD_LEN).ok_or_else(short)?;
-    let target_message_size = word(2 * framing::GREETING_WORD_LEN).ok_or_else(short)?;
+    let (set_len, max_version_bytes, target_message_size) =
+        framing::greeting_words(&bytes).ok_or_else(short)?;
     let version = Version::try_from_slice(&bytes[framing::GREETING_SIZE_WORDS_LEN..])
         .map_err(Error::HandshakeDecode)?;
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
