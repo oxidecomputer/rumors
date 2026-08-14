@@ -174,16 +174,64 @@ pub struct Redaction {
     /// the same pass that selected the key.
     pub value: u64,
     /// Whether the redaction is guaranteed present in the surviving
-    /// fleet's causal history: some peer that executed (or later
-    /// learned) it either survived to the heal phase, or retired
-    /// through a session its absorber committed.
+    /// fleet's causal history: some logging founder's final content
+    /// reached the survivors through an unbroken chain of committed
+    /// transfers ([`lost_custody`]) — it survived to the heal phase
+    /// itself, or every hop of its retire chain committed.
     ///
-    /// A redaction whose every holder was dropped
-    /// in a loss arm may honestly never reach the survivors, so only
+    /// A redaction whose every logger's custody chain was broken by a
+    /// loss arm may honestly never reach the survivors, so only
     /// retained redactions are subject to [`assert_deletion_honored`];
     /// with [`SimOutcome::possible_losses`] zero, every redaction is
     /// retained.
     pub retained: bool,
+}
+
+/// How one executed retirement moved content custody between fleet slots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transfer {
+    /// The retiree recovered whole: custody never moved.
+    Recovered,
+    /// The absorber committed its session: everything the retiree carried
+    /// now rides in the absorber. Sound by [`Peer::retire`]'s contract —
+    /// a retirement session reconciles content exactly as gossip would,
+    /// *then* the peer absorbs the identity — so an absorber whose
+    /// session committed has completed the content reconciliation and
+    /// holds the full union; no commit-before-transfer ordering exists.
+    Committed,
+    /// The absorber's session failed: everything the retiree carried may
+    /// be gone with it.
+    Lost,
+}
+
+/// Which founders' final content may have failed to reach the surviving
+/// fleet, given the executed retire sequence.
+///
+/// Custody is transitive: a founder's content is retained only through an
+/// unbroken chain of committed transfers. A founder that retired into a
+/// committed absorber rides in that absorber — and is lost with it if the
+/// absorber is later dropped in a loss arm. Each slot starts carrying its
+/// own founder; a committed transfer moves the retiree's whole cargo into
+/// the absorber, a lost transfer forfeits it, and a recovery moves
+/// nothing.
+pub fn lost_custody(n_founders: usize, transfers: &[(usize, usize, Transfer)]) -> BTreeSet<usize> {
+    // carriers[slot] = the founders whose final content currently rides
+    // in that slot's peer.
+    let mut carriers: Vec<BTreeSet<usize>> = (0..n_founders).map(|i| BTreeSet::from([i])).collect();
+    let mut lost = BTreeSet::new();
+    for &(retiree, absorber, transfer) in transfers {
+        match transfer {
+            Transfer::Recovered => {}
+            Transfer::Committed => {
+                let cargo = std::mem::take(&mut carriers[retiree]);
+                carriers[absorber].extend(cargo);
+            }
+            Transfer::Lost => {
+                lost.extend(std::mem::take(&mut carriers[retiree]));
+            }
+        }
+    }
+    lost
 }
 
 /// What a [`run_plan`] execution leaves behind for the caller's assertions.
@@ -682,10 +730,10 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     // founders, they sit above every index a `RetireOp` can name.
     slots.extend(newcomers.into_iter().map(Some));
 
-    // Founders whose final content may never have reached the surviving
-    // fleet: retirees of the loss arms below. Their executed redactions
-    // cannot be asserted against the survivors (see [`Redaction::retained`]).
-    let mut lost_founders: BTreeSet<usize> = BTreeSet::new();
+    // How each executed retirement moved content custody, in execution
+    // order; folded into the lost-founder set by [`lost_custody`] once
+    // the sequence is complete (see [`Redaction::retained`]).
+    let mut transfers: Vec<(usize, usize, Transfer)> = Vec::new();
 
     for op in &plan.retires {
         // A slot emptied by an earlier retirement skips the op.
@@ -717,24 +765,31 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             // failed too, delivery is unconfirmed on both sides and the
             // region may be in limbo.
             Retire::Retired => {
-                if absorbed.is_err() {
+                let transfer = if absorbed.is_err() {
                     possible_losses += 1;
-                    lost_founders.insert(op.retiree);
-                }
+                    Transfer::Lost
+                } else {
+                    Transfer::Committed
+                };
+                transfers.push((op.retiree, op.absorber, transfer));
             }
             // The party never crossed the wire: the retiree survives whole.
             Retire::Recovered { peer, error } => {
                 assert_honest_error(&error);
                 slots[op.retiree] = Some(peer);
+                transfers.push((op.retiree, op.absorber, Transfer::Recovered));
             }
             // In flight when the wire died. If the absorber committed
             // cleanly it holds the party (no loss); otherwise it is gone.
             Retire::Uncertain { error } => {
                 assert_honest_error(&error);
-                if absorbed.is_err() {
+                let transfer = if absorbed.is_err() {
                     possible_losses += 1;
-                    lost_founders.insert(op.retiree);
-                }
+                    Transfer::Lost
+                } else {
+                    Transfer::Committed
+                };
+                transfers.push((op.retiree, op.absorber, transfer));
             }
             Retire::Declined { .. } => {
                 unreachable!("the absorber runs plain gossip and never declines")
@@ -752,6 +807,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     // are one redaction of it, retained if *any* logger's final content
     // reached the surviving fleet. Content addressing makes the key→value
     // binding immutable, so colliding logs always agree on the value.
+    let lost_founders = lost_custody(plan.n_peers, &transfers);
     let mut by_key: BTreeMap<Key, Redaction> = BTreeMap::new();
     for (founder, log) in redaction_logs.iter().enumerate() {
         let retained = !lost_founders.contains(&founder);

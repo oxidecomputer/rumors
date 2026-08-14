@@ -31,9 +31,9 @@ use tokio::net::{TcpListener, TcpStream};
 use crate::common::fault::{self, FaultPlan};
 use crate::common::oracle::readout;
 use crate::common::sim::{
-    Activity, Plan, Redaction, Session, arb_fault, arb_plan, assert_converged,
+    Activity, Plan, Redaction, RetireOp, Session, Transfer, arb_fault, arb_plan, assert_converged,
     assert_deletion_honored, assert_honest_error, assert_honest_gossip, assert_party_invariants,
-    assert_value_oracle, is_honest_error, probe_disjointness, quiesce, run_plan,
+    assert_value_oracle, is_honest_error, lost_custody, probe_disjointness, quiesce, run_plan,
 };
 use crate::common::tcp;
 use crate::common::window::WindowChoice;
@@ -188,6 +188,124 @@ fn value_oracle_tripwires_catch_known_bad_mechanisms() {
         assert!(
             panics(|| assert_value_oracle(&outcome.peers, 0, &dropped, &outcome.redactions)),
             "the multiset check must catch a dropped insert"
+        );
+    });
+}
+
+// ---- custody regressions -----------------------------------------------------
+
+/// Custody of a founder's final content follows the retire sequence
+/// transitively.
+///
+/// The concrete reviewed counterexample: founder 1 redacts, retires into
+/// founder 2 (committed), then 2 retires toward 0 and that transfer is
+/// lost. Founder 1's cargo rode in 2 and is gone with it, so both must be
+/// reported lost — deriving loss from each logger's own retire outcome
+/// alone would leave 1 retained and blame the protocol on an honest run
+/// (its redaction can no longer reach the survivors). Recoveries move
+/// custody in neither direction.
+#[test]
+fn custody_chain_loss_is_transitive() {
+    let lost = lost_custody(3, &[(1, 2, Transfer::Committed), (2, 0, Transfer::Lost)]);
+    assert_eq!(
+        lost,
+        BTreeSet::from([1, 2]),
+        "founder 1's cargo rode in founder 2's lost transfer"
+    );
+
+    let lost = lost_custody(3, &[(1, 2, Transfer::Recovered), (2, 0, Transfer::Lost)]);
+    assert_eq!(
+        lost,
+        BTreeSet::from([2]),
+        "a recovered retiree keeps its own cargo; only the lost transfer forfeits"
+    );
+}
+
+/// An unbroken chain of committed transfers retains custody end to end:
+/// nothing is reported lost, so every logger's redactions stay subject to
+/// the unconditional deletion-honoring check. The transitive weakening in
+/// [`lost_custody`] must never eat honest coverage.
+#[test]
+fn custody_committed_chain_retains() {
+    let lost = lost_custody(3, &[(1, 2, Transfer::Committed), (2, 0, Transfer::Committed)]);
+    assert!(
+        lost.is_empty(),
+        "a fully committed chain loses nothing: {lost:?}"
+    );
+}
+
+/// End-to-end deterministic run of a committed retire chain over clean
+/// wires: founder 1 redacts a seed message, retires into 2, which retires
+/// into 0 — both transfers commit, the run is loss-free, the redaction
+/// rides the chain into the survivor, and both ledger checks hold. The
+/// corruption half then re-proves the checks' liveness in the presence of
+/// retires: a fabricated retained redaction of a live key must fail
+/// deletion honoring and the multiset equality.
+#[test]
+fn value_oracle_survives_committed_retire_chain() {
+    mt_runtime().block_on(async {
+        let plan = Plan {
+            n_peers: 3,
+            seed_messages: vec![10, 20, 30],
+            faulty_boots: vec![],
+            scripts: vec![vec![], vec![Activity::Redact(0)], vec![Activity::Send(40)]],
+            sessions: vec![Session {
+                a: 0,
+                b: 1,
+                fault_a: FaultPlan::NONE,
+                fault_b: FaultPlan::NONE,
+            }],
+            retires: vec![
+                RetireOp {
+                    retiree: 1,
+                    absorber: 2,
+                    fault: FaultPlan::NONE,
+                },
+                RetireOp {
+                    retiree: 2,
+                    absorber: 0,
+                    fault: FaultPlan::NONE,
+                },
+            ],
+            windows: vec![WindowChoice::Floor, WindowChoice::Default, WindowChoice::Floor],
+        };
+        let outcome = run_plan(plan).await;
+        assert_eq!(
+            outcome.possible_losses, 0,
+            "clean wires commit every transfer"
+        );
+        assert!(
+            !outcome.redactions.is_empty(),
+            "founder 1 holds the seed messages, so its redact always executes"
+        );
+        assert!(
+            outcome.redactions.iter().all(|r| r.retained),
+            "a fully committed chain retains every redaction"
+        );
+        quiesce(&outcome.peers).await;
+        assert_converged(&outcome.peers);
+        assert_deletion_honored(&outcome.peers, &outcome.redactions);
+        assert_value_oracle(&outcome.peers, 0, &outcome.inserted, &outcome.redactions);
+
+        // Liveness after the custody weakening: fabricating a retained
+        // redaction of a live key must still fire both checks.
+        let (&key, &value) = readout(&outcome.peers[0].snapshot())
+            .iter()
+            .next()
+            .expect("live content survives the chain");
+        let mut corrupted = outcome.redactions.clone();
+        corrupted.push(Redaction {
+            key,
+            value,
+            retained: true,
+        });
+        assert!(
+            panics(|| assert_deletion_honored(&outcome.peers, &corrupted)),
+            "deletion honoring must still fire through a retire chain"
+        );
+        assert!(
+            panics(|| assert_value_oracle(&outcome.peers, 0, &outcome.inserted, &corrupted)),
+            "the multiset check must still fire through a retire chain"
         );
     });
 }
