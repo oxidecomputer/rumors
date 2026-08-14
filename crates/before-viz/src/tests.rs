@@ -197,6 +197,17 @@ proptest! {
     }
 }
 
+/// Assert `fragment` rejects through the engine as `BadFragment`, leaving
+/// the engine at the seed (a rejected load commits nothing).
+fn assert_rejects_as_bad_fragment(fragment: &str) {
+    let mut e = crate::Engine::new();
+    match e.load_fragment(fragment) {
+        Err(crate::EngineError::BadFragment(_)) => {}
+        other => panic!("fragment must reject as BadFragment, got {other:?}"),
+    }
+    assert_eq!(e.node_count(), 1, "a rejected load leaves the prior state");
+}
+
 /// A hostile URL fragment whose varint overflows the index space rejects
 /// cleanly as `BadFragment`.
 ///
@@ -210,37 +221,73 @@ proptest! {
 #[test]
 fn overlong_varint_fragment_rejects_cleanly() {
     for hostile in ["AYCAgICAgICAgIAB", "AYCAgICAgICAgIAA"] {
-        let mut e = crate::Engine::new();
-        match e.load_fragment(hostile) {
-            Err(crate::EngineError::BadFragment(_)) => {}
-            other => panic!("an over-wide varint must reject as BadFragment, got {other:?}"),
-        }
+        assert_rejects_as_bad_fragment(hostile);
     }
 }
 
-/// The fragment decoder accepts a log at the op-count cap and rejects one
-/// past it — through the engine, as `BadFragment` — before any op is
-/// replayed.
+/// The op budget covers every entry: a fragment at the budget loads
+/// through the engine; an `apply` that would grow the log past it rejects
+/// as `TooManyOps` with the state intact, so the engine can never mint a
+/// fragment the decoder refuses; and a past-budget log rejects at both
+/// remaining entries (the wire as `BadFragment`, direct `load` as
+/// `TooManyOps`).
 ///
-/// A fragment is caller input (any shared link can carry one), and op count
-/// is what bounds replay work, arena size, and the front-end's per-level
-/// render recursion; without the cap, a link of a few tens of KB wedges the
-/// tab. The boundary is pinned from both sides so the cap can neither drift
-/// below legitimate teaching-figure scale nor silently stop rejecting.
+/// A log is caller input (any shared link carries one), and op count is
+/// what bounds replay work, arena size, and the front-end's per-level
+/// work; unbudgeted, a link of a few tens of KB wedges the tab. The
+/// boundary is pinned from both sides so the budget can neither drift
+/// below teaching-figure scale nor silently stop rejecting.
 #[test]
-fn fragment_op_count_cap_boundary() {
-    let at_cap = oplog::encode(&vec![Op::Tick { x: 0 }; oplog::MAX_FRAGMENT_OPS]);
+fn op_budget_covers_every_entry() {
+    // At the budget, through the wire: accepted whole.
+    let at_cap = oplog::encode(&vec![Op::Tick { x: 0 }; oplog::MAX_OPS]);
+    let mut e = crate::Engine::new();
+    e.load_fragment(&at_cap).expect("a log at the budget loads");
+    assert_eq!(e.op_log().len(), oplog::MAX_OPS);
+
+    // One op past, via a gesture on the newest live tip: rejected, state
+    // intact, and the fragment the full engine minted still reloads.
+    match e.apply(Op::Tick { x: oplog::MAX_OPS }) {
+        Err(crate::EngineError::TooManyOps(n)) => assert_eq!(n, oplog::MAX_OPS + 1),
+        other => panic!("an apply past the op budget must reject as TooManyOps, got {other:?}"),
+    }
+    assert_eq!(e.op_log().len(), oplog::MAX_OPS);
+    let frag = e.fragment();
+    let mut e2 = crate::Engine::new();
+    e2.load_fragment(&frag)
+        .expect("every fragment the engine mints reloads");
+
+    // One op past, through the wire and through direct load.
+    let past_cap = oplog::encode(&vec![Op::Tick { x: 0 }; oplog::MAX_OPS + 1]);
+    assert_rejects_as_bad_fragment(&past_cap);
+    let mut e3 = crate::Engine::new();
+    match e3.load(vec![Op::Tick { x: 0 }; oplog::MAX_OPS + 1]) {
+        Err(crate::EngineError::TooManyOps(n)) => assert_eq!(n, oplog::MAX_OPS + 1),
+        other => panic!("a load past the op budget must reject as TooManyOps, got {other:?}"),
+    }
+}
+
+/// The fragment-length precheck admits every fragment a within-budget log
+/// can encode and rejects longer strings before any base64 work: the
+/// widest op (a join of two maximal varint operands) encodes to 21 bytes,
+/// so a budget-full log of them is the longest legitimate fragment —
+/// exactly `MAX_FRAGMENT_CHARS` — and one more such op pushes past it.
+#[test]
+fn fragment_length_precheck_is_exact() {
+    let fat = Op::Join {
+        a: usize::MAX,
+        b: usize::MAX,
+    };
+    let widest = oplog::encode(&vec![fat; oplog::MAX_OPS]);
+    assert_eq!(widest.len(), oplog::MAX_FRAGMENT_CHARS);
     assert_eq!(
-        oplog::decode(&at_cap)
-            .expect("a log at the cap decodes")
+        oplog::decode(&widest)
+            .expect("the widest within-budget fragment decodes")
             .len(),
-        oplog::MAX_FRAGMENT_OPS
+        oplog::MAX_OPS
     );
 
-    let past_cap = oplog::encode(&vec![Op::Tick { x: 0 }; oplog::MAX_FRAGMENT_OPS + 1]);
-    let mut e = crate::Engine::new();
-    match e.load_fragment(&past_cap) {
-        Err(crate::EngineError::BadFragment(_)) => {}
-        other => panic!("a log past the op-count cap must reject as BadFragment, got {other:?}"),
-    }
+    let over = oplog::encode(&vec![fat; oplog::MAX_OPS + 1]);
+    assert!(over.len() > oplog::MAX_FRAGMENT_CHARS);
+    assert!(oplog::decode(&over).is_err());
 }
