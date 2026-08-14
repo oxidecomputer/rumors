@@ -134,6 +134,13 @@ wants `wasm-pack` and node/npm.
 - `tests/gossip_snapshot.rs` and the `insta` snapshots pin the wire format
   byte-for-byte; re-accept them only after a deliberate protocol change,
   which means a new protocol version, never a mutation of an existing one.
+  One further sanctioned re-accept class: a renderer-vocabulary change
+  (the capture renderer's decoded annotations gained or reworded, the
+  wire untouched), permitted only with the hex-line-preservation
+  witness — every hexdump line sequence identical to the parent commit,
+  the diff pure annotation additions or rewordings — and the re-accepting
+  commit stating that witness and the renderer-change attribution
+  explicitly.
   To re-accept deliberately: `just test-all`, then `cargo insta review`
   (install: `cargo install cargo-insta`), then commit the updated
   `tests/snapshots/*.snap`. One sanctioned exception for tamper sweeps
