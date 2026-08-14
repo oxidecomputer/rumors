@@ -193,3 +193,36 @@ fn a_panicked_batch_commits_nothing() {
         "a batch interrupted by a panic must commit nothing: never a prefix"
     );
 }
+
+/// Pins today's behavior when a task is cancelled while holding a
+/// [`Batch`](rumors::Batch) across an await: the cancellation drops the
+/// half-built batch outside any unwind, and the drop-commit publishes the
+/// prefix queued before the await — the same interrupted construction the
+/// panic guard aborts, reached through the drop channel `Drop` cannot
+/// distinguish from an ordinary end-of-statement commit.
+#[tokio::test]
+async fn a_cancelled_batch_publishes_its_prefix() {
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let work = async {
+        let mut batch = rumors.batch();
+        batch.send(1);
+        // The cancellation point: parked mid-build, holding the batch.
+        std::future::pending::<()>().await;
+        batch.send(2);
+    };
+    // A biased select polls `work` first (queuing the prefix, then parking)
+    // and completes on the ready branch, dropping `work` — and the batch it
+    // holds — mid-await.
+    tokio::select! {
+        biased;
+        _ = work => unreachable!("the parked future never completes"),
+        _ = std::future::ready(()) => {}
+    }
+
+    // Today: the prefix published as a committed batch of one.
+    assert_eq!(
+        rumors.snapshot().len(),
+        1,
+        "cancellation drop-commits the prefix queued before the await"
+    );
+}
