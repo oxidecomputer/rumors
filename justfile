@@ -176,22 +176,15 @@ testdoc:
     ./tools/testdoc --self-test
     ./tools/testdoc .
 
-# The supply-chain leg below polices the crate graph through committed
-# lockfiles; nothing there polices what the CI workflows themselves execute.
-# A `uses:` reference held only by a mutable tag runs whatever commit the
-# tag points at on the day the job runs, and a curl|sh installer runs
-# whatever the host serves that day — both inside jobs holding credentials
-# (the Pages deploy holds an OIDC id-token). tools/workflowlint fails the
-# gate on any `uses:` not identified immutably (a 40-hex commit SHA, or a
-# sha256 digest for docker actions; local `./` actions are committed code)
-# and on any curl/wget piped into a shell, with liveness floors so a vacant
-# scan reads as failure and a self-test pinning its red paths. Build-free,
-# so it rides the lint tier.
+# No other gate leg polices what the CI workflows themselves execute:
+# tools/workflowlint holds every workflow step to committed or
+# immutably-pinned code (its docstring carries the full argument).
+# Build-free, so it rides the lint tier.
 
 # Hold every workflow step to committed or immutably-pinned code.
 workflowlint:
     ./tools/workflowlint --self-test
-    ./tools/workflowlint .github/workflows
+    ./tools/workflowlint .github
 
 # tools/readme mirrors each crate's crate-level rustdoc into its README via
 # cargo-rdme, then strips the intra-doc links cargo-rdme can't resolve (the

@@ -5,11 +5,9 @@
 # rewriting is needed. Only the minimal runtime set is published — not node_modules,
 # not the TypeScript sources, not the wasm-pack glue that esbuild already inlined.
 #
-# Every action is pinned to a full commit SHA, with the tag it was resolved
-# from in a trailing comment — no step executes code that is neither committed
-# in-tree nor identified by an immutable digest (tools/workflowlint holds every
-# workflow to this). Bump procedure: Dependabot rewrites each pin and its
-# trailing comment together; .github/dependabot.yml is its configuration.
+# Actions are pinned to full commit SHAs with the source ref in a trailing
+# comment (tools/workflowlint enforces the shape; .github/dependabot.yml
+# carries the bump procedure).
 #
 # One-time setup: repo Settings > Pages > Build and deployment > Source = "GitHub Actions".
 name: Deploy before-viz to Pages
@@ -44,8 +42,8 @@ jobs:
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
-      # The same checksum-verifying install path ci.yml uses, so both
-      # workflows share one provenance story for wasm-pack.
+      # The same SHA-pinned install path ci.yml uses, so both workflows
+      # share one provenance story for wasm-pack.
       - name: Install wasm-pack
         uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
         with:

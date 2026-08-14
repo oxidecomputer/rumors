@@ -1,9 +1,9 @@
 # Run the no-rot sweep (`just ci`) on every push to main and every pull request.
 #
-# `ci` is the build-everything tier: fmt-check → doclint → testdoc → readme-check
-# → clippy → clippy-default → the workspace feature matrix → wasm-check → docs →
-# docs-internal → test-all → citecheck → doctest → bench-build → fuzz-build →
-# the viz bundle. It builds the fuzz targets but does not run the smoke (`just all`
+# `ci` is the build-everything tier — lints, docs, the feature matrix, the
+# full test and doctest run, the bench and fuzz builds, and the viz bundle;
+# the justfile's `ci` recipe line is the roster of record, ordered
+# cheap-first. It builds the fuzz targets but does not run the smoke (`just all`
 # adds that locally — libFuzzer minutes are a poor per-commit spend). The
 # `instruments` job beside it re-runs the gate's deterministic, counter-based
 # instrument legs — the board verdicts and pins, surface totality, and the
@@ -21,17 +21,15 @@
 #   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check), and
 #     `wasm-pack` (viz),
 #   - node + npm for the viz TypeScript typecheck and bundle,
-#   - python3 for the tools/ linters (doclint, testdoc, readme, citecheck),
-#     and bash for tools/memwatch (all preinstalled).
+#   - python3 for the tools/ linters, and bash for tools/memwatch (all
+#     preinstalled).
 # memwatch's swap backstop is sysctl-based and degrades to a no-op off macOS, so
 # wrapping the test/doctest/bench recipes is harmless here; its 8 GiB per-process
 # cap sits well above anything a normal Linux build reaches.
 #
-# Every action is pinned to a full commit SHA, with the ref it was resolved
-# from in a trailing comment — no step executes code that is neither committed
-# in-tree nor identified by an immutable digest (tools/workflowlint holds every
-# workflow to this). Bump procedure: Dependabot rewrites each pin and its
-# trailing comment together; .github/dependabot.yml is its configuration.
+# Actions are pinned to full commit SHAs with the source ref in a trailing
+# comment (tools/workflowlint enforces the shape; .github/dependabot.yml
+# carries the bump procedure).
 name: ci
 
 on:
@@ -59,16 +57,17 @@ jobs:
       # needs to exist, not be the default — whereas the gate's bare
       # `cargo fmt`/`clippy`/`check` must hit stable.
       #
-      # Pinned by SHA, the action's ref no longer names a toolchain (the
-      # mutable stable/nightly branches carry that as a default), so every
-      # dtolnay step states `toolchain:` explicitly.
+      # A SHA ref names no channel: every dtolnay step carries an explicit
+      # `toolchain:` input, and the pin rides the action's v1 tag, which
+      # Dependabot resolves like any other (the channel branches publish
+      # no tags).
       - name: Install nightly toolchain (merged doctests and fuzz build)
-        uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: nightly
 
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
           components: clippy, rustfmt
@@ -79,14 +78,16 @@ jobs:
       # holds the READMEs against what it emits. Tracking the newest release
       # would let an upstream change redefine that expectation with no commit
       # in the repo, turning the sweep red on a tree nobody touched. The others
-      # report findings rather than generate bytes, so they track latest.
+      # report findings rather than generate bytes, so they ride the pinned
+      # action's own tool manifest, moving when Dependabot bumps the pin.
       - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, and wasm-pack
         uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
         with:
           tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,wasm-pack
 
-      # The viz bundle (`just viz`) runs `npm ci`, a strict TypeScript
-      # typecheck, and an esbuild bundle.
+      # The viz bundle (`just viz`) runs the dependency install (`npm ci`
+      # here, where CI=true), a strict TypeScript typecheck, and an esbuild
+      # bundle.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
@@ -139,14 +140,14 @@ jobs:
       # `rustup default`, last one sticks): only the surface-json recipe
       # invokes `cargo +nightly`; every other step must hit stable.
       - name: Install nightly toolchain (surface-totality rustdoc JSON)
-        uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: nightly
 
       # clippy and rustfmt are for the surfacecheck workspace's own lint
       # legs, which the surface-totality recipe carries.
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
           components: clippy, rustfmt
@@ -203,13 +204,13 @@ jobs:
       # `cargo +nightly`; the line leg must hit stable. llvm-tools is the
       # coverage instrumentation's profdata component, needed on both.
       - name: Install nightly toolchain (branch coverage)
-        uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: nightly
           components: llvm-tools
 
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
           components: llvm-tools

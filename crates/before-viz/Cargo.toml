@@ -24,9 +24,11 @@ default = ["console_error_panic_hook"]
 proptest = "1"
 
 # On release-profile builds wasm-pack otherwise downloads and executes a
-# binaryen `wasm-opt` fetched from GitHub releases at build time — code no
-# commit in this tree identifies, running inside the Pages deploy's build
-# job. The demo wasm ships unoptimized so the build runs only committed or
-# immutably-pinned code.
+# binaryen `wasm-opt` fetched unpinned from GitHub releases at build time,
+# inside the Pages deploy's build job — and taiki-e's install-action
+# carries no binaryen manifest to pin it with. A pinned-download script is
+# not worth owning for a demo artifact, so the demo wasm ships unoptimized
+# instead (larger by an estimated 10-25%: an unmeasured envelope from
+# wasm-opt's typical shrink on wasm-bindgen output).
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
