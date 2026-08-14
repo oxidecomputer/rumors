@@ -84,17 +84,14 @@ pub(crate) fn supply_signal_byte() -> u8 {
 ///
 /// The allocator meter (`tests/decode_alloc.rs`) drives the supply read path
 /// through this to price a supply body in bytes requested from the
-/// allocator; the decoded value is noise to that meter, so errors flatten to
-/// their display form.
+/// allocator; the decoded value is noise to that meter, but the typed error
+/// passes through so the meter can also assert how a failure classified.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) async fn decode_frame_discarded(
     read: impl tokio::io::AsyncRead + Unpin,
-) -> Result<(), String> {
+) -> Result<(), DecodeError> {
     let mut read = FrameRead::new(Speaker::Initiator, read);
-    read.frame::<u64>()
-        .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    read.frame::<u64>().await.map(|_| ())
 }
 
 #[cfg(test)]

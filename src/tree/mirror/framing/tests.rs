@@ -114,17 +114,7 @@ proptest! {
 fn truncation_at_chunk_boundaries_is_unexpected_eof() {
     let len = 2 * PAYLOAD_CHUNK_LEN + 5;
     let payload = pattern(len, 7);
-    for delivered in [
-        0,
-        1,
-        PAYLOAD_CHUNK_LEN - 1,
-        PAYLOAD_CHUNK_LEN,
-        PAYLOAD_CHUNK_LEN + 1,
-        2 * PAYLOAD_CHUNK_LEN - 1,
-        2 * PAYLOAD_CHUNK_LEN,
-        2 * PAYLOAD_CHUNK_LEN + 1,
-        len - 1,
-    ] {
+    for delivered in chunk_boundary_cuts(len) {
         let mut transcript = u32::try_from(len).unwrap().to_be_bytes().to_vec();
         transcript.extend_from_slice(&payload[..delivered]);
         let mut read = FrameRead::new(transcript.as_slice());

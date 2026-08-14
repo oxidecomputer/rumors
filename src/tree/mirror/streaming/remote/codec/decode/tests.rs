@@ -434,22 +434,12 @@ fn reader_errors_are_contextual() {
 /// seam.
 #[test]
 fn supply_truncation_at_chunk_boundaries_is_typed() {
-    use crate::tree::mirror::framing::PAYLOAD_CHUNK_LEN;
+    use crate::tree::mirror::framing::{PAYLOAD_CHUNK_LEN, chunk_boundary_cuts};
 
     let declared = 2 * PAYLOAD_CHUNK_LEN + 5;
     let stream = stream(6);
     for speaker in SPEAKERS {
-        for delivered in [
-            0,
-            1,
-            PAYLOAD_CHUNK_LEN - 1,
-            PAYLOAD_CHUNK_LEN,
-            PAYLOAD_CHUNK_LEN + 1,
-            2 * PAYLOAD_CHUNK_LEN - 1,
-            2 * PAYLOAD_CHUNK_LEN,
-            2 * PAYLOAD_CHUNK_LEN + 1,
-            declared - 1,
-        ] {
+        for delivered in chunk_boundary_cuts(declared) {
             let mut encoded = vec![signal(stream, Signal::Supply(Flow::Continue))];
             encoded.extend_from_slice(&u32::try_from(declared).unwrap().to_be_bytes());
             encoded.extend(vec![0xA5; delivered]);

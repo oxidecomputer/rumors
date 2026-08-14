@@ -13,25 +13,44 @@
 //! on the same connection. With exact reads, a clean session leaves the next
 //! session's bytes untouched in the transport.
 //!
-//! The price is read batching: a header read followed by chunked payload
-//! reads instead of one large buffered read. A caller wanting fewer reads on
-//! a raw socket can wrap it in [`tokio::io::BufReader`]; caller-owned
-//! buffering is safe because it outlives a session and rides into the next
-//! one.
+//! The price is read batching: a header read followed by capacity-bounded
+//! payload reads instead of one large buffered read. A caller wanting fewer
+//! reads on a raw socket can wrap it in [`tokio::io::BufReader`] sized above
+//! [`PAYLOAD_CHUNK_LEN`] — at the default 8 KiB capacity nearly every
+//! payload read outsizes the buffer and bypasses it. Caller-owned buffering
+//! is safe because it outlives a session and rides into the next one.
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Bytes occupied by the big-endian `u32` payload-length header.
 pub(crate) const LENGTH_HEADER_LEN: usize = std::mem::size_of::<u32>();
 
-/// Bytes zero-filled and read per step while receiving a framed payload.
+/// The initial reservation granule for framed payload buffers.
 ///
 /// Payload buffers grow only as bytes arrive, so a frame's memory cost
 /// tracks what the peer actually delivered: a corrupt or garbage length
-/// header costs at most this many pre-touched bytes ahead of receipt,
-/// never the declared length up front. One socket-buffer-scale chunk
-/// balances loop iterations against pre-touch overshoot.
+/// header costs at most this many reserved bytes ahead of receipt, never
+/// the declared length up front. One socket-buffer-scale granule balances
+/// reservation events against ahead-of-receipt overshoot.
 pub(crate) const PAYLOAD_CHUNK_LEN: usize = 64 * 1024;
+
+/// Truncation cut offsets exercising every payload chunk boundary within
+/// `total`: one byte short of, exactly on, and one byte past each
+/// boundary, plus the zero, one-byte, and one-short-of-total cuts.
+///
+/// Shared by every suite pinning truncation classification at the chunk
+/// seams, so the boundary roster cannot drift between them.
+#[cfg(test)]
+pub(crate) fn chunk_boundary_cuts(total: usize) -> Vec<usize> {
+    let mut cuts = vec![0, 1];
+    let mut boundary = PAYLOAD_CHUNK_LEN;
+    while boundary < total {
+        cuts.extend([boundary - 1, boundary, boundary + 1]);
+        boundary += PAYLOAD_CHUNK_LEN;
+    }
+    cuts.push(total - 1);
+    cuts
+}
 
 /// Bytes of one negotiated size word in the greeting's version frame: a
 /// little-endian `u64`.
@@ -65,10 +84,13 @@ pub(crate) fn length_header(len: usize) -> Result<[u8; LENGTH_HEADER_LEN], Lengt
 
 /// Read exactly `len` payload bytes, growing the buffer as bytes arrive.
 ///
-/// Memory tracks receipt, never the declared length: each step zero-fills
-/// and reads at most [`PAYLOAD_CHUNK_LEN`] bytes, and the buffer's growth
-/// is driven by bytes already received. Never consumes a byte beyond
-/// `len`. A close mid-payload surfaces as
+/// Memory tracks receipt, never the declared length: bytes are read
+/// directly into reserved spare capacity (no zero fill), and capacity
+/// doubles from one [`PAYLOAD_CHUNK_LEN`] granule only when full — so it
+/// never exceeds twice the bytes already received (nor one granule,
+/// before any byte arrives) and is clamped to `len`, leaving no excess
+/// capacity on the returned buffer. Never consumes a byte beyond `len`.
+/// A close mid-payload surfaces as
 /// [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof).
 pub(crate) async fn read_payload<R: AsyncRead + Unpin>(
     read: &mut R,
@@ -76,10 +98,13 @@ pub(crate) async fn read_payload<R: AsyncRead + Unpin>(
 ) -> std::io::Result<Vec<u8>> {
     let mut payload = Vec::new();
     while payload.len() < len {
-        let filled = payload.len();
-        let step = PAYLOAD_CHUNK_LEN.min(len - filled);
-        payload.resize(filled + step, 0);
-        read.read_exact(&mut payload[filled..]).await?;
+        if payload.len() == payload.capacity() {
+            let target = (payload.capacity() * 2).max(PAYLOAD_CHUNK_LEN).min(len);
+            payload.reserve_exact(target - payload.len());
+        }
+        if read.read_buf(&mut payload).await? == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
     }
     Ok(payload)
 }
@@ -118,6 +143,15 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// length costs I/O-proportional memory, never its declared size up
     /// front. A close mid-frame surfaces as
     /// [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof).
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel safe. A dropped `frame` future may already have consumed
+    /// part of a frame — the reads do not give bytes back — leaving the
+    /// transport mid-frame, where the next call would parse payload bytes
+    /// as a length header. Either retain the in-flight future across polls
+    /// until it resolves, or read nothing further from this transport
+    /// after a cancellation.
     pub async fn frame(&mut self) -> std::io::Result<Vec<u8>> {
         let mut header = [0u8; LENGTH_HEADER_LEN];
         self.read.read_exact(&mut header).await?;

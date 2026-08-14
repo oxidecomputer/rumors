@@ -94,13 +94,21 @@ pub async fn read_framed_payload(
         .await
 }
 
-/// Per-step pre-touch bound of the framed-payload readers.
+/// The initial reservation granule of the framed-payload readers.
 ///
 /// Exposed so the allocator meter (`tests/decode_alloc.rs`) states its
-/// ceiling in the decoder's own chunk constant rather than a transcribed
+/// ceilings in the decoder's own chunk constant rather than a transcribed
 /// copy.
 pub fn frame_payload_chunk_len() -> usize {
     crate::tree::mirror::framing::PAYLOAD_CHUNK_LEN
+}
+
+/// Bytes of the length header ahead of each leaf record in a supply run.
+///
+/// Exposed so the allocator meter (`tests/decode_alloc.rs`) builds run
+/// bodies from the wire's own width rather than a transcribed copy.
+pub fn run_record_header_len() -> usize {
+    crate::tree::mirror::framing::LENGTH_HEADER_LEN
 }
 
 /// The signal byte opening one streaming-codec supply frame.
@@ -114,9 +122,12 @@ pub fn supply_signal_byte() -> u8 {
 /// Decode one streaming-codec supply frame, discarding the decoded run.
 ///
 /// The allocator meter (`tests/decode_alloc.rs`) drives the codec's supply
-/// read path through this; the decoded value is noise to that meter, so
-/// errors flatten to their display form.
-pub async fn decode_supply_frame(read: impl tokio::io::AsyncRead + Unpin) -> Result<(), String> {
+/// read path through this; the decoded value is noise to that meter, but
+/// the typed [`CodecDecodeError`](crate::error::CodecDecodeError) passes
+/// through so the meter can also assert how a failure classified.
+pub async fn decode_supply_frame(
+    read: impl tokio::io::AsyncRead + Unpin,
+) -> Result<(), crate::error::CodecDecodeError> {
     crate::tree::mirror::streaming::remote::decode_frame_discarded(read).await
 }
 
