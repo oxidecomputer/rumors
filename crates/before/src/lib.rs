@@ -310,14 +310,13 @@
 //! ## Space Efficiency
 //!
 //! At 100 parties and 1,000,000 events, the expected size of a [`Party`] is
-//! about 3 bytes and the expected size of a [`Version`] is about 100 bytes
-//! (measured: the space-consumption experiment that draws the figure below).
+//! about 3 bytes and the expected size of a [`Version`] is about 100 bytes.
 //! These figures assume static membership; continually [`fork`](Clock::fork)ing
 //! and [`join`](Clock::join)ing causes these to grow, but with reasonable
 //! bounds. Under sustained random membership churn, those same 100 parties will
 //! each stabilize at around 50 bytes (growing linearly in the steady-state
 //! number of parties `N`) and their corresponding versions at around 2,000
-//! bytes (roughly `N²`).
+//! bytes (roughly `N²` in the steady-state number of parties `N`).
 //!
 // The space-consumption figure, inlined so it inherits the page's theme
 // (build.rs derives this theme-reactive form from the measurement

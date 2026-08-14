@@ -26,6 +26,17 @@ surviving peer's, returning its share of the *id space* — the range of
 identity the participants partition among themselves — and its history, so
 the clocks avoid unbounded growth.
 
+### The types
+
+| Type                                    | Is                                                                                          | Core operations                                                                                                                                                                                                                                                     |
+|-----------------------------------------|---------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Party`                               | a distinct entity which may emit events                                                     | `tick`, `fork`/`forks`, `join`, `is_disjoint`                                                                                                                                    |
+| `Version`                             | a causal timestamp; a history of known events                                               | `tick`, `PartialOrd` (`<`, `<=`, `concurrent`), `join` (`\|`), `meet` (`&`), `span` (`^`), `project` (`/`), `rank`                |
+| `Clock`                               | a `Party` paired with its current `Version`                                             | `tick`, `fork`/`forks`, `join`, `send`, `recv`, `absorb` (`\|`, `\|=`) a `Version`                                                                    |
+| `Rank`/`Ranked`                     | a total order extending the causal order, with a lexicographically concordant serialization | `Ord` (`<`, `==`, `>`, etc.), summation (`+`), `checked_sub`/`saturating_sub`, `encode`, `decode`                                                                                    |
+| `Span`                                | an ordered pair of versions `lo <= hi`                                                      | `union` (`+`), `intersect` (`*`), pointwise `join`/`meet` (`\|`, `&`), `project`, queries (`place`, `dominance`, `precedence`) |
+| `causally`/`Query` | a query language for causal range membership                                                | `after`, `before`, `strictly_after`, `strictly_before`, `since`, `until`, `delta`, `toward`, negation (`!`), conjunction (`&`), `contains`, `coverage`|
+
 ### Quickstart
 
 The *seed* is the unique first clock in a causal universe, initially owning
@@ -69,35 +80,36 @@ assert_eq!(restored, alice);
 // let exactly one of the two handles stay live (see the safety rules).
 ```
 
-### The types
-
-| Type                | Is                                              | Core operations                                                                                                                                                   |
-|---------------------|-------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Party`           | a distinct entity which may emit events         | `tick`, `fork`(`s`), `join`, `is_disjoint`                                     |
-| `Version`         | a causal timestamp (history of known events)    | `tick`, `PartialOrd` (`<`, `<=`, `concurrent`), `join` (`\|`), `meet` (`&`), `span` (`^`), `project` (`/`), `rank` |
-| `Clock`           | a `Party` paired with its current `Version` | `tick`, `fork`(`s`), `join`, `send`, `recv`, `absorb` (`\|`, `\|=`) a `Version` |
-| `Rank`/`Ranked` | a total order extending the causal order        | `Ord` (`<`, `==`, `>`, etc.), summation (`+`), `checked_sub`/`saturating_sub`, `encode`/`decode`                            |
-| `Span`            | an ordered pair of versions and the chain segment between them | `place`, `dominance`, pointwise `join`/`meet` (`\|`, `&`), `union` (`+`), `intersect` (`*`), `project` (`/`)     |
-
 ### Version vector or vector clock?
 
 `before` can play either classic role; the difference is entirely
-in how you use it. [*Version
-vectors*](https://en.wikipedia.org/wiki/Version_vector) order **data** —
-they answer "has this replica seen that write?" — so participants record an
-event only when the data changes. [*Vector
-clocks*](https://en.wikipedia.org/wiki/Vector_clock) order **processes** —
-they answer "could this event have influenced that one?" — so participants
-record an event on every send and receive as well. Reach for a version
-vector when reconciling replicated state; reach for a vector clock when the
-messages themselves are the events. Pick one discipline per protocol and
-keep to it — mixing them is not unsafe, but the ordering then answers
-neither question exactly.
+in how you use it.
 
-#### As a version vector
+**In brief:** reach for a version vector when reconciling replicated state;
+reach for a vector clock when protocol messages themselves are among the
+events you wish to causally order.
 
-Participants **do not** record a local event when sending and receiving
+Usually, you should pick one discipline per protocol and keep to it; mixing
+them is not unsafe, but mixing the two disciplines answers neither of their
+questions clearly.
+
+#### [Version vectors](https://en.wikipedia.org/wiki/Version_vector) order data: "has this replica seen that write?"
+
+A version vector does not record any local events when sending and receiving
 messages; only when modifying data.
+
+To use `Clock` in this manner:
+
+- Record changes to data using `tick`.
+- Transmit your `Version` to your counterparties using `clock.version()`, **not** `Clock::send`.
+- Upon receiving a version from a counterparty, `absorb` it (a.k.a. the operator forms `|` or `|=`), **not** `Clock::recv`.
+
+Consistently eschewing `Clock::send` and `Clock::recv` ensures that your
+clock's `Version` tracks only *data causality*, and not the ordering of
+sends and receives.
+
+<details>
+<summary>Worked example: as a version vector</summary>
 
 ```rust
 use before::Clock;
@@ -139,10 +151,29 @@ bob |= alice.version();
 assert!(bob.version() == alice.version());
 ```
 
-#### As a vector clock
+</details>
 
-Participants **do** record a local event when sending and receiving
-messages, *as well as* when modifying data.
+#### [Vector clocks](https://en.wikipedia.org/wiki/Vector_clock) order processes: "could this event have influenced that one?"
+
+A vector clock records a local event when sending and receiving as well as
+when modifying data.
+
+To use `Clock` in this manner:
+
+- Record changes to data using `tick`.
+- Transmit `Version`s to your counterparties using `clock.send()`, and **not**
+  `clock.version()`. Unlike `clock.version()`, `send`
+  increments the inner `Version` prior to producing it for transmission.
+- Upon receiving a version from a counterparty, `recv` it; **do not** `absorb` it.
+  Unlike `absorb` (and its operator forms `|` and `|=`), `recv` increments the clock's
+  inner `Version` after absorbing the received one.
+
+Consistently using `send` and [`recv`](Clock::recv`) in this
+manner ensures that the `Clock` tracks *process causality*, by following
+the ordering of sends and receives.
+
+<details>
+<summary>Worked example: as a vector clock</summary>
 
 ```rust
 use before::Clock;
@@ -185,6 +216,8 @@ alice.recv(bob.send());
 bob.recv(alice.send());
 assert!(bob.version() > alice.version());
 ```
+
+</details>
 
 ### Safety rules
 
@@ -247,7 +280,7 @@ local handle immediately.
 
 `Version`'s `PartialEq` describes a causal ordering: `a <= b` tests
 containment of history, and two versions with no containing order are
-`concurrent`. Two tools extend it:
+`concurrent`. Three tools extend it:
 
 - **Filtering**: the `causally` module composes causal queries, e.g.
   `since(a)` is everything `a` does not already
@@ -269,26 +302,39 @@ containment of history, and two versions with no containing order are
   `encode` emits a canonical encoding whose plain
   lexicographic order *is* the total order on `Ranked`, allowing an
   ordinary byte-oriented key-value store to sort by causal ordering.
+- **Simultaneous comparison**: in some cases, it is desirable to compare
+  a `Version` against both an upper and a lower bound at the same time,
+  establishing its relationship in the causal interval `lo <= v <= hi`.
+  `Span` represents precisely such ordered pairs of `Version`s, with
+  a host of algebraic operations and queries of varying granularity to
+  establish the relative ordering of `Version`s against the represented
+  interval. These operations are more efficient than the individual comparisons
+  which would otherwise be required.
 
-### Efficiency
+### Space Efficiency
 
 At 100 parties and 1,000,000 events, the expected size of a `Party` is
-about 3 bytes and the expected size of a `Version` is about 100 bytes
-(measured: the space-consumption experiment that draws the figure below).
+about 3 bytes and the expected size of a `Version` is about 100 bytes.
 These figures assume static membership; continually `fork`ing
 and `join`ing causes these to grow, but with reasonable
 bounds. Under sustained random membership churn, those same 100 parties will
 each stabilize at around 50 bytes (growing linearly in the steady-state
 number of parties `N`) and their corresponding versions at around 2,000
-bytes (roughly `N²`).
+bytes (roughly `N²` in the steady-state number of parties `N`).
+
 
 ![Space consumption of `before`'s interval-tree versions](https://raw.githubusercontent.com/oxidecomputer/rumors/HEAD/crates/before/docs/itc_space_consumption_readme.svg)
 
-This crate implements cache-friendly, optimized versions of the operations
-in the original paper, in addition to a host of useful operations not
-described therein.
+The operations in this crate are also designed to mitigate the possibility
+of adversarial *transient* memory amplification. Even on pathologically
+shaped inputs, the auxiliary space required to compute any operation is at
+most a small constant multiple of the input size. In many cases, no scratch
+space is needed at all; where possible, operations read their input(s) in
+one single fused pass, writing their output simultaneously. Any operation
+which requires more than a small amount of temporary memory (relative to its
+input size) is a bug: please report it!
 
-### Complexity
+### Asymptotic Complexity
 
 Every operation in the crate is documented with its
 [Big-O](https://en.wikipedia.org/wiki/Big_O_notation) time complexity,
@@ -296,27 +342,42 @@ noting space complexity where this is non-trivial. Unless otherwise
 documented, the *size* of an argument `|x|` means that argument's *size in
 encoded bytes*.
 
-Most operations also carry an interactive **measured-growth chart**
-in these API docs; the one below is `Version::tick`'s.
+The operations in this crate have been very carefully hardened against
+pathological input shapes. Any asymptotic claim is a hard guarantee that the
+operation will perform in time proportionate to that bound, for all input
+sizes, no matter how unlikely and contorted the shape of the input.
+Moreover, the operations in this crate are optimized through a variety of
+techniques to ensure that they have low constant factors, especially on
+organically reachable (i.e. non-adversarial) inputs, with the asymptotic
+guarantee acting as a backstop in case of pathologically unlikely shapes.
+Any violation of these guarantees is a bug: please report it!
+
+Most operations also carry an interactive **measured-growth chart** in these
+API docs; the one below is `Version::tick`'s (it may not render if you are
+viewing this on a third-party site such as GitHub or crates.io).
 
 
-Each chart plots measured cost — WASM instructions, metered
-deterministically in a sandboxed build of this crate — against total
-input size in bytes, over thousands of inputs drawn uniformly from
-the canonical inputs of each exact size. The bands are the cost
-distribution per size; the dotted trace follows a quantile; the
-curves are growth hypotheses, with the documented bound pre-selected.
-Compensating by a hypothesis divides it out, so the band runs flat
-exactly where cost grows at that rate.
+Each chart shows a heatmap of instruction-count required to evaluate the
+function, plotted against the total input size in bytes, and sampled over
+thousands of inputs drawn uniformly from inputs of exact sizes. The bands in
+the heatmap are the cost distribution for each input size column; the dotted
+trace follows your chosen quantile of that same distribution (median by
+default); the solid curves are hypotheses about the growth of the function,
+with the documented bound pre-selected and *compensated*. Compensating by a
+hypothesis divides it out from the graph, magnifying divergence from the
+hypothesis, so that the heatmap's bands will display flat exactly where cost
+grows at the selected hypothesis.
 
-Read shape, not magnitude: absolute counts are guest-specific — only
-growth shapes and ratios transfer to native builds — so the axes
-carry no absolute numbers. Uniform sampling shows the *bulk* of the
-input space, so an operation with a rare worst case reads below its
-bound; the bound still holds — adversarial shapes are measure-zero
-in uniform draws. The x-axis starts at the operation's smallest
-expressible input. Charts are an audit view; enforcement lives in
-the metering and fuzz suites.
+These charts are meant to be read in terms of shape, not absolute magnitude,
+because the instruction counts are computed via
+[`wasmtime`](https://github.com/bytecodealliance/wasmtime)'s idiosyncratic
+deterministic "fuel" metric, and therefore do not directly translate to
+absolute instruction counts in native builds. Consequentially, the cost axis
+carries no absolute label. Note also that uniform sampling shows the
+*distributional bulk* of the input space, so an operation with a rare worst
+case may read below its bound. The bound still holds, even though the
+pathological input shapes which exercise the worst cases of some functions
+are effectively impossible to hit under uniform sampling.
 
 ### Crate features
 
