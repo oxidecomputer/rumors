@@ -82,7 +82,7 @@ const FORMAT_VERSION: u32 = 2;
 /// each document's `res` field rather than assuming it, so changing it
 /// here re-bins the committed data on the next compaction and the docs
 /// follow with no widget change.
-pub const RES: f64 = 0.05;
+pub const RES: f64 = 0.01;
 
 /// The index document: run provenance plus the ordered operation list.
 #[derive(Serialize, Deserialize)]

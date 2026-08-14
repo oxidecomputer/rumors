@@ -50,7 +50,12 @@ const ANIMS = new Set();
 let RAF = null;
 function stepAnims(now) {
   for (const a of ANIMS) {
-    const t = Math.min(1, (now - a.t0) / a.dur), e = easeCubicOut(t);
+    // Clamped below as well as above: an rAF timestamp is the frame's
+    // vsync time and routinely precedes the performance.now() captured
+    // when the tween was scheduled, and a negative t through the cubic
+    // ease overshoots backward — a one-frame flash away from the start
+    // state on every animation begun from an input handler.
+    const t = Math.min(1, Math.max(0, (now - a.t0) / a.dur)), e = easeCubicOut(t);
     for (const [k, fn] of a.props) a.el.setAttribute(k, fn(e));
     if (t >= 1) ANIMS.delete(a);
   }
@@ -74,10 +79,17 @@ function tween(el, props, dur) {
 
 // ---------- monotone cubic path (replaces d3-shape curveMonotoneX) ----------
 // Fritsch–Carlson tangents; port of d3-shape's monotoneX, string-emitting.
-function monotonePath(pts) {
+// `vertical` transposes the axes' roles (d3's monotoneY): the curve is
+// single-valued along y instead of x, which is what a violin silhouette
+// needs — it doubles back in x but never in y.
+function monotonePathAxis(pts0, vertical) {
+  const pts = vertical ? pts0.map(p => [p[1], p[0]]) : pts0;
+  const XY = (a, b) => vertical
+    ? b.toFixed(2) + "," + a.toFixed(2)
+    : a.toFixed(2) + "," + b.toFixed(2);
   const n = pts.length;
   if (n === 0) return "";
-  if (n === 1) return "M" + pts[0][0] + "," + pts[0][1];
+  if (n === 1) return "M" + XY(pts[0][0], pts[0][1]);
   const sign = x => x < 0 ? -1 : 1;
   const slope3 = (x0, y0, x1, y1, x2, y2) => {
     const h0 = x1 - x0, h1 = x2 - x1;
@@ -90,12 +102,12 @@ function monotonePath(pts) {
     const h = x1 - x0;
     return h ? (3 * (y1 - y0) / h - t) / 2 : t;
   };
-  let d = "M" + pts[0][0].toFixed(2) + "," + pts[0][1].toFixed(2);
+  let d = "M" + XY(pts[0][0], pts[0][1]);
   const bez = (x0, y0, x1, y1, t0, t1) => {
     const dx = (x1 - x0) / 3;
-    d += "C" + (x0 + dx).toFixed(2) + "," + (y0 + dx * t0).toFixed(2) +
-         "," + (x1 - dx).toFixed(2) + "," + (y1 - dx * t1).toFixed(2) +
-         "," + x1.toFixed(2) + "," + y1.toFixed(2);
+    d += "C" + XY(x0 + dx, y0 + dx * t0) +
+         "," + XY(x1 - dx, y1 - dx * t1) +
+         "," + XY(x1, y1);
   };
   let t0;
   for (let i = 1; i < n; i++) {
@@ -109,6 +121,8 @@ function monotonePath(pts) {
   }
   return d;
 }
+const monotonePath = pts => monotonePathAxis(pts, false);
+const monotonePathV = pts => monotonePathAxis(pts, true);
 
 // ---------- log-domain arithmetic: {s: sign, l: log2|x|} ----------
 const LN = {
@@ -347,8 +361,9 @@ function pow2Text(t, k) {
 const W = 960, H = 480;
 // The left margin holds only the rotated axis label (the y-axis is
 // deliberately unnumbered); the right margin is exactly the quantile
-// slider column, so the plot fills the card.
-const M = { l: 46, r: 96, t: 34, b: 60 };
+// slider column, so the plot fills the card. The column is sized to
+// its widest label, "maximum", set in the slider's mono at 11pt.
+const M = { l: 46, r: 108, t: 34, b: 60 };
 const PW = W - M.l - M.r, PH = H - M.t - M.b;
 const SLX = 22;
 let UID = 0;
@@ -377,7 +392,17 @@ class Widget {
     // The anchor column: where guides pin to the probe and what the
     // slider spans. Defaults to the largest n (the asymptotic end);
     // clicking a column locks it there instead, clicking again unlocks.
+    // Locking is tracked apart from the index so the default column
+    // reads unhighlighted until a click deliberately locks it: the
+    // rightmost lock is a no-op for the geometry, kept for the visual
+    // symmetry of every column answering a click the same way.
     this.anchorIdx = data.sizes.length - 1;
+    this.locked = false;
+    this._hoverCol = null;
+    // Density display mode: constant-width columns (the default), or
+    // violin silhouettes — the same clip paths with every half-width
+    // forced full in column mode, so the toggle tweens between the two.
+    this.violin = false;
     this.qref = {};
     for (const [key, qq] of [["min", 0], ["med", 0.5], ["max", 1]])
       this.qref[key] = data.cols.map(col => this.quantAt(col, qq));
@@ -461,15 +486,76 @@ class Widget {
   }
 
   // Lock the guide/probe anchor to column `ci`; clicking the locked
-  // column again sends it back to the default (the largest n).
+  // column again unlocks, sending the anchor back to the default (the
+  // largest n).
   toggleAnchor(ci) {
-    this.anchorIdx = ci === this.anchorIdx ? this.sizes.length - 1 : ci;
+    if (this.locked && ci === this.anchorIdx) {
+      this.locked = false;
+      this.anchorIdx = this.sizes.length - 1;
+    } else {
+      this.locked = true;
+      this.anchorIdx = ci;
+    }
     this.update(true);
+  }
+
+  setMode(m) {
+    const violin = m === "violin";
+    if (violin === this.violin) return;
+    this.violin = violin;
+    this.syncModeBtns();
+    this.update(true);
+  }
+
+  syncModeBtns() {
+    for (const m in this.modeBtns) {
+      const on = (m === "violin") === this.violin;
+      this.modeBtns[m].classList.toggle("fs-on", on);
+      this.modeBtns[m].setAttribute("aria-pressed", String(on));
+    }
   }
 
   setQ(q) {
     this.q = Math.min(1, Math.max(0, q));
     this.update(false);
+  }
+
+  // Up/down quantile stepping, shared by every chart surface that can
+  // hold focus — the probe answers arrows no matter what is selected.
+  // One percentile per press, five with shift. Returns whether the key
+  // was consumed.
+  quantKey(ev) {
+    const step = ev.shiftKey ? 0.05 : 0.01;
+    if (ev.key === "ArrowUp") this.setQ(Math.round((this.q + step) * 100) / 100);
+    else if (ev.key === "ArrowDown") this.setQ(Math.round((this.q - step) * 100) / 100);
+    else return false;
+    ev.preventDefault();
+    return true;
+  }
+
+  // Wires a press-drag: `move` runs on every pointermove until the
+  // press ends, `end` once when it does. The pointer is captured so a
+  // release outside the window (or a pointercancel) still ends the
+  // drag: an unfinished drag would leave `move` running on every later
+  // idle mouse motion, repainting the widget forever.
+  trackPointer(ev, move, end) {
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("blur", up);
+      if (end) end();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    // A release the browser never delivers (focus stolen mid-press,
+    // capture dropped) must still end the drag: blur is the backstop.
+    window.addEventListener("blur", up);
+    if (ev.pointerId !== undefined && ev.target && ev.target.setPointerCapture) {
+      try { ev.target.setPointerCapture(ev.pointerId); } catch (e) { /* detached target */ }
+    }
+    if (ev.preventDefault) ev.preventDefault();
   }
 
   // Dragging the probe trace: the pointer's height converts to a
@@ -494,13 +580,35 @@ class Widget {
       if (Math.abs(this.Y(ly - shift) - this.Y(med - shift)) < 3) this.setQ(0.5);
       else this.setQ(this.cdfAt(ci, ly));
     };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+    this.trackPointer(ev, move);
+  }
+
+  // Dragging a guide line sweeps quantiles by keeping the grabbed line
+  // under the pointer: every guide is drawn offset so it crosses the
+  // probe at the anchor, so the anchor value is solved from requiring
+  // the guide's curve to pass through the pointer at the pointer's own
+  // x. For the selected (compensated-flat) hypothesis the relative
+  // term vanishes and this is exactly the vertical anchor drag.
+  dragGuide(ev, g) {
+    const svgEl = this.svg;
+    const move = e => {
+      const rect = svgEl.getBoundingClientRect();
+      const px = (e.clientX - rect.left) * (W / (rect.width || W));
+      const py = (e.clientY - rect.top) * (H / (rect.height || H));
+      if (Math.abs(e.clientY - ev.clientY) > 3 ||
+          Math.abs(e.clientX - ev.clientX) > 3) this._dragMoved = true;
+      if (!this._dragMoved) return;
+      const rel = n => boundLog(g.f, n) - this.shiftAt(n);
+      const aN = this.sizes[this.anchorIdx];
+      const nPtr = Math.pow(2, this.X.invert(px));
+      this.setAnchorValue(
+        this.Y.invert(py) + this.anchorShift + rel(aN) - rel(nPtr));
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    if (ev.preventDefault) ev.preventDefault();
+    this._dragMoved = false;
+    this.trackPointer(ev, move, () => {
+      if (this._dragMoved) this._squelch = true;
+      this._dragMoved = false;
+    });
   }
 
   dragStart(ev) {
@@ -512,16 +620,11 @@ class Widget {
       if (this._dragMoved)
         this.setAnchorValue(this.Y.invert(py) + this.anchorShift);
     };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+    this._dragMoved = false;
+    this.trackPointer(ev, move, () => {
       if (this._dragMoved) this._squelch = true;
       this._dragMoved = false;
-    };
-    this._dragMoved = false;
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    if (ev.preventDefault) ev.preventDefault();
+    });
   }
 
   addGuideSilent(text) {
@@ -547,6 +650,18 @@ class Widget {
     this.update(true);
   }
 
+  // Keyboard deletion: removing the focused element would strand focus
+  // on the document body, so hand it to the neighbor that slid into
+  // the removed guide's place — the entry input when none remains.
+  removeGuideFocus(text, kind) {
+    const idx = this.guides.findIndex(g => g.text === text);
+    this.removeGuide(text);
+    const nb = this.guides[Math.min(idx, this.guides.length - 1)];
+    if (!nb) this.addInput.focus();
+    else if (kind === "chip") this.chipEls.get(nb.text).btn.focus();
+    else this.hitEls.get(nb.text).poly.focus();
+  }
+
   isRaw() { return this.active === null; }
   shiftAt(n) {
     if (this.active === null) return 0;
@@ -556,10 +671,36 @@ class Widget {
     return isFinite(l) ? l : 0;
   }
 
+  // The chart's own identity, derived from where its island renders:
+  // the enclosing rustdoc item section names the method and provides a
+  // same-page anchor, the page URL names the owning type — together
+  // "Clock::tick" at "#method.tick", with nothing to hand-maintain.
+  // Islands outside any item section (the crate docs' Complexity tour)
+  // and pages whose DOM this doesn't recognize get no suffix — every
+  // reading of this identity degrades to the bare title.
+  itemIdentity(host) {
+    const page = (location.pathname.split("/").pop() || "").split(".");
+    if (page.length !== 3 || page[2] !== "html") return null;
+    const [kind, item] = page;
+    const sec = host.closest("details.method-toggle")
+      ?.querySelector(":scope > summary > section[id]");
+    const name = sec?.querySelector(".code-header a.fn");
+    if (sec && name) return { path: item + "::" + name.textContent, href: "#" + sec.id };
+    if (kind === "fn") return { path: item, href: "" };
+    return null;
+  }
+
   buildDom(host) {
     host.classList.add("fs-root");
     const title = mk(host, "h5", "fs-title");
     title.textContent = "Measured growth";
+    const id = this.itemIdentity(host);
+    if (id) {
+      title.appendChild(document.createTextNode(": "));
+      const holder = id.href ? mk(title, "a") : title;
+      if (id.href) holder.href = id.href;
+      mk(holder, "code").textContent = id.path;
+    }
     const sub = mk(host, "div", "fs-subtitle");
     sub.appendChild(document.createTextNode(
       "Flat bands indicate agreement with the selected hypothesis ("));
@@ -592,6 +733,21 @@ class Widget {
     attrs(this.svg, { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img",
       "aria-label": this.data.name + ": distribution of instruction counts by input size, log-log" });
     this.footer = mk(host, "div", "fs-footer");
+    const modeWrap = mk(this.footer, "span", "fs-modewrap");
+    mk(modeWrap, "span", "fs-modelabel").textContent = "Display:";
+    const mode = mk(modeWrap, "span", "fs-mode");
+    attrs(mode, { role: "group", "aria-label": "density display mode" });
+    this.modeBtns = {};
+    for (const m of ["column", "violin"]) {
+      const b = mk(mode, "button", "fs-modebtn");
+      b.type = "button";
+      b.textContent = m;
+      b.title = "draw each distribution as " +
+        (m === "violin" ? "a width-for-density violin" : "a constant-width column");
+      b.addEventListener("click", () => this.setMode(m));
+      this.modeBtns[m] = b;
+    }
+    this.syncModeBtns();
     const d = this.data;
     // One quiet provenance line; the details (full commit, the size
     // measure's exact denominator, the shapes-not-absolutes caveat)
@@ -628,6 +784,15 @@ class Widget {
     const defs = mk(svg, "defs");
     const clip = mk(defs, "clipPath"); clip.setAttribute("id", clipId);
     attrs(mk(clip, "rect"), { x: M.l, y: M.t - 2, width: PW, height: PH + 4 });
+    // The guides get their own exact plot-box clip, no vertical slack:
+    // a sloped stroke overhanging the border reads as sticking out of
+    // the chart, and the clip's cut runs along the border itself (an
+    // occlusion edge), never across the line's own direction the way a
+    // shortened polyline's end cap would. The padded clip above stays
+    // for the density and probe layers, whose marks at the data
+    // extremes must not be shaved.
+    const clipExact = mk(defs, "clipPath"); clipExact.setAttribute("id", clipId + "g");
+    attrs(mk(clipExact, "rect"), { x: M.l, y: M.t, width: PW, height: PH });
     const filt = mk(defs, "filter");
     attrs(filt, { id: blurId, x: "-4%", y: "-4%", width: "108%", height: "108%" });
     // Vertical-only blur; its width is set per repaint, scaled to the
@@ -641,7 +806,7 @@ class Widget {
     this.gGrid = mk(svg, "g");
     this.gCols = mk(svg, "g");
     attrs(this.gCols, { "clip-path": `url(#${clipId})`, filter: `url(#${blurId})` });
-    this.gGuides = mk(svg, "g"); this.gGuides.setAttribute("clip-path", `url(#${clipId})`);
+    this.gGuides = mk(svg, "g"); this.gGuides.setAttribute("clip-path", `url(#${clipId}g)`);
     this.gQuants = mk(svg, "g"); this.gQuants.setAttribute("clip-path", `url(#${clipId})`);
     this.gHover = mk(svg, "g");
     this.gHits = mk(svg, "g"); this.gHits.setAttribute("clip-path", `url(#${clipId})`);
@@ -657,10 +822,13 @@ class Widget {
 
     const x0 = this.lx[0] - 0.62, x1 = this.lx[this.lx.length - 1] + 0.62;
     this.X = scaleLinear(x0, x1, M.l, W - M.r);
+    // The plot's full log-size domain: guides and the probe trace run
+    // wall to wall, their stroke caps shaved crisp by the plot clips.
+    this.lx0 = x0;
+    this.lx1 = x1;
     const gaps = this.lx.slice(1).map((v, i) => v - this.lx[i]);
     const minGap = gaps.length ? Math.min(...gaps) : 1;
     this.colW = PW / (x1 - x0) * 0.86 * minGap;
-    this.halfLx = 0.43 * minGap;
     for (let ci = 0; ci < this.sizes.length; ci++) {
       const t = mk(svg, "text", "fs-tick");
       attrs(t, { "text-anchor": "middle", x: this.X(this.lx[ci]), y: H - M.b + 18 });
@@ -673,10 +841,15 @@ class Widget {
     // past them: the painted band must end exactly where the data ends,
     // or the quantile slider (whose track is the true min-to-max span)
     // reads as stopping short of the band. Quantiles use raw counts.
-    const R = 3, SIG = 1.0;
+    // The kernel's width is fixed in octaves of fuel, not bins, so a
+    // re-binned dataset (compact.rs's RES) sharpens the profile's
+    // resolution without changing how much the display smooths.
+    const SIG_OCT = 0.05;
+    const SIG = SIG_OCT / this.res, R = Math.max(3, Math.ceil(3 * SIG));
     const kern = [];
     for (let i = -R; i <= R; i++) kern.push(Math.exp(-(i * i) / (2 * SIG * SIG)));
     this.bins = [];
+    this.violins = [];
     this.smExt = [];
     for (let ci = 0; ci < this.data.cols.length; ci++) {
       const col = this.data.cols[ci];
@@ -693,17 +866,41 @@ class Widget {
         sm[j] = acc / wsum;
       }
       const peak = Math.max(...sm);
+      // The violin profile: a half-width fraction at each bin center,
+      // pinched to zero at the exact data extent so the painted shape
+      // still ends where the data ends. Width takes a milder gamma than
+      // color (0.8 vs 0.6): enough boost that thin tails don't vanish
+      // into slivers, while the profile stays close to honest linear
+      // density; color keeps the stronger boost so tails stay tinted.
+      const prof = [[col.k0 * this.res, 0]];
       for (let j = 0; j < len; j++) {
         const v = sm[j] / peak;
+        prof.push([(col.k0 + j + 0.5) * this.res,
+          v <= 0 ? 0 : Math.pow(Math.max(v, 0.015), 0.8)]);
         if (v <= 0) continue;
-        const vv = Math.max(v, 0.015);
-        this.bins.push({ ci, vTop: (col.k0 + j + 1) * this.res, v: Math.pow(vv, 0.6) });
+        this.bins.push({ ci, vTop: (col.k0 + j + 1) * this.res,
+          v: Math.pow(Math.max(v, 0.015), 0.6) });
       }
+      prof.push([(col.k0 + len) * this.res, 0]);
+      this.violins.push(prof);
       this.smExt.push([col.k0 * this.res, (col.k0 + len) * this.res]);
+    }
+    // Each column's color bands render at full column width and are
+    // carved to the violin silhouette by a per-column clip; update()
+    // shears the clip's path vertically exactly as it shears the bands.
+    this.violEls = [];
+    const colGs = [];
+    for (let ci = 0; ci < this.sizes.length; ci++) {
+      const cp = mk(defs, "clipPath");
+      cp.setAttribute("id", `fsviol${this.uid}_${ci}`);
+      this.violEls.push(mk(cp, "path"));
+      const g = mk(this.gCols, "g");
+      g.setAttribute("clip-path", `url(#fsviol${this.uid}_${ci})`);
+      colGs.push(g);
     }
     this.binEls = new Map();
     for (const b of this.bins) {
-      const r = mk(this.gCols, "rect");
+      const r = mk(colGs[b.ci], "rect");
       attrs(r, { x: this.X(this.lx[b.ci]) - this.colW / 2, width: this.colW, fill: this.ramp(b.v) });
       r.__bin = b;
       this.binEls.set(r, b.v);
@@ -714,13 +911,15 @@ class Widget {
     // A fat invisible stroke over the probe trace: dragging the trace
     // itself sweeps quantiles, inverted through the density of whichever
     // column the pointer is nearest (so sensitivity follows the data).
-    this.qHit = mk(this.gHits, "path", "fs-hit fs-active-hit");
+    this.qHit = mk(this.gHits, "path", "fs-hit fs-active-hit fs-qhit");
     this.qHit.addEventListener("pointerdown", ev => this.dragTrace(ev));
     const qhTip = mk(this.qHit, "title");
     qhTip.textContent = "drag to sweep quantiles";
     this.gSlider = mk(svg, "g", "fs-slider");
     this.slTrack = mk(this.gSlider, "line", "fs-sl-track");
     this.slNotch = mk(this.gSlider, "line", "fs-sl-notch");
+    this.slTickMin = mk(this.gSlider, "line", "fs-sl-tick");
+    this.slTickMax = mk(this.gSlider, "line", "fs-sl-tick");
     this.slHandle = mk(this.gSlider, "circle", "fs-sl-handle");
     attrs(this.slHandle, { r: 6.5, cx: W - M.r + SLX, tabindex: 0, role: "slider",
       "aria-label": "quantile probe, arrow keys step one percentile" });
@@ -750,17 +949,77 @@ class Widget {
     this.readout = mk(this.gLabels, "text", "fs-readout");
     attrs(this.readout, { x: W - M.r, y: M.t - 8, "text-anchor": "end" });
     this.hoverEls = [];
+    this.colHits = [];
+    this._colFocus = this.sizes.length - 1;
     for (let ci = 0; ci < this.sizes.length; ci++) {
-      const r = mk(this.gHover, "rect", "fs-hoverrect");
-      attrs(r, { x: this.X(this.lx[ci]) - this.colW / 2 - 2, y: M.t,
+      // The visible tint stays column-wide, but the pointer region
+      // tiles the plot to the midlines between neighbors (edge columns
+      // run to the plot border): every plot position has a nearest
+      // column, so the hover and readout never blink out in a gap.
+      const tint = mk(this.gHover, "rect", "fs-hoverrect");
+      attrs(tint, { x: this.X(this.lx[ci]) - this.colW / 2 - 2, y: M.t,
         width: this.colW + 4, height: PH });
-      r.addEventListener("mouseenter", () => this.showReadout(ci));
-      r.addEventListener("mouseleave", () => { this.readout.textContent = ""; });
-      r.addEventListener("click", () => this.toggleAnchor(ci));
-      const tip = mk(r, "title");
+      const xl = ci === 0 ? M.l
+        : (this.X(this.lx[ci - 1]) + this.X(this.lx[ci])) / 2;
+      const xr = ci === this.sizes.length - 1 ? W - M.r
+        : (this.X(this.lx[ci]) + this.X(this.lx[ci + 1])) / 2;
+      // Roving tabindex: the column bank is a single tab stop (the
+      // rightmost column by default), and arrows move the stop within.
+      const hit = mk(this.gHover, "rect", "fs-hoverhit");
+      attrs(hit, { x: xl, y: M.t, width: xr - xl, height: PH,
+        tabindex: ci === this.sizes.length - 1 ? 0 : -1, role: "button",
+        "aria-label": "input size " + this.sizes[ci].toLocaleString("en-US") +
+          " column: arrow keys move between columns, space anchors" });
+      hit.addEventListener("click", () => this.toggleAnchor(ci));
+      // Keyboard column browsing: focus tints the column exactly as
+      // pointer hover does (the aura is the highlight itself), arrows
+      // walk the columns, space or enter toggles the anchor lock.
+      hit.addEventListener("focus", () => {
+        if (ci !== this._colFocus) {
+          this.colHits[this._colFocus].setAttribute("tabindex", -1);
+          this._colFocus = ci;
+          hit.setAttribute("tabindex", 0);
+        }
+        this.setHoverCol(ci);
+      });
+      hit.addEventListener("blur", () => {
+        if (this._hoverCol === ci) this.setHoverCol(null);
+      });
+      hit.addEventListener("keydown", ev => {
+        if (this.quantKey(ev)) return;
+        const d = ev.key === "ArrowLeft" ? -1 : ev.key === "ArrowRight" ? 1 : null;
+        if (d !== null) {
+          const nb = this.colHits[ci + d];
+          if (nb) nb.focus();
+        } else if (ev.key === "Enter" || ev.key === " ") {
+          this.toggleAnchor(ci);
+        } else return;
+        ev.preventDefault();   // arrows and space must not scroll the page
+      });
+      const tip = mk(hit, "title");
       tip.textContent = "click to anchor the hypotheses and quantile here";
-      this.hoverEls.push(r);
+      this.hoverEls.push(tint);
+      this.colHits.push(hit);
     }
+    // Column hover follows the pointer on the svg itself, never the
+    // tiles' own enter/leave: the guide and probe hit strokes stack
+    // above the tiles (they must, to stay grabbable), so tile events
+    // would lose the hover — a flicker — at every line crossing.
+    const hoverAt = e => {
+      const rect = svg.getBoundingClientRect();
+      const px = (e.clientX - rect.left) * (W / (rect.width || W));
+      const py = (e.clientY - rect.top) * (H / (rect.height || H));
+      let ci = null;
+      if (px >= M.l && px <= W - M.r && py >= M.t && py <= H - M.b) {
+        ci = 0;
+        for (let i = 1; i < this.lx.length; i++)
+          if (Math.abs(this.X(this.lx[i]) - px) < Math.abs(this.X(this.lx[ci]) - px)) ci = i;
+      }
+      const direct = !!(e.target && e.target.closest && e.target.closest(".fs-hoverhit"));
+      this.setHoverCol(ci, direct);
+    };
+    svg.addEventListener("pointermove", hoverAt);
+    svg.addEventListener("pointerleave", () => this.setHoverCol(null));
 
     // keyed element maps for dynamic layers
     this.tickEls = new Map();    // k -> {g, line, text}
@@ -770,14 +1029,55 @@ class Widget {
     this.chipEls = new Map();    // text -> {btn, label, x}
   }
 
+  // The hovered column, or null: tints it, and (unlocked only — while
+  // a lock holds, the readout belongs to the locked column, steady for
+  // screenshots) reads out its stats. `direct` says the column itself
+  // is what a click would hit; when something else owns the click (a
+  // guide or probe stroke on top), the tint softens so it can't
+  // promise an anchor the click won't deliver — the readout stays
+  // either way.
+  setHoverCol(ci, direct = true) {
+    if (ci === this._hoverCol && direct === this._hoverDirect) return;
+    this._hoverCol = ci;
+    this._hoverDirect = direct;
+    this.hoverEls.forEach((r, i) => {
+      r.classList.toggle("fs-hover", i === ci && direct);
+      r.classList.toggle("fs-hover-soft", i === ci && !direct);
+    });
+    if (!this.locked) {
+      if (ci === null) this.readout.textContent = "";
+      else this.showReadout(ci);
+    }
+  }
+
   showReadout(ci) {
     // Ratios only: the column's min-to-max spread, and where the median
     // sits above the column minimum \u2014 both platform-transferable.
+    // Prose labels set in the page's own face; the values in mono.
     const n = this.sizes[ci];
     const spread = fmtRatio(this.qref.max[ci] - this.qref.min[ci]);
     const medUp = fmtRatio(this.qref.med[ci] - this.qref.min[ci]);
-    this.readout.textContent =
-      `n=${n.toLocaleString("en-US")} \u00b7 spread ${spread} \u00b7 median ${medUp} above min`;
+    const medDown = fmtRatio(this.qref.max[ci] - this.qref.med[ci]);
+    this.readout.textContent = "";
+    // En spaces around the bullets (breathing room XML whitespace
+    // collapsing would eat from plain spaces); three voices in one
+    // line: semibold keys, receded connective prose (both on the
+    // element's fill), and the values in ink-and-mono tspans.
+    const seg = (cls, text) => {
+      if (cls) mk(this.readout, "tspan", cls).textContent = text;
+      else this.readout.appendChild(document.createTextNode(text));
+    };
+    seg("fs-rk", "input size: ");
+    seg("fs-rv", n.toLocaleString("en-US"));
+    seg(null, " bytes\u2002\u00b7\u2002");
+    seg("fs-rk", "output spread: ");
+    seg("fs-rv", spread);
+    seg(null, "\u2002\u00b7\u2002");
+    seg("fs-rk", "median: ");
+    seg("fs-rv", medUp);
+    seg(null, " above minimum, ");
+    seg("fs-rv", medDown);
+    seg(null, " below maximum");
   }
 
   update(animate) {
@@ -785,7 +1085,11 @@ class Widget {
     const shifts = this.sizes.map(n => this.shiftAt(n));
     const shiftOf = n => this.shiftAt(n);
     const raw = this.isRaw();
-    this.readout && (this.readout.textContent = "");
+    if (this.readout) {
+      if (this.locked) this.showReadout(this.anchorIdx);
+      else if (this._hoverCol != null) this.showReadout(this._hoverCol);
+      else this.readout.textContent = "";
+    }
 
     let ylo = Infinity, yhi = -Infinity;
     this.smExt.forEach((ext, ci) => {
@@ -844,6 +1148,19 @@ class Widget {
       const b = el.__bin;
       T(el, { y: Y(b.vTop - shifts[b.ci]), height: binH });
     }
+    // The silhouettes shear with their bands: one smooth outline per
+    // side, top-to-bottom down the right edge, bottom-to-top up the
+    // left, meeting at the zero-width tips.
+    this.violEls.forEach((p, ci) => {
+      const cx = this.X(this.lx[ci]), half = this.colW / 2;
+      const prof = this.violins[ci];
+      const hw = w => this.violin ? w : 1;
+      const right = [], left = [];
+      for (let i = prof.length - 1; i >= 0; i--)
+        right.push([cx + half * hw(prof[i][1]), Y(prof[i][0] - shifts[ci])]);
+      for (const [v, w] of prof) left.push([cx - half * hw(w), Y(v - shifts[ci])]);
+      T(p, { d: monotonePathV(right) + monotonePathV(left).replace(/^M/, "L") + "Z" });
+    });
 
     // probe values + anchor: guides intersect the probe at the anchor
     // column — the largest n by default (the asymptotic end), or the
@@ -857,7 +1174,7 @@ class Widget {
 
     // guide geometry
     const samples = 60;
-    const lxLo = this.lx[0] - this.halfLx, lxHi = this.lx[this.lx.length - 1] + this.halfLx;
+    const lxLo = this.lx0, lxHi = this.lx1;
     const geom = new Map();
     for (const g of this.guides) {
       // The same clamped evaluation as compensation itself, so the
@@ -870,11 +1187,18 @@ class Widget {
       const pts = [];
       const vals = [];
       let tip = null;
+      // The clamp only keeps coordinates finite (bounds run to -inf
+      // below their lift): it sits several plot-heights off-view, so
+      // the corner it folds into the polyline — which moves against
+      // the grain of a tween — can never be seen. A clamp at the plot
+      // edge creases the line exactly where the reader is looking.
+      const flee = 4 * (yhi - ylo) + 8;
       for (let i = 0; i <= samples; i++) {
         const lx = lxLo + (lxHi - lxLo) * i / samples;
         const v = off + rel(Math.pow(2, lx));
         vals.push([lx, v]);
-        pts.push(this.X(lx).toFixed(1) + "," + Y(Math.min(yhi + 1, Math.max(ylo - 1, v))).toFixed(1));
+        pts.push(this.X(lx).toFixed(1) + "," +
+          Y(Math.min(yhi + flee, Math.max(ylo - flee, v))).toFixed(1));
       }
       for (let i = 0; i <= samples; i++) {
         const lx = lxLo + (lxHi - lxLo) * i / samples;
@@ -887,6 +1211,7 @@ class Widget {
     }
     const hoverLink = (text, on) => {
       for (const [t, e] of this.guideEls) e.g.classList.toggle("fs-hover", on && t === text);
+      for (const [t, el] of this.glabelEls) el.classList.toggle("fs-hover", on && t === text);
     };
 
     // guide traces
@@ -917,16 +1242,22 @@ class Widget {
       if (!e) {
         const poly = mk(this.gHits, "polyline", "fs-hit");
         attrs(poly, { tabindex: 0, role: "button" });
-        // Every guide is draggable (the drag sweeps quantiles through
-        // the shared anchor); a motionless press stays a click, which
-        // selects. The squelch flag is what separates the two.
-        poly.addEventListener("pointerdown", ev => this.dragStart(ev));
+        // Every guide is draggable (the drag sweeps quantiles by
+        // keeping the grabbed line under the pointer); a motionless
+        // press stays a click, which selects. The squelch flag is what
+        // separates the two.
+        poly.addEventListener("pointerdown", ev => this.dragGuide(ev, g));
         poly.addEventListener("click", () => {
           if (this._squelch) { this._squelch = false; return; }
           this.setActive(g.text);
         });
         poly.addEventListener("keydown", ev => {
+          if (this.quantKey(ev)) return;
           if (ev.key === "Enter" || ev.key === " ") this.setActive(g.text);
+          else if (ev.key === "Delete" || ev.key === "Backspace")
+            this.removeGuideFocus(g.text, "line");
+          else return;
+          ev.preventDefault();   // space must not also scroll the page
         });
         poly.addEventListener("mouseenter", () => hoverLink(g.text, true));
         poly.addEventListener("mouseleave", () => hoverLink(g.text, false));
@@ -951,12 +1282,43 @@ class Widget {
       // text into the right border, flip below the line, anchored leftward
       const lift = g.text === this.active ? -9 : -6;
       const vals = geom.get(g.text).vals;
-      const onPlot = ([, v]) => v >= ylo + 0.1 && v <= yhi - 0.02;
-      let pos = vals.find(p => onPlot(p) && Y(p[1]) + lift >= M.t + 14);
+      // Placement is continuous in the curve's geometry: the scan finds
+      // the first sample inside the bounds, then interpolates back to
+      // the exact boundary crossing. Snapping to whole samples would
+      // make the label step between them while the quantile drag
+      // shifts the curve — a judder wherever a bound is binding.
+      const vLo = ylo + 0.1, vTop = yhi - 0.02;
+      const vHi = Math.min(vTop, Y.invert(M.t + 14 - lift));
+      const cross = (a, b, bound) => {
+        const t = (bound - a[1]) / (b[1] - a[1]);
+        return [a[0] + t * (b[0] - a[0]), bound];
+      };
+      const seek = (lo, hi) => {
+        for (let i = 0; i < vals.length; i++) {
+          const [, v] = vals[i];
+          if (v < lo || v > hi) continue;
+          const prev = vals[i - 1];
+          if (!prev) return vals[i];
+          const bound = prev[1] > hi ? hi : prev[1] < lo ? lo : null;
+          return bound === null ? vals[i] : cross(prev, vals[i], bound);
+        }
+        return null;
+      };
+      let pos = seek(vLo, vHi);
       let flip = false;
       if (!pos) {
         flip = true;
-        for (let i = vals.length - 1; i >= 0; i--) if (onPlot(vals[i])) { pos = vals[i]; break; }
+        // below the line, as far right as the curve stays on the plot;
+        // the same interpolation, scanning from the right
+        for (let i = vals.length - 1; i >= 0; i--) {
+          const [, v] = vals[i];
+          if (v < vLo || v > vTop) continue;
+          const nxt = vals[i + 1];
+          if (!nxt) { pos = vals[i]; break; }
+          const bound = nxt[1] > vTop ? vTop : nxt[1] < vLo ? vLo : null;
+          pos = bound === null ? vals[i] : cross(vals[i], nxt, bound);
+          break;
+        }
       }
       if (!pos) pos = tip;
       const wpx = (g.text.length + (g.text === this.active ? 2 : 0)) * 9.5 + 8;
@@ -986,8 +1348,8 @@ class Widget {
       const sL = nCol > 1 ? (v[1] - shifts[1] - (v[0] - shifts[0])) / (this.lx[1] - this.lx[0]) : 0;
       const sR = nCol > 1 ? (v[nCol - 1] - shifts[nCol - 1] - (v[nCol - 2] - shifts[nCol - 2])) / (this.lx[nCol - 1] - this.lx[nCol - 2]) : 0;
       return {
-        left: [this.lx[0] - this.halfLx, v[0] - shifts[0] - sL * this.halfLx],
-        right: [this.lx[nCol - 1] + this.halfLx, v[nCol - 1] - shifts[nCol - 1] + sR * this.halfLx],
+        left: [this.lx0, v[0] - shifts[0] - sL * (this.lx[0] - this.lx0)],
+        right: [this.lx1, v[nCol - 1] - shifts[nCol - 1] + sR * (this.lx1 - this.lx[nCol - 1])],
       };
     })();
     const pts = [[this.X(ends.left[0]), Y(ends.left[1])]];
@@ -1000,10 +1362,14 @@ class Widget {
     // lags its line drops drags on the way.
     this.qHit.setAttribute("d", qd);
 
-    // The anchor column's tint: visible only when a click has locked
-    // the anchor off its default.
-    this.hoverEls.forEach((r, ci) =>
-      r.classList.toggle("fs-anchored", ci === li && li !== this.sizes.length - 1));
+    // The anchor column's tint marks a deliberate lock only: the
+    // default focal column (the largest n) stays unhighlighted until
+    // clicked.
+    this.hoverEls.forEach((r, ci) => {
+      const on = this.locked && ci === li;
+      r.classList.toggle("fs-anchored", on);
+      this.colHits[ci].setAttribute("aria-pressed", String(on));
+    });
 
     // slider
     const slx = W - M.r + SLX;
@@ -1013,11 +1379,13 @@ class Widget {
     const yCur = Math.max(M.t, Math.min(H - M.b, Y(tv.raw[li] - shifts[li])));
     T(this.slTrack, { x1: slx, x2: slx, y1: yMax, y2: yMin });
     T(this.slNotch, { x1: slx - 5, x2: slx + 5, y1: yMed, y2: yMed });
+    T(this.slTickMin, { x1: slx - 4, x2: slx + 4, y1: yMin, y2: yMin });
+    T(this.slTickMax, { x1: slx - 4, x2: slx + 4, y1: yMax, y2: yMax });
     attrs(this.slHandle, { "aria-valuenow": Math.round(this.q * 100),
       "aria-valuemin": 0, "aria-valuemax": 100 });
     T(this.slHandle, { cx: slx, cy: yCur });
-    const qName = this.q <= 0 ? "min" : this.q >= 1 ? "max"
-      : Math.abs(this.q - 0.5) < 1e-9 ? "med" : "p" + Math.round(this.q * 100);
+    const qName = this.q <= 0 ? "minimum" : this.q >= 1 ? "maximum"
+      : Math.abs(this.q - 0.5) < 1e-9 ? "median" : "p" + Math.round(this.q * 100);
     // The quantile's name only: its absolute height is a guest count.
     this.qLabel.textContent = qName;
     this.qLabel.appendChild(this.qLabelTip);
@@ -1040,9 +1408,16 @@ class Widget {
         btn.className = "fs-chip";
         btn.type = "button";
         if (g.text === this._justAdded) btn.classList.add("fs-born");
+        // Activation rides the whole button, padding included; the
+        // remove × opts out by stopping propagation.
+        btn.addEventListener("click", () => this.setActive(g.text));
+        btn.addEventListener("keydown", ev => {
+          if (ev.key !== "Delete" && ev.key !== "Backspace") return;
+          this.removeGuideFocus(g.text, "chip");
+          ev.preventDefault();
+        });
         const label = document.createElement("span");
         label.className = "fs-chiplabel";
-        label.addEventListener("click", () => this.setActive(g.text));
         const x = document.createElement("span");
         x.className = "fs-chipx";
         x.textContent = "\u00d7";
@@ -1058,9 +1433,14 @@ class Widget {
       e.label.textContent = g.text;
     }
     this._justAdded = null;
-    for (const g of this.guides)                 // DOM order = growth order
-      this.chipBox.appendChild(this.chipEls.get(g.text).btn);
-    this.chipBox.appendChild(this.entryWrap);   // entry stays last
+    // DOM order = growth order, entry last — but touch the DOM only
+    // when the order actually changed: re-appending a node under the
+    // pointer resets the browser's hover state, flickering the cursor
+    // on every repaint (each drag frame repaints).
+    const want = this.guides.map(g => this.chipEls.get(g.text).btn);
+    want.push(this.entryWrap);
+    if (Array.from(this.chipBox.children).some((el, i) => el !== want[i]))
+      for (const el of want) this.chipBox.appendChild(el);
   }
 }
 
