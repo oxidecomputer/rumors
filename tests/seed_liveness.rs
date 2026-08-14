@@ -96,7 +96,10 @@ fn scan(dir: &Path, root: &Path, out: &mut Vec<Seed>) {
             // be pathological.
             let owner = dir.join(format!("{binary}.rs"));
             let verdict = if !owner.is_file() {
-                Err(format!("its owning source {} does not exist", owner.display()))
+                Err(format!(
+                    "its owning source {} does not exist",
+                    owner.display()
+                ))
             } else if anchored_walk(dir, root) {
                 Err(format!(
                     "a `lib.rs`/`main.rs` anchor on the walk above {} routes its \
@@ -174,7 +177,10 @@ fn every_committed_seed_file_is_read_by_proptest() {
             seed.verdict.as_ref().err().map(|why| {
                 format!(
                     "{}: {why}",
-                    seed.path.strip_prefix(&root).unwrap_or(&seed.path).display(),
+                    seed.path
+                        .strip_prefix(&root)
+                        .unwrap_or(&seed.path)
+                        .display(),
                 )
             })
         })
