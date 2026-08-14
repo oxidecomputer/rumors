@@ -16,6 +16,8 @@ use rumors::{Peer, Protocol, Rumors, testing::run_to_quiescence};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
+use crate::common::window::WindowChoice;
+
 // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
 // fallback-TLS lowering (illumos among the gate's targets) and denies
 // initializers that already sit in `const` blocks; the allow keeps
@@ -165,9 +167,49 @@ where
 }
 
 /// Mint a disjoint peer using an explicitly selected wire protocol.
+///
+/// Pins the minted peer at the serialization floor, keeping the
+/// capacity-one orderings the deadlock-freedom argument certifies
+/// exercised; suites sweeping the window dimension mint through
+/// [`bootstrap_fork_with_window_async`] instead.
 pub async fn bootstrap_fork_async_with_protocol<T>(
     parent: &Rumors<T>,
     protocol: Protocol,
+) -> Rumors<T>
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+{
+    bootstrap_fork_configured(parent, protocol, WindowChoice::Floor).await
+}
+
+/// [`bootstrap_fork`] with the minted peer's window taken from the sweep
+/// dimension instead of pinned at the floor.
+#[track_caller]
+pub fn bootstrap_fork_with_window<T>(parent: &Rumors<T>, window: WindowChoice) -> Rumors<T>
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+{
+    block_on(bootstrap_fork_with_window_async(parent, window))
+}
+
+/// Awaitable core of [`bootstrap_fork_with_window`], for callers already
+/// inside an async block on this thread's runtime.
+pub async fn bootstrap_fork_with_window_async<T>(
+    parent: &Rumors<T>,
+    window: WindowChoice,
+) -> Rumors<T>
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+{
+    bootstrap_fork_configured(parent, Protocol::V2, window).await
+}
+
+/// Mint a disjoint peer over an in-memory link, with the minted peer's
+/// wire protocol and window configuration both chosen by the caller.
+async fn bootstrap_fork_configured<T>(
+    parent: &Rumors<T>,
+    protocol: Protocol,
+    window: WindowChoice,
 ) -> Rumors<T>
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
@@ -181,13 +223,12 @@ where
             .join(&mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
-    // Test peers pin the serialization floor explicitly, keeping the
-    // capacity-one orderings the deadlock-freedom argument certifies
-    // exercised; suites that want a wider window configure a budget.
-    let minted = boot_out
-        .expect("bootstrap handshake")
-        .expect("parent served the bootstrap")
-        .sync_window_floor()
+    let minted = window
+        .apply(
+            boot_out
+                .expect("bootstrap handshake")
+                .expect("parent served the bootstrap"),
+        )
         .into_rumors();
     assert_control_drained(parent_link, boot_link);
     minted

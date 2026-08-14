@@ -9,6 +9,7 @@ use proptest::prelude::*;
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, quiesce};
 use crate::common::schedule::{arb_schedule, execute_and_quiesce};
+use crate::common::window::arb_window_assignment;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
@@ -22,8 +23,9 @@ proptest! {
     #[test]
     fn arbitrary_schedules_dont_panic(
         schedule in arb_schedule(any::<u64>(), N_PEERS, MAX_EVENTS),
+        windows in arb_window_assignment(),
     ) {
-        let _ = execute_and_quiesce(&schedule);
+        let _ = execute_and_quiesce(&schedule, &windows);
     }
 
     /// Merging is non-destructive and path-independent: gossiping bob's

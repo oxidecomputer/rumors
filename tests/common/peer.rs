@@ -153,6 +153,52 @@ where
     );
 }
 
+/// Drive every live slot to a full-mesh fixed point: [`quiesce`] over a
+/// slotted fleet, skipping retired peers' vacated slots.
+pub fn quiesce_slots<T>(slots: &mut [Option<Peer<T>>])
+where
+    T: Clone + Eq + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    let live: Vec<usize> = (0..slots.len()).filter(|&i| slots[i].is_some()).collect();
+    if live.len() < 2 {
+        return;
+    }
+
+    let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * live.len();
+    for _ in 0..max_rounds {
+        let before: Vec<([u8; rumors::MERKLE_HASH_LEN], Version)> = live
+            .iter()
+            .map(|&i| {
+                let snapshot = slots[i].as_ref().expect("live index").local.snapshot();
+                (snapshot.hash(), snapshot.latest().clone())
+            })
+            .collect();
+
+        for (n, &i) in live.iter().enumerate() {
+            for &j in live.iter().skip(n + 1) {
+                let (left, right) = slots.split_at_mut(j);
+                gossip_step(
+                    left[i].as_mut().expect("live index"),
+                    right[0].as_mut().expect("live index"),
+                );
+            }
+        }
+
+        let changed = live.iter().zip(before.iter()).any(|(&i, (hash, latest))| {
+            let snapshot = slots[i].as_ref().expect("live index").local.snapshot();
+            snapshot.hash() != *hash || snapshot.latest() != latest
+        });
+        if !changed {
+            return;
+        }
+    }
+
+    panic!(
+        "quiesce_slots did not converge within {max_rounds} rounds for {} live peers",
+        live.len()
+    );
+}
+
 /// Headroom on the convergence loop, used only to bound test pathologies.
 ///
 /// A single piece of information needs at most O(diameter) rounds to reach

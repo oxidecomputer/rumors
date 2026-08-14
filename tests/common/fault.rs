@@ -75,6 +75,61 @@ pub fn faulty(link: MemoryLink, plan: FaultPlan) -> FaultyLink {
     faulty_link(link, plan)
 }
 
+/// Observer for the bytes one endpoint has moved through its fault
+/// wrappers: the same counters a [`FaultPlan`]'s cuts spend, read out as
+/// totals.
+///
+/// This is how a measurement establishes where in an endpoint's
+/// byte stream a cut offset can land — the meter and the cut draw on
+/// identical accounting, so a measured extent is directly a bound on
+/// meaningful cut offsets.
+pub struct ByteMeter {
+    write: Budget,
+    read: Budget,
+}
+
+impl ByteMeter {
+    /// Total bytes the endpoint has written, across the control half and
+    /// every data stream.
+    pub fn written(&self) -> usize {
+        usize::MAX - *self.write.lock().expect("write budget lock")
+    }
+
+    /// Total bytes the endpoint has read, across the control half and
+    /// every data stream.
+    pub fn read(&self) -> usize {
+        usize::MAX - *self.read.lock().expect("read budget lock")
+    }
+}
+
+/// Wrap one clean in-memory link endpoint with byte metering: no fault
+/// ever fires (the budgets are effectively infinite), and the returned
+/// [`ByteMeter`] reads out the endpoint's cumulative traffic.
+pub fn metered(link: MemoryLink) -> (FaultyLink, ByteMeter) {
+    let write = budget(None);
+    let read = budget(None);
+    let meter = ByteMeter {
+        write: write.clone(),
+        read: read.clone(),
+    };
+    let parts = link.into_parts();
+    let link = LinkParts {
+        control_read: Cut::new(parts.control_read, read.clone()),
+        control_write: Fuse::new(parts.control_write, write.clone()),
+        connector: FaultConnector {
+            inner: parts.connector,
+            budget: write,
+        },
+        acceptor: FaultAcceptor {
+            inner: parts.acceptor,
+            budget: read,
+        },
+        session: parts.session,
+    }
+    .into_link();
+    (link, meter)
+}
+
 /// [`faulty`] for any link shape, e.g. the inter-process TCP link.
 pub fn faulty_link<CR, CW, C, A>(
     link: Link<CR, CW, C, A>,

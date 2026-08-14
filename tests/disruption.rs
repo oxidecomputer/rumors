@@ -31,10 +31,12 @@ use tokio::net::{TcpListener, TcpStream};
 use crate::common::fault::{self, FaultPlan};
 use crate::common::oracle::readout;
 use crate::common::sim::{
-    arb_fault, arb_plan, assert_converged, assert_honest_error, assert_honest_gossip,
-    assert_party_invariants, is_honest_error, probe_disjointness, quiesce, run_plan,
+    Activity, Plan, Redaction, Session, arb_fault, arb_plan, assert_converged,
+    assert_deletion_honored, assert_honest_error, assert_honest_gossip, assert_party_invariants,
+    assert_value_oracle, is_honest_error, probe_disjointness, quiesce, run_plan,
 };
 use crate::common::tcp;
+use crate::common::window::WindowChoice;
 use crate::common::wire::bootstrap_fork_async;
 
 /// A fresh multi-thread runtime per simulation, so tasks interleave with
@@ -58,7 +60,22 @@ proptest! {
     /// 3. after a clean heal, all survivors converge to identical content;
     /// 4. when no hand-off was lost in flight, the surviving parties
     ///    fold-join back to exactly `Party::seed()` — the id-space is
-    ///    conserved with no duplication and no leak.
+    ///    conserved with no duplication and no leak;
+    /// 5. no retained redaction's key is live at any survivor (deletion
+    ///    honoring against the execution-time redaction log; every
+    ///    redaction is retained whenever `possible_losses` is zero);
+    /// 6. when no hand-off was lost in flight, the converged value
+    ///    multiset equals the plan's inserts minus the logged redactions.
+    ///    The gate is sound because `possible_losses == 0` covers message
+    ///    content across faulted retires: every retire arm either leaves
+    ///    the retiree whole, confirms a committed absorber session (which
+    ///    per `Peer::retire`'s contract reconciles content exactly as
+    ///    gossip would), or increments the counter, and a faulted
+    ///    bootstrap risks only identity space.
+    ///
+    /// Peer-vs-peer equality (3) alone cannot catch every survivor
+    /// agreeing on the *wrong* set; (5) and (6) check the fleet against a
+    /// ledger independent of the merge machinery.
     ///
     /// The chaos: overlapping sessions through
     /// cloned [`Rumors`] handles, concurrent sends and redactions,
@@ -71,8 +88,177 @@ proptest! {
             quiesce(&outcome.peers).await;
             assert_converged(&outcome.peers);
             assert_party_invariants(&outcome.peers, outcome.possible_losses);
+            assert_deletion_honored(&outcome.peers, &outcome.redactions);
+            assert_value_oracle(
+                &outcome.peers,
+                outcome.possible_losses,
+                &outcome.inserted,
+                &outcome.redactions,
+            );
         });
     }
+}
+
+// ---- value-oracle adequacy tripwires -----------------------------------------
+
+/// Whether `f` panics, with the unwind caught so the test can assert on it.
+fn panics(f: impl FnOnce()) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err()
+}
+
+/// A small, fault-free plan for the tripwires.
+///
+/// Deterministically loss-free by construction (no fault is ever
+/// injected), with enough content that a live key always exists to
+/// corrupt the ledger around.
+fn tripwire_plan() -> Plan {
+    Plan {
+        n_peers: 2,
+        seed_messages: vec![10, 20, 30],
+        faulty_boots: vec![],
+        scripts: vec![
+            vec![Activity::Send(40), Activity::Redact(0)],
+            vec![Activity::Send(50)],
+        ],
+        sessions: vec![Session {
+            a: 0,
+            b: 1,
+            fault_a: FaultPlan::NONE,
+            fault_b: FaultPlan::NONE,
+        }],
+        retires: vec![],
+        // One floor and one default endpoint: the corruption checks run
+        // against an asymmetric-window session, the sweep's general case.
+        windows: vec![WindowChoice::Floor, WindowChoice::Default],
+    }
+}
+
+/// Adequacy tripwire for the value oracle: the checks must catch the two
+/// known-bad mechanisms they exist for before their green is trusted.
+///
+/// A *suppressed redaction* — the application called `redact()` (so the
+/// ledger holds it) but the mechanism left the leaf live — must fail both
+/// the deletion-honoring check and the multiset check; it is simulated by
+/// appending a ledger entry for a key that is genuinely live in the
+/// converged fleet. A *dropped insert* — a value the plan sent but the
+/// network silently lost — must fail the multiset check; it is simulated
+/// by appending a never-sent value to the insert ledger. The uncorrupted
+/// ledger must pass both checks in the same run, so this test also pins
+/// that the real assertions are green on an honest execution.
+#[test]
+fn value_oracle_tripwires_catch_known_bad_mechanisms() {
+    mt_runtime().block_on(async {
+        let outcome = run_plan(tripwire_plan()).await;
+        assert_eq!(
+            outcome.possible_losses, 0,
+            "a fault-free plan must be loss-free by construction"
+        );
+        quiesce(&outcome.peers).await;
+        assert_converged(&outcome.peers);
+
+        // Green on the honest run: both checks pass the uncorrupted ledger.
+        assert_deletion_honored(&outcome.peers, &outcome.redactions);
+        assert_value_oracle(&outcome.peers, 0, &outcome.inserted, &outcome.redactions);
+
+        // Known-bad mechanism 1: a suppressed redaction. Its ledger entry
+        // names a key still live in the converged fleet.
+        let (&key, &value) = readout(&outcome.peers[0].snapshot())
+            .iter()
+            .next()
+            .expect("the tripwire plan leaves live content");
+        let mut suppressed = outcome.redactions.clone();
+        suppressed.push(Redaction {
+            key,
+            value,
+            retained: true,
+        });
+        assert!(
+            panics(|| assert_deletion_honored(&outcome.peers, &suppressed)),
+            "the deletion-honoring check must catch a suppressed redaction"
+        );
+        assert!(
+            panics(|| assert_value_oracle(&outcome.peers, 0, &outcome.inserted, &suppressed)),
+            "the multiset check must catch a suppressed redaction"
+        );
+
+        // Known-bad mechanism 2: a dropped insert. The ledger holds a value
+        // the converged fleet never received.
+        let mut dropped = outcome.inserted.clone();
+        dropped.push(0xDEAD_BEEF);
+        assert!(
+            panics(|| assert_value_oracle(&outcome.peers, 0, &dropped, &outcome.redactions)),
+            "the multiset check must catch a dropped insert"
+        );
+    });
+}
+
+// ---- MAX_CUT derivation pin --------------------------------------------------
+
+/// Distinct values per side of the envelope session.
+///
+/// Strictly more unique content on *each* endpoint than an entire plan
+/// can mint anywhere (at most 7 seed messages plus 5 scripts of at most
+/// 7 sends), so any real plan session's divergence is dominated.
+const ENVELOPE_VALUES_PER_SIDE: u64 = 48;
+
+/// Byte extent of the envelope session, per endpoint.
+///
+/// Two peers forked from an empty seed, each holding
+/// [`ENVELOPE_VALUES_PER_SIDE`] unique values (full divergence: every
+/// leaf disputed, everything transferred both ways), gossiping at the
+/// sweep's widest window. Metered with the same counters the fault
+/// cuts spend, so the result is directly comparable to cut offsets.
+async fn envelope_session_bytes() -> usize {
+    let seed = WindowChoice::Default
+        .apply(Peer::<u64>::seed())
+        .into_rumors();
+    let a = common::wire::bootstrap_fork_with_window_async(&seed, WindowChoice::Default).await;
+    let b = common::wire::bootstrap_fork_with_window_async(&seed, WindowChoice::Default).await;
+    {
+        let mut batch = a.batch();
+        for v in 0..ENVELOPE_VALUES_PER_SIDE {
+            batch.send(v);
+        }
+    }
+    {
+        let mut batch = b.batch();
+        for v in 0..ENVELOPE_VALUES_PER_SIDE {
+            batch.send(1_000_000 + v);
+        }
+    }
+    let (link_a, link_b) = rumors::link::memory();
+    let (mut link_a, meter_a) = fault::metered(link_a);
+    let (mut link_b, meter_b) = fault::metered(link_b);
+    let (out_a, out_b) = tokio::join!(a.gossip(&mut link_a), b.gossip(&mut link_b));
+    out_a.expect("envelope session A");
+    out_b.expect("envelope session B");
+    meter_a.written().max(meter_b.written())
+}
+
+/// Pins `MAX_CUT` to the envelope session's measured byte extent, from
+/// both sides.
+///
+/// Every byte of the deepest session a plan can produce is a reachable
+/// cut offset (`measured <= MAX_CUT`), and the cut range is not
+/// vacuously wide (`MAX_CUT <= 2 * measured`), so generated cuts keep
+/// landing inside real sessions rather than past their end.
+#[test]
+fn max_cut_spans_the_envelope_session() {
+    let measured = mt_runtime().block_on(envelope_session_bytes());
+    println!("envelope session bytes per endpoint: {measured}");
+    assert!(
+        measured <= crate::common::sim::MAX_CUT,
+        "a plan session can move {measured} bytes per endpoint, beyond \
+         MAX_CUT ({}): deep-session cut offsets are unreachable",
+        crate::common::sim::MAX_CUT,
+    );
+    assert!(
+        crate::common::sim::MAX_CUT <= 2 * measured,
+        "MAX_CUT ({}) is more than twice the envelope session's {measured} \
+         bytes: most generated cuts would land past the end of every \
+         session and never fire",
+        crate::common::sim::MAX_CUT,
+    );
 }
 
 // ---- inter-process ----------------------------------------------------------
