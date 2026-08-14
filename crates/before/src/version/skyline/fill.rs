@@ -430,6 +430,10 @@ impl FillWalk<'_> {
         let mut frames = Frames::new();
         // Derived state: always equal to `frames.len()` (the assert below),
         // carried as a word so the hot loop never recounts a bit stack.
+        // `usize` is the contract width: the counter mirrors a `usize`
+        // container length, so it cannot wrap before the container itself
+        // fails; the pre-scan's non-mirror counters carry their own width
+        // contract (the `prescan` module doc).
         let mut depth = 0usize;
         'descend: loop {
             debug_assert_eq!(depth, frames.len(), "one frame per open branch level");

@@ -28,6 +28,21 @@
 //! could not move any tracked minimum — that raise decision belongs to the
 //! walk, which derives it from its own consuming scan and the minimum
 //! recorded here.
+//!
+//! # Counter widths
+//!
+//! The recorder's site-nesting counters ([`run`](PreScan::run)'s `level`,
+//! `head_level`, [`SuspendedLevel`]'s `level`) are `u64`: pure comparands,
+//! never indices, and a `u64` wrap needs 2^64 sequential increments —
+//! unreachability priced in work the caller must perform, never in input
+//! shape (a `usize` counter would be wrap-free only via a memory-pricing
+//! derivation from per-frame cost, a premise that would have to be stated
+//! and maintained on every target). The ledger's capacity contract is
+//! different in kind: stored-link indices fail loudly at their `u32` cap
+//! ([`Memo::set_link`]). The fill walk's near-synonymous `depth` (the
+//! [`run`](PreScan::run) doc contrasts the two notions) stays `usize`: it
+//! is derived state equal to its frame stack's `usize` length, dominated by
+//! that memory-backed container by construction.
 
 use core::cmp::Ordering;
 
@@ -72,8 +87,8 @@ pub(super) struct PreScan<'a, 'm> {
     first_slot: Option<usize>,
     /// The site-nesting level the head currently serves (0: the outermost
     /// site's own level, whose reference is the scan-entry height and never
-    /// defers).
-    head_level: u32,
+    /// defers). `u64` per the module doc's width contract.
+    head_level: u64,
     /// Suspended outer levels, innermost last, LIFO by the site forest's
     /// nesting.
     ///
@@ -96,7 +111,7 @@ pub(super) struct SuspendedLevel {
     /// The outer level's deferred first-site queue slot.
     first_slot: Option<usize>,
     /// The outer level's site-nesting level.
-    level: u32,
+    level: u64,
 }
 
 impl<'a, 'm> PreScan<'a, 'm> {
@@ -137,7 +152,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// records at `level`.
     pub(super) fn run(&mut self, id: &mut IdReader) -> usize {
         let mut frames = PreFrames::new();
-        let mut level: u32 = 1;
+        let mut level: u64 = 1;
         'descend: loop {
             // Descend: resolve the range at the cursor, or suspend and re-enter
             // on a present child.
@@ -293,7 +308,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// defers its link to the forest parent's own record — the parent's
     /// minimum is not final yet — and suspends the outer head, whose value is
     /// immutable from here on (both its endpoints are final minima).
-    pub(super) fn record(&mut self, slot: usize, level: u32) {
+    pub(super) fn record(&mut self, slot: usize, level: u64) {
         // The head and the suspends store true minimum differences, so no
         // anchor-relative content may escape into the ledger: a latent parked
         // by a nested site's close retires here (its one death), making every
