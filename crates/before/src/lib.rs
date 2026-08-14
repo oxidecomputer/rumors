@@ -359,7 +359,8 @@
 //! Any violation of these guarantees is a bug: please report it!
 //!
 //! Most operations also carry an interactive **measured-growth chart** in these
-//! API docs; the one below is [`Version::tick`]'s.
+//! API docs; the one below is [`Version::tick`]'s (it may not render if you are
+//! viewing this on a third-party site such as GitHub or crates.io).
 //!
 #![doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.open.html"))]
 //!
