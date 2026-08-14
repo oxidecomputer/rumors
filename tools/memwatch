@@ -60,13 +60,18 @@ swap_lim_mb=$((SWAP_LIMIT_GB * 1024))
 
 mkdir -p "$(dirname "$LOG")"
 
-note() { echo "$(date +%H:%M:%S) memwatch: $*" | tee -a "$LOG"; }
+# Every logged line is stripped of control bytes first: argv text from
+# watched processes flows into these lines, and a raw newline (or escape
+# sequence) inside one would mint synthetic records in the forensic log.
+sanitize() { printf '%s' "$1" | tr -d '[:cntrl:]'; }
+
+note() { echo "$(date +%H:%M:%S) memwatch: $(sanitize "$*")" | tee -a "$LOG"; }
 
 "$@" &
 ROOT=$!
 trap 'kill "$ROOT" 2>/dev/null' INT TERM
 
-echo "$(date +%H:%M:%S) memwatch: start pid $ROOT, per-proc ${PROC_LIMIT_GB} GiB, swap abort ${SWAP_LIMIT_GB} GiB: $*" >> "$LOG"
+echo "$(date +%H:%M:%S) memwatch: start pid $ROOT, per-proc ${PROC_LIMIT_GB} GiB, swap abort ${SWAP_LIMIT_GB} GiB: $(sanitize "$*")" >> "$LOG"
 
 # Only these are ever killed by the per-process check.
 is_build_proc() {
@@ -82,8 +87,9 @@ is_build_proc() {
 # parsed line, so no process can forge a record that steers a later
 # signal (ps emits argv bytes raw, so a newline embedded in any
 # process's argv would otherwise mint a synthetic record). Commands are
-# fetched separately, per pid, only to filter and describe a candidate
-# these numbers already chose. The chain walk is bounded so a torn
+# fetched separately, per pid, to filter and describe a candidate these
+# numbers already chose; the candidate's own per-pid snapshot re-checks
+# the limit before any signal. The chain walk is bounded so a torn
 # snapshot (a recycled pid making the ppid graph cyclic) terminates
 # rather than spinning.
 own_procs() {
@@ -118,14 +124,31 @@ while kill -0 "$ROOT" 2>/dev/null; do
             biggest_pid=$pid
         fi
         if [ "$rss" -gt "$lim_kib" ]; then
-            # The command is fetched by pid after the candidate is chosen:
-            # it filters and describes the kill, but can never choose its
-            # target.
-            cmd=$(ps -o command= -p "$pid")
+            # Re-read rss and command in one per-pid snapshot: the digits
+            # decide and the text only filters and describes, with both
+            # read from the same occupant of the pid, so a pid recycled
+            # since the tree snapshot cannot borrow the old occupant's
+            # size (the new occupant must itself be over-limit and
+            # build-shaped to be signalled). The residual window is the
+            # irreducible kill(2)-by-pid race between this snapshot and
+            # the signal: the scoping promise is per-snapshot, not atomic.
+            snap=$(ps -o rss=,command= -p "$pid")
+            rss_now=$(printf '%s\n' "$snap" | awk 'NR == 1 { print $1 }')
+            case "$rss_now" in
+                '' | *[!0-9]*)
+                    # The over-limit sighting is still logged, so a
+                    # runaway that dies between snapshot and fetch stays
+                    # attributed instead of vanishing without trace.
+                    note "over-limit pid $pid at $((rss / 1048576)) GiB resident exited before identification"
+                    continue
+                    ;;
+            esac
+            [ "$rss_now" -gt "$lim_kib" ] || continue
+            cmd=$(printf '%s\n' "$snap" | sed '1s/^[[:space:]]*[0-9]*[[:space:]]*//')
             is_build_proc "$cmd" || continue
             crate=$(printf '%s' "$cmd" | sed -n 's/.*--crate-name \([A-Za-z0-9_]*\).*/\1/p')
-            note "KILL pid $pid at $((rss / 1048576)) GiB resident, crate=${crate:-unknown}"
-            echo "    full cmd: $cmd" >> "$LOG"
+            note "KILL pid $pid at $((rss_now / 1048576)) GiB resident, crate=${crate:-unknown}"
+            echo "    full cmd: $(sanitize "$cmd")" >> "$LOG"
             kill -9 "$pid"
         fi
     done < <(own_procs)
