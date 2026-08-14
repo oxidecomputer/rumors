@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""Hold every GitHub Actions workflow step to code that is committed
+in-tree or identified by an immutable digest.
+
+Usage:
+    workflowlint PATH...
+    workflowlint --self-test
+
+The failure this catches that no existing instrument does: cargo-audit and
+cargo-deny police the crate graph through committed lockfiles, but nothing
+polices what the workflows themselves execute. A `uses:` reference pinned
+only by a mutable tag runs whatever commit the tag points at on the day the
+job runs — the tag's owner, or anyone who compromises that account, can
+move it under a privileged job with no commit in this repository. A
+fetch-execute install (`curl ... | sh`) runs whatever the remote host
+serves that day, with the same non-identity. Both execute inside jobs
+holding credentials (the Pages deploy holds an OIDC id-token), so either
+channel reaches what those jobs can reach.
+
+Two checks over every `*.yml`/`*.yaml` under the given paths:
+
+  - every `uses:` value names a local in-tree action (`./...`, committed
+    and reviewed like any other file), a repository action pinned to a
+    40-hex commit SHA, or a docker image pinned by sha256 digest. Spelling
+    totality: a `uses:` value this classifier does not recognize (an
+    expression, a malformed reference) is a failure, never a skip.
+  - no line pipes a `curl`/`wget` fetch into a shell. The scan is
+    deliberately file-wide rather than scoped to `run:` blocks: tracking
+    YAML block scalars would let a scoping bug rot silent, while
+    over-matching fails loudly and gets reworded. Full-line `#` comments
+    are exempt; prose may name the pattern.
+
+Tamper-evidence against its own rot:
+
+  - liveness floors: the scan must see at least one workflow file and at
+    least one `uses:` line. The premise is that this repository's
+    workflows use actions; if that ever stops holding, the floor changes
+    deliberately, never silently.
+  - `--self-test`: synthetic fixtures pinning every red path above, plus
+    the exemptions (local actions, digest pins, comment lines) that must
+    stay green.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+USES = re.compile(r"^\s*(?:-\s+)?uses:\s*(.+?)\s*$")
+
+# A repository action identified immutably: owner/repo, optional subdir,
+# then a full 40-hex commit SHA. Git object names are lowercase hex; any
+# other ref shape after `@` is mutable or malformed and fails.
+PINNED = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[^@\s]+)?@[0-9a-f]{40}$")
+UNPINNED = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[^@\s]+)?@\S+$")
+NO_REF = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[^@\s]+)?$")
+DOCKER_PINNED = re.compile(r"docker://[^@\s]+@sha256:[0-9a-f]{64}$")
+
+# A fetch piped into a shell: curl/wget output crossing a `|` into sh or a
+# relative (bash/dash/zsh), with an optional sudo. `[^|;&]*` keeps the
+# fetch and the shell in the same pipeline segment.
+FETCH_PIPE = re.compile(
+    r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:ba|da|z)?sh\b"
+)
+
+
+def uses_value(raw):
+    """The `uses:` payload with quotes and any trailing comment removed."""
+    for quote in ('"', "'"):
+        if raw.startswith(quote) and quote in raw[1:]:
+            return raw[1 : raw.index(quote, 1)]
+    return re.split(r"\s+#", raw, maxsplit=1)[0].strip()
+
+
+def scan(name, text):
+    """Yield `(line_number, problem)` for one workflow file's text, and
+    count the `uses:` lines seen (the caller's extraction floor needs it).
+
+    Returns `(problems, uses_seen)`.
+    """
+    problems = []
+    uses_seen = 0
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+
+        m = USES.match(line)
+        if m:
+            uses_seen += 1
+            value = uses_value(m.group(1))
+            if value.startswith("./"):
+                pass  # a local action: committed in-tree, reviewed as code
+            elif value.startswith("docker://"):
+                if not DOCKER_PINNED.fullmatch(value):
+                    problems.append(
+                        (
+                            lineno,
+                            f"docker action not digest-pinned: {value!r} "
+                            "(pin @sha256:<64-hex>)",
+                        )
+                    )
+            elif PINNED.fullmatch(value):
+                pass
+            elif UNPINNED.fullmatch(value):
+                problems.append(
+                    (
+                        lineno,
+                        f"action not pinned to a 40-hex commit SHA: "
+                        f"{value!r} (a mutable ref runs whatever it points "
+                        "at on the day the job runs)",
+                    )
+                )
+            elif NO_REF.fullmatch(value):
+                problems.append(
+                    (lineno, f"action carries no ref at all: {value!r}")
+                )
+            else:
+                problems.append(
+                    (
+                        lineno,
+                        f"unrecognized `uses:` spelling (extend the "
+                        f"classifier deliberately): {value!r}",
+                    )
+                )
+            continue
+
+        if FETCH_PIPE.search(line):
+            problems.append(
+                (
+                    lineno,
+                    "fetch-execute pipe: a curl/wget fetch flows into a "
+                    "shell; install through a SHA-pinned action or a "
+                    "committed script instead",
+                )
+            )
+    return [(f"{name}:{n}", msg) for n, msg in problems], uses_seen
+
+
+def run(files):
+    """One judgment over `(name, text)` pairs.
+
+    Returns `(problems, uses_total)`; the floors live here so every entry
+    point (live run and self-test) is judged identically.
+    """
+    problems = []
+    uses_total = 0
+    for name, text in files:
+        found, uses_seen = scan(name, text)
+        problems.extend(found)
+        uses_total += uses_seen
+    if not files:
+        problems.append(
+            (
+                "(scan)",
+                "liveness: no workflow files found; the workflows moved or "
+                "the paths are wrong — a vacant scan is a failure, not a "
+                "clean sweep",
+            )
+        )
+    elif uses_total == 0:
+        problems.append(
+            (
+                "(scan)",
+                "liveness: no `uses:` lines found in any workflow; the "
+                "extractor has rotted or the workflows stopped using "
+                "actions — change the floor deliberately if the premise "
+                "changed",
+            )
+        )
+    return problems, uses_total
+
+
+def self_test():
+    """Pin the red paths: every unpinned shape and fetch-execute form must
+    fail, the exemptions must stay green, and the floors must fire.
+    """
+    sha = "8edcb1bdb4e267140fa742c62e395cd74f3327a9"
+    digest = "a" * 64
+    green = f"""
+name: fixture
+on: push
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@{sha} # v6.0.0
+      - uses: "taiki-e/install-action@{sha}"
+      - uses: dtolnay/rust-toolchain@{sha}
+        with:
+          toolchain: stable
+      - uses: ./.github/actions/local-fixture
+      - uses: docker://alpine@sha256:{digest}
+      # a comment naming `curl ... | sh` is prose, not execution
+      - name: Fetch without executing
+        run: |
+          curl -sSf https://example.invalid/data.json -o data.json
+          shasum -c data.json.sha256
+"""
+
+    def swap(needle, replacement):
+        assert needle in green
+        return green.replace(needle, replacement, 1)
+
+    cases = [
+        # The honest fixture: pinned, local, and digest forms all pass.
+        ("green", green, []),
+        # A mutable tag must fail...
+        (
+            "mutable tag",
+            swap(f"actions/checkout@{sha} # v6.0.0", "actions/checkout@v6"),
+            ["not pinned to a 40-hex commit SHA"],
+        ),
+        # ...including one hiding behind a trailing tag comment.
+        (
+            "mutable tag with comment",
+            swap(f"actions/checkout@{sha} # v6.0.0", "actions/checkout@v6 # v6"),
+            ["not pinned to a 40-hex commit SHA"],
+        ),
+        # A short SHA is a mutable ref: it can be reforged.
+        (
+            "short sha",
+            swap(f"actions/checkout@{sha}", f"actions/checkout@{sha[:7]}"),
+            ["not pinned to a 40-hex commit SHA"],
+        ),
+        # A branch name is the most mutable ref of all.
+        (
+            "branch ref",
+            swap(f"actions/checkout@{sha}", "actions/checkout@main"),
+            ["not pinned to a 40-hex commit SHA"],
+        ),
+        # Uppercase hex is not a git object name.
+        (
+            "uppercase hex",
+            swap(f"actions/checkout@{sha}", f"actions/checkout@{sha.upper()}"),
+            ["not pinned to a 40-hex commit SHA"],
+        ),
+        # A reference with no `@` at all must fail.
+        (
+            "no ref",
+            swap(f"actions/checkout@{sha} # v6.0.0", "actions/checkout"),
+            ["carries no ref at all"],
+        ),
+        # A quoted value is classified like an unquoted one.
+        (
+            "quoted mutable tag",
+            swap(
+                f'"taiki-e/install-action@{sha}"',
+                '"taiki-e/install-action@v2"',
+            ),
+            ["not pinned to a 40-hex commit SHA"],
+        ),
+        # A docker image by tag must fail; only a digest is immutable.
+        (
+            "docker tag",
+            swap(f"docker://alpine@sha256:{digest}", "docker://alpine:3.20"),
+            ["docker action not digest-pinned"],
+        ),
+        # An expression is a spelling the classifier refuses, never skips.
+        (
+            "expression",
+            swap(f"actions/checkout@{sha} # v6.0.0", "${{ matrix.action }}"),
+            ["unrecognized `uses:` spelling"],
+        ),
+        # The canonical fetch-execute installer must fail...
+        (
+            "curl pipe sh",
+            swap(
+                "curl -sSf https://example.invalid/data.json -o data.json",
+                "curl https://example.invalid/init.sh -sSf | sh",
+            ),
+            ["fetch-execute pipe"],
+        ),
+        # ...as must its wget/sudo/bash spellings.
+        (
+            "wget sudo bash",
+            swap(
+                "curl -sSf https://example.invalid/data.json -o data.json",
+                "wget -qO- https://example.invalid/init.sh | sudo bash",
+            ),
+            ["fetch-execute pipe"],
+        ),
+        # A fetch that only downloads, never executes, stays green — and
+        # the comment line naming the pattern is exempt (both are already
+        # in the green fixture).
+    ]
+    for name, text, needles in cases:
+        problems, _ = run([("fixture.yml", text)])
+        messages = [msg for _, msg in problems]
+        if len(messages) != len(needles) or not all(
+            needle in message for needle, message in zip(needles, messages)
+        ):
+            raise AssertionError(
+                f"self-test {name!r}: expected {needles}, got {messages}"
+            )
+
+    # The floors: an empty scan and a uses-free scan must both fail.
+    problems, _ = run([])
+    assert any("no workflow files" in msg for _, msg in problems), problems
+    problems, _ = run([("fixture.yml", "name: fixture\non: push\n")])
+    assert any("no `uses:` lines" in msg for _, msg in problems), problems
+
+
+def workflow_files(root):
+    if root.is_file():
+        return [root] if root.suffix in (".yml", ".yaml") else []
+    return sorted(
+        p for suffix in ("*.yml", "*.yaml") for p in root.rglob(suffix)
+    )
+
+
+def main(argv):
+    if argv[1:] == ["--self-test"]:
+        self_test()
+        print("workflowlint: self-test ok")
+        return 0
+    roots = [Path(a) for a in argv[1:]]
+    if not roots:
+        print("usage: workflowlint PATH... | --self-test", file=sys.stderr)
+        return 2
+
+    # A nonexistent root would match no files, and only the coarse
+    # no-files-at-all floor below would notice; a renamed directory among
+    # several must fail by name, never dilute the scan.
+    missing = [root for root in roots if not root.exists()]
+    if missing:
+        for root in missing:
+            print(
+                f"workflowlint: no such file or directory: {root}",
+                file=sys.stderr,
+            )
+        return 2
+
+    files = [
+        (str(path), path.read_text(encoding="utf-8"))
+        for root in roots
+        for path in workflow_files(root)
+    ]
+    problems, uses_total = run(files)
+    if problems:
+        for location, message in problems:
+            print(f"{location}: {message}")
+        print(
+            f"\nworkflowlint: {len(problems)} problem(s); every workflow "
+            "step runs code that is committed in-tree or pinned by "
+            "immutable digest — no mutable tags, no fetch-execute.",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"workflowlint: all {uses_total} action reference(s) across "
+        f"{len(files)} workflow file(s) are immutably pinned; no "
+        "fetch-execute pipes"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
