@@ -293,7 +293,19 @@ pub fn encode(log: &[Op]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
-/// Decode a fragment back into a log. Errs on malformed input.
+/// The most ops a decoded fragment may carry.
+///
+/// A fragment is caller input (any shared link can carry one), and every
+/// accepted op costs a replay: arena nodes whose notation strings grow with
+/// fork depth (a chain of forks makes total arena memory quadratic in op
+/// count) and one render-recursion level per unit of tree depth in the
+/// front-end. The cap is what keeps both linear-and-small; a teaching figure
+/// needs at most a few dozen ops, so 512 is an order of magnitude of
+/// headroom while staying far under browser stack limits.
+pub const MAX_FRAGMENT_OPS: usize = 512;
+
+/// Decode a fragment back into a log. Errs on malformed input or a log
+/// carrying more than [`MAX_FRAGMENT_OPS`] ops.
 pub fn decode(fragment: &str) -> Result<Vec<Op>, String> {
     if fragment.is_empty() {
         return Ok(Vec::new());
@@ -304,6 +316,9 @@ pub fn decode(fragment: &str) -> Result<Vec<Op>, String> {
     let mut log = Vec::new();
     let mut pos = 0;
     while pos < bytes.len() {
+        if log.len() == MAX_FRAGMENT_OPS {
+            return Err(format!("more than {MAX_FRAGMENT_OPS} ops"));
+        }
         let tag = bytes[pos];
         pos += 1;
         match tag {

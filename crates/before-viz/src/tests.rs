@@ -217,3 +217,30 @@ fn overlong_varint_fragment_rejects_cleanly() {
         }
     }
 }
+
+/// The fragment decoder accepts a log at the op-count cap and rejects one
+/// past it — through the engine, as `BadFragment` — before any op is
+/// replayed.
+///
+/// A fragment is caller input (any shared link can carry one), and op count
+/// is what bounds replay work, arena size, and the front-end's per-level
+/// render recursion; without the cap, a link of a few tens of KB wedges the
+/// tab. The boundary is pinned from both sides so the cap can neither drift
+/// below legitimate teaching-figure scale nor silently stop rejecting.
+#[test]
+fn fragment_op_count_cap_boundary() {
+    let at_cap = oplog::encode(&vec![Op::Tick { x: 0 }; oplog::MAX_FRAGMENT_OPS]);
+    assert_eq!(
+        oplog::decode(&at_cap)
+            .expect("a log at the cap decodes")
+            .len(),
+        oplog::MAX_FRAGMENT_OPS
+    );
+
+    let past_cap = oplog::encode(&vec![Op::Tick { x: 0 }; oplog::MAX_FRAGMENT_OPS + 1]);
+    let mut e = crate::Engine::new();
+    match e.load_fragment(&past_cap) {
+        Err(crate::EngineError::BadFragment(_)) => {}
+        other => panic!("a log past the op-count cap must reject as BadFragment, got {other:?}"),
+    }
+}
