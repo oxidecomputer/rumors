@@ -1,8 +1,9 @@
 //! The proptest seed files' provenance sweep: every committed seed
 //! lives at a path proptest's configured persistence actually derives
-//! from a live test source, so no regression corpus goes silently dead
-//! when a module moves, retires, or a seed lands in a location the
-//! library never reads.
+//! from a live test source.
+//!
+//! No regression corpus may go silently dead when a module moves,
+//! retires, or a seed lands in a location the library never reads.
 //!
 //! Committed seeds are instruments of record — each `cc` line replays a
 //! shrunk failure before novel cases are generated — but a seed replays

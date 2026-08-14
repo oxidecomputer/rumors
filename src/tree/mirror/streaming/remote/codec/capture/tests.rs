@@ -14,9 +14,11 @@ use crate::tree::typed::hash::MERKLE_HASH_LEN;
 use super::super::frame::LeafRun;
 
 /// The committed fixture pair: two supply runs identical except one
-/// record's version. Their decoded renderings differ at exactly the
-/// line naming that record — the field-level account an insta
-/// re-accept diff shows beside the hex — and nowhere else.
+/// record's version decode to renderings differing at exactly the line
+/// naming that record.
+///
+/// That one-line diff is the field-level account an insta re-accept
+/// shows beside the hex.
 #[test]
 fn supply_decode_names_the_field_that_moved() {
     let party = before::Party::seed();
@@ -45,8 +47,10 @@ fn supply_decode_names_the_field_that_moved() {
 }
 
 /// Unparseable supply payloads render an explicit decode failure, never
-/// silent hex: a run with broken record framing convicts the whole run,
-/// and a structurally framed record whose version bytes do not decode
+/// silent hex.
+///
+/// A run with broken record framing convicts the whole run, and a
+/// structurally framed record whose version bytes do not decode
 /// convicts that record by index.
 #[test]
 fn undecodable_supply_renders_failure_not_silent_hex() {
