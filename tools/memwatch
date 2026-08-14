@@ -27,8 +27,9 @@
 #   memwatch cargo nextest run --workspace --all-features
 #   PROC_LIMIT_GB=64 SWAP_LIMIT_GB=48 memwatch cargo bench ...
 #
-# Events are echoed and appended to $LOG (default /tmp/memwatch.log). The
-# swap check is macOS-specific and degrades to a no-op elsewhere.
+# Events are echoed and appended to $LOG (default target/memwatch.log under
+# the invoking directory). The swap check is macOS-specific and degrades to
+# a no-op elsewhere.
 
 set -u
 
@@ -44,12 +45,20 @@ set -u
 # needs more.
 PROC_LIMIT_GB="${PROC_LIMIT_GB:-32}"
 SWAP_LIMIT_GB="${SWAP_LIMIT_GB:-24}"
-LOG="${LOG:-/tmp/memwatch.log}"
+# The log must never be opened through a path another user could have
+# pre-created: a fixed name in a sticky world-writable directory (/tmp)
+# can be planted as a symlink by any local user, and macOS follows it on
+# append. Defaulting under the invoking directory's target/ keeps the
+# path inside a tree the invoking user owns; $LOG still overrides for
+# callers who want a shared log.
+LOG="${LOG:-$PWD/target/memwatch.log}"
 INTERVAL="${INTERVAL:-2}"
 HEARTBEAT_EVERY="${HEARTBEAT_EVERY:-60}"   # ticks between status lines
 
 lim_kib=$((PROC_LIMIT_GB * 1024 * 1024))   # ps reports rss in KiB
 swap_lim_mb=$((SWAP_LIMIT_GB * 1024))
+
+mkdir -p "$(dirname "$LOG")"
 
 note() { echo "$(date +%H:%M:%S) memwatch: $*" | tee -a "$LOG"; }
 
