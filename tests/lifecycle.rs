@@ -153,6 +153,96 @@ fn dropping_the_link_immediately_after_ok_is_clean() {
     assert_eq!(a.snapshot().len(), 2 * DIVERGENT_MESSAGES as usize);
 }
 
+/// One byte inside the epilogue boundary, the session is still pre-commit.
+///
+/// With B's read budget *two* bytes short of a clean session — one byte
+/// before the lost-marker residue's cut — the withheld bytes are the tail
+/// of reconciliation plus A's epilogue marker, so B fails before it
+/// commits: a pre-commit error class (never [`Error::Epilogue`]), B's
+/// replica byte-unchanged (snapshot hash equal to its pre-session value),
+/// and B's link poisoned, failing the next session fast with
+/// [`Error::LinkPoisoned`] and no wire traffic. Together with
+/// [`a_lost_epilogue_marker_is_distinguished_and_post_commit`], one budget
+/// unit apart, this brackets where a session commits relative to its wire
+/// schedule: a drift in either direction fails one leg's assertion class.
+#[test]
+fn a_cut_before_the_epilogue_fails_pre_commit_and_unchanged() {
+    // Probe: measure B's total incoming bytes across one clean divergent
+    // session, exactly as the inside leg does.
+    let clean_read_bytes = {
+        let (a, b) = block_on(divergent_pair());
+        let (a_link, b_link) = rumors::link::memory();
+        let (mut b_link, report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
+        let (a_out, b_out) = block_on(async {
+            let mut a_link = a_link;
+            tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+        });
+        a_out.expect("probe session A");
+        b_out.expect("probe session B");
+        report.snapshot().read_bytes
+    };
+
+    // Replay with B's reads failing two bytes short: the cut lands in the
+    // reconciliation's tail, before B's commit point.
+    let (a, b) = block_on(divergent_pair());
+    let b_hash_before = b.snapshot().hash();
+    let (a_link, b_link) = rumors::link::memory();
+    let plan = IoPlan {
+        fault: Some(IoFault {
+            operation: IoOperation::Read,
+            after: clean_read_bytes - 2,
+            unit: IoFaultUnit::Bytes,
+        }),
+        ..IoPlan::default()
+    };
+    let (mut b_link, b_report) = wrap_link(IoSide::Right, plan, b_link);
+
+    // B resolves on its own injected fault; A, still awaiting the epilogue
+    // marker B never sends, is cancelled when the race concludes (its link
+    // drops with it). B's link outlives the race for the poison probe.
+    let b_out = block_on(async {
+        let b_session = b.gossip(&mut b_link);
+        let a_session = async {
+            let mut a_link = a_link;
+            a.gossip(&mut a_link).await
+        };
+        tokio::select! {
+            biased;
+            b_out = b_session => b_out,
+            a_out = a_session => panic!(
+                "A cannot conclude while B's marker is outstanding, got {a_out:?}"
+            ),
+        }
+    });
+
+    // Pre-commit: the failure is a session-failure class, never the
+    // distinguished post-commit residue.
+    assert!(
+        !matches!(b_out, Ok(_) | Err(Error::Epilogue(_))),
+        "a cut before the epilogue must fail pre-commit, got {b_out:?}"
+    );
+    // Unchanged: B holds exactly its own pre-session sends.
+    assert_eq!(
+        b.snapshot().hash(),
+        b_hash_before,
+        "a pre-commit failure must leave B's replica byte-unchanged"
+    );
+    assert_eq!(b.snapshot().len(), DIVERGENT_MESSAGES as usize);
+
+    // Poisoned: the next session on B's link fails fast, no wire traffic.
+    let before = b_report.snapshot();
+    let retry = run_to_quiescence(b.gossip(&mut b_link)).expect("the fail-fast needs no peer");
+    assert!(
+        matches!(retry, Err(Error::LinkPoisoned)),
+        "a poisoned link must fail B's next session fast, got {retry:?}"
+    );
+    assert_eq!(
+        b_report.snapshot(),
+        before,
+        "the fail-fast must perform no wire traffic on B's link"
+    );
+}
+
 /// The peer-committed-or-not residue is distinguished and post-commit.
 ///
 /// With A's final epilogue marker withheld (B's read budget is one byte

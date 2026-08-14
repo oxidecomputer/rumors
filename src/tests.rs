@@ -14,7 +14,7 @@ use tokio::io::AsyncWrite;
 
 use tokio::sync::{Mutex, watch};
 
-use crate::bookmark::{Bookmarked, NoBookmark};
+use crate::bookmark::{Bookmark, BookmarkError, Bookmarked, NoBookmark, Serialized};
 use crate::link::{Connector, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
 use crate::testing::{Quiescence, run_to_quiescence};
 use crate::tree::{Root, Tree};
@@ -36,7 +36,7 @@ fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
 }
 
 /// Read a `Peer`'s party for assertions.
-fn party_of(k: &Peer<u64>) -> Party {
+fn party_of<B: BookmarkError>(k: &Peer<u64, B>) -> Party {
     k.inner
         .borrow()
         .party
@@ -264,7 +264,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
 /// The wire length of `retiree`'s complete greeting — the causal-version
 /// frame plus the root-fan listing frame — so a [`Fuse`] budget can land on
 /// an exact protocol boundary.
-fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
+fn greeting_frame_len<B: BookmarkError>(retiree: &Peer<u64, B>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized};
 
     let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root.into();
@@ -524,6 +524,205 @@ fn severed_party_frame_is_uncertain() {
         "the absorber never receives the promised party frame"
     );
     drop(survivor);
+}
+
+// ---- fault injection: severing the wire mid-bootstrap ---------------------
+
+/// An infallible in-memory bookmark whose durable frame the severed-join
+/// pins read back, to prove what a donation did (or did not) commit.
+#[derive(Clone, Debug)]
+struct MemoryBookmark(Arc<std::sync::Mutex<Option<Vec<u8>>>>);
+
+impl BookmarkError for MemoryBookmark {
+    type Error = std::convert::Infallible;
+}
+
+impl Bookmark for MemoryBookmark {
+    type Reader = std::io::Cursor<Vec<u8>>;
+
+    async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
+        Ok(self.0.lock().unwrap().clone().map(std::io::Cursor::new))
+    }
+
+    async fn store<F>(&self, write: F) -> Result<(), Self::Error>
+    where
+        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send,
+    {
+        let mut buf: Vec<u8> = Vec::new();
+        write(&mut buf)
+            .await
+            .expect("writing to an in-memory buffer is infallible");
+        *self.0.lock().unwrap() = Some(buf);
+        Ok(())
+    }
+}
+
+/// Every [`Party`] a stored bookmark frame records, or none if nothing is
+/// stored yet.
+fn recorded_parties(store: &Arc<std::sync::Mutex<Option<Vec<u8>>>>) -> Vec<Party> {
+    match store.lock().unwrap().clone() {
+        None => Vec::new(),
+        Some(bytes) => crate::bookmark::format::decode(&bytes)
+            .expect("a stored bookmark frame decodes")
+            .into_values()
+            .flatten()
+            .map(|clock| clock.into_parts().0)
+            .collect(),
+    }
+}
+
+/// Drive a fresh `Bootstrap::join` against `provider.gossip` over a link
+/// whose provider-side outgoing bytes are fused to `budget`.
+///
+/// Each side's link is owned by its future, so the failing side's drop
+/// surfaces as EOF to the other rather than deadlocking the join. Returns
+/// both outcomes.
+#[allow(clippy::type_complexity)]
+fn severed_join(
+    provider: &Peer<u64, MemoryBookmark>,
+    budget: usize,
+) -> (
+    Result<Option<Peer<u64>>, Error>,
+    Result<(), Error<MemoryBookmark>>,
+) {
+    pollster::block_on(async move {
+        let (p_link, j_link) = memory();
+        tokio::join!(
+            async move {
+                let mut j_link = j_link;
+                Peer::<u64>::bootstrap().join(&mut j_link).await
+            },
+            async move {
+                let mut p_link = fused_link(p_link, budget);
+                provider.gossip(&mut p_link).await.map(|_gossiped| ())
+            },
+        )
+    })
+}
+
+/// Drive a fresh `Bootstrap::join` against `provider.gossip` over a clean
+/// memory link, returning the donated peer.
+fn clean_join_from(provider: &Peer<u64, MemoryBookmark>) -> Peer<u64> {
+    pollster::block_on(async move {
+        let (p_link, j_link) = memory();
+        let (boot_out, serve_out) = tokio::join!(
+            async move {
+                let mut j_link = j_link;
+                Peer::<u64>::bootstrap().join(&mut j_link).await
+            },
+            async move {
+                let mut p_link = p_link;
+                provider.gossip(&mut p_link).await
+            },
+        );
+        serve_out.expect("clean serve");
+        boot_out
+            .expect("clean join")
+            .expect("the provider donates a fork")
+    })
+}
+
+/// A bootstrap serve severed before the donation's wire window opens costs
+/// nothing.
+///
+/// The budget withholds the last byte of the provider's greeting, so the
+/// session dies inside reconciliation: before the provider commits its
+/// donation. Both sides fail cleanly, no [`Peer`] is minted, the provider's
+/// live party is untouched, its bookmark record still covers its whole
+/// identity, and a subsequent clean join donates the full region — provider
+/// and joiner tile the seed exactly. One budget unit below
+/// [`severed_join_on_the_donation_costs_the_forked_region`], this brackets
+/// the loss window's near edge: drift in either direction fails one leg.
+#[test]
+fn severed_join_before_the_donation_leaves_the_provider_intact() {
+    let store = Arc::new(std::sync::Mutex::new(None));
+    let provider = pollster::block_on(Peer::<u64>::seed().bookmark(MemoryBookmark(store.clone())))
+        .expect("a pristine seed attaches its bookmark without touching storage");
+
+    let budget = PREAMBLE_LEN + greeting_frame_len(&provider) - 1;
+    let (join_out, serve_out) = severed_join(&provider, budget);
+
+    assert!(
+        !matches!(join_out, Ok(Some(_))),
+        "no peer may be minted from a severed serve, got a donated peer"
+    );
+    assert!(
+        serve_out.is_err(),
+        "the provider's severed serve must fail, got {serve_out:?}"
+    );
+    assert_eq!(
+        party_of(&provider),
+        Party::seed(),
+        "a pre-donation cut must leave the provider's live party whole"
+    );
+    for party in recorded_parties(&store) {
+        assert_eq!(
+            party,
+            Party::seed(),
+            "the durable record must still cover the whole identity"
+        );
+    }
+
+    // The identity was never at risk: a clean join now donates the full
+    // region, and the two live parties tile the seed exactly.
+    let joiner = clean_join_from(&provider);
+    let mut reunited = party_of(&provider);
+    reunited
+        .join(party_of(&joiner))
+        .expect("provider and joiner are disjoint");
+    assert_eq!(
+        reunited,
+        Party::seed(),
+        "a subsequent clean join must donate the full expected region"
+    );
+}
+
+/// A bootstrap serve severed on the donation itself costs exactly the
+/// forked region: the documented identity-space loss.
+///
+/// The budget admits the provider's preamble and greeting to the byte, so
+/// the party frame's send is the write that fails. By then the provider has
+/// committed the donation — the fork left its live party and its bookmark's
+/// `slice` persisted — and a local send failure cannot prove the frame
+/// never arrived, so the fork is treated as possibly delivered and dropped:
+/// the joiner gets an error and no [`Peer`], the provider's party and
+/// durable record are both provably sliced, and the forked region is held
+/// by no one. This is the session contract's qualified exception — a
+/// donation lost in flight costs the donated identity space — pinned at the
+/// window's near edge, one budget unit above
+/// [`severed_join_before_the_donation_leaves_the_provider_intact`].
+#[test]
+fn severed_join_on_the_donation_costs_the_forked_region() {
+    let store = Arc::new(std::sync::Mutex::new(None));
+    let provider = pollster::block_on(Peer::<u64>::seed().bookmark(MemoryBookmark(store.clone())))
+        .expect("a pristine seed attaches its bookmark without touching storage");
+
+    let budget = PREAMBLE_LEN + greeting_frame_len(&provider);
+    let (join_out, serve_out) = severed_join(&provider, budget);
+
+    assert!(
+        !matches!(join_out, Ok(Some(_))),
+        "no peer may be minted from a severed serve, got a donated peer"
+    );
+    assert!(
+        serve_out.is_err(),
+        "the provider's severed serve must fail, got {serve_out:?}"
+    );
+
+    // The provider committed the donation before the send failed: its live
+    // party is sliced, and the lost region is exactly the complement.
+    let post = party_of(&provider);
+    let lost = Party::seed()
+        .without(&post)
+        .expect("the donation must have cost a nonempty region");
+    // The durable record agrees: nothing stored covers the lost region, so
+    // no future incarnation can resurrect it either.
+    for party in recorded_parties(&store) {
+        assert!(
+            party.is_disjoint(&lost),
+            "the durable record must not claim the lost region {lost:?}, found {party:?}"
+        );
+    }
 }
 
 /// An uncontained supply crossing a real peer session surfaces through
