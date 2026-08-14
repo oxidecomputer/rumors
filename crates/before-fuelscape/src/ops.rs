@@ -143,6 +143,11 @@ pub struct OpSpec {
     pub covers: &'static [&'static str],
     /// The declared size measure, stamped verbatim on the render.
     pub size_measure: &'static str,
+    /// The variant label distinguishing this panel where one doc site
+    /// carries several ("floor + ceiling", "vs `Version`"); empty for a
+    /// site's only panel. Leads the island summary so stacked charts
+    /// scan by variant.
+    pub variant: &'static str,
     /// The rustdoc complexity contract this panel's doc island shows.
     ///
     /// Display text with backticked code spans (e.g.
@@ -275,6 +280,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["Version::decode"],
         size_measure: M_UNARY,
+        variant: "",
         contract: "`O(n)`, `n` the bytes read, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -287,6 +293,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["Version::encode"],
         size_measure: M_UNARY,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -300,6 +307,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Version Display / FromStr / TryFrom literals"],
         size_measure: "exact packed bytes, uniform per size (fuel includes writing the \
              text output)",
+        variant: "",
         contract: "superlinear, subquadratic time; `O(|self|)` space",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -314,6 +322,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the sampled value, rendered to text by Display \
              (the value measure pushed through rendering — not uniform over text; the \
              adversarial text families keep the corner coverage)",
+        variant: "",
         contract: "superlinear, subquadratic time; `O(|s|)` space",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -327,6 +336,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["Version::rank"],
         size_measure: M_UNARY,
+        variant: "",
         contract: "`O(M(|self|) · log |self|)` time, `O(|self|)` space",
         claim: "n (log n)^2",
         measure: |g, inputs, _| {
@@ -339,6 +349,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version]),
         covers: &["Version::min_ticks"],
         size_measure: M_UNARY,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -351,6 +362,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Party]),
         covers: &["Version::tick"],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(|self| + |party|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -367,6 +379,7 @@ pub const ROSTER: &[OpSpec] = &[
              count a declared constant, 10⁹: the fused multi-tick walk is flat in the \
              count — at most two fused passes and one splice — so one panel at one \
              large count is the whole n-dependence)",
+        variant: "",
         contract: "`O(|self| + |party| + log k)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -386,6 +399,7 @@ pub const ROSTER: &[OpSpec] = &[
         ],
         size_measure: "total packed bytes; split uniform across the two operands (the \
              projection view materialized via to_version)",
+        variant: "",
         contract: "the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`",
         claim: "n^2",
         measure: |g, inputs, _| {
@@ -404,7 +418,8 @@ pub const ROSTER: &[OpSpec] = &[
              and the compared version, split uniform three ways (the fused \
              three-stream co-walk, no materialization; view construction is O(1) \
              preparation, and the equality entry runs the same fused mechanism)",
-        contract: "vs `Version`: `O(|self| + |other|)`",
+        variant: "vs `Version`",
+        contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -426,7 +441,8 @@ pub const ROSTER: &[OpSpec] = &[
              parties, split uniform four ways (the fused four-stream co-walk, no \
              materialization; view construction is O(1) preparation, and the equality \
              entry runs the same fused mechanism)",
-        contract: "vs `OwnVersion`: `O(|self| + |other|)`",
+        variant: "vs `OwnVersion`",
+        contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -441,7 +457,8 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version PartialOrd (the comparison matrix, owned and borrowed)"],
         size_measure: M_BINARY,
-        contract: "comparison: `O(|a| + |b|)`",
+        variant: "comparison",
+        contract: "`O(|a| + |b|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -454,6 +471,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version::concurrent"],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -471,7 +489,8 @@ pub const ROSTER: &[OpSpec] = &[
              short-circuits at the first differing byte, so the equal pair is \
              the linear worst case (random distinct pairs would measure the \
              O(1) prefix exit)",
-        contract: "equality: `O(|a| + |b|)`: canonical byte compare, measured on equal pairs",
+        variant: "equality",
+        contract: "`O(|a| + |b|)`: canonical byte compare, measured on equal pairs",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -485,6 +504,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Version Eq / Hash (canonical byte compare)"],
         size_measure: "packed bytes of the hashed version (std's DefaultHasher \
              over the canonical bytes)",
+        variant: "",
         contract: "`O(|self|)`: one pass over the canonical bytes",
         claim: "n",
         measure: |g, inputs, _| {
@@ -500,6 +520,7 @@ pub const ROSTER: &[OpSpec] = &[
             "Version::join",
         ],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -516,6 +537,7 @@ pub const ROSTER: &[OpSpec] = &[
             "Version::meet",
         ],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -529,6 +551,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version::distance"],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(M(|self|) · log |self|)` time, `O(|self| + |other|)` space",
         claim: "n (log n)^2",
         measure: |g, inputs, _| {
@@ -542,6 +565,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Version::lag"],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(M(|self|) · log |self|)` time, `O(|self| + |other|)` space",
         claim: "n (log n)^2",
         measure: |g, inputs, _| {
@@ -555,6 +579,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::VersionSlice,
         covers: &["Version::join_all"],
         size_measure: M_SLICE,
+        variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -567,6 +592,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::VersionSlice,
         covers: &["Version::meet_all"],
         size_measure: M_SLICE,
+        variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -582,6 +608,7 @@ pub const ROSTER: &[OpSpec] = &[
             "Version ^ Version (BitXor, owned and borrowed — the pair hull)",
         ],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -597,6 +624,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "total packed bytes; arity uniform over 1..=size, split uniform \
              over the compositions (the first drawn operand rides as the hull fold's \
              receiver, feed order preserved)",
+        variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -610,6 +638,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party]),
         covers: &["Party::decode"],
         size_measure: M_UNARY,
+        variant: "",
         contract: "`O(n)` with `n` the size of the input, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -622,6 +651,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party]),
         covers: &["Party::encode"],
         size_measure: M_UNARY,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -635,6 +665,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party Display / FromStr / TryFrom literals"],
         size_measure: "exact packed bytes, uniform per size (fuel includes writing the \
              text output)",
+        variant: "",
         contract: "`O(|self|)` time and space",
         claim: "n",
         measure: |g, inputs, _| {
@@ -649,6 +680,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the sampled value, rendered to text by Display \
              (the value measure pushed through rendering — not uniform over text; the \
              adversarial text families keep the corner coverage)",
+        variant: "",
         contract: "`O(|s|)` time and space, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -662,6 +694,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party]),
         covers: &["Party::fork"],
         size_measure: M_UNARY,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -675,6 +708,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party::forks"],
         size_measure: "exact packed bytes, uniform per size (share count a declared \
              constant, 8)",
+        variant: "",
         contract: "a full drain costs `O(|self| + k (|self| + log k))`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -689,6 +723,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of one uniform party; the operands are its two \
              fork halves (independent uniform pairs are almost never disjoint, so the \
              partial domain is reached by re-merging a split)",
+        variant: "",
         contract: "`O(|self| + |other|)`, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -707,6 +742,7 @@ pub const ROSTER: &[OpSpec] = &[
              re-merges the shares into the residual — independent uniform parties \
              are almost never pairwise disjoint, so the n-ary domain is reached by \
              re-merging a split",
+        variant: "",
         contract: "`O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, arity| {
@@ -721,6 +757,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Party]),
         covers: &["Party::is_disjoint"],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(|self| + |other|)`, no allocation",
         claim: "n",
         measure: |g, inputs, _| {
@@ -734,6 +771,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Party]),
         covers: &["Party::covers"],
         size_measure: M_BINARY,
+        variant: "",
         contract: "`O(|self| + |other|)`, no allocation",
         claim: "n",
         measure: |g, inputs, _| {
@@ -748,6 +786,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party::without"],
         size_measure: "total packed bytes; split uniform; byte-equal pairs rejected \
              and operand order chosen so the difference exists",
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -777,6 +816,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the hashed party (std's DefaultHasher \
              over the canonical bytes; equality is the same canonical byte \
              compare the version_eq panel prices on its equal pair)",
+        variant: "",
         contract: "`O(|self|)`: one pass over the canonical bytes",
         claim: "n",
         measure: |g, inputs, _| {
@@ -790,6 +830,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::decode"],
         size_measure: M_CLOCK,
+        variant: "",
         contract: "`O(n)` with `n` the size of the input, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -805,6 +846,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::encode"],
         size_measure: M_CLOCK,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -818,6 +860,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Clock Display / FromStr / TryFrom"],
         size_measure: "total packed bytes of the clock's party and version \
              parts, split uniform (fuel includes writing the text output)",
+        variant: "",
         contract: "superlinear, subquadratic time; `O(|self|)` space",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -835,6 +878,7 @@ pub const ROSTER: &[OpSpec] = &[
              corner coverage); the measured parse runs the stamp's delimiter \
              scan over the same per-part literal doors the TryFrom literal \
              composes",
+        variant: "",
         contract: "superlinear, subquadratic time; `O(|s|)` space",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -848,6 +892,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::tick"],
         size_measure: M_CLOCK,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -860,6 +905,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::fork"],
         size_measure: M_CLOCK,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -875,6 +921,7 @@ pub const ROSTER: &[OpSpec] = &[
              parts, split uniform (share count a declared constant, 8; the \
              measured full drain pays the balanced party split plus one \
              refcount-bump version clone per child)",
+        variant: "",
         contract: "a full drain costs at most `O(|self| + k (|self| + log k))`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -887,6 +934,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::send"],
         size_measure: M_CLOCK,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -900,6 +948,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Clock::recv"],
         size_measure: "total packed bytes of the clock's parts and the received \
              version, split uniform three ways",
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -913,6 +962,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version, Operand::Version]),
         covers: &["Clock::join"],
         size_measure: M_CLOCK_PAIR,
+        variant: "",
         contract: "`O(|self| + |other|)`, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -929,6 +979,7 @@ pub const ROSTER: &[OpSpec] = &[
              (every count the budget can feed), the party fork-split in preparation \
              so the parties partition one region, and the measured fold reunites the \
              drawn clocks into the first",
+        variant: "",
         contract: "`O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -955,6 +1006,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version, Operand::Version]),
         covers: &["Clock::sync"],
         size_measure: M_CLOCK_PAIR,
+        variant: "",
         contract: "`O(|self| + |other|)`, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -972,6 +1024,7 @@ pub const ROSTER: &[OpSpec] = &[
              so the parties partition one region, and the measured reconcile folds \
              the drawn clocks into the first and re-shares the region across every \
              participant",
+        variant: "",
         contract: "`O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -998,6 +1051,7 @@ pub const ROSTER: &[OpSpec] = &[
              the first version paired with the party as the receiving clock and the \
              rest received as the message batch (a one-version draw receives the \
              empty batch: the bare batch tick)",
+        variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -1016,6 +1070,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::from_parts"],
         size_measure: M_CLOCK,
+        variant: "",
         contract: "`O(1)`",
         claim: "1",
         measure: |g, inputs, _| {
@@ -1029,6 +1084,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
         covers: &["Clock::into_parts"],
         size_measure: M_CLOCK,
+        variant: "",
         contract: "`O(1)`",
         claim: "1",
         measure: |g, inputs, _| {
@@ -1042,6 +1098,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Clock::own_version"],
         size_measure: "total packed bytes of the clock's party and version parts, \
              split uniform (the view materialized via to_version)",
+        variant: "",
         contract: "the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`",
         claim: "n^2",
         measure: |g, inputs, _| {
@@ -1056,6 +1113,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
         size_measure: "total packed bytes of the two versions whose ranks are added, \
              split uniform (ranks derived by Version::rank in preparation)",
+        variant: "",
         contract: "`O(‖self‖ + ‖rhs‖)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1072,6 +1130,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
         size_measure: "total packed bytes of the two versions whose ranks are compared, \
              split uniform (ranks derived by Version::rank in preparation)",
+        variant: "",
         contract: "`O(‖self‖ + ‖other‖)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1089,6 +1148,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "total packed bytes of the two versions whose ranks are \
              subtracted, split uniform; operands ordered by rank so the difference \
              exists",
+        variant: "",
         contract: "`O(‖self‖ + ‖other‖)`; a `None` or zero result costs only the comparison",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1114,6 +1174,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the version whose rank is rendered (rank \
              derived by Version::rank in preparation; fuel includes writing the text \
              output)",
+        variant: "",
         contract: "superlinear, subquadratic in the rank's width: decimal conversion",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -1130,6 +1191,7 @@ pub const ROSTER: &[OpSpec] = &[
              derived by Version::rank in preparation; the measured emission is \
              linear in the rank's numeric size, which the fold keeps linear in \
              the packed input)",
+        variant: "",
         contract: "`O(‖self‖)` time and space",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1145,6 +1207,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the version whose rank's canonical \
              stream is parsed (rank derived and encoded in unmeasured \
              preparation; the measured strict parse is linear in the stream)",
+        variant: "",
         contract: "`O(n)`, `n` the bytes read, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1161,6 +1224,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the viewed version (the composite key: \
              one rank fold, the rank stream emission, and one copy of the \
              version's canonical bytes; view construction is O(1))",
+        variant: "",
         contract: "`O(M(|self|) · log |self|)` time, `O(|self|)` space",
         claim: "n (log n)^2",
         measure: |g, inputs, _| {
@@ -1175,6 +1239,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the viewed version (the composite key's \
              rank component alone: one fused rank fold and emission; view \
              construction is O(1))",
+        variant: "",
         contract: "`O(M(|self|) · log |self|)` time, `O(|self|)` space",
         claim: "n (log n)^2",
         measure: |g, inputs, _| {
@@ -1189,6 +1254,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "packed bytes of the version whose composite key is \
              parsed (key produced in unmeasured preparation; the measured \
              decode runs the strict parse plus the verifying rank fold)",
+        variant: "",
         contract: "`O(M(|self|) · log |self|)` time, `O(|self|)` space",
         claim: "n (log n)^2",
         measure: |g, inputs, _| {
@@ -1207,6 +1273,7 @@ pub const ROSTER: &[OpSpec] = &[
              so the co-sweep's axis reads from the distinct pairs; view \
              construction is O(1), and the From conversions are the O(1) \
              views plus the rank fold the version_rank panel prices)",
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1221,6 +1288,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["Span::place"],
         size_measure: M_SPAN_PROBE,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1236,6 +1304,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["Span::dominance"],
         size_measure: M_SPAN_PROBE,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1251,6 +1320,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["Span::precedence"],
         size_measure: M_SPAN_PROBE,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1266,6 +1336,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["Span::contains"],
         size_measure: M_SPAN_PROBE,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1281,6 +1352,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Span::encode"],
         size_measure: M_SPAN_HULL,
+        variant: "",
         contract: "`O(|self|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1295,6 +1367,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
         covers: &["Span::decode"],
         size_measure: M_SPAN_HULL,
+        variant: "",
         contract: "`O(n)`, with `n` the bytes read, accepted or rejected",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1320,6 +1393,7 @@ pub const ROSTER: &[OpSpec] = &[
             "Span::union",
         ],
         size_measure: M_SPAN_PAIR,
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1345,6 +1419,7 @@ pub const ROSTER: &[OpSpec] = &[
             "Span::intersect",
         ],
         size_measure: M_SPAN_PAIR,
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1372,6 +1447,7 @@ pub const ROSTER: &[OpSpec] = &[
             "Span::join",
         ],
         size_measure: M_SPAN_PAIR,
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1397,6 +1473,7 @@ pub const ROSTER: &[OpSpec] = &[
             "Span::meet",
         ],
         size_measure: M_SPAN_PAIR,
+        variant: "",
         contract: "`O(|self| + |other|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1414,6 +1491,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::VersionSlice,
         covers: &["Span::union_all"],
         size_measure: M_SPAN_FOLD,
+        variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -1429,6 +1507,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::VersionSlice,
         covers: &["Span::intersect_all"],
         size_measure: M_SPAN_FOLD,
+        variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -1446,6 +1525,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::VersionSlice,
         covers: &["Span::join_all"],
         size_measure: M_SPAN_FOLD,
+        variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -1461,6 +1541,7 @@ pub const ROSTER: &[OpSpec] = &[
         inputs: Inputs::VersionSlice,
         covers: &["Span::meet_all"],
         size_measure: M_SPAN_FOLD,
+        variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
         claim: "n log n",
         measure: |g, inputs, _| {
@@ -1484,6 +1565,7 @@ pub const ROSTER: &[OpSpec] = &[
              party, split uniform three ways (the span composed in unmeasured \
              preparation as the operands' pair hull; the view is O(1) preparation, \
              and the measured kernel materializes both projected endpoints)",
+        variant: "",
         contract: "the view is `O(1)`; materializing both endpoints: `O(|self| + |result|)`, `|result| = O(|self|^2)`",
         claim: "n^2",
         measure: |g, inputs, _| {
@@ -1504,6 +1586,7 @@ pub const ROSTER: &[OpSpec] = &[
         ]),
         covers: &["OwnSpan::place"],
         size_measure: M_OWN_SPAN_PROBE,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1525,6 +1608,7 @@ pub const ROSTER: &[OpSpec] = &[
         ]),
         covers: &["OwnSpan::dominance"],
         size_measure: M_OWN_SPAN_PROBE,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1546,6 +1630,7 @@ pub const ROSTER: &[OpSpec] = &[
         ]),
         covers: &["OwnSpan::precedence"],
         size_measure: M_OWN_SPAN_PROBE,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1567,6 +1652,7 @@ pub const ROSTER: &[OpSpec] = &[
         ]),
         covers: &["OwnSpan::contains"],
         size_measure: M_OWN_SPAN_PROBE,
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1592,6 +1678,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "total packed bytes of the atom's bound and the probe, \
              split uniform (one pair sweep under an O(1) verdict fold; the \
              atom view is O(1) construction)",
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1607,6 +1694,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "total packed bytes of the atom's bound and the probe, \
              split uniform (the order dual of floor_contains: one pair sweep \
              under an O(1) verdict fold; the atom view is O(1) construction)",
+        variant: "",
         contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1623,7 +1711,8 @@ pub const ROSTER: &[OpSpec] = &[
              split uniform (query composed in unmeasured preparation as \
              after(f) & all(); the measured verdict is the fused membership \
              walk over the probe and the one bound)",
-        contract: "floor only: `O(|self| + |version|)`",
+        variant: "floor only",
+        contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1640,7 +1729,8 @@ pub const ROSTER: &[OpSpec] = &[
              split uniform (query composed in unmeasured preparation as \
              before(c) & all(); the measured verdict is the fused membership \
              walk over the probe and the one bound)",
-        contract: "ceiling only: `O(|self| + |version|)`",
+        variant: "ceiling only",
+        contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1657,7 +1747,8 @@ pub const ROSTER: &[OpSpec] = &[
              probe, split uniform three ways (query composed in unmeasured \
              preparation as after(f) & before(c); the measured verdict is the \
              fused membership walk over the probe and both bounds)",
-        contract: "floor + ceiling: `O(|self| + |version|)`",
+        variant: "floor + ceiling",
+        contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1675,7 +1766,8 @@ pub const ROSTER: &[OpSpec] = &[
              split uniform (query composed in unmeasured preparation as \
              since(s) — the lone-hole shape; the measured verdict is the \
              fused membership walk over the probe and the one hole stream)",
-        contract: "one hole: `O(|self| + |version|)`",
+        variant: "one hole",
+        contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1693,7 +1785,8 @@ pub const ROSTER: &[OpSpec] = &[
              preparation as toward(s, t) — floor plus one hole; the measured \
              verdict is the fused membership walk over the probe and both \
              bound streams)",
-        contract: "floor + hole: `O(|self| + |version|)`",
+        variant: "floor + hole",
+        contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1712,7 +1805,8 @@ pub const ROSTER: &[OpSpec] = &[
              preparation as delta(s, e) — ceiling plus one hole; the measured \
              verdict is the fused membership walk over the probe and both \
              bound streams)",
-        contract: "ceiling + hole: `O(|self| + |version|)`",
+        variant: "ceiling + hole",
+        contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1732,7 +1826,8 @@ pub const ROSTER: &[OpSpec] = &[
              floor, ceiling, and the hole at the floor, the fullest one-hole \
              shape; the measured verdict is the fused membership walk over \
              the probe and all three bound streams)",
-        contract: "floor + ceiling + hole: `O(|self| + |version|)`",
+        variant: "floor + ceiling + hole",
+        contract: "`O(|self| + |version|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1751,7 +1846,8 @@ pub const ROSTER: &[OpSpec] = &[
              preparation as after(f) & all(), the span probe as the hull \
              operands' pair hull; the measured verdict runs the fused \
              two-probe co-walk plus the clamp legs it demands)",
-        contract: "floor only: `O(|self| + |span|)`",
+        variant: "floor only",
+        contract: "`O(|self| + |span|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1771,7 +1867,8 @@ pub const ROSTER: &[OpSpec] = &[
              unmeasured preparation as before(c) & all(), the span probe as \
              the hull operands' pair hull; the measured verdict runs the \
              fused two-probe co-walk plus the clamp legs it demands)",
-        contract: "ceiling only: `O(|self| + |span|)`",
+        variant: "ceiling only",
+        contract: "`O(|self| + |span|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1796,7 +1893,8 @@ pub const ROSTER: &[OpSpec] = &[
              unmeasured preparation as after(f) & before(c), the span probe \
              as the hull operands' pair hull; the measured verdict runs the \
              fused two-probe co-walk plus the clamp legs it demands)",
-        contract: "floor + ceiling: `O(|self| + |span|)`",
+        variant: "floor + ceiling",
+        contract: "`O(|self| + |span|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1817,7 +1915,8 @@ pub const ROSTER: &[OpSpec] = &[
              preparation as since(s) — the lone-hole shape — and the span \
              probe as the hull operands' pair hull; the measured verdict runs \
              the fused two-probe co-walk plus the clamp legs it demands)",
-        contract: "one hole: `O(|self| + |span|)`",
+        variant: "one hole",
+        contract: "`O(|self| + |span|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1843,7 +1942,8 @@ pub const ROSTER: &[OpSpec] = &[
              — and the span probe as the hull operands' pair hull; the \
              measured verdict runs the fused two-probe co-walk plus the clamp \
              legs it demands)",
-        contract: "floor + hole: `O(|self| + |span|)`",
+        variant: "floor + hole",
+        contract: "`O(|self| + |span|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1870,7 +1970,8 @@ pub const ROSTER: &[OpSpec] = &[
              — and the span probe as the hull operands' pair hull; the \
              measured verdict runs the fused two-probe co-walk plus the clamp \
              legs it demands)",
-        contract: "ceiling + hole: `O(|self| + |span|)`",
+        variant: "ceiling + hole",
+        contract: "`O(|self| + |span|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1898,7 +1999,8 @@ pub const ROSTER: &[OpSpec] = &[
              fullest one-hole shape — and the span probe as the hull \
              operands' pair hull; the measured verdict runs the fused \
              two-probe co-walk plus the clamp legs it demands)",
-        contract: "floor + ceiling + hole: `O(|self| + |span|)`",
+        variant: "floor + ceiling + hole",
+        contract: "`O(|self| + |span|)`",
         claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1922,6 +2024,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: "total packed bytes of the two floor bounds, split uniform \
              (each composed in unmeasured preparation as after(f) & all(); \
              the measured merge joins the floors — one version join walk)",
+        variant: "",
         contract: "`O(|a| + |b|)`: one fused join walk over the two bounds",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1940,6 +2043,7 @@ pub const ROSTER: &[OpSpec] = &[
              uniform (each composed in unmeasured preparation as before(c) & \
              all(); the measured merge meets the ceilings — one version meet \
              walk, the order dual of query_conjoin_floors)",
+        variant: "",
         contract: "`O(|a| + |b|)`: one fused meet walk over the two bounds",
         claim: "n",
         measure: |g, inputs, _| {
@@ -1965,6 +2069,7 @@ pub const ROSTER: &[OpSpec] = &[
              floor, ceiling, and the hole at the floor; the measured merge \
              joins the floors, meets the ceilings, and re-admits both holes \
              against the merged bounds and the cross-side pruning probes)",
+        variant: "",
         contract: "linear, plus one comparison per opposite-side hole pair: `O(|self| · |rhs|)` at worst",
         claim: "n^2",
         measure: |g, inputs, _| {

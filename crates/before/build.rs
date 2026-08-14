@@ -192,6 +192,12 @@ fn check_readme_figure_fresh(figure: &str) {
 fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
     let contract = code_spans(op["contract"].as_str().expect("validated"));
     let claim = op["claim"].as_str().expect("validated");
+    // A variant label leads the summary, so a site's stacked charts
+    // scan by what distinguishes them.
+    let variant = match op["variant"].as_str().unwrap_or("") {
+        "" => String::new(),
+        label => format!("{}: ", code_spans(label)),
+    };
     // The widget's dataset payload. `default` is the claim: the
     // pre-selected compensation hypothesis.
     let data = serde_json::json!({
@@ -210,7 +216,7 @@ fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
     let data = data.to_string().replace("</", "<\\/");
     let claim_html = escape(claim);
     format!(
-        "<details class=\"toggle fs-details\"><summary>\
+        "<details class=\"toggle fs-details\"><summary>{variant}\
          <span class=\"fs-claim\"><code>O({claim_html})</code> \
          in total input bytes</span>; {contract}</summary>\
          <div class=\"fuelscape\"><script type=\"application/json\">{data}</script></div>\
@@ -257,8 +263,8 @@ fn read_json(path: &Path) -> serde_json::Value {
 fn check_banner(file: &str, doc: &serde_json::Value, expected: &str) {
     assert_eq!(
         (doc["format"].as_str(), doc["version"].as_u64()),
-        (Some(expected), Some(1)),
-        "{file}: not a {expected} v1 document"
+        (Some(expected), Some(2)),
+        "{file}: not a {expected} v2 document"
     );
 }
 

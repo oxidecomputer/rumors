@@ -68,11 +68,12 @@ strict reading with `deny_unknown_fields`):
 ```jsonc
 {
   "format": "fuelscape-widget-data",
-  "version": 1,
+  "version": 2,
   "meta": { "commit": "…", "base_seed": …, "samples_per_column": … },
   "op": {
     "op_name": "clock_join",
     "size_measure": "…",            // stamped from the OpSpec row; drives the x-axis caption
+    "variant": "",                   // label where one doc site stacks several charts
     "contract": "O(|self| + |party|)",  // the rustdoc contract, display text; see §3
     "claim": "n",                    // widget grammar, bytes-denominated; see §3
     "res": 0.05,                     // octaves per bin; the compactor owns this constant

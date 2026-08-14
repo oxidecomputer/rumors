@@ -62,7 +62,7 @@ fn meta() -> RenderMeta {
 /// counts sum to the column's sample count.
 #[test]
 fn compaction_bins_tightly_per_column() {
-    let op = compact(&synthetic_atlas(), "`O(1)`.", "1").expect("synthetic atlas compacts");
+    let op = compact(&synthetic_atlas(), "", "`O(1)`.", "1").expect("synthetic atlas compacts");
     assert_eq!(op.sizes, vec![1, 2], "one column per distinct sample size");
     assert_eq!(op.res, RES, "the document carries the binning resolution");
     let expect_k0 = |fuel: f64| (libm::log2(fuel) / RES).floor() as i64;
@@ -99,7 +99,8 @@ fn dataset_round_trips_losslessly() {
     let dir = temp_dir("roundtrip");
     let op = compact(
         &synthetic_atlas(),
-        "vs `Version`: `O(|a| + |b|)` — \"worst\" \\ case ‖·‖",
+        "vs `Version`",
+        "`O(|a| + |b|)` — \"worst\" \\ case ‖·‖",
         "n log n",
     )
     .expect("synthetic atlas compacts");
@@ -117,7 +118,7 @@ fn dataset_round_trips_losslessly() {
 fn compaction_rejects_zero_fuel() {
     let mut data = synthetic_atlas();
     data.samples[1].fuel = 0;
-    let err = compact(&data, "`O(1)`.", "1").expect_err("zero fuel must be rejected");
+    let err = compact(&data, "", "`O(1)`.", "1").expect_err("zero fuel must be rejected");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     assert!(
         err.to_string().contains("zero fuel"),
@@ -131,7 +132,7 @@ fn compaction_rejects_zero_fuel() {
 #[test]
 fn read_rejects_each_tampered_document() {
     let dir = temp_dir("tamper");
-    let op = compact(&synthetic_atlas(), "`O(1)`.", "1").expect("synthetic atlas compacts");
+    let op = compact(&synthetic_atlas(), "", "`O(1)`.", "1").expect("synthetic atlas compacts");
     write(&dir, &meta(), std::slice::from_ref(&op)).expect("dataset writes");
     let op_path = dir.join("synthetic.json");
     let pristine = std::fs::read(&op_path).expect("op file exists");
@@ -182,7 +183,7 @@ fn read_rejects_each_tampered_document() {
 #[test]
 fn gzipped_documents_read_transparently() {
     let dir = temp_dir("gz");
-    let op = compact(&synthetic_atlas(), "`O(1)`.", "1").expect("synthetic atlas compacts");
+    let op = compact(&synthetic_atlas(), "", "`O(1)`.", "1").expect("synthetic atlas compacts");
     write(&dir, &meta(), std::slice::from_ref(&op)).expect("dataset writes");
     let (plain_meta, plain_ops) = read(&dir).expect("plain dataset loads");
     for name in ["synthetic.json", super::INDEX_FILE] {
@@ -228,6 +229,10 @@ fn compact_dump_joins_the_roster_and_rejects_measure_drift() {
     writer.append(&data).expect("dump appends");
     compact_dump(&dump_dir, &out_dir).expect("a roster-matched dump compacts");
     let (_, ops) = read(&out_dir).expect("compacted dataset loads");
+    assert_eq!(
+        ops[0].variant, spec.variant,
+        "the roster row's variant is stamped"
+    );
     assert_eq!(
         ops[0].contract, spec.contract,
         "the roster row's contract is stamped"

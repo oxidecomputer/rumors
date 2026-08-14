@@ -74,7 +74,7 @@ const INDEX_FORMAT: &str = "fuelscape-widget-index";
 const OP_FORMAT: &str = "fuelscape-widget-data";
 
 /// The compact format version both banners carry.
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 
 /// Histogram resolution: octaves of fuel per bin.
 ///
@@ -120,6 +120,9 @@ pub struct WidgetOp {
     pub op_name: String,
     /// The declared size measure of the measuring run, verbatim.
     pub size_measure: String,
+    /// The variant label distinguishing this operation's chart where
+    /// one doc site stacks several; empty for a site's only chart.
+    pub variant: String,
     /// The rustdoc complexity contract, display text
     /// (e.g. `O(|self| + |party|)`).
     pub contract: String,
@@ -158,7 +161,12 @@ pub struct WidgetCol {
 /// A zero-fuel sample (the guest meters every call, so zero fuel is a
 /// measurement bug the log-scale histogram cannot even place), and an
 /// empty sample list.
-pub fn compact(data: &AtlasData, contract: &str, claim: &str) -> io::Result<WidgetOp> {
+pub fn compact(
+    data: &AtlasData,
+    variant: &str,
+    contract: &str,
+    claim: &str,
+) -> io::Result<WidgetOp> {
     let mut by: BTreeMap<usize, Vec<u64>> = BTreeMap::new();
     for s in &data.samples {
         if s.fuel == 0 {
@@ -202,6 +210,7 @@ pub fn compact(data: &AtlasData, contract: &str, claim: &str) -> io::Result<Widg
     Ok(WidgetOp {
         op_name: data.op_name.clone(),
         size_measure: data.size_measure.clone(),
+        variant: variant.to_string(),
         contract: contract.to_string(),
         claim: claim.to_string(),
         res: RES,
@@ -253,7 +262,7 @@ pub fn compact_dump(dump_path: &Path, out: &Path) -> io::Result<Vec<String>> {
                 ),
             ));
         }
-        ops.push(compact(data, spec.contract, spec.claim)?);
+        ops.push(compact(data, spec.variant, spec.contract, spec.claim)?);
     }
     write(out, &meta, &ops)?;
     Ok(ops.into_iter().map(|op| op.op_name).collect())
