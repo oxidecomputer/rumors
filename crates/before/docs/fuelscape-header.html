@@ -2,6 +2,11 @@
    The two accent roles take the theme's own code-highlight palette, so
    the chart recolors with the reader's theme choice: hypotheses wear
    the keyword color, the quantile probe wears the string color. */
+:root {
+  /* Defined at the root, not on .fs-details: the client-side typeset
+     spans (.fs-math .fs-var) appear in doc prose outside any card. */
+  --fs-mono: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+}
 .fs-details {
   color-scheme: light dark;
   --fs-bg: var(--main-background-color, light-dark(#ffffff, #353535));
@@ -12,7 +17,6 @@
   --fs-hyp: var(--code-highlight-kw-color, light-dark(#7e63c9, #a08fe0));
   --fs-quant: var(--code-highlight-string-color, light-dark(#12876b, #37c393));
   --fs-bad: light-dark(#c0392b, #e57368);
-  --fs-mono: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
   border: 1px solid var(--fs-hair); border-radius: 6px; margin: 0.6em 0 1em;
   font-family: inherit;
 }

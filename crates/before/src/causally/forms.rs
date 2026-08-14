@@ -35,6 +35,23 @@ pub struct Ceiling<'a> {
 ///
 /// Versions concurrent to `s` are dropped; keep them with
 /// [`or_concurrent`](Floor::or_concurrent).
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::after;
+///
+/// assert!(after(&a1).contains(&a2)); // the causal future
+/// assert!(after(&a1).contains(&a1)); // the bound itself: inclusive
+/// assert!(!after(&a1).contains(&b1)); // concurrent versions drop
+/// assert!(after(&a1).or_concurrent().contains(&b1)); // unless widened
+/// ```
 pub fn after<'a>(s: impl Into<Cow<'a, Version>>) -> Floor<'a> {
     Floor { at: s.into() }
 }
@@ -43,6 +60,23 @@ pub fn after<'a>(s: impl Into<Cow<'a, Version>>) -> Floor<'a> {
 ///
 /// Versions concurrent to `e` are dropped; keep them with
 /// [`or_concurrent`](Ceiling::or_concurrent).
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::before;
+///
+/// assert!(before(&a2).contains(&a1)); // the causal past
+/// assert!(before(&a2).contains(&a2)); // the bound itself: inclusive
+/// assert!(!before(&a2).contains(&b1)); // concurrent versions drop
+/// assert!(before(&a2).or_concurrent().contains(&b1)); // unless widened
+/// ```
 pub fn before<'a>(e: impl Into<Cow<'a, Version>>) -> Ceiling<'a> {
     Ceiling { at: e.into() }
 }
@@ -50,6 +84,22 @@ pub fn before<'a>(e: impl Into<Cow<'a, Version>>) -> Ceiling<'a> {
 /// Everything strictly after `s`.
 ///
 /// Equivalent to `after(s) & !before(s)`.
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::strictly_after;
+///
+/// assert!(strictly_after(&a1).contains(&a2)); // the strict future
+/// assert!(!strictly_after(&a1).contains(&a1)); // the bound is excluded
+/// assert!(!strictly_after(&a1).contains(&b1)); // so is concurrency
+/// ```
 pub fn strictly_after<'a>(s: impl Into<Cow<'a, Version>>) -> Query<'a, Down> {
     let at = s.into();
     let hole = Hole {
@@ -67,6 +117,22 @@ pub fn strictly_after<'a>(s: impl Into<Cow<'a, Version>>) -> Query<'a, Down> {
 /// Everything strictly before `e`.
 ///
 /// Equivalent to `before(e) & !after(e)`.
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::strictly_before;
+///
+/// assert!(strictly_before(&a2).contains(&a1)); // the strict past
+/// assert!(!strictly_before(&a2).contains(&a2)); // the bound is excluded
+/// assert!(!strictly_before(&a2).contains(&b1)); // so is concurrency
+/// ```
 pub fn strictly_before<'a>(e: impl Into<Cow<'a, Version>>) -> Query<'a, Up> {
     let at = e.into();
     let hole = Hole {
@@ -87,6 +153,22 @@ pub fn strictly_before<'a>(e: impl Into<Cow<'a, Version>>) -> Query<'a, Up> {
 /// to it, but *not* `s`.
 ///
 /// Equivalent to `!before(s)`.
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::since;
+///
+/// assert!(since(&a1).contains(&a2)); // the strict future…
+/// assert!(since(&a1).contains(&b1)); // …and everything concurrent
+/// assert!(!since(&a1).contains(&a1)); // s itself is already contained
+/// ```
 pub fn since<'a>(s: impl Into<Cow<'a, Version>>) -> Query<'a, Down> {
     !before(s)
 }
@@ -97,6 +179,22 @@ pub fn since<'a>(s: impl Into<Cow<'a, Version>>) -> Query<'a, Down> {
 /// it, but *not* `e`.
 ///
 /// Equivalent to `!after(e)`.
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::until;
+///
+/// assert!(until(&a2).contains(&a1)); // the strict past…
+/// assert!(until(&a2).contains(&b1)); // …and everything concurrent
+/// assert!(!until(&a2).contains(&a2)); // e is already reached
+/// ```
 pub fn until<'a>(e: impl Into<Cow<'a, Version>>) -> Query<'a, Up> {
     !after(e)
 }
@@ -105,6 +203,24 @@ pub fn until<'a>(e: impl Into<Cow<'a, Version>>) -> Query<'a, Up> {
 /// the causal past of `s` (including `s` itself).
 ///
 /// Equivalent to `since(s) & before(e)`.
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::delta;
+/// let a3 = alice.tick().clone();
+///
+/// let d = delta(&a1, &a3);
+/// assert!(d.contains(&a2) && d.contains(&a3)); // e's past, e included
+/// assert!(!d.contains(&a1)); // s's past excluded, s included
+/// assert!(!d.contains(&b1)); // concurrent: outside e's past
+/// ```
 pub fn delta<'a>(
     s: impl Into<Cow<'a, Version>>,
     e: impl Into<Cow<'a, Version>>,
@@ -116,11 +232,44 @@ pub fn delta<'a>(
 /// the causal future of `e` (including `e` itself).
 ///
 /// Equivalent to `after(p) & until(t)`.
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::toward;
+/// let a3 = alice.tick().clone();
+///
+/// let t = toward(&a1, &a3);
+/// assert!(t.contains(&a1) && t.contains(&a2)); // s's future, s included
+/// assert!(!t.contains(&a3)); // t is already reached: excluded
+/// assert!(!t.contains(&b1)); // concurrent: outside s's future
+/// ```
 pub fn toward<'a>(s: impl Into<Cow<'a, Version>>, t: impl Into<Cow<'a, Version>>) -> Query<'a, Up> {
     after(s) & until(t)
 }
 
 /// All versions.
+///
+/// # Example
+///
+/// ```
+/// use before::Clock;
+/// let mut alice = Clock::seed();
+/// let mut bob = alice.fork();
+/// let a1 = alice.tick().clone();
+/// let a2 = alice.tick().clone();
+/// let b1 = bob.tick().clone(); // concurrent to alice's line
+/// use before::causally::all;
+///
+/// assert!(all().contains(&a1) && all().contains(&a2));
+/// assert!(all().contains(&b1)); // concurrency included: no constraints
+/// ```
 pub fn all<'a>() -> Query<'a> {
     Query::unbounded()
 }
