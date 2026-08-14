@@ -1,18 +1,34 @@
 //! Stable semantic rendering of captured V2 traffic.
+//!
+//! Every frame renders its exact bytes AND the parse tree those bytes
+//! decode to — the greeting's size words, the root-fan listing's
+//! children, a query's `(radix, hash)` children, and a supply run's
+//! per-record versions with each message's byte count (the leaf payload
+//! type is the caller's, so message bytes stay exact-but-opaque) — so a
+//! snapshot re-accept diff names the semantic field that moved instead
+//! of asking a reviewer to diff hex. Payload bytes that do not decode
+//! render as an explicit failure line above their hex; they never pass
+//! as silent hex. Structural violations of the capture itself (a
+//! truncated frame, a mislabeled stream) stay panics: they mean the
+//! capture harness, not the peer, is broken.
 
 use std::{collections::BTreeMap, fmt::Write as _};
 
 use borsh::BorshDeserialize;
 
 use crate::Version;
-use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
+use crate::tree::mirror::framing::{GREETING_WORD_LEN, LENGTH_HEADER_LEN};
 use crate::tree::mirror::streaming::message::initiates;
+use crate::tree::typed::Hash;
 
 use super::{
     End, Speaker, Stream,
-    frame::{QUERY_CHILD_LEN, QUERY_COUNT_BIAS},
+    frame::{LeafRun, QUERY_CHILD_LEN, QUERY_COUNT_BIAS},
     signal::{Signal, WireSignal},
 };
+
+#[cfg(test)]
+mod tests;
 
 /// Bytes occupied by the fixed session preamble.
 const PREAMBLE_LEN: usize = 25;
@@ -93,6 +109,10 @@ struct Control {
     /// The version frame's leading word: the sender's advertised set size,
     /// the role election's primary key.
     set_len: Option<u64>,
+    /// The version frame's remaining size words: the sender's
+    /// version-size bound and target message size.
+    max_version_bytes: Option<u64>,
+    target_message_size: Option<u64>,
     /// The greeting's second frame: the sender's root-fan listing.
     listing_frame: Option<Vec<u8>>,
     trailing: Vec<u8>,
@@ -109,6 +129,8 @@ impl Control {
                 version_frame: None,
                 version: None,
                 set_len: None,
+                max_version_bytes: None,
+                target_message_size: None,
                 listing_frame: None,
                 trailing: Vec::new(),
             };
@@ -124,6 +146,8 @@ impl Control {
                 version_frame: None,
                 version: None,
                 set_len: None,
+                max_version_bytes: None,
+                target_message_size: None,
                 listing_frame: None,
                 trailing: rest.to_vec(),
             };
@@ -132,12 +156,17 @@ impl Control {
         // The version frame's body leads with the sender's eight-byte set
         // size, version-size bound, and message-size target; the version
         // encoding follows them.
-        let set_len = u64::from_le_bytes(
-            version_frame[LENGTH_HEADER_LEN
-                ..LENGTH_HEADER_LEN + crate::tree::mirror::framing::GREETING_WORD_LEN]
-                .try_into()
-                .expect("captured version frame carries its set-size word"),
-        );
+        let word = |index: usize| {
+            let at = LENGTH_HEADER_LEN + index * GREETING_WORD_LEN;
+            u64::from_le_bytes(
+                version_frame[at..at + GREETING_WORD_LEN]
+                    .try_into()
+                    .expect("captured version frame carries its three size words"),
+            )
+        };
+        let set_len = word(0);
+        let max_version_bytes = word(1);
+        let target_message_size = word(2);
         let version = Version::try_from_slice(
             &version_frame
                 [LENGTH_HEADER_LEN + crate::tree::mirror::framing::GREETING_SIZE_WORDS_LEN..],
@@ -151,6 +180,8 @@ impl Control {
             version_frame: Some(version_frame),
             version: Some(version),
             set_len: Some(set_len),
+            max_version_bytes: Some(max_version_bytes),
+            target_message_size: Some(target_message_size),
             listing_frame: Some(listing_frame),
             trailing: rest.to_vec(),
         }
@@ -203,6 +234,7 @@ impl Streams {
                 ended = matches!(signal, Signal::End(End::Stream));
                 frames.push(CapturedFrame {
                     semantic: format!("{signal:?}"),
+                    payload: payload_lines(&signal, &rest[..consumed]),
                     bytes: rest[..consumed].to_vec(),
                 });
                 rest = &rest[consumed..];
@@ -248,7 +280,100 @@ fn raw_frame(speaker: Speaker, bytes: &[u8]) -> (Stream, Signal, usize) {
 /// One semantically decoded frame and the exact bytes which produced it.
 struct CapturedFrame {
     semantic: String,
+    /// The frame's decoded payload tree (or its explicit decode
+    /// failure), one rendered line per entry; empty for payload-free
+    /// frames.
+    payload: Vec<String>,
     bytes: Vec<u8>,
+}
+
+/// Render a byte string as bare lowercase hex, for hash and field lines.
+fn hex_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Decode one captured frame's peer-supplied payload into rendered lines.
+///
+/// Match, empty-query, and end frames carry no payload. A query decodes
+/// to its `(radix, hash)` children and a supply to its leaf-record run;
+/// payload bytes that do not decode render as an explicit failure line —
+/// the hex below them then stands as the witness, never as the only
+/// account.
+fn payload_lines(signal: &Signal, frame: &[u8]) -> Vec<String> {
+    match signal {
+        Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => Vec::new(),
+        // Signal byte, count byte, then the exact children — the frame
+        // boundary already validated the arithmetic.
+        Signal::Query(_) => query_lines(&frame[2..]),
+        // Signal byte and length header, then the run body.
+        Signal::Supply(_) => supply_lines(frame[1 + LENGTH_HEADER_LEN..].to_vec()),
+    }
+}
+
+/// Render a nonempty query's children: each child's radix and hash.
+fn query_lines(children: &[u8]) -> Vec<String> {
+    let mut lines = vec![format!(
+        "query: {} child(ren)",
+        children.len() / QUERY_CHILD_LEN
+    )];
+    for child in children.chunks(QUERY_CHILD_LEN) {
+        lines.push(format!(
+            "  child 0x{:x}: {}",
+            child[0],
+            hex_string(&child[1..]),
+        ));
+    }
+    lines
+}
+
+/// Render a supply frame's leaf-record run: each record's version and
+/// its message's byte count.
+///
+/// The message payload type belongs to the caller, so message bytes are
+/// counted, not decoded — they remain exact in the hex below. A run
+/// whose record framing or version encoding does not decode renders the
+/// failure explicitly.
+fn supply_lines(run: Vec<u8>) -> Vec<String> {
+    let run = match LeafRun::<()>::from_encoded(run) {
+        Ok(run) => run,
+        Err(err) => {
+            return vec![format!(
+                "supply run undecodable ({err}); the exact bytes stand below"
+            )];
+        }
+    };
+    let mut lines = vec![format!("supply run: {} record(s)", run.record_count())];
+    for (index, record) in run.record_slices().enumerate() {
+        let mut input = record;
+        match Version::deserialize(&mut input) {
+            Ok(version) => lines.push(format!(
+                "  record {index}: version {version}, message {} byte(s)",
+                input.len(),
+            )),
+            Err(err) => lines.push(format!(
+                "  record {index} undecodable ({err}); the exact bytes stand below"
+            )),
+        }
+    }
+    lines
+}
+
+/// Render one root-fan listing frame's children, or its explicit decode
+/// failure (the listing is peer-controlled borsh, so the renderer must
+/// never present undecodable bytes as a quietly hex-only frame).
+fn listing_lines(body: &[u8]) -> Vec<String> {
+    match <Vec<(u8, Hash)>>::try_from_slice(body) {
+        Ok(children) => {
+            let mut lines = vec![format!("listing: {} child(ren)", children.len())];
+            for (radix, hash) in &children {
+                lines.push(format!("  child 0x{radix:x}: {}", hex_string(&hash.0)));
+            }
+            lines
+        }
+        Err(err) => vec![format!(
+            "listing undecodable ({err}); the exact bytes stand below"
+        )],
+    }
 }
 
 /// Render one physical direction in stable logical order.
@@ -257,16 +382,30 @@ fn render_direction(label: &str, control: &Control, streams: Option<&Streams>, o
     render_block("preamble", &control.preamble, out);
     if let Some(version) = &control.version {
         writeln!(out, "version: {version}").unwrap();
+        writeln!(
+            out,
+            "greeting words: set len {}, version-size bound {}, message-size target {}",
+            control
+                .set_len
+                .expect("a version frame carries its set size"),
+            control
+                .max_version_bytes
+                .expect("a version frame carries its version-size bound"),
+            control
+                .target_message_size
+                .expect("a version frame carries its message-size target"),
+        )
+        .unwrap();
         render_block(
             "version frame",
             control.version_frame.as_deref().expect("version frame"),
             out,
         );
-        render_block(
-            "listing frame",
-            control.listing_frame.as_deref().expect("listing frame"),
-            out,
-        );
+        let listing_frame = control.listing_frame.as_deref().expect("listing frame");
+        for line in listing_lines(&listing_frame[LENGTH_HEADER_LEN..]) {
+            writeln!(out, "{line}").unwrap();
+        }
+        render_block("listing frame", listing_frame, out);
     }
 
     if let Some(streams) = streams {
@@ -282,6 +421,9 @@ fn render_direction(label: &str, control: &Control, streams: Option<&Streams>, o
             .unwrap();
             for (index, frame) in captured.frames.iter().enumerate() {
                 writeln!(out, "  frame {index}: {}", frame.semantic).unwrap();
+                for line in &frame.payload {
+                    writeln!(out, "    {line}").unwrap();
+                }
                 render_hex(&frame.bytes, "    ", out);
             }
         }

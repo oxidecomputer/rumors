@@ -9,11 +9,14 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (1, 2, 0)
+greeting words: set len 1, version-size bound 1, message-size target 1114624
 version frame: 30 bytes
   0000: 00 00 00 1a 01 00 00 00
   0008: 00 00 00 00 01 00 00 00
   0010: 00 00 00 00 00 02 11 00
   0018: 00 00 00 00 49 24
+listing: 1 child(ren)
+  child 0x9: 7ca8b07cb28254109eb3f89675cdb22a
 listing frame: 25 bytes
   0000: 00 00 00 15 01 00 00 00
   0008: 09 7c a8 b0 7c b2 82 54
@@ -34,11 +37,14 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: 1
+greeting words: set len 1, version-size bound 1, message-size target 1114624
 version frame: 29 bytes
   0000: 00 00 00 19 01 00 00 00
   0008: 00 00 00 00 01 00 00 00
   0010: 00 00 00 00 00 02 11 00
   0018: 00 00 00 00 a8
+listing: 1 child(ren)
+  child 0x9: 7ca8b07cb28254109eb3f89675cdb22a
 listing frame: 25 bytes
   0000: 00 00 00 15 01 00 00 00
   0008: 09 7c a8 b0 7c b2 82 54

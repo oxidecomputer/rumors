@@ -204,13 +204,16 @@ impl<T> LeafRun<T> {
     }
 
     /// Split the validated run back into its exact record slices.
-    fn record_slices(&self) -> RecordSlices<'_> {
+    ///
+    /// `pub(super)` for the capture renderer, which decodes each
+    /// record's version structurally without knowing the leaf type.
+    pub(super) fn record_slices(&self) -> RecordSlices<'_> {
         RecordSlices { rest: &self.bytes }
     }
 }
 
 /// Iterator over the exact record bodies of a structurally valid run.
-struct RecordSlices<'a> {
+pub(super) struct RecordSlices<'a> {
     rest: &'a [u8],
 }
 
