@@ -1258,3 +1258,62 @@ fn inverted_verdict_tripwires_match_the_committed_roster() {
          green as decoration"
     );
 }
+
+/// The production verdict matrix: all five public surfaces agree on
+/// every ordered pool pair, with every liveness floor holding.
+///
+/// The floors: every verdict class, placement, dominance, precedence,
+/// coverage, and membership witnessed, and at least one distinct-version
+/// rank tie exercising the byte tiebreak.
+#[test]
+fn production_verdicts_agree_across_the_five_surfaces() {
+    let pool = build_pool();
+    assert_eq!(
+        verdict_classes(&pool.versions),
+        BTreeSet::from(ALL_CLASSES),
+        "the pool fails its verdict-class liveness floor"
+    );
+    let outcome = check(&pool, &|a, b| a.partial_cmp(b));
+    assert!(
+        outcome.counts.is_empty(),
+        "the verdict matrix dissents: {:?}\nfirst samples:\n{}",
+        outcome.counts,
+        outcome.samples.join("\n")
+    );
+    let census = &outcome.census;
+    assert_eq!(
+        census.classes,
+        BTreeSet::from(ALL_CLASSES),
+        "the checker's own class census disagrees with the floor"
+    );
+    assert_eq!(
+        census.placements,
+        BTreeSet::from(["after", "at", "before", "between", "concurrent"]),
+        "the span grid fails its placement liveness floor"
+    );
+    assert_eq!(
+        census.dominances,
+        BTreeSet::from(["after", "before", "between"]),
+        "the span grid fails its dominance liveness floor"
+    );
+    assert_eq!(
+        census.precedences,
+        BTreeSet::from(["after", "before", "between"]),
+        "the span grid fails its precedence liveness floor"
+    );
+    assert_eq!(
+        census.coverages,
+        BTreeSet::from(["empty", "full", "partial"]),
+        "the query grid fails its coverage liveness floor"
+    );
+    assert_eq!(
+        census.memberships,
+        BTreeSet::from([false, true]),
+        "the query grid fails its membership liveness floor"
+    );
+    assert!(
+        census.rank_ties > 0,
+        "no distinct-version rank tie in the pool: the byte-tiebreak leg ran \
+         vacuously"
+    );
+}
