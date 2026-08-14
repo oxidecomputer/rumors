@@ -151,8 +151,7 @@ macro_rules! conjoin {
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[doc = "Linear in the operands' stored versions, plus one version comparison per pair of holes"]
-        #[doc = "drawn from opposite sides (at worst, multiplicative in the size of the operands)."]
+        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_bounded_holes.html"))]
         impl<'a> BitAnd<$rhs> for $lhs {
             type Output = $out;
 

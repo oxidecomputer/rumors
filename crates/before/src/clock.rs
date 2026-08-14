@@ -109,12 +109,12 @@ impl Clock {
     /// [`tick`](Self::tick)s, computed in a bounded number of passes rather
     /// than `n`.
     ///
-    /// The count `n` is any unsigned number, since all can be converted into
+    /// The count `k` is any unsigned number, since all can be converted into
     /// [`Ticks`].
     ///
     /// # Complexity
     ///
-    /// `O(|self| + log n)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html"))]
     ///
     /// # Example
     ///
@@ -123,8 +123,8 @@ impl Clock {
     /// let mut clock = before::Clock::seed();
     /// assert_eq!(clock.ticks(1_000_000u64).min_ticks(), Ticks::from(1_000_000u64));
     /// ```
-    pub fn ticks(&mut self, n: impl Into<Ticks>) -> &Version {
-        self.version.ticks(&self.party, n);
+    pub fn ticks(&mut self, k: impl Into<Ticks>) -> &Version {
+        self.version.ticks(&self.party, k);
         &self.version
     }
 
@@ -189,8 +189,8 @@ impl Clock {
     ///     assert_eq!(child.version(), parent.version()); // every child copies the version
     /// }
     /// ```
-    pub fn forks(&mut self, n: u64) -> Forks<'_> {
-        Forks::new(self, n)
+    pub fn forks(&mut self, k: u64) -> Forks<'_> {
+        Forks::new(self, k)
     }
 
     /// Absorbs a *disjoint* [`Clock`]'s [`Party`] and [`Version`], returning
@@ -482,7 +482,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html"))]
     ///
     /// # Example
     ///
@@ -547,8 +547,9 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O((|self| + |iter|) log k)` time, `O(|self| + |iter|)` space, where
-    /// `k` is the count of `iter`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+    ///
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -652,8 +653,6 @@ impl Clock {
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_own_version.html"))]
     ///
-    /// The view borrows the clock's parts and does no work by itself; the fuelscape prices materializing it.
-    ///
     /// # Example
     ///
     /// ```
@@ -704,7 +703,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html"))]
     ///
     /// # Example
     ///
@@ -949,10 +948,15 @@ where
 /// same expansion as the method it belongs to (`self` cannot cross a
 /// macro-invocation boundary).
 macro_rules! clock_join_matrix {
-    ($($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
-        $( clock_join_matrix!(@cell $kind $lhs, $rhs); )*
+    ($island:literal, $opdoc:literal, $($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
+        $( clock_join_matrix!(@cell $island, $opdoc, $kind $lhs, $rhs); )*
     };
-    (@cell op_l $lhs:ty, $rhs:ty) => {
+    (@cell $island:literal, $opdoc:literal, op_l $lhs:ty, $rhs:ty) => {
+        #[doc = $opdoc]
+        #[doc = ""]
+        #[doc = "# Complexity"]
+        #[doc = ""]
+        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(mut self, r: $rhs) -> Clock {
@@ -961,7 +965,12 @@ macro_rules! clock_join_matrix {
             }
         }
     };
-    (@cell op_r $lhs:ty, $rhs:ty) => {
+    (@cell $island:literal, $opdoc:literal, op_r $lhs:ty, $rhs:ty) => {
+        #[doc = $opdoc]
+        #[doc = ""]
+        #[doc = "# Complexity"]
+        #[doc = ""]
+        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(self, mut r: $rhs) -> Clock {
@@ -970,7 +979,12 @@ macro_rules! clock_join_matrix {
             }
         }
     };
-    (@cell as_clock $lhs:ty, $rhs:ty) => {
+    (@cell $island:literal, $opdoc:literal, as_clock $lhs:ty, $rhs:ty) => {
+        #[doc = $opdoc]
+        #[doc = ""]
+        #[doc = "# Complexity"]
+        #[doc = ""]
+        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
         impl BitOrAssign<$rhs> for $lhs {
             fn bitor_assign(&mut self, r: $rhs) {
                 self.version |= r.borrow();
@@ -980,6 +994,8 @@ macro_rules! clock_join_matrix {
 }
 
 clock_join_matrix! {
+    "version_join",
+    "`clock | version` (in either operand order) and `clock |= version`: merge a received [`Version`] without marking an event, as [`Clock::absorb`].",
     op_l     Clock,    Version;
     op_l     Clock,    &Version;
     op_r     Version,  Clock;

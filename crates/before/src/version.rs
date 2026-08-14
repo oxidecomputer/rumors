@@ -52,7 +52,7 @@ mod tests;
 /// | `a \| b`, `a \|= b`                       | the *join* (least upper bound): the combined history of both   |
 /// | `a & b`, `a &= b`                         | the *meet* (greatest lower bound): the history common to both  |
 /// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                         |
-/// | [`a.ticks(&p, n)`](Version::ticks)        | record `n` new events for [`Party`] `p`, in one pass           |
+/// | [`a.ticks(&p, k)`](Version::ticks)        | record `k` new events for [`Party`] `p`, in one pass           |
 ///
 /// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
 /// versions can be [`concurrent`](Version::concurrent), and then `a < b`, `a ==
@@ -183,9 +183,9 @@ impl Version {
         *self = Version::from_bits(skyline::fill::tick(&self.0, party));
     }
 
-    /// Advances this version by `n` events for `party`.
+    /// Advances this version by `k` events for `party`.
     ///
-    /// This is identical to `n` sequential [`tick`](Self::tick)s, but computed
+    /// This is identical to `k` sequential [`tick`](Self::tick)s, but computed
     /// much more efficiently.
     ///
     /// # Complexity
@@ -209,14 +209,14 @@ impl Version {
     /// v.ticks(&party, wide.clone());
     /// assert_eq!(v.min_ticks(), wide + Ticks::from(5u64));
     /// ```
-    pub fn ticks(&mut self, party: &Party, n: impl Into<Ticks>) {
-        let n = n.into();
+    pub fn ticks(&mut self, party: &Party, k: impl Into<Ticks>) {
+        let k = k.into();
         // The empty run is the identity, settled without re-freezing the stream
         // (a width test, not a value compare: no limb work).
-        if n.0.bits() == 0 {
+        if k.0.bits() == 0 {
             return;
         }
-        *self = Version::from_bits(skyline::fill::ticks(&self.0, party, &n.0));
+        *self = Version::from_bits(skyline::fill::ticks(&self.0, party, &k.0));
     }
 
     /// Tests whether two [`Version`]s are concurrent (incomparable).
@@ -459,7 +459,7 @@ impl Version {
         Self::join_refs(self, other)
     }
 
-    /// The [`join`](Version::join) of `self` and every version in `others`.
+    /// The [`join`](Version::join) of `self` and every version in `iter`.
     ///
     /// Prefer this to iteratively [`join`](Version::join)ing [`Version`]s
     /// one-at-a-time, as it is more efficient.
@@ -471,7 +471,7 @@ impl Version {
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
     ///
-    /// Auxiliary space is `O(|self| + |others|)`.
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -485,12 +485,12 @@ impl Version {
     /// assert!(all >= va && all >= vb);
     /// assert_eq!(va.join_all(Vec::<Version>::new()), va); // nothing to add
     /// ```
-    pub fn join_all<I>(&self, others: I) -> Version
+    pub fn join_all<I>(&self, iter: I) -> Version
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(self.with_items(others), Self::join_refs, Self::join_view)
+        Self::balanced_fold(self.with_items(iter), Self::join_refs, Self::join_view)
             .expect("the fold is seeded with the receiver: never empty")
     }
 
@@ -520,7 +520,7 @@ impl Version {
     }
 
     /// The [`meet`](Version::meet) (greatest lower bound) of this version and
-    /// every version in `others`; for an empty iterator, a clone of `self`.
+    /// every version in `iter`; for an empty iterator, a clone of `self`.
     ///
     /// Prefer this to iteratively [`meet`](Version::meet)ing [`Version`]s
     /// one-at-a-time, as it is more efficient.
@@ -535,7 +535,7 @@ impl Version {
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet_all.html"))]
     ///
-    /// Auxiliary space is `O(|self| + |others|)`.
+    /// Auxiliary space is `O(|self| + |iter|)`.
     ///
     /// # Example
     ///
@@ -549,12 +549,12 @@ impl Version {
     /// assert!(common <= va && common <= vb);
     /// assert_eq!(va.meet_all(Vec::<Version>::new()), va); // nothing to share
     /// ```
-    pub fn meet_all<I>(&self, others: I) -> Version
+    pub fn meet_all<I>(&self, iter: I) -> Version
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(self.with_items(others), Self::meet_refs, Self::meet_view)
+        Self::balanced_fold(self.with_items(iter), Self::meet_refs, Self::meet_view)
             .expect("the fold is seeded with the receiver: never empty")
     }
 
@@ -631,7 +631,7 @@ impl Version {
     ///     Span::new(&va, &va).unwrap(),
     /// );
     /// ```
-    pub fn span_all<I>(&self, others: I) -> Span<'static>
+    pub fn span_all<I>(&self, iter: I) -> Span<'static>
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
@@ -650,7 +650,7 @@ impl Version {
         // Adjacent clone-identical inputs (the receiver included) collapse
         // before the counter reads them ([`DedupRuns`]): both hull directions
         // are idempotent, so a run of one shared buffer is one input.
-        let inputs = DedupRuns::new(self.with_items(others), FoldInput::version).map(Hull::Input);
+        let inputs = DedupRuns::new(self.with_items(iter), FoldInput::version).map(Hull::Input);
         let group = crate::fold::balanced_reduce(inputs, |a, b| {
             let (lo, hi) = match (a, b) {
                 // A leaf combine: two raw inputs derive their pair hull in one
@@ -787,12 +787,12 @@ impl Version {
     /// This version and then the caller's items: the never-empty input stream
     /// every receiver-seeded fold ([`join_all`](Self::join_all),
     /// [`meet_all`](Self::meet_all), [`span_all`](Self::span_all)) reads.
-    fn with_items<I>(&self, others: I) -> impl Iterator<Item = FoldInput<'_, I::Item>>
+    fn with_items<I>(&self, iter: I) -> impl Iterator<Item = FoldInput<'_, I::Item>>
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        core::iter::once(FoldInput::Receiver(self)).chain(others.into_iter().map(FoldInput::Item))
+        core::iter::once(FoldInput::Receiver(self)).chain(iter.into_iter().map(FoldInput::Item))
     }
 
     /// A read-only view of this version's stored skyline stream.
@@ -985,7 +985,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_encode.html"))]
     ///
     /// # Example
     ///
@@ -1006,7 +1006,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -1027,7 +1029,9 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -1296,7 +1300,9 @@ impl Default for Version {
 ///
 /// # Complexity
 ///
-/// `O(|iter| log k)` time, `O(|iter|)` space, with `k` the count of `iter`.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+///
+/// Auxiliary space is `O(|iter|)`.
 impl Sum<Version> for Version {
     fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
         Version::balanced_fold(iter, Version::join_refs, Version::join_view).unwrap_or_default()
@@ -1307,7 +1313,9 @@ impl Sum<Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(|iter| log k)` time, `O(|iter|)` space, with `k` the count of `iter`.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+///
+/// Auxiliary space is `O(|iter|)`.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
         Version::balanced_fold(iter, Version::join_refs, Version::join_view).unwrap_or_default()
@@ -1318,7 +1326,9 @@ impl<'a> Sum<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(|iter| log k)` time, `O(|iter|)` space, with `k` the count of `iter`.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+///
+/// Auxiliary space is `O(|iter|)`.
 impl FromIterator<Version> for Version {
     fn from_iter<I: IntoIterator<Item = Version>>(iter: I) -> Version {
         iter.into_iter().sum()
@@ -1329,7 +1339,9 @@ impl FromIterator<Version> for Version {
 ///
 /// # Complexity
 ///
-/// `O(|iter| log k)` time, `O(|iter|)` space, with `k` the count of `iter`.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+///
+/// Auxiliary space is `O(|iter|)`.
 impl<'a> FromIterator<&'a Version> for Version {
     fn from_iter<I: IntoIterator<Item = &'a Version>>(iter: I) -> Version {
         iter.into_iter().sum()
@@ -1462,12 +1474,17 @@ where
 /// the same expansion as the method it belongs to (`self` cannot cross a
 /// macro-invocation boundary).
 macro_rules! binop_matrix {
-    ($Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident;
+    ($island:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident;
      $($lhs:ty, $rhs:ty, $strat:tt);* $(;)?
     ) => {
-        $( binop_matrix!(@cell $Op::$op, $Assign::$assign, $view, $lhs, $rhs, $strat); )*
+        $( binop_matrix!(@cell $island, $opdoc, $Op::$op, $Assign::$assign, $view, $lhs, $rhs, $strat); )*
     };
-    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, own) => {
+    (@cell $island:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, own) => {
+        #[doc = $opdoc]
+        #[doc = ""]
+        #[doc = "# Complexity"]
+        #[doc = ""]
+        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
         impl $Op<$rhs> for $lhs {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
@@ -1477,7 +1494,12 @@ macro_rules! binop_matrix {
             }
         }
     };
-    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, clone) => {
+    (@cell $island:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, clone) => {
+        #[doc = $opdoc]
+        #[doc = ""]
+        #[doc = "# Complexity"]
+        #[doc = ""]
+        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
         impl $Op<$rhs> for $lhs {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
@@ -1487,7 +1509,12 @@ macro_rules! binop_matrix {
             }
         }
     };
-    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, assign) => {
+    (@cell $island:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, assign) => {
+        #[doc = $opdoc]
+        #[doc = ""]
+        #[doc = "# Complexity"]
+        #[doc = ""]
+        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
         impl $Assign<$rhs> for $lhs {
             fn $assign(&mut self, r: $rhs) {
                 self.$view(r.view());
@@ -1498,6 +1525,8 @@ macro_rules! binop_matrix {
 
 // The join (`|`, `|=`) family. Routes through `Version::join_view`.
 binop_matrix! {
+    "version_join",
+    "`a | b` and `a |= b`: the causal join, the operator matrix of [`Version::join`] over owned and borrowed operands.",
     BitOr::bitor, BitOrAssign::bitor_assign, join_view;
     // value operator: left operand becomes a fresh owned `Version`
     Version,  Version,  own;
@@ -1513,6 +1542,8 @@ binop_matrix! {
 // same cells and strategies, routing through `Version::meet_view` instead of
 // `join_view`.
 binop_matrix! {
+    "version_meet",
+    "`a & b` and `a &= b`: the causal meet, the operator matrix of [`Version::meet`] over owned and borrowed operands.",
     BitAnd::bitand, BitAndAssign::bitand_assign, meet_view;
     // value operator: left operand becomes a fresh owned `Version`
     Version,  Version,  own;
@@ -1540,8 +1571,13 @@ binop_matrix! {
 /// or borrowed operand uniformly to `&Version`, so one arm covers all four
 /// cells.
 macro_rules! span_matrix {
-    ($($lhs:ty, $rhs:ty);* $(;)?) => {
+    ($island:literal, $opdoc:literal, $($lhs:ty, $rhs:ty);* $(;)?) => {
         $(
+            #[doc = $opdoc]
+            #[doc = ""]
+            #[doc = "# Complexity"]
+            #[doc = ""]
+            #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
             impl BitXor<$rhs> for $lhs {
                 type Output = causally::Span<'static>;
                 fn bitxor(self, r: $rhs) -> causally::Span<'static> {
@@ -1553,6 +1589,8 @@ macro_rules! span_matrix {
 }
 
 span_matrix! {
+    "version_span",
+    "`a ^ b`: the pair hull, the operator matrix of [`Version::span`].",
     Version,  Version;
     Version,  &Version;
     &Version, Version;

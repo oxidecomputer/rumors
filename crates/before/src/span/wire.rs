@@ -54,7 +54,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_encode.html"))]
     ///
     /// # Example
     ///

@@ -63,8 +63,9 @@ CRATES = [
         name="before",
         readme="crates/before/README.md",
         rdme_args=["-w", "before"],
-        # `before`'s space-consumption diagram is embedded by embed-doc-image at
-        # doc-build time; cargo-rdme can't see that definition, so supply one.
+        # `before`'s space-consumption diagram is an inline theme-reactive SVG
+        # in the rustdoc; the README's copy rides as a comment-wrapped image
+        # reference in the crate docs (invisible to rustdoc), unwrapped here.
         # An absolute raw URL is the only form that renders in every venue:
         # GitHub strips `data:` URIs (no base64-embed), and crates.io resolves a
         # *subdirectory* crate's relative paths against the repo root, not the
@@ -72,7 +73,7 @@ CRATES = [
         image_refs={
             "space-consumption": (
                 "https://raw.githubusercontent.com/oxidecomputer/rumors/HEAD/"
-                "crates/before/results/space_consumption/itc_space_consumption.svg"
+                "crates/before/docs/itc_space_consumption_readme.svg"
             ),
         },
     ),
@@ -115,7 +116,10 @@ def _strip_shortcut(m: re.Match[str]) -> str:
 def strip_intra_doc_links(md: str, image_refs: dict[str, str]) -> str:
     """Remove intra-doc links from rendered Markdown, leaving real links intact."""
     for label, path in image_refs.items():
-        # Rewrite `![alt][label]` to an inline image at `path`.
+        # Unwrap a comment-hidden image reference (the rustdoc-invisible
+        # README spelling), then rewrite `![alt][label]` to an inline
+        # image at `path`.
+        md = re.sub(rf"<!--\s*(!\[[^\]]*\]\[{re.escape(label)}\])\s*-->", r"\1", md)
         md = md.replace(f"][{label}]", f"]({path})")
     md = WITH_DEST.sub(r"\1", md)
     md = SHORTCUT.sub(_strip_shortcut, md)

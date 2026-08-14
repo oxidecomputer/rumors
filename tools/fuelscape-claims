@@ -22,8 +22,8 @@ const vm = require("vm");
 
 const bundle = fs.readFileSync("crates/before/docs/fuelscape.js", "utf8");
 vm.runInThisContext(bundle, { filename: "fuelscape.js" });
-if (typeof globalThis.Fuelscape?.parse !== "function") {
-  console.error("fuelscape.js did not export Fuelscape.parse");
+if (typeof globalThis.Fuelscape?.accepts !== "function") {
+  console.error("fuelscape.js did not export Fuelscape.accepts");
   process.exit(1);
 }
 
@@ -33,30 +33,17 @@ let failures = 0;
 for (const op of index.ops) {
   const doc = JSON.parse(fs.readFileSync(path.join(dir, `${op}.json`), "utf8"));
   const { claim, sizes } = doc.op;
-  const parsed = globalThis.Fuelscape.parse(claim);
-  if (parsed.err) {
-    console.error(`${op}: claim ${JSON.stringify(claim)} does not parse: ${parsed.err}`);
+  // The widget's own acceptance rule, verbatim: parse, no throws, never
+  // negative, positive and finite at the anchor (a zero at a small
+  // column is fine — the widget clamps it).
+  const r = globalThis.Fuelscape.accepts(claim, sizes);
+  if (r.err) {
+    console.error(
+      `${op}: the widget would refuse claim ${JSON.stringify(claim)} as its ` +
+        `default hypothesis: ${r.err}`
+    );
     failures++;
-    continue;
-  }
-  for (const n of sizes) {
-    let v;
-    try {
-      v = parsed.f(n);
-    } catch (e) {
-      console.error(`${op}: claim ${JSON.stringify(claim)} throws at n=${n}: ${e}`);
-      failures++;
-      break;
-    }
-    if (!(v.s > 0 && isFinite(v.l))) {
-      console.error(
-        `${op}: claim ${JSON.stringify(claim)} is not positive and finite at n=${n}: ` +
-          "the widget would refuse it as the default hypothesis"
-      );
-      failures++;
-      break;
-    }
   }
 }
 if (failures) process.exit(1);
-console.log(`fuelscape-claims: ${index.ops.length} claims parse and evaluate positive`);
+console.log(`fuelscape-claims: ${index.ops.length} claims accepted by the widget's own rule`);

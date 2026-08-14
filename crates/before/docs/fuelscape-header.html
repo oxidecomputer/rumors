@@ -1,4 +1,7 @@
-<style>/* fuelscape widget — inherits rustdoc theme variables and fonts */
+<style>/* fuelscape widget — inherits rustdoc theme variables and fonts.
+   The two accent roles take the theme's own code-highlight palette, so
+   the chart recolors with the reader's theme choice: hypotheses wear
+   the keyword color, the quantile probe wears the string color. */
 .fs-details {
   color-scheme: light dark;
   --fs-bg: var(--main-background-color, light-dark(#ffffff, #353535));
@@ -6,16 +9,37 @@
   --fs-muted: color-mix(in srgb, var(--fs-ink) 58%, var(--fs-bg));
   --fs-hair: color-mix(in srgb, var(--fs-ink) 11%, var(--fs-bg));
   --fs-axis: color-mix(in srgb, var(--fs-ink) 30%, var(--fs-bg));
-  --fs-teal: light-dark(#12876b, #37c393);
-  --fs-violet: light-dark(#7e63c9, #a08fe0); --fs-bad: light-dark(#c0392b, #e57368);
+  --fs-hyp: var(--code-highlight-kw-color, light-dark(#7e63c9, #a08fe0));
+  --fs-quant: var(--code-highlight-string-color, light-dark(#12876b, #37c393));
+  --fs-bad: light-dark(#c0392b, #e57368);
   --fs-mono: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
   border: 1px solid var(--fs-hair); border-radius: 6px; margin: 0.6em 0 1em;
   font-family: inherit;
 }
 .fs-details > summary { cursor: pointer; padding: 10px 16px; font-size: 11.5pt; line-height: 1.5;
-  color: var(--fs-ink); }
+  color: var(--fs-ink); list-style: none; }
+.fs-details > summary::-webkit-details-marker { display: none; }
+/* Our own chevron, replacing rustdoc's .toggle arrow image (which
+   hangs absolutely at left:-24px, outside this card): the expander
+   must read as clickable at a glance. The selectors deliberately
+   out-specify rustdoc's `details.toggle > summary:not(.hideme)::before`
+   (0,2,2), and neutralize every box property that rule sets. */
+details.fs-details.toggle > summary:not(.hideme)::before {
+  content: "▸"; color: var(--fs-hyp); background: none;
+  position: static; display: inline-block; width: auto; height: auto;
+  padding: 0; opacity: 1; margin-right: 9px; filter: none; }
+details.fs-details.toggle[open] > summary:not(.hideme)::before {
+  content: "▾"; background: none; }
 .fs-details > summary code { font-family: var(--fs-mono); font-size: 10.5pt; }
-.fs-details > summary:hover { background: color-mix(in srgb, var(--fs-ink) 4%, transparent); }
+/* Lightly typeset complexity expressions: the page's own serif, italic
+   math singles, monospace identifiers, upright function names, real
+   superscripts. The summary's claim expression is the section's
+   normative headline, so it alone is bold. */
+.fs-math { font-family: inherit; font-style: normal; }
+.fs-math sup { font-size: 72%; line-height: 0; }
+.fs-math .fs-var { font-family: var(--fs-mono); font-size: 88%; }
+.fs-claim .fs-math, .fs-claim > code { font-weight: 600; color: var(--fs-ink); }
+.fs-details > summary:hover { background: color-mix(in srgb, var(--fs-ink) 5%, transparent); }
 .fs-details[open] > summary { border-bottom: 1px solid var(--fs-hair); }
 .fs-details .fs-claim { color: var(--fs-muted); }
 .fs-root { padding: 14px 16px 12px; }
@@ -23,14 +47,14 @@
   margin: 0 0 2px; }
 .fs-subtitle { font-size: 10.5pt; color: var(--fs-muted); font-family: inherit; margin: 0 0 12px; }
 .fs-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 2px 0 4px; }
-.fs-hyplabel { font: 12pt var(--fs-mono); color: var(--fs-violet); cursor: help; align-self: center; margin-right: 2px; }
+.fs-hyplabel { font-size: 12pt; font-family: inherit; color: var(--fs-hyp); cursor: help; align-self: center; margin-right: 2px; }
 .fs-chips { display: inline-flex; flex-wrap: wrap; gap: 7px; align-items: center; }
 .fs-chip { font-family: var(--fs-mono); font-size: 10.5pt; color: var(--fs-ink); background: transparent;
   border: 1px solid var(--fs-axis); border-radius: 6px; padding: 5px 11px; cursor: pointer;
   display: inline-flex; align-items: center; gap: 7px; line-height: 1.3; }
 .fs-chip:hover { border-color: var(--fs-ink); }
-.fs-chip:focus-visible { outline: 2px solid var(--fs-teal); outline-offset: 1px; }
-.fs-chip.fs-on { background: var(--fs-violet); color: #fff; border-color: var(--fs-violet); }
+.fs-chip:focus-visible { outline: 2px solid var(--fs-quant); outline-offset: 1px; }
+.fs-chip.fs-on { background: var(--fs-hyp); color: var(--fs-bg); border-color: var(--fs-hyp); }
 .fs-chipx { opacity: .5; margin-left: 2px; padding-left: 7px; border-left: 1px solid var(--fs-hair); }
 .fs-chipx:hover { opacity: 1; }
 .fs-chipplus { opacity: .5; cursor: pointer; padding: 5px 11px 5px 3px; }
@@ -53,31 +77,32 @@
 .fs-root svg { display: block; }
 .fs-plotbg { fill: color-mix(in srgb, var(--fs-ink) 2.5%, transparent); }
 .fs-caption { font-size: 12pt; fill: var(--fs-muted); font-family: inherit; }
-.fs-slcaption { font: 12pt var(--fs-mono); fill: var(--fs-teal); cursor: ns-resize; }
+.fs-slcaption { font-size: 12pt; font-family: inherit; fill: var(--fs-quant); cursor: ns-resize; }
 .fs-tick { font: 11pt var(--fs-mono); fill: var(--fs-muted); }
 .fs-grid { stroke: var(--fs-hair); stroke-width: 1; }
 .fs-axis { stroke: var(--fs-axis); stroke-width: 1; }
 .fs-refhalo { fill: none; stroke: var(--fs-bg); stroke-width: 4.4; opacity: .9; }
-.fs-ref { fill: none; stroke: var(--fs-violet); stroke-width: 1.4; opacity: .8; }
+.fs-ref { fill: none; stroke: var(--fs-hyp); stroke-width: 1.4; opacity: .8; }
 .guide.fs-hover .fs-ref { opacity: 1; stroke-width: 2; }
 .fs-active-guide .fs-ref { opacity: 1; stroke-width: 2.3; }
 .fs-hit { fill: none; stroke: transparent; stroke-width: 18; pointer-events: stroke; cursor: pointer; }
-.fs-hit:focus-visible { outline: none; stroke: color-mix(in srgb, var(--fs-teal) 25%, transparent); }
+.fs-hit:focus-visible { outline: none; stroke: color-mix(in srgb, var(--fs-quant) 25%, transparent); }
 .fs-active-hit { cursor: ns-resize; }
-.fs-reflabel { font: 11.5pt var(--fs-mono); fill: var(--fs-violet); cursor: pointer;
+.fs-reflabel { font: 11.5pt var(--fs-mono); fill: var(--fs-hyp); cursor: pointer;
   paint-order: stroke; stroke: var(--fs-bg); stroke-width: 5px; stroke-linejoin: round; }
 .fs-active-label { font-weight: 700; }
 .fs-qhalo { fill: none; stroke: var(--fs-bg); stroke-width: 3.6; opacity: .85; }
-.fs-qline { fill: none; stroke: var(--fs-teal); }
+.fs-qline { fill: none; stroke: var(--fs-quant); }
 .fs-q-med { stroke-width: 2; stroke-dasharray: 5 5.5; stroke-linecap: round; }
-.fs-qlabel { font: 11pt var(--fs-mono); fill: var(--fs-teal); cursor: ns-resize;
+.fs-qlabel { font: 11pt var(--fs-mono); fill: var(--fs-quant); cursor: ns-resize;
   paint-order: stroke; stroke: var(--fs-bg); stroke-width: 3px; stroke-linejoin: round; }
 .fs-readout { font: 11pt var(--fs-mono); fill: var(--fs-ink);
   paint-order: stroke; stroke: var(--fs-bg); stroke-width: 3px; stroke-linejoin: round; }
 .fs-sl-track { stroke: var(--fs-axis); stroke-width: 2; stroke-linecap: round; }
-.fs-sl-notch { stroke: var(--fs-teal); stroke-width: 1.6; }
-.fs-sl-handle { fill: var(--fs-teal); stroke: var(--fs-bg); stroke-width: 2; cursor: ns-resize; }
-.fs-hoverrect { fill: transparent; }
+.fs-sl-notch { stroke: var(--fs-quant); stroke-width: 1.6; }
+.fs-sl-handle { fill: var(--fs-quant); stroke: var(--fs-bg); stroke-width: 2; cursor: ns-resize; }
+.fs-hoverrect { fill: transparent; cursor: pointer; }
+.fs-hoverrect.fs-anchored { fill: color-mix(in srgb, var(--fs-hyp) 8%, transparent); }
 .fs-hoverrect:hover { fill: color-mix(in srgb, var(--fs-ink) 3.5%, transparent); }
 .fs-footer { font-size: 10.5pt; color: var(--fs-muted); margin-top: 18px;
   display: flex; flex-direction: column; gap: 3px; align-items: flex-end; text-align: right; }
@@ -90,10 +115,10 @@
 // docs/fuelscape-header.html (`just fuelscape-header` regenerates the
 // header; build.rs refuses a stale one).
 //
-// Honesty rule: instruction counts are a deterministic guest measure, so
-// the widget presents shapes and ratios only — growth against a
-// compensation hypothesis, quantile bands, spread — and never an absolute
-// count. Axis gridlines carry no numbers; readouts are ratios.
+// Honesty rule: instruction counts are WASM operations metered in a
+// sandboxed build, so the widget presents shapes and ratios only — growth
+// against a compensation hypothesis, quantile bands, spread — and never
+// an absolute count. Axis gridlines carry no numbers; readouts are ratios.
 
 "use strict";
 (function () {
@@ -315,6 +340,68 @@ function parseBound(src) {
   } catch (e) { return { err: String(e) }; }
 }
 
+// Whether a hypothesis is usable over the measured sizes, and the
+// *lift* that makes it so: the smallest constant c such that
+// g(n + c) >= 1 at every measured size. "n log n" is the obvious way
+// to write that bound even though it is 0 at n=1; shifting the
+// argument by a constant is asymptotically identity, and the >= 1
+// floor (rather than bare positivity, which has no smallest satisfying
+// constant: it is an open condition, and log-compensating a
+// nearly-zero value would blow the chart's y-range) keeps every
+// compensation log-shift nonnegative and smooth. Formulae already
+// valid everywhere get lift 0.
+function acceptBound(src, sizes) {
+  const r = parseBound(src);
+  if (r.err) return r;
+  // min over the measured sizes of log2 g(n + c), or -Infinity where
+  // any evaluation is non-positive, non-finite, or throws
+  const minLog = c => {
+    let lo = Infinity;
+    for (const n of sizes) {
+      let v;
+      try { v = r.f(n + c); } catch (e) { return -Infinity; }
+      if (!(v.s > 0) || !isFinite(v.l)) return -Infinity;
+      lo = Math.min(lo, v.l);
+    }
+    return lo;
+  };
+  let lift = 0;
+  if (minLog(0) < 0) {
+    // bracket the crossing on a log-spaced grid, then bisect; the
+    // final candidate is verified against every size, so a
+    // non-monotone formula degrades to a valid (if not provably
+    // minimal) lift rather than a wrong one
+    let lo = 0, hi = null;
+    for (let c = 1e-6; c <= 65536; c *= 2) {
+      if (minLog(c) >= 0) { hi = c; break; }
+      lo = c;
+    }
+    if (hi === null) {
+      const n = sizes[sizes.length - 1];
+      return { err: "no constant shift makes this positive at n=" + n };
+    }
+    for (let i = 0; i < 40 && hi - lo > 1e-9; i++) {
+      const mid = (lo + hi) / 2;
+      if (minLog(mid) >= 0) hi = mid;
+      else lo = mid;
+    }
+    lift = hi;
+  }
+  const f = r.f;
+  return { f: n => f(n + lift), lift };
+}
+
+// A hypothesis value as a log2 for geometry: trace sampling extends
+// below the smallest measured size, where even a lifted bound may go
+// non-positive; such points dive below the plot instead of plotting a
+// meaningless height. At measured sizes the lift guarantees a finite
+// nonnegative value, so compensation never hits the guard.
+function boundLog(f, n) {
+  let v;
+  try { v = f(n); } catch (e) { return -Infinity; }
+  return v.s > 0 && isFinite(v.l) ? v.l : -Infinity;
+}
+
 
 function densRamp(dark) {
   const stops = dark
@@ -369,9 +456,12 @@ function pow2Text(t, k) {
 }
 
 const W = 960, H = 480;
-const M = { l: 88, r: 168, t: 34, b: 60 };
+// The left margin holds only the rotated axis label (the y-axis is
+// deliberately unnumbered); the right margin is exactly the quantile
+// slider column, so the plot fills the card.
+const M = { l: 46, r: 96, t: 34, b: 60 };
 const PW = W - M.l - M.r, PH = H - M.t - M.b;
-const SLX = 26;
+const SLX = 22;
 let UID = 0;
 
 // ---------- widget ----------
@@ -395,6 +485,10 @@ class Widget {
       matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => this.retheme());
 
     this.q = 0.5;
+    // The anchor column: where guides pin to the probe and what the
+    // slider spans. Defaults to the largest n (the asymptotic end);
+    // clicking a column locks it there instead, clicking again unlocks.
+    this.anchorIdx = data.sizes.length - 1;
     this.qref = {};
     for (const [key, qq] of [["min", 0], ["med", 0.5], ["max", 1]])
       this.qref[key] = data.cols.map(col => this.quantAt(col, qq));
@@ -444,11 +538,12 @@ class Widget {
     return (col.k0 + col.c.length) * res;
   }
 
-  cdfLast(ly) {
-    const col = this.data.cols[this.data.cols.length - 1];
-    const li = this.sizes.length - 1;
-    if (ly <= this.qref.min[li] + 1e-9) return 0;
-    if (ly >= this.qref.max[li] - 1e-9) return 1;
+  // The quantile of log-fuel `ly` within column `ci`: the inverse of
+  // quantAt, so a pointer height converts to a probe quantile.
+  cdfAt(ci, ly) {
+    const col = this.data.cols[ci];
+    if (ly <= this.qref.min[ci] + 1e-9) return 0;
+    if (ly >= this.qref.max[ci] - 1e-9) return 1;
     const total = col.c.reduce((a, b) => a + b, 0);
     const pos = ly / this.res - col.k0;
     let cum = 0;
@@ -467,18 +562,56 @@ class Widget {
   }
 
   setAnchorValue(lyRaw) {
-    const li = this.sizes.length - 1;
+    const li = this.anchorIdx;
     const lo = this.qref.min[li], hi = this.qref.max[li], med = this.qref.med[li];
     let ly = Math.min(hi, Math.max(lo, lyRaw));
-    if (this.Y && this.lastShift !== undefined &&
-        Math.abs(this.Y(ly - this.lastShift) - this.Y(med - this.lastShift)) < 3) ly = med;
-    this.q = ly === med ? 0.5 : this.cdfLast(ly);
+    if (this.Y && this.anchorShift !== undefined &&
+        Math.abs(this.Y(ly - this.anchorShift) - this.Y(med - this.anchorShift)) < 3) ly = med;
+    this.q = ly === med ? 0.5 : this.cdfAt(li, ly);
     this.update(false);
+  }
+
+  // Lock the guide/probe anchor to column `ci`; clicking the locked
+  // column again sends it back to the default (the largest n).
+  toggleAnchor(ci) {
+    this.anchorIdx = ci === this.anchorIdx ? this.sizes.length - 1 : ci;
+    this.update(true);
   }
 
   setQ(q) {
     this.q = Math.min(1, Math.max(0, q));
     this.update(false);
+  }
+
+  // Dragging the probe trace: the pointer's height converts to a
+  // quantile through the nearest column's own distribution, with the
+  // same snap-to-median assist as the anchor drag.
+  dragTrace(ev) {
+    const svgEl = this.svg;
+    const move = e => {
+      const rect = svgEl.getBoundingClientRect();
+      const px = (e.clientX - rect.left) * (W / (rect.width || W));
+      const py = (e.clientY - rect.top) * (H / (rect.height || H));
+      const lx = this.X.invert(px);
+      let ci = 0;
+      for (let i = 1; i < this.lx.length; i++)
+        if (Math.abs(this.lx[i] - lx) < Math.abs(this.lx[ci] - lx)) ci = i;
+      const shift = this.shiftAt(this.sizes[ci]);
+      const ly = Math.min(
+        this.qref.max[ci],
+        Math.max(this.qref.min[ci], this.Y.invert(py) + shift)
+      );
+      const med = this.qref.med[ci];
+      if (Math.abs(this.Y(ly - shift) - this.Y(med - shift)) < 3) this.setQ(0.5);
+      else this.setQ(this.cdfAt(ci, ly));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    if (ev.preventDefault) ev.preventDefault();
   }
 
   dragStart(ev) {
@@ -488,7 +621,7 @@ class Widget {
       const py = (e.clientY - rect.top) * (H / (rect.height || H));
       if (Math.abs(e.clientY - ev.clientY) > 3) this._dragMoved = true;
       if (this._dragMoved)
-        this.setAnchorValue(this.Y.invert(py) + this.lastShift);
+        this.setAnchorValue(this.Y.invert(py) + this.anchorShift);
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -503,19 +636,12 @@ class Widget {
   }
 
   addGuideSilent(text) {
-    const r = parseBound(text);
+    const r = acceptBound(text, this.sizes);
     if (r.err) return r.err;
-    let l0 = null, l1 = null;
-    try {
-      for (const n of this.sizes) {
-        const v = r.f(n);
-        if (v.s <= 0 || !isFinite(v.l)) return "not positive at n=" + n;
-        if (n === this.sizes[0]) l0 = v.l;
-        if (n === this.sizes[this.sizes.length - 1]) l1 = v.l;
-      }
-    } catch (e) { return String(e); }
-    // sort key: log-slope across the measured range (constants cancel),
-    // tiebroken by magnitude at the largest n, then text
+    // sort key: clamped log-slope across the measured range (constants
+    // cancel), tiebroken by magnitude at the largest n, then text
+    const l0 = boundLog(r.f, this.sizes[0]);
+    const l1 = boundLog(r.f, this.sizes[this.sizes.length - 1]);
     this.guides.push({ text: text.trim(), f: r.f, slope: l1 - l0, end: l1 });
     this.guides.sort((a, b) => a.slope - b.slope || a.end - b.end || (a.text < b.text ? -1 : 1));
     return null;
@@ -535,7 +661,10 @@ class Widget {
   isRaw() { return this.active === null; }
   shiftAt(n) {
     if (this.active === null) return 0;
-    return this.guides.find(g => g.text === this.active).f(n).l;
+    // Total for safety, but the guard is unreachable at measured sizes:
+    // acceptance lifts every guide to >= 1 there.
+    const l = boundLog(this.guides.find(g => g.text === this.active).f, n);
+    return isFinite(l) ? l : 0;
   }
 
   buildDom(host) {
@@ -566,14 +695,16 @@ class Widget {
       "aria-label": this.data.name + ": distribution of instruction counts by input size, log-log" });
     this.footer = mk(host, "div", "fs-footer");
     const d = this.data;
+    // One quiet provenance line; the details (full commit, the size
+    // measure's exact denominator, the shapes-not-absolutes caveat)
+    // live in its tooltip rather than as visible noise.
     const prov = mk(this.footer, "span", "fs-prov");
-    prov.innerHTML = "commit <code>" + d.commit + "</code> \u00b7 seed <code>" + d.seed +
-      "</code> \u00b7 avg <code>" + d.spc + "</code> samples/column";
-    const measure = mk(this.footer, "span", "fs-prov");
-    measure.textContent = "size measure: " + d.size_measure;
-    const honesty = mk(this.footer, "span", "fs-prov");
-    honesty.textContent =
-      "instructions are a deterministic guest measure: compare shapes and ratios, not absolute counts";
+    prov.innerHTML = "commit <code>" + String(d.commit).slice(0, 8) + "</code> \u00b7 seed <code>" +
+      d.seed + "</code> \u00b7 avg <code>" + d.spc + "</code> samples/column";
+    prov.title = "commit " + d.commit + "\nsize measure: " + d.size_measure +
+      "\ninstructions are counted as WASM operations, deterministically, in a " +
+      "sandboxed build of this crate: growth shapes and ratios transfer to native " +
+      "builds; absolute counts do not";
   }
 
   tryAdd() {
@@ -601,7 +732,10 @@ class Widget {
     attrs(mk(clip, "rect"), { x: M.l, y: M.t - 2, width: PW, height: PH + 4 });
     const filt = mk(defs, "filter");
     attrs(filt, { id: blurId, x: "-4%", y: "-4%", width: "108%", height: "108%" });
-    attrs(mk(filt, "feGaussianBlur"), { stdDeviation: "0 1.6" });
+    // Vertical-only blur; its width is set per repaint, scaled to the
+    // bin height (update()), so tight-range charts with tall bins soften
+    // the same as wide-range charts with hairline bins.
+    this.blurEl = attrs(mk(filt, "feGaussianBlur"), { stdDeviation: "0 0.8" });
 
     // stacking, bottom to top: grid < density < guides < quantile probe
     // < column hover < guide hit strokes < labels < slider
@@ -616,7 +750,7 @@ class Widget {
     this.gLabels = mk(svg, "g");
 
     this.ylabel = mk(svg, "text", "fs-caption");
-    attrs(this.ylabel, { transform: `translate(16,${M.t + PH / 2}) rotate(-90)`, "text-anchor": "middle" });
+    attrs(this.ylabel, { transform: `translate(${M.l - 14},${M.t + PH / 2}) rotate(-90)`, "text-anchor": "middle" });
     const xcap = mk(svg, "text", "fs-caption");
     attrs(xcap, { x: M.l + PW / 2, y: H - 12, "text-anchor": "middle" });
     xcap.textContent = "total input size (bytes, log scale)";
@@ -636,7 +770,11 @@ class Widget {
       else pow2Text(t, Math.round(this.lx[ci]));
     }
 
-    // display bins: data-side kernel + SVG blur; quantiles use raw counts
+    // display bins: a truncated smoothing kernel plus a light SVG blur.
+    // The kernel renormalizes at the support's edges rather than padding
+    // past them: the painted band must end exactly where the data ends,
+    // or the quantile slider (whose track is the true min-to-max span)
+    // reads as stopping short of the band. Quantiles use raw counts.
     const R = 3, SIG = 1.0;
     const kern = [];
     for (let i = -R; i <= R; i++) kern.push(Math.exp(-(i * i) / (2 * SIG * SIG)));
@@ -644,17 +782,26 @@ class Widget {
     this.smExt = [];
     for (let ci = 0; ci < this.data.cols.length; ci++) {
       const col = this.data.cols[ci];
-      const sm = new Array(col.c.length + 2 * R).fill(0);
-      for (let j = 0; j < col.c.length; j++)
-        for (let i = -R; i <= R; i++) sm[j + R + i] += col.c[j] * kern[i + R];
+      const len = col.c.length;
+      const sm = new Array(len).fill(0);
+      for (let j = 0; j < len; j++) {
+        let acc = 0, wsum = 0;
+        for (let i = -R; i <= R; i++) {
+          const k = j + i;
+          if (k < 0 || k >= len) continue;
+          acc += col.c[k] * kern[i + R];
+          wsum += kern[i + R];
+        }
+        sm[j] = acc / wsum;
+      }
       const peak = Math.max(...sm);
-      for (let j = 0; j < sm.length; j++) {
+      for (let j = 0; j < len; j++) {
         const v = sm[j] / peak;
         if (v <= 0) continue;
         const vv = Math.max(v, 0.015);
-        this.bins.push({ ci, vTop: (col.k0 - R + j + 1) * this.res, v: Math.pow(vv, 0.6) });
+        this.bins.push({ ci, vTop: (col.k0 + j + 1) * this.res, v: Math.pow(vv, 0.6) });
       }
-      this.smExt.push([(col.k0 - R) * this.res, (col.k0 + col.c.length + R) * this.res]);
+      this.smExt.push([col.k0 * this.res, (col.k0 + len) * this.res]);
     }
     this.binEls = new Map();
     for (const b of this.bins) {
@@ -666,6 +813,13 @@ class Widget {
 
     this.qHalo = mk(this.gQuants, "path", "fs-qhalo");
     this.qLine = mk(this.gQuants, "path", "fs-qline fs-q-med");
+    // A fat invisible stroke over the probe trace: dragging the trace
+    // itself sweeps quantiles, inverted through the density of whichever
+    // column the pointer is nearest (so sensitivity follows the data).
+    this.qHit = mk(this.gHits, "path", "fs-hit fs-active-hit");
+    this.qHit.addEventListener("pointerdown", ev => this.dragTrace(ev));
+    const qhTip = mk(this.qHit, "title");
+    qhTip.textContent = "drag to sweep quantiles";
     this.gSlider = mk(svg, "g", "fs-slider");
     this.slTrack = mk(this.gSlider, "line", "fs-sl-track");
     this.slNotch = mk(this.gSlider, "line", "fs-sl-notch");
@@ -688,7 +842,7 @@ class Widget {
     this.slCaption = mk(this.gSlider, "text", "fs-slcaption");
     this.slCaption.addEventListener("pointerdown", ev => this.dragStart(ev));
     this.qLabel = mk(this.gLabels, "text", "fs-qlabel");
-    this.qLabel.setAttribute("x", W - M.r + SLX + 13);
+    this.qLabel.setAttribute("x", W - M.r + SLX + 11);
     this.qLabel.addEventListener("pointerdown", ev => this.dragStart(ev));
     // The label's tooltip is created once here: a per-update mk() would
     // append one <title> child per repaint, and they accumulate.
@@ -697,12 +851,17 @@ class Widget {
 
     this.readout = mk(this.gLabels, "text", "fs-readout");
     attrs(this.readout, { x: W - M.r, y: M.t - 8, "text-anchor": "end" });
+    this.hoverEls = [];
     for (let ci = 0; ci < this.sizes.length; ci++) {
       const r = mk(this.gHover, "rect", "fs-hoverrect");
       attrs(r, { x: this.X(this.lx[ci]) - this.colW / 2 - 2, y: M.t,
         width: this.colW + 4, height: PH });
       r.addEventListener("mouseenter", () => this.showReadout(ci));
       r.addEventListener("mouseleave", () => { this.readout.textContent = ""; });
+      r.addEventListener("click", () => this.toggleAnchor(ci));
+      const tip = mk(r, "title");
+      tip.textContent = "click to anchor the hypotheses and quantile here";
+      this.hoverEls.push(r);
     }
 
     // keyed element maps for dynamic layers
@@ -775,25 +934,40 @@ class Widget {
 
     // density: pure vertical shear
     const binH = Math.max(res / (yhi - ylo) * PH + 0.35, 0.9);
+    // Softening scaled to the bin, not the pixel: a fixed width reads
+    // as unblurred stair-steps wherever a tight y-range makes bins
+    // tall. Capped so the bleed stays under a bin and the band keeps
+    // ending where the data does.
+    this.blurEl.setAttribute(
+      "stdDeviation",
+      "0 " + Math.min(Math.max(0.25 * binH, 0.5), 2.4).toFixed(2)
+    );
     for (const [el] of this.binEls) {
       const b = el.__bin;
       T(el, { y: Y(b.vTop - shifts[b.ci]), height: binH });
     }
 
-    // probe values + anchor
+    // probe values + anchor: guides intersect the probe at the anchor
+    // column — the largest n by default (the asymptotic end), or the
+    // column a click locked
     const tv = this.traceValues(this.q);
-    const li = this.sizes.length - 1;
-    this.lastShift = shifts[li];
-    const aI = li;                       // anchor at largest n in every view,
-    const aN = this.sizes[aI];           // so guides always intersect the probe
-    const anchorLy = tv.raw[aI];         // at the asymptotic end
+    const li = this.anchorIdx;
+    this.anchorShift = shifts[li];
+    const aI = li;
+    const aN = this.sizes[aI];
+    const anchorLy = tv.raw[aI];
 
     // guide geometry
     const samples = 60;
     const lxLo = this.lx[0] - this.halfLx, lxHi = this.lx[this.lx.length - 1] + this.halfLx;
     const geom = new Map();
     for (const g of this.guides) {
-      const rel = n => g.f(n).l - shiftOf(n);
+      // The same clamped evaluation as compensation itself, so the
+      // selected hypothesis renders exactly horizontal — left edge
+      // included — and trace sampling below the smallest measured n
+      // (where growth bounds go non-positive) flattens instead of
+      // spiking.
+      const rel = n => boundLog(g.f, n) - shiftOf(n);
       const off = anchorLy - shiftOf(aN) - rel(aN);
       const pts = [];
       const vals = [];
@@ -845,7 +1019,10 @@ class Widget {
       if (!e) {
         const poly = mk(this.gHits, "polyline", "fs-hit");
         attrs(poly, { tabindex: 0, role: "button" });
-        poly.addEventListener("pointerdown", ev => { if (g.text === this.active) this.dragStart(ev); });
+        // Every guide is draggable (the drag sweeps quantiles through
+        // the shared anchor); a motionless press stays a click, which
+        // selects. The squelch flag is what separates the two.
+        poly.addEventListener("pointerdown", ev => this.dragStart(ev));
         poly.addEventListener("click", () => {
           if (this._squelch) { this._squelch = false; return; }
           this.setActive(g.text);
@@ -860,7 +1037,9 @@ class Widget {
       }
       e.poly.classList.toggle("fs-active-hit", g.text === this.active);
       e.poly.setAttribute("points", geom.get(g.text).points);
-      e.title.textContent = (g.text === this.active ? "deselect " : "compensate by ") + g.text;
+      e.title.textContent = (g.text === this.active
+        ? "drag to sweep quantiles · click to deselect "
+        : "drag to sweep quantiles · click to compensate by ") + g.text;
     }
 
     // guide labels
@@ -919,6 +1098,14 @@ class Widget {
     const qd = monotonePath(pts);
     T(this.qHalo, { d: qd });
     T(this.qLine, { d: qd });
+    // The hit stroke tracks without tweening: a pointer target that
+    // lags its line drops drags on the way.
+    this.qHit.setAttribute("d", qd);
+
+    // The anchor column's tint: visible only when a click has locked
+    // the anchor off its default.
+    this.hoverEls.forEach((r, ci) =>
+      r.classList.toggle("fs-anchored", ci === li && li !== this.sizes.length - 1));
 
     // slider
     const slx = W - M.r + SLX;
@@ -938,7 +1125,7 @@ class Widget {
     this.qLabel.appendChild(this.qLabelTip);
     T(this.qLabel, { y: yCur + 4 });
     T(this.slCaption, { y: yCur - 13 });
-    this.slCaption.setAttribute("x", W - M.r + SLX + 13);
+    this.slCaption.setAttribute("x", W - M.r + SLX + 11);
     this.slCaption.textContent = "Quantile";
 
     this.renderChips();
@@ -986,26 +1173,123 @@ function hydrateOne(el) {
   el.__fs = new Widget(el, JSON.parse(island.textContent));
 }
 
+// ---------- complexity typesetting (docblock code spans) ----------
+// Every complexity expression in the docs — island summaries and the
+// prose contracts, aux-space clauses, and O(1) claims alike — renders
+// through this one pass, so they cannot drift apart in style. A code
+// span is transformed only when its whole text is complexity-shaped:
+// O(...)/Θ(...)/Ω(...), a norm or magnitude like ‖r‖, or a lone
+// letter. Within an expression: single letters set italic (math
+// variables), multi-letter identifiers stay monospace (they are code
+// names), function names stay upright roman, and ^ superscripts its
+// following token. Deliberately not KaTeX: this grammar is the whole
+// demand, and the page's own serif carries it at zero added weight.
+// Standalone lone letters transform only in lowercase: a bare uppercase
+// code span in prose is a type parameter (`W`, `R`), not a math
+// variable, while uppercase inside a full expression is unambiguous.
+const MATH_SHAPED = /^(?:[OΘΩ]\(.+\)|‖.+‖|\|.+\||[a-z])$/;
+const MATH_FNS = new Set(["log", "ln", "lg", "log2", "log10", "sqrt", "min", "max"]);
+
+function typesetInto(span, text) {
+  let i = 0;
+  const emitWord = (parent, w) => {
+    if (MATH_FNS.has(w)) {
+      parent.appendChild(document.createTextNode(w));
+    } else if (w.length === 1) {
+      mk(parent, "i").textContent = w;
+    } else {
+      mk(parent, "span", "fs-var").textContent = w;
+    }
+  };
+  while (i < text.length) {
+    const c = text[i];
+    if (/[A-Za-z]/.test(c)) {
+      let j = i + 1;
+      while (j < text.length && /[A-Za-z0-9]/.test(text[j])) j++;
+      emitWord(span, text.slice(i, j));
+      i = j;
+    } else if (c === "^") {
+      let j = i + 1;
+      while (j < text.length && /[A-Za-z0-9.]/.test(text[j])) j++;
+      const sup = mk(span, "sup");
+      const w = text.slice(i + 1, j);
+      if (/^[A-Za-z]/.test(w)) emitWord(sup, w);
+      else sup.textContent = w;
+      i = j;
+    } else {
+      span.appendChild(document.createTextNode(c));
+      i++;
+    }
+  }
+}
+
+function typesetDocMath(scope) {
+  (scope || document).querySelectorAll(".docblock code").forEach(code => {
+    if (code.closest("pre") || !MATH_SHAPED.test(code.textContent)) return;
+    const span = document.createElement("span");
+    span.className = "fs-math";
+    typesetInto(span, code.textContent);
+    code.replaceWith(span);
+  });
+}
+
+// rustdoc's main.js preventDefaults any click on a `.toggle > summary`
+// whose target is not the summary element itself or a link — and this
+// summary is almost entirely <code> and <span> children, so most
+// honest clicks would silently not toggle. Re-run the toggle by hand
+// whenever that suppression hit: listening on the details in the
+// bubble phase guarantees we run after rustdoc's summary-level
+// handler regardless of registration order.
+function armSummaryClicks(details) {
+  if (details.__fsClicks) return;
+  details.__fsClicks = true;
+  details.addEventListener("click", e => {
+    if (!e.defaultPrevented) return;
+    const summary = e.target.closest("summary");
+    if (!summary || summary.parentNode !== details) return;
+    if (e.target.closest("a")) return;
+    details.open = !details.open;
+  });
+}
+
 const Fuelscape = {
   parse: parseBound,
-  // Hydration is lazy, per island, on its expander's first opening: a
-  // rustdoc type page carries every method's island, and each widget is
+  accepts: acceptBound,
+  // Hydration is lazy, per island, and pre-warmed by scroll: a rustdoc
+  // type page carries every method's island, and each widget is
   // thousands of SVG nodes \u2014 building them all at page load would tax
-  // every visit for expanders never opened. The `toggle` event fires for
-  // programmatic `open` changes too, so rustdoc's expand-all control
-  // still hydrates what it reveals.
+  // every visit. Instead each island hydrates when its expander scrolls
+  // near the viewport (even while closed \u2014 an SVG builds fine inside a
+  // closed details), so opening one is instant; the first `toggle`
+  // remains the fallback wake (it fires for programmatic `open` changes
+  // too, so rustdoc's expand-all control hydrates what it reveals).
   hydrate(scope) {
+    typesetDocMath(scope);
+    const io = typeof IntersectionObserver === "function"
+      ? new IntersectionObserver(entries => {
+          for (const e of entries) {
+            if (!e.isIntersecting) continue;
+            io.unobserve(e.target);
+            hydrateOne(e.target.__fsIsland);
+          }
+        }, { rootMargin: "400px 0px" })
+      : null;
     (scope || document).querySelectorAll(".fuelscape").forEach(el => {
       if (el.__fs || el.__fsArmed) return;
       const details = el.closest("details");
       if (!details) { hydrateOne(el); return; }
       el.__fsArmed = true;
+      armSummaryClicks(details);
       if (details.open) { hydrateOne(el); return; }
       details.addEventListener(
         "toggle",
         () => { if (details.open) hydrateOne(el); },
         { once: true }
       );
+      if (io) {
+        details.__fsIsland = el;
+        io.observe(details);
+      }
     });
   },
 };

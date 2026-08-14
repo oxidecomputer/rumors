@@ -68,6 +68,111 @@ fn main() {
         writeln!(emitted, "{name}").expect("string writes are infallible");
     }
     std::fs::write(dst.join("index"), emitted).expect("island index is writable");
+
+    let figure = std::fs::read_to_string("results/space_consumption/itc_space_consumption.svg")
+        .expect("the space-consumption figure exists");
+    std::fs::write(
+        Path::new(&out_dir).join("space_consumption.svg"),
+        theme_svg(&figure, Ink::CurrentColor),
+    )
+    .expect("the doc figure is writable");
+    check_readme_figure_fresh(&figure);
+}
+
+/// How a derived figure's monochrome ink adapts to the reader's theme.
+enum Ink {
+    /// `currentColor`: inherits the page's theme ink live. Right for the
+    /// rustdoc-inlined copy; useless inside an `<img>`, where there is
+    /// no page to inherit from and it resolves to black.
+    CurrentColor,
+    /// A scoped stylesheet keyed on `prefers-color-scheme`: right for
+    /// the README's copy, which GitHub renders as an `<img>`.
+    MediaQuery,
+}
+
+/// Adapts the space-consumption figure for inline embedding in the
+/// rustdoc: theme-reactive monochrome and a transparent background.
+///
+/// The figure is matplotlib output, kept pristine in `results/` (it is a
+/// measurement artifact); this derives the doc-facing form at build
+/// time. Inline SVG inherits page CSS, so `currentColor` follows the
+/// reader's theme live — unpainted elements (all the text glyphs)
+/// inherit it from the root, and the explicit black strokes are
+/// rewritten to it. The three series colors weak on one theme's
+/// background move to tones legible on both.
+fn theme_svg(svg: &str, ink: Ink) -> String {
+    let start = svg.find("<svg").expect("figure has an svg root");
+    let meta_start = svg.find("<metadata>").expect("matplotlib emits metadata");
+    let meta_end = svg.find("</metadata>").expect("metadata closes") + "</metadata>".len();
+    let root_end = svg[start..].find('>').expect("the root tag closes") + start;
+
+    // The root element: drop the width/height that pin the figure to
+    // points (the viewBox plus max-width own the sizing), then add the
+    // theme hooks. Unpainted elements — all the text glyphs — inherit
+    // the root fill.
+    let mut root: String = svg[start..root_end]
+        .split_whitespace()
+        .filter(|attr| !attr.starts_with("width=") && !attr.starts_with("height="))
+        .collect::<Vec<_>>()
+        .join(" ");
+    root.push_str(
+        " fill=\"currentColor\" role=\"img\" \
+         aria-label=\"Space consumption of before's interval-tree versions\" \
+         style=\"max-width: 100%; height: auto;\"",
+    );
+    // The ink stylesheet: the id scopes it away from any other svg in
+    // the same document (the rustdoc pages carry many).
+    let style = match ink {
+        Ink::CurrentColor => String::new(),
+        Ink::MediaQuery => {
+            root.push_str(" id=\"space-consumption-figure\"");
+            "<style>#space-consumption-figure { color: #1f1f1f; } \
+             @media (prefers-color-scheme: dark) { \
+             #space-consumption-figure { color: #d4d4d4; } }</style>"
+                .to_string()
+        }
+    };
+
+    let body = format!(
+        "{root}>{style}{}{}",
+        &svg[root_end + 1..meta_start],
+        &svg[meta_end..]
+    );
+    let body = body
+        .replace("stroke: #000000", "stroke: currentColor")
+        .replace("fill: #ffffff", "fill: none")
+        // yellow, cyan, and saturated blue, moved to both-theme tones
+        .replace("#f5e000", "#cca700")
+        .replace("#00d7d7", "#00a8a8")
+        .replace("#023eff", "#4c6ef5");
+    // A blank line would hand the rest of the element back to rustdoc's
+    // Markdown pass mid-tag (and costs nothing in the standalone file).
+    let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+    lines.join("\n")
+}
+
+/// The committed README figure must equal its derivation from the
+/// measurement artifact.
+///
+/// The README references the figure by URL, so it must be a committed
+/// file; committed-but-derived means it can rot, and this check is what
+/// prevents that — the header-freshness idiom. Regenerate with
+/// `just doc-figure` (which sets `BEFORE_REGEN_DOC_FIGURE=1`; only that
+/// explicit opt-in writes into the source tree).
+fn check_readme_figure_fresh(figure: &str) {
+    println!("cargo:rerun-if-env-changed=BEFORE_REGEN_DOC_FIGURE");
+    let path = "docs/itc_space_consumption_readme.svg";
+    let want = theme_svg(figure, Ink::MediaQuery);
+    if std::env::var_os("BEFORE_REGEN_DOC_FIGURE").is_some() {
+        std::fs::write(path, &want).expect("the README figure is writable");
+        return;
+    }
+    let have = std::fs::read_to_string(path).unwrap_or_default();
+    assert_eq!(
+        have, want,
+        "{path} is stale relative to results/space_consumption: \
+         run `just doc-figure`"
+    );
 }
 
 /// One single-line island: the clickable contract-and-claim summary, the
@@ -94,18 +199,23 @@ fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
     let claim_html = escape(claim);
     format!(
         "<details class=\"toggle fs-details\"><summary>{contract} · \
-         <span class=\"fs-claim\">measured growth Θ(<code>{claim_html}</code>) \
-         in total input bytes · fuelscape</span></summary>\
+         <span class=\"fs-claim\"><code>O({claim_html})</code> \
+         in total input bytes</span></summary>\
          <div class=\"fuelscape\"><script type=\"application/json\">{data}</script></div>\
-         <noscript><p>The interactive fuelscape requires JavaScript; the claimed \
-         bulk growth is Θ({claim_html}) in total input bytes.</p></noscript>\
+         <noscript><p>The interactive chart requires JavaScript; the bound \
+         is O({claim_html}) in total input bytes.</p></noscript>\
          </details>\n"
     )
 }
 
 /// Renders a contract string's backticked spans as `<code>`, escaping
-/// everything: the roster writes contracts in the doc comments' own
-/// idiom, and this is the one place that idiom meets HTML.
+/// everything.
+///
+/// The roster writes contracts in the doc comments' own idiom, and this
+/// is the one place that idiom meets HTML. Complexity typesetting
+/// (italic math singles, mono identifiers, superscripts) happens
+/// client-side in fuelscape.js, in one implementation shared with the
+/// doc-prose spans it must match.
 fn code_spans(contract: &str) -> String {
     let mut out = String::new();
     for (i, part) in contract.split('`').enumerate() {

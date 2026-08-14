@@ -3,43 +3,41 @@
 //! A *span* is two concrete versions `lo <= hi` representing all the
 //! [`Version`]s `lo <= v <= hi`.
 //!
-//! [`Span::place`] resolves the relationship of some [`Version`] `v` to the
-//! [`Span`]'s bounds at the finest degree of granularity, while the coarsenings
-//! answer cheaper questions: [`Span::dominance`] and [`Span::precedence`]
-//! render three-way [`Dominance`] and [`Precedence`] verdicts, while
-//! [`Span::contains`] renders bare membership of a [`Version`] within the
-//! [`Span`].
-//!
-//! Every nonempty collection of versions has a tightest containing span, which
-//! may be computed by [`Version::span`] and [`Version::span_all`].
+//! | Operation                                             | Meaning                                                             |
+//! |-------------------------------------------------------|---------------------------------------------------------------------|
+//! | `v ^ w`, [`v.span(&w)`](Version::span)                | the tightest span containing `v` and `w`                             |
+//! | [`Version::span_all`]                                 | …containing a whole collection                                       |
+//! | [`Span::new`]`(lo, hi)`                               | the span `[lo, hi]`; errors unless `lo <= hi`                        |
+//! | [`Span::at`]`(v)`                                     | the singleton span `[v, v]`                                          |
+//! | [`s.place(&v)`](Span::place)                          | `v` against the bounds, finest granularity ([`Placement`])           |
+//! | [`s.dominance(&v)`](Span::dominance)                  | three-way verdict: is `v` past the span? ([`Dominance`])             |
+//! | [`s.precedence(&v)`](Span::precedence)                | three-way verdict: is `v` before it? ([`Precedence`])                |
+//! | [`s.contains(&v)`](Span::contains)                    | bare membership                                                      |
+//! | `a \| b`, `a & b`                                     | the *pointwise* lattice: `\|`/`&` on each endpoint pair              |
+//! | `a + b`                                               | the *union*: the tightest span covering both                         |
+//! | `a * b`                                               | the *intersection*: the largest common part; `None` if disjoint      |
+//! | `&s / &p`, [`s.project(&p)`](Span::project)           | the lazy projection view ([`OwnSpan`])                               |
+//! | [`encode`](Span::encode) / [`decode`](Span::decode)   | the canonical wire form                                              |
 //!
 //! # The span algebra
 //!
-//! Spans can be manipulated according to two distinct lattice structures:
+//! The operators come from two distinct lattice structures. The
+//! **pointwise order** borrows the version lattice's own symbols and lifts
+//! them to each endpoint pair: `a | b` has endpoints
+//! `lo_a | lo_b <= hi_a | hi_b`, and `a & b` dually. The **containment
+//! order** wears the arithmetic symbols: `a + b` has endpoints
+//! `lo_a & lo_b <= hi_a | hi_b` (covers both operands), `a * b` has
+//! endpoints `lo_a | lo_b <= hi_a & hi_b` (covered by both), and is
+//! [`None`] when the spans are non-overlapping.
 //!
-//! - **The pointwise order** (the version lattice's own symbols): `a | b` and
-//!   `a & b` lift the version lattice itself to spans, pointwise: `a | b`
-//!   yields a span with endpoints `lo_a | lo_b <= hi_a | hi_b`, while `a & b`
-//!   yields a span with endpoints `lo_a & lo_b <= hi_a & hi_b` — exactly
-//!   [`Version`]'s `|` and `&`, applied to each endpoint pair.
-//! - **The containment order** (arithmetic symbols): `a + b` is the
-//!   *union* — the tightest span covering both `a` and `b`, with endpoints
-//!   `lo_a & lo_b <= hi_a | hi_b` — and `a * b` is the *intersection*
-//!   — the largest span which is fully covered by both, with endpoints
-//!   `lo_a | lo_b <= hi_a & hi_b`, returning [`None`] when the
-//!   spans are non-overlapping.
-//!
-//! Every operator has a method spelling: [`Span::join`] and [`Span::meet`]
-//! mirror [`Version::join`] and [`Version::meet`], and [`Span::union`] and
-//! [`Span::intersect`] name the containment pair, with variadic extensions
-//! [`Span::join_all`], [`Span::meet_all`], [`Span::union_all`],
-//! and [`Span::intersect_all`], each implemented as one optimal
-//! balanced fold.
-//!
-//! Like [`Version`]s, [`Span`]s support the `/` projection operator: `&span /
-//! &party` is [`OwnSpan`], a lazy view equivalent to the span with endpoints
-//! `[lo / &p, hi / &p]`; [`Span::project`] is the named spelling, mirroring
-//! [`Version::project`].
+//! Every operator has a method spelling — [`join`](Span::join) and
+//! [`meet`](Span::meet) for the pointwise pair, [`union`](Span::union)
+//! and [`intersect`](Span::intersect) for the containment pair — and a
+//! variadic extension ([`join_all`](Span::join_all),
+//! [`meet_all`](Span::meet_all), [`union_all`](Span::union_all),
+//! [`intersect_all`](Span::intersect_all)), each one balanced fold.
+//! Projection mirrors [`Version::project`]: the view is equivalent to the
+//! span `[lo / &p, hi / &p]`.
 //!
 //! # The wire form
 //!
@@ -70,6 +68,11 @@ mod tests;
 
 /// A causal span: an ordered pair of versions `lo <= hi` representing all the
 /// [`Version`]s `lo <= v <= hi`.
+///
+/// Spans answer where a version falls relative to a causal interval —
+/// [`place`](Span::place) at the finest grain, with cheaper coarsenings —
+/// and compose under two lattices, pointwise and containment. The
+/// [module docs](self) carry the operation table and the algebra.
 ///
 /// # Example
 ///
@@ -109,7 +112,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|lo| + |hi|)`, to validate that `lo <= hi`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html"))]
     ///
     /// # Errors
     ///
@@ -187,6 +190,10 @@ impl<'a> Span<'a> {
     /// Reborrows this [`Span`]'s endpoints: the same `[lo, hi]` span with a
     /// fresh, shorter lifetime.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)`.
+    ///
     /// # Example
     ///
     /// ```
@@ -202,10 +209,6 @@ impl<'a> Span<'a> {
     /// assert_eq!(view, stored); // the same endpoints, byte for byte
     /// assert_eq!(view.dominance(&a2), stored.dominance(&a2));
     /// ```
-    ///
-    /// # Complexity
-    ///
-    /// `O(1)`.
     pub fn reborrow(&self) -> Span<'_> {
         Span {
             lo: Cow::Borrowed(self.lo()),
@@ -515,6 +518,10 @@ impl<'a> Span<'a> {
 
     /// Settles this span onto owned endpoints, erasing the borrow lifetime.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)`.
+    ///
     /// # Example
     ///
     /// ```
@@ -529,10 +536,6 @@ impl<'a> Span<'a> {
     /// };
     /// assert_eq!((owned.lo(), owned.hi()), (&a1, &a2));
     /// ```
-    ///
-    /// # Complexity
-    ///
-    /// `O(1)`.
     pub fn into_owned(self) -> Span<'static> {
         Span {
             lo: Cow::Owned(self.lo.into_owned()),

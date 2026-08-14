@@ -166,7 +166,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.html"))]
     ///
     /// # Example
     ///
@@ -187,7 +187,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self| + |version| + log n)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html"))]
     ///
     /// # Example
     ///
@@ -202,8 +202,8 @@ impl Party {
     /// }
     /// assert_eq!(v, w); // one call, same version as three sequential ticks
     /// ```
-    pub fn ticks(&self, version: &mut Version, n: impl Into<Ticks>) {
-        version.ticks(self, n)
+    pub fn ticks(&self, version: &mut Version, k: impl Into<Ticks>) {
+        version.ticks(self, k)
     }
 
     /// Splits off a new disjoint [`Party`] from this one.
@@ -270,8 +270,8 @@ impl Party {
     /// p.join_all(shares).unwrap();
     /// assert!(p.is_seed());
     /// ```
-    pub fn forks(&mut self, n: u64) -> Forks<'_> {
-        Forks::new(self, n)
+    pub fn forks(&mut self, k: u64) -> Forks<'_> {
+        Forks::new(self, k)
     }
 
     /// Reunites two disjoint [`Party`]s.
@@ -521,7 +521,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html"))]
     ///
     /// # Example
     ///

@@ -217,12 +217,12 @@ impl<'a> Span<'a> {
     /// assert_eq!(joined.lo(), joined.hi());
     /// assert_eq!(joined.lo(), &(&a1 | &b1));
     /// ```
-    pub fn join_all<'s, I>(&self, others: I) -> Span<'static>
+    pub fn join_all<'s, I>(&self, iter: I) -> Span<'static>
     where
         I: IntoIterator,
         I::Item: Borrow<Span<'s>>,
     {
-        let (lo, hi) = self.fold_endpoints(others, &JOIN_OPS);
+        let (lo, hi) = self.fold_endpoints(iter, &JOIN_OPS);
         Span::owned(lo, hi)
     }
 
@@ -276,16 +276,16 @@ impl<'a> Span<'a> {
     /// assert_eq!(met.lo(), met.hi());
     /// assert_eq!(met.lo(), &(&a1 & &b1));
     /// ```
-    pub fn meet_all<'s, I>(&self, others: I) -> Span<'static>
+    pub fn meet_all<'s, I>(&self, iter: I) -> Span<'static>
     where
         I: IntoIterator,
         I::Item: Borrow<Span<'s>>,
     {
-        let (lo, hi) = self.fold_endpoints(others, &MEET_OPS);
+        let (lo, hi) = self.fold_endpoints(iter, &MEET_OPS);
         Span::owned(lo, hi)
     }
 
-    /// The doors' shared balanced fold: `{self} ∪ others` reduced through
+    /// The doors' shared balanced fold: `{self} ∪ iter` reduced through
     /// [`crate::fold::balanced_reduce`] with a two-sided accumulator, per-door
     /// leg kernels, and the point-combine fast path.
     ///
@@ -295,7 +295,7 @@ impl<'a> Span<'a> {
     /// so the fold is never empty. Inputs enter untouched and are cloned only
     /// at their first combine, and every clone of a stored version is a
     /// refcount bump, never a byte copy.
-    fn fold_endpoints<'s, I>(&self, others: I, ops: &SpanFoldOps) -> (Version, Version)
+    fn fold_endpoints<'s, I>(&self, iter: I, ops: &SpanFoldOps) -> (Version, Version)
     where
         I: IntoIterator,
         I::Item: Borrow<Span<'s>>,
@@ -303,7 +303,7 @@ impl<'a> Span<'a> {
         // The dedup filter: one (lo, hi) buffer-identity pair of state.
         let mut last: Option<(Version, Version)> = None;
         let inputs = core::iter::once(FoldInput::Receiver(self))
-            .chain(others.into_iter().map(FoldInput::Item))
+            .chain(iter.into_iter().map(FoldInput::Item))
             .filter(move |input| {
                 let s = input.span();
                 let dup = last.as_ref().is_some_and(|(lo, hi)| {
@@ -630,7 +630,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html"))]
     ///
     /// # Example
     ///
@@ -656,7 +656,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html"))]
     ///
     /// # Example
     ///
@@ -682,7 +682,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html"))]
     ///
     /// # Example
     ///
@@ -711,7 +711,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)`.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect.html"))]
     ///
     /// # Example
     ///
@@ -766,6 +766,10 @@ span_union_fold! {
     /// the balanced n-ary door of [`Span::union_all`] — or [`None`] on an
     /// empty iterator (union has no identity span).
     ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    ///
     /// # Example
     ///
     /// ```
@@ -790,6 +794,10 @@ span_union_fold! {
 
 span_union_fold! {
     /// The union of every borrowed span in the iterator; see the owned impl.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
     ('x, 'a) &'x Span<'a>
 }
 
@@ -816,6 +824,10 @@ span_intersect_fold! {
     /// The intersection of every span in the iterator — the fold of `*`, run
     /// through the balanced n-ary door of [`Span::intersect_all`] — or
     /// [`None`] on an empty iterator or an empty intersection.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect_all.html"))]
     ///
     /// # Example
     ///

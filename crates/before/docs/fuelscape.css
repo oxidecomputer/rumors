@@ -1,4 +1,7 @@
-/* fuelscape widget — inherits rustdoc theme variables and fonts */
+/* fuelscape widget — inherits rustdoc theme variables and fonts.
+   The two accent roles take the theme's own code-highlight palette, so
+   the chart recolors with the reader's theme choice: hypotheses wear
+   the keyword color, the quantile probe wears the string color. */
 .fs-details {
   color-scheme: light dark;
   --fs-bg: var(--main-background-color, light-dark(#ffffff, #353535));
@@ -6,16 +9,37 @@
   --fs-muted: color-mix(in srgb, var(--fs-ink) 58%, var(--fs-bg));
   --fs-hair: color-mix(in srgb, var(--fs-ink) 11%, var(--fs-bg));
   --fs-axis: color-mix(in srgb, var(--fs-ink) 30%, var(--fs-bg));
-  --fs-teal: light-dark(#12876b, #37c393);
-  --fs-violet: light-dark(#7e63c9, #a08fe0); --fs-bad: light-dark(#c0392b, #e57368);
+  --fs-hyp: var(--code-highlight-kw-color, light-dark(#7e63c9, #a08fe0));
+  --fs-quant: var(--code-highlight-string-color, light-dark(#12876b, #37c393));
+  --fs-bad: light-dark(#c0392b, #e57368);
   --fs-mono: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
   border: 1px solid var(--fs-hair); border-radius: 6px; margin: 0.6em 0 1em;
   font-family: inherit;
 }
 .fs-details > summary { cursor: pointer; padding: 10px 16px; font-size: 11.5pt; line-height: 1.5;
-  color: var(--fs-ink); }
+  color: var(--fs-ink); list-style: none; }
+.fs-details > summary::-webkit-details-marker { display: none; }
+/* Our own chevron, replacing rustdoc's .toggle arrow image (which
+   hangs absolutely at left:-24px, outside this card): the expander
+   must read as clickable at a glance. The selectors deliberately
+   out-specify rustdoc's `details.toggle > summary:not(.hideme)::before`
+   (0,2,2), and neutralize every box property that rule sets. */
+details.fs-details.toggle > summary:not(.hideme)::before {
+  content: "▸"; color: var(--fs-hyp); background: none;
+  position: static; display: inline-block; width: auto; height: auto;
+  padding: 0; opacity: 1; margin-right: 9px; filter: none; }
+details.fs-details.toggle[open] > summary:not(.hideme)::before {
+  content: "▾"; background: none; }
 .fs-details > summary code { font-family: var(--fs-mono); font-size: 10.5pt; }
-.fs-details > summary:hover { background: color-mix(in srgb, var(--fs-ink) 4%, transparent); }
+/* Lightly typeset complexity expressions: the page's own serif, italic
+   math singles, monospace identifiers, upright function names, real
+   superscripts. The summary's claim expression is the section's
+   normative headline, so it alone is bold. */
+.fs-math { font-family: inherit; font-style: normal; }
+.fs-math sup { font-size: 72%; line-height: 0; }
+.fs-math .fs-var { font-family: var(--fs-mono); font-size: 88%; }
+.fs-claim .fs-math, .fs-claim > code { font-weight: 600; color: var(--fs-ink); }
+.fs-details > summary:hover { background: color-mix(in srgb, var(--fs-ink) 5%, transparent); }
 .fs-details[open] > summary { border-bottom: 1px solid var(--fs-hair); }
 .fs-details .fs-claim { color: var(--fs-muted); }
 .fs-root { padding: 14px 16px 12px; }
@@ -23,14 +47,14 @@
   margin: 0 0 2px; }
 .fs-subtitle { font-size: 10.5pt; color: var(--fs-muted); font-family: inherit; margin: 0 0 12px; }
 .fs-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 2px 0 4px; }
-.fs-hyplabel { font: 12pt var(--fs-mono); color: var(--fs-violet); cursor: help; align-self: center; margin-right: 2px; }
+.fs-hyplabel { font-size: 12pt; font-family: inherit; color: var(--fs-hyp); cursor: help; align-self: center; margin-right: 2px; }
 .fs-chips { display: inline-flex; flex-wrap: wrap; gap: 7px; align-items: center; }
 .fs-chip { font-family: var(--fs-mono); font-size: 10.5pt; color: var(--fs-ink); background: transparent;
   border: 1px solid var(--fs-axis); border-radius: 6px; padding: 5px 11px; cursor: pointer;
   display: inline-flex; align-items: center; gap: 7px; line-height: 1.3; }
 .fs-chip:hover { border-color: var(--fs-ink); }
-.fs-chip:focus-visible { outline: 2px solid var(--fs-teal); outline-offset: 1px; }
-.fs-chip.fs-on { background: var(--fs-violet); color: #fff; border-color: var(--fs-violet); }
+.fs-chip:focus-visible { outline: 2px solid var(--fs-quant); outline-offset: 1px; }
+.fs-chip.fs-on { background: var(--fs-hyp); color: var(--fs-bg); border-color: var(--fs-hyp); }
 .fs-chipx { opacity: .5; margin-left: 2px; padding-left: 7px; border-left: 1px solid var(--fs-hair); }
 .fs-chipx:hover { opacity: 1; }
 .fs-chipplus { opacity: .5; cursor: pointer; padding: 5px 11px 5px 3px; }
@@ -53,31 +77,32 @@
 .fs-root svg { display: block; }
 .fs-plotbg { fill: color-mix(in srgb, var(--fs-ink) 2.5%, transparent); }
 .fs-caption { font-size: 12pt; fill: var(--fs-muted); font-family: inherit; }
-.fs-slcaption { font: 12pt var(--fs-mono); fill: var(--fs-teal); cursor: ns-resize; }
+.fs-slcaption { font-size: 12pt; font-family: inherit; fill: var(--fs-quant); cursor: ns-resize; }
 .fs-tick { font: 11pt var(--fs-mono); fill: var(--fs-muted); }
 .fs-grid { stroke: var(--fs-hair); stroke-width: 1; }
 .fs-axis { stroke: var(--fs-axis); stroke-width: 1; }
 .fs-refhalo { fill: none; stroke: var(--fs-bg); stroke-width: 4.4; opacity: .9; }
-.fs-ref { fill: none; stroke: var(--fs-violet); stroke-width: 1.4; opacity: .8; }
+.fs-ref { fill: none; stroke: var(--fs-hyp); stroke-width: 1.4; opacity: .8; }
 .guide.fs-hover .fs-ref { opacity: 1; stroke-width: 2; }
 .fs-active-guide .fs-ref { opacity: 1; stroke-width: 2.3; }
 .fs-hit { fill: none; stroke: transparent; stroke-width: 18; pointer-events: stroke; cursor: pointer; }
-.fs-hit:focus-visible { outline: none; stroke: color-mix(in srgb, var(--fs-teal) 25%, transparent); }
+.fs-hit:focus-visible { outline: none; stroke: color-mix(in srgb, var(--fs-quant) 25%, transparent); }
 .fs-active-hit { cursor: ns-resize; }
-.fs-reflabel { font: 11.5pt var(--fs-mono); fill: var(--fs-violet); cursor: pointer;
+.fs-reflabel { font: 11.5pt var(--fs-mono); fill: var(--fs-hyp); cursor: pointer;
   paint-order: stroke; stroke: var(--fs-bg); stroke-width: 5px; stroke-linejoin: round; }
 .fs-active-label { font-weight: 700; }
 .fs-qhalo { fill: none; stroke: var(--fs-bg); stroke-width: 3.6; opacity: .85; }
-.fs-qline { fill: none; stroke: var(--fs-teal); }
+.fs-qline { fill: none; stroke: var(--fs-quant); }
 .fs-q-med { stroke-width: 2; stroke-dasharray: 5 5.5; stroke-linecap: round; }
-.fs-qlabel { font: 11pt var(--fs-mono); fill: var(--fs-teal); cursor: ns-resize;
+.fs-qlabel { font: 11pt var(--fs-mono); fill: var(--fs-quant); cursor: ns-resize;
   paint-order: stroke; stroke: var(--fs-bg); stroke-width: 3px; stroke-linejoin: round; }
 .fs-readout { font: 11pt var(--fs-mono); fill: var(--fs-ink);
   paint-order: stroke; stroke: var(--fs-bg); stroke-width: 3px; stroke-linejoin: round; }
 .fs-sl-track { stroke: var(--fs-axis); stroke-width: 2; stroke-linecap: round; }
-.fs-sl-notch { stroke: var(--fs-teal); stroke-width: 1.6; }
-.fs-sl-handle { fill: var(--fs-teal); stroke: var(--fs-bg); stroke-width: 2; cursor: ns-resize; }
-.fs-hoverrect { fill: transparent; }
+.fs-sl-notch { stroke: var(--fs-quant); stroke-width: 1.6; }
+.fs-sl-handle { fill: var(--fs-quant); stroke: var(--fs-bg); stroke-width: 2; cursor: ns-resize; }
+.fs-hoverrect { fill: transparent; cursor: pointer; }
+.fs-hoverrect.fs-anchored { fill: color-mix(in srgb, var(--fs-hyp) 8%, transparent); }
 .fs-hoverrect:hover { fill: color-mix(in srgb, var(--fs-ink) 3.5%, transparent); }
 .fs-footer { font-size: 10.5pt; color: var(--fs-muted); margin-top: 18px;
   display: flex; flex-direction: column; gap: 3px; align-items: flex-end; text-align: right; }

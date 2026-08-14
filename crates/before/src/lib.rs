@@ -278,7 +278,16 @@
 //! number of parties `N`) and their corresponding versions at around 2,000
 //! bytes (roughly `N²`).
 //!
-//! ![Space consumption of `before`'s interval-tree versions][space-consumption]
+// The space-consumption figure, inlined so it inherits the page's theme
+// (build.rs derives this theme-reactive form from the measurement
+// artifact in results/). The HTML comment renders as nothing here; it is
+// the derived README's image in reference form, which tools/readme
+// unwraps and resolves to an absolute URL (rustdoc and GitHub cannot
+// share one image mechanism: an inline SVG follows the reader's theme
+// but GitHub strips it from a README, and an image URL renders on
+// GitHub but cannot react to rustdoc's theme picker).
+#![doc = include_str!(concat!(env!("OUT_DIR"), "/space_consumption.svg"))]
+//! <!-- ![Space consumption of `before`'s interval-tree versions][space-consumption] -->
 //!
 //! This crate implements cache-friendly, optimized versions of the operations
 //! in the original paper, in addition to a host of useful operations not
@@ -302,8 +311,6 @@
 //!   canonical encodings. The encodings are *prefix-free* — no value's
 //!   encoding is a prefix of another's — and values therefore compose
 //!   inside larger borsh messages without a length prefix.
-//! - **`doc-images`:** embeds the space-consumption diagram above into the
-//!   rendered docs (`cargo doc --all-features`).
 //! - **`oracle`**, **`meter`** (plus the meter's counter switches
 //!   `limb-meter` and `scan-meter`), and **`laws`:** expose the crate's own
 //!   verification instruments (the reference implementation,
@@ -318,27 +325,6 @@
 //! semantics, alongside exhaustive small-scope enumeration of clock shapes,
 //! algebraic-law property suites, and fuzzed codecs.
 
-// Define the `[space-consumption]` image reference above as a base64 data URI.
-// A relative path would resolve against the rustdoc HTML output tree, where the
-// source asset is never copied, so the image must be embedded inline. The
-// `cfg_attr(all(), …)` wrapper is the stable-Rust idiom for a macro call in
-// doc-attribute position; the fallback note keeps the link defined when the
-// `doc-images` feature is off (a plain `cargo build` never pulls the dep).
-#![cfg_attr(
-    feature = "doc-images",
-    cfg_attr(
-        all(),
-        doc = ::embed_doc_image::embed_image!(
-            "space-consumption",
-            "results/space_consumption/itc_space_consumption.svg"
-        )
-    )
-)]
-#![cfg_attr(
-    not(feature = "doc-images"),
-    doc = "[space-consumption]: # \"build with the `doc-images` feature \
-           (enabled by `cargo doc --all-features`) to render this diagram\""
-)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 

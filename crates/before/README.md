@@ -282,7 +282,7 @@ each stabilize at around 50 bytes (growing linearly in the steady-state
 number of parties `N`) and their corresponding versions at around 2,000
 bytes (roughly `N²`).
 
-![Space consumption of `before`'s interval-tree versions](https://raw.githubusercontent.com/oxidecomputer/rumors/HEAD/crates/before/results/space_consumption/itc_space_consumption.svg)
+![Space consumption of `before`'s interval-tree versions](https://raw.githubusercontent.com/oxidecomputer/rumors/HEAD/crates/before/docs/itc_space_consumption_readme.svg)
 
 This crate implements cache-friendly, optimized versions of the operations
 in the original paper, in addition to a host of useful operations not
@@ -306,8 +306,6 @@ Every feature is off by default.
   canonical encodings. The encodings are *prefix-free* — no value's
   encoding is a prefix of another's — and values therefore compose
   inside larger borsh messages without a length prefix.
-- **`doc-images`:** embeds the space-consumption diagram above into the
-  rendered docs (`cargo doc --all-features`).
 - **`oracle`**, **`meter`** (plus the meter's counter switches
   `limb-meter` and `scan-meter`), and **`laws`:** expose the crate's own
   verification instruments (the reference implementation,

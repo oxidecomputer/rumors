@@ -15,13 +15,11 @@ use std::path::Path;
 
 /// Operations whose islands deliberately appear in no doc comment, each
 /// with its reviewed reason.
-const EXEMPTIONS: &[(&str, &str)] = &[(
-    "query_conjoin_bounded_holes",
-    "the hole-pair conjunction doors are the conjoin! macro's 21 stamped \
-     impl cells, which share one doc string; the two elementary doors \
-     (floors, ceilings) carry the sited islands, and stamping this island \
-     onto every cell would repeat it 21 times on one page",
-)];
+///
+/// Currently empty: every measured operation's island reaches the
+/// rendered docs (the operator matrices and the conjunction cells carry
+/// theirs through their generating macros).
+const EXEMPTIONS: &[(&str, &str)] = &[];
 
 /// Every emitted island is included by some doc comment or exempted with
 /// a reason, and every exemption names an emitted island (a stale

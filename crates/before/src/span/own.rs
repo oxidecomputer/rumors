@@ -93,8 +93,6 @@ impl<'a> OwnSpan<'a> {
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_place.html"))]
     ///
-    /// `lo`/`hi` are the viewed span's endpoints and `p` the projecting party.
-    ///
     /// # Example
     ///
     /// ```
@@ -150,8 +148,6 @@ impl<'a> OwnSpan<'a> {
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_dominance.html"))]
     ///
-    /// `lo`/`hi` are the viewed span's endpoints and `p` the projecting party.
-    ///
     /// # Example
     ///
     /// ```
@@ -202,8 +198,6 @@ impl<'a> OwnSpan<'a> {
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_precedence.html"))]
     ///
-    /// `lo`/`hi` are the viewed span's endpoints and `p` the projecting party.
-    ///
     /// # Example
     ///
     /// ```
@@ -242,8 +236,6 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_contains.html"))]
-    ///
-    /// `lo`/`hi` are the viewed span's endpoints and `p` the projecting party.
     ///
     /// # Example
     ///
@@ -328,8 +320,7 @@ impl<'a> Div<&'a Party> for &'a Span<'a> {
 ///
 /// # Complexity
 ///
-/// `O(|lo| + |hi| + |p| + |r|)` with `|r| = O((|lo| + |hi|) · |p|)`,
-/// as [`OwnSpan::to_span`].
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html"))]
 ///
 /// # Example
 ///

@@ -1,9 +1,9 @@
-//! Balanced n-way fork: [`Party::forks`] and its [`Forks`] iterator, plus the
+//! Balanced k-way fork: [`Party::forks`] and its [`Forks`] iterator, plus the
 //! consuming [`From<Party>`](From) for `[Party; N]` static split.
 //!
 //! Both rest on `Split`, which lazily divides a region into `k` shares of
 //! minimal-depth (`⌈log₂ k⌉`) id tree, emitting one share per step. This is the
-//! cure for the [`fork`](Party::fork) footgun: forking one party `n` times
+//! cure for the [`fork`](Party::fork) footgun: forking one party `k` times
 //! deepens a single spine into a linear tree, whereas a balanced split keeps
 //! every share shallow, and it does so without ever materializing the whole
 //! list of shares, so a consumer collects them into its own structure with a
@@ -77,7 +77,7 @@ impl ExactSizeIterator for Split {}
 
 /// A lazy iterator of balanced [`Party`] shares, returned by [`Party::forks`].
 ///
-/// Yields exactly `n` disjoint shares produced one at a time. The party it
+/// Yields exactly `k` disjoint shares produced one at a time. The party it
 /// borrows keeps the remaining share and is never left empty; any share not
 /// taken before the iterator drops is [`join`](Party::join)ed back into that
 /// party, so a partial read leaves the original [`Party`] holding everything it
@@ -85,34 +85,36 @@ impl ExactSizeIterator for Split {}
 ///
 /// # Complexity
 ///
-/// A full drain costs `O(|p| + n (|p| + log n))`, with `|p|` the borrowed
-/// party's size in bytes. Each `next` costs proportionate to its share of this
-/// cost. An early drop rejoins the unclaimed remainder in `O(|p| log n)`.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html"))]
+///
+/// Each `next` costs proportionate to its share of the drain; an early drop
+/// rejoins the unclaimed remainder in `O(|p| log k)`, with `|p|` the borrowed
+/// party's size in bytes.
 pub struct Forks<'a> {
     /// The borrowed party: keeps the residual share and reabsorbs unconsumed
     /// shares on drop.
     rest: &'a mut Party,
-    /// The lazy partition of the `n` shares to hand out; the residual the
+    /// The lazy partition of the `k` shares to hand out; the residual the
     /// borrowed party keeps has already been drawn off the front.
     split: Split,
 }
 
 impl<'a> Forks<'a> {
-    /// Borrow `party` and reserve `n` balanced shares, leaving the residual in
+    /// Borrow `party` and reserve `k` balanced shares, leaving the residual in
     /// place. The public entry point is [`Party::forks`].
-    pub(crate) fn new(party: &'a mut Party, n: u64) -> Self {
-        // `n + 1`, not `n`: a Party is never empty, so `party` must retain a
+    pub(crate) fn new(party: &'a mut Party, k: u64) -> Self {
+        // `k + 1`, not `k`: a Party is never empty, so `party` must retain a
         // share even once every yielded share has been consumed. The first
-        // preorder leaf becomes that residual — reaching it costs O(log n)
+        // preorder leaf becomes that residual — reaching it costs O(log k)
         // forks, not the whole partition — and the same preorder governs the
-        // `n` shares yielded after it, matching the consuming `From` split.
-        // The count saturates: at `n == u64::MAX` the residual's headroom is
+        // `k` shares yielded after it, matching the consuming `From` split.
+        // The count saturates: at `k == u64::MAX` the residual's headroom is
         // spent and the iterator yields one share fewer than asked.
         let whole = mem::replace(party, Party::anonymous());
-        let mut split = Split::new(whole, n.saturating_add(1));
+        let mut split = Split::new(whole, k.saturating_add(1));
         *party = split
             .next()
-            .expect("a split into n + 1 >= 1 shares yields a residual leaf");
+            .expect("a split into k + 1 >= 1 shares yields a residual leaf");
         Forks { rest: party, split }
     }
 }
@@ -171,7 +173,7 @@ impl Drop for Forks<'_> {
 ///
 /// # Complexity
 ///
-/// `O(|party| + N (|party| + log N))`.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html"))]
 ///
 /// # Example
 ///

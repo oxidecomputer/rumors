@@ -1,4 +1,4 @@
-//! Balanced n-way fork for [`Clock`]: [`Clock::forks`] and its [`Forks`]
+//! Balanced k-way fork for [`Clock`]: [`Clock::forks`] and its [`Forks`]
 //! iterator, plus the consuming [`From<Clock>`](From) for `[Clock; N]` static
 //! split.
 
@@ -6,16 +6,17 @@ use crate::{party, Clock, Party, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
 ///
-/// Yields exactly `n` disjoint clocks, each pairing one structurally balanced
+/// Yields exactly `k` disjoint clocks, each pairing one structurally balanced
 /// [`Party`] with a clone of the parent's [`Version`]. The clock it borrows
 /// keeps the residual share of all unconsumed parties, and is never left empty;
 /// party shares not taken before the iterator drops are rejoined into it.
 ///
 /// # Complexity
 ///
-/// A full drain costs `O(|c| + n (|c| + log n))`, with `|c|` the borrowed
-/// clock's size in bytes. Each `next` costs its own share's portion of this
-/// total cost; an early drop rejoins in `O(|c| log n)`.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html"))]
+///
+/// Each `next` costs its own share's portion of the drain; an early drop
+/// rejoins in `O(|c| log k)`, with `|c|` the borrowed clock's size in bytes.
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.
@@ -25,13 +26,13 @@ pub struct Forks<'a> {
 }
 
 impl<'a> Forks<'a> {
-    /// Borrow `clock` and reserve `n` balanced child clocks. The public entry
+    /// Borrow `clock` and reserve `k` balanced child clocks. The public entry
     /// point is [`Clock::forks`].
-    pub(super) fn new(clock: &'a mut Clock, n: u64) -> Self {
+    pub(super) fn new(clock: &'a mut Clock, k: u64) -> Self {
         let Clock { party, version } = clock;
         let version: &Version = version; // the children only read it, to clone
         Forks {
-            parties: party::Forks::new(party, n),
+            parties: party::Forks::new(party, k),
             version,
         }
     }
@@ -81,7 +82,7 @@ impl ExactSizeIterator for Forks<'_> {}
 ///
 /// # Complexity
 ///
-/// `O(|clock| + N (|clock| + log N))`.
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html"))]
 ///
 /// # Example
 ///

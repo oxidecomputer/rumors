@@ -96,10 +96,9 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)` space; in the worst case, time is `O(M(|self|) · log
-    /// |self|)` (but usually much better), where `M` is the complexity of
-    /// unbounded-integer multiplication (something like `O(n log n)` in this
-    /// implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -170,10 +169,9 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)` space; in the worst case, time is `O(M(|self|) · log
-    /// |self|)` (but usually much better), where `M` is the complexity of
-    /// unbounded-integer multiplication (something like `O(n log n)` in this
-    /// implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -220,10 +218,9 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    /// `O(|self|)` space; in the worst case, time is `O(M(|self|) · log
-    /// |self|)` (but usually much better), where `M` is the complexity of
-    /// unbounded-integer multiplication (something like `O(n log n)` in this
-    /// implementation).
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html"))]
+    ///
+    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///

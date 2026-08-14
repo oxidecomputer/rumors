@@ -91,8 +91,8 @@ impl<'a, P: Polarity> Query<'a, P> {
     ///
     /// # Complexity
     ///
-    /// One traversal of `version` and the stored bounds; one fuelscape
-    /// per bounds shape:
+    /// One traversal of `version` and the stored bounds (`|self|`, their
+    /// total size); one chart per bounds shape:
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor.html"))]
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_ceiling.html"))]
@@ -113,7 +113,7 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// # Complexity
     ///
     /// At most two traversals of the span's endpoints and the stored
-    /// bounds; one fuelscape per bounds shape:
+    /// bounds (`|self|`, their total size); one chart per bounds shape:
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor.html"))]
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_ceiling.html"))]

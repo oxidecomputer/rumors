@@ -428,7 +428,6 @@ features:
     cargo check -p before --no-default-features --features limb-meter
     cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
-    cargo check -p before --no-default-features --features doc-images
     cargo check -p rumors --no-default-features
     cargo check -p rumors --features protocol-v1
     cargo check -p rumors --features meter
@@ -577,6 +576,14 @@ fuelscape-verify:
     rm -rf {{ justfile_directory() }}/target/fuelscape-verify
     cargo run --release --bin fuelscape -- --compact-from dump --out {{ justfile_directory() }}/target/fuelscape-verify
     diff -r {{ justfile_directory() }}/target/fuelscape-verify {{ justfile_directory() }}/crates/before/fuelscape
+
+# Regenerate the README's space-consumption figure from the measurement
+# artifact (crates/before/results). The committed file is derived — the
+# README references it by URL, so it must exist in the tree — and
+# before's build.rs holds it fresh; the env var is the explicit opt-in
+# that lets the build write into the source tree.
+doc-figure:
+    BEFORE_REGEN_DOC_FIGURE=1 cargo build -p before
 
 # Regenerate the rustdoc widget header from the committed stylesheet and script.
 fuelscape-header:

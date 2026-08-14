@@ -310,8 +310,9 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖self‖ + ‖other‖)`, the operands' numeric sizes; a floored or zero
-    /// result costs only the comparison, which allocates nothing.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html"))]
+    ///
+    /// A floored result allocates nothing.
     ///
     /// # Example
     ///
@@ -378,7 +379,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    /// `O(‖self‖)` time and space.
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html"))]
     ///
     /// # Example
     ///
@@ -719,8 +720,7 @@ impl BitSink {
 ///
 /// # Complexity
 ///
-/// Linear in the operands' numeric sizes at worst; unequal magnitude
-/// classes settle in `O(1)`:
+/// Unequal magnitude classes settle in `O(1)`:
 ///
 #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_cmp.html"))]
 impl Ord for Rank {
@@ -776,8 +776,6 @@ impl PartialOrd for Rank {
 /// budget consumed so far) not to combine histories.
 ///
 /// # Complexity
-///
-/// `O(‖a‖ + ‖b‖)`, the operands' numeric sizes:
 ///
 #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_add.html"))]
 impl Add<&Rank> for &Rank {

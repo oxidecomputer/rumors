@@ -350,18 +350,23 @@ committed files stay byte-stable (deterministic gzip invocation, no
 timestamps in the member header — `gzip -n` — so the pin compares clean).
 Provenance: the dump's `meta.commit` is an ancestor of HEAD (verified).
 
-**Q2 — the summary line: RESOLVED, in two parts.** (1) No absolute
+**Q2 — the summary line: RESOLVED, in three parts.** (1) No absolute
 instruction counts anywhere user-facing — not in the summary (the
 "worst-case c ≈ …" headline is deleted) and not inside the widget
-(§6.1): counts are measured in the wasm guest, and only shapes and
-ratios transfer across platforms. The vocabulary stays "instructions",
-presented scale-free. The summary carries only growth classes with
-their denominators. (2) The
-contract itself is the clickable element: the summary reads
-"`O(|self| + |party|)` · measured growth Θ(n) in total input bytes",
+(§6.1): counts are WASM operations metered in a sandboxed build, and
+only shapes and ratios transfer to native builds (the provenance
+tooltip says exactly that). The vocabulary stays "instructions",
+presented scale-free. (2) The contract itself is the clickable element,
 and the contract string relocates from doc source into the `OpSpec`
 roster (§3, §5) — a diff-reviewable pure move, with rendered docs
-unchanged in what they state.
+unchanged in what they state. (3) The claim is **contract-shaped**: the
+pre-selected hypothesis is the contract's worst-case asymptote in total
+input bytes, so the summary — "`O(|self| + |other|)` · O(n) in total
+input bytes" — and the chart always assert the same bound. An
+early-exit operation therefore opens with a visibly falling band: the
+uniform-sampling bulk beating the claimed worst case is the finding,
+and the flatter guides are one click away. (The earlier bulk-shaped
+defaults read as summary/chart mismatches and were replaced.)
 
 **Q3 — rustdoc's `details.toggle` class: RESOLVED — take it.** Native
 chevron and spacing; islands participate in expand/collapse-all (lazy
@@ -371,6 +376,36 @@ look so rustdoc.css internal changes degrade rather than break.
 **Q4 — the claims themselves.** ~100 new public statements about
 measured growth, each needing Finch's review (per §3's protocol). The
 plan produces the draft table + gallery; the review is his.
+
+**Round-2 review decisions** (from the first rendered pass):
+
+- **Natural claim forms.** The widget accepts a hypothesis that is zero
+  at a small column ("n log n" at n = 1) and clamps such values to 1
+  for compensation; acceptance requires positivity only at the anchor.
+  The rule is exported (`Fuelscape.accepts`) and the claim-check tool
+  calls it verbatim, so the two cannot drift.
+- **The painted band ends at the data.** Display smoothing renormalizes
+  a truncated kernel at the support's edges instead of padding past
+  them: a band overhanging the true min–max made the quantile slider
+  read as stopping short.
+- **Pre-hydration by scroll**: islands hydrate when their expander
+  nears the viewport (closed included), with first-toggle as the
+  fallback wake, so opening one is instant.
+- **Interactions**: the probe trace and every hypothesis line are
+  draggable (quantile inversion through the pointer's nearest column's
+  own density); clicking a column locks the hypothesis/quantile anchor
+  there, clicking again returns it to the largest n.
+- **Chrome**: accent colors derive from the theme's own code-highlight
+  palette (hypotheses = keyword color, quantile = string color); the
+  "Hypothesis:"/"Quantile" labels are serif; the expander carries an
+  explicit chevron; the footer is one provenance line (short commit
+  hash) with the caveats in its tooltip; the plot fills the card width;
+  the word "fuelscape" appears nowhere in the rendered chrome.
+- **Secondary sites**: islands also attach at covered aliases and
+  writer variants (`encode_to` and kin, the materializing `From` impls,
+  the forks machinery, the tick doors) — attachment requires read-code
+  evidence that the site delegates to the measured kernel, never
+  name-resemblance.
 
 ## 9. Execution phases (dependency order)
 
