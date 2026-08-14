@@ -150,3 +150,24 @@ the final API surface.
 - DECIDED 2026-07-27 (owner, separately recorded in the amplification
   ledger): the materialization doubling-chain band is ratified as-is;
   no pre-walk, no segmented assembly.
+
+## Amendment: the reclaim-gate consumer moved (2026-08-13)
+
+The Motivation section's claim of record — that the workspace's only
+production consumer of the projection is `rumors`' bookmark reclamation,
+computing `clock.own_version() <= version` — is re-denominated: as part of
+the bookmark rollback work (branch w1/bookmark), the reclaim gate now
+compares the stored clock's *full* version against the live frontier
+(`*clock.version() <= *version`), a deliberate strictness bought as
+rollback resilience, and no longer consumes the projection at all. The
+projection's remaining production consumer in the workspace is
+`Bookmarked::is_current` (`src/bookmark.rs`), which compares two
+projections for *equality* (`v / p == version / p`); the ordered
+view-versus-version comparison legs have no production caller left.
+
+Consequence for this document's motivation: the fused co-walk's
+production justification is now historical, and its surface is
+production-orphaned (exercised by `before`'s laws and instruments only).
+Whether to keep the ordered-comparison legs as public API or dissolve
+them is an owner decision, pending; nothing here retracts the DECIDED
+entries above, which govern the shape while the surface exists.

@@ -89,13 +89,20 @@ pub struct FaultFeed {
     reads: VecDeque<bool>,
     writes: VecDeque<bool>,
     rollbacks: VecDeque<bool>,
-    /// The frame the most recent successful commit displaced: what a
-    /// scheduled rollback serves.
+    /// What the most recent successful commit displaced: what a scheduled
+    /// rollback serves.
+    ///
+    /// An inner `None` means that commit was the store's first (a rollback
+    /// to the empty state); the outer `None` means no commit has displaced
+    /// anything yet.
     ///
     /// Lives in the feed (not the [`DurableStore`]) so it rides the same
     /// [`Arc`] across a peer's incarnations without changing the durable
     /// bytes' shape.
-    displaced: Option<Vec<u8>>,
+    displaced: Option<Option<Vec<u8>>>,
+    /// How many write decisions have been consulted, fault or not: lets a
+    /// test pin its schedule indices mechanically instead of narrating them.
+    writes_consulted: usize,
     enabled: bool,
 }
 
@@ -108,19 +115,27 @@ impl FaultFeed {
             writes: writes.into(),
             rollbacks: VecDeque::new(),
             displaced: None,
+            writes_consulted: 0,
             enabled: true,
         }
     }
 
-    /// Schedule rollback decisions: each *serving* load (one that returns
-    /// bytes rather than failing) pops the next, and `true` makes it serve
-    /// the displaced frame instead of the current one.
+    /// How many write decisions this feed has been consulted for so far —
+    /// every [`Bookmark::store`] attempt consults exactly one, fault or not —
+    /// so a schedule's boundary indices can be asserted rather than narrated.
+    pub fn writes_consulted(&self) -> usize {
+        self.writes_consulted
+    }
+
+    /// Schedule rollback decisions: each non-failing load — including one
+    /// that finds nothing stored — pops the next, and `true` makes it serve
+    /// what the most recent commit displaced instead of the current bytes.
     ///
     /// # Panics
     ///
-    /// A load whose rollback decision fires before any commit has displaced a
-    /// frame panics: the schedule is misplaced, and a silent fallback would
-    /// turn the probe into a no-op.
+    /// A load whose rollback decision fires before any commit has displaced
+    /// anything panics: the schedule is misplaced, and a silent fallback
+    /// would turn the probe into a no-op.
     pub fn with_rollbacks(mut self, rollbacks: Vec<bool>) -> Self {
         self.rollbacks = rollbacks.into();
         self
@@ -138,6 +153,7 @@ impl FaultFeed {
     }
 
     fn next_write(&mut self) -> bool {
+        self.writes_consulted += 1;
         self.enabled && self.writes.pop_front().unwrap_or(false)
     }
 
@@ -145,9 +161,10 @@ impl FaultFeed {
         self.enabled && self.rollbacks.pop_front().unwrap_or(false)
     }
 
-    /// Record that a commit has replaced `frame`: the one-step rollback target.
+    /// Record that a commit has replaced `frame` (`None` when the commit was
+    /// the store's first): the one-step rollback target.
     fn displace(&mut self, frame: Option<Vec<u8>>) {
-        self.displaced = frame;
+        self.displaced = Some(frame);
     }
 }
 
@@ -198,16 +215,15 @@ impl Bookmark for FlakyInMemoryBookmark {
         if faults.next_read() {
             return Err(FlakyError { op: "read" });
         }
-        // A serving load consumes one rollback decision: `true` serves the
-        // frame the most recent commit displaced — the store regressing one
-        // commit — instead of the current bytes.
+        // Every non-failing load consumes one rollback decision: `true`
+        // serves what the most recent commit displaced — the store
+        // regressing one commit, possibly to its empty state — instead of
+        // the current bytes.
         let bytes = if faults.next_rollback() {
-            Some(
-                faults
-                    .displaced
-                    .clone()
-                    .expect("rollback fault fired before any commit displaced a frame"),
-            )
+            faults
+                .displaced
+                .clone()
+                .expect("rollback fault fired before any commit displaced anything")
         } else {
             self.store.lock().unwrap().clone()
         };
@@ -228,10 +244,11 @@ impl Bookmark for FlakyInMemoryBookmark {
         write(&mut buf)
             .await
             .expect("writing to an in-memory buffer is infallible");
+        // Commit and record the displaced frame under one feed-lock hold, so
+        // no interleaved commit can wedge a stale frame between the two.
+        let mut faults = self.faults.lock().unwrap();
         let replaced = self.store.lock().unwrap().replace(buf);
-        // The commit landed: what it replaced becomes the one-step rollback
-        // target a scheduled rollback serves.
-        self.faults.lock().unwrap().displace(replaced);
+        faults.displace(replaced);
         Ok(())
     }
 }

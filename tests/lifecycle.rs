@@ -153,6 +153,31 @@ fn dropping_the_link_immediately_after_ok_is_clean() {
     assert_eq!(a.snapshot().len(), 2 * DIVERGENT_MESSAGES as usize);
 }
 
+/// Measure B's total incoming bytes across one clean divergent session: the
+/// budget baseline both epilogue-boundary legs cut against.
+///
+/// [`divergent_pair`] builds byte-identical universes, so a replay on a
+/// fresh pair sees the same byte schedule. Asserts the divergence is deep
+/// enough to open several data streams: the cuts must land in a session
+/// whose descent, not merely handshake, was exercised.
+fn clean_read_probe() -> usize {
+    let (a, b) = block_on(divergent_pair());
+    let (a_link, b_link) = rumors::link::memory();
+    let (mut b_link, report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
+    let (a_out, b_out) = block_on(async {
+        let mut a_link = a_link;
+        tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+    });
+    a_out.expect("probe session A");
+    b_out.expect("probe session B");
+    assert!(
+        report.snapshot().accepts >= 2,
+        "the divergence must be deep enough to open several data streams, got {}",
+        report.snapshot().accepts
+    );
+    report.snapshot().read_bytes
+}
+
 /// One byte inside the epilogue boundary, the session is still pre-commit.
 ///
 /// With B's read budget *two* bytes short of a clean session — one byte
@@ -167,20 +192,7 @@ fn dropping_the_link_immediately_after_ok_is_clean() {
 /// schedule: a drift in either direction fails one leg's assertion class.
 #[test]
 fn a_cut_before_the_epilogue_fails_pre_commit_and_unchanged() {
-    // Probe: measure B's total incoming bytes across one clean divergent
-    // session, exactly as the inside leg does.
-    let clean_read_bytes = {
-        let (a, b) = block_on(divergent_pair());
-        let (a_link, b_link) = rumors::link::memory();
-        let (mut b_link, report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
-        let (a_out, b_out) = block_on(async {
-            let mut a_link = a_link;
-            tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
-        });
-        a_out.expect("probe session A");
-        b_out.expect("probe session B");
-        report.snapshot().read_bytes
-    };
+    let clean_read_bytes = clean_read_probe();
 
     // Replay with B's reads failing two bytes short: the cut lands in the
     // reconciliation's tail, before B's commit point.
@@ -254,26 +266,7 @@ fn a_cut_before_the_epilogue_fails_pre_commit_and_unchanged() {
 /// test also validates its own budget placement.
 #[test]
 fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
-    // Probe: measure B's total incoming bytes across one clean divergent
-    // session. `divergent_pair` builds byte-identical universes, so the
-    // replay below sees the same byte schedule.
-    let clean_read_bytes = {
-        let (a, b) = block_on(divergent_pair());
-        let (a_link, b_link) = rumors::link::memory();
-        let (mut b_link, report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
-        let (a_out, b_out) = block_on(async {
-            let mut a_link = a_link;
-            tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
-        });
-        a_out.expect("probe session A");
-        b_out.expect("probe session B");
-        assert!(
-            report.snapshot().accepts >= 2,
-            "the divergence must be deep enough to open several data streams, got {}",
-            report.snapshot().accepts
-        );
-        report.snapshot().read_bytes
-    };
+    let clean_read_bytes = clean_read_probe();
 
     // Replay on an identically-built pair, with B's reads failing after
     // every byte but the last: the lost byte is A's epilogue marker, the

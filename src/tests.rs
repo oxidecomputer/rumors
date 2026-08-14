@@ -557,6 +557,22 @@ impl Bookmark for MemoryBookmark {
     }
 }
 
+/// Join `parties` into one region, or `None` for an empty list, panicking on
+/// overlap: the reunification oracle for durable-record assertions, whose
+/// `None` arm keeps an empty record from passing coverage checks vacuously.
+fn joined(parties: Vec<Party>) -> Option<Party> {
+    let mut whole: Option<Party> = None;
+    for party in parties {
+        match &mut whole {
+            None => whole = Some(party),
+            Some(w) => w
+                .join(party)
+                .expect("recorded parties are pairwise disjoint"),
+        }
+    }
+    whole
+}
+
 /// Every [`Party`] a stored bookmark frame records, or none if nothing is
 /// stored yet.
 fn recorded_parties(store: &Arc<std::sync::Mutex<Option<Vec<u8>>>>) -> Vec<Party> {
@@ -643,8 +659,8 @@ fn severed_join_before_the_donation_leaves_the_provider_intact() {
     let (join_out, serve_out) = severed_join(&provider, budget);
 
     assert!(
-        !matches!(join_out, Ok(Some(_))),
-        "no peer may be minted from a severed serve, got a donated peer"
+        join_out.is_err(),
+        "a severed serve must fail the joiner, got {join_out:?}"
     );
     assert!(
         serve_out.is_err(),
@@ -655,13 +671,13 @@ fn severed_join_before_the_donation_leaves_the_provider_intact() {
         Party::seed(),
         "a pre-donation cut must leave the provider's live party whole"
     );
-    for party in recorded_parties(&store) {
-        assert_eq!(
-            party,
-            Party::seed(),
-            "the durable record must still cover the whole identity"
-        );
-    }
+    // The record was written by the session-start persist, before the cut:
+    // it must exist, and its parties must reunite to the whole identity.
+    assert_eq!(
+        joined(recorded_parties(&store)),
+        Some(Party::seed()),
+        "the durable record must still cover the whole identity"
+    );
 
     // The identity was never at risk: a clean join now donates the full
     // region, and the two live parties tile the seed exactly.
@@ -701,8 +717,8 @@ fn severed_join_on_the_donation_costs_the_forked_region() {
     let (join_out, serve_out) = severed_join(&provider, budget);
 
     assert!(
-        !matches!(join_out, Ok(Some(_))),
-        "no peer may be minted from a severed serve, got a donated peer"
+        join_out.is_err(),
+        "a severed serve must fail the joiner, got {join_out:?}"
     );
     assert!(
         serve_out.is_err(),
@@ -715,14 +731,19 @@ fn severed_join_on_the_donation_costs_the_forked_region() {
     let lost = Party::seed()
         .without(&post)
         .expect("the donation must have cost a nonempty region");
-    // The durable record agrees: nothing stored covers the lost region, so
-    // no future incarnation can resurrect it either.
-    for party in recorded_parties(&store) {
-        assert!(
-            party.is_disjoint(&lost),
-            "the durable record must not claim the lost region {lost:?}, found {party:?}"
-        );
-    }
+    // The durable record agrees: it exists (the donation's slice persisted),
+    // reunites to exactly the sliced live party, and so claims none of the
+    // lost region — no future incarnation can resurrect it.
+    let recorded = joined(recorded_parties(&store))
+        .expect("the donation's slice persisted a non-empty record");
+    assert_eq!(
+        recorded, post,
+        "the durable record must reunite to exactly the post-donation party"
+    );
+    assert!(
+        recorded.is_disjoint(&lost),
+        "the durable record must not claim the lost region {lost:?}"
+    );
 }
 
 /// An uncontained supply crossing a real peer session surfaces through

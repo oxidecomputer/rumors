@@ -78,6 +78,7 @@ const HEADER_LEN: usize = PAYLOAD_OFFSET;
 /// foreign file, a format this build predates, or corruption — and means the
 /// stored identity is unusable, not merely unavailable.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FormatError {
     /// Fewer bytes than the fixed header: a truncated or empty file. (An
     /// *absent* bookmark is reported by [`load`](super::Bookmark::load)
@@ -112,9 +113,12 @@ pub enum FormatError {
     #[error("reading the stored bookmark failed: {0}")]
     Read(#[source] std::io::Error),
 
-    /// The stored bytes exceed [`BOOKMARK_MAX_BYTES`]: the frame is refused
-    /// before it is buffered whole, so a runaway byte source cannot force an
-    /// unbounded allocation.
+    /// The frame exceeds [`BOOKMARK_MAX_BYTES`].
+    ///
+    /// On load, the stored bytes are refused before they are buffered whole,
+    /// so a runaway byte source cannot force an unbounded allocation; on
+    /// store, the encoded frame is refused before the backing storage ever
+    /// sees it, so the previously committed record stays loadable.
     #[error("bookmark too large: more than {BOOKMARK_MAX_BYTES} bytes")]
     Oversized,
 

@@ -1581,6 +1581,121 @@ fn rollback_in_persist_failure_window_resurrects_donated_region() {
     });
 }
 
+/// The reclaim gate waits until the live frontier dominates everything the
+/// stored clock *observed*, not merely everything its identity wrote.
+///
+/// The distinguishing schedule, honest stores throughout: A (which never
+/// emits anything of its own) observes a counterparty's emission and
+/// persists a record whose version includes it; that emission's content
+/// then vanishes from the network for good (its only holders crash
+/// unpersisted and unpropagated). The revived A's frontier trivially
+/// re-covers A's own writes — there are none — so a gate comparing only the
+/// own-party projection would reclaim at the first session; the full-version
+/// gate instead leaves the identity checkpointed in the record, the accepted
+/// stranding cost the `Bookmark` restart docs state. This is the committed
+/// tripwire for the gate's predicate: under the projection gate both final
+/// assertions fail (the party folds back in and the record entry vanishes).
+#[test]
+fn reclaim_waits_until_foreign_observations_are_dominated() {
+    // A and B: honest, reliable stores. A never sends, so its stored
+    // clock's own-party projection stays empty forever.
+    let store_a = Arc::new(Mutex::new(None));
+    let faults_a = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
+    let store_b = Arc::new(Mutex::new(None));
+    let faults_b = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
+    // C: the future survivor. It bootstraps before x exists and its second
+    // write — the update opening its first gossip session — fails, so the
+    // one session that could have delivered x to it aborts after the
+    // preambles instead (the severed-session shape the rollback probes use).
+    let store_c = Arc::new(Mutex::new(None));
+    let faults_c = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), vec![false, true])));
+    // D: a doomed donee. Serving its bootstrap is what clears A's persist
+    // suppression after x arrives — the donation's slice always writes —
+    // so A's next session update pushes an alias at a frontier including x.
+    // D itself dies with everything it copied.
+    let store_d = Arc::new(Mutex::new(None));
+    let faults_d = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
+    let bm_a = || FlakyInMemoryBookmark::new(store_a.clone(), faults_a.clone(), 0);
+    let bm_b = || FlakyInMemoryBookmark::new(store_b.clone(), faults_b.clone(), 1);
+    let bm_c = || FlakyInMemoryBookmark::new(store_c.clone(), faults_c.clone(), 2);
+    let bm_d = || FlakyInMemoryBookmark::new(store_d.clone(), faults_d.clone(), 3);
+    let durable_a = store_a.clone();
+
+    block_on(async move {
+        let a = Peer::<Msg>::seed()
+            .sync_window_floor()
+            .bookmark(bm_a())
+            .await
+            .expect("a pristine seed attaches its bookmark without touching storage")
+            .into_rumors();
+        let b = boot_from_async(&a, bm_b()).await;
+        let c = boot_from_async(&a, bm_c()).await;
+        let network = a.network();
+
+        // x: B's emission, observed by A (content and frontier alike).
+        b.send(1);
+        let (ra, rb) = gossip_raw(&a, &b).await;
+        ra.expect("the x session is clean on A's side");
+        rb.expect("the x session is clean on B's side");
+
+        // D's bootstrap: the donation slice clears A's persist suppression,
+        // arming the next session update to record what A now observes.
+        let d = boot_from_async(&a, bm_d()).await;
+
+        // That next update is the severed A-C session's: A persists a
+        // record whose version includes x, and x goes no further — C
+        // aborts after the preambles, before reconciliation.
+        let (ra, rc) = gossip_raw(&a, &c).await;
+        assert!(
+            ra.is_err(),
+            "A's persist-only session must die on the severed wire",
+        );
+        assert!(
+            matches!(rc, Err(Error::Bookmark(_))),
+            "C must abort on its injected bookmark failure",
+        );
+        assert!(
+            version_of(&c, 1).is_none(),
+            "x must not have reached C: only A, B, and D hold it",
+        );
+        let a_party = a
+            .dangerously_alias_party()
+            .expect("a live peer holds its party");
+        assert!(
+            store_parties(&durable_a, network).contains(&a_party),
+            "A's durable record must checkpoint its live party before the crash",
+        );
+
+        // A, B, and D crash; x's content now exists nowhere, so no future
+        // frontier ever dominates the version A's record observed.
+        drop(a);
+        drop(b);
+        drop(d);
+
+        // A revives from C and gossips once: the frontier re-covers all of
+        // old A's own writes (there are none), but not x.
+        let a = boot_from_async(&c, bm_a()).await;
+        let (ra, rc) = gossip_raw(&a, &c).await;
+        ra.expect("the reclaim-opportunity session is clean on A's side");
+        rc.expect("the reclaim-opportunity session is clean on C's side");
+
+        // The gate waits: the old identity is neither live again...
+        let pa = a
+            .dangerously_alias_party()
+            .expect("a live peer holds its party");
+        assert!(
+            !pa.covers(&a_party),
+            "the reclaim must wait while a foreign observation stays undominated",
+        );
+        // ...nor gone: it stays checkpointed in the record, recoverable by
+        // the leak accounting, stranded exactly as documented.
+        assert!(
+            store_parties(&durable_a, network).contains(&a_party),
+            "the waiting identity must stay checkpointed in the durable record",
+        );
+    });
+}
+
 proptest! {
     /// Under arbitrary interleavings of sends, redactions, faulted gossip,
     /// crashes, and retirements, the identity bookmark never recycles a

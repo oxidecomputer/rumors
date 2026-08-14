@@ -19,6 +19,7 @@ use std::pin::Pin;
 
 use before::{Clock, Party, Version};
 use futures_util::FutureExt;
+use futures_util::future;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::Network;
@@ -66,20 +67,37 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// ([`Bootstrap::bookmark`](crate::Bootstrap::bookmark), or
 /// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining).
 /// The prior incarnation's identity is then reclaimed out of the record at
-/// the first gossip whose frontier causally dominates everything that
-/// incarnation had observed when it last recorded itself. A party that has
-/// not yet caught back up to its prior incarnation's record does not yet
-/// trigger the reclamation; the identity waits in the record until it does.
+/// the outset of the first subsequent session whose *starting* frontier
+/// causally dominates everything that incarnation had observed when it last
+/// recorded itself — the fold runs when a session opens, against the
+/// frontier as it stands then, so the session that first *delivers* the
+/// missing history does not itself reclaim; the next one does. (One
+/// exception folds mid-session: absorbing a retiring peer re-runs the fold
+/// after the absorption commits, so the retiree's identity is durable
+/// before the session ends.)
+///
+/// Domination of everything *observed* is a deliberately stronger gate than
+/// identity linearity needs (that would require only the incarnation's own
+/// writes), bought as resilience against storage that serves stale frames:
+/// see *Rollback* below. Its price is that an identity whose recorded
+/// observations include events the network has permanently lost — every
+/// replica that held them crashed before persisting or propagating — is
+/// **never reclaimed**: it stays in the record indefinitely, an accepted
+/// identity-space cost that, like any stranded identity, spends a few bits
+/// of timestamp width and corrupts nothing.
 ///
 /// # Rollback
 ///
 /// The stored record **must never regress**: a [`load`](Bookmark::load) must
 /// never serve bytes older than the last [`store`](Bookmark::store) that
-/// committed. The bookmark is the peer's *only* durable state, so the crate
-/// has nothing to compare a loaded frame against and **cannot detect** a
-/// rolled-back record — enforcing this is entirely the implementor's
-/// obligation, exactly like the atomic replacement documented on
-/// [`store`](Bookmark::store).
+/// committed. The crate performs no rollback detection anywhere — this is a
+/// decision, not uniformly an impossibility. Across a restart, detection is
+/// impossible in principle: the bookmark is the peer's *only* durable state,
+/// so a loaded frame has nothing to be compared against. Within one process
+/// a partial witness could exist, but a guarantee that covers only some
+/// windows invites relying on it; the crate instead assigns the entire
+/// rollback class to the implementor as one obligation, exactly like the
+/// atomic replacement documented on [`store`](Bookmark::store).
 ///
 /// The consequence of violation is silent causality corruption, not an error:
 /// a rolled-back record understates how far the recorded identity advanced,
@@ -121,12 +139,17 @@ pub trait Bookmark: BookmarkError {
     /// unreadable bookmark is **not** `None`: it surfaces as a corruption error
     /// once the crate validates the frame.
     ///
-    /// The crate reads at most [`BOOKMARK_MAX_BYTES`] from the returned
-    /// reader before validating anything: a longer byte source — a corrupt or
-    /// foreign file, or a reader that never ends — is refused as
-    /// [`FormatError::Oversized`] rather than buffered without bound. Every
-    /// record the crate itself stores fits far under the ceiling; see the
-    /// constant for the boundary this places on the implementor.
+    /// The crate reads at most one byte past [`BOOKMARK_MAX_BYTES`] from the
+    /// returned reader — the extra byte is what distinguishes a frame at the
+    /// ceiling from one over it — before validating anything: an over-ceiling
+    /// byte source, whether a corrupt or foreign file or a reader that never
+    /// ends, is refused as [`FormatError::Oversized`] rather than buffered
+    /// without bound. Every record the crate itself stores reloads under this
+    /// cap *by construction*: the write side refuses an over-ceiling frame
+    /// before [`store`](Self::store) ever sees it, and a realistic record
+    /// sits far below the ceiling besides (measured: the
+    /// `a_heavily_forked_record_sits_far_under_the_ceiling` pin holds a
+    /// heavily forked record three orders of magnitude under).
     fn load(&self) -> impl Future<Output = Result<Option<Self::Reader>, Self::Error>> + Send;
 
     /// Atomically replace the stored record.
@@ -176,6 +199,10 @@ pub(crate) trait Persist: BookmarkError {
     ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send;
 
     /// Encode and durably replace the persisted record with `bookmarks`.
+    ///
+    /// An encoded frame over [`BOOKMARK_MAX_BYTES`] is refused as
+    /// [`FormatError::Oversized`] before the backing storage sees it: the
+    /// previously committed record stays loadable.
     fn write(
         &self,
         bookmarks: &BTreeMap<Network, Vec<Clock>>,
@@ -217,10 +244,21 @@ impl<B: Bookmark> Persist for B {
         bookmarks: &BTreeMap<Network, Vec<Clock>>,
     ) -> impl Future<Output = Result<(), BookmarkIo<Self::Error>>> + Send {
         let bytes = format::encode(bookmarks);
-        Bookmark::store(self, move |w| {
-            Box::pin(async move { w.write_all(&bytes).await })
-        })
-        .map(|result| result.map_err(BookmarkIo::Io))
+        // Refuse an over-ceiling frame before the store ever sees it: the
+        // prior record stays committed and loadable, so the failure is a
+        // typed, recoverable error rather than a record that stores `Ok`
+        // and then refuses every subsequent load.
+        if bytes.len() as u64 > BOOKMARK_MAX_BYTES {
+            return future::Either::Left(std::future::ready(Err(BookmarkIo::Format(
+                FormatError::Oversized,
+            ))));
+        }
+        future::Either::Right(
+            Bookmark::store(self, move |w| {
+                Box::pin(async move { w.write_all(&bytes).await })
+            })
+            .map(|result| result.map_err(BookmarkIo::Io)),
+        )
     }
 }
 
@@ -485,10 +523,12 @@ impl<B: Persist> Bookmarked<B> {
         // to check against, and when a store serves a stale frame (violating
         // the rollback obligation in the `Bookmark` docs), a frontier that has
         // not yet re-covered everything the stale record observed delays the
-        // reclaim instead of freeing the identity early. The price is
-        // eagerness, not safety: a record whose observations were erased from
-        // the network (a counterparty crash) waits in the store, recoverable,
-        // instead of folding back at the first own-writes-dominating gossip.
+        // reclaim instead of freeing the identity early. The price is paid in
+        // identity space, not safety: a clock whose recorded observations
+        // include events the network has permanently lost is never extracted
+        // here — the identity strands in the record indefinitely, spending a
+        // few bits of timestamp width and corrupting nothing (the accepted
+        // cost stated in the `Bookmark` restart docs).
         for clock in clocks.extract_if(.., |clock| *clock.version() <= *version) {
             let (p, v) = clock.into_parts();
             if let Err(p) = party.join(p) {

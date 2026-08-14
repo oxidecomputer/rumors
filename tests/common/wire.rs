@@ -12,7 +12,7 @@ use std::task::{Context, Poll, Waker};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::link::MemoryLink;
-use rumors::{Peer, Protocol, Rumors, testing::run_to_quiescence};
+use rumors::{Bookmark, Peer, Protocol, Rumors, testing::run_to_quiescence};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
@@ -126,9 +126,16 @@ where
 
 /// Awaitable core of [`wire_gossip`], for callers already inside an async
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
-pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
+///
+/// Generic over each side's bookmark, so bookmark suites drive their
+/// instrumented peers through it too.
+pub async fn wire_gossip_async<T, BA, BB>(a: &Rumors<T, BA>, b: &Rumors<T, BB>)
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    BA: Bookmark + Send + Sync + std::fmt::Debug + 'static,
+    BA::Error: std::fmt::Debug,
+    BB: Bookmark + Send + Sync + std::fmt::Debug + 'static,
+    BB::Error: std::fmt::Debug,
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
@@ -157,20 +164,27 @@ where
 
 /// Awaitable core of [`bootstrap_fork`], for callers already inside an async
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
-pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
+///
+/// Generic over the parent's bookmark, so bookmark suites fork from their
+/// instrumented peers too; the minted peer itself arrives unbookmarked.
+pub async fn bootstrap_fork_async<T, B>(parent: &Rumors<T, B>) -> Rumors<T>
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+    B: Bookmark + Send + Sync + std::fmt::Debug + 'static,
+    B::Error: std::fmt::Debug,
 {
     bootstrap_fork_async_with_protocol(parent, Protocol::V2).await
 }
 
 /// Mint a disjoint peer using an explicitly selected wire protocol.
-pub async fn bootstrap_fork_async_with_protocol<T>(
-    parent: &Rumors<T>,
+pub async fn bootstrap_fork_async_with_protocol<T, B>(
+    parent: &Rumors<T, B>,
     protocol: Protocol,
 ) -> Rumors<T>
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+    B: Bookmark + Send + Sync + std::fmt::Debug + 'static,
+    B::Error: std::fmt::Debug,
 {
     let (mut parent_link, mut boot_link) = rumors::link::memory_with_capacity(LINK_BUF);
 

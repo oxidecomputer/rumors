@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use rumors::{Bookmark, Error, Peer, Retire, Rumors};
 
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
-use crate::common::wire::tokio_block_on as block_on;
+use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
 
 /// The message payload; one marker message proves content moved (or did not).
 type Msg = u64;
@@ -32,33 +32,6 @@ const LINK_BUF: usize = 8 * 1024;
 /// The retiree's marker message: absorbed content the boundary assertions
 /// look for.
 const MARKER: Msg = 41;
-
-/// Bootstrap a fresh unbookmarked peer from `server` over a clean in-memory
-/// link.
-async fn boot_from<B>(server: &Rumors<Msg, B>) -> Rumors<Msg>
-where
-    B: Bookmark + Send + Sync + 'static + std::fmt::Debug,
-    B::Error: std::fmt::Debug,
-{
-    let server = server.clone();
-    let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
-    let boot = tokio::spawn(async move {
-        let mut link = boot_side;
-        Peer::<Msg>::bootstrap()
-            .join(&mut link)
-            .await
-            .expect("clean bootstrap")
-            .expect("the provider donates a fork")
-            .sync_window_floor()
-    });
-    let serve = tokio::spawn(async move {
-        let mut link = serve_side;
-        server.gossip(&mut link).await
-    });
-    let (boot_out, serve_out) = tokio::join!(boot, serve);
-    serve_out.expect("serve task").expect("clean serve");
-    boot_out.expect("boot task").into_rumors()
-}
 
 /// Drive `retiree.retire` against `absorber.gossip` over a clean in-memory
 /// link, returning both outcomes. Each side's future owns its link, so an
@@ -102,10 +75,11 @@ fn holds_marker<B: Bookmark>(rumors: &Rumors<Msg, B>) -> bool {
 /// The absorber fleet: A (flaky bookmark, `writes` schedule), a retiree
 /// holding [`MARKER`], and D, a third replica for post-failure sessions.
 ///
-/// A's writes before the retire session are exactly two (the update and the
-/// donation slice serving the retiree's bootstrap), so `writes[2]` is the
-/// retire session's pre-absorb update and `writes[3]` the post-absorb
-/// persist: the two sides of the boundary.
+/// The retire session's boundary writes are the next two decisions after the
+/// fleet is built — its pre-absorb update, then the post-absorb persist —
+/// and that alignment is asserted here mechanically (the feed's consulted
+/// count), never narrated: a change in how many writes setup consumes fails
+/// this assertion instead of silently shifting the boundary.
 fn fleet(
     writes: Vec<bool>,
 ) -> (
@@ -116,7 +90,7 @@ fn fleet(
 ) {
     let store: DurableStore = Arc::new(Mutex::new(None));
     let faults = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), writes)));
-    let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults, 0);
+    let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), 0);
     block_on(async {
         let a = Peer::<Msg>::seed()
             .sync_window_floor()
@@ -124,11 +98,18 @@ fn fleet(
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        let r = boot_from(&a).await;
+        let r = bootstrap_fork_async(&a).await;
         r.send(MARKER);
         // D boots from the retiree, so its arrival consumes none of A's
-        // bookmark writes and the boundary indices above stay fixed.
-        let d = boot_from(&r).await;
+        // bookmark writes and the boundary alignment below holds.
+        let d = bootstrap_fork_async(&r).await;
+        let consulted = faults.lock().unwrap().writes_consulted();
+        assert_eq!(
+            consulted, 2,
+            "fleet setup must consume exactly two of A's write decisions \
+             (the update and the donation slice serving the retiree's \
+             bootstrap), so the retire session's boundary writes come next",
+        );
         (store, a, r, d)
     })
 }
@@ -183,24 +164,9 @@ fn a_persist_failing_after_the_absorption_leaves_it_live_but_not_durable() {
     );
 
     // The promised recovery: a retried gossip on a fresh link re-runs the
-    // persist, and the absorption becomes crash-safe.
-    let (a_out, d_out) = block_on(async {
-        let (a_side, d_side) = rumors::link::memory_with_capacity(LINK_BUF);
-        let a2 = a.clone();
-        let d2 = d.clone();
-        let at = tokio::spawn(async move {
-            let mut link = a_side;
-            a2.gossip(&mut link).await
-        });
-        let dt = tokio::spawn(async move {
-            let mut link = d_side;
-            d2.gossip(&mut link).await
-        });
-        let (a_out, d_out) = tokio::join!(at, dt);
-        (a_out.expect("gossip task"), d_out.expect("gossip task"))
-    });
-    a_out.expect("the retried gossip re-runs the persist");
-    d_out.expect("the counterparty's session is clean");
+    // persist, and the absorption becomes crash-safe. The shared driver
+    // asserts both sides' `Ok` and the drained control streams.
+    block_on(wire_gossip_async(&a, &d));
     assert!(
         persisted_record(&store)
             .into_values()
