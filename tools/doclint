@@ -45,12 +45,19 @@
 #    the doc lines around it still join directly.
 #
 # Usage:
-#   doclint --self-test    # pin the layouts each rule accepts and rejects
+#   doclint --self-test    # pin the layouts each rule accepts and rejects,
+#                          # and the linter's own red paths
 #   doclint PATH...        # lint every .rs file under each PATH (file or dir)
 #
 # Exits non-zero if any violation is found, printing `file:line` for each
 # offender followed by the source it found there, so the offender is named the
 # way the rest of the gate names its failures.
+#
+# Whitespace discipline: a paragraph break is a doc line whose content is
+# empty after removing spaces and tabs only — the characters CommonMark
+# treats as blank-line whitespace. Any other character, U+00A0 included, is
+# content: rustdoc keeps joining the paragraph across such a line, so the
+# linter must measure it as one paragraph too.
 
 import re
 import sys
@@ -96,8 +103,14 @@ def doc_content(stripped, marker):
 
 
 def rendered_length(summary):
-    """Length of a summary as Markdown renders it: soft-wraps joined by spaces."""
-    return len(" ".join(line.strip() for line in summary if line.strip()))
+    """Length of a summary as Markdown renders it: soft-wraps joined by spaces.
+
+    Lines are trimmed of spaces and tabs only (the CommonMark blank-line
+    characters); anything else is rendered content and counts.
+    """
+    return len(
+        " ".join(line.strip(" \t") for line in summary if line.strip(" \t"))
+    )
 
 
 def long_summaries(lines, filename):
@@ -140,7 +153,7 @@ def long_summaries(lines, filename):
                 if content.lstrip().startswith("```"):
                     in_fence = not in_fence
                     summary.append(content)
-                elif content.strip() == "" and not in_fence:
+                elif content.strip(" \t") == "" and not in_fence:
                     paragraph_open = False
                 else:
                     summary.append(content)
@@ -166,7 +179,8 @@ def doc_stream_kind(stripped):
         return "text"
     marker = doc_marker(stripped)
     if marker is not None:
-        return "blank" if not doc_content(stripped, marker).strip() else "text"
+        content = doc_content(stripped, marker)
+        return "blank" if not content.strip(" \t") else "text"
     if not stripped or stripped.startswith("//"):
         return "invisible"
     return "code"
@@ -200,7 +214,14 @@ def unseparated_includes(lines):
 
 
 def self_test():
-    """Pin the layouts each rule accepts and rejects."""
+    """Pin the layouts each rule accepts and rejects, and the linter's own
+    red paths: each fixture must red (or stay green) for exactly the reason
+    it encodes, and a missing root must be a usage error, never a clean
+    sweep."""
+    import contextlib
+    import io
+    import tempfile
+
     include = '#[doc = include_str!("figure.html")]'
     separation_cases = [
         # A blank doc line on each side is the shape that renders correctly.
@@ -222,6 +243,10 @@ def self_test():
         # docs spell it; a non-empty one is prose like any other.
         (f'#[doc = "Prose."]\n#[doc = ""]\n{include}\n#[doc = ""]', []),
         (f'#[doc = "Prose."]\n{include}\n#[doc = ""]', [(2, "before")]),
+        # A doc line of only U+00A0 is prose, not a separator: CommonMark
+        # blank-line whitespace is spaces and tabs only, so such a line does
+        # not close the paragraph standing before the include.
+        (f"/// Prose.\n/// \u00a0\n{include}\n///\n/// More.", [(3, "before")]),
         # Consecutive includes are all raw content: no separator is owed.
         (f"///\n{include}\n{include}\n///", []),
         # Code on either side ends the doc run, which separates by itself.
@@ -233,24 +258,98 @@ def self_test():
         if actual != expected:
             raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
 
-    over = "word " * 60
+    overlong = "word " * 60
     summary_cases = [
         # A one-sentence summary passes; a first paragraph over the budget is
         # reported at the line the doc comment opens on.
         ("/// Removes the value.\n///\n/// Body.", "party.rs", []),
-        (f"/// {over}\n///\n/// Body.", "party.rs", [1]),
+        (f"/// {overlong}\n///\n/// Body.", "party.rs", [1]),
         # Only the first paragraph is the summary: the body below a blank doc
         # line never reaches the listing, however long it runs.
-        (f"/// Removes the value.\n///\n/// {over}", "party.rs", []),
+        (f"/// Removes the value.\n///\n/// {overlong}", "party.rs", []),
         # A crate root's opening `//!` run is the front-page lede, not a
         # summary cell, and carries no budget; the same run elsewhere does.
-        (f"//! {over}\n///\n/// Body.", "lib.rs", []),
-        (f"//! {over}\n///\n/// Body.", "party.rs", [1]),
+        (f"//! {overlong}\n///\n/// Body.", "lib.rs", []),
+        (f"//! {overlong}\n///\n/// Body.", "party.rs", [1]),
     ]
     for source, filename, expected in summary_cases:
         actual = [line for line, _ in long_summaries(source.splitlines(), filename)]
         if actual != expected:
             raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
+
+    # An idiomatic wrapped one-sentence summary: two lines that join to
+    # well under the budget.
+    ok = "A one-line summary, wrapped\nthe way the codebase wraps them."
+    # Two content lines that join past the budget.
+    wide = "w" * 150
+    over = f"{wide}\n{wide}"
+
+    def doc(text, marker="///"):
+        return "\n".join(f"{marker} {line}" for line in text.splitlines())
+
+    cases = [
+        # The honest fixture: a wrapped summary plus body prose below a
+        # blank doc line, which the budget never measures.
+        ("green summary with body", "green.rs",
+         f"{doc(ok)}\n///\n{doc(over)}\nfn f() {{}}\n", []),
+        # A first paragraph that joins past the budget must red at the
+        # comment's first line.
+        ("over-budget joined summary", "joined.rs",
+         f"{doc(over)}\nfn f() {{}}\n", [1]),
+        # A crate root's opening module doc is its front-page lede, not a
+        # summary cell: exempt however long.
+        ("crate-root lede exempt", "lib.rs",
+         f"{doc(over, '//!')}\nfn f() {{}}\n", []),
+        # Only the run that opens the file is the crate doc; a later run
+        # in the same lib.rs carries the budget.
+        ("later run in a crate root is not exempt", "lib.rs",
+         f"fn f() {{}}\n{doc(over, '//!')}\n", [2]),
+        # A module file's `//!` is the summary its parent listing shows:
+        # never exempt, whatever the file thinks of itself.
+        ("module-file inner doc is not exempt", "tree.rs",
+         f"{doc(over, '//!')}\nfn f() {{}}\n", [1]),
+        # A blank doc line inside a fenced code block is not a paragraph
+        # break: the summary keeps accumulating across the fence.
+        ("fenced blank does not end the paragraph", "fence.rs",
+         f"/// {wide}\n/// ```\n///\n/// code\n/// ```\n/// {wide}\n"
+         "fn f() {}\n", [1]),
+        # `////…` separator rules are ordinary comments, not docs: no
+        # budget, however wide.
+        ("separator rule is not a doc comment", "sep.rs",
+         f"//// {'s' * 300}\nfn f() {{}}\n", []),
+        # A line of only U+00A0 is content, not a blank line: CommonMark
+        # blank lines are spaces and tabs only, so rustdoc joins straight
+        # through it and the linter must measure it as one paragraph.
+        ("nbsp line does not end the paragraph", "nbsp.rs",
+         f"/// {wide}\n/// \u00a0\n/// {wide}\nfn f() {{}}\n", [1]),
+        # A line of spaces and tabs IS a paragraph break: the tail below
+        # it is body prose, never summary.
+        ("space-tab line ends the paragraph", "blank.rs",
+         f"/// {wide}\n/// \t \n/// {wide}\nfn f() {{}}\n", []),
+    ]
+    for name, filename, text, expected in cases:
+        found = [line for line, _ in long_summaries(text.splitlines(), filename)]
+        if found != expected:
+            raise AssertionError(
+                f"self-test {name!r}: expected violations at "
+                f"{expected}, found {found}"
+            )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # A nonexistent root is a usage error, never a clean sweep — a
+        # renamed directory must not silently vacate its lint coverage.
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = main(["doclint", str(Path(tmp, "no-such-dir"))])
+        if code != 2 or "no such file or directory" not in stderr.getvalue():
+            raise AssertionError(
+                f"self-test: a missing root returned {code} "
+                f"(stderr {stderr.getvalue()!r}); expected usage error 2"
+            )
+        # Bare invocation is a usage error too.
+        with contextlib.redirect_stderr(io.StringIO()):
+            if main(["doclint"]) != 2:
+                raise AssertionError("self-test: bare usage did not error")
 
 
 def rust_files(root):
@@ -262,11 +361,12 @@ def rust_files(root):
 def main(argv):
     if argv[1:] == ["--self-test"]:
         self_test()
+        print("doclint: self-test ok")
         return 0
 
     roots = [Path(a) for a in argv[1:]]
     if not roots:
-        print("usage: doclint [--self-test | PATH...]", file=sys.stderr)
+        print("usage: doclint --self-test | PATH...", file=sys.stderr)
         return 2
 
     # A nonexistent root would match no files and read as a clean sweep, so a
