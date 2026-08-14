@@ -161,9 +161,9 @@ impl borsh::BorshSerialize for Explosive {
 
 /// A batch interrupted by a panic between its sends commits nothing.
 ///
-/// [`rumors::Rumors::batch`] promises observers and concurrent gossip
-/// sessions see "either none of the batch or all of it, never a prefix",
-/// and a batch the caller never finished building is not "all of it".
+/// [`Batch`](rumors::Batch) documents that a batch dropped by a panic's
+/// unwind commits nothing: the caller never finished building it, so
+/// nothing it holds may publish.
 ///
 /// `Batch::send` panics when a value fails to serialize (its documented
 /// panic), and the unwind drops the half-built batch. `Batch`'s `Drop`
@@ -194,14 +194,16 @@ fn a_panicked_batch_commits_nothing() {
     );
 }
 
-/// Pins today's behavior when a task is cancelled while holding a
-/// [`Batch`](rumors::Batch) across an await: the cancellation drops the
-/// half-built batch outside any unwind, and the drop-commit publishes the
-/// prefix queued before the await — the same interrupted construction the
-/// panic guard aborts, reached through the drop channel `Drop` cannot
-/// distinguish from an ordinary end-of-statement commit.
+/// Pins the drop semantics [`Batch`](rumors::Batch) documents for async
+/// cancellation: dropping the future holding a batch across an await runs
+/// no unwind, so the drop is indistinguishable from an ordinary
+/// end-of-statement commit and publishes the prefix queued before the
+/// cancellation point. This is the documented hazard behind the rule that
+/// a batch must not be held across an `.await` in a cancellable task — a
+/// batch is a performance optimization, and all-or-nothing delivery
+/// bundles into one application-level message instead.
 #[tokio::test]
-async fn a_cancelled_batch_publishes_its_prefix() {
+async fn a_cancelled_batch_commits_its_prefix() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let work = async {
         let mut batch = rumors.batch();
@@ -219,7 +221,8 @@ async fn a_cancelled_batch_publishes_its_prefix() {
         _ = std::future::ready(()) => {}
     }
 
-    // Today: the prefix published as a committed batch of one.
+    // The documented behavior, exactly: the prefix committed as a batch
+    // of one; the send queued after the cancellation point never ran.
     assert_eq!(
         rumors.snapshot().len(),
         1,

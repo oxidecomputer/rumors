@@ -206,9 +206,19 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         self.peer.redact(key)
     }
 
-    /// Start an empty [`Batch`], for committing several changes as one
-    /// atomic unit: observers and concurrent gossip sessions see either
-    /// none of the batch or all of it, never a prefix.
+    /// Start an empty [`Batch`], for applying several changes in one
+    /// commit: observers and concurrent gossip sessions see all of them
+    /// land at once, in at most one observer wakeup.
+    ///
+    /// A batch is a performance optimization, not an atomicity guarantee:
+    /// it coalesces its actions into one tree traversal and one commit,
+    /// but what commits is whatever the batch holds when it drops.
+    /// [`Batch`] states the drop semantics — nothing under a panic's
+    /// unwind, and the queued prefix under async cancellation, so a batch
+    /// must not be held across an `.await` in a cancellable task — and the
+    /// pattern for delivery that must be all-or-nothing under panic or
+    /// cancellation: bundle the pieces into one application-level message
+    /// in `T`.
     ///
     /// # Examples
     ///
@@ -220,7 +230,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///     .batch()
     ///     .send("a".to_string())
     ///     .send("b".to_string());
-    /// // The batch committed, atomically, when the statement ended.
+    /// // The batch committed, as one commit, when the statement ended.
     /// assert_eq!(rumors.snapshot().len(), 2);
     /// ```
     pub fn batch(&self) -> Batch<'_, T>

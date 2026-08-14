@@ -6,16 +6,39 @@ use crate::tree::Action;
 use crate::{Inner, Key};
 
 /// A batch of insertions and redactions against a [`Rumors`](crate::Rumors),
-/// committed atomically.
+/// applied in one commit.
 ///
 /// Returned by [`send`](crate::Rumors::send),
 /// [`redact`](crate::Rumors::redact), and [`batch`](crate::Rumors::batch) on
 /// [`Rumors`](crate::Rumors). Dropping the batch commits it: the single-action
 /// case reads as a plain call (`rumors.send(message);` commits at the end of
 /// the statement), and chaining accumulates
-/// (`rumors.batch().send(a).send(b).redact(key);`) into one commit. A batch
-/// dropped during a panic's unwind commits nothing: none of it, never a
-/// prefix.
+/// (`rumors.batch().send(a).send(b).redact(key);`) into one commit.
+///
+/// # A batch is a performance optimization, not an atomicity guarantee
+///
+/// Batching coalesces several actions into one tree traversal, one commit
+/// moment, and at most one observer wakeup, instead of paying each per
+/// action. What commits is whatever the batch holds when it drops; no
+/// transaction protocol decides whether it commits:
+///
+/// - **Dropped normally**, the batch commits everything queued so far, as
+///   one commit: observers and concurrent gossip sessions see all of it
+///   land at once, never a partially applied commit.
+/// - **Dropped by a panic's unwind**, the batch commits nothing: the
+///   caller never finished building it, so nothing it holds publishes.
+/// - **Dropped by async cancellation** — the future holding it across an
+///   `.await` is dropped — the batch commits the prefix queued before the
+///   cancellation point. Cancellation runs no unwind, so this drop is
+///   indistinguishable from an ordinary end-of-statement commit. **Do not
+///   hold a batch across an `.await` in a task that can be cancelled**
+///   (`select!` arms, timeouts, task aborts).
+///
+/// An application that needs several pieces delivered all-or-nothing even
+/// under panic or cancellation should not reach for a batch: bundle the
+/// pieces into one application-level message in its definition of `T`. One
+/// message is one leaf of the replicated set, indivisible under every
+/// failure mode by construction.
 ///
 /// Building a [`Batch`] holds no lock; committing locks the rumor set
 /// momentarily.
@@ -66,11 +89,13 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
 impl<T: Send + Sync> Drop for Batch<'_, T> {
     fn drop(&mut self) {
         // A drop reached by a panic's unwind commits nothing: the caller
-        // never finished building the batch, and atomicity ("none of the
-        // batch or all of it, never a prefix") rules out publishing the
-        // prefix queued before the panic. This also covers an unrelated
-        // panic unwinding over a held batch: RAII-transaction style, an
-        // unwound batch aborts.
+        // never finished building the batch, and nothing a half-built
+        // batch holds may publish. This also covers an unrelated panic
+        // unwinding over a held batch: RAII-transaction style, an unwound
+        // batch aborts. The guard sees only unwinds: a drop by async
+        // cancellation arrives outside any panic and commits the queued
+        // prefix — the documented hazard the type docs state, pinned by
+        // `a_cancelled_batch_commits_its_prefix` in `tests/single_peer.rs`.
         if std::thread::panicking() {
             return;
         }
