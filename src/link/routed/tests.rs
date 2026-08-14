@@ -1,13 +1,16 @@
 use std::collections::HashMap;
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::io;
-use std::pin::pin;
+use std::mem::take;
+use std::pin::{Pin, pin};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 use futures::FutureExt;
 use futures::future::{Either, select, try_join};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
+use futures::task::noop_waker;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, DuplexStream, ReadBuf};
 
 use super::header::{self, Token};
 use super::{Config, Dial, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, RoutedLink};
@@ -494,6 +497,9 @@ async fn transfer_completed<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 #[derive(Clone)]
 struct PoolingDial {
     inner: MemoryDial,
+    /// Recycled, awaiting the router's ready byte.
+    pending: Arc<Mutex<HashMap<String, Vec<DuplexStream>>>>,
+    /// Ready for reuse.
     pool: Arc<Mutex<HashMap<String, Vec<DuplexStream>>>>,
     fresh: Arc<AtomicUsize>,
 }
@@ -502,6 +508,7 @@ impl PoolingDial {
     fn new(net: &MemoryNet) -> Self {
         PoolingDial {
             inner: net.dial(),
+            pending: Arc::default(),
             pool: Arc::default(),
             fresh: Arc::default(),
         }
@@ -510,6 +517,35 @@ impl PoolingDial {
     fn fresh_dials(&self) -> usize {
         self.fresh.load(Ordering::Relaxed)
     }
+
+    /// Admit pending connections whose ready byte has arrived, polling
+    /// each read exactly once: the byte is consumed off the dialing
+    /// path, never awaited.
+    fn admit(&self, addr: &MemoryName) {
+        let mut pending = self.pending.lock().expect("pending lock");
+        let Some(conns) = pending.get_mut(&addr.0) else {
+            return;
+        };
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        for mut conn in take(conns) {
+            let mut byte = [0u8; 1];
+            let mut buf = ReadBuf::new(&mut byte);
+            match Pin::new(&mut conn).poll_read(&mut cx, &mut buf) {
+                Poll::Ready(Ok(())) if buf.filled().len() == 1 => {
+                    self.pool
+                        .lock()
+                        .expect("pool lock")
+                        .entry(addr.0.clone())
+                        .or_default()
+                        .push(conn);
+                }
+                Poll::Pending => conns.push(conn),
+                // EOF or error: the connection is dead.
+                _ => {}
+            }
+        }
+    }
 }
 
 impl Dial for PoolingDial {
@@ -517,6 +553,7 @@ impl Dial for PoolingDial {
     type Conn = DuplexStream;
 
     async fn dial(&self, addr: &MemoryName) -> io::Result<DuplexStream> {
+        self.admit(addr);
         let pooled = self
             .pool
             .lock()
@@ -531,12 +568,30 @@ impl Dial for PoolingDial {
     }
 
     fn recycle(&self, peer: &MemoryName, conn: DuplexStream) {
-        self.pool
+        self.pending
             .lock()
-            .expect("pool lock")
+            .expect("pending lock")
             .entry(peer.0.clone())
             .or_default()
             .push(conn);
+    }
+}
+
+/// Give the routers a few polls, so ready bytes land before the next
+/// dial's single-poll admission.
+async fn settle() {
+    for _ in 0..8 {
+        let mut yielded = false;
+        poll_fn(|cx| {
+            if yielded {
+                Poll::Ready(())
+            } else {
+                yielded = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        })
+        .await;
     }
 }
 
@@ -567,16 +622,18 @@ fn completed_streams_reuse_their_connection() {
             let (_info, mut at_a) = arrival.expect("the router delivers the link");
             let established = dial.fresh_dials();
 
-            // Forward: the first stream dials, the second rides its
+            // Forward: the first stream dials, the second reuses its
             // recycled connection.
             transfer_completed(&at_b, &mut at_a, b"paid by a dial").await;
-            transfer_completed(&at_b, &mut at_a, b"rides recycled").await;
+            settle().await;
+            transfer_completed(&at_b, &mut at_a, b"reuses recycled").await;
             assert_eq!(dial.fresh_dials(), established + 1);
 
             // Reverse: the accepting side's dial-back pools the same way.
             let mut at_b = at_b;
             transfer_completed(&at_a, &mut at_b, b"paid by a dial").await;
-            transfer_completed(&at_a, &mut at_b, b"rides recycled").await;
+            settle().await;
+            transfer_completed(&at_a, &mut at_b, b"reuses recycled").await;
             assert_eq!(dial.fresh_dials(), established + 2);
             drop((a, b));
         })

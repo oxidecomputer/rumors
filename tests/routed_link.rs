@@ -215,6 +215,50 @@ async fn conforms_over_tcp_with_a_pooling_dial_swapped() {
     .expect("conformance suite ran past its liveness bound");
 }
 
+/// Mutual gossip sessions over a pooling dialer converge under a
+/// multi-thread scheduler.
+///
+/// The regression this pins: a pool that hands out a recycled
+/// connection before the peer router's ready byte couples the next
+/// stream's delivery to the previous stream's consumer, and mutual
+/// sessions then deadlock. Single-thread schedules rarely close the
+/// cycle, so the flavor here is load-bearing.
+#[tokio::test(flavor = "multi_thread")]
+async fn pooled_mutual_sessions_converge() {
+    timeout(SUITE_TIMEOUT, async {
+        let (mut a, mut b) = pooled_tcp_pair(true).await;
+        let seed: Rumors<u64> = Peer::seed().into_rumors();
+        let (served, joined) =
+            tokio::join!(seed.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b));
+        served.expect("the bootstrap-serving session completes");
+        let newcomer = joined
+            .expect("the bootstrap session completes")
+            .expect("the seed serves the bootstrap")
+            .into_rumors();
+        {
+            let mut batch = seed.batch();
+            for payload in 0..48u64 {
+                batch.send(payload);
+            }
+        }
+        {
+            let mut batch = newcomer.batch();
+            for payload in 48..96u64 {
+                batch.send(payload);
+            }
+        }
+        for _ in 0..2 {
+            let (near, far) = tokio::join!(seed.gossip(&mut a), newcomer.gossip(&mut b));
+            near.expect("gossip completes over the link");
+            far.expect("gossip completes over the link");
+        }
+        assert_eq!(seed.snapshot().len(), 96);
+        assert_eq!(seed.snapshot(), newcomer.snapshot());
+    })
+    .await
+    .expect("pooled mutual sessions timed out");
+}
+
 /// The adapter conforms over the in-memory network too: nothing in
 /// the contract mapping leans on socket semantics, and the string
 /// names prove the address seam carries non-IP namespaces.

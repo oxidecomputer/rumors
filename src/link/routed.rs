@@ -248,6 +248,15 @@ pub trait Dial: Clone + Send + Sync + 'static {
     /// certifies nothing about liveness: the peer's router evicts idle
     /// connections by count, so a pooled connection may be dead and
     /// discovered only by the stream that draws it.
+    ///
+    /// The peer's router writes one byte on the connection once it is
+    /// ready for the next stream. A stream sent earlier is not
+    /// delivered until the previous stream's consumer lets the
+    /// connection go. Consume the byte off the dialing path and reuse
+    /// only connections whose byte has arrived, dialing fresh
+    /// otherwise: a `dial` that waits for it serializes the open
+    /// behind another stream's progress, which the link contract
+    /// forbids, and deadlocks a session whose streams cross.
     fn recycle(&self, _peer: &Self::Addr, conn: Self::Conn) {
         drop(conn);
     }

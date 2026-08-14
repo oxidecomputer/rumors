@@ -63,6 +63,17 @@ pub(super) const PREFIX_LEN: usize = MAGIC.len() + 2 + TOKEN_LEN;
 /// link is on its way to the application.
 pub(super) const ACK: u8 = 1;
 
+/// The byte a router writes back on a recovered connection when it is
+/// reading for the next header.
+///
+/// Until it arrives, the previous stream's consumer still holds the
+/// connection, and a stream sent on it would wait on that consumer's
+/// progress. A reusing [`Dial`] consumes the byte off the dialing
+/// path before the connection is reused.
+///
+/// [`Dial`]: super::Dial
+pub(super) const READY: u8 = 2;
+
 /// Bytes in a [`Token`].
 const TOKEN_LEN: usize = 16;
 

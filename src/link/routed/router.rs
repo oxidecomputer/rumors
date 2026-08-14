@@ -146,9 +146,9 @@ where
     let mut order: VecDeque<(u64, AbortHandle)> = VecDeque::new();
     let mut next_id: u64 = 0;
     loop {
-        let conn = tokio::select! {
-            accepted = listen.accept() => accepted?,
-            Some(conn) = returned.recv() => conn,
+        let (conn, recovered) = tokio::select! {
+            accepted = listen.accept() => (accepted?, false),
+            Some(conn) = returned.recv() => (conn, true),
             Some(finished) = pending.next() => {
                 if let Ok(id) = finished {
                     order.retain(|(pending_id, _)| *pending_id != id);
@@ -166,7 +166,15 @@ where
         next_id += 1;
         order.push_back((id, abort));
         pending.push(Abortable::new(
-            route(conn, dial.clone(), &table, &incoming, &returns, id),
+            route(
+                conn,
+                recovered,
+                dial.clone(),
+                &table,
+                &incoming,
+                &returns,
+                id,
+            ),
             registration,
         ));
     }
@@ -179,6 +187,7 @@ where
 /// handle.
 async fn route<D: Dial>(
     conn: D::Conn,
+    recovered: bool,
     dial: D,
     table: &Table<D::Conn>,
     incoming: &mpsc::Sender<Arrival<D>>,
@@ -188,18 +197,22 @@ async fn route<D: Dial>(
     // A failure here is a connection that never became anyone's
     // stream: the dialer observes the drop as transport failure, and
     // there is no one else to tell.
-    let _ = deliver(conn, dial, table, incoming, returns).await;
+    let _ = deliver(conn, recovered, dial, table, incoming, returns).await;
     id
 }
 
 /// The routing step behind [`route`]: parse, then attach or establish.
 async fn deliver<D: Dial>(
     mut conn: D::Conn,
+    recovered: bool,
     dial: D,
     table: &Table<D::Conn>,
     incoming: &mpsc::Sender<Arrival<D>>,
     returns: &mpsc::Sender<D::Conn>,
 ) -> io::Result<()> {
+    if recovered {
+        conn.write_all(&[header::READY]).await?;
+    }
     match header::read::<D::Addr, _>(&mut conn).await? {
         Header::Stream { token } => {
             let Some(queue) = entries(table).get(&token).cloned() else {

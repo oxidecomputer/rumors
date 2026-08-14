@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use rumors::link::routed::{Dial, Listen};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
 /// Listener backlog: a full session complement of simultaneous stream
@@ -66,13 +67,21 @@ impl Dial for PoolingTcpDial {
         }
     }
 
-    fn recycle(&self, peer: &SocketAddr, conn: TcpStream) {
-        self.pool
-            .lock()
-            .expect("pool lock")
-            .entry(*peer)
-            .or_default()
-            .push(conn);
+    fn recycle(&self, peer: &SocketAddr, mut conn: TcpStream) {
+        // Pooled only once the router's ready byte arrives, read off
+        // the dialing path.
+        let pool = Arc::clone(&self.pool);
+        let peer = *peer;
+        tokio::spawn(async move {
+            let mut ready = [0u8; 1];
+            if conn.read_exact(&mut ready).await.is_ok() {
+                pool.lock()
+                    .expect("pool lock")
+                    .entry(peer)
+                    .or_default()
+                    .push(conn);
+            }
+        });
     }
 }
 
