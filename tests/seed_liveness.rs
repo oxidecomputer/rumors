@@ -47,9 +47,10 @@ fn is_anchor(dir: &Path) -> bool {
 
 /// The first anchor on the walk from `start` up to `stop` (inclusive):
 /// the directory whose parent hosts the `proptest-regressions` layout
-/// proptest resolves for sources under `start`. `None` when the walk
-/// finds no anchor, which routes persistence to the sibling-file
-/// fallback instead.
+/// proptest resolves for sources under `start`.
+///
+/// `None` when the walk finds no anchor, which routes persistence to
+/// the sibling-file fallback instead.
 ///
 /// The walk is bounded at `stop` (the repository root): proptest's own
 /// walk continues to the filesystem root, and an anchor above the
@@ -124,9 +125,10 @@ fn scan(dir: &Path, root: &Path, out: &mut Vec<Seed>) {
 }
 
 /// Collect every file under a `proptest-regressions` directory (rooted
-/// at `regressions`), each judged against proptest's resolution: a
-/// `.txt` must reverse-resolve to a live source whose deepest anchor is
-/// one of `anchors`, and any other file is an orphan outright —
+/// at `regressions`), each judged against proptest's resolution.
+///
+/// A `.txt` must reverse-resolve to a live source whose deepest anchor
+/// is one of `anchors`, and any other file is an orphan outright —
 /// proptest writes and reads only `<suffix>.txt` here.
 fn collect_regressions(
     dir: &Path,
@@ -287,8 +289,10 @@ impl Drop for FixtureTree {
 
 /// Persistence resolves at the deepest anchor above the source, so a
 /// seed filed under a shallower anchor's layout is an orphan even
-/// though the source exists below that anchor — and the seed at the
-/// deep anchor's own layout is the one that is read.
+/// though the source exists below that anchor.
+///
+/// The seed at the deep anchor's own layout is the dual: that one is
+/// read, and stays green.
 #[test]
 fn nested_anchor_claims_the_persistence_path() {
     let tree = FixtureTree::new("nested-anchor");

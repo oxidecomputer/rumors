@@ -351,11 +351,12 @@ fn supply_lines(run: Vec<u8>) -> Vec<String> {
 }
 
 /// Render one root-fan listing frame's children, or its explicit decode
-/// failure (the listing is peer-controlled borsh, so the renderer must
-/// never present undecodable bytes as a quietly hex-only frame). The
-/// canonical child order is held by the codec's own `validate_children`,
-/// the same rule the handshake applies before building scope from a
-/// received listing.
+/// failure: the listing is peer-controlled borsh, so the renderer must
+/// never present undecodable bytes as a quietly hex-only frame.
+///
+/// The canonical child order is held by the codec's own
+/// `validate_children`, the same rule the handshake applies before
+/// building scope from a received listing.
 fn listing_lines(body: &[u8]) -> Vec<String> {
     let children = match <Vec<(u8, Hash)>>::try_from_slice(body) {
         Ok(children) => children,
