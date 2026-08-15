@@ -345,26 +345,27 @@ impl Version {
         Ranked::from(self)
     }
 
-    /// The causal distance metric between two versions.
+    /// The *causal distance* between two [`Version`]s.
     ///
     /// This measures how much history two replicas would have to exchange to
     /// converge: zero when they agree, growing with every event neither shares.
     ///
     /// It is equal to the [`Rank`] of their symmetric difference, `(self |
-    /// other).rank() - rank(self & other).rank()`, but more efficiently
-    /// computed.
+    /// other).rank() - (self & other).rank()`, but more efficiently computed.
     ///
-    /// This is a metric on the version lattice. [`Rank`] is a *valuation*:
-    /// `rank(a | b) + rank(a & b) == rank(a) + rank(b)`. A strictly monotone
-    /// valuation on a distributive lattice induces a metric, so `distance` is
-    /// symmetric, zero only between equal versions, and obeys the triangle
-    /// inequality.
+    /// This is a metric on the version lattice. [`Rank`] is a *valuation*: `(a
+    /// | b).rank() + (a & b).rank() == a.rank() + b.rank()`. A strictly
+    /// monotone valuation on a distributive lattice induces a metric, i.e.
+    /// `distance` is symmetric, zero only between equal versions, and obeys the
+    /// triangle inequality `a.distance(b) + b.distance(c) >= a.distance(c)`.
     ///
     /// # Complexity
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_distance.html"))]
     ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
+    /// Typical inputs run far below the worst case; `M` is the complexity of
+    /// unbounded-integer multiplication (about `O(n log n)` in this
+    /// implementation).
     ///
     /// # Example
     ///
@@ -400,7 +401,7 @@ impl Version {
     /// This computes the [`Rank`] of the history `other` records that `self`
     /// does not, `(self | other).rank() - self.rank()`, but more efficiently.
     ///
-    /// The directed half of [`distance`](Self::distance): is is zero when
+    /// The directed half of [`distance`](Self::distance): this is zero when
     /// `other <= self` (`self` already knows everything `other` does), and the
     /// two directions sum to the symmetric distance: `a.lag(b) + b.lag(a) ==
     /// a.distance(b)`.
@@ -409,7 +410,9 @@ impl Version {
     ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_lag.html"))]
     ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
+    /// Typical inputs run far below the worst case; `M` is the complexity of
+    /// unbounded-integer multiplication (about `O(n log n)` in this
+    /// implementation).
     ///
     /// # Example
     ///
@@ -560,9 +563,8 @@ impl Version {
 
     /// The causal [`Span`] from this [`Version`] to `other`.
     ///
-    /// This computes the tightest [`Span`] which
-    /// encloses all [`Version`]s `v` such that `self & other <= v <= self |
-    /// other`.
+    /// This computes the tightest [`Span`] which encloses all [`Version`]s `v`
+    /// such that `self & other <= v <= self | other`.
     ///
     /// Identical to the operator form `self ^ other`.
     ///
@@ -597,9 +599,8 @@ impl Version {
 
     /// The causal [`Span`] enclosing `self` and all the [`Version`]s in `iter`.
     ///
-    /// This computes the tightest [`Span`] which
-    /// encloses all [`Version`]s `v` such that `self.meet_all(iter) <= v <=
-    /// self.join_all(iter)`.
+    /// This computes the tightest [`Span`] which encloses all [`Version`]s `v`
+    /// such that `self.meet_all(iter) <= v <= self.join_all(iter)`.
     ///
     /// Prefer this to iteratively [`span`](Version::meet)ing [`Version`]s
     /// one-at-a-time, as it is more efficient.
@@ -740,8 +741,8 @@ impl Version {
     /// `view` folds a borrowed stream into an owned group in place
     /// ([`join_view`](Self::join_view)/[`meet_view`](Self::meet_view)) — and
     /// [`Group`] carries which form each operand needs. `None` is the empty
-    /// fold, which a receiver-seeded caller never sees; a lone input is
-    /// cloned, the one place an input itself must become an owned result.
+    /// fold, which a receiver-seeded caller never sees; a lone input is cloned,
+    /// the one place an input itself must become an owned result.
     ///
     /// Adjacent clone-identical inputs collapse before the counter reads them
     /// ([`DedupRuns`], citing the idempotence laws): both combiners are
