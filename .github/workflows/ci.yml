@@ -80,10 +80,10 @@ jobs:
       # in the repo, turning the sweep red on a tree nobody touched. The others
       # report findings rather than generate bytes, so they ride the pinned
       # action's own tool manifest, moving when Dependabot bumps the pin.
-      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, and wasm-pack
+      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, and wasm-pack
         uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
         with:
-          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,wasm-pack
+          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants,wasm-pack
 
       # The viz bundle (`just viz`) runs the dependency install (`npm ci`
       # here, where CI=true), a strict TypeScript typecheck, and an esbuild
