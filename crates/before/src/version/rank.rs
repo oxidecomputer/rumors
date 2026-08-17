@@ -142,7 +142,7 @@ use crate::codec::Base;
 use crate::error::Decode;
 
 /// The causal rank of a [`Version`](crate::Version) as an exact dyadic
-/// rational, produced by [`Version::rank`](crate::Version::rank).
+/// rational.
 ///
 /// The [`Rank`] of a [`Version`] is **strictly monotone** in
 /// [`tick`](crate::Version::tick)s; that is, for every pair of versions `v` and
@@ -196,11 +196,11 @@ use crate::error::Decode;
 /// expansion, which we'll write `‖r‖`. Notably, `‖r‖` is at most linear in the
 /// size of the originating version.
 ///
-/// Consequentially, you won't go wrong reasoning through the space and time
-/// costs of [`Rank`]s in terms of the space and time costs of the [`Version`]s
-/// whence they are derived: a [`Rank`] is only ever smaller and cheaper. When
-/// you see complexity claims denominated in `‖r‖`, it's safe to substitute
-/// `|v|`, the size of the [`Version`] `v` such that `r = v.rank()`.
+/// Consequently, you won't go wrong reasoning through the space and time costs
+/// of [`Rank`]s in terms of the space and time costs of the [`Version`]s whence
+/// they are derived: a [`Rank`] is only ever smaller and cheaper. When you see
+/// complexity claims denominated in `‖r‖`, it's safe to substitute `|v|`, the
+/// size of the [`Version`] `v` such that `r = v.rank()`.
 ///
 /// In brief: comparison, equality, hashing, and cloning are linear in the
 /// in-memory size. Addition and subtraction are `O(‖a‖ + ‖b‖)`.
