@@ -1389,7 +1389,7 @@ pub const ROSTER: &[OpSpec] = &[
             Operand::Version,
         ]),
         covers: &[
-            "Span + Span (Add, owned and borrowed — the containment join)",
+            "Span + impl Into<Span> / Version + Span (Add/AddAssign, owned and borrowed — the containment join)",
             "Span::union",
         ],
         size_measure: M_SPAN_PAIR,
@@ -1415,7 +1415,7 @@ pub const ROSTER: &[OpSpec] = &[
             Operand::Version,
         ]),
         covers: &[
-            "Span * Span (Mul, owned and borrowed — the containment meet)",
+            "Span * Span (Mul, owned and borrowed — the containment meet; partial, so no MulAssign and no Into widening)",
             "Span::intersect",
         ],
         size_measure: M_SPAN_PAIR,
@@ -1443,7 +1443,7 @@ pub const ROSTER: &[OpSpec] = &[
             Operand::Version,
         ]),
         covers: &[
-            "Span | Span (BitOr, owned and borrowed — the pointwise join)",
+            "Span | impl Into<Span> / Version | Span (BitOr/BitOrAssign, owned and borrowed — the pointwise join)",
             "Span::join",
         ],
         size_measure: M_SPAN_PAIR,
@@ -1469,7 +1469,7 @@ pub const ROSTER: &[OpSpec] = &[
             Operand::Version,
         ]),
         covers: &[
-            "Span & Span (BitAnd, owned and borrowed — the pointwise meet)",
+            "Span & impl Into<Span> / Version & Span (BitAnd/BitAndAssign, owned and borrowed — the pointwise meet)",
             "Span::meet",
         ],
         size_measure: M_SPAN_PAIR,
@@ -2198,12 +2198,12 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          panel prices the mechanism",
     ),
     (
-        "Span Sum / FromIterator (owned and borrowed — the union fold)",
+        "Span Sum / FromIterator (spans or versions, owned and borrowed — the union fold)",
         "the balanced union fold entered without a receiver; the span_union_all \
          panel prices the mechanism",
     ),
     (
-        "Span Product (owned and borrowed — the intersection fold)",
+        "Span Product (spans only, owned and borrowed — the intersection fold)",
         "the balanced intersection fold entered without a receiver; the \
          span_intersect_all panel prices the mechanism",
     ),

@@ -9,7 +9,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::error::{Decode, Parse};
-use crate::{causally, Clock, Party, Rank, Ranked, Version};
+use crate::{causally, Clock, Party, Rank, Ranked, Span, Version};
 
 use super::ceilings::{
     both_present_nodes, ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE,
@@ -368,7 +368,7 @@ pub(super) fn ops() -> Vec<Op> {
                     touch: touch_pair_fold(&lo, &hi),
                 };
                 Some(Cell::new(n, floors, move || {
-                    causally::Span::decode(&bytes[..]).expect("a canonical composite decodes")
+                    Span::decode(&bytes[..]).expect("a canonical composite decodes")
                 }))
             },
         },
@@ -1932,8 +1932,8 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = fed.len();
                 let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
                 Some(Cell::new(n, floors, move || {
-                    let err = causally::Span::decode(&fed[..])
-                        .expect_err("a truncated composite is rejected");
+                    let err =
+                        Span::decode(&fed[..]).expect_err("a truncated composite is rejected");
                     assert!(
                         matches!(err, Decode::Truncated),
                         "the placed defect is the cut, not {err:?}"
@@ -1952,8 +1952,8 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = fed.len();
                 let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
                 Some(Cell::new(n, floors, move || {
-                    let err = causally::Span::decode(&fed[..])
-                        .expect_err("a trailing-bits composite is rejected");
+                    let err =
+                        Span::decode(&fed[..]).expect_err("a trailing-bits composite is rejected");
                     assert!(
                         matches!(err, Decode::TrailingBits),
                         "the placed defect is the appended tail, not {err:?}"
@@ -1978,8 +1978,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = fed.len();
                 let floors = rejection_floors(n, WHY_SCAN_REJECT_CROSSED);
                 Some(Cell::new(n, floors, move || {
-                    let err = causally::Span::decode(&fed[..])
-                        .expect_err("a crossed composite is rejected");
+                    let err = Span::decode(&fed[..]).expect_err("a crossed composite is rejected");
                     assert!(
                         matches!(err, Decode::NotCanonical),
                         "the placed defect is the reversal, not {err:?}"

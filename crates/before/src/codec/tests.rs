@@ -16,8 +16,8 @@ use super::{
     bytes_as_bits, decode_int, decode_int_from, encode_int, Base, BitCursor, BitsMut, BitsSlice,
     DsiCursor, SliceCursor,
 };
-use crate::causally::Span;
 use crate::oracle;
+use crate::span::Span;
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,

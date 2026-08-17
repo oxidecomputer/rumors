@@ -21,10 +21,11 @@
 
 use std::pin::Pin;
 
+use before::Span;
 use futures::{Stream, stream};
 
 use crate::{
-    Version, causally,
+    Version,
     message::Message,
     tree::{
         mirror::streaming::convert::Convert,
@@ -182,39 +183,39 @@ pub trait Node<T: Send + Sync + 'static> {
     ///
     /// The trait's whole version-bounds obligation lives here. The
     /// deletion-honoring filter classifies subtrees by asking the span
-    /// [`dominance`](causally::Span::dominance) directly, without
-    /// descending: [`After`](causally::Dominance::After) iff the
+    /// [`dominance`](Span::dominance) directly, without
+    /// descending: [`After`](before::Dominance::After) iff the
     /// ceiling is within the probe's causal past (everything under the
     /// node is already known there),
-    /// [`Before`](causally::Dominance::Before) iff the probe dominates
+    /// [`Before`](before::Dominance::Before) iff the probe dominates
     /// not even the floor (the whole subtree is unknown), and
-    /// [`Between`](causally::Dominance::Between) otherwise (mixed, so
+    /// [`Between`](before::Dominance::Between) otherwise (mixed, so
     /// the filter descends). Single-endpoint consumers — bound pricing,
     /// containment checks, leaf-version reads — take
-    /// [`lo`](causally::Span::lo) or [`hi`](causally::Span::hi)
+    /// [`lo`](Span::lo) or [`hi`](Span::hi)
     /// off the same span.
     ///
     /// The span's ordering — `floor <= ceiling`, which every honest
     /// meet/join pair over one leaf set satisfies — is the
     /// implementor's obligation, priced at *construction* rather than
     /// per read: the in-memory backend stores each branch's memoized
-    /// bounds as one [`causally::Span`], ordered by construction, and
+    /// bounds as one [`Span`], ordered by construction, and
     /// answers by reborrowing it
-    /// ([`causally::Span::reborrow`]). A backend reading bounds back
+    /// ([`Span::reborrow`]). A backend reading bounds back
     /// from its own storage validates the pair once at node load: bounds
     /// stored as the span's canonical bytes load through
-    /// [`causally::Span::decode`] — one pass that parses both endpoints
+    /// [`Span::decode`] — one pass that parses both endpoints
     /// and proves them ordered, rejecting corrupt bytes and crossed
     /// pairs alike as the load-time storage corruption they are — and
     /// bounds held as two already-decoded versions validate through
-    /// [`causally::Span::new`], surfacing
-    /// [`Crossed`](causally::Crossed) the same way. Either way the
+    /// [`Span::new`], surfacing
+    /// [`Crossed`](before::error::Crossed) the same way. Either way the
     /// backend answers thereafter by reborrowing the span it validated.
     /// A violated ordering is not a detected fault: every verdict read
     /// off the span becomes unspecified, which here means silently
     /// wrong reconciliation — news withheld or re-sent — so the check
     /// belongs at the load seam, where it is paid once.
-    fn span(&self) -> causally::Span<'_>;
+    fn span(&self) -> Span<'_>;
 
     /// The merkle hash of this node.
     fn hash(&self) -> Hash;

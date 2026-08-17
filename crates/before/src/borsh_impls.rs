@@ -14,9 +14,9 @@ use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
-    causally::Span,
     codec::{self, BitCursor, BitsMut},
     error::Decode,
+    span::Span,
     version::decode_rank_stream,
     Clock, Party, Rank, Ranked, Version,
 };

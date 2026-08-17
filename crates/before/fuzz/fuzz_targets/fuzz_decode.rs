@@ -20,7 +20,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use before::{causally::Span, Clock, Party, Rank, Ranked, Version};
+use before::{Clock, Party, Rank, Ranked, Span, Version};
 
 fuzz_target!(|data: &[u8]| {
     before_fuzz::under_heap_cap(|| run(data));

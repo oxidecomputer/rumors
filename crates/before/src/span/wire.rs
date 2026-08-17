@@ -3,8 +3,8 @@
 //! The composite is the two endpoints' canonical encodings concatenated —
 //! each byte-aligned, independently canonical, and self-delimiting, so no
 //! length prefix exists — and the decode proves the pair ordered in the
-//! same pass that parses it. The public wire-form contract lives in the
-//! [span module docs](super); this module is its implementation.
+//! same pass that parses it. The public wire-form contract lives on
+//! [`Span`]; this module is its implementation.
 
 use std::borrow::Cow;
 use std::io::{self, Read, Write};
@@ -20,9 +20,9 @@ impl<'a> Span<'a> {
     /// Encodes this [`Span`] as canonical bytes.
     ///
     /// Each endpoint is byte-aligned, independently canonical, and
-    /// self-delimiting, so the two concatenate with no length prefix (the
-    /// [module docs](super) carry the wire form). Byte equality on these
-    /// composites is exactly span equality.
+    /// self-delimiting, so the two concatenate with no length prefix ([`Span`]'s
+    /// docs carry the wire form). Byte equality on these composites is exactly
+    /// span equality.
     ///
     /// # Complexity
     ///
@@ -31,7 +31,7 @@ impl<'a> Span<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{causally::Span, Clock};
+    /// use before::{Span, Clock};
     /// let mut clock = Clock::seed();
     /// let older = clock.tick().clone();
     /// let newer = clock.tick().clone();
@@ -59,7 +59,7 @@ impl<'a> Span<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{causally::Span, Clock};
+    /// use before::{Span, Clock};
     /// let mut clock = Clock::seed();
     /// let v = clock.tick().clone();
     /// let span = Span::new(&v, &v).unwrap();
@@ -97,7 +97,7 @@ impl<'a> Span<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{causally::Span, error::Decode, Clock};
+    /// use before::{Span, error::Decode, Clock};
     /// let mut clock = Clock::seed();
     /// let older = clock.tick().clone();
     /// let newer = clock.tick().clone();
@@ -131,7 +131,7 @@ impl<'a> Span<'a> {
         let (lo_bytes, admission) = {
             let bits = codec::bytes_as_bits(&buf);
             let lo_end = skyline::validate_prefix(bits)?;
-            // The meet's padding marker rides in its final byte — which an
+            // The meet's padding marker sits in its final byte — which an
             // input cut right after a flush stream lacks. That cut is
             // missing required data (the marker byte, and the whole join
             // after it): the truncation genre, exactly as a byte-starved

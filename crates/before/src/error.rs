@@ -24,7 +24,7 @@ pub struct Overlap;
 /// # Example
 ///
 /// ```
-/// use before::{Clock, causally::Span};
+/// use before::{Clock, Span};
 /// let mut clock = Clock::seed();
 /// let older = clock.tick().clone();
 /// let newer = clock.tick().clone();
@@ -36,7 +36,7 @@ pub struct Crossed;
 
 /// Why bytes failed to decode into a [`Party`](crate::Party),
 /// [`Version`](crate::Version), [`Clock`](crate::Clock), [`Rank`](crate::Rank),
-/// [`Ranked`](crate::Ranked), or [`Span`](crate::causally::Span).
+/// [`Ranked`](crate::Ranked), or [`Span`](crate::Span).
 ///
 /// # Example
 ///

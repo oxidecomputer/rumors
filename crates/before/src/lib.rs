@@ -419,20 +419,17 @@ mod fold;
 mod idbits;
 mod party;
 mod recurse;
+mod span;
 mod version;
 
 // The whole public API:
-pub mod span;
 pub use clock::Clock;
 pub mod causally;
 pub mod error;
 pub use party::Party;
-pub use span::{OwnSpan, Span};
+pub use span::{Dominance, Endpoint, OwnSpan, Placement, Precedence, Span};
 pub use version::{OwnVersion, Rank, Ranked, Ticks, Version};
 pub mod iter;
-
-// Tutorial-only documentation:
-pub mod implementation;
 
 #[cfg(any(test, feature = "oracle"))]
 pub mod oracle;

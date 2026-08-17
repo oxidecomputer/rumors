@@ -7,7 +7,7 @@
 
 use proptest::prelude::*;
 
-use crate::causally::Span;
+use crate::span::Span;
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::arb_oracle_version;
 use crate::{Clock, Rank, Ranked, Version};

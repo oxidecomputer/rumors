@@ -22,6 +22,8 @@
 
 use futures::future::{self, BoxFuture, FutureExt};
 
+use before::Dominance;
+
 use crate::{
     Version, causally,
     tree::{
@@ -47,11 +49,11 @@ pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Ver
 /// descending: how much of the node's `[floor, ceiling]` span the
 /// counterparty's version dominates *is* the knowledge verdict.
 ///
-/// [`Before`](causally::Dominance::Before) — the floor is beyond or
+/// [`Before`](Dominance::Before) — the floor is beyond or
 /// beside `known` — means the whole subtree is unknown;
-/// [`After`](causally::Dominance::After) — the ceiling is within
+/// [`After`](Dominance::After) — the ceiling is within
 /// `known`'s past — means it is all already known; and
-/// [`Between`](causally::Dominance::Between) means mixed, so the
+/// [`Between`](Dominance::Between) means mixed, so the
 /// caller descends.
 ///
 /// The backend hands out its own stored bounds ([`Node::span`]) and the
@@ -61,10 +63,7 @@ pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Ver
 /// so no validating comparison is paid per classification. The cheap
 /// unknown-subtree exit survives the fusion: `floor <= known` refuted
 /// is the whole verdict, decided at the first refuting interval.
-fn knowledge<T: Send + Sync + 'static>(
-    node: &impl Node<T>,
-    known: &Version,
-) -> causally::Dominance {
+fn knowledge<T: Send + Sync + 'static>(node: &impl Node<T>, known: &Version) -> Dominance {
     node.span().dominance(known)
 }
 
@@ -112,16 +111,16 @@ where
 {
     match knowledge(&node, known) {
         // Wholly unknown: the whole subtree travels.
-        causally::Dominance::Before => {
+        Dominance::Before => {
             let children = children_of(backend, prefix, node.clone()).await?;
             return Ok((Some(node), children));
         }
         // Wholly known: nothing under the node needs to travel.
-        causally::Dominance::After => {
+        Dominance::After => {
             stats.shed(node.len() as u64);
             return Ok((None, Vec::new()));
         }
-        causally::Dominance::Between => {}
+        Dominance::Between => {}
     }
 
     // Mixed: prune the children one by one; the surviving group is both the
@@ -200,13 +199,13 @@ where
         Box::pin(async move {
             match knowledge(&node, known) {
                 // Wholly unknown: the whole subtree travels.
-                causally::Dominance::Before => return Ok(Some(node)),
+                Dominance::Before => return Ok(Some(node)),
                 // Wholly known: nothing under the node needs to travel.
-                causally::Dominance::After => {
+                Dominance::After => {
                     stats.shed(node.len() as u64);
                     return Ok(None);
                 }
-                causally::Dominance::Between => {}
+                Dominance::Between => {}
             }
 
             // Mixed: descend. Explode just this node one level, prune its

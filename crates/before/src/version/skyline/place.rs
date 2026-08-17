@@ -113,8 +113,8 @@ use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
-use crate::causally::{Dominance, Endpoint, Placement, Precedence};
 use crate::codec::{BitsSlice, Int};
+use crate::span::{Dominance, Endpoint, Placement, Precedence};
 
 use super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::signed::Sign;
@@ -181,7 +181,7 @@ impl<'a> BoundSide<'a> {
 /// Place a probe stream against an ordered span's endpoint streams at full
 /// resolution, each stream decoded once.
 ///
-/// `lo` and `hi` must satisfy `lo <= hi` (`causally::Span`'s construction
+/// `lo` and `hi` must satisfy `lo <= hi` (`Span`'s construction
 /// contract); the verdict is unspecified otherwise.
 ///
 /// # Panics

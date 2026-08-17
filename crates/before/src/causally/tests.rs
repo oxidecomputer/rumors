@@ -1,5 +1,5 @@
 use super::*;
-use crate::Clock;
+use crate::{Clock, Span};
 
 /// The organic witness set: a three-step chain on one party, a
 /// concurrent line on a second, and their join.

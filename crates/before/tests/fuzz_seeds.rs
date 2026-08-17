@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-use before::{causally::Span, error::Decode, Clock, Party, Rank, Ranked, Version};
+use before::{error::Decode, Clock, Party, Rank, Ranked, Span, Version};
 
 #[path = "support/fuzz_seed_set.rs"]
 mod fuzz_seed_set;

@@ -4,9 +4,9 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::decode_error;
-use crate::causally::Span;
 use crate::codec::{self, BitCursor, BitsMut};
 use crate::error::Decode;
+use crate::span::Span;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
@@ -984,7 +984,7 @@ proptest! {
     }
 }
 
-/// A [`Span`](crate::causally::Span) composite composes inside a
+/// A [`Span`](crate::Span) composite composes inside a
 /// larger borsh stream, and its rejection genres cross the borsh
 /// boundary intact.
 ///
@@ -1056,7 +1056,7 @@ fn span_borsh_composes_and_keeps_its_genres() {
 }
 
 proptest! {
-    /// [`Span`](crate::causally::Span) composites round-trip through
+    /// [`Span`](crate::Span) composites round-trip through
     /// borsh: the raw framing carries exactly `Span::encode`'s bytes,
     /// and the fused wire validation accepts every hull the borrowing
     /// constructor admits.

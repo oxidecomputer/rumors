@@ -77,31 +77,6 @@ pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
         decided: "2026-07-30",
     },
     Exception {
-        name: "span::",
-        reason: "the span module's items are rostered at their root re-export \
-                 names (the file-scan jaw of the pincer names them bare: \
-                 Span::*, OwnSpan::*), and its trait impls are pinned at the \
-                 same root paths; this prefix covers the identical items' \
-                 canonical-module spellings so one item is never rostered \
-                 twice",
-        decided: "2026-07-31",
-    },
-    Exception {
-        name: "causally::Span::",
-        reason: "re-export aliases of the rostered root-path methods: the span \
-                 vocabulary predates the span module and downstream call sites \
-                 spell causally::Span, so the path stays public; the bare \
-                 Span::* roster rows bind the same items",
-        decided: "2026-07-31",
-    },
-    Exception {
-        name: "causally::OwnSpan::",
-        reason: "re-export aliases of the rostered root-path methods, beside \
-                 causally::Span's for the same reason; the bare OwnSpan::* \
-                 roster rows bind the same items",
-        decided: "2026-07-31",
-    },
-    Exception {
         name: "laws::",
         reason: "the named algebraic-law predicate tables (statics of law \
                  rows), public under the `laws` feature so the fuzz workspace \

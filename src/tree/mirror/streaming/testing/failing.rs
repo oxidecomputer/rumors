@@ -9,8 +9,10 @@ use std::{
 use async_stream::stream;
 use futures::StreamExt;
 
+use before::Span;
+
 use crate::{
-    Version, causally,
+    Version,
     message::Message,
     tree::{
         mirror::streaming::{Backend, Leaf, Node, backend::NodeStream},
@@ -142,7 +144,7 @@ where
     type Backend = Failing<N::Backend>;
     type Height = N::Height;
 
-    fn span(&self) -> causally::Span<'_> {
+    fn span(&self) -> Span<'_> {
         self.0.span()
     }
 

@@ -10,6 +10,8 @@
 //! [`mirror`](super::mirror) delegate their version filtering here, which
 //! is what makes them observationally identical.
 
+use before::Dominance;
+
 use crate::{Version, causally};
 
 use super::typed::*;
@@ -54,14 +56,14 @@ where
             // unknown (children are always in the causal future or
             // present of their parent's floor), so return the node
             // unchanged.
-            causally::Dominance::Before => return Some(node),
+            Dominance::Before => return Some(node),
             // `known` dominates the ceiling: the whole subtree is
             // already known (children are always in the causal past or
             // present of their parent's ceiling), so don't return
             // anything at all.
-            causally::Dominance::After => return None,
+            Dominance::After => return None,
             // Only the floor is dominated: the subtree is mixed.
-            causally::Dominance::Between => {}
+            Dominance::Between => {}
         }
 
         // Recursively process each child, re-assembling only the unknown children

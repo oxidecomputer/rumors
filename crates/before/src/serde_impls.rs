@@ -14,7 +14,7 @@
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::causally::Span;
+use crate::span::Span;
 use crate::{Clock, Party, Rank, Ranked, Version};
 
 impl Serialize for Party {

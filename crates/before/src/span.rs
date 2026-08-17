@@ -1,52 +1,6 @@
 //! Causal spans: ordered pairs of concrete upper-/lower-bounding [`Version`]s.
-//!
-//! A *span* is two concrete versions `lo <= hi` representing all the
-//! [`Version`]s `lo <= v <= hi`.
-//!
-//! | Operation                                             | Meaning                                                             |
-//! |-------------------------------------------------------|---------------------------------------------------------------------|
-//! | `v ^ w`, [`v.span(&w)`](Version::span)                | the tightest span containing `v` and `w`                            |
-//! | [`Version::span_all`]                                 | …containing a whole collection                                     |
-//! | [`Span::new`]`(lo, hi)`                               | the span `lo <= hi`; errors unless `lo <= hi`                       |
-//! | [`Span::at`]`(v)`                                     | the singleton span `v <= v`                                         |
-//! | [`s.place(&v)`](Span::place)                          | `v` against the bounds, finest granularity ([`Placement`])          |
-//! | [`s.dominance(&v)`](Span::dominance)                  | three-way verdict: is `v` past the span? ([`Dominance`])            |
-//! | [`s.precedence(&v)`](Span::precedence)                | three-way verdict: is `v` before it? ([`Precedence`])               |
-//! | [`s.contains(&v)`](Span::contains)                    | bare membership                                                     |
-//! | `a \| b`, `a & b`                                     | the *pointwise* lattice: `\|`/`&` on each endpoint pair             |
-//! | `a + b`                                               | the *union*: the tightest span covering both                        |
-//! | `a * b`                                               | the *intersection*: the largest common part; `None` if disjoint     |
-//! | `&s / &p`, [`s.project(&p)`](Span::project)           | the lazy projection view ([`OwnSpan`])                              |
-//! | [`encode`](Span::encode) / [`decode`](Span::decode)   | the canonical wire form                                             |
-//!
-//! # The span algebra
-//!
-//! The operators come from two distinct lattice structures:
-//!
-//! - The **pointwise order** borrows the version lattice's own symbols and
-//!   lifts them to each endpoint pair:
-//!   - `a | b` ([`join`](Span::join)) has endpoints `lo_a | lo_b <= hi_a | hi_b`;
-//!   - `a & b` ([`meet`](Span::meet)) has endpoints `lo_a & lo_b <= hi_a & hi_b`.
-//!
-//! - The **containment order** uses arithmetic symbols:
-//!   - `a + b` ([`union`](Span::union)) has endpoints `lo_a & lo_b <= hi_a | hi_b`;
-//!   - `a * b` ([`intersect`](Span::intersect)) has endpoints `lo_a | lo_b <= hi_a & hi_b`,
-//!     or [`None`] when the spans are non-overlapping.
-//!
-//! All operators have a variadic extension ([`join_all`](Span::join_all),
-//! [`meet_all`](Span::meet_all), [`union_all`](Span::union_all),
-//! [`intersect_all`](Span::intersect_all)), each one balanced fold.
-//!
-//! Projection applies [`Version::project`] pointwise to the low and high ends
-//! of the span: for a given [`Span`] `s`, `s / &p` yields the span `(lo / &p)
-//! <= (hi / &p)`.
-//!
-//! # The wire form
-//!
-//! A [`Span`] has a canonical byte encoding, just like [`Clock`](crate::Clock),
-//! [`Version`], and [`Party`]: the meet's [`Version::encode`] bytes, followed
-//! by the join's. Each component is byte-aligned, independently canonical, and
-//! self-delimiting, so the two concatenate with no length prefix.
+//! The contract documentation, the operation table, and the algebra live on
+//! [`Span`].
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -67,21 +21,66 @@ pub use verdict::{Dominance, Endpoint, Placement, Precedence};
 #[cfg(test)]
 mod tests;
 
-/// A causal span: an ordered pair of versions `lo <= hi` representing all the
-/// [`Version`]s `lo <= v <= hi`.
+/// A causal span: an ordered pair of [`Version`]s `lo <= hi`.
 ///
-/// Spans answer where a version falls relative to a causal interval:
-/// [`place`](Span::place) at the finest grain, with cheaper coarsenings
+/// A [`Span`] can be used to efficiently answer where a [`Version`] falls
+/// relative to its causal interval: [`place`](Span::place) at the finest
+/// granularity, with cheaper coarsenings of its verdict computed by
 /// [`precedence`](Span::precedence), [`dominance`](Span::dominance), and
 /// [`contains`](Span::contains).
 ///
-/// They compose under two lattices, pointwise and containment. The [module
-/// docs](self) show the full table of operations and the algebra.
+/// | Operation                                             | Meaning                                                             |
+/// |-------------------------------------------------------|---------------------------------------------------------------------|
+/// | `v ^ w`, [`v.span(&w)`](Version::span)                | the tightest span containing `v` and `w`                            |
+/// | [`Version::span_all`]                                 | …containing a whole collection                                     |
+/// | [`Span::new`]`(lo, hi)`                               | the span `lo <= hi`; errors unless `lo <= hi`                       |
+/// | [`Span::at`]`(v)`                                     | the singleton span `v <= v`                                         |
+/// | [`s.place(&v)`](Span::place)                          | `v` against the bounds, finest granularity ([`Placement`])          |
+/// | [`s.dominance(&v)`](Span::dominance)                  | three-way verdict: is `v` past the span? ([`Dominance`])            |
+/// | [`s.precedence(&v)`](Span::precedence)                | three-way verdict: is `v` before it? ([`Precedence`])               |
+/// | [`s.contains(&v)`](Span::contains)                    | membership of `v`; a span argument asks whole-span containment      |
+/// | `a \| b`, `a & b`                                     | the *pointwise* lattice: `\|`/`&` on each endpoint pair             |
+/// | `a + b`                                               | the *union*: the tightest span covering both                        |
+/// | `a * b`                                               | the *intersection*: the largest common part; `None` if disjoint     |
+/// | `a \|= b`, `a &= b`, `a += b`                         | the total operators' assigning forms (`*` is partial: no `*=`)      |
+/// | `s + v`, `v + s`, `s \| v`, `v & s`, …               | a `Version` operand is its point span (`*` takes true spans only)   |
+/// | `&s / &p`, [`s.project(&p)`](Span::project)           | the lazy projection view ([`OwnSpan`])                              |
+/// | [`encode`](Span::encode) / [`decode`](Span::decode)   | the canonical wire form                                             |
+///
+/// # The span algebra
+///
+/// [`Span`] participates in two distinct lattice structures:
+///
+/// - The **pointwise** lattice borrows the version lattice's own symbols and
+///   lifts them to each endpoint of the [`Span`]:
+///   - `a | b` ([`join`](Span::join)) has endpoints `lo_a | lo_b <= hi_a | hi_b`;
+///   - `a & b` ([`meet`](Span::meet)) has endpoints `lo_a & lo_b <= hi_a & hi_b`.
+///
+/// - The **containment** lattice uses arithmetic symbols to treat [`Span`]s as sets of
+///   [`Version`]s under union and intersection:
+///   - `a + b` ([`union`](Span::union)) has endpoints `lo_a & lo_b <= hi_a | hi_b`;
+///   - `a * b` ([`intersect`](Span::intersect)) has endpoints `lo_a | lo_b <= hi_a & hi_b`,
+///     or [`None`] when the spans are non-overlapping.
+///
+/// All operators have a variadic extension ([`join_all`](Span::join_all),
+/// [`meet_all`](Span::meet_all), [`union_all`](Span::union_all),
+/// [`intersect_all`](Span::intersect_all)), each one a balanced fold.
+///
+/// Projection applies [`Version::project`] pointwise to the low and high ends
+/// of the span: for a given [`Span`] `s`, `s / &p` yields the span `(lo / &p)
+/// <= (hi / &p)`.
+///
+/// # The wire form
+///
+/// A [`Span`] has a canonical
+/// [`encode`](Span::encode)/[`decode`](Span::decode): the concatenation of its
+/// `lo` [`Version`] followed by its `hi` [`Version`] with no additional
+/// delimitation.
 ///
 /// # Example
 ///
 /// ```
-/// use before::{Clock, causally::{Dominance, Endpoint, Span, Placement}};
+/// use before::{Clock, Dominance, Endpoint, Span, Placement};
 ///
 /// let mut alice = Clock::seed();
 /// let mut bob = alice.fork();
@@ -109,7 +108,7 @@ pub struct Span<'a> {
 }
 
 impl<'a> Span<'a> {
-    /// Constructs the span `[lo, hi]`, checking that the pair is ordered.
+    /// Constructs the span `lo <= hi`, checking that the pair is ordered.
     ///
     /// Each endpoint is anything [`Into`] a [`Cow`] of [`Version`], which
     /// permits borrowed or owned arguments to be passed as desired.
@@ -149,10 +148,10 @@ impl<'a> Span<'a> {
         }
     }
 
-    /// The coincident [`Span`] `[version, version]`: the span at one point.
+    /// The coincident [`Span`] `version <= version`: the span at one point.
     ///
-    /// The point is anything [`Into`] a [`Cow`] of [`Version`], which permits a
-    /// borrowed or owned argument to be passed as desired.
+    /// That single point may be anything [`Into`] a [`Cow`] of [`Version`],
+    /// which permits a borrowed or owned argument to be passed as desired.
     ///
     /// # Complexity
     ///
@@ -191,7 +190,7 @@ impl<'a> Span<'a> {
         }
     }
 
-    /// Reborrows this [`Span`]'s endpoints: the same `[lo, hi]` span with a
+    /// Reborrows this [`Span`]'s endpoints: the same `lo <= hi` span with a
     /// fresh, shorter lifetime.
     ///
     /// # Complexity
@@ -201,7 +200,7 @@ impl<'a> Span<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Clock, causally::Span};
+    /// use before::{Clock, Span};
     ///
     /// let mut alice = Clock::seed();
     /// let a1 = alice.tick().clone();
@@ -230,7 +229,7 @@ impl<'a> Span<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Clock, causally::{Endpoint, Placement, Span}};
+    /// use before::{Clock, Endpoint, Placement, Span};
     /// let mut alice = Clock::seed();
     /// let mut bob = alice.fork();
     /// let a1 = alice.tick().clone();
@@ -249,7 +248,7 @@ impl<'a> Span<'a> {
         // comparison — the `degenerate_span_place_is_partial_cmp` law
         // in [`laws`](crate::laws) — and clone identity certifies
         // `lo == hi` in `O(1)`: a coincident span built by the hull
-        // doors or the wire decode stores one buffer twice, so the
+        // constructors or the wire decode stores one buffer twice, so the
         // fused three-stream walk would read that buffer twice where
         // one pair sweep answers. Coincident endpoints in distinct
         // buffers still take the fused walk below.
@@ -285,7 +284,7 @@ impl<'a> Span<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Clock, causally::{Dominance, Span}};
+    /// use before::{Clock, Dominance, Span};
     /// let mut alice = Clock::seed();
     /// let a1 = alice.tick().clone();
     /// let a2 = alice.tick().clone();
@@ -345,7 +344,7 @@ impl<'a> Span<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Clock, causally::{Precedence, Span}};
+    /// use before::{Clock, Precedence, Span};
     /// let mut alice = Clock::seed();
     /// let a1 = alice.tick().clone();
     /// let a2 = alice.tick().clone();
@@ -385,11 +384,25 @@ impl<'a> Span<'a> {
         place::precedence(version.view(), self.lo.view(), self.hi.view())
     }
 
-    /// Whether `version` lies within this [`Span`]: `lo <= version <= hi`.
+    /// Whether this [`Span`] contains `other`, in the containment order:
+    /// membership `lo <= v <= hi` for a [`Version`], and `lo <= other.lo()
+    /// && other.hi() <= hi` for a whole [`Span`].
+    ///
+    /// The argument is anything [`Into`] a [`Span`]: a borrowed or owned
+    /// [`Version`], or a borrowed or owned [`Span`].
     ///
     /// # Complexity
     ///
+    /// A [`Version`] requires only a single fused walk across `lo`, `v`, and
+    /// `hi` together:
+    ///
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_contains.html"))]
+    ///
+    /// A [`Span`] requires two causal comparisons: one to compare the two `lo`
+    /// endpoints and a second to compare the two `hi` endpoint, where seach
+    /// comparison costs:
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html"))]
     ///
     /// # Example
     ///
@@ -402,24 +415,49 @@ impl<'a> Span<'a> {
     /// let a3 = alice.tick().clone();
     /// let b1 = bob.tick().clone();
     ///
-    /// let span = Span::new(&a1, &a2).unwrap();
+    /// let span = Span::new(&a1, &a3).unwrap();
     /// // Both endpoints are within…
-    /// assert!(span.contains(&a1) && span.contains(&a2));
+    /// assert!(span.contains(&a1) && span.contains(&a3));
     /// // …while a version above the span, or concurrent to an
     /// // endpoint, is not.
-    /// assert!(!span.contains(&a3));
+    /// assert!(!span.contains(alice.tick().clone()));
     /// assert!(!span.contains(&b1));
+    ///
+    /// // A span is contained iff both its endpoints are…
+    /// assert!(span.contains(&a1.span(&a2)));
+    /// assert!(span.contains(span.reborrow()));
+    /// // …and one reaching outside is not.
+    /// assert!(!a1.span(&a2).contains(&span));
+    /// assert!(!span.contains(&a2.span(&b1)));
     /// ```
-    pub fn contains(&self, version: &Version) -> bool {
-        // The coincident span collapses membership to equality: on `lo == hi`
-        // the segment is one version, and equality of canonical streams is
-        // byte equality — one compare, no walk.
-        //
-        // Clone identity certifies the coincidence in `O(1)`.
-        if self.lo.view().ptr_eq(self.hi.view()) {
-            return codec::canonical_eq(version.view(), self.lo().view());
+    pub fn contains<'b>(&self, other: impl Into<Span<'b>>) -> bool {
+        let other = other.into();
+        // A coincident argument is a membership probe: `lo <= v && v <= hi`
+        // in one fused walk over the three streams, each decoded once, where
+        // the endpoint comparisons below would decode the probe twice. Clone
+        // identity certifies the argument's coincidence in `O(1)` (the
+        // version conversions store one buffer twice), and coincident endpoints in
+        // distinct buffers still answer correctly through the general arm.
+        if other.is_coincident() {
+            let version = other.lo();
+            // The coincident receiver collapses membership further, to
+            // equality: on `lo == hi` the segment is one version, and
+            // equality of canonical streams is byte equality — one compare,
+            // no walk.
+            if self.lo.view().ptr_eq(self.hi.view()) {
+                return codec::canonical_eq(version.view(), self.lo().view());
+            }
+            return place::contains(version.view(), self.lo.view(), self.hi.view());
         }
-        place::contains(version.view(), self.lo.view(), self.hi.view())
+        // A span is contained iff both its endpoints are: every version
+        // between them lies within `self` by transitivity of the bounds.
+        matches!(
+            self.lo().partial_cmp(other.lo()),
+            Some(Ordering::Less | Ordering::Equal)
+        ) && matches!(
+            other.hi().partial_cmp(self.hi()),
+            Some(Ordering::Less | Ordering::Equal)
+        )
     }
 
     /// The part of this [`Span`] wholly owned by a [`Party`], as a lazy
@@ -492,7 +530,7 @@ impl<'a> Span<'a> {
     /// Whether both endpoints read one shared stored buffer: the coincident
     /// span's `O(1)` certificate.
     ///
-    /// The hull doors, the wire decode, and the algebra's point combines all
+    /// The hull constructors, the wire decode, and the algebra's point combines all
     /// store a coincident span's one stream twice (clones share the buffer), so
     /// clone identity certifies `lo == hi` without a walk. Coincident endpoints
     /// in distinct buffers are still equal — they just take the general walks.
@@ -529,7 +567,7 @@ impl<'a> Span<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Clock, causally::Span};
+    /// use before::{Clock, Span};
     ///
     /// let mut alice = Clock::seed();
     /// let a1 = alice.tick().clone();
@@ -610,5 +648,31 @@ impl From<Version> for Span<'static> {
 impl<'a> From<&'a Version> for Span<'a> {
     fn from(version: &'a Version) -> Span<'a> {
         Span::at(version)
+    }
+}
+
+/// The borrowing view of a span, identical to [`Span::reborrow`].
+///
+/// This is the conversion that lets `impl Into<Span>` arguments (e.g.
+/// [`contains`](Span::contains), [`Query::coverage`](crate::causally::Query::coverage))
+/// accept `&Span` beside owned spans and versions.
+///
+/// # Complexity
+///
+/// `O(1)`.
+///
+/// # Example
+///
+/// ```
+/// use before::{Clock, Span};
+/// let mut alice = Clock::seed();
+/// let v = alice.tick().clone();
+/// let stored = Span::at(v);
+/// let view = Span::from(&stored); // borrows; `stored` stays usable
+/// assert_eq!(view, stored);
+/// ```
+impl<'a> From<&'a Span<'_>> for Span<'a> {
+    fn from(span: &'a Span<'_>) -> Span<'a> {
+        span.reborrow()
     }
 }

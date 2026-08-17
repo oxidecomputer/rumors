@@ -9,9 +9,11 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use async_stream::stream;
 use futures::{StreamExt, stream as futures_stream};
 
+use before::Span;
+
 use super::{Charged, Measure, check, ledger};
 use crate::{
-    Version, causally,
+    Version,
     message::Message,
     tree::{
         mirror::streaming::{
@@ -212,7 +214,7 @@ where
     type Backend = Materializing;
     type Height = H;
 
-    fn span(&self) -> causally::Span<'_> {
+    fn span(&self) -> Span<'_> {
         self.inner.span()
     }
 

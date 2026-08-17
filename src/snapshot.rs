@@ -99,7 +99,7 @@ impl<T> Snapshot<T> {
     /// The query is anything [`Into`] a [`causally::Query`]: an expression
     /// built from the [`causally`] vocabulary (`range(causally::since(&s))`,
     /// `range(causally::delta(&s, &e))`, `range(causally::after(&s) &
-    /// causally::before(&e))`, ...), a [`Span`](crate::causally::Span), or a
+    /// causally::before(&e))`, ...), a [`Span`](before::Span), or a
     /// [`Version`] (the singleton query admitting exactly that version).
     ///
     /// Iterating a small causal delta against a large snapshot costs work

@@ -65,8 +65,9 @@
 use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
 
-use crate::causally::{self, Coverage, Dominance, Endpoint, Placement, Precedence, Query, Span};
+use crate::causally::{self, Coverage, Query};
 use crate::error::Crossed;
+use crate::span::{Dominance, Endpoint, Placement, Precedence, Span};
 use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 
 /// A named law: the name a failure reports, and the predicate that must
@@ -1191,6 +1192,13 @@ laws! {
     /// `contains` is segment membership: `lo <= p <= hi`, exactly the
     /// placements at an endpoint or between them — a `Concurrent` placement is
     /// beside the segment, never within it.
+    ///
+    /// Every argument shape answers alike: a borrowed version, an owned
+    /// version, the coincident span at the probe (the fast path), and
+    /// byte-equal coincident endpoints in distinct buffers (the general
+    /// arm). A span argument is contained iff both its endpoints place
+    /// within — the containment order — with the borrowed and owned span
+    /// doors agreeing.
     fn span_contains_matches_place {
         let meet = b & c;
         for (lo, hi) in &span_candidates(b, c) {
@@ -1200,6 +1208,33 @@ laws! {
             for probe in [a, b, c, &meet] {
                 let inside = matches!(span.place(probe), Placement::At(_) | Placement::Between);
                 if span.contains(probe) != inside {
+                    return false;
+                }
+                // The membership argument shapes: owned version, coincident
+                // span, and
+                // the same endpoints re-decoded into distinct buffers (which
+                // routes the general endpoint comparisons, not the fused
+                // walk).
+                let redecoded =
+                    Version::decode(&probe.encode()[..]).expect("a stored stream re-decodes");
+                let doors = span.contains(probe.clone()) == inside
+                    && span.contains(Span::at(probe)) == inside
+                    && span.contains(Span::new(probe, &redecoded).unwrap()) == inside;
+                if !doors {
+                    return false;
+                }
+            }
+            // A span argument is contained iff both its endpoints are:
+            // every version between them rides the endpoint bounds by
+            // transitivity.
+            for (tlo, thi) in &span_candidates(a, c) {
+                let Ok(t) = Span::new(tlo, thi) else {
+                    return false;
+                };
+                let endpoints_within = within(&span, tlo) && within(&span, thi);
+                if span.contains(&t) != endpoints_within
+                    || span.contains(t.clone()) != endpoints_within
+                {
                     return false;
                 }
             }
@@ -1264,8 +1299,10 @@ laws! {
     /// meets and the join of the joins.
     ///
     /// The same span from either operand order, from every owned/borrowed
-    /// cell, and from the `union` method spelling; idempotent, and covering
-    /// both operands' whole segments.
+    /// cell (`+=` included: assigning is the value operator written back),
+    /// and from the `union` method spelling; idempotent, and covering both
+    /// operands' whole segments. A version operand is its coincident point
+    /// span, in the binary, assigning, and variadic forms alike.
     // The idempotence probes repeat an operand on purpose: `s + s == s` is
     // the law itself, not a typo the lint should flag.
     #[allow(clippy::eq_op)]
@@ -1280,13 +1317,42 @@ laws! {
                 let cells = (s.clone() + t.clone()) == union
                     && (s.clone() + t) == union
                     && (s + t.clone()) == union;
+                let assigns = {
+                    let mut by_ref = s.clone();
+                    by_ref += t;
+                    let mut by_value = s.clone();
+                    by_value += t.clone();
+                    by_ref == union && by_value == union
+                };
                 let method = s.union(t) == union;
                 let covering = [s.lo(), s.hi(), t.lo(), t.hi()]
                     .into_iter()
                     .all(|v| within(&union, v));
-                if !(definitional && commutative && idempotent && cells && method && covering) {
+                if !(definitional
+                    && commutative
+                    && idempotent
+                    && cells
+                    && assigns
+                    && method
+                    && covering)
+                {
                     return false;
                 }
+            }
+            // A version operand is its coincident point span, on either
+            // side of the symbol, in the binary, assigning, and variadic
+            // forms alike.
+            let expected = s + &Span::at(a);
+            let mut assigned = s.clone();
+            assigned += a;
+            let point = (s + a) == expected
+                && (a + s) == expected
+                && (a.clone() + s.clone()) == expected
+                && s.union(a) == expected
+                && s.union_all([a]) == expected
+                && assigned == expected;
+            if !point {
+                return false;
             }
         }
         true
@@ -1341,9 +1407,12 @@ laws! {
     /// corresponding endpoints.
     ///
     /// Commutative, idempotent, with the coincident empty span as identity,
-    /// the `join` method spelling exactly — and on coincident operands it
-    /// restricts to the version join exactly (the lifting is a lattice
-    /// homomorphism on points, where `+` yields the hull instead).
+    /// every owned/borrowed cell (`|=` included: assigning is the value
+    /// operator written back), the `join` method spelling exactly — and on
+    /// coincident operands it restricts to the version join exactly (the
+    /// lifting is a lattice homomorphism on points, where `+` yields the
+    /// hull instead). A version operand is its coincident point span, in
+    /// the binary, assigning, and variadic forms alike.
     // The idempotence probe repeats an operand on purpose: `s | s == s` is
     // the law itself.
     #[allow(clippy::eq_op)]
@@ -1360,12 +1429,40 @@ laws! {
                 let cells = (s.clone() | t.clone()) == join
                     && (s.clone() | t) == join
                     && (s | t.clone()) == join;
+                let assigns = {
+                    let mut by_ref = s.clone();
+                    by_ref |= t;
+                    let mut by_value = s.clone();
+                    by_value |= t.clone();
+                    by_ref == join && by_value == join
+                };
                 let method = s.join(t) == join;
                 let identity_holds = (s | &identity) == *s;
-                if !(definitional && commutative && idempotent && cells && method && identity_holds)
+                if !(definitional
+                    && commutative
+                    && idempotent
+                    && cells
+                    && assigns
+                    && method
+                    && identity_holds)
                 {
                     return false;
                 }
+            }
+            // A version operand is its coincident point span, on either
+            // side of the symbol, in the binary, assigning, and variadic
+            // forms alike.
+            let expected = s | &Span::at(a);
+            let mut assigned = s.clone();
+            assigned |= a;
+            let point = (s | a) == expected
+                && (a | s) == expected
+                && (a.clone() | s.clone()) == expected
+                && s.join(a) == expected
+                && s.join_all([a]) == expected
+                && assigned == expected;
+            if !point {
+                return false;
             }
         }
         // The point identity: two coincident spans join to the coincident
@@ -1378,8 +1475,11 @@ laws! {
     /// corresponding endpoints.
     ///
     /// Commutative, idempotent, absorbing with `|` in the pointwise lattice,
-    /// the `meet` method spelling exactly — and on coincident operands it
-    /// restricts to the version meet exactly.
+    /// every owned/borrowed cell (`&=` included: assigning is the value
+    /// operator written back), the `meet` method spelling exactly — and on
+    /// coincident operands it restricts to the version meet exactly. A
+    /// version operand is its coincident point span, in the binary,
+    /// assigning, and variadic forms alike.
     // The idempotence probe repeats an operand on purpose: `s & s == s` is
     // the law itself.
     #[allow(clippy::eq_op)]
@@ -1394,14 +1494,43 @@ laws! {
                 let cells = (s.clone() & t.clone()) == meet
                     && (s.clone() & t) == meet
                     && (s & t.clone()) == meet;
+                let assigns = {
+                    let mut by_ref = s.clone();
+                    by_ref &= t;
+                    let mut by_value = s.clone();
+                    by_value &= t.clone();
+                    by_ref == meet && by_value == meet
+                };
                 let method = s.meet(t) == meet;
                 let absorbing = {
                     let u = s | t;
                     (&u & s) == *s
                 };
-                if !(definitional && commutative && idempotent && cells && method && absorbing) {
+                if !(definitional
+                    && commutative
+                    && idempotent
+                    && cells
+                    && assigns
+                    && method
+                    && absorbing)
+                {
                     return false;
                 }
+            }
+            // A version operand is its coincident point span, on either
+            // side of the symbol, in the binary, assigning, and variadic
+            // forms alike.
+            let expected = s & &Span::at(a);
+            let mut assigned = s.clone();
+            assigned &= a;
+            let point = (s & a) == expected
+                && (a & s) == expected
+                && (a.clone() & s.clone()) == expected
+                && s.meet(a) == expected
+                && s.meet_all([a]) == expected
+                && assigned == expected;
+            if !point {
+                return false;
             }
         }
         // The point identity: two coincident spans meet to the
@@ -1810,9 +1939,11 @@ laws! {
 
     /// Summing or collecting an iterator of spans is the union fold.
     ///
-    /// Both collection doors equal the receiver-seeded n-ary union over the
+    /// Both collection forms equal the receiver-seeded n-ary union over the
     /// same inputs, owned and borrowed alike, and the empty iterator yields
-    /// [`None`] (union has no identity span).
+    /// [`None`] (union has no identity span). Version items are their
+    /// coincident point spans, so a collected iterator of versions is the
+    /// hull of the whole collection.
     fn span_sum_and_collect_are_the_union_fold {
         let seed = receiver.span(receiver);
         let spans = item_spans(items);
@@ -1822,7 +1953,19 @@ laws! {
         let collected: Option<Span> = inputs().collect();
         let owned: Option<Span> = inputs().map(Span::clone).sum();
         let empty: Option<Span> = core::iter::empty::<&Span>().sum();
-        sum == expected && collected == expected && owned == expected && empty.is_none()
+        // Version items are their coincident point spans, so summing or
+        // collecting versions is the hull of the whole collection —
+        // borrowed and owned items alike.
+        let hull = Some(receiver.span_all(items));
+        let versions = || core::iter::once(receiver).chain(items);
+        let by_ref: Option<Span> = versions().sum();
+        let by_value: Option<Span> = versions().cloned().collect();
+        sum == expected
+            && collected == expected
+            && owned == expected
+            && empty.is_none()
+            && by_ref == hull
+            && by_value == hull
     }
 
     /// Multiplying out an iterator of spans is the intersection fold.

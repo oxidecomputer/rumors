@@ -1,14 +1,15 @@
 //! The span algebra: four binary operators over owned and borrowed [`Span`]
-//! operands, each with a receiver-seeded n-ary door running one balanced
+//! operands, each with a receiver-seeded variadic form running one balanced
 //! two-sided fold.
 //!
 //! The operators are the joins and meets of the two lattice structures spans
-//! carry (the [span module docs](super) place them side by side). The
+//! carry (the [`Span`] docs place them side by side). The
 //! pointwise pair wears the version lattice's own symbols — `|` and `&` on
 //! spans are exactly `|` and `&` on versions, lifted endpointwise — while the
-//! containment pair's novel semantics ride the novel symbols `+` and `*`.
-//! Every door folds through its `lo` and `hi` legs; the four doors are exactly
-//! the four assignments of the two lattice directions to the two legs:
+//! containment pair's novel semantics get the novel symbols `+` and `*`.
+//! Every operator folds through its `lo` and `hi` legs; the four operators
+//! are exactly the four assignments of the two lattice directions to the two
+//! legs:
 //!
 //! ```text
 //!                lo leg      hi leg      total?
@@ -22,14 +23,34 @@
 //! `hi` only ascends above `a.hi`, so the output pair stays ordered; the
 //! pointwise join's `hi` (a join of upper endpoints) bounds both lower
 //! endpoints from above, so it bounds their join, and the pointwise meet
-//! dually. Intersect is the one genuinely partial door: its `lo` ascends while
+//! dually. Intersect is the one genuinely partial operator: its `lo` ascends while
 //! its `hi` descends, and the pair crosses exactly when the spans share no
 //! version.
+//!
+//! The three total operations also assign in place (`+=`, `|=`, `&=`), each
+//! cell the value kernel written back to the receiver. Partiality is why `*`
+//! has no `*=`: an assigning operator returns nothing, so a disjoint pair would
+//! leave the miss nowhere to land.
+//!
+//! The total operators take any span-convertible operand (`impl Into<Span>`) on
+//! the non-receiver side — a [`Version`] is taken as its coincident point span —
+//! in the binary, assigning, variadic, and collection forms alike, and
+//! mirrored cells accept a bare version on the *left* of a span (`v + s`,
+//! `v | s`, `v & s`) with the same meaning. The one deliberate hole in the
+//! symmetry is a version pair: `v | w` and `v & w` keep the version
+//! lattice's own meaning, and `v + w` stays absent because [`Sum`] for
+//! [`Version`] is the join fold, which a version-pair `+` would contradict
+//! (the hull of two versions is `v ^ w`). The
+//! partial operator alone stays span-only, in every form: a point operand
+//! intersects to that point when the other operand contains it and to
+//! [`None`] otherwise, which is too easy to reach silently through an
+//! implicit conversion — an intersecting caller spells [`Span::at`]
+//! (`Span::at(&v)`) so the vanishing case is a visible choice.
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::iter::{Product, Sum};
-use std::ops::{Add, BitAnd, BitOr, Mul};
+use std::ops::{Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, Mul};
 
 use crate::codec;
 use crate::Version;
@@ -39,7 +60,9 @@ use super::Span;
 impl<'a> Span<'a> {
     /// The *union* of `self` and `other`: the tightest [`Span`] covering both.
     ///
-    /// The method spelling of `self + other`.
+    /// The method spelling of `self + other`. The argument is anything
+    /// [`Into`] a [`Span`]; a [`Version`] is taken as its coincident point span,
+    /// so the union with a version is the span extended to cover it.
     ///
     /// # Complexity
     ///
@@ -60,12 +83,17 @@ impl<'a> Span<'a> {
     /// assert_eq!(head.union(&tail), a1.span(&a3));
     /// // …and is exactly the `+` operator.
     /// assert_eq!(head.union(&tail), &head + &tail);
+    /// // A version is taken as its point span.
+    /// assert_eq!(head.union(&a3), a1.span(&a3));
     /// ```
-    pub fn union(&self, other: &Span<'_>) -> Span<'static> {
-        union_core(self, other)
+    pub fn union<'b>(&self, other: impl Into<Span<'b>>) -> Span<'static> {
+        union_core(self, &other.into())
     }
 
     /// The tightest [`Span`] covering every input (including `self`).
+    ///
+    /// Items are anything [`Into`] a [`Span`]; a [`Version`] is taken as its
+    /// coincident point span.
     ///
     /// # Complexity
     ///
@@ -93,16 +121,20 @@ impl<'a> Span<'a> {
     pub fn union_all<'s, I>(&self, iter: I) -> Span<'static>
     where
         I: IntoIterator,
-        I::Item: Borrow<Span<'s>>,
+        I::Item: Into<Span<'s>>,
     {
-        let (lo, hi) = self.fold_endpoints(iter, &UNION_OPS);
+        let (lo, hi) = self.fold_endpoints(iter.into_iter().map(Into::into), &UNION_OPS);
         Span::owned(lo, hi)
     }
 
     /// The *intersection* of `self` and `other`: the largest [`Span`] covered
     /// by both, or [`None`] when they share no overlap.
     ///
-    /// The method spelling of `self * other`.
+    /// The method spelling of `self * other`. Alone among the span operators this
+    /// takes only a true [`Span`], never an implicit conversion: a point
+    /// operand intersects to that point when the other operand contains it
+    /// and to [`None`] otherwise, too easy a silent vanish to reach through
+    /// a coercion — spell [`Span::at`] to intersect with a version.
     ///
     /// # Complexity
     ///
@@ -130,6 +162,11 @@ impl<'a> Span<'a> {
 
     /// The largest [`Span`] every input (including `self`) covers, or `None` if
     /// the intersection is empty.
+    ///
+    /// Like [`intersect`](Span::intersect) and unlike the total operators' `_all`
+    /// forms, items are true [`Span`]s only: a point item would silently empty
+    /// the intersection unless every input contains it — spell [`Span::at`]
+    /// to intersect with versions.
     ///
     /// # Complexity
     ///
@@ -169,6 +206,8 @@ impl<'a> Span<'a> {
     /// applied to each endpoint pair.
     ///
     /// The method spelling of `self | other`, mirroring [`Version::join`].
+    /// The argument is anything [`Into`] a [`Span`]; a [`Version`] is taken as
+    /// its coincident point span, joining into both endpoints.
     ///
     /// # Complexity
     ///
@@ -185,17 +224,22 @@ impl<'a> Span<'a> {
     /// let b1 = bob.tick().clone();
     ///
     /// // A subtree's bounds, after every member also absorbs b1:
-    /// let advanced = a1.span(&a2).join(&b1.span(&b1));
+    /// let advanced = a1.span(&a2).join(&b1);
     /// assert_eq!(*advanced.lo(), &a1 | &b1);
     /// assert_eq!(*advanced.hi(), &a2 | &b1);
+    /// // The version was taken as its point span.
+    /// assert_eq!(advanced, a1.span(&a2).join(&b1.span(&b1)));
     /// ```
-    pub fn join(&self, other: &Span<'_>) -> Span<'static> {
-        join_core(self, other)
+    pub fn join<'b>(&self, other: impl Into<Span<'b>>) -> Span<'static> {
+        join_core(self, &other.into())
     }
 
     /// The [`Span`] whose lower and upper bounds are, respectively, the joins
     /// of the lower and upper bounds of `self` and all the spans in `iter`,
     /// mirroring [`Version::join_all`].
+    ///
+    /// Items are anything [`Into`] a [`Span`]; a [`Version`] is taken as its
+    /// coincident point span.
     ///
     /// # Complexity
     ///
@@ -212,7 +256,7 @@ impl<'a> Span<'a> {
     /// let a1 = a.tick().clone();
     /// let b1 = b.tick().clone();
     ///
-    /// // On points, the pointwise door is the version join.
+    /// // On points, the pointwise operator is the version join.
     /// let joined = a1.span(&a1).join_all([&b1.span(&b1)]);
     /// assert_eq!(joined.lo(), joined.hi());
     /// assert_eq!(joined.lo(), &(&a1 | &b1));
@@ -220,9 +264,9 @@ impl<'a> Span<'a> {
     pub fn join_all<'s, I>(&self, iter: I) -> Span<'static>
     where
         I: IntoIterator,
-        I::Item: Borrow<Span<'s>>,
+        I::Item: Into<Span<'s>>,
     {
-        let (lo, hi) = self.fold_endpoints(iter, &JOIN_OPS);
+        let (lo, hi) = self.fold_endpoints(iter.into_iter().map(Into::into), &JOIN_OPS);
         Span::owned(lo, hi)
     }
 
@@ -230,6 +274,8 @@ impl<'a> Span<'a> {
     /// applied to each endpoint pair.
     ///
     /// The method spelling of `self & other`, mirroring [`Version::meet`].
+    /// The argument is anything [`Into`] a [`Span`]; a [`Version`] is taken as
+    /// its coincident point span, clamping both endpoints to its past.
     ///
     /// # Complexity
     ///
@@ -245,16 +291,21 @@ impl<'a> Span<'a> {
     /// let a3 = alice.tick().clone();
     ///
     /// // Clamping a segment to a point's past:
-    /// let clamped = a2.span(&a3).meet(&a2.span(&a2));
+    /// let clamped = a2.span(&a3).meet(&a2);
     /// assert_eq!(clamped, a2.span(&a2));
+    /// // The version was taken as its point span.
+    /// assert_eq!(clamped, a2.span(&a3).meet(&a2.span(&a2)));
     /// ```
-    pub fn meet(&self, other: &Span<'_>) -> Span<'static> {
-        meet_core(self, other)
+    pub fn meet<'b>(&self, other: impl Into<Span<'b>>) -> Span<'static> {
+        meet_core(self, &other.into())
     }
 
     /// The [`Span`] whose lower and upper bounds are, respectively, the meets
     /// of the lower and upper bounds of `self` and all the spans in `iter`,
     /// mirroring [`Version::meet_all`].
+    ///
+    /// Items are anything [`Into`] a [`Span`]; a [`Version`] is taken as its
+    /// coincident point span.
     ///
     /// # Complexity
     ///
@@ -271,7 +322,7 @@ impl<'a> Span<'a> {
     /// let a1 = a.tick().clone();
     /// let b1 = b.tick().clone();
     ///
-    /// // On points, the pointwise door is the version meet.
+    /// // On points, the pointwise operator is the version meet.
     /// let met = a1.span(&a1).meet_all([&b1.span(&b1)]);
     /// assert_eq!(met.lo(), met.hi());
     /// assert_eq!(met.lo(), &(&a1 & &b1));
@@ -279,19 +330,19 @@ impl<'a> Span<'a> {
     pub fn meet_all<'s, I>(&self, iter: I) -> Span<'static>
     where
         I: IntoIterator,
-        I::Item: Borrow<Span<'s>>,
+        I::Item: Into<Span<'s>>,
     {
-        let (lo, hi) = self.fold_endpoints(iter, &MEET_OPS);
+        let (lo, hi) = self.fold_endpoints(iter.into_iter().map(Into::into), &MEET_OPS);
         Span::owned(lo, hi)
     }
 
-    /// The doors' shared balanced fold: `{self} ∪ iter` reduced through
-    /// [`crate::fold::balanced_reduce`] with a two-sided accumulator, per-door
+    /// The operators' shared balanced fold: `{self} ∪ iter` reduced through
+    /// [`crate::fold::balanced_reduce`] with a two-sided accumulator, per-operator
     /// leg kernels, and the point-combine fast path.
     ///
     /// Adjacent clone-identical inputs collapse before the counter reads them
-    /// (all four doors are idempotent — the binary operators' laws — so a run
-    /// of one shared span is one input); the receiver rides as the first input,
+    /// (all four operators are idempotent — the binary operators' laws — so a run
+    /// of one shared span is one input); the receiver enters as the first input,
     /// so the fold is never empty. Inputs enter untouched and are cloned only
     /// at their first combine, and every clone of a stored version is a
     /// refcount bump, never a byte copy.
@@ -318,7 +369,7 @@ impl<'a> Span<'a> {
         let group = crate::fold::balanced_reduce(inputs, |a, b| {
             // The point-combine: when both sides read one stream each (a
             // coincident input, or a merged group whose legs settled on one
-            // shared buffer), the door's fused kernel answers in one walk what
+            // shared buffer), the operator's fused kernel answers in one walk what
             // the per-leg folds would walk twice. Clone identity is the
             // certificate, so the check itself is O(1).
             let (lo, hi) = if let (Some(va), Some(vb)) = (a.point(), b.point()) {
@@ -373,7 +424,7 @@ impl<'a> Span<'a> {
     }
 }
 
-/// One n-ary span door's kernels. Each door folds through its `lo` and `hi`
+/// One n-ary span operator's kernels. Each operator folds through its `lo` and `hi`
 /// legs; the module doc carries the four leg assignments and their totality
 /// arguments.
 struct SpanFoldOps {
@@ -386,7 +437,7 @@ struct SpanFoldOps {
     /// Fold one borrowed stream into the owned `hi` leg in place.
     hi_view: fn(&mut Version, &codec::Bits),
     /// The fused point-combine: both sides read one stream each, so
-    /// one walk answers both legs (each door's kernel is named at its
+    /// one walk answers both legs (each operator's kernel is named at its
     /// constant).
     points: fn(&Version, &Version) -> (Version, Version),
 }
@@ -402,7 +453,7 @@ fn union_points(a: &Version, b: &Version) -> (Version, Version) {
 /// are equal.
 ///
 /// One byte compare answers the only nonempty case; an unequal pair pays the
-/// per-leg walks whose crossed output the door's final validation rejects (or a
+/// per-leg walks whose crossed output the operator's final validation rejects (or a
 /// later combine absorbs).
 fn intersect_points(a: &Version, b: &Version) -> (Version, Version) {
     if codec::canonical_eq(a.view(), b.view()) {
@@ -462,7 +513,7 @@ const MEET_OPS: SpanFoldOps = SpanFoldOps {
     points: meet_points,
 };
 
-/// One input to the doors' shared fold: the receiver rides by reference beside
+/// One input to the operators' shared fold: the receiver enters by reference beside
 /// the caller's items, whatever ownership they carry (owned or borrowed through
 /// [`Borrow`], never cloned on entry).
 enum FoldInput<'r, 'i, T> {
@@ -484,7 +535,7 @@ impl<'i, 's, T: Borrow<Span<'s>>> FoldInput<'_, 'i, T> {
     }
 }
 
-/// One group in the doors' balanced counter: an input exactly as the caller
+/// One group in the operators' balanced counter: an input exactly as the caller
 /// supplied it, or the owned endpoints a combine produced.
 enum Group<T> {
     /// An input the fold has not yet combined, still in the caller's
@@ -543,7 +594,7 @@ fn intersect_core(a: &Span<'_>, b: &Span<'_>) -> Option<Span<'static>> {
     let mut hi = a.hi().clone();
     lo.join_view(b.lo().view());
     hi.meet_view(b.hi().view());
-    // The one genuinely partial door: the joined meets must still sit under the
+    // The one genuinely partial operator: the joined meets must still sit under the
     // met joins, and the pair crosses exactly when the segments are disjoint.
     match lo.partial_cmp(&hi) {
         Some(Ordering::Less | Ordering::Equal) => Some(Span::owned(lo, hi)),
@@ -554,7 +605,7 @@ fn intersect_core(a: &Span<'_>, b: &Span<'_>) -> Option<Span<'static>> {
 /// `a | b`'s kernel: the pointwise join over borrowed operands.
 fn join_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     if a.is_coincident() && b.is_coincident() {
-        // On points the pointwise door is the version operator: one walk feeds
+        // On points the pointwise operation is exactly the version operator: one walk feeds
         // both endpoints, stored twice (the clones share one buffer, keeping
         // the result coincident).
         let v = Version::join_refs(a.lo(), b.lo());
@@ -583,14 +634,86 @@ fn meet_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     Span::owned(lo, hi)
 }
 
-/// Generates one span operator's full matrix over owned and borrowed operands:
-/// four value cells (lhs × rhs over `{Span, &Span}`), every cell one call into
-/// the operator's borrowed-operand kernel.
+/// Generates one *total* span operator's value matrix: two cells (owned and
+/// borrowed receiver), each taking any span-convertible right operand and
+/// making one call into the operator's borrowed-operand kernel.
 ///
 /// The operand lifetimes are independent, and the output is always `'static`
-/// (owned endpoints), so the operators compose freely in fold position. No
-/// assign cells exist for any span operator — the module docs carry the
-/// argument.
+/// (owned endpoints), so the operators compose freely in fold position. The
+/// assign cells are `span_assign_matrix!`'s. The partial operator uses the
+/// concrete `span_binop_matrix!` instead: it refuses the `Into` widening
+/// (the module doc carries the argument), so it cannot share these cells.
+macro_rules! span_total_binop_matrix {
+    ($(#[$doc:meta])* $Op:ident::$op:ident, $core:ident) => {
+        $(#[$doc])*
+        impl<'a, 'b, T: Into<Span<'b>>> $Op<T> for Span<'a> {
+            type Output = Span<'static>;
+            fn $op(self, r: T) -> Span<'static> {
+                $core(&self, &r.into())
+            }
+        }
+        $(#[$doc])*
+        impl<'a, 'b, T: Into<Span<'b>>> $Op<T> for &Span<'a> {
+            type Output = Span<'static>;
+            fn $op(self, r: T) -> Span<'static> {
+                $core(self, &r.into())
+            }
+        }
+    };
+}
+
+/// Generates one total span operator's mirrored cells: a bare version on the
+/// left of a span, taken as its coincident point span.
+///
+/// Four cells (lhs over `{Version, &Version}` × rhs over `{Span, &Span}`),
+/// each one call into the operator's borrowed-operand kernel through
+/// [`Span::at`] (an `O(1)` borrow that keeps the coincidence certificate, so
+/// the point fast paths still fire). These cells are concrete where the
+/// span-receiver cells are generic: a `T: Into<Span>` *left* operand would
+/// admit a version pair, and `v | w` and `v & w` must keep meaning what the
+/// version lattice says, while `v + w` must stay absent — `Sum` for
+/// [`Version`] is the join fold, which a version-pair `+` would contradict.
+macro_rules! span_version_lhs_matrix {
+    ($(#[$doc:meta])* $Op:ident::$op:ident, $core:ident) => {
+        $(#[$doc])*
+        impl<'b> $Op<Span<'b>> for Version {
+            type Output = Span<'static>;
+            fn $op(self, r: Span<'b>) -> Span<'static> {
+                $core(&Span::at(&self), &r)
+            }
+        }
+        $(#[$doc])*
+        impl<'b> $Op<&Span<'b>> for Version {
+            type Output = Span<'static>;
+            fn $op(self, r: &Span<'b>) -> Span<'static> {
+                $core(&Span::at(&self), r)
+            }
+        }
+        $(#[$doc])*
+        impl<'a, 'b> $Op<Span<'b>> for &'a Version {
+            type Output = Span<'static>;
+            fn $op(self, r: Span<'b>) -> Span<'static> {
+                $core(&Span::at(self), &r)
+            }
+        }
+        $(#[$doc])*
+        impl<'a, 'b> $Op<&Span<'b>> for &'a Version {
+            type Output = Span<'static>;
+            fn $op(self, r: &Span<'b>) -> Span<'static> {
+                $core(&Span::at(self), r)
+            }
+        }
+    };
+}
+
+/// Generates the *partial* span operator's value matrix over owned and
+/// borrowed operands: four cells (lhs × rhs over `{Span, &Span}`), every cell
+/// one call into the operator's borrowed-operand kernel.
+///
+/// Only the intersection uses this concrete matrix: it deliberately takes
+/// true spans, never an `Into` conversion (the module doc carries the
+/// argument), where the total operators use `span_total_binop_matrix!`'s
+/// widened cells.
 macro_rules! span_binop_matrix {
     ($(#[$doc:meta])* $Op:ident::$op:ident, $core:ident, $Out:ty) => {
         $(#[$doc])*
@@ -624,9 +747,12 @@ macro_rules! span_binop_matrix {
     };
 }
 
-span_binop_matrix! {
+span_total_binop_matrix! {
     /// `a | b`: the *pointwise join*, the version lattice's `|` lifted to each
     /// endpoint pair.
+    ///
+    /// The right operand is anything [`Into`] a [`Span`]; a [`Version`] is taken as
+    /// as its coincident point span.
     ///
     /// # Complexity
     ///
@@ -643,16 +769,21 @@ span_binop_matrix! {
     /// let b1 = bob.tick().clone();
     ///
     /// // A subtree's bounds, after every member also absorbs b1:
-    /// let advanced = &a1.span(&a2) | &b1.span(&b1);
+    /// let advanced = &a1.span(&a2) | &b1;
     /// assert_eq!(*advanced.lo(), &a1 | &b1);
     /// assert_eq!(*advanced.hi(), &a2 | &b1);
+    /// // The version was taken as its point span.
+    /// assert_eq!(advanced, &a1.span(&a2) | &b1.span(&b1));
     /// ```
-    BitOr::bitor, join_core, Span<'static>
+    BitOr::bitor, join_core
 }
 
-span_binop_matrix! {
+span_total_binop_matrix! {
     /// `a & b`: the *pointwise meet*, the version lattice's `&` lifted to each
     /// endpoint pair.
+    ///
+    /// The right operand is anything [`Into`] a [`Span`]; a [`Version`] is taken as
+    /// as its coincident point span, clamping both endpoints to its past.
     ///
     /// # Complexity
     ///
@@ -668,17 +799,21 @@ span_binop_matrix! {
     /// let a3 = alice.tick().clone();
     ///
     /// // Clamping a segment to a point's past:
-    /// let clamped = &a2.span(&a3) & &a2.span(&a2);
+    /// let clamped = &a2.span(&a3) & &a2;
     /// assert_eq!(clamped, a2.span(&a2));
     /// // Pointwise absorption: (a | b) & a == a.
     /// let (s, t) = (a1.span(&a2), a2.span(&a3));
     /// assert_eq!(&(&s | &t) & &s, s);
     /// ```
-    BitAnd::bitand, meet_core, Span<'static>
+    BitAnd::bitand, meet_core
 }
 
-span_binop_matrix! {
+span_total_binop_matrix! {
     /// `a + b`: the *union*: the tightest span covering both operands.
+    ///
+    /// The right operand is anything [`Into`] a [`Span`]; a [`Version`] is taken as
+    /// as its coincident point span, so `span + &v` extends the span to
+    /// cover `v`.
     ///
     /// # Complexity
     ///
@@ -695,19 +830,104 @@ span_binop_matrix! {
     /// let b1 = bob.tick().clone();
     ///
     /// let ours = a1.span(&a2);
-    /// let theirs = b1.span(&b1);
-    /// let both = &ours + &theirs;
+    /// let both = &ours + &b1;
     /// // The union covers both operands' whole segments…
     /// assert_eq!(*both.hi(), &a2 | &b1);
-    /// // …and is the same span from either side.
-    /// assert_eq!(both, &theirs + &ours);
+    /// // …and the version was taken as its point span, the same from either side.
+    /// assert_eq!(both, &b1.span(&b1) + &ours);
     /// ```
-    Add::add, union_core, Span<'static>
+    Add::add, union_core
+}
+
+span_version_lhs_matrix! {
+    /// `v | s`: the *pointwise join* with a version on the left.
+    ///
+    /// The mirrored spelling of `s | &v`, the version taken as its coincident
+    /// point span.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html"))]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let mut bob = alice.fork();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let b1 = bob.tick().clone();
+    ///
+    /// // The same span from either side of the symbol.
+    /// assert_eq!(&b1 | &a1.span(&a2), &a1.span(&a2) | &b1);
+    /// ```
+    BitOr::bitor, join_core
+}
+
+span_version_lhs_matrix! {
+    /// `v & s`: the *pointwise meet* with a version on the left.
+    ///
+    /// The mirrored spelling of `s & &v`, the version taken as its coincident
+    /// point span.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html"))]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let a3 = alice.tick().clone();
+    ///
+    /// // Clamping a segment to a point's past, spelled from the point.
+    /// assert_eq!(&a2 & &a2.span(&a3), a2.span(&a2));
+    /// assert_eq!(&a2 & &a2.span(&a3), &a2.span(&a3) & &a2);
+    /// ```
+    BitAnd::bitand, meet_core
+}
+
+span_version_lhs_matrix! {
+    /// `v + s`: the *union* with a version on the left — the mirrored
+    /// spelling of `s + &v`, the version taken as its coincident point span,
+    /// so the result covers `v` and all of `s`.
+    ///
+    /// No `Version + Version` exists: [`Sum`] for [`Version`] is the join fold,
+    /// which a version-pair `+` would conceptually contradict. The smallest
+    /// span containing [`Span`] two versions is [`span`](Version::span) (`v ^
+    /// w`).
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html"))]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut alice = Clock::seed();
+    /// let mut bob = alice.fork();
+    /// let a1 = alice.tick().clone();
+    /// let a2 = alice.tick().clone();
+    /// let b1 = bob.tick().clone();
+    ///
+    /// // The same union from either side of the symbol.
+    /// assert_eq!(&b1 + &a1.span(&a2), &a1.span(&a2) + &b1);
+    /// ```
+    Add::add, union_core
 }
 
 span_binop_matrix! {
     /// `a * b`: the *intersection*: the largest span covered by both operands,
     /// or [`None`] when they share no overlap.
+    ///
+    /// Alone among the span operators, `*` has no assigning form: `*=`
+    /// returns nothing, so a disjoint pair would leave the [`None`] nowhere
+    /// to land. Match on `a * b` instead and decide the miss explicitly.
     ///
     /// # Complexity
     ///
@@ -735,20 +955,76 @@ span_binop_matrix! {
     Mul::mul, intersect_core, Option<Span<'static>>
 }
 
-/// Generates the union-fold collection impls for one item shape: summing or
-/// collecting an iterator of spans yields their union — the fold of `+` —
-/// through the same balanced n-ary door as [`Span::union_all`].
+/// Generates one total span operator's assign cell: any span-convertible
+/// right operand, the value kernel written back to the receiver.
+///
+/// `a ⊕= b` is `a = a ⊕ b` exactly — the same kernel, fast paths and cost
+/// included. The intersection has no assign cell; the module doc carries
+/// the argument.
+macro_rules! span_assign_matrix {
+    ($(#[$doc:meta])* $Assign:ident::$assign:ident, $core:ident) => {
+        $(#[$doc])*
+        impl<'a, 'b, T: Into<Span<'b>>> $Assign<T> for Span<'a> {
+            fn $assign(&mut self, r: T) {
+                *self = $core(self, &r.into());
+            }
+        }
+    };
+}
+
+span_assign_matrix! {
+    /// `a |= b`: the *pointwise join* folded into the receiver.
+    ///
+    /// Exactly `a = a | b`.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html"))]
+    BitOrAssign::bitor_assign, join_core
+}
+
+span_assign_matrix! {
+    /// `a &= b`: the *pointwise meet* folded into the receiver.
+    ///
+    /// Exactly `a = a & b`.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html"))]
+    BitAndAssign::bitand_assign, meet_core
+}
+
+span_assign_matrix! {
+    /// `a += b`: the *union* folded into the receiver.
+    ///
+    /// Exactly `a = a + b`.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html"))]
+    AddAssign::add_assign, union_core
+}
+
+/// Generates the union-fold collection impls for one item shape.
+///
+/// Summing or collecting an iterator of spans (or of versions, each taken
+/// as its coincident point span) yields their union — the fold of `+` —
+/// through the same balanced n-ary fold as [`Span::union_all`].
 ///
 /// The receiver is [`Option`] because union has no identity: the version
-/// lattice has no top, so an empty iterator has no non-empty hull. `None` means
-/// exactly "no spans came", never an empty union.
+/// lattice has no top, so an empty iterator has no non-empty hull. `None`
+/// means exactly "no spans came", never an empty union. The item shapes
+/// are enumerated concretely because coherence demands it: a blanket
+/// `impl<T: Into<Span>> Sum<T> for Option<Span>` has no local type in its
+/// header (`Option` is foreign and `T` is uncovered), so each span-convertible
+/// item type carries its own cell.
 macro_rules! span_union_fold {
     ($(#[$doc:meta])* ($($lt:lifetime),*) $Item:ty) => {
         $(#[$doc])*
         impl<$($lt),*> Sum<$Item> for Option<Span<'static>> {
             fn sum<I: Iterator<Item = $Item>>(mut iter: I) -> Self {
-                let first = iter.next()?;
-                Some(first.borrow().union_all(iter))
+                let first: Span<'_> = iter.next()?.into();
+                Some(first.union_all(iter))
             }
         }
 
@@ -763,7 +1039,7 @@ macro_rules! span_union_fold {
 
 span_union_fold! {
     /// The union of every span in the iterator — the fold of `+`, run through
-    /// the balanced n-ary door of [`Span::union_all`] — or [`None`] on an
+    /// the balanced n-ary fold of [`Span::union_all`] — or [`None`] on an
     /// empty iterator (union has no identity span).
     ///
     /// # Complexity
@@ -801,13 +1077,50 @@ span_union_fold! {
     ('x, 'a) &'x Span<'a>
 }
 
+span_union_fold! {
+    /// The tightest span covering every version in the iterator, each taken
+    /// as its coincident point span — the hull of the whole collection,
+    /// mirroring [`Version::span_all`], or [`None`] on an empty iterator.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::{Clock, Span};
+    /// let mut a = Clock::seed();
+    /// let a1 = a.tick().clone();
+    /// let a2 = a.tick().clone();
+    ///
+    /// // Collecting versions yields their hull.
+    /// let span: Option<Span> = [a1.clone(), a2.clone()].into_iter().collect();
+    /// assert_eq!(span, Some(a1.span(&a2)));
+    /// ```
+    () Version
+}
+
+span_union_fold! {
+    /// The tightest span covering every borrowed version in the iterator;
+    /// see the owned impl.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    ('x) &'x Version
+}
+
 /// Generates the intersection-fold [`Product`] impl for one item shape:
 /// multiplying out an iterator of spans yields their intersection — the fold
-/// of `*` — through the same balanced n-ary door as [`Span::intersect_all`].
+/// of `*` — through the same balanced n-ary fold as [`Span::intersect_all`].
 ///
 /// [`None`] covers both an empty iterator (intersection has no identity: the
 /// version lattice has no top, so no span is covered by every span) and a
 /// nonempty family sharing no version — the two ways there is no product.
+/// Like every intersection form, items are true [`Span`]s only, never
+/// versions: a point item would silently empty the product unless every
+/// input contains it (the module doc carries the argument).
 macro_rules! span_intersect_fold {
     ($(#[$doc:meta])* ($($lt:lifetime),*) $Item:ty) => {
         $(#[$doc])*
@@ -822,7 +1135,7 @@ macro_rules! span_intersect_fold {
 
 span_intersect_fold! {
     /// The intersection of every span in the iterator — the fold of `*`, run
-    /// through the balanced n-ary door of [`Span::intersect_all`] — or
+    /// through the balanced n-ary fold of [`Span::intersect_all`] — or
     /// [`None`] on an empty iterator or an empty intersection.
     ///
     /// # Complexity

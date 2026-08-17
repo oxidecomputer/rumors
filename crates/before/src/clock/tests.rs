@@ -664,8 +664,8 @@ fn deep_tree_stack_safety() {
 /// depth no program stack could carry.
 #[test]
 fn deep_tree_query_and_causal_stack_safety() {
-    use crate::causally;
     use crate::Rank;
+    use crate::{causally, Span};
 
     const DEPTH: usize = 100_000;
     let party = deep_left_spine_party(DEPTH);
@@ -694,9 +694,9 @@ fn deep_tree_query_and_causal_stack_safety() {
     assert_eq!(span.lo(), &early);
     assert_eq!(span.hi(), &late);
     let span_bytes = span.encode();
-    let decoded = causally::Span::decode(&span_bytes[..]).expect("canonical span");
+    let decoded = Span::decode(&span_bytes[..]).expect("canonical span");
     assert_eq!(decoded.lo(), &early);
-    let validated = causally::Span::new(&early, &late).expect("early <= late");
+    let validated = Span::new(&early, &late).expect("early <= late");
     let _ = validated.place(&early);
     let _ = validated.dominance(&late);
     let hull = early.span_all([late.clone()]);
@@ -706,7 +706,7 @@ fn deep_tree_query_and_causal_stack_safety() {
     // kernels over the deep endpoints, the n-ary door drives the balanced
     // fold's combine arms, and the quotient view runs the masked co-walks —
     // every constituent iterative, pinned here at the door.
-    let head = causally::Span::new(&early, &early).expect("coincident");
+    let head = Span::new(&early, &early).expect("coincident");
     assert_eq!(&head + &span, span);
     assert_eq!(&head * &span, Some(head.clone()));
     assert_eq!(&head | &span, span);

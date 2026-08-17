@@ -52,10 +52,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_stream::stream;
+use before::Span;
 use futures::{StreamExt, stream as futures_stream};
 
 use crate::{
-    Version, causally,
+    Version,
     message::Message,
     tree::{
         mirror::streaming::{
@@ -204,7 +205,7 @@ where
     type Backend = Charged<N::Backend>;
     type Height = N::Height;
 
-    fn span(&self) -> causally::Span<'_> {
+    fn span(&self) -> Span<'_> {
         self.inner().span()
     }
 
@@ -743,7 +744,7 @@ where
     leaves.sort_by_key(|(prefix, _)| *prefix);
     // The spans are bound to a local so their borrowed join endpoints
     // outlive the fold's iterator.
-    let bounds: Vec<causally::Span<'_>> = leaves.iter().map(|(_, leaf)| leaf.span()).collect();
+    let bounds: Vec<Span<'_>> = leaves.iter().map(|(_, leaf)| leaf.span()).collect();
     let ceiling: Version = bounds.iter().map(|bounds| bounds.hi()).sum();
 
     let mut assembled = pin!(

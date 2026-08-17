@@ -2,6 +2,8 @@ use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use before::{Dominance, Span};
+
 use crate::{Version, causally, message::Message};
 
 use super::hash::Hash;
@@ -172,7 +174,7 @@ impl<T, H: Height> Node<T, H> {
 
     /// This subtree's version bounds as one causal span: the memoized
     /// `[floor, ceiling]` pair, borrowed (see [`untyped::Node::span`]).
-    pub fn span(&self) -> causally::Span<'_> {
+    pub fn span(&self) -> Span<'_> {
         self.inner.span()
     }
 
@@ -185,7 +187,7 @@ impl<T, H: Height> Node<T, H> {
     /// classification — and a leaf's coincident bounds collapse the
     /// question to one containment check (see
     /// [`untyped::Node::dominance`]).
-    pub fn dominance(&self, probe: &Version) -> causally::Dominance {
+    pub fn dominance(&self, probe: &Version) -> Dominance {
         self.inner.dominance(probe)
     }
 

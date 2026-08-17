@@ -14,7 +14,7 @@ use crate::{
 /// # Example
 ///
 /// ```
-/// use before::{causally::Dominance, Clock};
+/// use before::{Dominance, Clock};
 /// let mut alice = Clock::seed();
 /// let mut bob = alice.fork();
 /// let a1 = alice.tick().clone();
@@ -96,7 +96,7 @@ impl<'a> OwnSpan<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{causally::{Endpoint, Placement}, Clock};
+    /// use before::{Endpoint, Placement, Clock};
     /// let mut alice = Clock::seed();
     /// let mut bob = alice.fork();
     /// let a1 = alice.tick().clone();
@@ -151,7 +151,7 @@ impl<'a> OwnSpan<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{causally::Dominance, Clock};
+    /// use before::{Dominance, Clock};
     /// let mut alice = Clock::seed();
     /// let mut bob = alice.fork();
     /// let a1 = alice.tick().clone();
@@ -201,7 +201,7 @@ impl<'a> OwnSpan<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{causally::Precedence, Clock};
+    /// use before::{Precedence, Clock};
     /// let mut alice = Clock::seed();
     /// let mut bob = alice.fork();
     /// let a1 = alice.tick().clone();
@@ -300,7 +300,7 @@ impl<'a> OwnSpan<'a> {
 /// # Example
 ///
 /// ```
-/// use before::{causally::Placement, Clock};
+/// use before::{Placement, Clock};
 /// let mut alice = Clock::seed();
 /// let a1 = alice.tick().clone();
 /// let a2 = alice.tick().clone();

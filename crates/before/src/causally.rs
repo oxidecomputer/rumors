@@ -46,8 +46,8 @@
 //!
 //! A [`Span`] can answer more detailed questions than [`Query`]'s
 //! coarse-grained [`coverage`](Query::coverage) and
-//! [`contains`](Query::contains) (i.e. [`dominance`](Span::dominance),
-//! [`precedence`](Span::precedence), and [`place`](Span::place)). However, it
+//! [`contains`](Query::contains) (i.e. [`dominance`](crate::Span::dominance),
+//! [`precedence`](crate::Span::precedence), and [`place`](crate::Span::place)). However, it
 //! gains these additional *questions you can ask* in exchange for a reduction
 //! in *things you can ask them about*. While every [`Span`] `lo <= hi` is
 //! convertible [`into`](Into::into) the [`Query`] `after(lo) & before(hi)`, the
@@ -59,9 +59,9 @@
 //! simplicity) of a [`Span`]s grant them a stable canonical wire format and a
 //! much wider variety of meaningful operations beyond merely the analogues of
 //! [`Query`]'s predicates over [`Version`]s. Over an arbitrary pair of
-//! [`Span`]s, we can compute the [`union`](Span::union),
-//! [`intersect`](Span::intersect), [`join`](Span::join), and
-//! [`meet`](Span::meet); we can [`project`](Span::project) them over a
+//! [`Span`]s, we can compute the [`union`](crate::Span::union),
+//! [`intersect`](crate::Span::intersect), [`join`](crate::Span::join), and
+//! [`meet`](crate::Span::meet); we can [`project`](crate::Span::project) them over a
 //! [`Party`](crate::Party), etc.
 //!
 //! So, in short:
@@ -135,6 +135,8 @@
 //! assert!(anti_entropy.contains(&b1));
 //! assert!(!anti_entropy.contains(&a1));
 //! ```
+//!
+//! [`Span`]: crate::Span
 
 use std::cmp::Ordering;
 
@@ -146,9 +148,6 @@ mod query;
 
 #[cfg(test)]
 mod tests;
-
-pub use crate::error::Crossed;
-pub use crate::span::{Dominance, Endpoint, OwnSpan, Placement, Precedence, Span};
 
 pub use forms::{
     after, all, before, delta, since, strictly_after, strictly_before, toward, until, Ceiling,

@@ -14,7 +14,7 @@
 //! integration test (the checker), so the two cannot drift from each
 //! other; both build against the public API only.
 
-use before::{causally::Span, Clock, Party, Ranked, Version};
+use before::{Clock, Party, Ranked, Span, Version};
 
 /// One committed seed file: its fuzz target, file name, and exact bytes.
 pub struct Seed {

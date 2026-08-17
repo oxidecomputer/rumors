@@ -12,8 +12,9 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use super::polarity::{Hole, Neutral, Polarity};
-use super::{le, Span, Version};
+use super::{le, Version};
 use crate::codec::BitsSlice;
+use crate::span::Span;
 use crate::version::skyline::place::filter::{self, Demand};
 
 /// A causal filter on [`Version`]s and [`Span`]s within a restricted [`Query`]

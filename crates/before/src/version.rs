@@ -3,14 +3,15 @@
 use core::borrow::Borrow;
 use core::cmp::Ordering;
 use core::fmt::{Debug, Display};
+use core::hash::Hash;
 use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Div};
 use core::str::FromStr;
 use std::io::{self, Read, Write};
 
-use crate::causally::{self, Span};
 use crate::codec;
 use crate::error::{Decode, Parse};
+use crate::span::Span;
 use crate::Party;
 
 pub(crate) mod hull_traffic;
@@ -80,11 +81,8 @@ mod tests;
 /// assert!(merged > va && merged > vb);  // the join dominates both inputs
 /// ```
 //
-// At rest, a `Version` is its canonical skyline stream in a length-carrying
-// container ([`codec::Bits`]): the raw byte slice IS the wire encoding
-// (`from_bits` zeroes the dead pad bits at the freeze seam), and the live bit
-// length is a cached parse product the wire legitimately omits: the stream is
-// self-delimiting at the bit level.
+// A `Version` is always represented by its canonical skyline stream
+// ([`codec::Bits`]): the raw byte slice IS the wire encoding.
 //
 // Canonical uniqueness makes byte equality exactly causal equality; `PartialEq`
 // is the macro's byte-level stream compare (see `causal_cmp_impls!` and
@@ -101,7 +99,7 @@ pub struct Version(codec::Bits);
 /// # Complexity
 ///
 #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_hash.html"))]
-impl core::hash::Hash for Version {
+impl Hash for Version {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         codec::canonical_hash(&self.0, state);
     }
@@ -575,7 +573,7 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// use before::{Clock, causally::{Placement, Span}};
+    /// use before::{Clock, Placement, Span};
     /// let mut a = Clock::seed();
     /// let mut b = a.fork();
     /// let va = a.tick().clone();
@@ -614,7 +612,7 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// use before::{Clock, Version, causally::{Placement, Span}};
+    /// use before::{Clock, Version, Placement, Span};
     /// let mut a = Clock::seed();
     /// let mut b = a.fork();
     /// let va = a.tick().clone();
@@ -1580,8 +1578,8 @@ macro_rules! span_matrix {
             #[doc = ""]
             #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
             impl BitXor<$rhs> for $lhs {
-                type Output = causally::Span<'static>;
-                fn bitxor(self, r: $rhs) -> causally::Span<'static> {
+                type Output = Span<'static>;
+                fn bitxor(self, r: $rhs) -> Span<'static> {
                     Version::span(self.borrow(), r.borrow())
                 }
             }

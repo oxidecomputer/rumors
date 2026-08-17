@@ -9463,7 +9463,7 @@ mod placement {
     use std::cmp::Ordering;
 
     use before::causally;
-    use before::{meter, Clock, Version};
+    use before::{meter, Clock, Dominance, Endpoint, Placement, Precedence, Span, Version};
 
     /// Scan bits of one closure run, on a fresh counter.
     fn scanned(f: impl FnOnce()) -> u64 {
@@ -9730,13 +9730,13 @@ mod placement {
     #[test]
     fn span_place_scans_each_stream_once() {
         let (s, v, e, _) = fixture();
-        let span = causally::Span::new(&s, &e).unwrap();
+        let span = Span::new(&s, &e).unwrap();
 
         let fused = scanned(|| {
-            assert_eq!(span.place(&v), causally::Placement::Between);
+            assert_eq!(span.place(&v), Placement::Between);
         });
         let dominance = scanned(|| {
-            assert_eq!(span.dominance(&v), causally::Dominance::Between);
+            assert_eq!(span.dominance(&v), Dominance::Between);
         });
         let v_redecoded = Version::decode(&v.encode()[..]).expect("a stored stream re-decodes");
         let cmp_vs = scanned(|| assert!(v.partial_cmp(&s).is_some()));
@@ -9765,7 +9765,7 @@ mod placement {
         // the membership walk — both required directions confirming
         // only at exhaustion — is the placement walk to the bit.
         let precedence = scanned(|| {
-            assert_eq!(span.precedence(&v), causally::Precedence::Between);
+            assert_eq!(span.precedence(&v), Precedence::Between);
         });
         let contains = scanned(|| {
             assert!(span.contains(&v));
@@ -9785,12 +9785,12 @@ mod placement {
         // A probe dominating the whole span refutes nothing on
         // either side: the dominance walk is the placement walk to the
         // bit.
-        let whole = causally::Span::new(&s, &v).unwrap();
+        let whole = Span::new(&s, &v).unwrap();
         let place_whole = scanned(|| {
-            assert_eq!(whole.place(&e), causally::Placement::After);
+            assert_eq!(whole.place(&e), Placement::After);
         });
         let dominance_whole = scanned(|| {
-            assert_eq!(whole.dominance(&e), causally::Dominance::After);
+            assert_eq!(whole.dominance(&e), Dominance::After);
         });
         eprintln!("MEASURED span_whole_sweep: place={place_whole} dominance={dominance_whole}");
         assert_eq!(
@@ -9801,12 +9801,12 @@ mod placement {
         // Dually, a probe preceding the whole span refutes nothing on
         // either side: the precedence walk is the placement walk to
         // the bit.
-        let ahead = causally::Span::new(&v, &e).unwrap();
+        let ahead = Span::new(&v, &e).unwrap();
         let place_ahead = scanned(|| {
-            assert_eq!(ahead.place(&s), causally::Placement::Before);
+            assert_eq!(ahead.place(&s), Placement::Before);
         });
         let precedence_ahead = scanned(|| {
-            assert_eq!(ahead.precedence(&s), causally::Precedence::Before);
+            assert_eq!(ahead.precedence(&s), Precedence::Before);
         });
         eprintln!("MEASURED span_whole_precede: place={place_ahead} precedence={precedence_ahead}");
         assert_eq!(
@@ -9830,31 +9830,19 @@ mod placement {
 
         for (lo, hi, probe, verdict, genre) in [
             // div is concurrent to both v and e: the early return.
-            (
-                &v,
-                &e,
-                &div,
-                causally::Placement::Concurrent(causally::Endpoint::Both),
-                "both",
-            ),
+            (&v, &e, &div, Placement::Concurrent(Endpoint::Both), "both"),
             // v is past s but concurrent to div: the hi-drop path.
-            (
-                &s,
-                &div,
-                &v,
-                causally::Placement::Concurrent(causally::Endpoint::End),
-                "end",
-            ),
+            (&s, &div, &v, Placement::Concurrent(Endpoint::End), "end"),
             // v is concurrent to div but under div|e: the lo-drop path.
             (
                 &div,
                 &top,
                 &v,
-                causally::Placement::Concurrent(causally::Endpoint::Start),
+                Placement::Concurrent(Endpoint::Start),
                 "start",
             ),
         ] {
-            let span = causally::Span::new(lo, hi).unwrap();
+            let span = Span::new(lo, hi).unwrap();
             let fused = scanned(|| {
                 assert_eq!(span.place(probe), verdict);
             });
@@ -9893,15 +9881,12 @@ mod placement {
 
         // Genre 1: the start is concurrent to the probe.
         let top = &e | &div;
-        let span = causally::Span::new(&div, &top).unwrap();
+        let span = Span::new(&div, &top).unwrap();
         let fused = scanned(|| {
-            assert_eq!(span.dominance(&v), causally::Dominance::Before);
+            assert_eq!(span.dominance(&v), Dominance::Before);
         });
         let place = scanned(|| {
-            assert_eq!(
-                span.place(&v),
-                causally::Placement::Concurrent(causally::Endpoint::Start)
-            );
+            assert_eq!(span.place(&v), Placement::Concurrent(Endpoint::Start));
         });
         // The two-check shape the dominance face replaces: compare the
         // start version against the probe (the floor-first check,
@@ -9930,9 +9915,9 @@ mod placement {
         );
 
         // Genre 2: the start strictly dominates the probe.
-        let span = causally::Span::new(&v, &e).unwrap();
+        let span = Span::new(&v, &e).unwrap();
         let fused = scanned(|| {
-            assert_eq!(span.dominance(&s), causally::Dominance::Before);
+            assert_eq!(span.dominance(&s), Dominance::Before);
         });
         let first_check = scanned(|| {
             assert_eq!(v.partial_cmp(&s), Some(Ordering::Greater));
@@ -9975,15 +9960,12 @@ mod placement {
         let (s, v, e, div) = fixture();
 
         // Genre 1: the end is concurrent to the probe.
-        let span = causally::Span::new(&s, &div).unwrap();
+        let span = Span::new(&s, &div).unwrap();
         let fused = scanned(|| {
-            assert_eq!(span.precedence(&v), causally::Precedence::After);
+            assert_eq!(span.precedence(&v), Precedence::After);
         });
         let place = scanned(|| {
-            assert_eq!(
-                span.place(&v),
-                causally::Placement::Concurrent(causally::Endpoint::End)
-            );
+            assert_eq!(span.place(&v), Placement::Concurrent(Endpoint::End));
         });
         // The two-check shape the precedence face replaces: compare the
         // end version against the probe (the ceiling-first check, which
@@ -10012,9 +9994,9 @@ mod placement {
         );
 
         // Genre 2: the end strictly precedes the probe.
-        let span = causally::Span::new(&s, &v).unwrap();
+        let span = Span::new(&s, &v).unwrap();
         let fused = scanned(|| {
-            assert_eq!(span.precedence(&e), causally::Precedence::After);
+            assert_eq!(span.precedence(&e), Precedence::After);
         });
         let first_check = scanned(|| {
             assert_eq!(v.partial_cmp(&e), Some(Ordering::Less));
@@ -10052,10 +10034,10 @@ mod placement {
         let (s, v, e, _) = fixture();
 
         // Above the end: `probe <= hi` refuted mid-walk.
-        let span = causally::Span::new(&s, &v).unwrap();
+        let span = Span::new(&s, &v).unwrap();
         let fused = scanned(|| assert!(!span.contains(&e)));
         let place = scanned(|| {
-            assert_eq!(span.place(&e), causally::Placement::After);
+            assert_eq!(span.place(&e), Placement::After);
         });
         eprintln!("MEASURED contains_bail_above: fused={fused} place={place}");
         assert!(fused > 0, "a live scan meter reads nonzero on a real walk");
@@ -10065,10 +10047,10 @@ mod placement {
         );
 
         // Below the start: `lo <= probe` refuted mid-walk.
-        let span = causally::Span::new(&v, &e).unwrap();
+        let span = Span::new(&v, &e).unwrap();
         let fused = scanned(|| assert!(!span.contains(&s)));
         let place = scanned(|| {
-            assert_eq!(span.place(&s), causally::Placement::Before);
+            assert_eq!(span.place(&s), Placement::Before);
         });
         eprintln!("MEASURED contains_bail_below: fused={fused} place={place}");
         assert!(
@@ -10350,7 +10332,7 @@ mod span {
 // back exactly).
 #[cfg(feature = "scan-meter")]
 mod span_codec {
-    use before::{causally::Span, meter, Clock, Version};
+    use before::{meter, Clock, Span, Version};
 
     /// Scan bits of one closure run, on a fresh counter.
     fn scanned(f: impl FnOnce()) -> u64 {

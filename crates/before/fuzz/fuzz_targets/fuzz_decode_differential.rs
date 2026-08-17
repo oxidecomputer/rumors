@@ -42,7 +42,7 @@ use std::io::ErrorKind;
 use borsh::{BorshDeserialize, BorshSerialize};
 use libfuzzer_sys::fuzz_target;
 
-use before::{causally::Span, error::Decode, Clock, Party, Rank, Ranked, Version};
+use before::{error::Decode, Clock, Party, Rank, Ranked, Span, Version};
 
 fuzz_target!(|data: &[u8]| {
     before_fuzz::under_heap_cap(|| run(data));

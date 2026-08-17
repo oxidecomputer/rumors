@@ -148,7 +148,9 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Span::place", &["span_place"]),
     ("Span::dominance", &["span_dominance"]),
     ("Span::precedence", &["span_precedence"]),
-    ("Span::contains", &["span_contains"]),
+    // The span-shaped argument arm pays two causal comparisons instead of
+    // the fused walk; the version_cmp rows price that pair.
+    ("Span::contains", &["span_contains", "version_cmp"]),
     ("Span::encode", &["span_encode"]),
     ("Span::encode_to", &["span_encode"]),
     (
@@ -200,11 +202,11 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         &["version_join_all"],
     ),
     (
-        "Span Sum / FromIterator (owned and borrowed — the union fold)",
+        "Span Sum / FromIterator (spans or versions, owned and borrowed — the union fold)",
         &["version_span_all"],
     ),
     (
-        "Span Product (owned and borrowed — the intersection fold)",
+        "Span Product (spans only, owned and borrowed — the intersection fold)",
         &["version_join_all", "version_meet_all"],
     ),
     (
@@ -509,12 +511,13 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          per endpoint",
     ),
     (
-        "Span + Span (Add, owned and borrowed — the containment join)",
+        "Span + impl Into<Span> / Version + Span (Add/AddAssign, owned and borrowed — the containment join)",
         "the celled version meet/join, one per endpoint pair; a point-like \
-         operand pair fuses to the celled version_span walk",
+         operand pair fuses to the celled version_span walk; assigning is \
+         the value kernel written back",
     ),
     (
-        "Span * Span (Mul, owned and borrowed — the containment meet)",
+        "Span * Span (Mul, owned and borrowed — the containment meet; partial, so no MulAssign and no Into widening)",
         "the celled version join/meet, one per endpoint pair, plus one \
          validating causal comparison",
     ),
@@ -530,14 +533,16 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          causal comparison",
     ),
     (
-        "Span | Span (BitOr, owned and borrowed — the pointwise join)",
+        "Span | impl Into<Span> / Version | Span (BitOr/BitOrAssign, owned and borrowed — the pointwise join)",
         "the celled version join, one per endpoint pair; a point-like operand \
-         pair pays one join, shared across both legs",
+         pair pays one join, shared across both legs; assigning is the value \
+         kernel written back",
     ),
     (
-        "Span & Span (BitAnd, owned and borrowed — the pointwise meet)",
+        "Span & impl Into<Span> / Version & Span (BitAnd/BitAndAssign, owned and borrowed — the pointwise meet)",
         "the celled version meet, one per endpoint pair; a point-like operand \
-         pair pays one meet, shared across both legs",
+         pair pays one meet, shared across both legs; assigning is the value \
+         kernel written back",
     ),
     (
         "Span::join",

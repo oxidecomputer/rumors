@@ -313,7 +313,7 @@ struct SpanSide<'a> {
 /// How much of the segment `[lo, hi]` a query's demands admit, every stream
 /// decoded once — `causally`'s [`Coverage`] verdict at the stream layer.
 ///
-/// `lo` and `hi` must satisfy `lo <= hi` (`causally::Span`'s construction
+/// `lo` and `hi` must satisfy `lo <= hi` (`Span`'s construction
 /// contract); the verdict is unspecified otherwise. An empty demand list is
 /// [`Coverage::Full`] at zero cost. The demand list's order is the read order
 /// per elementary interval; callers supply a deterministic order.
@@ -402,7 +402,7 @@ pub(crate) fn coverage<'a>(
                 //
                 // Each arm re-tests only its dominated pair's liveness through
                 // the settle order: the segment's endpoints satisfy `lo <= hi`
-                // pointwise (`causally::Span`'s construction contract), so a
+                // pointwise (`Span`'s construction contract), so a
                 // refutation of the dominated endpoint forces the dominating
                 // one's at the same interval — checked first, in the same pass
                 // — and the joint settle drops the side before any later pass

@@ -5,12 +5,16 @@
 //! (one pairwise comparison / one containment), while the same verdicts
 //! over coincident endpoints in *distinct* buffers take the fused
 //! three-stream walk and read strictly more — so a lost rung and a dead
-//! scan meter both read red.
+//! scan meter both read red. `Span::contains` carries the mirrored
+//! *argument* rung: a clone-coincident argument takes the fused
+//! membership walk, and distinct buffers take the general endpoint
+//! comparisons.
 
 #![cfg(feature = "scan-meter")]
 
-use before::causally::{before, Dominance, Endpoint, Placement, Span};
+use before::causally::before;
 use before::{meter, Clock, Version};
+use before::{Dominance, Endpoint, Placement, Span};
 
 /// Scan bits of one closure run, on a fresh counter.
 fn scanned(f: impl FnOnce()) -> u64 {
@@ -125,4 +129,62 @@ fn coincident_dominance_collapses_to_one_containment() {
     );
     // The verdicts agree across the rung boundary.
     assert_eq!(coincident.dominance(&w), distinct.dominance(&w));
+}
+
+/// A clone-coincident `contains` *argument* takes the fused membership walk.
+///
+/// The fused walk decodes the probe once beside the two bounds, and every
+/// version-shaped argument reads scan-identical to it; byte-equal coincident
+/// endpoints in distinct buffers take the general endpoint comparisons
+/// instead, which decode the probe once per endpoint — strictly more scan on
+/// a contained probe, where both forms confirm only at exhaustion (no early
+/// exit skews the direction).
+#[test]
+fn coincident_argument_collapses_to_the_membership_walk() {
+    let mut main = Clock::seed();
+    let mut others: Vec<Clock> = (0..6).map(|_| main.fork()).collect();
+    let mut rounds = |main: &mut Clock, n: usize| {
+        let k = others.len();
+        for i in 0..n {
+            main.tick();
+            let msg = others[i % k].send().clone();
+            main.recv(&msg);
+        }
+    };
+    rounds(&mut main, 24);
+    let lo = main.version().clone();
+    rounds(&mut main, 24);
+    let mid = main.version().clone();
+    rounds(&mut main, 24);
+    let hi = main.version().clone();
+    let span = Span::new(&lo, &hi).expect("the chain is ordered");
+    let redecoded = Version::decode(&mid.encode()[..]).expect("a stored stream re-decodes");
+    // Built outside the scanned closures so construction's own validating
+    // comparison never pollutes a reading.
+    let distinct = Span::new(&mid, &redecoded).expect("equal endpoints are a valid span");
+
+    let fused = scanned(|| assert!(span.contains(&mid)));
+    assert!(
+        fused > 0,
+        "the membership walk reads bits: a zero is a dead meter"
+    );
+
+    // Owned-version, borrowed-version, and coincident-span arguments are one
+    // path.
+    let owned_door = scanned(|| assert!(span.contains(mid.clone())));
+    let span_door = scanned(|| assert!(span.contains(Span::at(&mid))));
+    assert_eq!(
+        (owned_door, span_door),
+        (fused, fused),
+        "every coincident argument shape must read the fused membership walk's scan"
+    );
+
+    let walked = scanned(|| assert!(span.contains(&distinct)));
+    assert!(
+        walked > fused,
+        "coincident endpoints in distinct buffers must take the general \
+         endpoint comparisons ({walked} vs {fused} scanned bits): they repay \
+         the probe stream once per endpoint, and the clone rung must not \
+         fire across buffers"
+    );
 }

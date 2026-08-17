@@ -23,10 +23,6 @@
 //!   `k`-bit-position mantissa) and the decoder's window fast path carry
 //!   over unchanged.
 //!
-//! For *why* the payload code is gamma — the measured value distribution and
-//! the trade among the universal codes — see the
-//! [`implementation`](crate::implementation) essay.
-//!
 //! This coding is the stored and wire form of a [`Version`]:
 //! [`Version::encode`] and [`Version::decode`] carry these streams, and every
 //! operation runs on them directly. The submodules:
@@ -164,7 +160,7 @@ pub use crate::codec::BitsMut;
 pub use crate::codec::BitsSlice;
 
 // The admission walk: the span wire form's fused second-component parse,
-// consumed by `causally::Span::decode` and the borsh span leg.
+// consumed by `Span::decode` and the borsh span leg.
 mod admit;
 mod build;
 pub(crate) mod place;

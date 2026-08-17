@@ -5,7 +5,9 @@ use std::sync::{Arc, OnceLock};
 use borsh::BorshSerialize;
 use tinyvec::ArrayVec;
 
-use crate::{Version, causally, message::Message, tree::typed::Hash};
+use before::{Dominance, Span};
+
+use crate::{Version, message::Message, tree::typed::Hash};
 
 pub mod fan;
 mod iter;
@@ -134,7 +136,7 @@ enum Children<T> {
     Branch {
         /// The tightest causal span containing every leaf version under
         /// this branch — its floor (the meet) and ceiling (the join) as
-        /// one [`causally::Span`] — computed lazily on first read of
+        /// one [`Span`] — computed lazily on first read of
         /// either bound and memoized.
         ///
         /// Storing the pair as a span makes `floor <= ceiling` a
@@ -144,7 +146,7 @@ enum Children<T> {
         ///
         /// This must be reset whenever the branch's children change, but
         /// not when its prefix does.
-        bounds: OnceLock<causally::Span<'static>>,
+        bounds: OnceLock<Span<'static>>,
         /// The number of total leaves under this branch.
         leaves: usize,
         /// The largest canonical [`Version`] encoding among every bound
@@ -523,9 +525,9 @@ impl<T> Node<T> {
     /// through the trusted door (`version <= version` holds
     /// reflexively). Reading either forces the same memo
     /// [`ceiling`](Self::ceiling) and [`floor`](Self::floor) share.
-    pub fn span(&self) -> causally::Span<'_> {
+    pub fn span(&self) -> Span<'_> {
         match &self.inner.children {
-            Children::Leaf { version, .. } => causally::Span::at(version),
+            Children::Leaf { version, .. } => Span::at(version),
             Children::Branch {
                 bounds, children, ..
             } => Self::bounds(bounds, children).reborrow(),
@@ -536,10 +538,10 @@ impl<T> Node<T> {
     /// deletion-honoring classifiers' verdict, answered from the memos
     /// without descending.
     ///
-    /// [`After`](causally::Dominance::After) means the whole subtree is
-    /// within `probe`'s causal past; [`Before`](causally::Dominance::Before)
+    /// [`After`](Dominance::After) means the whole subtree is
+    /// within `probe`'s causal past; [`Before`](Dominance::Before)
     /// means `probe` dominates not even the floor;
-    /// [`Between`](causally::Dominance::Between) means mixed. A branch
+    /// [`Between`](Dominance::Between) means mixed. A branch
     /// answers through its stored bounds span — ordered by construction,
     /// so no validating comparison is paid at any classification — in one
     /// fused walk that decodes `probe` once and keeps the dominance
@@ -547,17 +549,17 @@ impl<T> Node<T> {
     ///
     /// A leaf's bounds coincide at its version, where the span door
     /// itself collapses the dominance question to one containment
-    /// check ([`causally::Span::dominance`]'s coincident rung — a
+    /// check ([`Span::dominance`]'s coincident rung — a
     /// leaf's span stores its one version twice, and clone identity
     /// certifies the coincidence in `O(1)`), so routing wholly through
     /// [`span`](Self::span) pays a leaf one decode of each stream,
     /// never two.
-    pub fn dominance(&self, probe: &Version) -> causally::Dominance {
+    pub fn dominance(&self, probe: &Version) -> Dominance {
         self.span().dominance(probe)
     }
 
     /// Force one branch's bounds memo: the tightest span containing every
-    /// leaf version beneath it, stored as a single [`causally::Span`] so
+    /// leaf version beneath it, stored as a single [`Span`] so
     /// the interval ordering `floor <= ceiling` rides the stored type.
     ///
     /// Two fold regimes, split by what the children hand up:
@@ -569,7 +571,7 @@ impl<T> Node<T> {
     ///   this replaces decoded each version once per lattice direction.
     /// - **Interior** (any child a branch): the children's spans fold
     ///   through one balanced containment join
-    ///   ([`causally::Span::union_all`]) — a branch child hands up its
+    ///   ([`Span::union_all`]) — a branch child hands up its
     ///   memoized span, a leaf child its coincident one — with the meet
     ///   and join legs folded per endpoint, because different children's
     ///   floors and ceilings share no decode to fuse. The union is
@@ -583,10 +585,7 @@ impl<T> Node<T> {
     /// the subtree contains, so the prefix plays no part; and neither
     /// fold is ever empty, because a branch always has >= 2 children by
     /// the path-compression invariant.
-    fn bounds<'a>(
-        bounds: &'a OnceLock<causally::Span<'static>>,
-        children: &Fan<T>,
-    ) -> &'a causally::Span<'static> {
+    fn bounds<'a>(bounds: &'a OnceLock<Span<'static>>, children: &Fan<T>) -> &'a Span<'static> {
         bounds.get_or_init(|| {
             if children.values().all(Node::is_leaf) {
                 let mut versions = children.values().map(|child| match &child.inner.children {

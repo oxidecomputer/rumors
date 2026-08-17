@@ -32,10 +32,10 @@ use std::cmp::Ordering;
 use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use before::causally::{
-    self, Coverage, Dominance, Down, Endpoint, Neutral, Placement, Precedence, Query, Span, Up,
+use before::causally::{self, Coverage, Down, Neutral, Query, Up};
+use before::{
+    Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
 };
-use before::{Clock, Party, Rank, Ranked, Version};
 
 /// One register-file slot: any value the public surface produces.
 enum Val {

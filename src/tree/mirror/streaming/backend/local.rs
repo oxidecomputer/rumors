@@ -5,8 +5,10 @@ use std::pin::pin;
 use async_stream::try_stream;
 use futures::{StreamExt, future, stream};
 
+use before::Span;
+
 use crate::{
-    Version, causally,
+    Version,
     message::Message,
     tree::{
         self,
@@ -41,7 +43,7 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
     // bounds coincide at its version), so the ordering the trait
     // obligates is carried by construction — no per-read validation
     // anywhere in this backend.
-    fn span(&self) -> causally::Span<'_> {
+    fn span(&self) -> Span<'_> {
         self.span()
     }
 
