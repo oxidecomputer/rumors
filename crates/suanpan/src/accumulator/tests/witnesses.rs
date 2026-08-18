@@ -1,6 +1,7 @@
 //! Constructed corner-case witnesses: inputs no random stream reaches,
-//! each pinning a decision constant, a headroom bound, or a
-//! conversion-path corner at its tight edge.
+//! each pinning a decision constant, a headroom bound, a
+//! conversion-path corner, or a documented collapse side effect at its
+//! tight edge.
 //!
 //! The extreme-cancellation witnesses exist because their mutations
 //! passed everything else: `SIGN_DECIDED: 3 → 2` and a decision index
@@ -289,6 +290,112 @@ fn domination_certificate_depends_on_representation() {
         acc.sign_dominates_at(1),
         (Ordering::Greater, false),
         "spilled: the fold decides at index 2, below floor + 2 = 3"
+    );
+}
+
+/// After a sign read, `digit_count` reports the collapsed top, and a
+/// domination floor derived from that count decides; derived from the
+/// stale count instead, the same read refuses.
+///
+/// The clause callers comparing accumulators lean on: the
+/// [`sign_dominates_at`](Accumulator::sign_dominates_at) rustdoc routes
+/// them through `floor = its digit_count - 1`, and the fold's collapse
+/// (the scanned prefix zeroed, its exact partial re-deposited at the
+/// scan's floor) is what makes that count tight after a sign read.
+/// Adequacy leg: with the sign read omitted, the stale spelling still
+/// counts its cancelling prefix, and the floor it yields is undecidable
+/// even for a comparand that dwarfs the true value.
+#[test]
+fn sign_collapse_tightens_the_top_and_arms_domination() {
+    // The crate docs' canonical cancelling prefix: +2^320, then
+    // −(2^320 − 1), value 1 spelled across eleven digits (index 10
+    // down to 0; 320 = 32 · 10). Both operands exceed the register's
+    // 2^96 magnitude bound, so the spelling lives in the digit engine.
+    let mut cancelled = Accumulator::new();
+    cancelled.add_wide(&(UBig::ONE << 320usize));
+    cancelled.sub_wide(&((UBig::ONE << 320usize) - UBig::ONE));
+    let stale = cancelled.digit_count();
+    assert_eq!(
+        stale, 11,
+        "the cancelling prefix leaves the stale top at the added operand's width"
+    );
+    // A comparand with top digit 5 at index 4: decision-bound (5 ≥ 3,
+    // the fold's decision bound) and spilled past the register.
+    let mut comparand = Accumulator::new();
+    comparand.add_wide(&(UBig::from(5u8) << 128usize));
+    // Adequacy leg (sign read omitted): a floor derived from the stale
+    // count demands clearance no honest comparand of the cancelled
+    // value's true scale needs, and the read refuses. The read rewrites
+    // nothing here (a decision-bound top answers on its first step), so
+    // the decided read below sees the same spelling.
+    assert_eq!(
+        comparand.sign_dominates_at(stale - 1),
+        (Ordering::Greater, false),
+        "a domination floor derived from the stale count must refuse"
+    );
+    // The sign read collapses the spelling; the count is now tight.
+    assert_eq!(cancelled.sign(), Ordering::Greater);
+    assert_eq!(
+        cancelled.digit_count(),
+        1,
+        "after the sign read, digit_count reports the collapsed top"
+    );
+    // The collapsed count arms the decision: floor 0 sits two or more
+    // digit indexes under the comparand's top, so the read decides.
+    assert_eq!(
+        comparand.sign_dominates_at(cancelled.digit_count() - 1),
+        (Ordering::Greater, true),
+        "a domination floor derived from the collapsed count decides"
+    );
+}
+
+/// An interleaved sign read can lower `sign_magnitude_shl`'s returned
+/// shift: the collapse re-deposits its partial through the write path,
+/// below every position the caller's own writes touched.
+///
+/// The [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl)
+/// rustdoc's sign-queries-count-as-writers clause, pinned executable: a
+/// caller pricing reads by the returned shift keeps sign reads off the
+/// accumulator before the scaled read, or surrenders part of the
+/// never-written-prefix skip. Adequacy leg: untouched, the same value
+/// returns the full written-span shift, exactly.
+#[test]
+fn collapsing_sign_read_lowers_the_scaled_read_shift() {
+    // One unit parked at digit 40: the 1280-bit shift exceeds the
+    // register's 30-bit shift bound, so the value lives in the digit
+    // engine with a one-digit written span at index 40.
+    let mut acc = Accumulator::new();
+    acc.add_wide_shl(&UBig::ONE, 1280);
+    // Sign read omitted: the scaled read prices the written span and
+    // returns the whole never-written prefix as the shift.
+    let (sign, magnitude, shift) = acc.sign_magnitude_shl();
+    assert_eq!(sign, Ordering::Greater);
+    assert_eq!(
+        (magnitude, shift),
+        (UBig::ONE, 1280),
+        "untouched, the scaled read returns the full written-span shift"
+    );
+    // The collapsing read: top digit 1 sits under the decision bound
+    // 3, so the fold descends one digit and re-deposits the partial
+    // there; sign queries count as writers (the sign_magnitude_shl
+    // rustdoc), so the write watermark drops with it.
+    assert_eq!(acc.sign(), Ordering::Greater);
+    let (sign, magnitude, shift) = acc.sign_magnitude_shl();
+    assert_eq!(sign, Ordering::Greater);
+    assert!(
+        shift < 1280,
+        "the collapsing sign read must lower the returned shift"
+    );
+    assert_eq!(
+        (&magnitude, shift),
+        (&(UBig::ONE << 32usize), 1248),
+        "the collapse re-deposits one digit down: shift 32 · 39, magnitude 2^32"
+    );
+    // The pair is one honest spelling of the unchanged value.
+    assert_eq!(
+        magnitude << usize::try_from(shift).expect("the shift fits the address space"),
+        UBig::ONE << 1280usize,
+        "the collapse is value-preserving"
     );
 }
 

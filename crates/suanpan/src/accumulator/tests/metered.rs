@@ -631,6 +631,51 @@ fn domination_reads_cost_one_touch_after_the_first() {
     );
 }
 
+/// A decision-bound top decides `sign_dominates_at` on its first digit
+/// touch: top digit 5 at index `i` answers `(sign, true)` at
+/// `floor = i - 2` in exactly one metered touch.
+///
+/// The fold's first partial is the top digit itself, so a top at or
+/// past the decision bound 3 never descends: a caller constructing
+/// closed-form touch counts parks decision-bound tops two digit indexes
+/// above its comparison floors and every domination read prices as one
+/// touch. Adequacy legs: one digit short of clearance the same top
+/// still answers on its single touch, refusing, and a below-bound top
+/// digit 2 refuses while descending, at more than one touch — a fold
+/// that stopped deciding at the top digit could not pass.
+#[test]
+fn decision_bound_top_decides_on_the_first_touch() {
+    // Top digit 5 at index 4, spilled past the register's 2^96 bound.
+    let mut acc = Accumulator::new();
+    acc.add_wide(&(UBig::from(5u8) << 128usize));
+    touch_meter::reset();
+    assert_eq!(acc.sign_dominates_at(2), (Ordering::Greater, true));
+    assert_eq!(
+        touch_meter::touches(),
+        1,
+        "the decision-bound top decides on the first digit touch"
+    );
+    // Adequacy leg, one digit short: the fold still stops on its first
+    // touch (the partial is decided), but the certificate refuses.
+    touch_meter::reset();
+    assert_eq!(acc.sign_dominates_at(3), (Ordering::Greater, false));
+    assert_eq!(
+        touch_meter::touches(),
+        1,
+        "one digit short refuses without reading further"
+    );
+    // Adequacy leg, below-bound top: the fold must descend past the
+    // top digit, so the read cannot decide on its first touch.
+    let mut low_top = Accumulator::new();
+    low_top.add_wide(&(UBig::from(2u8) << 128usize));
+    touch_meter::reset();
+    assert_eq!(low_top.sign_dominates_at(2), (Ordering::Greater, false));
+    assert!(
+        touch_meter::touches() > 1,
+        "a below-bound top cannot decide on its first touch"
+    );
+}
+
 /// The scaled read costs the *span* of written digits — watermark to
 /// top, never-written interior gaps included — not their count.
 ///
