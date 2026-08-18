@@ -152,9 +152,9 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
             Scope::new(parent, &[]),
             &mut frames,
         )
-            .await
-            .err()
-            .expect("a query without a child has no derivable scope")
+        .await
+        .err()
+        .expect("a query without a child has no derivable scope")
     });
     assert!(matches!(
         decode_error,
@@ -436,10 +436,16 @@ fn leaf_scope_is_enforced_within_one_run() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_leaf_reply(Local, u64::MAX, unbounded(), Scope::new(parent, &[]), &mut input)
-            .await
-            .err()
-            .expect("a record escaping the reply scope must fail")
+        decode_leaf_reply(
+            Local,
+            u64::MAX,
+            unbounded(),
+            Scope::new(parent, &[]),
+            &mut input,
+        )
+        .await
+        .err()
+        .expect("a record escaping the reply scope must fail")
     });
     let DecodeError::LeafOutsideScope { expected, actual } = error else {
         panic!("expected LeafOutsideScope, got {error:?}");
@@ -503,17 +509,29 @@ fn a_version_over_the_declared_bound_is_rejected() {
 
     runtime().block_on(async {
         let mut input = stream::iter(frames());
-        decode_leaf_reply(Local, declared, unbounded(), Scope::new(parent, &[]), &mut input)
-            .await
-            .expect("a version exactly at the declared bound is admitted");
+        decode_leaf_reply(
+            Local,
+            declared,
+            unbounded(),
+            Scope::new(parent, &[]),
+            &mut input,
+        )
+        .await
+        .expect("a version exactly at the declared bound is admitted");
     });
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames());
-        decode_leaf_reply(Local, declared - 1, unbounded(), Scope::new(parent, &[]), &mut input)
-            .await
-            .err()
-            .expect("a version over the declared bound must be rejected")
+        decode_leaf_reply(
+            Local,
+            declared - 1,
+            unbounded(),
+            Scope::new(parent, &[]),
+            &mut input,
+        )
+        .await
+        .err()
+        .expect("a version over the declared bound must be rejected")
     });
     let DecodeError::OversizedVersion {
         declared: bound,
@@ -577,10 +595,7 @@ fn a_reply_past_the_declared_set_len_fails_at_its_first_over_record() {
     fn decode_metered(
         count: u64,
         declared: u64,
-    ) -> (
-        Result<usize, DecodeError<Infallible>>,
-        usize,
-    ) {
+    ) -> (Result<usize, DecodeError<Infallible>>, usize) {
         let frames = whole_root_supply_reply(&ascending_leaves(count));
         census::reset_peak();
         let (live, _) = census::read();
@@ -596,7 +611,10 @@ fn a_reply_past_the_declared_set_len_fails_at_its_first_over_record() {
             .await
         });
         let (_, peak) = census::read();
-        (decoded.map(|decoded| decoded.reply.replies.len()), peak - live)
+        (
+            decoded.map(|decoded| decoded.reply.replies.len()),
+            peak - live,
+        )
     }
 
     // The no-false-positive boundary, doubling as the meter's liveness

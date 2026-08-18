@@ -153,7 +153,13 @@ impl AdapterHeight for Z {
                 .chain([sentinel.clone()]),
         );
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, u64::MAX, unbounded(), scope, &mut frames))
+            .block_on(decode_leaf_reply(
+                Local,
+                u64::MAX,
+                unbounded(),
+                scope,
+                &mut frames,
+            ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height 0");
         assert_matches(&decoded.reply, radixes.len(), 0)?;
@@ -224,7 +230,13 @@ impl AdapterHeight for Z {
 
         let mut frames = stream::iter(actual_frames);
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, u64::MAX, unbounded(), scope, &mut frames))
+            .block_on(decode_leaf_reply(
+                Local,
+                u64::MAX,
+                unbounded(),
+                scope,
+                &mut frames,
+            ))
             .expect("canonical leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
         assert_positional_reply(&decoded.reply, &leaf_case, 0)
@@ -268,7 +280,13 @@ impl AdapterHeight for Z {
         let sentinel = Frame::End(End::Reply);
         let mut frames = stream::iter(actual_frames.into_iter().chain([sentinel.clone()]));
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, u64::MAX, unbounded(), scope, &mut frames))
+            .block_on(decode_leaf_reply(
+                Local,
+                u64::MAX,
+                unbounded(),
+                scope,
+                &mut frames,
+            ))
             .expect("canonical mixed leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
         assert_mixed_reply(
