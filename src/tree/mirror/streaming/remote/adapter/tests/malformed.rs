@@ -512,6 +512,93 @@ fn a_version_over_the_declared_bound_is_rejected() {
     assert_eq!(actual as u64, declared);
 }
 
+/// `count` distinct leaves in ascending content-path order, all inside
+/// the whole-root opening scope: the shape of one reply streaming an
+/// arbitrary volume of supplies.
+fn ascending_leaves(count: u64) -> Vec<LeafCase> {
+    let mut cases: Vec<LeafCase> = (0..count)
+        .map(|value| LeafCase::new(value, value as u8 % 4))
+        .collect();
+    cases.sort_by_key(LeafCase::path);
+    cases
+}
+
+/// One whole-root reply supplying every leaf in `cases`, as a single
+/// ascending run.
+fn whole_root_supply_reply(cases: &[LeafCase]) -> Vec<Frame<u64>> {
+    let records: Vec<_> = cases
+        .iter()
+        .map(|case| (&case.version, &case.message))
+        .collect();
+    vec![Frame::Reaction(
+        WireReaction::Supply(leaf_run(&records)),
+        Flow::End,
+    )]
+}
+
+/// Known-bad baseline for reply-ingress supply accounting: the decoder
+/// takes custody of every supplied record in a still-open reply, bounded
+/// by nothing the peer declared.
+///
+/// The peer's greeting-declared `set_len` is a premise the session's
+/// window solve prices, yet no charge sits on this decode path: a reply
+/// streaming any number of leaves decodes to completion, and decoded
+/// node residency grows record for record with the stream. Metered by
+/// the node census (the crate's exact residency shadow) across two
+/// stream sizes, so the growth reads as a slope, not a point. A
+/// conforming decoder must instead fail typed at the first record past
+/// the declaration; this pin holds the bad baseline until that charge
+/// flips it.
+#[test]
+fn decoded_supply_residency_is_unbounded_by_any_declaration() {
+    use crate::tree::typed::untyped::census;
+
+    const SMALL: u64 = 128;
+    const LARGE: u64 = 256;
+
+    /// Peak node-handle residency beyond the pre-decode baseline while
+    /// one whole-root reply of `count` leaves decodes to completion.
+    fn residency_beyond_baseline(count: u64) -> usize {
+        let frames = whole_root_supply_reply(&ascending_leaves(count));
+        census::reset_peak();
+        let (live, _) = census::read();
+        let decoded = runtime()
+            .block_on(async {
+                let mut input = stream::iter(frames);
+                decode_reply::<Local, u64, UnderUnderRoot, _>(
+                    Local,
+                    u64::MAX,
+                    Scope::opening(&[]),
+                    &mut input,
+                )
+                .await
+            })
+            .expect("no declaration bounds this decode path today");
+        let (_, peak) = census::read();
+        drop(decoded);
+        peak - live
+    }
+
+    let small = residency_beyond_baseline(SMALL);
+    let large = residency_beyond_baseline(LARGE);
+    assert!(
+        small >= SMALL as usize,
+        "every streamed record takes custody: {small} resident handles \
+         for a {SMALL}-leaf reply",
+    );
+    assert!(
+        large >= LARGE as usize,
+        "every streamed record takes custody: {large} resident handles \
+         for a {LARGE}-leaf reply",
+    );
+    assert!(
+        large - small >= (LARGE - SMALL) as usize,
+        "residency grows record for record with the stream \
+         ({small} -> {large} handles for {SMALL} -> {LARGE} leaves): \
+         nothing bounds a still-open reply",
+    );
+}
+
 /// Interrupting a supply run finalizes its radix, so later resumption is rejected as reordering.
 #[test]
 fn a_supply_run_cannot_resume_after_another_reaction() {
