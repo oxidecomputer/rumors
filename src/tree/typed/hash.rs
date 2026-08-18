@@ -59,9 +59,11 @@ impl Debug for Hash {
 
 /// Domain-separation tag leading a leaf's hash preimage.
 ///
-/// Leaves are content-addressed (the path is the leaf's content hash; see
-/// [`Path::for_leaf`](super::Path::for_leaf)), so a leaf's preimage commits
-/// its compressed suffix — path bytes — and nothing else.
+/// Leaves are version-addressed (the path is the full-width hash of the
+/// leaf's version; see [`Path::for_leaf`](super::Path::for_leaf)), so a
+/// leaf's preimage commits its compressed suffix — path bytes — and its
+/// version's canonical encoding, never its message bytes: every compared
+/// digest in the tree is a pure function of the version set.
 const LEAF_TAG: u8 = 0;
 
 /// Domain-separation tag leading a branch's hash preimage.
@@ -86,28 +88,40 @@ impl Hash {
     }
 
     /// The hash of a leaf observed from the top of its compressed `suffix`:
-    /// `blake3(LEAF_TAG ‖ suffix_len ‖ suffix)`.
+    /// `blake3(LEAF_TAG ‖ suffix_len ‖ suffix ‖ version)`.
     ///
     /// `suffix` is the leaf's path-compressed span in **path order** —
     /// shallowest byte first, as the node serializer emits it — and
     /// `suffix_len` is one byte (a compressed span never exceeds the 32-byte
-    /// path). A leaf commits only its own path bytes: message and version
-    /// are already committed by *where* the leaf sits (leaves are
-    /// content-addressed; see [`Path::for_leaf`](super::Path::for_leaf)),
-    /// and each parent commits its child's radix byte, so a root-to-leaf
-    /// chain of preimages commits the full 32-byte path.
+    /// path). `version` is the leaf's version in its canonical encoding,
+    /// which is self-delimiting, so the preimage stays injective with the
+    /// suffix length-tagged and the version last. A leaf commits its path
+    /// bytes and its version — never its message bytes: every digest the
+    /// mirror compares is a pure function of the version set, so no author
+    /// of message *content* contributes a single bit to any compared
+    /// quantity. The path is itself the full-width hash of the version
+    /// (leaves are version-addressed; see
+    /// [`Path::for_leaf`](super::Path::for_leaf)), and each parent commits
+    /// its child's radix byte, so a root-to-leaf chain of preimages commits
+    /// the full 32-byte path; committing the version bytes here as well
+    /// makes two leaves whose *distinct* versions collided into one path
+    /// (a full-width hash collision, off-model) digest-unequal, so the
+    /// merge walk surfaces that impossibility as a local violation instead
+    /// of silently keeping one side.
     ///
     /// # Panics
     ///
     /// Panics if `suffix` exceeds 255 bytes. Unreachable through the typed
     /// tree, whose height cap bounds compressed spans at the 32-byte path.
-    pub fn leaf(suffix: &[u8]) -> Self {
+    pub fn leaf(suffix: &[u8], version: &crate::Version) -> Self {
+        let version = version.as_bytes();
         let suffix_len =
             u8::try_from(suffix.len()).expect("a compressed span fits in one length byte");
-        let mut buf = Vec::with_capacity(2 + suffix.len());
+        let mut buf = Vec::with_capacity(2 + suffix.len() + version.len());
         buf.push(LEAF_TAG);
         buf.push(suffix_len);
         buf.extend_from_slice(suffix);
+        buf.extend_from_slice(version);
         Hash::of(&buf)
     }
 
@@ -235,16 +249,14 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
     }
 }
 
-/// Full-width 32-byte BLAKE3 hash: the content-addressing primitive.
+/// Full-width 32-byte BLAKE3 hash: the identity primitive.
 ///
 /// This is the width that carries identity. A leaf's path *is* a hash of this
-/// width over its `(version, value)` (see
-/// [`Path::for_leaf`](super::Path::for_leaf)), and
-/// [`join`](crate::tree::traverse::join) resolves identical paths as identical
-/// contents, so a collision here would be permanent, undetectable divergence —
-/// full width is load-bearing, and every hash that feeds a path must use it (a
-/// single Merkle-width component would cap the whole path's collision
-/// resistance at the narrower width's). A `ContentHash` is never stored in a
+/// width over its version's canonical bytes (see
+/// [`Path::for_leaf`](super::Path::for_leaf)), and every ingestion site
+/// treats one path as one identity, so a collision here would be permanent
+/// split-brain — full width is load-bearing for the path even though the
+/// comparison digests are narrower. A `ContentHash` is never stored in a
 /// branch and never
 /// travels as a hash on the wire; it reaches the protocol only as a leaf's path
 /// bytes.
@@ -276,30 +288,6 @@ impl ContentHash {
 impl From<ContentHash> for [u8; 32] {
     fn from(hash: ContentHash) -> Self {
         hash.0
-    }
-}
-
-/// Streaming full-width hasher: equivalent to feeding the concatenation of
-/// every `update` chunk through [`ContentHash::of`], without allocating an
-/// intermediate buffer.
-#[derive(Default)]
-pub struct Hasher(blake3::Hasher);
-
-impl Hasher {
-    /// Construct a fresh hasher.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Append `bytes` to the hash input.
-    pub fn update(&mut self, bytes: &[u8]) -> &mut Self {
-        self.0.update(bytes);
-        self
-    }
-
-    /// Finalize the hash and consume the hasher.
-    pub fn finalize(self) -> ContentHash {
-        ContentHash(*self.0.finalize().as_bytes())
     }
 }
 

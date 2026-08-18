@@ -7,19 +7,22 @@
 //! # Shape
 //!
 //! Branching factor 256, fixed depth 32: a leaf's path is its 32-byte
-//! content address, one byte per level, derived from the hash of its
-//! `(version, value)` pair ([`Path::for_leaf`](typed::Path::for_leaf)).
-//! Content addressing buys three properties at once:
+//! version address, one byte per level — the full-width hash of the
+//! leaf's version ([`Path::for_leaf`](typed::Path::for_leaf)). Message
+//! bytes enter no path and no digest; identity rests on the invariant the
+//! protocol already requires everywhere, that no two messages ever share
+//! a version. Version addressing buys three properties at once:
 //!
 //! - **The set is the tree.** Where a leaf lives is fully determined by
-//!   what it is, so two replicas holding the same messages hold the same
-//!   tree, regardless of insertion order or which peer sent what. Union is
-//!   well-defined node-by-node.
+//!   the version stamped on it, so two replicas holding the same messages
+//!   hold the same tree, regardless of insertion order or which peer sent
+//!   what. Union is well-defined node-by-node.
 //! - **Equal hash ⟹ equal subtree.** Each node memoizes a Merkle hash of
-//!   its subtree, so replicas can prune agreement wholesale — the engine of
+//!   its subtree — a pure function of the version set, blind to message
+//!   bytes — so replicas can prune agreement wholesale: the engine of
 //!   the [`mirror`] protocol's divergence-proportional cost. The Merkle
 //!   hash is a 24-byte truncation, deliberately narrower than the 32-byte
-//!   content address: a comparison signal tolerates truncation that an
+//!   version address: a comparison signal tolerates truncation that an
 //!   identity cannot (see [`typed::Hash`] for the asymmetry argument).
 //! - **Uniform spread.** Hashed paths are uniform, so the trie is
 //!   expected-balanced with no adversarial input shape; depth bounds are
@@ -60,7 +63,7 @@
 use std::sync::Arc;
 
 mod key;
-mod traverse;
+pub(crate) mod traverse;
 pub(crate) mod typed;
 
 use crate::{Version, causally, message::Message, tree::typed::Node};
@@ -79,11 +82,12 @@ pub use typed::{Leaf, RangeOwned};
 /// leaves store versioned [`Message<T>`]s.
 ///
 /// The tree has a branching factor of 256 and a depth of 32, so a leaf's
-/// 32-byte path is its content-addressed hash (see
-/// [`Path::for_leaf`](typed::Path::for_leaf)). The version is folded into
-/// the path, so two content-identical messages inserted at distinct
-/// versions occupy distinct leaves; two leaves collide only when they carry
-/// the same `(version, value)` pair, which disjoint parties cannot produce.
+/// 32-byte path is the full-width hash of its version (see
+/// [`Path::for_leaf`](typed::Path::for_leaf)). Versions are unique per
+/// send — locally by tick, globally by party disjointness — so two
+/// content-identical messages sent at distinct moments occupy distinct
+/// leaves, and two leaves collide only when a version has been reused,
+/// which conforming peers cannot do.
 #[derive(Debug, Eq)]
 pub struct Tree<T> {
     pub(crate) root: Root<T>,
@@ -395,7 +399,20 @@ impl<T> Tree<T> {
     ///   *above* the ceiling; session ingestion rejects the shape) can
     ///   produce `true` without a hash change, and then the cost is one
     ///   spurious watch wakeup, never a missed one.
-    pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
+    ///
+    /// # Errors
+    ///
+    /// [`traverse::LeafCollision`] if an insert lands on an occupied path
+    /// disagreeing on version or payload; the tree is untouched. Paths are
+    /// version-derived and each insert's fresh tick strictly dominates the
+    /// ceiling bounding every live leaf, so this is unreachable outside a
+    /// crate bug or an off-model hash collision — callers `expect` it, and
+    /// it is never user-visible ([`traverse::LeafCollision`]).
+    pub fn act<I>(
+        &mut self,
+        party: &before::Party,
+        actions: I,
+    ) -> Result<bool, traverse::LeafCollision>
     where
         T: Send + Sync,
         I: IntoIterator<Item = Action<T>>,
@@ -427,7 +444,7 @@ impl<T> Tree<T> {
             let (key, value) = match action {
                 Action::Forget(hash) => (hash, None),
                 Action::Insert(value) => {
-                    let key = typed::Path::for_leaf(&version, value.bytes()).into();
+                    let key = typed::Path::for_leaf(&version).into();
                     (key, Some(value))
                 }
             };
@@ -454,8 +471,9 @@ impl<T> Tree<T> {
     /// Returns whether the effectual-action observer fired at all — the
     /// changed flag [`act`](Self::act) hands out, with the contract stated
     /// there. `false` means no observation and therefore no ceiling
-    /// movement either: the tree is untouched.
-    fn react<M, I>(&mut self, reactions: I) -> bool
+    /// movement either: the tree is untouched. Errors exactly as
+    /// [`act`](Self::act) does, with the tree untouched on `Err`.
+    fn react<M, I>(&mut self, reactions: I) -> Result<bool, traverse::LeafCollision>
     where
         T: Send + Sync,
         M: Into<Option<Message<T>>>,
@@ -511,9 +529,11 @@ impl<T> Tree<T> {
         let new_root = traverse::act(self.root.root.clone(), actions, |v: &Version| {
             new_ceiling |= v;
             changed = true;
-        });
+        })?;
 
-        // The commit point: the walk returned without unwinding. Both fields
+        // The commit point: the walk returned without unwinding or erroring
+        // (a leaf-collision error above returns before anything of `self`
+        // mutates, the same atomicity as an unwind). Both fields
         // are assigned before the pre-image drops, because that drop runs
         // user code — everything the batch displaced becomes uniquely held
         // here, so its cascading `T` destructors run now, and a panicking
@@ -522,7 +542,7 @@ impl<T> Tree<T> {
         let pre_image = std::mem::replace(&mut self.root.root, new_root);
         self.root.ceiling = new_ceiling;
         drop(pre_image);
-        changed
+        Ok(changed)
     }
 
     /// Merges `other` into `self` by a single simultaneous recursion over
@@ -548,7 +568,15 @@ impl<T> Tree<T> {
     /// whose every message we already hold or honor as deleted): the flag
     /// answers for what observers of the *set* can see, and a ceiling-only
     /// join leaves the set untouched.
-    pub fn join(&mut self, other: Tree<T>) -> bool
+    ///
+    /// # Errors
+    ///
+    /// [`traverse::LeafCollision`] if the two trees hold leaves at one path
+    /// that disagree on version or payload; this tree is untouched (hash,
+    /// ceiling, and content all unchanged). Unreachable outside a crate bug
+    /// or an off-model hash collision — callers `expect` it, and it is
+    /// never user-visible ([`traverse::LeafCollision`]).
+    pub fn join(&mut self, other: Tree<T>) -> Result<bool, traverse::LeafCollision>
     where
         T: Send + Sync,
     {
@@ -580,20 +608,22 @@ impl<T> Tree<T> {
             &self.root.ceiling,
             &their_version,
             &mut changed,
-        );
+        )?;
         let new_ceiling = &self.root.ceiling | their_version;
 
         // The commit point: the walk and the ceiling fold both completed
-        // without unwinding. Both fields are assigned before the pre-image
-        // drops, because that drop runs user code — everything deletion
-        // honoring removed from our side becomes uniquely held here, so its
+        // without unwinding or erroring (a leaf-collision error above
+        // returns before anything of `self` mutates, the same atomicity as
+        // an unwind). Both fields are assigned before the pre-image drops,
+        // because that drop runs user code — everything deletion honoring
+        // removed from our side becomes uniquely held here, so its
         // cascading `T` destructors run now, and a panicking destructor
         // must find the tree already consistent. The defense is nothing
         // subtler than statement order: replace, assign, then drop.
         let pre_image = std::mem::replace(&mut self.root.root, merged);
         self.root.ceiling = new_ceiling;
         drop(pre_image);
-        changed
+        Ok(changed)
     }
 }
 

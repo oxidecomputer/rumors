@@ -105,7 +105,10 @@ impl<T: Send + Sync> Drop for Batch<'_, T> {
             // Notify observers iff the batch changed the tree, straight from
             // `act`'s changed flag: no root hash is read inside this critical
             // section (`Tree::act` states the flag's contract).
-            inner.tree.act(party, actions)
+            inner.tree.act(party, actions).expect(
+                "a fresh tick strictly dominates the ceiling, which bounds \
+                 every live leaf, so a local insert cannot collide",
+            )
         });
     }
 }

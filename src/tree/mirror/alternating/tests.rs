@@ -237,7 +237,7 @@ proptest! {
             for _ in forgets {
                 version.tick(&p);
                 let message = Message::new(());
-                let path = Path::for_leaf(&version, message.bytes());
+                let path = Path::for_leaf(&version);
                 paths.push(path);
                 actions.push((path, version.clone(), Action::Insert(message)));
             }
@@ -260,7 +260,7 @@ proptest! {
             ceiling: actions
                 .iter()
                 .fold(Version::default(), |acc, (_, v, _)| acc | v.clone()),
-            root: act(None, actions.to_vec(), |_| ()),
+            root: act(None, actions.to_vec(), |_| ()).expect("collision-free by construction"),
         };
 
         let tree_a = wrap(&actions_a);

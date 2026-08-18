@@ -16,4 +16,4 @@ pub use act::{Action, act};
 pub(crate) mod unknown;
 
 mod join;
-pub use join::join;
+pub use join::{LeafCollision, join};

@@ -103,7 +103,7 @@ fn wide_divergence(
         for _ in 0..count {
             version.tick(&party);
             let message = Message::new(());
-            let path = Path::for_leaf(&version, message.bytes());
+            let path = Path::for_leaf(&version);
             actions.push((path, version.clone(), Action::Insert(message)));
             if flagged {
                 known |= version.clone();
@@ -111,7 +111,10 @@ fn wide_divergence(
         }
     }
 
-    (act(None, actions, |_| ()), known)
+    (
+        act(None, actions, |_| ()).expect("collision-free by construction"),
+        known,
+    )
 }
 
 /// `body`'s result with its scanned-bits reading, on a fresh counter.

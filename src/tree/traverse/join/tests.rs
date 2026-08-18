@@ -26,7 +26,8 @@ fn mirror_merge(a: Root<()>, b: Root<()>) -> Root<()> {
 /// Merges via `Tree::join`.
 fn join_tree(a: Root<()>, b: Root<()>) -> Root<()> {
     let mut a = Tree { root: a };
-    a.join(Tree { root: b });
+    a.join(Tree { root: b })
+        .expect("collision-free by construction");
     a.root
 }
 

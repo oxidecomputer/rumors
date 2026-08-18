@@ -2,6 +2,7 @@ use itertools::Itertools;
 
 use crate::{Version, message::Message};
 
+use super::join::LeafCollision;
 use super::typed::*;
 use height::{Height, Root, S, Z};
 
@@ -23,11 +24,18 @@ pub enum Action<T> {
 ///
 /// `actions` is consumed lazily: the only materialization is the radix sort
 /// at each branch level, so callers can feed a `map` chain straight in.
+///
+/// # Errors
+///
+/// [`LeafCollision`] if an insert lands on a live leaf disagreeing with it
+/// on version or payload (unreachable from any input; see
+/// [`LeafCollision`]). On `Err` nothing has been published: the caller's
+/// commit point is never reached.
 pub fn act<T, F, I>(
     node: Option<Node<T, Root>>,
     actions: I,
     mut on_action: F,
-) -> Option<Node<T, Root>>
+) -> Result<Option<Node<T, Root>>, LeafCollision>
 where
     T: Send + Sync,
     F: FnMut(&Version),
@@ -55,7 +63,7 @@ pub trait Act: Height {
         node: Option<Node<T, Self>>,
         actions: I,
         on_action: &mut F,
-    ) -> Option<Node<T, Self>>
+    ) -> Result<Option<Node<T, Self>>, LeafCollision>
     where
         T: Send + Sync,
         F: FnMut(&Version),
@@ -70,7 +78,7 @@ where
         node: Option<Node<T, S<H>>>,
         actions: I,
         on_action: &mut F,
-    ) -> Option<Node<T, S<H>>>
+    ) -> Result<Option<Node<T, S<H>>>, LeafCollision>
     where
         T: Send + Sync,
         F: FnMut(&Version),
@@ -127,13 +135,15 @@ where
                 continue;
             }
 
-            if let Some(child) = Act::act(existing_child, actions, on_action) {
+            if let Some(child) = Act::act(existing_child, actions, on_action)? {
                 updated.push((radix, child));
             }
         }
 
         // Re-assemble: updated children + untouched existing children.
-        Node::branch(updated.into_iter().chain(existing_children).collect())
+        Ok(Node::branch(
+            updated.into_iter().chain(existing_children).collect(),
+        ))
     }
 }
 
@@ -142,7 +152,7 @@ impl Act for Z {
         mut node: Option<Node<T, Self>>,
         actions: I,
         on_action: &mut F,
-    ) -> Option<Node<T, Z>>
+    ) -> Result<Option<Node<T, Z>>, LeafCollision>
     where
         T: Send + Sync,
         F: FnMut(&Version),
@@ -170,6 +180,24 @@ impl Act for Z {
                 continue;
             }
 
+            // Paths are version-derived, so an insert landing on a live
+            // leaf claims a version the tree already binds. Verify identity
+            // instead of assuming it: a byte-identical pair is the same
+            // send twice (keep the resident leaf); any mismatch is a
+            // `LeafCollision` — unreachable except through a crate bug or
+            // an off-model hash collision (see `LeafCollision`), and
+            // errored before anything commits.
+            if let (Action::Insert(value), Some(existing)) = (&action, &node) {
+                if existing.ceiling() != &version
+                    || existing.message().as_slice() != value.as_slice()
+                {
+                    return Err(LeafCollision {
+                        path: Path::for_leaf(&version).into(),
+                    });
+                }
+                continue;
+            }
+
             // Set the node
             node = match action {
                 Action::Forget => None,
@@ -184,6 +212,6 @@ impl Act for Z {
             _ => on_action(&greatest_version),
         }
 
-        node
+        Ok(node)
     }
 }

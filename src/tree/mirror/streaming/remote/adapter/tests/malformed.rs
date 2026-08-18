@@ -31,7 +31,7 @@ use crate::tree::mirror::streaming::remote::codec::{
 /// A nonempty reply must end on its last reaction; a later bare end is ambiguous and invalid.
 #[test]
 fn bare_end_cannot_follow_reactions() {
-    let path = Path::for_leaf(&Version::new(), &[0]);
+    let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let frames: Vec<Frame<()>> = vec![
         Frame::Reaction(WireReaction::Match, Flow::Continue),
@@ -57,7 +57,7 @@ fn bare_end_cannot_follow_reactions() {
 /// Exhausting the frame stream without an explicit boundary reports truncation, not a reply.
 #[test]
 fn stream_exhaustion_before_a_boundary_is_truncation() {
-    let path = Path::for_leaf(&Version::new(), &[0]);
+    let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let mut frames = stream::iter([Frame::<()>::Reaction(WireReaction::Match, Flow::Continue)]);
 
@@ -84,7 +84,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
 /// past the fan — rather than after the whole reply decodes.
 #[test]
 fn an_unpositioned_match_is_rejected_in_both_directions() {
-    let path = Path::for_leaf(&Version::new(), &[0]);
+    let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<S<Z>>>::containing(&path);
     // One listed child admits one positional reaction; the second Match
     // must fail at its own frame with the reply still unterminated.
@@ -135,7 +135,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
 /// Prefix-free queries require a remaining positional child in both conversion directions.
 #[test]
 fn an_unpositioned_query_is_rejected_in_both_directions() {
-    let path = Path::for_leaf(&Version::new(), &[0]);
+    let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<S<Z>>>::containing(&path);
     let listing = vec![(1, hash(1))];
     let frames: Vec<Frame<()>> = vec![Frame::Reaction(
@@ -180,7 +180,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
 /// All eight leaf-query paths pin validity, error precedence, framing, and publication.
 #[test]
 fn leaf_query_matrix_is_exhaustive() {
-    let path = Path::for_leaf(&Version::new(), &[0]);
+    let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let radix = 3;
     let mut checked = 0;
@@ -271,7 +271,7 @@ fn leaf_query_matrix_is_exhaustive() {
 /// Transport stream-end control is rejected if it leaks past demultiplexing.
 #[test]
 fn stream_end_is_not_a_protocol_reply() {
-    let path = Path::for_leaf(&Version::new(), &[0]);
+    let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let mut frames = stream::iter([Frame::<()>::End(End::Stream)]);
 

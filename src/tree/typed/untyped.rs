@@ -445,8 +445,8 @@ impl<T> Node<T> {
     ///
     /// Forked trees share their unchanged subtrees by `Arc`, so an in-memory
     /// merge can short-circuit those in `O(1)`, even with cold memos, before
-    /// falling back to the content hash for subtrees that diverged in memory
-    /// but hold equal content.
+    /// falling back to the Merkle hash for subtrees that diverged in memory
+    /// but hold the same version set.
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
@@ -471,7 +471,7 @@ impl<T> Node<T> {
             // path).
             let prefix: ArrayVec<[u8; 32]> = self.inner.prefix.iter().rev().copied().collect();
             match &self.inner.children {
-                Children::Leaf { .. } => Hash::leaf(&prefix),
+                Children::Leaf { version, .. } => Hash::leaf(&prefix, version),
                 Children::Branch { children, .. } => Hash::branch(
                     &prefix,
                     children.iter().map(|(radix, child)| (radix, child.hash())),
@@ -747,8 +747,13 @@ impl<T> Eq for Node<T> {}
 impl<T> PartialEq for Node<T> {
     fn eq(&self, other: &Self) -> bool {
         // Shared backing settles equality with no hashing (and even cold): the
-        // common case for forked/cloned trees and the subtrees they share. Only
-        // distinct allocations fall back to the content hash.
+        // common case for forked/cloned trees and the subtrees they share.
+        // Distinct allocations fall back to the Merkle hash, which commits
+        // shape and version set — never message bytes — so this is
+        // version-set equality — and content equality, because no two
+        // messages ever share a version. (Same-version leaves with
+        // different payloads would compare equal; producing such a pair
+        // takes an already-fatal linearity violation.)
         self.ptr_eq(other) || self.hash() == other.hash()
     }
 }

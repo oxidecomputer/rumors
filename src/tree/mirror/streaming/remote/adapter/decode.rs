@@ -166,8 +166,7 @@ where
                 any = true;
                 for record in records.records() {
                     let (version, message) = record.map_err(DecodeError::Record)?;
-                    let (leaf_prefix, _) =
-                        supplies.observe::<B::Error, T>(parent, &version, &message)?;
+                    let (leaf_prefix, _) = supplies.observe::<B::Error>(parent, &version)?;
                     // The set-length half of the greeting's priced
                     // premises, charged per record before the payload
                     // takes backend custody: a peer supplying past its
@@ -371,9 +370,9 @@ where
                 // decoded vector of leaves.
                 for record in records.records() {
                     let (version, message) = record.map_err(DecodeError::Record)?;
-                    let (leaf_prefix, run) =
-                        read.supplies
-                            .observe::<B::Error, T>(scope.parent(), &version, &message)?;
+                    let (leaf_prefix, run) = read
+                        .supplies
+                        .observe::<B::Error>(scope.parent(), &version)?;
                     if let Some((radix, prefix)) = run {
                         read.skeleton.push(Skeleton::Supply { radix, prefix });
                     }
@@ -498,14 +497,12 @@ impl<H: Height> SupplyRuns<H> {
     }
 
     /// Validate one supplied leaf and identify the start of a new run.
-    fn observe<E, T>(
+    fn observe<E>(
         &mut self,
         expected_parent: Prefix<S<H>>,
         version: &crate::Version,
-        message: &crate::message::Message<T>,
     ) -> Result<(Prefix<Z>, Option<(u8, Prefix<H>)>), DecodeError<E>>
     where
-        T: Send + Sync + 'static,
         S<H>: Height,
     {
         // The declared aggregate covers every version the peer's tree
@@ -520,7 +517,7 @@ impl<H: Height> SupplyRuns<H> {
                 actual,
             });
         }
-        let path = Path::for_leaf(version, message.as_slice());
+        let path = Path::for_leaf(version);
         let leaf_prefix = Prefix::<Z>::containing(&path);
         let node_prefix = Prefix::<H>::containing(&path);
         let (parent, radix) = node_prefix.pop();

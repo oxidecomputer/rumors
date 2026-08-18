@@ -563,7 +563,10 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     let (escaped_root, _, escaped) =
         crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
     poisoned.inner.send_modify(|inner| {
-        inner.tree.join(Tree { root: escaped_root });
+        inner
+            .tree
+            .join(Tree { root: escaped_root })
+            .expect("collision-free by construction");
     });
     assert!(
         !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),

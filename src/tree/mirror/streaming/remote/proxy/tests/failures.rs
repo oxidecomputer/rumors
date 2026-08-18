@@ -58,12 +58,15 @@ fn stacked_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
     left.act(
         &nth_party(0),
         (0..8).map(|_| Action::Insert(Message::new(()))),
-    );
+    )
+    .expect("collision-free by construction");
     let mut right = Tree::new();
-    right.act(
-        &nth_party(1),
-        (0..8).map(|_| Action::Insert(Message::new(()))),
-    );
+    right
+        .act(
+            &nth_party(1),
+            (0..8).map(|_| Action::Insert(Message::new(()))),
+        )
+        .expect("collision-free by construction");
     (left.root, right.root)
 }
 

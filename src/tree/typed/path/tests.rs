@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use proptest::prelude::*;
 
 use crate::tree::arb::arb_version;
@@ -6,27 +5,18 @@ use crate::tree::arb::arb_version;
 use super::*;
 
 proptest! {
-    /// `for_leaf` commits to its `(version, value)` through *full-width*
-    /// component hashes: the path is `blake3(blake3(version) ‖
-    /// blake3(value))`, 32 bytes wide at every stage.
+    /// `for_leaf` is exactly the *full-width* hash of the version's
+    /// canonical bytes: `blake3(version)`, 32 bytes, no other input.
     ///
-    /// Full width at every component is what keeps a path collision at 2^128
-    /// birthday strength; a truncated Merkle-width hash anywhere in the
-    /// construction would cap the whole path below that, and this pin fails
-    /// under that wrong reading.
+    /// Full width is what keeps a path collision at 2^128 birthday
+    /// strength (a truncated Merkle-width hash would cap it lower), and
+    /// the version's canonical bytes are the whole preimage: no message
+    /// byte can steer where a leaf lands. This pin fails under either
+    /// wrong reading.
     #[test]
-    fn for_leaf_components_are_full_width(
-        version in arb_version(),
-        value in any::<Vec<u8>>(),
-    ) {
-        let value = Bytes::from(value);
-        let expected: [u8; 32] = {
-            let mut buf = Vec::with_capacity(64);
-            buf.extend_from_slice(blake3::hash(version.as_bytes()).as_bytes());
-            buf.extend_from_slice(blake3::hash(value.as_ref()).as_bytes());
-            *blake3::hash(&buf).as_bytes()
-        };
-        let path = Path::for_leaf(&version, &value);
+    fn for_leaf_is_the_full_width_version_hash(version in arb_version()) {
+        let expected: [u8; 32] = *blake3::hash(version.as_bytes()).as_bytes();
+        let path = Path::for_leaf(&version);
         prop_assert_eq!(<[u8; 32]>::from(path), expected);
     }
 

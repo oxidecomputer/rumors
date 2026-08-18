@@ -274,11 +274,15 @@ async fn equal_versions_return_both_roots() {
 #[pollster::test]
 async fn divergent_leaves_converge() {
     let mut a = Tree::new();
-    a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
+    a.act(&nth_party(0), [Action::Insert(Message::new(()))])
+        .expect("collision-free by construction");
     let mut b = Tree::new();
-    b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
+    b.act(&nth_party(1), [Action::Insert(Message::new(()))])
+        .expect("collision-free by construction");
     let mut expected = a.clone();
-    expected.join(b.clone());
+    expected
+        .join(b.clone())
+        .expect("collision-free by construction");
 
     let (a, b) = reconcile(a.root, b.root).await;
     assert_eq!(a, expected.root);
@@ -290,9 +294,11 @@ async fn divergent_leaves_converge() {
 #[test]
 fn symmetric_accept_handshakes_are_live() {
     let mut a = Tree::new();
-    a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
+    a.act(&nth_party(0), [Action::Insert(Message::new(()))])
+        .expect("collision-free by construction");
     let mut b = Tree::new();
-    b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
+    b.act(&nth_party(1), [Action::Insert(Message::new(()))])
+        .expect("collision-free by construction");
 
     let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(a.root, b.root, 1))
         .expect("the production proxy topology became quiescent");
@@ -306,9 +312,11 @@ fn symmetric_accepts_with_distinct_payloads_are_live() {
     let mut a_party = before::Party::seed();
     let b_party = a_party.fork();
     let mut a = Tree::new();
-    a.act(&a_party, [Action::Insert(Message::new(1_u64))]);
+    a.act(&a_party, [Action::Insert(Message::new(1_u64))])
+        .expect("collision-free by construction");
     let mut b = Tree::new();
-    b.act(&b_party, [Action::Insert(Message::new(2_u64))]);
+    b.act(&b_party, [Action::Insert(Message::new(2_u64))])
+        .expect("collision-free by construction");
 
     let (a, b) = run_to_quiescence(reconcile_after_preamble(a.root, b.root))
         .expect("distinct-payload proxy topology became quiescent");
@@ -535,9 +543,11 @@ fn early_first_child_dispute_is_live() {
 #[test]
 fn instrumented_channels_cover_every_proxy_edge() {
     let mut a = Tree::new();
-    a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
+    a.act(&nth_party(0), [Action::Insert(Message::new(()))])
+        .expect("collision-free by construction");
     let mut b = Tree::new();
-    b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
+    b.act(&nth_party(1), [Action::Insert(Message::new(()))])
+        .expect("collision-free by construction");
     let (result, report, trace) = instrumented_reconcile(a.root, b.root, Vec::new());
     result.expect("the instrumented wire session should remain live");
     trace.assert_valid();

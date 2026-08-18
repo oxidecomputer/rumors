@@ -493,7 +493,7 @@ proptest! {
 /// always has >= 2 children, by the path-compression invariant), so its
 /// index accumulates onto the reference prefix in path order until the
 /// underlying leaf or true branch point is reached. The preimage is then
-/// assembled by hand — `LEAF_TAG ‖ len ‖ prefix` for a leaf,
+/// assembled by hand — `LEAF_TAG ‖ len ‖ prefix ‖ version` for a leaf,
 /// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*` for a
 /// branch — with every child hash computed by the same reference
 /// recursively, never by [`Node::hash`].
@@ -503,9 +503,10 @@ fn reference_hash(mut node: Node<()>) -> super::Hash {
     let mut prefix: Vec<u8> = Vec::new();
     loop {
         node = match node.into_children() {
-            Err(_leaf) => {
+            Err(leaf) => {
                 let mut buf = vec![LEAF_TAG, u8::try_from(prefix.len()).expect("short prefix")];
                 buf.extend_from_slice(&prefix);
+                buf.extend_from_slice(leaf.ceiling().as_bytes());
                 return super::Hash::of(&buf);
             }
             Ok(children) if children.len() == 1 => {
@@ -546,9 +547,9 @@ fn full_depth_paths() -> impl Strategy<Value = BTreeSet<[u8; 32]>> {
 /// The canonical tree over `paths` observed from `depth`, built from
 /// scratch by the maximally-compressing bulk constructor.
 ///
-/// Leaf versions are all genesis: the hash convention never commits a
-/// version, so varying them adds nothing to the hash properties checked
-/// against this reference.
+/// Leaf versions are all genesis: each leaf preimage commits the version's
+/// canonical bytes as a constant tail here, so the shape properties under
+/// test are isolated from version variation.
 fn canonical_at(depth: usize, paths: &[[u8; 32]]) -> Node<()> {
     let mut entries: Vec<([u8; 32], Option<Node<()>>)> = paths
         .iter()
@@ -595,14 +596,17 @@ fn node_hash_preimage_is_in_path_order() {
     const LEAF_TAG: u8 = 0;
     let leaf = Node::leaf(Version::new(), Message::new(()));
     let wrapped = leaf.beneath(0xAA).beneath(0xBB);
-    assert_eq!(wrapped.hash(), super::Hash::of(&[LEAF_TAG, 2, 0xBB, 0xAA]),);
+    let mut preimage = vec![LEAF_TAG, 2, 0xBB, 0xAA];
+    preimage.extend_from_slice(Version::new().as_bytes());
+    assert_eq!(wrapped.hash(), super::Hash::of(&preimage));
 }
 
 /// A hand-built two-leaf tree pins the preimages end to end.
 ///
-/// Each leaf commits its length-tagged 29-byte suffix, and the root branch
-/// commits its 2-byte shared prefix in path order, the big-endian `u16`
-/// child count, and both ascending `radix ‖ hash` records.
+/// Each leaf commits its length-tagged 29-byte suffix and its (genesis)
+/// version's canonical bytes, and the root branch commits its 2-byte shared
+/// prefix in path order, the big-endian `u16` child count, and both
+/// ascending `radix ‖ hash` records.
 #[test]
 fn small_tree_hash_matches_byte_literal_preimage() {
     const LEAF_TAG: u8 = 0;
@@ -617,6 +621,7 @@ fn small_tree_hash_matches_byte_literal_preimage() {
     let leaf_hash = |suffix: &[u8]| {
         let mut buf = vec![LEAF_TAG, u8::try_from(suffix.len()).expect("short suffix")];
         buf.extend_from_slice(suffix);
+        buf.extend_from_slice(Version::new().as_bytes());
         super::Hash::of(&buf)
     };
     // Root: prefix [1, 2] (path order), two children at radixes 3 and 7,
