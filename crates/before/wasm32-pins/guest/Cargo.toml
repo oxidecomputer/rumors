@@ -1,0 +1,15 @@
+[package]
+name = "wasm32-pins-guest"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# A cdylib so `cargo build --target wasm32-unknown-unknown` emits a plain wasm
+# module (no wasm-bindgen: the ABI is hand-written i64 exports, one per pinned
+# boundary case, and the interesting inputs are synthesized inside the guest —
+# nothing bulk ever crosses the host boundary).
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+before = { path = "../.." }

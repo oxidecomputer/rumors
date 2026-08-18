@@ -1,0 +1,17 @@
+[package]
+name = "wasm32-pins-harness"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+# Executes the guest on a genuinely 32-bit `usize`. Tool-side only: this
+# workspace is detached from the parent, so wasmtime never enters the
+# production crates' graph. No fuel and no pooling (unlike the fuzz-fit
+# harness): the pins assert outcomes, not instruction counts, and each
+# needs a full 4 GiB 32-bit address space rather than a pooled slot's
+# small ceiling.
+wasmtime = { version = "47", default-features = false, features = [
+    "cranelift",
+    "runtime",
+] }
