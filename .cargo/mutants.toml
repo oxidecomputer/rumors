@@ -70,23 +70,24 @@ exclude_re = [
 
     # --- before::version::skyline::watermark ---
 
-    # Performance genre: propagate's dwarf-domination fast arms fold and
-    # retire exactly what the total fold-then-sign path folds and retires,
-    # and the surviving guard mutants route only work. Both arms read
-    # domination through `sign_dominates_at` certificates matched as
-    # tuples (a wrong-sign certificate panics), so no boolean or sign
-    # operator is left for the tool to mutate; the mutable surface is
-    # the width guards. An eager width guard (either arm's `+ 2`
-    # clearance test loosened to `- 2`) spends a wasted domination read
-    # on hops whose certificate then honestly refuses; the
-    # boundary-dominates arm's width guard (line-pinned below) routes
-    # its hops onto the comparable-scale fold, which is touch-identical
-    # on that arm (the seam-stop band's readings are byte-equal under
-    # the swap). The residue-dominates arm's same-shaped mutant is
-    # killed — the ascending-cliff cascade band prices its total death
-    # and the propagate-seam bands price its clearance line — so it
-    # carries no exclusion (the header's deliberately-absent roster).
-    "watermark\\.rs.*: replace \\+ with - in MinWeb<P>::propagate",
+    # Performance genre, one leg, line-pinned: propagate's
+    # dwarf-domination fast arms fold and retire exactly what the total
+    # fold-then-sign path folds and retires, and the one surviving guard
+    # mutant routes only work. Both arms read domination through
+    # `sign_dominates_at` certificates matched as tuples (a wrong-sign
+    # certificate panics), so no boolean or sign operator is left for
+    # the tool to mutate; the mutable surface is the width guards, and
+    # the pinned leg is the boundary-dominates arm's strictness (`>=`
+    # loosened to `<` inverts the guard): it routes that arm's hops onto
+    # the comparable-scale fold, which is touch-identical on that arm
+    # (the seam-stop band's readings are byte-equal under the swap). The
+    # residue-dominates arm's same-shaped mutant is killed — the
+    # ascending-cliff cascade band prices its total death and the
+    # propagate-seam bands price its clearance line — and both arms'
+    # `+ 2` clearance arithmetic faces the suite (the `- 2` mutants
+    # underflow and panic on the word-scale one-digit accumulators the
+    # committed suites drive through every hop, under the profile of
+    # record's overflow checks), so none of those carries an exclusion.
     "watermark\\.rs:790:43: replace >= with < in MinWeb<P>::propagate",
 
     # Performance genre: the undercut decision's scale probes read
