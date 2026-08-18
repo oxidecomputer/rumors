@@ -156,6 +156,9 @@ fn asymmetric_message_targets_unbatch_the_run() {
 ///
 /// Returns `None` when the header never appears; the header must match the
 /// capture's `"{Speaker} stream {index} (height {height})"` form exactly.
+/// A stream's body lines — frame labels, decoded payload trees, hex — are
+/// all indented, so the section ends at the next column-zero line (the
+/// following stream or direction header, or a control-frame label).
 fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
     let mut frames = None;
     for line in capture.lines() {
@@ -167,7 +170,7 @@ fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
                     let (_, semantic) = frame.split_once(": ").expect("frame lines are labeled");
                     frames.push(semantic.to_string());
                 }
-                None if line.trim_start().starts_with(char::is_alphabetic) => break,
+                None if !line.starts_with(char::is_whitespace) => break,
                 None => {}
             }
         }

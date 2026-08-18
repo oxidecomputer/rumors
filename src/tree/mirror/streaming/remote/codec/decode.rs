@@ -141,7 +141,9 @@ fn decode_signal(speaker: Speaker, byte: u8) -> Result<(Stream, Signal), DecodeE
     Ok(wire.into_parts())
 }
 
-fn parse_query(listing: &[u8]) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
+/// `pub(super)` for the capture renderer, which decodes captured query
+/// children through the same canonical path (order validation included).
+pub(super) fn parse_query(listing: &[u8]) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
     let mut children = Vec::with_capacity(listing.len() / QUERY_CHILD_LEN);
     for record in listing.chunks_exact(QUERY_CHILD_LEN) {
         let (&radix, encoded_hash) = record

@@ -9,11 +9,14 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (1, 1, 0)
+greeting words: set len 2, version-size bound 2, message-size target 1114624
 version frame: 30 bytes
   0000: 00 00 00 1a 02 00 00 00
   0008: 00 00 00 00 02 00 00 00
   0010: 00 00 00 00 00 02 11 00
   0018: 00 00 00 00 5d 40
+listing: 1 child(ren)
+  child 0x9: 0b5647957ff3c7f662abbd6e79cef555
 listing frame: 25 bytes
   0000: 00 00 00 15 01 00 00 00
   0008: 09 0b 56 47 95 7f f3 c7
@@ -21,6 +24,8 @@ listing frame: 25 bytes
   0018: 55
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
+    supply run: 1 record(s)
+      record 0: version (1, 1, 0), message 8 byte(s)
     0000: 77 00 00 00 0e 00 00 00
     0008: 0a 5d 40 a5 00 00 00 00
     0010: 00 00 00
@@ -41,11 +46,16 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (1, 0, 4)
+greeting words: set len 3, version-size bound 2, message-size target 1114624
 version frame: 30 bytes
   0000: 00 00 00 1a 03 00 00 00
   0008: 00 00 00 00 02 00 00 00
   0010: 00 00 00 00 00 02 11 00
   0018: 00 00 00 00 54 4c
+listing: 3 child(ren)
+  child 0x94: 9ba2ba4f4d18c5228db4534e273695fc
+  child 0xcf: b917fe6f40e679e54da764fcbef729b0
+  child 0xe9: 4747eda671d8a6acf6c0c83a7f1c1ad1
 listing frame: 59 bytes
   0000: 00 00 00 37 03 00 00 00
   0008: 94 9b a2 ba 4f 4d 18 c5
@@ -59,14 +69,20 @@ Responder stream 0 (height 31), epoch 0
   frame 0: QueryEmpty(Continue)
     0000: 22
   frame 1: Supply(Continue)
+    supply run: 1 record(s)
+      record 0: version (1, 0, 3), message 8 byte(s)
     0000: 66 00 00 00 0e 00 00 00
     0008: 0a 54 f0 65 00 00 00 00
     0010: 00 00 00
   frame 2: Supply(Continue)
+    supply run: 1 record(s)
+      record 0: version (1, 0, 4), message 8 byte(s)
     0000: 66 00 00 00 0e 00 00 00
     0008: 0a 54 4c 66 00 00 00 00
     0010: 00 00 00
   frame 3: Supply(End)
+    supply run: 1 record(s)
+      record 0: version (1, 0, 2), message 8 byte(s)
     0000: 77 00 00 00 0e 00 00 00
     0008: 0a 54 b0 64 00 00 00 00
     0010: 00 00 00

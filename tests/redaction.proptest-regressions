@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 2a399266da579a5b85f84c4da1aa6d92211a3de5439f880cf97ef015a3b0bde2 # shrinks to a_values = [0, 0, 0], b_values = [0]
+cc ab247db406cc9ac69aded581aa35ba9770855db5d2ab5f9d3609ef922a3d05e6 # shrinks to value = 0

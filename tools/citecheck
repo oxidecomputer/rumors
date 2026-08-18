@@ -36,12 +36,18 @@ the gate actually runs.
 The check is tamper-evident against its own rot:
 
   - extraction floors: every citation source (legs, pins, guards,
-    licenses, bespoke entries) and every haystack source (collected
-    tests, laws, descriptors) must be nonzero, so an extractor whose
-    pattern rots reads as failure, never as an empty green;
-  - spelling totality: every `pins:`/`guard:`/`license:` occurrence in the
-    roster must be classified (data, named constant, or field
-    declaration) — an unrecognized spelling is a failure, not a skip;
+    licenses, bespoke entries, tripwires) and every haystack source
+    (collected tests, laws, descriptors) must be nonzero — the guard
+    against total rot, a pattern that stops matching everything. A
+    floor alone cannot see partial rot: one entry gone invisible while
+    its neighbors keep the count nonzero;
+  - spelling totality, the partial-rot guard: every citation-bearing
+    occurrence must be classified by its extractor — each
+    `Leg::Bound`/`Law`/`Trans` call (a quoted citation, or a match
+    binding), each `pins:`/`guard:`/`license:` occurrence (data, named
+    constant, or field declaration), and each `DIFF_BESPOKE`/`TRIPWIRES`
+    entry (its name a string literal) — so one const-spelled or
+    reshaped entry among literal neighbors is a failure, never a skip;
   - a shadow guard: a law or descriptor name that is also a collected
     test's final segment is refused (either this tool's block scan went
     wide, or a genuine ambiguity landed; both are findings);
@@ -102,11 +108,41 @@ def strip_line_comments(text):
     return "\n".join(out)
 
 
+def spelling_snippet(rest):
+    """The offending spelling's first line, total on any input.
+
+    An occurrence at end-of-file leaves nothing to quote; the snippet
+    must still name the site rather than crash the run and discard every
+    accumulated problem.
+    """
+    lines = rest[:40].strip().splitlines()
+    return lines[0] if lines else "<end of file>"
+
+
 def extract_legs(surface_code):
-    """Every `Leg::Bound`/`Law`/`Trans` citation string, in table order."""
-    return re.findall(
-        r'Leg::(?:Bound|Law|Trans)\s*\(\s*"([^"]+)"', surface_code
-    )
+    """Every `Leg::Bound`/`Law`/`Trans` citation string, in table order.
+
+    Returns `(legs, problems)`. Every occurrence is classified: a quoted
+    string is a citation, and a bare lowercase identifier whose closing
+    paren leads into `|` or `=>` is a match binding (the roster file's
+    own accessors destructure the enum). Anything else — a named
+    constant in citation position included — is a problem, never a
+    silent skip.
+    """
+    legs, problems = [], []
+    for m in re.finditer(r"Leg::(Bound|Law|Trans)\s*\(\s*", surface_code):
+        rest = surface_code[m.end() :]
+        quoted = re.match(r'"([^"]+)"', rest)
+        if quoted:
+            legs.append(quoted.group(1))
+            continue
+        if re.match(r"[a-z_][a-z0-9_]*\s*\)\s*(\||=>)", rest):
+            continue  # a match-arm binding, not a citation
+        problems.append(
+            f"unrecognized `Leg::{m.group(1)}(` spelling (extend the "
+            "extractor deliberately): " + spelling_snippet(rest)
+        )
+    return legs, problems
 
 
 def extract_payloads(surface_code):
@@ -147,7 +183,7 @@ def extract_payloads(surface_code):
             continue
         problems.append(
             "unrecognized `pins:` spelling (extend the extractor "
-            "deliberately): " + rest[:40].strip().splitlines()[0]
+            "deliberately): " + spelling_snippet(rest)
         )
     guards, licenses = [], []
     for field, sink in (("guard", guards), ("license", licenses)):
@@ -161,23 +197,78 @@ def extract_payloads(surface_code):
                 continue
             problems.append(
                 f"unrecognized `{field}:` spelling (extend the extractor "
-                "deliberately): " + rest[:40].strip().splitlines()[0]
+                "deliberately): " + spelling_snippet(rest)
             )
     return pins, guards, licenses, problems
 
 
+def top_level_entries(block):
+    """Count the `(`-groups at the top level of one table's block: its
+    entry tuples, whatever each entry's spelling.
+
+    The scan respects string literals so parentheses inside quoted text
+    never open an entry; the caller has already stripped comments. The
+    count is the spelling-totality denominator: extracted names must
+    account for every entry, so an entry the name pattern cannot see is
+    a failure, never a silent skip.
+    """
+    depth = 0
+    count = 0
+    in_string = False
+    i = 0
+    while i < len(block):
+        c = block[i]
+        if in_string:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+        elif c == "(":
+            if depth == 0:
+                count += 1
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        i += 1
+    return count
+
+
+def table_names(code, table, file_label, name_pattern):
+    """Extract one roster table's entry names with spelling totality.
+
+    Returns `(names, problems)`: the names `name_pattern` finds in the
+    `table` array block of `code`, plus a problem when the block is
+    missing, never closes, or holds more entries than string-spelled
+    names — a const-spelled or reshaped entry must red, not vanish.
+    """
+    m = re.search(re.escape(table) + r"\s*:[^=]*=\s*&\[", code)
+    if m is None:
+        return [], [f"{file_label} no longer declares {table}"]
+    end = code.find("];", m.end())
+    if end < 0:
+        return [], [f"{table} array never closes"]
+    block = code[m.end() : end]
+    names = re.findall(name_pattern, block, re.S)
+    entries = top_level_entries(block)
+    problems = []
+    if entries != len(names):
+        problems.append(
+            f"{table} holds {entries} entries but only {len(names)} "
+            "string-spelled name(s) were classified; an entry's spelling "
+            "is invisible (extend the extractor deliberately)"
+        )
+    return names, problems
+
+
 def extract_bespoke(diff_ops_code):
     """The DIFF_BESPOKE citations. Returns `(names, problems)`."""
-    m = re.search(r"DIFF_BESPOKE\s*:[^=]*=\s*&\[", diff_ops_code)
-    if m is None:
-        return [], ["diff_ops.rs no longer declares DIFF_BESPOKE"]
-    end = diff_ops_code.find("];", m.end())
-    if end < 0:
-        return [], ["DIFF_BESPOKE array never closes"]
-    block = diff_ops_code[m.end() : end]
-    return (
-        re.findall(r'\(\s*"([^"]+)"\s*,\s*BespokeGenre::', block, re.S),
-        [],
+    return table_names(
+        diff_ops_code,
+        "DIFF_BESPOKE",
+        "diff_ops.rs",
+        r'\(\s*"([^"]+)"\s*,\s*BespokeGenre::',
     )
 
 
@@ -187,16 +278,11 @@ def extract_tripwires(coverage_code):
 
     Returns `(names, problems)`.
     """
-    m = re.search(r"TRIPWIRES\s*:[^=]*=\s*&\[", coverage_code)
-    if m is None:
-        return [], ["surface_coverage.rs no longer declares TRIPWIRES"]
-    end = coverage_code.find("];", m.end())
-    if end < 0:
-        return [], ["TRIPWIRES array never closes"]
-    block = coverage_code[m.end() : end]
-    return (
-        re.findall(r'\(\s*"[^"]*"\s*,\s*"([^"]+)"\s*,?\s*\)', block, re.S),
-        [],
+    return table_names(
+        coverage_code,
+        "TRIPWIRES",
+        "surface_coverage.rs",
+        r'\(\s*"[^"]*"\s*,\s*"([^"]+)"\s*,?\s*\)',
     )
 
 
@@ -285,8 +371,9 @@ def run(surface_text, diff_ops_text, coverage_text, laws_text, listing):
     diff_ops_code = strip_line_comments(diff_ops_text)
     coverage_code = strip_line_comments(coverage_text)
 
-    legs = extract_legs(surface_code)
-    pins, guards, licenses, problems = extract_payloads(surface_code)
+    legs, problems = extract_legs(surface_code)
+    pins, guards, licenses, payload_problems = extract_payloads(surface_code)
+    problems += payload_problems
     bespoke, bespoke_problems = extract_bespoke(diff_ops_code)
     problems += bespoke_problems
     tripwires, tripwire_problems = extract_tripwires(coverage_code)
@@ -357,6 +444,14 @@ pub enum Exclusion {
     A { pins: &'static [&'static str] },
     B { guard: &'static str },
     C { license: &'static str },
+}
+impl Leg {
+    fn cited(&self) -> Option<&'static str> {
+        match self {
+            Leg::Bound(t) | Leg::Law(t) | Leg::Trans(t) => Some(t),
+            Leg::Excluded(_) => None,
+        }
+    }
 }
 const ALPHA_PINS: &[&str] = &["alpha_law"];
 pub const METHOD_SURFACE: &[SurfaceRow] = &[
@@ -560,6 +655,58 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
             laws,
             green,
             ["unrecognized `pins:` spelling"],
+        ),
+        # A const-spelled leg citation among quoted neighbors is a
+        # failure, never a silent skip — the floors stay quiet because
+        # the neighbors keep every source nonzero, so only the
+        # spelling-totality classification can see it.
+        (
+            "const-spelled leg citation",
+            surface.replace(
+                'Leg::Bound("alpha_diff")', "Leg::Bound(ALPHA_DIFF)", 1
+            ),
+            diff_ops,
+            coverage,
+            laws,
+            green,
+            ["unrecognized `Leg::Bound(` spelling"],
+        ),
+        # Same for a bespoke entry whose name is a named constant: the
+        # entry count must convict what the name pattern cannot see...
+        (
+            "const-spelled bespoke entry",
+            surface,
+            diff_ops.replace('"alpha_bespoke"', "ALPHA_BESPOKE"),
+            coverage,
+            laws,
+            green,
+            ["DIFF_BESPOKE holds 2 entries but only 1"],
+        ),
+        # ...and for a tripwire entry among literal neighbors.
+        (
+            "const-spelled tripwire entry",
+            surface,
+            diff_ops,
+            coverage.replace(
+                '"alpha_tripwire_test",',
+                '"alpha_tripwire_test",\n    ),\n    (\n'
+                '        "beta criterion",\n        BETA_TRIPWIRE,',
+            ),
+            laws,
+            green,
+            ["TRIPWIRES holds 2 entries but only 1"],
+        ),
+        # An occurrence at end-of-file has nothing to quote and must
+        # still report as a spelling problem, never crash the run and
+        # discard every accumulated problem.
+        (
+            "leg spelling at end of file",
+            surface.rstrip() + "\nconst TAIL: Leg = Leg::Bound(",
+            diff_ops,
+            coverage,
+            laws,
+            green,
+            ["unrecognized `Leg::Bound(` spelling"],
         ),
         # An empty listing must trip the collected-tests floor (the dead
         # test citations follow it).

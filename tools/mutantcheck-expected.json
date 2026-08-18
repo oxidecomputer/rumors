@@ -1,0 +1,77 @@
+{
+  "tool": "cargo-mutants 27.1.0",
+  "patterns": {
+    "accumulator\\.rs.*: replace >>= with <<= in Accumulator::read_magnitude": {
+      "listed": 2,
+      "suppressed": 2
+    },
+    "accumulator\\.rs.*: replace < with <= in Accumulator::deposit_value": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "accumulator\\.rs.*: replace \\|\\| with && in Accumulator::shl": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "watermark\\.rs.*: replace \\+ with - in MinWeb<P>::propagate": {
+      "listed": 2,
+      "suppressed": 2
+    },
+    "watermark\\.rs:774:43: replace >= with < in MinWeb<P>::propagate": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "watermark\\.rs.*: replace - with (\\+|/) in MinWeb<P>::decide_undercut_through_latent": {
+      "listed": 4,
+      "suppressed": 4
+    },
+    "watermark\\.rs.*: replace > with >= in MinWeb<P>::fold_height": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "watermark\\.rs.*: delete field compact_words from struct MinWeb expression in MinWeb<P>::compacting": {
+      "listed": 1,
+      "suppressed": 0
+    },
+    "grow\\.rs.*: replace > with >= in recode": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "grow\\.rs:457:38: replace < with <= in recode": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "prescan\\.rs:320:26: replace > with >= in PreScan<'a, 'm>::record": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::skip_collapse": {
+      "listed": 3,
+      "suppressed": 3
+    },
+    "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::max_range": {
+      "listed": 3,
+      "suppressed": 3
+    },
+    "integral\\.rs.*: replace < with (<=|==|>) in charge_digits": {
+      "listed": 6,
+      "suppressed": 6
+    },
+    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::boundary": {
+      "listed": 3,
+      "suppressed": 3
+    },
+    "integral\\.rs.*: replace \\+ with (-|\\*) in Integrator::boundary": {
+      "listed": 2,
+      "suppressed": 2
+    },
+    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::freeze": {
+      "listed": 3,
+      "suppressed": 3
+    },
+    "integral\\.rs.*: replace \\+ with \\* in Integrator::settle_armings": {
+      "listed": 1,
+      "suppressed": 1
+    }
+  }
+}

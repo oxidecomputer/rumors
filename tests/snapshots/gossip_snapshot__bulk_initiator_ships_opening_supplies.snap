@@ -9,11 +9,14 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (0, 2, 0)
+greeting words: set len 2, version-size bound 2, message-size target 1114624
 version frame: 30 bytes
   0000: 00 00 00 1a 02 00 00 00
   0008: 00 00 00 00 02 00 00 00
   0010: 00 00 00 00 00 02 11 00
   0018: 00 00 00 00 5c 90
+listing: 1 child(ren)
+  child 0x71: 973ddcf6dd1c56db3ba00860cd3ea8ab
 listing frame: 25 bytes
   0000: 00 00 00 15 01 00 00 00
   0008: 71 97 3d dc f6 dd 1c 56
@@ -21,6 +24,9 @@ listing frame: 25 bytes
   0018: ab
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
+    supply run: 2 record(s)
+      record 0: version (0, 1, 0), message 8 byte(s)
+      record 1: version (0, 2, 0), message 8 byte(s)
     0000: 77 00 00 00 1c 00 00 00
     0008: 0a 55 40 01 00 00 00 00
     0010: 00 00 00 00 00 00 0a 5c
@@ -43,11 +49,16 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (0, 0, 3)
+greeting words: set len 3, version-size bound 2, message-size target 1114624
 version frame: 30 bytes
   0000: 00 00 00 1a 03 00 00 00
   0008: 00 00 00 00 02 00 00 00
   0010: 00 00 00 00 00 02 11 00
   0018: 00 00 00 00 73 c0
+listing: 3 child(ren)
+  child 0x1e: 1696ea4f18588296856f27cfda68cb1f
+  child 0x6a: 777d5b030dc38261c051534243674f5a
+  child 0xf6: df6854dada8919279a624fb24ac491c3
 listing frame: 59 bytes
   0000: 00 00 00 37 03 00 00 00
   0008: 1e 16 96 ea 4f 18 58 82
@@ -59,16 +70,22 @@ listing frame: 59 bytes
   0038: c4 91 c3
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
+    supply run: 1 record(s)
+      record 0: version (0, 0, 2), message 8 byte(s)
     0000: 66 00 00 00 0e 00 00 00
     0008: 0a 72 c0 65 00 00 00 00
     0010: 00 00 00
   frame 1: Supply(Continue)
+    supply run: 1 record(s)
+      record 0: version (0, 0, 3), message 8 byte(s)
     0000: 66 00 00 00 0e 00 00 00
     0008: 0a 73 c0 66 00 00 00 00
     0010: 00 00 00
   frame 2: QueryEmpty(Continue)
     0000: 22
   frame 3: Supply(End)
+    supply run: 1 record(s)
+      record 0: version (0, 0, 1), message 8 byte(s)
     0000: 77 00 00 00 0d 00 00 00
     0008: 09 77 64 00 00 00 00 00
     0010: 00 00

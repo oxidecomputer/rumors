@@ -49,9 +49,9 @@ carries that argument and the procedure for bumping it.
 
 What you install yourself: the nightly toolchain the gate's nightly legs
 name (`nightly_toolchain` in the justfile, pinned for the same reason),
-`just`, `cargo-nextest`, `cargo-rdme`, `cargo-fuzz`, and python3 with
-bash (the `tools/` linters). `just ci` additionally wants `wasm-pack`
-and node/npm.
+`just`, `cargo-nextest`, `cargo-rdme`, `cargo-fuzz`, `cargo-mutants`,
+and python3 with bash (the `tools/` linters). `just ci` additionally
+wants `wasm-pack` and node/npm.
 
 1. Iterate with the inner loop: `just check`, `just test <filter>`,
    `just clippy`, `just fmt`.
@@ -76,12 +76,16 @@ and node/npm.
 - When the claim is a family (a boundary, an ordering, a schedule), state
   it as a proptest invariant; the shrunk counterexample then rides along
   as a committed seed. A point regression may stay a unit test.
-- A failing proptest writes a seed file automatically (under
-  `proptest-regressions/<module path>.txt` for `src/` tests, next to the
-  binary for `tests/` suites) — unless the failure was reproduced by a
-  seed already committed for that file, which replays first and owes no
-  new entry. Commit every seed file that appears, wherever it appears;
-  never strip one from a diff.
+- A failing proptest writes a seed file automatically, at the one path
+  its persistence derives from the test's source location:
+  `<crate root>/proptest-regressions/<module path>.txt` for `src/`
+  tests, and the sibling `tests/<binary>.proptest-regressions` file for
+  `tests/` suites. A seed anywhere else is never read —
+  `tests/seed_liveness.rs` holds every committed seed to a path
+  proptest actually resolves. A failure reproduced by an
+  already-committed seed replays first and owes no new entry. Commit
+  every seed file that appears, wherever it appears; never strip one
+  from a diff.
 
 # Writing style
 
@@ -130,6 +134,13 @@ and node/npm.
 - `tests/gossip_snapshot.rs` and the `insta` snapshots pin the wire format
   byte-for-byte; re-accept them only after a deliberate protocol change,
   which means a new protocol version, never a mutation of an existing one.
+  One further sanctioned re-accept class: a renderer-vocabulary change
+  (the capture renderer's decoded annotations gained or reworded, the
+  wire untouched), permitted only with the hex-line-preservation
+  witness — every hexdump line sequence identical to the parent commit,
+  the diff pure annotation additions or rewordings — and the re-accepting
+  commit stating that witness and the renderer-change attribution
+  explicitly.
   To re-accept deliberately: `just test-all`, then `cargo insta review`
   (install: `cargo install cargo-insta`), then commit the updated
   `tests/snapshots/*.snap`. One sanctioned exception for tamper sweeps

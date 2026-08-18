@@ -32,10 +32,10 @@
 # (densify_tap_prices_the_cluster_span, the query fold's test suite)
 # and the hoisted-window densify band in tests/meter.rs. Also absent:
 # the residue-dominates side of propagate's wide-hop guard machinery
-# (its `>=` guard, its `==` sign test, and — should the tool visit
-# call-argument operators — its `sign_dominates_at` floor), killed by
-# the propagate-seam bands (the plunge ceiling and clearance band trip
-# on the rerouted hops, demonstrated by direct application); and the
+# (its `>=` width guard and its `sign_dominates_at` clearance floor),
+# killed by the propagate-seam bands (the plunge ceiling and clearance
+# band trip on the rerouted hops, demonstrated by direct application);
+# and the
 # watermark pool-recycle deletions — MinWeb::retire replaced with ()
 # and MinWeb::lease replaced with a bare Default::default() — killed by
 # the pool-miss row (the seam-stop pool row in tests/meter.rs: a dead
@@ -66,21 +66,22 @@ exclude_re = [
 
     # Performance genre: propagate's dwarf-domination fast arms fold and
     # retire exactly what the total fold-then-sign path folds and retires,
-    # and the surviving guard mutants route only work. An eager width
-    # guard (either arm's `+ 2` clearance test loosened to `- 2`) spends
-    # a wasted domination read on hops whose certificate then honestly
-    # refuses; the boundary-dominates arm's guard and sign mutants
-    # (line-pinned below) route its hops onto the comparable-scale fold,
-    # which is touch-identical on that arm (the seam-stop band's readings
-    # are byte-equal under the swap). The residue-dominates arm's
-    # same-shaped mutants are killed — the ascending-cliff cascade band
-    # prices its total death and the propagate-seam bands price its
-    # clearance line — so they carry no exclusion (the header's
-    # deliberately-absent roster).
+    # and the surviving guard mutants route only work. Both arms read
+    # domination through `sign_dominates_at` certificates matched as
+    # tuples (a wrong-sign certificate panics), so no boolean or sign
+    # operator is left for the tool to mutate; the mutable surface is
+    # the width guards. An eager width guard (either arm's `+ 2`
+    # clearance test loosened to `- 2`) spends a wasted domination read
+    # on hops whose certificate then honestly refuses; the
+    # boundary-dominates arm's width guard (line-pinned below) routes
+    # its hops onto the comparable-scale fold, which is touch-identical
+    # on that arm (the seam-stop band's readings are byte-equal under
+    # the swap). The residue-dominates arm's same-shaped mutant is
+    # killed — the ascending-cliff cascade band prices its total death
+    # and the propagate-seam bands price its clearance line — so it
+    # carries no exclusion (the header's deliberately-absent roster).
     "watermark\\.rs.*: replace \\+ with - in MinWeb<P>::propagate",
-    "watermark\\.rs.*: replace && with \\|\\| in MinWeb<P>::propagate",
-    "watermark\\.rs:773:43: replace >= with < in MinWeb<P>::propagate",
-    "watermark\\.rs:779:44: replace == with != in MinWeb<P>::propagate",
+    "watermark\\.rs:774:43: replace >= with < in MinWeb<P>::propagate",
 
     # Performance genre: the undercut decision's scale probes read
     # domination at a floor index; a shifted floor changes which side of
@@ -144,19 +145,10 @@ exclude_re = [
 
     # --- before::version::skyline::query::integral ---
 
-    # Proven equivalent: charge_digits' degenerate guards are value-inert
-    # (the disjunction's arms coincide wherever they disagree in shape).
-    "integral\\.rs.*: replace \\|\\| with && in charge_digits",
-
     # Proven equivalent: window digit counts are nonzero by construction,
     # so the strictness of the comparisons against them never
     # discriminates (both `<` sites in the function).
     "integral\\.rs.*: replace < with (<=|==|>) in charge_digits",
-
-    # Proven equivalent: the jump coefficient is never zero, so the
-    # comparison's strictness never discriminates (the contract at the
-    # site carries the argument).
-    "integral\\.rs.*: replace < with (<=|==|>) in Integrator::jump",
 
     # Performance genre: the boundary and freeze triggers tune engagement
     # thresholds inside the deliberate cost allowance; the verdicts and
