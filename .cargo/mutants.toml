@@ -1,14 +1,40 @@
-# cargo-mutants configuration: the exclusion roster of proven-equivalent
-# and performance-genre mutants.
+# cargo-mutants configuration: the campaign configuration of record
+# (the executable keys above `exclude_re`) and the exclusion roster of
+# proven-equivalent and performance-genre mutants.
 #
-# Every entry is a mutant that survives the before+suanpan suites for a
-# reason that is not a test gap: either the mutation is provably
-# value-equivalent (its discriminating input class is empty), or it moves
-# only work — routing between extensionally equal paths inside the meters'
-# deliberate headroom band. Killing a work-only mutant through the meter
-# suite would derive thresholds from mutants, converting deliberate slack
-# into an implementation pin; such mutants are excluded here instead, each
-# with its genre and the proof or rationale of record.
+# Every entry is a mutant that survives the suites under the campaign
+# configuration of record for a reason that is not a test gap: either
+# the mutation is provably value-equivalent (its discriminating input
+# class is empty), or it moves only work — routing between extensionally
+# equal paths inside the meters' deliberate headroom band. Killing a
+# work-only mutant through the meter suite would derive thresholds from
+# mutants, converting deliberate slack into an implementation pin; such
+# mutants are excluded here instead, each with its genre and the proof
+# or rationale of record.
+#
+# Standing policy: an exclusion is never added to make a campaign green.
+# Before any entry, the disposition ladder runs the other way: (1)
+# refactor, so the mutated codepoint does not structurally exist (the
+# precise operation instead of a bare operator, a stronger type, a
+# dissolved dead arm); (2) where a branch is truly unreachable but must
+# structurally exist, make it assert the impossibility at the site — an
+# asserted branch kills its own guard mutants, so it needs no entry
+# here; (3) only what neither disposition dissolves may be excluded,
+# with the equivalence or work-only argument stated per replacement
+# operator and naming every leg the pattern suppresses.
+#
+# Campaign configuration of record — the keys below make the plain
+# invocation (`cargo mutants --workspace`) run it: nextest, all
+# features, the whole workspace's suites, under cargo's default
+# dev/test profile. That is what the gate's test leg (`just test-all`)
+# observes, so the roster promises exactly what the committed suites
+# enforce: all features, because the instrument-killed dispositions in
+# this header cite meter rows and tests/meter.rs builds only under the
+# meter features; the dev/test profile, because overflow checks and
+# debug assertions are part of the observer (an arithmetic guard may
+# discharge by panicking on the inputs the suites drive). A release or
+# default-features campaign is a weaker observer; its extra survivors
+# are not roster material.
 #
 # Regex discipline: patterns match the names `cargo mutants --list`
 # prints. Most entries avoid line numbers, anchoring on file, operator
@@ -48,6 +74,10 @@
 # peak-heap and touch ceilings; the compacting doc carries the
 # measured margins) — and unexcludable regardless, since cargo-mutants
 # 27.1.0 applies name filters to no delete-field mutant.
+
+test_tool = "nextest"
+test_workspace = true
+additional_cargo_args = ["--all-features"]
 
 exclude_re = [
     # --- suanpan::accumulator ---

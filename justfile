@@ -267,7 +267,10 @@ citecheck:
 # inventory (--no-config) pins each pattern's LISTED count, and the
 # filtered inventory pins its SUPPRESSED count, both committed literals in
 # tools/mutantcheck-expected.json whose diff a reviewer sees — the checker
-# never writes that file. The counts derive
+# never writes that file. The roster header carries the standing policy
+# for when an exclusion is even admissible (refactor first, assert
+# second, exclude last) and the campaign configuration of record; this
+# recipe holds only the count seam. The counts derive
 # from the installed cargo-mutants release, so the pin of record
 # (tools/mutantcheck-expected.json) carries the tool version and a bump
 # re-pins in the same reviewed diff.
