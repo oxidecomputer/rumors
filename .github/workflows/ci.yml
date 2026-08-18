@@ -49,7 +49,7 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Install nightly *first* so the stable install below wins the default:
       # each dtolnay/rust-toolchain step runs `rustup default`, last one sticks.
@@ -134,7 +134,7 @@ jobs:
   instruments:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Nightly first, stable last (each dtolnay/rust-toolchain step runs
       # `rustup default`, last one sticks): only the surface-json recipe
@@ -197,7 +197,7 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Nightly first, stable last (each dtolnay/rust-toolchain step runs
       # `rustup default`, last one sticks): only the branch leg invokes
