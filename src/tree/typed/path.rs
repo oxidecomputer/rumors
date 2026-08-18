@@ -34,8 +34,9 @@ impl Path<Root> {
         // Every component is the full-width `ContentHash`, never the
         // truncated Merkle `Hash`: the path's collision resistance is the
         // minimum over its component hashes, and a path collision is
-        // permanent split-brain (see `ContentHash`). A 16-byte inner hash
-        // here would cap the whole path at 2^64 despite its 32-byte output.
+        // permanent split-brain (see `ContentHash`). A Merkle-width inner
+        // hash here would cap the whole path at the narrower width's
+        // strength despite its 32-byte output.
 
         let mut hasher = Hasher::new();
         hasher.update(ContentHash::of(version.as_bytes()).as_bytes());

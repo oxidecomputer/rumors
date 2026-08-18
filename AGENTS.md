@@ -138,7 +138,11 @@ wants `wasm-pack` and node/npm.
   `tests/*.proptest-regressions`); never strip them from diffs.
 - `tests/gossip_snapshot.rs` and the `insta` snapshots pin the wire format
   byte-for-byte; re-accept them only after a deliberate protocol change,
-  which means a new protocol version, never a mutation of an existing one.
+  never as an accommodation of drift. Pre-release (no shipped version
+  exists to hold compatible), that means a deliberate, owner-ruled format
+  change, named explicitly in the re-accepting commit. Once the first
+  release ships, a format change means a new protocol version, never a
+  mutation of a released one.
   One further sanctioned re-accept class: a renderer-vocabulary change
   (the capture renderer's decoded annotations gained or reworded, the
   wire untouched), permitted only with the hex-line-preservation

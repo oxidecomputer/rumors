@@ -60,7 +60,8 @@ fn leaf(party: &str, version: u64) -> Node<(), Z> {
 
 // ---------- Hash ----------
 
-/// A `Hash`'s encoding is its 16 raw bytes, no length prefix: all-zero case.
+/// A `Hash`'s encoding is its `MERKLE_HASH_LEN` raw bytes, no length
+/// prefix: all-zero case.
 #[test]
 fn hash_zeros() {
     insta::assert_snapshot!(snap(&Hash([0u8; MERKLE_HASH_LEN])));

@@ -9,19 +9,20 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (0, 2, 0)
-greeting words: set len 2, version-size bound 2, message-size target 1114624
+greeting words: set len 2, version-size bound 2, message-size target 1638912
 version frame: 30 bytes
   0000: 00 00 00 1a 02 00 00 00
   0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 5c 90
 listing: 1 child(ren)
-  child 0x71: 973ddcf6dd1c56db3ba00860cd3ea8ab
-listing frame: 25 bytes
-  0000: 00 00 00 15 01 00 00 00
-  0008: 71 97 3d dc f6 dd 1c 56
-  0010: db 3b a0 08 60 cd 3e a8
-  0018: ab
+  child 0x71: c22fb6b572126e113c6e2ec3ac068d1d8d06a292391a535d
+listing frame: 33 bytes
+  0000: 00 00 00 1d 01 00 00 00
+  0008: 71 c2 2f b6 b5 72 12 6e
+  0010: 11 3c 6e 2e c3 ac 06 8d
+  0018: 1d 8d 06 a2 92 39 1a 53
+  0020: 5d
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 2 record(s)
@@ -49,25 +50,28 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (0, 0, 3)
-greeting words: set len 3, version-size bound 2, message-size target 1114624
+greeting words: set len 3, version-size bound 2, message-size target 1638912
 version frame: 30 bytes
   0000: 00 00 00 1a 03 00 00 00
   0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 73 c0
 listing: 3 child(ren)
-  child 0x1e: 1696ea4f18588296856f27cfda68cb1f
-  child 0x6a: 777d5b030dc38261c051534243674f5a
-  child 0xf6: df6854dada8919279a624fb24ac491c3
-listing frame: 59 bytes
-  0000: 00 00 00 37 03 00 00 00
+  child 0x1e: 1696ea4f18588296856f27cfda68cb1f105f515fb9af8201
+  child 0x6a: 777d5b030dc38261c051534243674f5a3e47610a7d18e223
+  child 0xf6: df6854dada8919279a624fb24ac491c31762c3e530f88d5d
+listing frame: 83 bytes
+  0000: 00 00 00 4f 03 00 00 00
   0008: 1e 16 96 ea 4f 18 58 82
   0010: 96 85 6f 27 cf da 68 cb
-  0018: 1f 6a 77 7d 5b 03 0d c3
-  0020: 82 61 c0 51 53 42 43 67
-  0028: 4f 5a f6 df 68 54 da da
-  0030: 89 19 27 9a 62 4f b2 4a
-  0038: c4 91 c3
+  0018: 1f 10 5f 51 5f b9 af 82
+  0020: 01 6a 77 7d 5b 03 0d c3
+  0028: 82 61 c0 51 53 42 43 67
+  0030: 4f 5a 3e 47 61 0a 7d 18
+  0038: e2 23 f6 df 68 54 da da
+  0040: 89 19 27 9a 62 4f b2 4a
+  0048: c4 91 c3 17 62 c3 e5 30
+  0050: f8 8d 5d
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     supply run: 1 record(s)

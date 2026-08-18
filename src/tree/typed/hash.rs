@@ -6,11 +6,12 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// Width in bytes of the tree's Merkle hashes.
 ///
 /// The subtree-comparison digests that gossip exchanges, surfaced as
-/// [`Snapshot::hash`](crate::Snapshot::hash). Half the width of a
-/// [`Key`](crate::Key).
-pub const MERKLE_HASH_LEN: usize = 16;
+/// [`Snapshot::hash`](crate::Snapshot::hash). Narrower than the 32-byte
+/// [`Key`](crate::Key); the width argument is in [the reconciliation
+/// docs](crate::reconciliation).
+pub const MERKLE_HASH_LEN: usize = 24;
 
-/// A 16-byte Merkle hash.
+/// A 24-byte Merkle hash.
 ///
 /// A newtype over a fixed-size byte array, so borsh can be derived without a
 /// length prefix.
@@ -18,25 +19,32 @@ pub const MERKLE_HASH_LEN: usize = 16;
 /// The underlying primitive is [`blake3`], truncated to its leading
 /// [`MERKLE_HASH_LEN`] bytes — BLAKE3 is an extendable-output function, so
 /// prefix truncation is the sanctioned narrow form, with collision resistance
-/// 2⁶⁴ and preimage resistance 2¹²⁸. Callers use [`Hash::of`] (or
+/// 2⁹⁶ and preimage resistance 2¹⁹². Callers use [`Hash::of`] (or
 /// [`ContentHash`] for the full width) and never touch the `blake3` types
 /// directly.
 ///
-/// # Why 16 bytes here, and 32 for content
+/// # Why 24 bytes here, and 32 for content
 ///
 /// A Merkle hash is only ever an equality probe between two peers' subtrees at
-/// the same prefix. The width is sized against both failure sources, derived
-/// from the comparison structure and the trust model:
+/// the same prefix, so a false-equal costs what the causal sieve makes of it:
+/// the divergent messages under a landed false-equal are eventually read as
+/// seen-but-absent and deleted fleet-wide (the full argument is in [the
+/// reconciliation docs](crate::reconciliation)). The width prices that event
+/// in-model:
 ///
 /// - **Accident.** The hash at prefix `P` is only ever compared against
 ///   the counterparty's hash at the same `P`, so a false-equal is a
-///   per-comparison event at 2⁻¹²⁸ — pairwise, never birthday-amplified
-///   across the tree's population.
-/// - **Attack.** Peers in a universe trust one another ([the crate
-///   docs](crate) make a compromised member's powers explicit), and the
-///   mirror protocol inserts provided subtrees without re-hashing, so a
-///   member who could grind the 2⁶⁴ collision floor already desyncs peers
-///   for free, at any width.
+///   per-interior-comparison event at 2⁻¹⁹² — pairwise, never
+///   birthday-amplified across the tree's population.
+/// - **Grinding.** For an author of message *content* who is not a peer —
+///   the one adjacent actor the trust model admits — the offline birthday
+///   floor for assembling any colliding content pair is 2⁹⁶ hash
+///   evaluations, which closes that vector unconditionally, with no
+///   premise about what an attempt would cost the attacker.
+///
+/// Hostile *peers* are off-model: peers in a universe trust one another
+/// ([the crate docs](crate) make a compromised member's powers explicit),
+/// so no width buys anything against a member, and none is priced here.
 #[derive(
     BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default,
 )]
@@ -118,8 +126,9 @@ impl Hash {
     ///   {0} ∪ \[2, 256\] — zero only for the [empty root](Hash::empty_root),
     ///   and never one, by the path-compression invariant (see below) —
     ///   which overflows a biased byte.
-    /// - Each child is a fixed 17-byte `radix ‖ hash` record. Empty slots
-    ///   are *omitted*, not zero-filled.
+    /// - Each child is a fixed-width `radix ‖ hash` record
+    ///   ([`CHILD_RECORD_LEN`] bytes). Empty slots are *omitted*, not
+    ///   zero-filled.
     ///
     /// The explicit lengths make preimage injectivity *locally* checkable:
     /// no two distinct `(kind, prefix, children)` triples encode to the same
@@ -235,7 +244,8 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
 /// contents, so a collision here would be permanent, undetectable divergence —
 /// full width is load-bearing, and every hash that feeds a path must use it (a
 /// single Merkle-width component would cap the whole path's collision
-/// resistance at 2⁶⁴). A `ContentHash` is never stored in a branch and never
+/// resistance at the narrower width's). A `ContentHash` is never stored in a
+/// branch and never
 /// travels as a hash on the wire; it reaches the protocol only as a leaf's path
 /// bytes.
 pub struct ContentHash([u8; 32]);

@@ -12,8 +12,11 @@ use crate::link::STREAM_COUNT;
 /// replicas at a terabyte-scale corpus.
 const SYMMETRIC: u64 = 10_000_000_000;
 
-/// The design session's corpus scale: the spec BDP in design-size
-/// records — 12.5 MB at 200 B end to end per message.
+/// The design session's corpus scale: a round 62,500 a side, sized
+/// near the spec BDP in design-size records.
+///
+/// The exact quotient moves with the pinned wire-cost anchor; the
+/// round figure is the stable benchmark shape.
 ///
 /// Stated, not minted: the budget default is policy, so nothing here
 /// derives from the wire-cost anchor at compile time; this constant
@@ -263,11 +266,11 @@ fn tradeoff_table_matches_the_derivation() {
 /// The crossover and BDP-scale u64 figures the docs quote are the
 /// solve's own numbers.
 ///
-/// `m* = 51 B` (quoted at `Peer::sync_memory_budget`) is the
+/// `m* = 61 B` (quoted at `Peer::sync_memory_budget`) is the
 /// smallest record size whose self-consistent corpus — the spec BDP in
 /// `m`-size records, per side — fits entirely inside the window the
 /// default budget derives at that corpus; the u64 column's BDP-scale
-/// corpus derives an 82,214-scope window, the quoted ~4.2× figure.
+/// corpus derives a 65,401-scope window, the quoted ~4.6× figure.
 /// Both are recomputed here from the derivation, so the quoted prose
 /// fails loudly instead of drifting when the solve or its constants
 /// change.
@@ -293,15 +296,15 @@ fn default_crossover_matches_the_solve() {
     });
     assert_eq!(
         crossover,
-        Some(51),
+        Some(61),
         "the default's self-consistent slowdown-1 crossover moved: update the figures \
          quoted at Peer::sync_memory_budget",
     );
     let u64_corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + 8)) as u64;
     assert_eq!(
         window_at(u64_corpus),
-        82_214,
-        "the u64 BDP-scale window moved: update the ~4.2x figure quoted at \
+        65_401,
+        "the u64 BDP-scale window moved: update the ~4.6x figure quoted at \
          Peer::sync_memory_budget",
     );
 }

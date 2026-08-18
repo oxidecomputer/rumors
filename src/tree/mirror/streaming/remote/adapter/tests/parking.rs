@@ -58,7 +58,7 @@ const LEAVES: u64 = 512;
 /// heavier framing — fails the pin and forces the module doc's charged
 /// figure (and `streaming/message.rs`, which states it) to be
 /// re-derived rather than silently going stale.
-const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 2_300_000;
+const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_380_000;
 
 /// A parked decoded reply holds one pointer-sized node handle per supplied
 /// node — O(fan) handles independent of how many leaves streamed through

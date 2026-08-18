@@ -50,11 +50,10 @@ use super::signal::WireSignal;
 /// Derived from the wire constants, not measured: the decode side's
 /// documented memory unit is one decoded *reply* (the streaming `message`
 /// module docs), and the largest non-supply reply is maximally disputed —
-/// `FAN` (256) reactions, each a full-fan query frame of one signal byte,
-/// one count byte, and `MAX_QUERY_CHILDREN` (256) children of
-/// `QUERY_CHILD_LEN` (17) bytes each — totalling 256 × (1 + 1 + 256 × 17) =
-/// 1 114 624 bytes. Batching at this default therefore never raises the
-/// wire's established per-reply memory ceiling.
+/// `FAN` reactions, each a full-fan query frame of one signal byte,
+/// one count byte, and `MAX_QUERY_CHILDREN` children of
+/// `QUERY_CHILD_LEN` bytes each. Batching at this default therefore
+/// never raises the wire's established per-reply memory ceiling.
 pub const DEFAULT_TARGET_MESSAGE_SIZE: usize =
     FAN * (WireSignal::ENCODED_LEN + QUERY_COUNT_LEN + MAX_QUERY_CHILDREN * QUERY_CHILD_LEN);
 

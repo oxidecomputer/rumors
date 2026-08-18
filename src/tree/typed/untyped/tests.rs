@@ -882,12 +882,8 @@ mod memo_fold_cost {
 ///
 /// Every node allocation pays `NodeInner`'s full size: the `Children`
 /// enum takes its largest variant, so leaves (the most numerous nodes)
-/// carry the branch variant's width, fan included.
-///
-/// Measured on 64-bit: `Fan<()>` = 40 (8 capacity + 2 inline 16-byte
-/// entries), `Children<()>` = 160 (the bounds-span memo, the
-/// version-bytes memo, the leaf count, and the fan), `NodeInner<()>` =
-/// 208 (prefix `Vec` + hash memo + children).
+/// carry the branch variant's width, fan included. The asserted ceilings
+/// are the record; the branch variant's bounds-span memo dominates them.
 // A stored `Version` handle is 40 bytes under the Bytes-backed at-rest
 // form, so the branch variant's bounds-span memo — two `Cow<Version>`
 // endpoints — dominates the budget: the handle cost that buys the O(1)

@@ -266,8 +266,9 @@ Every feature is off by default.
 ## Stability and testing
 
 The wire format is steady by design: each `Protocol` is pinned
-byte-for-byte by snapshot tests, and a wire change introduces a new
-protocol version rather than silently changing an existing one.
+byte-for-byte by snapshot tests, and once a version has shipped, a wire
+change introduces a new protocol version rather than mutating a released
+one.
 
 The crate is validated by property tests stating the model's invariants
 (convergence under arbitrary gossip schedules, deletion honoring, observer

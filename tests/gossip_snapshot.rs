@@ -6,9 +6,9 @@
 //! V2 frames are grouped by logical stream so nondeterministic cross-stream
 //! scheduling does not destabilize the snapshots, while ordering within each
 //! stream remains exact. A representative V1 case pins its strictly
-//! alternating timeline. Re-accept only after a deliberate protocol change:
-//! a new protocol version, never a mutation of an existing one. The
-//! re-accept procedure (`cargo insta review`) is in `AGENTS.md`.
+//! alternating timeline. Re-accept only after a deliberate protocol change,
+//! never as an accommodation of drift; the two-regime re-accept rule and
+//! its procedure (`cargo insta review`) are in `AGENTS.md`.
 //!
 //! The payload type is `u64` throughout: it borsh-encodes to a fixed 8 bytes
 //! and is trivial to make distinct, which keeps the dumps short and lets

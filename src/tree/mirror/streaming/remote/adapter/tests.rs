@@ -16,7 +16,7 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::remote::codec::LeafRun,
-        typed::{Hash, Path},
+        typed::{Hash, Path, hash::MERKLE_HASH_LEN},
     },
 };
 
@@ -29,7 +29,7 @@ mod properties;
 mod runs;
 
 fn hash(byte: u8) -> Hash {
-    Hash([byte; 16])
+    Hash([byte; MERKLE_HASH_LEN])
 }
 
 /// Build a supply run from borrowed leaf records, in the given order.

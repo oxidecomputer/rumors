@@ -318,7 +318,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// wire schedule bounds those, at most one run per stream per
     /// direction, so up to
     /// [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
-    /// [`target_message_size`](Self::target_message_size) — ~19 MB per
+    /// [`target_message_size`](Self::target_message_size) — ~28 MB per
     /// direction at the defaults, plus a lone over-target record's
     /// overhang.
     ///
@@ -387,8 +387,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// then convert between bytes and disputes, both derived and
     /// pinned: each in-flight dispute (one disputed subtree, the unit
     /// the table below counts as a disputed scope) charges the budget
-    /// a 4865 B envelope (recomputed exactly by test), and each disputed
-    /// message costs 28 B of wire overhead on top of its record
+    /// a 5431 B envelope (recomputed exactly by test), and each disputed
+    /// message costs 34 B of wire overhead on top of its record
     /// (calibrated by deterministic byte counts,
     /// `tests/dispute_wire.rs`).
     ///
@@ -396,49 +396,49 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// trade. A session's worst-case slowdown, relative to a session
     /// limited only by wire time, is about
     ///
-    /// > `slowdown ≈ max(1, BDP × 4865 / (budget × (28 + m)))`
+    /// > `slowdown ≈ max(1, BDP × 5431 / (budget × (34 + m)))`
     ///
     /// Read it as a ratio of two message counts: how many disputed
-    /// messages the wire holds, `BDP / (28 + m)`, against how many the
-    /// budget keeps in flight, `budget / 4865`. Slowdown 1 is
+    /// messages the wire holds, `BDP / (34 + m)`, against how many the
+    /// budget keeps in flight, `budget / 5431`. Slowdown 1 is
     /// wire-time-optimal: bandwidth-bound stays bandwidth-bound.
     ///
     /// The estimate has a stated accuracy band. It overstates the
     /// window by roughly `F / budget`, where `F` is the corpus-fixed
     /// component of the real charge, so the slowdown it returns runs
-    /// ~2× low at a 10 MB budget, ~1.5× low at 16 MiB, and within a
+    /// ~2.3× low at a 10 MB budget, ~1.6× low at 16 MiB, and within a
     /// few percent past ~300 MB. It also prices no population ceiling,
     /// so where windows reach corpus scale, the exact solve's numbers
     /// (the table below, and the pinned crossover) replace it.
     /// Measured: sessions whose serialized one-way trips are counted
     /// exactly on a virtual clock, at 10–31 MB budgets on the design
-    /// corpus, ran 1.3–1.45× the form's figure
+    /// corpus, ran 1.3–1.65× the form's figure
     /// (`tests/tradeoff_probe.rs`).
     ///
     /// The ballpark answers, at the specification BDP:
     ///
     /// - **Is the default enough?** For any corpus whose mean encoded
-    ///   record size is at least 51 B, yes: the default imposes no
+    ///   record size is at least 61 B, yes: the default imposes no
     ///   window-induced serialization at all, because the in-flight
     ///   disputes' own transfer time covers the round trip. That
-    ///   51 B crossover comes from the exact solve, evaluated
+    ///   61 B crossover comes from the exact solve, evaluated
     ///   self-consistently (each record size at its own BDP-scale
     ///   corpus: the specification BDP in `m`-sized records, per side)
     ///   and pinned by `default_crossover_matches_the_solve`;
-    ///   the closed form's safe-side estimate is ~85 B.
+    ///   the closed form's safe-side estimate is ~92 B.
     /// - **What budget removes the wait entirely?** About
-    ///   `BDP × 4865 / (28 + m)` bytes. The design record (`m = 172`)
-    ///   needs ~304 MB, where the solve agrees with the form to three
+    ///   `BDP × 5431 / (34 + m)` bytes. The design record (`m = 172`)
+    ///   needs ~330 MB, where the solve agrees with the form to three
     ///   digits (this is the design point the envelope is pinned at).
-    ///   A minimal 8-byte-record corpus needs ~1.7 GB by the form,
-    ///   ~1.11 GB by the solve: population caps thin the deep charge
+    ///   A minimal 8-byte-record corpus needs ~1.6 GB by the form,
+    ///   ~1.08 GB by the solve: population caps thin the deep charge
     ///   at BDP-scale corpora, so the estimate is conservative there.
     /// - **What does a smaller budget cost?** Smooth latency, never
     ///   memory, and only on the interleaved dispute walk (bulk supply
     ///   runs stream outside the window). `u64` records at the default
-    ///   run at ~4.2× wire time for a BDP-scale corpus, and the factor
+    ///   run at ~4.6× wire time for a BDP-scale corpus, and the factor
     ///   grows slowly with set size as the derived window narrows:
-    ///   ~14.8× at 10⁷ messages, ~27.5× at 10¹⁰ (all derived from the
+    ///   ~14.2× at 10⁷ messages, ~26.5× at 10¹⁰ (all derived from the
     ///   solve). `tests/window_operator.rs` holds the wave model
     ///   against measured sessions on a bandwidth-limited link.
     ///
@@ -450,7 +450,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// session of 62500-message corpora a side; larger corpora derive
     /// narrower windows. Each cell then applies the measured wave form
     /// `slowdown = max(1, BDP_messages / K)`, with
-    /// `BDP_messages = BDP / (28 + m)` evaluated at the specification
+    /// `BDP_messages = BDP / (34 + m)` evaluated at the specification
     /// BDP of 12.5 MB (the wave form is measured:
     /// `tests/window_knee.rs`, `tests/window_operator.rs`). One
     /// caution when reading it: in rows whose window reaches the

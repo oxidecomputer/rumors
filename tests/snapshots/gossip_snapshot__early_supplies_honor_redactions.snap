@@ -9,19 +9,20 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (1, 1, 0)
-greeting words: set len 2, version-size bound 2, message-size target 1114624
+greeting words: set len 2, version-size bound 2, message-size target 1638912
 version frame: 30 bytes
   0000: 00 00 00 1a 02 00 00 00
   0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 5d 40
 listing: 1 child(ren)
-  child 0x9: 0b5647957ff3c7f662abbd6e79cef555
-listing frame: 25 bytes
-  0000: 00 00 00 15 01 00 00 00
-  0008: 09 0b 56 47 95 7f f3 c7
-  0010: f6 62 ab bd 6e 79 ce f5
-  0018: 55
+  child 0x9: 3629eebb207d33da9f5bbe95276a1a4c70a7e07aaa96d551
+listing frame: 33 bytes
+  0000: 00 00 00 1d 01 00 00 00
+  0008: 09 36 29 ee bb 20 7d 33
+  0010: da 9f 5b be 95 27 6a 1a
+  0018: 4c 70 a7 e0 7a aa 96 d5
+  0020: 51
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 1 record(s)
@@ -46,25 +47,28 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (1, 0, 4)
-greeting words: set len 3, version-size bound 2, message-size target 1114624
+greeting words: set len 3, version-size bound 2, message-size target 1638912
 version frame: 30 bytes
   0000: 00 00 00 1a 03 00 00 00
   0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 54 4c
 listing: 3 child(ren)
-  child 0x94: 9ba2ba4f4d18c5228db4534e273695fc
-  child 0xcf: b917fe6f40e679e54da764fcbef729b0
-  child 0xe9: 4747eda671d8a6acf6c0c83a7f1c1ad1
-listing frame: 59 bytes
-  0000: 00 00 00 37 03 00 00 00
+  child 0x94: 9ba2ba4f4d18c5228db4534e273695fc766b743561127128
+  child 0xcf: b917fe6f40e679e54da764fcbef729b0277f9e3afd6dc562
+  child 0xe9: 4747eda671d8a6acf6c0c83a7f1c1ad1255b1429364fbc36
+listing frame: 83 bytes
+  0000: 00 00 00 4f 03 00 00 00
   0008: 94 9b a2 ba 4f 4d 18 c5
   0010: 22 8d b4 53 4e 27 36 95
-  0018: fc cf b9 17 fe 6f 40 e6
-  0020: 79 e5 4d a7 64 fc be f7
-  0028: 29 b0 e9 47 47 ed a6 71
-  0030: d8 a6 ac f6 c0 c8 3a 7f
-  0038: 1c 1a d1
+  0018: fc 76 6b 74 35 61 12 71
+  0020: 28 cf b9 17 fe 6f 40 e6
+  0028: 79 e5 4d a7 64 fc be f7
+  0030: 29 b0 27 7f 9e 3a fd 6d
+  0038: c5 62 e9 47 47 ed a6 71
+  0040: d8 a6 ac f6 c0 c8 3a 7f
+  0048: 1c 1a d1 25 5b 14 29 36
+  0050: 4f bc 36
 Responder stream 0 (height 31), epoch 0
   frame 0: QueryEmpty(Continue)
     0000: 22

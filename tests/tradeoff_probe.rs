@@ -49,7 +49,7 @@ const BUILD_CAPACITY: usize = 8 * 1024 * 1024;
 const COMMON: usize = 2_048;
 
 /// Messages each side originates alone: the design corpus (the scale
-/// `SCOPE_ENVELOPE_BYTES` = 4,865 B is pinned at), so the closed form
+/// `SCOPE_ENVELOPE_BYTES` = 5,431 B is pinned at), so the closed form
 /// is evaluated inside its own claimed regime.
 const DIVERGENT: usize = 62_500;
 

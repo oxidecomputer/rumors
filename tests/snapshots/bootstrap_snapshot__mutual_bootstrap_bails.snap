@@ -9,11 +9,11 @@ preamble: 25 bytes
   0010: 00 00 00 00 00 00 00 00
   0018: 00
 version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1114624
+greeting words: set len 0, version-size bound 0, message-size target 1638912
 version frame: 29 bytes
   0000: 00 00 00 19 00 00 00 00
   0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 e0
 listing: 0 child(ren)
 listing frame: 8 bytes
@@ -28,11 +28,11 @@ preamble: 25 bytes
   0010: 00 00 00 00 00 00 00 00
   0018: 00
 version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1114624
+greeting words: set len 0, version-size bound 0, message-size target 1638912
 version frame: 29 bytes
   0000: 00 00 00 19 00 00 00 00
   0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 e0
 listing: 0 child(ren)
 listing frame: 8 bytes
