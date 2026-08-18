@@ -17,9 +17,10 @@ use wasmtime::{Engine, Instance, Module, Store, Trap};
 /// One pin call's outcome: the export's return value, or the trap that
 /// aborted it.
 ///
-/// A trap is a first-class outcome, not a driver failure: the pinned bad
-/// baselines ARE panics in `before` (surfaced as `unreachable` traps under
-/// `panic = abort`), so the pins assert on this axis directly.
+/// A trap is a first-class outcome, not a driver failure: a guest panic
+/// surfaces as the `unreachable` trap under `panic = abort`, and a boundary
+/// found panicking is pinned as exactly that trap until its cure lands, so
+/// the pins assert on this axis directly.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The export returned: nonnegative is its observation, negative names

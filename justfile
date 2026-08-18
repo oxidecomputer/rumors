@@ -591,8 +591,10 @@ fuzzfit-calibrate: fuzzfit-build
 # byte decode doors at the exact sizes where 32-bit position arithmetic
 # has boundaries (bitvec's borrowed-view cap, the usize bit-length
 # boundary at 512 MiB, the rank exponent's usize seam), and the harness
-# pins each boundary's behavior — the red-first bad baselines and the
-# green boundaries beside them. The guest builds with overflow checks on,
+# pins each boundary's exact outcome, with adjacency witnesses beside
+# each boundary so a failure is attributable to its seam. Pins land
+# red-first when a seam is found; each pin's history lives in git.
+# The guest builds with overflow checks on,
 # so a 32-bit wrap is an observable trap, never a silently wrong value.
 
 # Build the 32-bit boundary-pin wasm guest and its harness (both halves).

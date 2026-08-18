@@ -13,8 +13,9 @@
 //!   value's own bit length where one exists, `0` for a plain pass — and a
 //!   negative code naming the first failed observation.
 //! - A panic anywhere in `before` or its dependencies aborts the guest,
-//!   which wasmtime surfaces as a trap. The traps ARE the pinned bad
-//!   baselines, so trap-versus-value is the harness's red/green axis.
+//!   which wasmtime surfaces as a trap: a first-class outcome the harness
+//!   pins directly, so trap-versus-value is the red/green axis whenever a
+//!   boundary misbehaves.
 //!
 //! The workspace builds this guest with `overflow-checks = true`: the 32-bit
 //! failure class under audit includes silent release-mode wraps, and the
