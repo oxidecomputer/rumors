@@ -216,13 +216,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///
     /// A batch is a performance optimization, not an atomicity guarantee:
     /// it coalesces its actions into one tree traversal and one commit,
-    /// but what commits is whatever the batch holds when it drops.
-    /// [`Batch`] states the drop semantics (nothing under a panic's
-    /// unwind; the queued prefix under async cancellation, so a batch must
-    /// not be held across an `.await` in a cancellable task) and the
-    /// pattern for delivery that must be all-or-nothing under panic or
-    /// cancellation: bundle the pieces into one application-level message
-    /// in `T`.
+    /// but, outside of a panic, whatever the batch holds when it drops is
+    /// committed automatically. Do not rely on batch atomicity for
+    /// correctness, *especially* in the presence of async cancellation.
     ///
     /// # Examples
     ///
