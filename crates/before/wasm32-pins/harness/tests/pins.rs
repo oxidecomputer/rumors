@@ -145,11 +145,12 @@ fn rank_decode_at_usize_exp_boundary() {
     assert_eq!(call1("pin_rank_decode", 1u64 << 32), Outcome::Value(0));
 }
 
-/// A valid rank whose numerator is exactly the big-integer backend's
-/// 32-bit capacity — 2^32 - 32 value bits, from a fraction 2^32 + 32
-/// expansion bits deep opening with 64 zero bits — decodes correctly and
-/// orders exactly against reference ranks.
+/// A valid rank whose numerator exactly fills the big-integer backend's
+/// 32-bit capacity decodes correctly and orders exactly against reference
+/// ranks.
 ///
+/// The numerator is 2^32 - 32 value bits, from a fraction 2^32 + 32
+/// expansion bits deep opening with 64 zero bits.
 /// The backend caps a magnitude at `usize::MAX / 32` words so bit counts
 /// fit `usize`; a numerator of exactly that many bits fills the buffer to
 /// its last word. This is the backend-capacity boundary's lower adjacency
@@ -198,10 +199,11 @@ fn ranked_decode_below_view_cap() {
 }
 
 /// PINNED AS FOUND: a valid composite key whose version component is
-/// 67108864 bytes — exactly 2^29 bits, the first size past the borrowed
-/// view's encoding — traps in the byte door `Ranked::decode` on wasm32
+/// 67108864 bytes traps in the byte door `Ranked::decode` on wasm32
 /// instead of decoding.
 ///
+/// The component is exactly 2^29 bits: the first size past the borrowed
+/// view's encoding.
 /// The rank and version components both parse (the version door's own walk
 /// is byte-backed and admits streams to 512 MiB); the door then re-derives
 /// the version's rank through its borrowed bit view, which is
@@ -217,12 +219,12 @@ fn ranked_decode_at_view_cap_traps() {
 }
 
 /// PINNED AS FOUND: a valid composite key whose version component is
-/// 67108865 bytes — one byte past the view-cap boundary, where the view
-/// construction fails by the element-count guard rather than the length
-/// encoding — traps in `Ranked::decode` on wasm32 instead of decoding.
+/// 67108865 bytes traps in `Ranked::decode` on wasm32 instead of decoding.
 ///
-/// Together with the pin one byte below, this holds both failure genres of
-/// the borrowed-view cap to the same committed baseline the cure must move.
+/// One byte past the view-cap boundary, the view construction fails by the
+/// element-count guard rather than the length encoding. Together with the
+/// pin one byte below, this holds both failure genres of the borrowed-view
+/// cap to the same committed baseline the cure must move.
 #[test]
 fn ranked_decode_past_view_cap_traps() {
     assert_eq!(
@@ -274,10 +276,10 @@ fn ranked_borsh_past_view_cap_traps() {
 
 /// A valid coincident span — two byte-equal version streams — decodes
 /// through the borsh door `Span::deserialize_reader` at the largest `lo`
-/// size whose whole-stream bit view is constructible on wasm32, consuming
-/// exactly its own bytes.
+/// size whose whole-stream bit view is constructible on wasm32.
 ///
-/// The door validates the second stream against `lo`'s borrowed view in
+/// The door consumes exactly its own bytes.
+/// It validates the second stream against `lo`'s borrowed view in
 /// one fused admission walk: this is that walk's lower adjacency witness.
 /// (The byte door `Span::decode` runs the same admission on raw bytes and
 /// is exact to 512 MiB per component; only the streaming door reads
@@ -401,16 +403,16 @@ fn version_join_past_view_cap_traps() {
 }
 
 /// Join emits the largest output this operand family can pass through the
-/// emitter's finish seam on wasm32 — 536870903 live bits, one bit under
-/// the 67108863 whole output bytes the finished stream's bit-vector
-/// adoption can represent — from two operands each comfortably under the
-/// walk surface's per-operand bound.
+/// emitter's finish seam on wasm32: 536870903 live bits.
 ///
-/// The operands are complementary two-leaf skylines (~50 MB and ~42 MB)
-/// whose join concatenates: the output outgrows both inputs, so this
-/// witnesses the emitter's output-side boundary from below, independent of
-/// any per-operand cap. The returned observation is the output's exact
-/// live bit length.
+/// That is one bit under the 67108863 whole output bytes the finished
+/// stream's bit-vector adoption can represent, from two operands each
+/// comfortably under the walk surface's per-operand bound. The operands
+/// are complementary two-leaf skylines (~50 MB and ~42 MB) whose join
+/// concatenates: the output outgrows both inputs, so this witnesses the
+/// emitter's output-side boundary from below, independent of any
+/// per-operand cap. The returned observation is the output's exact live
+/// bit length.
 #[test]
 fn version_join_emit_below_build_cap() {
     assert_eq!(
@@ -419,14 +421,14 @@ fn version_join_emit_below_build_cap() {
     );
 }
 
-/// PINNED AS FOUND: a join of two valid operands, each comfortably under
-/// the walk surface's per-operand bound (~50 MB and ~42 MB), traps on
-/// wasm32 when its output's finished byte length reaches 67108864 —
-/// 536870905 live bits, the first length whose whole-byte buffer exceeds
-/// the bit vector's `usize::MAX >> 3`-bit length encoding when the
-/// emitter's byte-backed builder hands the finished stream over — instead
-/// of emitting.
+/// PINNED AS FOUND: a join of two valid operands, each under every
+/// per-operand bound, traps on wasm32 instead of emitting when its
+/// output's finished byte length reaches 67108864.
 ///
+/// That is 536870905 live bits: the first length whose whole-byte buffer
+/// exceeds the bit vector's `usize::MAX >> 3`-bit length encoding when the
+/// emitter's byte-backed builder hands the finished stream over. The
+/// operands are complementary two-leaf skylines, ~50 MB and ~42 MB.
 /// The boundary is the build-side buffer's length encoding, documented at
 /// no public operation, and it sits below the byte doors' 512 MiB storage
 /// bound: valid operand pairs admitted and walkable on this target have no
@@ -441,12 +443,12 @@ fn version_join_emit_at_build_cap_traps() {
     );
 }
 
-/// Rank addition is exact just below the 32-bit alignment-gap boundary: a
-/// fraction 2^32 expansion bits deep plus one 128 bits deep — an exponent
-/// gap of 2^32 - 128, whose aligned numerator still fits the backend —
-/// sums to a value strictly above both summands.
+/// Rank addition is exact just below the 32-bit alignment-gap boundary.
 ///
-/// The gap boundary's lower adjacency witness on the addition arm.
+/// A fraction 2^32 expansion bits deep plus one 128 bits deep — an
+/// exponent gap of 2^32 - 128, whose aligned numerator still fits the
+/// backend — sums to a value strictly above both summands. The gap
+/// boundary's lower adjacency witness on the addition arm.
 #[test]
 fn rank_add_below_gap_boundary() {
     assert_eq!(call1("pin_rank_add", 128), Outcome::Value(0));
@@ -470,10 +472,11 @@ fn rank_add_at_gap_boundary_traps() {
 }
 
 /// PINNED AS FOUND: adding the rank 1/2 to a fraction 2^32 expansion bits
-/// deep traps on wasm32: the exponent gap, 2^32 - 1, fits the shift
-/// amount, but the aligned numerator — 2^32 value bits — exceeds the
-/// backend's 2^32 - 32-bit capacity.
+/// deep traps on wasm32.
 ///
+/// The exponent gap, 2^32 - 1, fits the shift amount, but the aligned
+/// numerator — 2^32 value bits — exceeds the backend's 2^32 - 32-bit
+/// capacity.
 /// The gap boundary's other genre: just below the shift-amount seam the
 /// terminal moves from the shift's conversion to the backend's capacity
 /// assert, so no sub-boundary gap is safe unless the aligned width also
@@ -486,22 +489,23 @@ fn rank_add_below_gap_wide_result_traps() {
     );
 }
 
-/// Rank subtraction is exact just below the 32-bit alignment-gap
-/// boundary: a fraction 128 expansion bits deep minus a smaller one 2^32
-/// bits deep — the same 2^32 - 128 gap as the addition witness — yields a
-/// difference strictly between zero and the minuend.
+/// Rank subtraction is exact just below the 32-bit alignment-gap boundary.
 ///
-/// The gap boundary's lower adjacency witness on the subtraction arm.
+/// A fraction 128 expansion bits deep minus a smaller one 2^32 bits deep —
+/// the same 2^32 - 128 gap as the addition witness — yields a difference
+/// strictly between zero and the minuend. The gap boundary's lower
+/// adjacency witness on the subtraction arm.
 #[test]
 fn rank_checked_sub_below_gap_boundary() {
     assert_eq!(call1("pin_rank_checked_sub", 128), Outcome::Value(0));
 }
 
 /// PINNED AS FOUND: subtracting a fraction 2^32 expansion bits deep from
-/// the integral rank 1 traps on wasm32: the strictly positive difference
-/// aligns the minuend by a shift whose exponent gap is exactly 2^32, one
-/// past the widest amount a 32-bit target can name.
+/// the integral rank 1 traps on wasm32.
 ///
+/// The strictly positive difference aligns the minuend by a shift whose
+/// exponent gap is exactly 2^32, one past the widest amount a 32-bit
+/// target can name.
 /// The ordering pre-check settles sign without alignment, so `None` and
 /// zero results stay exact at any gap; only the positive arm reaches the
 /// shift. The cure flips this pin to the correct-value assertion.

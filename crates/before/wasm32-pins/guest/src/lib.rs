@@ -259,9 +259,11 @@ fn synth_two_leaf_left(k: u64) -> Vec<u8> {
 }
 
 /// The canonical encoding of the two-leaf version `node(leaf(0),
-/// leaf(2^k - 1 + 2^(j-1)))`: height zero over `[0, 1/2)`, a tall right
-/// plateau over `[1/2, 1)`, its height chosen so the join against
-/// [`synth_two_leaf_left`]'s value has the exact delta `2^(j-1)`.
+/// leaf(2^k - 1 + 2^(j-1)))`.
+///
+/// Height zero over `[0, 1/2)`, a tall right plateau over `[1/2, 1)`, its
+/// height chosen so the join against [`synth_two_leaf_left`]'s value has
+/// the exact delta `2^(j-1)`.
 ///
 /// The layout: the root's `0`; the left leaf's `1` and gamma(0), the single
 /// bit `1`; the right leaf's `1` and its delta `+h` as zigzag-gamma — the
@@ -285,10 +287,11 @@ fn synth_two_leaf_right(k: u64, j: u64) -> Vec<u8> {
     bytes
 }
 
-/// The canonical rank stream of the integral `2^k - 1` (exponent zero):
-/// exactly `Rank::encode` of [`synth_version`]'s decoded value, whose lone
-/// root leaf of height `2^k - 1` spans the whole unit interval, so its rank —
-/// the area under the skyline — is that height itself.
+/// The canonical rank stream of the integral `2^k - 1` (exponent zero).
+///
+/// Exactly `Rank::encode` of [`synth_version`]'s decoded value: the lone
+/// root leaf of height `2^k - 1` spans the whole unit interval, so its rank
+/// — the area under the skyline — is that height itself.
 ///
 /// The layout (the inverted-delta integral header, no fraction): for the
 /// biased mantissa `m = 2^k`, width `w = k + 1`, and run `rho = bits(w) - 1`:
@@ -312,9 +315,11 @@ fn synth_integral_rank(k: u64) -> Vec<u8> {
 }
 
 /// The canonical composite key `Ranked::encode` of [`synth_version`]'s
-/// `n`-byte value: the rank stream of its integral rank `2^(4n - 5) - 1`,
-/// then the version's canonical bytes. Returns the composite and the rank
-/// stream's byte length.
+/// `n`-byte value.
+///
+/// The rank stream of its integral rank `2^(4n - 5) - 1`, then the
+/// version's canonical bytes. Returns the composite and the rank stream's
+/// byte length.
 fn synth_ranked(n: usize) -> (Vec<u8>, usize) {
     let k = 4 * n as u64 - 5;
     let mut composite = synth_integral_rank(k);
@@ -468,10 +473,10 @@ pub extern "C" fn pin_version_join_covering(n_bytes: u64) -> i64 {
 }
 
 /// Join the two-leaf pair [`synth_two_leaf_left`]`(k)` and
-/// [`synth_two_leaf_right`]`(k, j)` — each operand well under the walk
-/// surface's per-operand bound — and return the joined stream's exact live
-/// bit length, `2k + 2j + 5`.
+/// [`synth_two_leaf_right`]`(k, j)`, returning the joined stream's exact
+/// live bit length, `2k + 2j + 5`.
 ///
+/// Each operand sits well under the walk surface's per-operand bound.
 /// The join is `node(leaf(2^k - 1), leaf(2^k - 1 + 2^(j-1)))`: each half of
 /// the unit interval takes its taller side, so the output concatenates the
 /// left operand's tall code with a fresh `2j + 1`-bit delta code instead of
