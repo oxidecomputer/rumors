@@ -50,6 +50,7 @@ fn arb_connected_violation() -> impl Strategy<Value = Violation> {
 fn arb_greeting_lie() -> impl Strategy<Value = GreetingLie> {
     prop_oneof![
         Just(GreetingLie::ShrunkenSetLen),
+        Just(GreetingLie::UnderdeclaredSetLen),
         Just(GreetingLie::InflatedSetLen),
         Just(GreetingLie::ShrunkenVersion),
         Just(GreetingLie::InflatedVersion),
@@ -120,7 +121,13 @@ proptest! {
             full_depth_comb_pair(2, LeafOrder::Interleaved);
         let before = (client_root.clone(), server_root.clone());
         let expected = match lie {
-            GreetingLie::ShrunkenSetLen => Some(Violation::OverdrawnSupply),
+            // The zero declaration trips at the first absorbed supply;
+            // the one-leaf declaration admits supply first and trips on
+            // the ledger's accumulation — both land as the same
+            // violation, from opposite ends of the allowance.
+            GreetingLie::ShrunkenSetLen | GreetingLie::UnderdeclaredSetLen => {
+                Some(Violation::OverdrawnSupply)
+            }
             GreetingLie::ShrunkenVersion => Some(Violation::UncontainedSupply),
             GreetingLie::InflatedSetLen | GreetingLie::InflatedVersion => None,
         };
