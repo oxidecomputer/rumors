@@ -18,9 +18,8 @@ use crate::{Inner, Key};
 /// # A batch is a performance optimization, not an atomicity guarantee
 ///
 /// Batching coalesces several actions into one tree traversal, one commit
-/// moment, and at most one observer wakeup, instead of paying each per
-/// action. What commits is whatever the batch holds when it drops; no
-/// transaction protocol decides whether it commits:
+/// moment, and at most one internal gossip wakeup, instead of one per
+/// action. When the batch drops:
 ///
 /// - **Dropped normally**, the batch commits everything queued so far, as
 ///   one commit: observers and concurrent gossip sessions see all of it
@@ -30,26 +29,18 @@ use crate::{Inner, Key};
 /// - **Dropped by async cancellation** (the future holding it across an
 ///   `.await` is dropped), the batch commits the prefix queued before the
 ///   cancellation point. Cancellation runs no unwind, so this drop is
-///   indistinguishable from an ordinary end-of-statement commit. **Do not
-///   hold a batch across an `.await` in a task that can be cancelled**
-///   (`select!` arms, timeouts, task aborts).
+///   indistinguishable from an ordinary end-of-statement commit.
 ///
 /// An application that needs several pieces delivered all-or-nothing even
 /// under panic or cancellation should not reach for a batch: bundle the
-/// pieces into one application-level message in its definition of `T`. One
-/// message is one leaf of the replicated set, indivisible under every
-/// failure mode by construction.
+/// pieces into one application-level message in your definition of the
+/// application's message type `T`.
 ///
-/// Building a [`Batch`] holds no lock; committing locks the rumor set
-/// momentarily.
-///
-/// Commit is the causal moment: a sent message's version dominates
-/// everything this replica had observed when the batch committed, not when
-/// the batch was built ([`Rumors::send`](crate::Rumors::send) states the
-/// contract and its boundary). Because building holds no lock,
-/// concurrent synchronization can land between building and committing,
-/// and two batches carry no guaranteed causal relationship to one another
-/// unless the application synchronizes them itself.
+/// Building a [`Batch`] holds no lock; batches are serialized only upon
+/// commit. Because building holds no lock, concurrent gossip rounds
+/// can land between building and committing, and two batches carry no
+/// guaranteed causal relationship to one another unless the application
+/// synchronizes them itself.
 pub struct Batch<'a, T: Send + Sync> {
     inner: &'a watch::Sender<Inner<T>>,
     actions: Vec<Action<T>>,
