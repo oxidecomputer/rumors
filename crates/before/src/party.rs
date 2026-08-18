@@ -18,7 +18,7 @@
 
 use core::fmt::Display;
 
-use crate::codec::{self, BitsSlice};
+use crate::codec::{self, BitsView};
 use crate::error::{Decode, Parse};
 use crate::idbits::IdReader;
 use crate::{Ticks, Version};
@@ -457,7 +457,7 @@ impl Party {
     /// ```
     pub fn without(self, other: &Party) -> Option<Party> {
         let bits = self.view().diff(other.view());
-        if codec::id_is_empty(&bits) {
+        if codec::id_is_empty(codec::built_view(&bits)) {
             None
         } else {
             Some(Party::from_bits(bits))
@@ -551,10 +551,7 @@ impl Party {
     /// assert_eq!(before::Party::seed().encoded_bits(), 2);
     /// ```
     pub fn encoded_bits(&self) -> usize {
-        // The stored form's O(1) length, never the borrowed bit view: the
-        // view's encoding caps below the stored sizes the decode doors admit
-        // on 32-bit targets, while the length itself is exact at every
-        // storable size.
+        // The stored form's O(1) length: exact at every storable size.
         self.0.len()
     }
 
@@ -582,13 +579,12 @@ impl Party {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        // Validate over the raw bytes (never a borrowed bit view, whose
-        // encoding caps below the buffer sizes this door admits on 32-bit
-        // targets): the whole `8 · buf.len()`-bit view is the walk's input,
-        // padding bits included, and the marker check judges the remainder.
+        // Validate over the whole buffer as bits, padding included: the
+        // walk's input is the whole `8 · buf.len()`-bit view, and the marker
+        // check judges the remainder.
         {
-            let end = codec::parse_id_bytes(&buf)?;
-            codec::require_marker_padding_bytes(&buf, end)?;
+            let end = codec::parse_id(codec::BitsView::whole(&buf), 0)?;
+            codec::require_marker_padding(&buf, end)?;
         }
         // Adopt the read buffer as the result's backing store without
         // copying: the padding check proved the buffer is the stream's one
@@ -615,7 +611,7 @@ impl Party {
 
     /// A read-only [`IdReader`] cursor at the root of this party's packed id bits.
     pub(crate) fn view(&self) -> IdReader<'_> {
-        IdReader::root(&self.0)
+        IdReader::root(self.0.live())
     }
 
     /// Reunites this party with `other` and re-splits the union, in one fused
@@ -665,8 +661,8 @@ impl Party {
 
     /// The packed preorder bit stream, live bits only (the padding stays
     /// behind the view). Internal.
-    pub(crate) fn as_bits(&self) -> &BitsSlice {
-        &self.0
+    pub(crate) fn as_bits(&self) -> BitsView<'_> {
+        self.0.live()
     }
 
     /// Freeze a normal-form packed bit stream as a `Party`, canonicalizing its
@@ -709,7 +705,7 @@ impl Party {
 /// ```
 impl core::fmt::Display for Party {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        codec::write_id(&self.0, f, ", ")
+        codec::write_id(self.0.live(), f, ", ")
     }
 }
 
@@ -752,7 +748,7 @@ impl core::str::FromStr for Party {
 /// identity. The single gate through which every parsed/built top-level `Party`
 /// passes.
 fn finish_id(bits: codec::BitsMut) -> Result<Party, Parse> {
-    if codec::id_is_empty(&bits) {
+    if codec::id_is_empty(codec::built_view(&bits)) {
         Err(Parse::Anonymous)
     } else {
         Ok(Party::from_bits(bits))

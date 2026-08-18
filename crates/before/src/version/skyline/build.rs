@@ -53,7 +53,7 @@
 //! `skyline_join_*` rows) pins the whole emission's transient against these
 //! bounds.
 
-use crate::codec::{BitStack, BitsMut, BitsSlice, Code, PackedBuilder, PopStack};
+use crate::codec::{BitStack, BitsMut, BitsView, Code, PackedBuilder, PopStack};
 
 /// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
 ///
@@ -213,16 +213,16 @@ impl SkylineBuilder {
     /// debug-asserts it: absorb takes only the held leaf's direct *right*
     /// sibling, while a subtree's first leaf at positive relative depth lies
     /// on the subtree's leftmost path and so enters as a *left* child.
-    /// `rest` is the subtree's stream from just past that leaf's payload
-    /// code to the subtree's end. Because every consecutive-leaf delta
-    /// strictly inside a canonical subtree is unchanged by anything outside
-    /// it, the range is copied in one splice instead of leaf by leaf; only
-    /// the held-leaf discipline is re-established around it — the last
-    /// leaf's flag is withheld and its code (`last_code_len` bits, ending
-    /// the range) becomes the held code. `first_rel_depth` and
-    /// `last_rel_depth` are the first and last leaves' depths below the
-    /// subtree root, each at least 1: a single-leaf subtree is fed wholly
-    /// through [`leaf`](Self::leaf) instead.
+    /// `start..end` names the subtree's bit range in `src` from just past
+    /// that leaf's payload code to the subtree's end. Because every
+    /// consecutive-leaf delta strictly inside a canonical subtree is
+    /// unchanged by anything outside it, the range is copied in one splice
+    /// instead of leaf by leaf; only the held-leaf discipline is
+    /// re-established around it — the last leaf's flag is withheld and its
+    /// code (`last_code_len` bits, ending the range) becomes the held code.
+    /// `first_rel_depth` and `last_rel_depth` are the first and last leaves'
+    /// depths below the subtree root, each at least 1: a single-leaf subtree
+    /// is fed wholly through [`leaf`](Self::leaf) instead.
     ///
     /// The spliced interior levels record no left-sibling-leaf collapse
     /// coordinates: a canonical subtree's rightmost leaf is never the equal
@@ -230,9 +230,12 @@ impl SkylineBuilder {
     /// the source), so a cascade can never need to re-anchor into the spliced
     /// range, and the placeholder records only suppress merges canonicity
     /// already rules out.
+    #[allow(clippy::too_many_arguments)] // (src, start, end) is one logical range argument
     pub(super) fn continue_verbatim(
         &mut self,
-        rest: &BitsSlice,
+        src: BitsView<'_>,
+        start: u64,
+        end: u64,
         root_depth: usize,
         first_rel_depth: usize,
         last_rel_depth: usize,
@@ -249,11 +252,11 @@ impl SkylineBuilder {
              its subtree root enters as a left child"
         );
         debug_assert!(
-            rest.len() > last_code_len,
+            end - start > last_code_len as u64,
             "the continuation holds at least the last leaf's flag and code"
         );
-        let last_flag = rest.len() - last_code_len - 1;
-        debug_assert!(rest[last_flag], "the continuation ends with a leaf");
+        let last_flag = end - last_code_len as u64 - 1;
+        debug_assert!(src.bit(last_flag), "the continuation ends with a leaf");
         let held = self
             .held
             .take()
@@ -262,8 +265,8 @@ impl SkylineBuilder {
         // the last code is withheld as the new held leaf.
         self.out.push_bit(true);
         self.out.push_code(&held);
-        self.out.splice(&rest[..last_flag]);
-        self.held = Some(Code::from_slice(&rest[last_flag + 1..]));
+        self.out.splice(src, start, last_flag);
+        self.held = Some(Code::from_range(src, last_flag + 1, end));
         // Re-anchor the per-level stacks from the first leaf's leftmost descent
         // to the last leaf's rightmost one. The popped levels were pushed by
         // `descend_to` (left branches, no left-sibling records), and the pushed

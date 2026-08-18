@@ -92,9 +92,10 @@ pub extern "C" fn pin_version_small() -> i64 {
 /// `encoded_bits` (always `8n - 8` for the synthesized layout), checking
 /// that the stored bytes round-trip the input exactly.
 ///
-/// The harness aims this at the 32-bit boundaries: the last size below
-/// `bitvec`'s borrowed-view cap, the first size at it, and the 512 MiB
-/// bit-length boundary of `usize` position arithmetic.
+/// The harness aims this at the 32-bit boundaries: the sizes straddling
+/// 2^29 bits (the 32-bit bit-vector length encoding's cap, which the
+/// build side still carries) and the 512 MiB bit-length boundary of
+/// `usize` position arithmetic.
 #[no_mangle]
 pub extern "C" fn pin_version_decode(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -331,10 +332,10 @@ fn synth_ranked(n: usize) -> (Vec<u8>, usize) {
 /// Decode a valid `n`-byte-version composite key through the byte door
 /// `Ranked::decode`, checking the decoded version's bytes round-trip.
 ///
-/// The door re-derives the version's rank to verify the key's rank component
-/// — a whole-stream fold over the version's borrowed bit view — so this
-/// export observes the composite door's walk boundary, not the byte doors'
-/// (which admit the same version alone up to 512 MiB).
+/// The door re-derives the version's rank to verify the key's rank
+/// component — a whole-stream fold over the version's stored view — so this
+/// export observes the composite door's walk surface at sizes the byte
+/// doors admit (up to 512 MiB per stream).
 #[no_mangle]
 pub extern "C" fn pin_ranked_decode(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -384,9 +385,9 @@ pub extern "C" fn pin_ranked_borsh(n_bytes: u64) -> i64 {
 /// consumption and that both endpoints are the parsed version.
 ///
 /// The door validates the second stream against the first component's
-/// borrowed bit view in one fused admission walk, so this export observes
-/// that walk's boundary on the `lo` component; the endpoint checks are byte
-/// compares, exact at any storable size.
+/// stored view in one fused admission walk, so this export observes that
+/// walk on the `lo` component; the endpoint checks are byte compares,
+/// exact at any storable size.
 #[no_mangle]
 pub extern "C" fn pin_span_borsh(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -417,9 +418,9 @@ pub extern "C" fn pin_span_borsh(n_bytes: u64) -> i64 {
 /// leaves, so they are comparable), expecting strictly greater both ways
 /// around.
 ///
-/// The comparison sweep reads each operand through its borrowed bit view, so
-/// this export observes the walk surface's boundary on ordinary comparison —
-/// a decode-free operation pair over already-stored values.
+/// The comparison sweep reads each operand through its stored view, so
+/// this export observes the walk surface on ordinary comparison — a
+/// decode-free operation pair over already-stored values.
 #[no_mangle]
 pub extern "C" fn pin_version_cmp(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -447,10 +448,11 @@ pub extern "C" fn pin_version_cmp(n_bytes: u64) -> i64 {
 /// leaves: pointwise max is the taller), expecting the join to equal the
 /// big operand byte for byte.
 ///
-/// The join walks both operands through their borrowed bit views before its
-/// merge emission, so this export observes the walk surface's boundary on
-/// the emitting operation class; the result check is a byte compare, exact
-/// at any storable size.
+/// The join walks both operands through their stored views before its
+/// merge emission, so this export observes the emitting operation class:
+/// the walk surface on its input side, and the build buffer on its output
+/// side (a covered join's output reproduces the big operand whole); the
+/// result check is a byte compare, exact at any storable size.
 #[no_mangle]
 pub extern "C" fn pin_version_join_covering(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {

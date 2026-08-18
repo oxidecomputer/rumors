@@ -315,7 +315,9 @@ impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
         if self.position == self.bits.len() {
             let mut byte = [0];
             self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
-            self.bits.extend_from_bitslice(codec::bytes_as_bits(&byte));
+            use bitvec::view::BitView;
+            self.bits
+                .extend_from_bitslice(byte.view_bits::<bitvec::order::Msb0>());
         }
         let bit = self.bits[self.position];
         self.position += 1;
@@ -523,7 +525,7 @@ fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
         bits: BitsMut::new(),
         position: 0,
     };
-    let admission = validate_dominating_from(lo.view(), &mut cursor)?;
+    let admission = validate_dominating_from((lo.view()).live(), &mut cursor)?;
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;

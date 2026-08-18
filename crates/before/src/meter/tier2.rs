@@ -18,7 +18,7 @@
 //! 2|k| - 1` (no negative zero), and each mapped delta is then gamma-coded
 //! exactly like today's stored bases.
 
-use crate::codec::{self, Base, BitsSlice};
+use crate::codec::{self, Base, BitsView};
 
 /// The Tier 2 encoded bit length of a [`Version`](crate::Version), split into
 /// the terms the compactness envelope is stated over.
@@ -54,8 +54,8 @@ pub struct Tier2Size {
 ///
 /// Panics if the packed form does not parse cleanly; callers hand in
 /// generator-built canonical streams.
-pub fn tier2_size(bits: &BitsSlice) -> Tier2Size {
-    let mut pos = 0usize;
+pub fn tier2_size(bits: BitsView<'_>) -> Tier2Size {
+    let mut pos = 0u64;
     // Inherited root-to-node path sums for the nodes not yet visited, top of
     // stack belonging to the next node in the preorder stream. Both children of
     // an internal node inherit the same sum, and the stream lists the whole
@@ -68,7 +68,7 @@ pub fn tier2_size(bits: &BitsSlice) -> Tier2Size {
     let mut prev_leaf: Option<Base> = None;
 
     while let Some(offset) = offsets.pop() {
-        let internal = bits[pos];
+        let internal = bits.bit(pos);
         pos += 1;
         let (base, next) = codec::decode_int(bits, pos).expect("canonical Version parses cleanly");
         pos = next;

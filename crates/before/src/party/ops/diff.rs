@@ -44,7 +44,7 @@
 //! the shape on which a structural walk's recursion depth tracks the full tree
 //! depth — cost bits, not stack frames or grown segments.
 
-use crate::codec::{BitsMut, BitsSlice};
+use crate::codec::{BitsMut, BitsView};
 use crate::idbits::IdReader;
 use crate::version::skyline::overlay::{self, PlateauCursor};
 
@@ -74,7 +74,8 @@ impl IdReader<'_> {
         // `self \ other ⊆ self`, but over a full `self` plateau the output
         // is `other`'s complement, which can be as large as `other`. Both
         // inputs combined is a safe bound; normalization only shrinks it.
-        let mut out = IdSkylineBuilder::with_capacity(self.bits().len() + other.bits().len());
+        let mut out =
+            IdSkylineBuilder::with_capacity((self.bits().len() + other.bits().len()) as usize);
         let (mut a, a_entering) = IdLeafCursor::open(self);
         let (mut b, b_entering) = IdLeafCursor::open(other);
         settle_pair(&mut a, &mut b, a_entering, b_entering);
@@ -89,7 +90,7 @@ impl IdReader<'_> {
                         b.depth() <= a.depth() && !b.owned(),
                         "a splice is covered by an unowned `other` plateau"
                     );
-                    out.subtree(a.depth(), &a.bits[start..a.pos]);
+                    out.subtree(a.depth(), a.bits, start, a.pos);
                 }
                 Item::Plateau { owned } => {
                     out.leaf(a.depth().max(b.depth()), owned && !b.owned());
@@ -210,7 +211,7 @@ enum Item {
     /// A whole `self` subtree consumed as one covered block, to be spliced
     /// verbatim: `bits[start..pos]`. Only ever formed on the `self` cursor,
     /// under an unowned `other` plateau.
-    Splice { start: usize },
+    Splice { start: u64 },
 }
 
 /// What one descent move resolved to (see [`IdLeafCursor::enter`]).
@@ -243,11 +244,11 @@ enum Enter {
 /// ([`consume`](Self::consume)) or walked plateau by plateau
 /// ([`enter`](Self::enter)/[`descend`](Self::descend)).
 struct IdLeafCursor<'a> {
-    bits: &'a BitsSlice,
+    bits: BitsView<'a>,
     /// The next unread tag's bit offset. Preorder consumption keeps it at the
     /// subtree of the next *present* child slot the walk flips into; synthetic
     /// plateaus consume nothing.
-    pos: usize,
+    pos: u64,
     /// Root-to-item branch directions: `false` inside a left child slot, `true`
     /// inside a right.
     path: BitsMut,
@@ -273,7 +274,7 @@ impl<'a> IdLeafCursor<'a> {
     /// (`false`).
     fn open(src: IdReader<'a>) -> (Self, bool) {
         let mut this = IdLeafCursor {
-            bits: BitsSlice::empty(),
+            bits: BitsView::empty(),
             pos: 0,
             path: BitsMut::new(),
             pending_right: BitsMut::new(),
@@ -307,7 +308,7 @@ impl<'a> IdLeafCursor<'a> {
     /// present ([`Enter::Left`]).
     fn enter(&mut self) -> Enter {
         crate::codec::scan::record_bits(2); // one 2-bit tag read
-        let (left, right) = (self.bits[self.pos], self.bits[self.pos + 1]);
+        let (left, right) = (self.bits.bit(self.pos), self.bits.bit(self.pos + 1));
         self.pos += 2;
         if !left && !right {
             // The terminal `1` leaf.
@@ -347,18 +348,18 @@ impl<'a> IdLeafCursor<'a> {
     fn consume(&mut self, splice: bool) {
         let start = self.pos;
         crate::codec::scan::record_bits(2); // the subtree top's 2-bit tag
-        let (left, right) = (self.bits[self.pos], self.bits[self.pos + 1]);
+        let (left, right) = (self.bits.bit(self.pos), self.bits.bit(self.pos + 1));
         self.pos += 2;
         if !left && !right {
             self.item = Item::Plateau { owned: true };
             return;
         }
         let bits = self.bits;
-        let scan = |at: usize| {
+        let scan = |at: u64| {
             // One 2-bit tag scanned per skipped node. Children present = the
             // two tag bits; the tag is 2 bits wide.
             crate::codec::scan::record_bits(2);
-            let children = usize::from(bits[at]) + usize::from(bits[at + 1]);
+            let children = u64::from(bits.bit(at)) + u64::from(bits.bit(at + 1));
             (children, at + 2)
         };
         if left {

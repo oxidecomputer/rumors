@@ -39,14 +39,9 @@ mod tests;
 pub(crate) use base::limb_meter;
 pub use base::Base;
 pub(crate) use bits::{
-    byte_view, canonical_eq, canonical_hash, padding_is_canonical, require_marker_padding_bytes,
-    slice_ptr_eq,
+    built_view, canonical_eq, canonical_hash, extend_from_view, padding_is_canonical,
+    require_marker_padding,
 };
-// Whole-buffer borrowed views serve only the meter surface and the test
-// suites: the decode doors walk raw bytes instead (the view encoding caps
-// below the buffer sizes the doors admit on 32-bit targets).
-#[cfg(any(test, feature = "meter"))]
-pub(crate) use bits::bytes_as_bits;
 // Production streams seal at the freeze seam (`Bits::freeze`); the
 // standalone form serves the buffers that stay build-side, all of them
 // meter/test instruments producing decodable bytes (the generators'
@@ -55,7 +50,7 @@ pub(crate) use bits::bytes_as_bits;
 pub(crate) use bits::seal_padding;
 // The storage forms are `pub` (the enclosing module is not), so the
 // meter surface can re-export them for the resource-envelope suite.
-pub use bits::{Bits, BitsMut, BitsSlice};
+pub use bits::{Bits, BitsMut, BitsView};
 pub(crate) use build::PackedBuilder;
 pub(crate) use code::Code;
 pub(crate) use cursor::{BitCursor, SliceCursor};
@@ -67,16 +62,11 @@ pub(crate) use int::Int;
 // `ReaderCursor` (`borsh_impls`), the one consumer outside this module; the
 // cfg keeps the re-export from dangling when `borsh` is off.
 #[cfg(feature = "borsh")]
-// The raw-byte window serves the wire-side (borsh) reader, whose buffered
-// bytes have no borrowed bit view once they outgrow the view encoding's cap;
-// the slice-form window stays inside the codec (the slice cursor's fast
-// path reaches it by module path).
-#[cfg(feature = "borsh")]
-pub(crate) use gamma::decode_int_window_bytes;
+pub(crate) use gamma::decode_int_window;
 pub(crate) use literal::{id_is_empty, id_leaf, id_node};
 pub(crate) use stack::{BitStack, PopStack};
 pub(crate) use text::{parse_clock_str, parse_id_str};
-pub(crate) use tree::{parse_id_bytes, validate_id};
+pub(crate) use tree::{parse_id, validate_id};
 // The mid-stream parser entry is consumed only by the borsh wire format
 // (everything else parses whole streams); gating the re-export keeps default
 // builds warning-free for downstream consumers.

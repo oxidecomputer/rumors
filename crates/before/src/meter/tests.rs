@@ -799,9 +799,7 @@ fn masked_hole_decodes_canonically_and_realizes_less() {
 /// topology walk (payload codes skipped unread).
 fn leaf_count(v: &Version) -> usize {
     use codec::BitCursor;
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
-    let mut cur = codec::DsiCursor::new(bits);
+    let mut cur = codec::DsiCursor::new(v.as_bits());
     let mut pending = 1usize;
     let mut leaves = 0usize;
     while pending > 0 {

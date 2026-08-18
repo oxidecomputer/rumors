@@ -80,7 +80,7 @@ pub(crate) fn check_sample(version: &Version) -> Sample {
     // oracle lowering; the stored coding is Tier 2 itself.
     let packed =
         crate::testing::bridge::packed_bits_of(&crate::testing::bridge::to_oracle_version(version));
-    let tier2 = tier2_size(&packed);
+    let tier2 = tier2_size(crate::codec::built_view(&packed));
     let current_bits = packed.len() as u64;
     let ratio = tier2.total_bits as f64 / current_bits as f64;
 
@@ -154,7 +154,9 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
     }
     // The comb is hand-built in the min-lifted packed construction
     // language; the transcoding bridge lifts it into the stored coding.
-    let version = Version::from_bits(crate::version::skyline::encode_bits(&bits));
+    let version = Version::from_bits(crate::version::skyline::encode_bits(
+        crate::codec::built_view(&bits),
+    ));
 
     // Self-check: the built stream is canonical and round-trips the wire.
     let decoded = Version::decode(version.encode().as_slice())

@@ -44,7 +44,7 @@
 //! that shifts which leaf is first trips on topology (the replaced range was
 //! not a single leaf) before any code comparison is reached.
 
-use crate::codec::{BitCursor, BitStack, BitsMut, BitsSlice, Code, PopStack};
+use crate::codec::{BitStack, BitsMut, BitsView, Code, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::build::SkylineBuilder;
@@ -100,7 +100,7 @@ pub(super) enum Out {
     Verbatim {
         /// The input position just past the last matched plateau's code: the
         /// prefix a divergence materializes.
-        matched_end: usize,
+        matched_end: u64,
     },
     /// A plateau diverged (or the walk replayed the prefix): the canonical
     /// builder holds the real output.
@@ -135,7 +135,7 @@ impl Out {
     /// matched verbatim emission does no output work at all); on a built output
     /// this is a no-op answering false — emission bodies always run
     /// post-divergence.
-    pub(super) fn note_match(&mut self, end: usize) -> bool {
+    pub(super) fn note_match(&mut self, end: u64) -> bool {
         match self {
             Out::Unstarted | Out::Verbatim { .. } => {
                 *self = Out::Verbatim { matched_end: end };
@@ -170,9 +170,12 @@ impl Out {
     /// # Panics
     ///
     /// Panics on a verbatim walk: the splice runs post-divergence.
+    #[allow(clippy::too_many_arguments)] // (src, start, end) is one logical range argument
     pub(super) fn continue_verbatim(
         &mut self,
-        rest: &BitsSlice,
+        src: BitsView<'_>,
+        start: u64,
+        end: u64,
         root_depth: usize,
         first_rel_depth: usize,
         last_rel_depth: usize,
@@ -180,7 +183,9 @@ impl Out {
     ) {
         match self {
             Out::Built(builder) => builder.continue_verbatim(
-                rest,
+                src,
+                start,
+                end,
                 root_depth,
                 first_rel_depth,
                 last_rel_depth,
@@ -203,16 +208,16 @@ impl Out {
     /// verbatim run; the walk from here on is a direct fill emission. Iterative
     /// (a path bit stack, no recursion), so prefix depth cannot overflow the
     /// native stack.
-    pub(super) fn materialize(&mut self, event: &BitsSlice) {
+    pub(super) fn materialize(&mut self, event: BitsView<'_>) {
         let matched_end = match self {
             Out::Unstarted => 0,
             Out::Verbatim { matched_end } => *matched_end,
             Out::Built(_) => return,
         };
-        let mut builder = SkylineBuilder::with_capacity(event.len());
+        let mut builder = SkylineBuilder::with_capacity(event.len() as usize);
         let mut cursor = crate::codec::DsiCursor::new(event);
         let mut walk = LeafWalk::new();
-        while cursor.position() < matched_end {
+        while cursor.position_u64() < matched_end {
             // A descent never straddles `matched_end` (a matched prefix ends on
             // a plateau boundary), and a divergence always leaves its own
             // consumed range beyond the matched prefix, so the prefix is a
@@ -222,12 +227,12 @@ impl Out {
             let depth = walk
                 .descend(&mut cursor)
                 .expect("a matched prefix is a proper prefix of the tiling");
-            let start = cursor.position();
+            let start = cursor.position_u64();
             cursor.skip_int().expect("canonical skyline bits");
-            builder.leaf(depth, Code::from_slice(&event[start..cursor.position()]));
+            builder.leaf(depth, Code::from_range(event, start, cursor.position_u64()));
         }
         debug_assert_eq!(
-            cursor.position(),
+            cursor.position_u64(),
             matched_end,
             "a matched prefix ends on a plateau boundary"
         );
@@ -237,7 +242,7 @@ impl Out {
     /// Finish the walk's output: the built stream when a plateau diverged, or
     /// `None` for an unchanged walk (every plateau matched; `fill(i, e) = e`,
     /// byte-exact by canonical uniqueness).
-    pub(super) fn finish(self, event: &BitsSlice) -> Option<BitsMut> {
+    pub(super) fn finish(self, event: BitsView<'_>) -> Option<BitsMut> {
         let matched_end = match self {
             Out::Built(builder) => return Some(builder.finish()),
             Out::Unstarted => 0,
@@ -246,7 +251,7 @@ impl Out {
         debug_assert_eq!(
             matched_end,
             event.len(),
-            "an unchanged walk matches every input plateau"
+            "an unchanged walk matches every input plateau",
         );
         None
     }
@@ -289,7 +294,7 @@ impl RouteProbe {
     /// Fold a branch node whose children's costs the walk computed (`grow((il,
     /// ir), (n, el, er))`: the cheaper child, ties right, cost + 1), recording
     /// the chosen direction at the branch's id key.
-    pub(super) fn join(&mut self, key: usize, left: Cost, right: Cost) -> Cost {
+    pub(super) fn join(&mut self, key: u64, left: Cost, right: Cost) -> Cost {
         if !self.live {
             return Cost::MAX;
         }
@@ -310,13 +315,7 @@ impl RouteProbe {
     /// pays — computing each node's distance to its nearest owned terminal and
     /// recording the direction toward it (ties right); it advances `id` past
     /// both children, exactly as the plain skips would.
-    pub(super) fn expand(
-        &mut self,
-        key: usize,
-        id: &mut IdReader,
-        left: bool,
-        right: bool,
-    ) -> Cost {
+    pub(super) fn expand(&mut self, key: u64, id: &mut IdReader, left: bool, right: bool) -> Cost {
         if !self.live {
             if left {
                 id.skip();

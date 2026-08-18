@@ -20,7 +20,7 @@ use rayon::prelude::*;
 use suanpan::Accumulator;
 
 use crate::codec::Base;
-use crate::codec::{BitsMut, BitsSlice};
+use crate::codec::{BitsMut, BitsView};
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
@@ -51,15 +51,16 @@ fn assert_emits(a: &Version, b: &Version) {
     let joined = encode(&from_oracle_version(&(ta.clone() | tb.clone())));
     let met = encode(&from_oracle_version(&(ta & tb)));
     for (x, y) in [(&ea, &eb), (&eb, &ea)] {
-        let out = join(x, y);
+        let (vx, vy) = (crate::codec::built_view(x), crate::codec::built_view(y));
+        let out = join(vx, vy);
         assert_eq!(out, joined, "join must match the oracle: {a} vs {b}");
-        validate(&out).expect("an emitted join is canonical");
-        assert_pointwise(x, y, &out, false);
-        let out = meet(x, y);
+        validate(crate::codec::built_view(&out)).expect("an emitted join is canonical");
+        assert_pointwise(vx, vy, crate::codec::built_view(&out), false);
+        let out = meet(vx, vy);
         assert_eq!(out, met, "meet must match the oracle: {a} vs {b}");
-        validate(&out).expect("an emitted meet is canonical");
-        assert_pointwise(x, y, &out, true);
-        let hulled = hull(x, y);
+        validate(crate::codec::built_view(&out)).expect("an emitted meet is canonical");
+        assert_pointwise(vx, vy, crate::codec::built_view(&out), true);
+        let hulled = hull(crate::codec::built_view(x), crate::codec::built_view(y));
         assert_eq!(
             hulled.relation,
             oracle_relation(&met, x, y),
@@ -100,7 +101,7 @@ fn oracle_relation(met: &BitsMut, x: &BitsMut, y: &BitsMut) -> Option<core::cmp:
 /// with one signed accumulator per stream pair, advancing whichever cursors'
 /// plateaus end first — the deepest cursors step, per the nesting rule the
 /// sweeps rest on.
-fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
+fn assert_pointwise(a: BitsView<'_>, b: BitsView<'_>, out: BitsView<'_>, meet: bool) {
     let (mut ca, ha) = LeafCursor::open(a);
     let (mut cb, hb) = LeafCursor::open(b);
     let (mut co, ho) = LeafCursor::open(out);
@@ -248,7 +249,10 @@ fn flat_over_deep_collapses_totally() {
     let deep = version_of(&Shape::Dense.packed1(512));
     let flat = version_of(&Shape::Hugeleaf.packed1(600));
     assert_emits(&deep, &flat);
-    let joined = join(&encode(&deep), &encode(&flat));
+    let joined = join(
+        crate::codec::built_view(&encode(&deep)),
+        crate::codec::built_view(&encode(&flat)),
+    );
     assert_eq!(
         joined,
         encode(&flat),
@@ -278,16 +282,16 @@ fn exhaustive_small_scope_emits_identically() {
             let joined = encode(&from_oracle_version(&(ta.clone() | tb.clone())));
             let met = encode(&from_oracle_version(&(ta.clone() & tb.clone())));
             assert_eq!(
-                join(ea, eb),
+                join(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 joined,
                 "join must match the oracle: {va} vs {vb}"
             );
             assert_eq!(
-                meet(ea, eb),
+                meet(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 met,
                 "meet must match the oracle: {va} vs {vb}"
             );
-            let hulled = hull(ea, eb);
+            let hulled = hull(crate::codec::built_view(ea), crate::codec::built_view(eb));
             assert_eq!(
                 hulled.relation,
                 oracle_relation(&met, ea, eb),
@@ -309,15 +313,39 @@ fn exhaustive_small_scope_emits_identically() {
 fn family_lattice_laws_hold_on_the_kernel() {
     let pool: Vec<BitsMut> = family_pool().iter().map(encode).collect();
     for ea in &pool {
-        assert_eq!(join(ea, ea), *ea, "join is idempotent");
-        assert_eq!(meet(ea, ea), *ea, "meet is idempotent");
+        assert_eq!(
+            join(crate::codec::built_view(ea), crate::codec::built_view(ea)),
+            *ea,
+            "join is idempotent"
+        );
+        assert_eq!(
+            meet(crate::codec::built_view(ea), crate::codec::built_view(ea)),
+            *ea,
+            "meet is idempotent"
+        );
         for eb in &pool {
-            let j = join(ea, eb);
-            let m = meet(ea, eb);
-            assert_eq!(j, join(eb, ea), "join commutes");
-            assert_eq!(m, meet(eb, ea), "meet commutes");
-            assert_eq!(join(ea, &m), *ea, "join absorbs the meet");
-            assert_eq!(meet(ea, &j), *ea, "meet absorbs the join");
+            let j = join(crate::codec::built_view(ea), crate::codec::built_view(eb));
+            let m = meet(crate::codec::built_view(ea), crate::codec::built_view(eb));
+            assert_eq!(
+                j,
+                join(crate::codec::built_view(eb), crate::codec::built_view(ea)),
+                "join commutes"
+            );
+            assert_eq!(
+                m,
+                meet(crate::codec::built_view(eb), crate::codec::built_view(ea)),
+                "meet commutes"
+            );
+            assert_eq!(
+                join(crate::codec::built_view(ea), crate::codec::built_view(&m)),
+                *ea,
+                "join absorbs the meet"
+            );
+            assert_eq!(
+                meet(crate::codec::built_view(ea), crate::codec::built_view(&j)),
+                *ea,
+                "meet absorbs the join"
+            );
         }
     }
 }
@@ -330,13 +358,37 @@ fn family_associativity_holds_on_the_kernel() {
         for eb in &pool {
             for ec in &pool {
                 assert_eq!(
-                    join(&join(ea, eb), ec),
-                    join(ea, &join(eb, ec)),
+                    join(
+                        crate::codec::built_view(&join(
+                            crate::codec::built_view(ea),
+                            crate::codec::built_view(eb),
+                        )),
+                        crate::codec::built_view(ec),
+                    ),
+                    join(
+                        crate::codec::built_view(ea),
+                        crate::codec::built_view(&join(
+                            crate::codec::built_view(eb),
+                            crate::codec::built_view(ec),
+                        )),
+                    ),
                     "join associates"
                 );
                 assert_eq!(
-                    meet(&meet(ea, eb), ec),
-                    meet(ea, &meet(eb, ec)),
+                    meet(
+                        crate::codec::built_view(&meet(
+                            crate::codec::built_view(ea),
+                            crate::codec::built_view(eb),
+                        )),
+                        crate::codec::built_view(ec),
+                    ),
+                    meet(
+                        crate::codec::built_view(ea),
+                        crate::codec::built_view(&meet(
+                            crate::codec::built_view(eb),
+                            crate::codec::built_view(ec),
+                        )),
+                    ),
                     "meet associates"
                 );
             }
@@ -375,10 +427,10 @@ proptest! {
         let ea = encode(&from_oracle_version(&a));
         let eb = encode(&from_oracle_version(&b));
         let ec = encode(&from_oracle_version(&c));
-        prop_assert_eq!(join(&join(&ea, &eb), &ec), join(&ea, &join(&eb, &ec)));
-        prop_assert_eq!(meet(&meet(&ea, &eb), &ec), meet(&ea, &meet(&eb, &ec)));
-        prop_assert_eq!(join(&ea, &meet(&ea, &eb)), ea.clone());
-        prop_assert_eq!(meet(&ea, &join(&ea, &eb)), ea);
+        prop_assert_eq!(join(crate::codec::built_view(&join(crate::codec::built_view(&ea), crate::codec::built_view(&eb))), crate::codec::built_view(&ec)), join(crate::codec::built_view(&ea), crate::codec::built_view(&join(crate::codec::built_view(&eb), crate::codec::built_view(&ec)))));
+        prop_assert_eq!(meet(crate::codec::built_view(&meet(crate::codec::built_view(&ea), crate::codec::built_view(&eb))), crate::codec::built_view(&ec)), meet(crate::codec::built_view(&ea), crate::codec::built_view(&meet(crate::codec::built_view(&eb), crate::codec::built_view(&ec)))));
+        prop_assert_eq!(join(crate::codec::built_view(&ea), crate::codec::built_view(&meet(crate::codec::built_view(&ea), crate::codec::built_view(&eb)))), ea.clone());
+        prop_assert_eq!(meet(crate::codec::built_view(&ea), crate::codec::built_view(&join(crate::codec::built_view(&ea), crate::codec::built_view(&eb)))), ea);
     }
 
     /// Every pair of versions produced by one organic fork/tick/send/sync/join
@@ -398,16 +450,16 @@ proptest! {
                 let joined = encode(&from_oracle_version(&(ta.clone() | tb.clone())));
                 let met = encode(&from_oracle_version(&(ta.clone() & tb.clone())));
                 prop_assert_eq!(
-                    join(ea, eb),
+                    join(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     joined.clone(),
                     "join must match the oracle: {} vs {}", va, vb
                 );
                 prop_assert_eq!(
-                    meet(ea, eb),
+                    meet(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     met.clone(),
                     "meet must match the oracle: {} vs {}", va, vb
                 );
-                let hulled = hull(ea, eb);
+                let hulled = hull(crate::codec::built_view(ea), crate::codec::built_view(eb));
                 prop_assert_eq!(
                     hulled.relation,
                     oracle_relation(&met, ea, eb),

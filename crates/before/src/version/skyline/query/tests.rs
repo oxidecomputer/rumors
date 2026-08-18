@@ -43,12 +43,12 @@ fn assert_single(v: &Version) {
     let enc = encode(v);
     let tree = to_oracle_version(v);
     assert_eq!(
-        rank(&enc),
+        rank(crate::codec::built_view(&enc)),
         tree.rank(),
         "rank kernel disagrees with the tree-fold oracle: {v}"
     );
     assert_eq!(
-        crate::Ticks(min_ticks(&enc)),
+        crate::Ticks(min_ticks(crate::codec::built_view(&enc))),
         tree.min_ticks(),
         "min_ticks kernel disagrees with the tree-fold oracle: {v}"
     );
@@ -60,7 +60,7 @@ fn assert_projection(v: &Version, p: &Party) {
     let enc = encode(v);
     let masked = from_oracle_version(&to_oracle_version(v).project(&to_oracle_party(p)));
     assert_eq!(
-        project(&enc, p),
+        project(crate::codec::built_view(&enc), p),
         encode(&masked),
         "projection must match the oracle mask: {v} / {p}"
     );
@@ -90,9 +90,13 @@ fn assert_pair(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
     let order = ta.rank().cmp(&tb.rank());
-    assert_eq!(rank_cmp(&ea, &eb), order, "rank_cmp: {a} vs {b}");
     assert_eq!(
-        rank_cmp(&eb, &ea),
+        rank_cmp(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
+        order,
+        "rank_cmp: {a} vs {b}"
+    );
+    assert_eq!(
+        rank_cmp(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         order.reverse(),
         "rank_cmp reversed: {b} vs {a}"
     );
@@ -101,32 +105,54 @@ fn assert_pair(a: &Version, b: &Version) {
     let dist = join_rank
         .checked_sub(&meet_rank)
         .expect("rank is monotone: the meet's rank never exceeds the join's");
-    assert_eq!(distance(&ea, &eb), dist, "distance: {a} vs {b}");
-    assert_eq!(distance(&eb, &ea), dist, "distance: {b} vs {a}");
+    assert_eq!(
+        distance(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
+        dist,
+        "distance: {a} vs {b}"
+    );
+    assert_eq!(
+        distance(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
+        dist,
+        "distance: {b} vs {a}"
+    );
     let lag_a = join_rank
         .checked_sub(&ta.rank())
         .expect("rank is monotone: an operand's rank never exceeds the join's");
     let lag_b = join_rank
         .checked_sub(&tb.rank())
         .expect("rank is monotone: an operand's rank never exceeds the join's");
-    assert_eq!(lag(&ea, &eb), lag_a, "lag: {a} vs {b}");
-    assert_eq!(lag(&eb, &ea), lag_b, "lag: {b} vs {a}");
+    assert_eq!(
+        lag(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
+        lag_a,
+        "lag: {a} vs {b}"
+    );
+    assert_eq!(
+        lag(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
+        lag_b,
+        "lag: {b} vs {a}"
+    );
     // The composed forms, on this crate's own kernels.
-    let kernel_join = rank(&emit::join(&ea, &eb));
-    let kernel_meet = rank(&emit::meet(&ea, &eb));
+    let kernel_join = rank(crate::codec::built_view(&emit::join(
+        crate::codec::built_view(&ea),
+        crate::codec::built_view(&eb),
+    )));
+    let kernel_meet = rank(crate::codec::built_view(&emit::meet(
+        crate::codec::built_view(&ea),
+        crate::codec::built_view(&eb),
+    )));
     let composed_dist = kernel_join
         .checked_sub(&kernel_meet)
         .expect("rank is monotone: the meet's rank never exceeds the join's");
     assert_eq!(
-        distance(&ea, &eb),
+        distance(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         composed_dist,
         "distance vs the composed rank-of-meet arithmetic: {a} vs {b}"
     );
     let composed_lag_a = kernel_join
-        .checked_sub(&rank(&ea))
+        .checked_sub(&rank(crate::codec::built_view(&ea)))
         .expect("rank is monotone: an operand's rank never exceeds the join's");
     assert_eq!(
-        lag(&ea, &eb),
+        lag(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         composed_lag_a,
         "lag vs the composed rank-of-join arithmetic: {a} vs {b}"
     );
@@ -401,9 +427,13 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
         let want = to_oracle_version(a)
             .rank()
             .cmp(&to_oracle_version(b).rank());
-        assert_eq!(rank_cmp(&ea, &eb), want, "rank_cmp: {a} vs {b}");
         assert_eq!(
-            rank_cmp(&eb, &ea),
+            rank_cmp(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
+            want,
+            "rank_cmp: {a} vs {b}"
+        );
+        assert_eq!(
+            rank_cmp(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
             want.reverse(),
             "rank_cmp reversed: {a} vs {b}"
         );
@@ -505,22 +535,32 @@ fn exhaustive_small_scope_pairs_agree() {
         .map(|t| encode(&from_oracle_version(t)))
         .collect();
     for ea in &events {
-        let rank_a = rank(ea);
+        let rank_a = rank(crate::codec::built_view(ea));
         for eb in &events {
-            let join = rank(&emit::join(ea, eb));
-            let meet = rank(&emit::meet(ea, eb));
+            let join = rank(crate::codec::built_view(&emit::join(
+                crate::codec::built_view(ea),
+                crate::codec::built_view(eb),
+            )));
+            let meet = rank(crate::codec::built_view(&emit::meet(
+                crate::codec::built_view(ea),
+                crate::codec::built_view(eb),
+            )));
             let composed_dist = join
                 .checked_sub(&meet)
                 .expect("rank is monotone: the meet's rank never exceeds the join's");
             assert_eq!(
-                distance(ea, eb),
+                distance(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 composed_dist,
                 "distance at a small-scope pair"
             );
             let composed_lag = join
                 .checked_sub(&rank_a)
                 .expect("rank is monotone: an operand's rank never exceeds the join's");
-            assert_eq!(lag(ea, eb), composed_lag, "lag at a small-scope pair");
+            assert_eq!(
+                lag(crate::codec::built_view(ea), crate::codec::built_view(eb)),
+                composed_lag,
+                "lag at a small-scope pair"
+            );
         }
     }
 }
@@ -542,12 +582,12 @@ proptest! {
         let g = semantic_oracle::ev_res(&ev);
         prop_assert_eq!(
             semantic_oracle::rank(&ev, g),
-            rank(&encode(&a)),
+            rank(crate::codec::built_view(&encode(&a))),
             "the Riemann sum disagrees with the rank kernel: {}", a
         );
         prop_assert_eq!(
             semantic_oracle::min_ticks(&ev, g),
-            min_ticks(&encode(&a)),
+            min_ticks(crate::codec::built_view(&encode(&a))),
             "the semantic tick floor disagrees with the min_ticks kernel: {}", a
         );
     }
@@ -650,12 +690,12 @@ proptest! {
         );
         let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
         prop_assert_eq!(
-            rank_cmp(&el, &er),
+            rank_cmp(crate::codec::built_view(&el), crate::codec::built_view(&er)),
             core::cmp::Ordering::Equal,
             "rank_cmp on the mirrored pair: {} vs {}", left, right
         );
         prop_assert_eq!(
-            rank_cmp(&er, &el),
+            rank_cmp(crate::codec::built_view(&er), crate::codec::built_view(&el)),
             core::cmp::Ordering::Equal,
             "rank_cmp on the mirrored pair reversed: {} vs {}", right, left
         );
@@ -1358,7 +1398,7 @@ mod adequacy {
 
     use suanpan::{touch_meter, Accumulator};
 
-    use crate::codec::{Base, BitsSlice, Int};
+    use crate::codec::{Base, BitsView, Int};
     use crate::meter::registry::Shape;
     use crate::version::skyline::encode;
     use crate::version::skyline::overlay::{fold, LeafCursor, PlateauCursor, Side};
@@ -1379,7 +1419,7 @@ mod adequacy {
     /// exactly where the tripwire asserts it: freeze `i`'s position read walks
     /// the accumulator's whole written span, which `FP(k)`'s descending spine
     /// grows with every block.
-    fn absolute_position_rank(bits: &BitsSlice) -> Rank {
+    fn absolute_position_rank(bits: BitsView<'_>) -> Rank {
         let max_depth = max_depth(bits);
         let scale = max_depth as u64;
         let (mut cursor, first) = LeafCursor::open(bits);
@@ -1431,7 +1471,7 @@ mod adequacy {
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
-        let r = absolute_position_rank(&enc);
+        let r = absolute_position_rank(crate::codec::built_view(&enc));
         let touches = touch_meter::touches();
         assert_eq!(
             r, expected,
@@ -1643,7 +1683,7 @@ mod adequacy {
 
     /// The rank fold on the span-reading integrator: the shipped
     /// [`rank`](super::super::rank) loop verbatim, integrator swapped.
-    fn span_promotion_rank(bits: &BitsSlice) -> Rank {
+    fn span_promotion_rank(bits: BitsView<'_>) -> Rank {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut integral = SpanIntegrator::new();
@@ -1663,7 +1703,7 @@ mod adequacy {
 
     /// The distance co-sweep on the span-reading integrator: the shipped pair
     /// loop verbatim (distance orientation), integrator swapped.
-    fn span_promotion_distance(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Rank {
+    fn span_promotion_distance(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Rank {
         let orientation = |sign: Ordering| -> i8 {
             match sign {
                 Ordering::Greater => 1,
@@ -1721,7 +1761,7 @@ mod adequacy {
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
-        let r = span_promotion_rank(&enc);
+        let r = span_promotion_rank(crate::codec::built_view(&enc));
         let touches = touch_meter::touches();
         assert_eq!(
             r, expected,
@@ -1741,7 +1781,8 @@ mod adequacy {
         let eb = encode(&b);
         let expected = a.distance(&b);
         touch_meter::reset();
-        let d = span_promotion_distance(&ea, &eb);
+        let d =
+            span_promotion_distance(crate::codec::built_view(&ea), crate::codec::built_view(&eb));
         let touches = touch_meter::touches();
         assert_eq!(
             d, expected,
@@ -2006,7 +2047,7 @@ mod adequacy {
 
     /// The rank fold on the suffix-walk integrator: the shipped
     /// [`rank`](super::super::rank) loop verbatim, integrator swapped.
-    fn suffix_walk_rank(bits: &BitsSlice) -> Rank {
+    fn suffix_walk_rank(bits: BitsView<'_>) -> Rank {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut integral = SuffixWalkIntegrator::new();
@@ -2026,7 +2067,7 @@ mod adequacy {
 
     /// The distance co-sweep on the suffix-walk integrator: the shipped pair
     /// loop verbatim (distance orientation), integrator swapped.
-    fn suffix_walk_distance(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Rank {
+    fn suffix_walk_distance(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Rank {
         let orientation = |sign: Ordering| -> i8 {
             match sign {
                 Ordering::Greater => 1,
@@ -2084,7 +2125,7 @@ mod adequacy {
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
-        let r = suffix_walk_rank(&enc);
+        let r = suffix_walk_rank(crate::codec::built_view(&enc));
         let touches = touch_meter::touches();
         assert_eq!(
             r, expected,
@@ -2104,7 +2145,7 @@ mod adequacy {
         let eb = encode(&b);
         let expected = a.distance(&b);
         touch_meter::reset();
-        let d = suffix_walk_distance(&ea, &eb);
+        let d = suffix_walk_distance(crate::codec::built_view(&ea), crate::codec::built_view(&eb));
         let touches = touch_meter::touches();
         assert_eq!(
             d, expected,
@@ -2313,7 +2354,7 @@ mod adequacy {
     /// The rank fold on the shipped integrator with the per-digit
     /// close: the shipped [`rank`](super::super::rank) loop verbatim,
     /// only the close swapped.
-    fn per_digit_rank(bits: &BitsSlice) -> Rank {
+    fn per_digit_rank(bits: BitsView<'_>) -> Rank {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut integral = Integrator::new();
@@ -2342,7 +2383,7 @@ mod adequacy {
         let enc = encode(&v);
         let expected = v.rank();
         reset_limb_ops();
-        let r = per_digit_rank(&enc);
+        let r = per_digit_rank(crate::codec::built_view(&enc));
         let limbs = limb_ops();
         assert_eq!(
             r, expected,
@@ -2546,7 +2587,7 @@ mod adequacy {
     /// The rank fold on the shipped integrator with the schoolbook close: the
     /// shipped [`rank`](super::super::rank) loop verbatim, only the close
     /// swapped.
-    fn schoolbook_rank(bits: &BitsSlice) -> Rank {
+    fn schoolbook_rank(bits: BitsView<'_>) -> Rank {
         let max_depth = max_depth(bits);
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut integral = Integrator::new();
@@ -2572,7 +2613,7 @@ mod adequacy {
         let expected = v.rank();
         touch_meter::reset();
         reset_limb_ops();
-        let r = schoolbook_rank(&enc);
+        let r = schoolbook_rank(crate::codec::built_view(&enc));
         let touches = touch_meter::touches();
         let limbs = limb_ops();
         assert_eq!(

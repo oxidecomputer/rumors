@@ -46,7 +46,7 @@ fn version_of(p: &Packed) -> Version {
 /// pins entry agreement (the public entry routes to the kernel).
 fn assert_text_kernels_agree(v: &Version) {
     let enc = super::super::encode(v);
-    let text = render(&enc);
+    let text = render(crate::codec::built_view(&enc));
     assert_eq!(
         text,
         v.to_string(),
@@ -127,7 +127,7 @@ fn parse_corpus_pins_the_grammar_decisions() {
         let v: Version = text.parse().expect("the public entry accepts");
         let enc = parse(text).expect("the kernel accepts the corpus's accepted texts");
         assert!(
-            super::super::validate_bits(&enc).is_ok(),
+            super::super::validate_bits(crate::codec::built_view(&enc)).is_ok(),
             "an accepted parse must build a canonical skyline stream: {text:?}"
         );
         assert_eq!(
@@ -238,7 +238,7 @@ fn mutated_texts_hold_reject_parity_through_the_public_entry() {
         |mutated| match (mutated.parse::<Version>(), parse(mutated)) {
             (Ok(v), Ok(enc)) => {
                 assert!(
-                    validate_bits(&enc).is_ok(),
+                    validate_bits(crate::codec::built_view(&enc)).is_ok(),
                     "an accepted mutant {mutated:?} must build a canonical skyline stream"
                 );
                 assert_eq!(
@@ -415,7 +415,8 @@ fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
         return Err(Parse::NotCanonical);
     }
     let bits = builder.finish();
-    validate_bits(&bits).expect("a canonical text parse builds a canonical skyline stream");
+    validate_bits(crate::codec::built_view(&bits))
+        .expect("a canonical text parse builds a canonical skyline stream");
     Ok(bits)
 }
 
@@ -511,7 +512,7 @@ mod schoolbook_contrast {
     fn run(s: usize, kernel: fn(&str) -> Result<BitsMut, Parse>) -> (u64, u64) {
         let v = Shape::WideArming.packed2(s, s).version();
         let enc = encode(&v);
-        let text = render(&enc);
+        let text = render(crate::codec::built_view(&enc));
         let bytes = text.len() as u64;
         touch_meter::reset();
         let parsed = kernel(&text).expect("rendered text parses");

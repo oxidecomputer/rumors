@@ -54,7 +54,10 @@ fn empty_version_is_the_two_bit_stream() {
     assert_eq!(bits.len(), 2);
     assert!(bits[0], "a leaf's topology flag is 1");
     assert!(bits[1], "gamma(0) is the single bit 1");
-    assert_eq!(decode_bits(&bits).expect("canonical"), v);
+    assert_eq!(
+        decode_bits(crate::codec::built_view(&bits)).expect("canonical"),
+        v
+    );
 }
 
 /// One fork `(1, 0, 2)` codes as hand-derived: 3 topology bits, `gamma(1)` for
@@ -76,7 +79,10 @@ fn one_fork_matches_hand_derivation() {
     ]
     .to_vec();
     assert_eq!(bits.iter().by_vals().collect::<Vec<bool>>(), expected);
-    assert_eq!(decode_bits(&bits).expect("canonical"), v);
+    assert_eq!(
+        decode_bits(crate::codec::built_view(&bits)).expect("canonical"),
+        v
+    );
 }
 
 // ─── the strict-reject corpus ───────────────────────────────────────────────
@@ -96,7 +102,10 @@ fn rejects_zero_right_sibling_delta() {
     bits.push(false); // root: internal
     push_leaf(&mut bits, 5); // gamma(5): the first leaf, absolute
     push_leaf(&mut bits, 0); // zigzag(0) = 0 -> gamma(0): equal sibling
-    assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
+    assert!(matches!(
+        validate_bits(crate::codec::built_view(&bits)),
+        Err(Decode::NotCanonical)
+    ));
 }
 
 /// A collapsible sibling pair whose closing ancestor is NOT the root —
@@ -115,7 +124,10 @@ fn rejects_non_root_collapsible_pair() {
     bits.push(false); // right child: internal
     push_leaf(&mut bits, 0); // zigzag(0): leaf 5 again, non-sibling (legal)
     push_leaf(&mut bits, 0); // zigzag(0): its equal sibling — the pair
-    assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
+    assert!(matches!(
+        validate_bits(crate::codec::built_view(&bits)),
+        Err(Decode::NotCanonical)
+    ));
 }
 
 /// The `(flag, end)` bit positions of every leaf code in a stored stream: the
@@ -133,7 +145,9 @@ fn leaf_code_ranges(bits: &BitsMut) -> Vec<(usize, usize)> {
             pending += 2;
             continue;
         }
-        let (_, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        let (_, next) = codec::decode_int(crate::codec::built_view(bits), pos as u64)
+            .expect("a stored stream is canonical");
+        let next = next as usize;
         out.push((pos - 1, next));
         pos = next;
     }
@@ -166,7 +180,7 @@ proptest! {
         planted.extend_from_bitslice(&bits[flag..end]); // left child: the old leaf
         push_leaf(&mut planted, 0); // right child: zigzag(0), the equal sibling
         planted.extend_from_bitslice(&bits[end..]);
-        prop_assert!(matches!(validate_bits(&planted), Err(Decode::NotCanonical)));
+        prop_assert!(matches!(validate_bits(crate::codec::built_view(&planted)), Err(Decode::NotCanonical)));
     }
 }
 
@@ -192,8 +206,11 @@ fn accepts_zero_delta_across_a_subtree_boundary() {
     push_leaf(&mut bits, 0); // leaf 0: gamma(0), absolute
     push_leaf(&mut bits, 2); // leaf 1: zigzag(+1) = 2
     push_leaf(&mut bits, 0); // leaf 1 again: zigzag(0) = 0, non-sibling
-    assert!(validate_bits(&bits).is_ok());
-    assert_eq!(decode_bits(&bits).expect("canonical"), expected);
+    assert!(validate_bits(crate::codec::built_view(&bits)).is_ok());
+    assert_eq!(
+        decode_bits(crate::codec::built_view(&bits)).expect("canonical"),
+        expected
+    );
     assert_eq!(stream_of(&expected), bits);
 }
 
@@ -207,7 +224,10 @@ fn rejects_negative_running_height() {
     bits.push(false); // root: internal
     push_leaf(&mut bits, 1); // first leaf: height 1
     push_leaf(&mut bits, 3); // zigzag(-2) = 3: height would be -1
-    assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
+    assert!(matches!(
+        validate_bits(crate::codec::built_view(&bits)),
+        Err(Decode::NotCanonical)
+    ));
 }
 
 /// A negative excursion is rejected even when later deltas would climb back up:
@@ -222,7 +242,10 @@ fn rejects_negative_height_midstream() {
     bits.push(false); // right child: internal
     push_leaf(&mut bits, 3); // zigzag(-2) = 3: height -1, invalid here
     push_leaf(&mut bits, 12); // zigzag(+6) = 12: would recover to 5
-    assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
+    assert!(matches!(
+        validate_bits(crate::codec::built_view(&bits)),
+        Err(Decode::NotCanonical)
+    ));
 }
 
 /// Every proper prefix of a valid stream is rejected as [`Decode::Truncated`],
@@ -241,7 +264,10 @@ fn rejects_every_truncation() {
         let bits = stream_of(v);
         for cut in 0..bits.len() {
             assert!(
-                matches!(validate_bits(&bits[..cut]), Err(Decode::Truncated)),
+                matches!(
+                    validate_bits(crate::codec::BitsView::new(bits.as_raw_slice(), cut as u64)),
+                    Err(Decode::Truncated)
+                ),
                 "a {cut}-bit prefix of a {}-bit stream must read as truncated",
                 bits.len(),
             );
@@ -258,12 +284,15 @@ fn rejects_trailing_bits() {
     for extra in [false, true] {
         let mut bits = clean.clone();
         bits.push(extra);
-        assert!(matches!(validate_bits(&bits), Err(Decode::TrailingBits)));
+        assert!(matches!(
+            validate_bits(crate::codec::built_view(&bits)),
+            Err(Decode::TrailingBits)
+        ));
     }
     let mut two_trees = clean.clone();
     two_trees.extend_from_bitslice(&clean);
     assert!(matches!(
-        validate_bits(&two_trees),
+        validate_bits(crate::codec::built_view(&two_trees)),
         Err(Decode::TrailingBits)
     ));
 }
@@ -356,7 +385,9 @@ fn flip_topology_flags(bits: &BitsMut, internal: bool) -> BitsMut {
             pending += 2;
             continue;
         }
-        let (_, next) = codec::decode_int(bits, pos).expect("a payload code per leaf");
+        let (_, next) = codec::decode_int(crate::codec::built_view(bits), pos as u64)
+            .expect("a payload code per leaf");
+        let next = next as usize;
         out.extend_from_bitslice(&bits[pos..next]);
         pos = next;
     }
@@ -425,7 +456,7 @@ fn assert_mutation_never_aliases(v: &Version, bits: &BitsMut, flip: usize) {
     let mut mutated = bits.clone();
     let old = mutated[flip];
     mutated.set(flip, !old);
-    match decode_bits(&mutated) {
+    match decode_bits(crate::codec::built_view(&mutated)) {
         Err(_) => {}
         Ok(w) => {
             assert_ne!(
@@ -484,7 +515,7 @@ proptest! {
 fn assert_agreement(v: &Version) {
     let bits = stream_of(v);
     let packed = packed_bits_of(&to_oracle_version(v));
-    let size = tier2_size(&packed);
+    let size = tier2_size(crate::codec::built_view(&packed));
     assert_eq!(
         bits.len() as u64,
         size.total_bits,
@@ -492,10 +523,10 @@ fn assert_agreement(v: &Version) {
          two independent walks is wrong"
     );
     assert!(
-        validate_bits(&bits).is_ok(),
+        validate_bits(crate::codec::built_view(&bits)).is_ok(),
         "the encoder emits canonical streams"
     );
-    let back = decode_bits(&bits).expect("a canonical stream decodes");
+    let back = decode_bits(crate::codec::built_view(&bits)).expect("a canonical stream decodes");
     assert_eq!(
         &back, v,
         "the skyline round-trip reproduces the version exactly"

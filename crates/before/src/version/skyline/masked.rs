@@ -79,7 +79,7 @@ use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
-use crate::codec::BitsSlice;
+use crate::codec::BitsView;
 
 use super::overlay::{
     advance_set, fold, CursorSet, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side,
@@ -102,10 +102,10 @@ use super::sweep::{eq_exit, order_exit, Directions};
 /// delta driving the running height negative) sweep silently, and the verdict
 /// is then unspecified.
 pub fn causal_cmp(
-    a: &BitsSlice,
-    a_mask: Option<&BitsSlice>,
-    b: &BitsSlice,
-    b_mask: Option<&BitsSlice>,
+    a: BitsView<'_>,
+    a_mask: Option<BitsView<'_>>,
+    b: BitsView<'_>,
+    b_mask: Option<BitsView<'_>>,
 ) -> Option<Ordering> {
     // At exhaustion every surviving combination is a verdict
     // ([`Directions::relation`]'s map).
@@ -125,10 +125,10 @@ pub fn causal_cmp(
 /// [`causal_cmp`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified verdict.
 pub fn eq(
-    a: &BitsSlice,
-    a_mask: Option<&BitsSlice>,
-    b: &BitsSlice,
-    b_mask: Option<&BitsSlice>,
+    a: BitsView<'_>,
+    a_mask: Option<BitsView<'_>>,
+    b: BitsView<'_>,
+    b_mask: Option<BitsView<'_>>,
 ) -> bool {
     // Surviving to exhaustion is equality: `eq_exit` breaks on any refutation
     // before the exhaustion check runs, so reaching the finish arm IS the
@@ -180,10 +180,10 @@ impl<'a> Walk<'a> {
     /// Open every operand stream at its first leaf or region and seed the
     /// integrators with the two absolute first heights.
     fn open(
-        a_bits: &'a BitsSlice,
-        a_mask: Option<&'a BitsSlice>,
-        b_bits: &'a BitsSlice,
-        b_mask: Option<&'a BitsSlice>,
+        a_bits: BitsView<'a>,
+        a_mask: Option<BitsView<'a>>,
+        b_bits: BitsView<'a>,
+        b_mask: Option<BitsView<'a>>,
     ) -> Walk<'a> {
         let OpenedPair {
             a,

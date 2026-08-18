@@ -38,9 +38,9 @@ impl BitStack {
     ///
     /// `words.len() * 64` fits `usize` on every target: a walk holds a few
     /// bits per open ancestor here, depth is bounded by the walked stream's
-    /// bit length, and stored streams cap at `usize::MAX >> 3` bits (the
-    /// borrowed-view encoding) — so the height stays multiple binary orders
-    /// of magnitude below any `usize` wrap, even on 32-bit targets.
+    /// live bit length, and a storable stream's live length itself fits
+    /// `usize` — so the height stays below any `usize` wrap, even on 32-bit
+    /// targets.
     pub(crate) fn len(&self) -> usize {
         self.words.len() * 64 + self.top_len as usize
     }

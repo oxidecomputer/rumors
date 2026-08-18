@@ -50,9 +50,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-#[cfg(feature = "borsh")]
-use crate::codec::BitsSlice;
-use crate::codec::{BitCursor, BitsMut, Int};
+use crate::codec::{BitCursor, BitsMut, BitsView, Int};
 use crate::error::Decode;
 
 use super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
@@ -275,44 +273,14 @@ pub(crate) enum Admission {
 /// `lo` must be a canonical skyline stream — its cursor is the pair sweep's and
 /// shares [`causal_cmp`](super::sweep::causal_cmp)'s contract. The parsed
 /// stream needs no such trust; that is the point.
-#[cfg(feature = "borsh")]
 pub(crate) fn validate_dominating_from<C: BitCursor>(
-    lo: &BitsSlice,
+    lo: BitsView<'_>,
     cursor: &mut C,
 ) -> Result<Admission, Decode>
 where
     Decode: From<C::Error>,
 {
-    let (lo_cur, lo_first) = LeafCursor::open(lo);
-    validate_dominating_over(lo_cur, lo_first, cursor)
-}
-
-/// [`validate_dominating_from`] with the canonical `lo` given as raw stream
-/// bytes and its live bit length. Same contract in full.
-///
-/// The byte decode door's form, for meets past the borrowed bit view's
-/// encoding cap (64 MiB and up on a 32-bit target).
-pub(crate) fn validate_dominating_bytes<C: BitCursor>(
-    lo: &[u8],
-    lo_live: usize,
-    cursor: &mut C,
-) -> Result<Admission, Decode>
-where
-    Decode: From<C::Error>,
-{
-    let (lo_cur, lo_first) = LeafCursor::open_bytes(lo, lo_live);
-    validate_dominating_over(lo_cur, lo_first, cursor)
-}
-
-/// The admission walk's body, generic over how `lo`'s cursor was opened.
-fn validate_dominating_over<C: BitCursor>(
-    mut lo_cur: LeafCursor<'_>,
-    lo_first: Int,
-    cursor: &mut C,
-) -> Result<Admission, Decode>
-where
-    Decode: From<C::Error>,
-{
+    let (mut lo_cur, lo_first) = LeafCursor::open(lo);
     let (mut hi_cur, hi_first) = CheckedCursor::open(cursor)?;
     // D = height_lo − height_hi: dominance survives while no elementary
     // interval reads D > 0 (the pair sweep's `lo <= hi` direction, `lo` as the

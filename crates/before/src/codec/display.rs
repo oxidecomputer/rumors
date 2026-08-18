@@ -1,6 +1,6 @@
 use crate::idbits::{IdNode, IdReader};
 
-use super::{BitsMut, BitsSlice};
+use super::{BitsMut, BitsView};
 
 /// While rendering an open id node, which child the walk is inside.
 ///
@@ -22,7 +22,7 @@ const RIGHT_PHASE: bool = false;
 /// sees the traversal), and its control state is one to two bits per open node
 /// on a bit stack — a deep id costs bits, never stack frames or grown segments.
 pub(crate) fn write_id(
-    bits: &BitsSlice,
+    bits: BitsView<'_>,
     f: &mut core::fmt::Formatter<'_>,
     sep: &str,
 ) -> core::fmt::Result {

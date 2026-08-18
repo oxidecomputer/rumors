@@ -21,7 +21,7 @@ use dashu_int::UBig;
 use crate::error::Decode;
 
 use super::code::SMALL_CODE_BITS;
-use super::{Base, BitCursor, BitsMut, BitsSlice, Code, SliceCursor};
+use super::{Base, BitCursor, BitsMut, BitsView, Code, SliceCursor};
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
 /// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
@@ -114,10 +114,10 @@ pub(crate) fn code_int_small(n: u64) -> Code {
 /// per-bit loop ([`decode_int_from`]), so the two paths accept and reject
 /// identically by construction (the routing lives in
 /// [`SliceCursor::read_int`](BitCursor::read_int)).
-pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), Decode> {
+pub(crate) fn decode_int(bits: BitsView<'_>, pos: u64) -> Result<(Base, u64), Decode> {
     let mut cursor = SliceCursor::new(bits, pos);
     let base = cursor.read_int()?.into_base();
-    Ok((base, cursor.position()))
+    Ok((base, cursor.position_u64()))
 }
 
 /// The number of bits a [`decode_int_window`] window holds.
@@ -133,8 +133,6 @@ const WINDOW_BITS: u64 = u64::BITS as u64;
 /// Returns `None` — decode nothing, let the caller run the per-bit loop from
 /// `pos` instead — whenever the window cannot *prove* a complete code:
 ///
-/// - the slice does not start on a byte boundary of its backing store (no
-///   cheap byte view; stored forms always do);
 /// - `pos` lies past the end of the stream (the bit loop reports `Truncated`);
 /// - the `2k+1`-bit code overruns the window's proven bits, either because the
 ///   stream ends first (the bit loop reports `Truncated`) or because the code
@@ -149,21 +147,13 @@ const WINDOW_BITS: u64 = u64::BITS as u64;
 /// bits are masked, missing bytes are zero-filled), which only ever *lengthens*
 /// the apparent prefix — pushing `2k+1` past the proven bits and into the
 /// fallback — never shortens it into a bogus accept.
-pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, usize)> {
-    let (body, tail) = super::byte_view(bits)?;
-    let (n, next) = window_int(body, tail, bits.len() as u64, pos as u64)?;
-    // The code ends inside the slice, whose own length bounds the position.
-    Some((n, next as usize))
-}
-
-/// [`decode_int_window`] over raw stream bytes: the wire-side reader's form.
 ///
-/// The reader's buffered bytes have no borrowed bit view once they outgrow
-/// the view encoding's cap, so this windows the whole `8 · bytes.len()`-bit
-/// view at the reader's own `u64` position width.
-#[cfg(feature = "borsh")]
-pub(crate) fn decode_int_window_bytes(bytes: &[u8], pos: u64) -> Option<(u64, u64)> {
-    window_int(bytes, None, bytes.len() as u64 * 8, pos)
+/// Positions are the view's own `u64`: the wire-side reader windows its
+/// buffered bytes ([`BitsView::whole`]) at the same width its own position
+/// runs at.
+pub(crate) fn decode_int_window(bits: BitsView<'_>, pos: u64) -> Option<(u64, u64)> {
+    let (body, tail) = bits.body_tail();
+    window_int(body, tail, bits.len(), pos)
 }
 
 /// The one-window decoder's body over raw parts: `len` live bits across

@@ -2,14 +2,16 @@
 
 use insta::assert_snapshot;
 
-use crate::codec::{encode_int, Base, BitsMut, BitsSlice};
+use crate::codec::{encode_int, Base, BitsMut, BitsView};
 use crate::error::{Crossed, Decode, Overlap, Parse};
 use crate::{Clock, Party, Rank, Version};
 
 /// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`, the same
 /// order `encode_int` and the preorder codec emit. Empty stream renders as `""`.
-fn bits_to_string(bits: &BitsSlice) -> String {
-    bits.iter().map(|b| if *b { '1' } else { '0' }).collect()
+fn bits_to_string(bits: BitsView<'_>) -> String {
+    (0..bits.len())
+        .map(|i| if bits.bit(i) { '1' } else { '0' })
+        .collect()
 }
 
 /// Render bytes as space-separated two-digit hex, e.g. `[0x80, 0x01]` -> `"80 01"`.
@@ -28,7 +30,7 @@ fn gamma_row(n: u64) -> String {
     format!(
         "{:>20} -> {} ({} bits)",
         n,
-        bits_to_string(&bits),
+        bits_to_string(crate::codec::built_view(&bits)),
         bits.len()
     )
 }
@@ -70,7 +72,11 @@ fn gamma_bit_layout_table() {
     let big = Base::from(1u8) << 64u32; // 2^64
     encode_int(&mut big_bits, &big);
     assert_snapshot!(
-        format!("2^64 -> {} ({} bits)", bits_to_string(&big_bits), big_bits.len()),
+        format!(
+            "2^64 -> {} ({} bits)",
+            bits_to_string(crate::codec::built_view(&big_bits)),
+            big_bits.len()
+        ),
         @"2^64 -> 000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000001 (129 bits)"
     );
 }
@@ -167,10 +173,10 @@ fn clock_canonical_form() {
     // with no padding between (padding is added only by `encode`). Rebuild that unpadded
     // concatenation here to show the boundary between the two halves.
     let mut bits = c.party().as_bits().to_bitvec();
-    bits.extend_from_bitslice(c.version().as_bits());
+    bits.extend_from_bitslice(&c.version().as_bits().to_bitvec());
     let fields = format!(
         "display: {c}\ndebug:   {c:?}\nbits:    {} ({} bits)\nbytes:   {}",
-        bits_to_string(&bits),
+        bits_to_string(crate::codec::built_view(&bits)),
         bits.len(),
         bytes_to_hex(&c.encode()),
     );

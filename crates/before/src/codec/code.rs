@@ -9,8 +9,7 @@
 //! the band organic histories occupy — in two machine words, and spills wider
 //! codes to the buffer form unchanged.
 
-use super::{BitsMut, BitsSlice};
-use bitvec::field::BitField;
+use super::{BitsMut, BitsView};
 
 /// One complete payload code, value-packed when it fits a word.
 pub(crate) enum Code {
@@ -34,16 +33,28 @@ impl Code {
         }
     }
 
-    /// A code copied out of a canonical stream's bit range.
-    pub(crate) fn from_slice(src: &BitsSlice) -> Code {
-        debug_assert!(!src.is_empty(), "a payload code is never empty");
-        if src.len() <= SMALL_CODE_BITS {
+    /// A code copied out of the bit range `start..end` of a canonical
+    /// stream's view.
+    ///
+    /// # Panics
+    ///
+    /// `start..end` must be a range within the view's live length.
+    pub(crate) fn from_range(src: BitsView<'_>, start: u64, end: u64) -> Code {
+        debug_assert!(start < end, "a payload code is never empty");
+        assert!(
+            end <= src.len(),
+            "copied range within the view's live length"
+        );
+        let len = end - start;
+        if len <= SMALL_CODE_BITS as u64 {
             Code::Small {
-                bits: src.load_be::<u64>(),
-                len: src.len() as u8,
+                bits: src.load_be(start, len as u32),
+                len: len as u8,
             }
         } else {
-            Code::Wide(src.to_bitvec())
+            let mut out = BitsMut::with_capacity(len as usize);
+            super::bits::extend_from_view(&mut out, src, start, end);
+            Code::Wide(out)
         }
     }
 }

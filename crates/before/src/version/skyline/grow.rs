@@ -90,7 +90,7 @@
 
 use core::ops::Range;
 
-use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, Code};
+use crate::codec::{self, Base, BitCursor, BitsMut, BitsView, Code};
 
 use super::build::SkylineBuilder;
 use super::signed::{gamma_code, gamma_code_signed, unzigzag_base, zigzag_signed, Sign};
@@ -196,19 +196,22 @@ impl Route {
 
     /// Record that the cheapest inflation at the branch keyed by `key`
     /// descends into the left child (`left = true`).
-    pub(super) fn record(&mut self, key: usize, left: bool) {
-        self.dirs.set(key, left);
+    ///
+    /// Keys are id bit positions, bounded by the direction table's own
+    /// length, far below `usize` on every target.
+    pub(super) fn record(&mut self, key: u64, left: bool) {
+        self.dirs.set(key as usize, left);
     }
 
     /// Whether the cheapest inflation at the branch keyed by `key`
     /// descends into the left child.
-    fn descends_left(&self, key: usize) -> bool {
-        self.dirs[key]
+    fn descends_left(&self, key: u64) -> bool {
+        self.dirs[key as usize]
     }
 
     /// The raw direction bits, for the route differential.
     #[cfg(test)]
-    pub(super) fn dirs(&self) -> &BitsSlice {
+    pub(super) fn dirs(&self) -> &BitsMut {
         &self.dirs
     }
 }
@@ -222,13 +225,13 @@ impl Route {
 /// because the walk interleaves with the id stream one node at a time — there
 /// is no run to batch.
 struct EvScan<'a> {
-    bits: &'a BitsSlice,
+    bits: BitsView<'a>,
     cursor: codec::DsiCursor<'a>,
 }
 
 impl<'a> EvScan<'a> {
     /// A cursor at the stream's root.
-    fn new(bits: &'a BitsSlice) -> Self {
+    fn new(bits: BitsView<'a>) -> Self {
         EvScan {
             bits,
             cursor: codec::DsiCursor::new(bits),
@@ -236,13 +239,13 @@ impl<'a> EvScan<'a> {
     }
 
     /// The cursor's bit position: the next node's flag.
-    fn pos(&self) -> usize {
-        self.cursor.position()
+    fn pos(&self) -> u64 {
+        self.cursor.position_u64()
     }
 
     /// Move the cursor to `pos` (a node-flag position located by a side scan):
     /// `O(1)`, nothing is read or recorded.
-    fn seek(&mut self, pos: usize) {
+    fn seek(&mut self, pos: u64) {
         self.cursor = codec::DsiCursor::new_at(self.bits, pos);
     }
 
@@ -253,14 +256,14 @@ impl<'a> EvScan<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
-    fn read(&mut self) -> Option<Range<usize>> {
+    fn read(&mut self) -> Option<Range<u64>> {
         let leaf = self.cursor.read_bit().expect("canonical skyline bits");
         if !leaf {
             None
         } else {
-            let start = self.cursor.position();
+            let start = self.cursor.position_u64();
             self.cursor.skip_int().expect("canonical skyline bits");
-            Some(start..self.cursor.position())
+            Some(start..self.cursor.position_u64())
         }
     }
 
@@ -288,16 +291,16 @@ impl<'a> EvScan<'a> {
 ///
 /// Neither present is the full `1` terminal; a canonical id has no `(0, 0)`
 /// node. `O(1)` random access into the packed id.
-fn id_tag(bits: &BitsSlice, pos: usize) -> (bool, bool) {
+fn id_tag(bits: BitsView<'_>, pos: u64) -> (bool, bool) {
     codec::scan::record_bits(2);
-    (bits[pos], bits[pos + 1])
+    (bits.bit(pos), bits.bit(pos + 1))
 }
 
 /// Position just past the id subtree whose tag sits at `pos`.
-fn id_skip(bits: &BitsSlice, pos: usize) -> usize {
+fn id_skip(bits: BitsView<'_>, pos: u64) -> u64 {
     crate::idbits::skip_subtree(pos, |at| {
         codec::scan::record_bits(2);
-        let children = usize::from(bits[at]) + usize::from(bits[at + 1]);
+        let children = u64::from(bits.bit(at)) + u64::from(bits.bit(at + 1));
         (children, at + 2)
     })
 }
@@ -315,14 +318,14 @@ enum Repair<'a> {
 /// One complete off-path subtree, located by a forward topology scan.
 struct Subtree {
     /// Just past the subtree's last bit.
-    end: usize,
+    end: u64,
     /// The first (leftmost) leaf's payload code range.
-    first_code: Range<usize>,
+    first_code: Range<u64>,
     /// The first leaf's depth below the subtree root; `0` means the
     /// subtree is a single leaf.
     first_rel_depth: usize,
     /// The last (rightmost) leaf's payload code range.
-    last_code: Range<usize>,
+    last_code: Range<u64>,
     /// The last leaf's depth below the subtree root.
     last_rel_depth: usize,
 }
@@ -336,18 +339,18 @@ struct Subtree {
 /// # Panics
 ///
 /// Panics if the stream is not a canonical skyline encoding.
-fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
+fn scan_subtree(bits: BitsView<'_>, start: u64) -> Subtree {
     let mut cursor = codec::DsiCursor::new_at(bits, start);
     // The first leaf's coordinates, recorded once; the last leaf's are whatever
     // the loop recorded most recently when the walk ends.
-    let mut first: Option<(Range<usize>, usize)> = None;
+    let mut first: Option<(Range<u64>, usize)> = None;
     let mut last_code = 0..0;
     let mut last_rel_depth = 0;
     let mut walk = LeafWalk::new();
     while let Some(depth) = walk.descend(&mut cursor) {
-        let code_start = cursor.position();
+        let code_start = cursor.position_u64();
         cursor.skip_int().expect("canonical skyline bits");
-        last_code = code_start..cursor.position();
+        last_code = code_start..cursor.position_u64();
         last_rel_depth = depth;
         if first.is_none() {
             first = Some((last_code.clone(), last_rel_depth));
@@ -355,7 +358,7 @@ fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
     }
     let (first_code, first_rel_depth) = first.expect("a subtree has at least one leaf");
     Subtree {
-        end: cursor.position(),
+        end: cursor.position_u64(),
         first_code,
         first_rel_depth,
         last_code,
@@ -376,21 +379,29 @@ fn feed_subtree(
     repair: Repair<'_>,
 ) {
     let subtree = scan_subtree(event.bits, event.pos());
-    let original = &event.bits[subtree.first_code.clone()];
     let first_code = match repair {
-        Repair::None => Code::from_slice(original),
+        Repair::None => {
+            Code::from_range(event.bits, subtree.first_code.start, subtree.first_code.end)
+        }
         // The successor is never the stream's first leaf (the grown leaf
         // precedes it), so its code is always a zigzag delta.
-        Repair::Minus(events) => recode(original, Step::DownDelta, events),
+        Repair::Minus(events) => recode(
+            event.bits,
+            subtree.first_code.clone(),
+            Step::DownDelta,
+            events,
+        ),
     };
     out.leaf(depth + subtree.first_rel_depth, first_code);
     if subtree.first_rel_depth > 0 {
         out.continue_verbatim(
-            &event.bits[subtree.first_code.end..subtree.end],
+            event.bits,
+            subtree.first_code.end,
+            subtree.end,
             depth,
             subtree.first_rel_depth,
             subtree.last_rel_depth,
-            subtree.last_code.len(),
+            (subtree.last_code.end - subtree.last_code.start) as usize,
         );
     }
     event.seek(subtree.end);
@@ -419,9 +430,9 @@ enum Step {
 ///
 /// One decode, one signed step, one re-encode — `O(the code's own width + the
 /// width of events)`, the only payload arithmetic in the whole emit.
-fn recode(code: &BitsSlice, step: Step, events: &Base) -> Code {
-    let (value, end) = codec::decode_int(code, 0).expect("canonical skyline bits");
-    debug_assert_eq!(end, code.len(), "a payload range is exactly one code");
+fn recode(bits: BitsView<'_>, code: Range<u64>, step: Step, events: &Base) -> Code {
+    let (value, end) = codec::decode_int(bits, code.start).expect("canonical skyline bits");
+    debug_assert_eq!(end, code.end, "a payload range is exactly one code");
     let increment = match step {
         Step::UpAbsolute => return gamma_code(&(value + events)),
         Step::UpDelta => true,
@@ -485,8 +496,8 @@ fn recode(code: &BitsSlice, step: Step, events: &Base) -> Code {
 /// region and `events` must be at least 1; the result otherwise is unspecified
 /// in release builds (debug builds panic).
 pub(super) fn emit(
-    event_bits: &BitsSlice,
-    id_bits: &BitsSlice,
+    event_bits: BitsView<'_>,
+    id_bits: BitsView<'_>,
     route: &Route,
     events: &Base,
 ) -> BitsMut {
@@ -501,10 +512,10 @@ pub(super) fn emit(
         "the splice registers at least one event"
     );
     let mut event = EvScan::new(event_bits);
-    let mut id_pos = 0usize;
+    let mut id_pos = 0u64;
     // Subadditivity of the coding bounds the output by the input plus the
     // expansion chain's fresh codes, each a few bits per id level.
-    let mut out = SkylineBuilder::with_capacity(event_bits.len() + id_bits.len() + 64);
+    let mut out = SkylineBuilder::with_capacity((event_bits.len() + id_bits.len()) as usize + 64);
     // One bit per chosen-path level: `true` = the branch descended left, so its
     // right sibling subtree is pending after the inflation point.
     let mut pending = BitsMut::new();
@@ -607,7 +618,7 @@ pub(super) fn emit(
     // leaf itself comes first.
     let path_depth = depth;
     let chain = chain_dirs.len();
-    let original = &event_bits[original_range];
+    let original = original_range;
     debug_assert_eq!(
         path_depth,
         pending.len(),
@@ -625,7 +636,7 @@ pub(super) fn emit(
                 // height, same predecessor — or the same absolute, when the
                 // chain opens the stream (nothing fed before it means the
                 // original code was the absolute first, and so is this one).
-                Code::from_slice(original)
+                Code::from_range(event_bits, original.start, original.end)
             };
             out.leaf(path_depth + level + 1, code);
             emitted_in_chain = true;
@@ -641,7 +652,7 @@ pub(super) fn emit(
         } else {
             Step::UpAbsolute
         };
-        recode(original, step, events)
+        recode(event_bits, original.clone(), step, events)
     };
     out.leaf(path_depth + chain, grown_code);
     // Fresh sibling leaves that follow the grown leaf, deepest first.

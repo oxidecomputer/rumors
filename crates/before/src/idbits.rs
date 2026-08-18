@@ -27,7 +27,7 @@
 //! decoded node rather than subtree scans. Callers must only pass normal-form
 //! id bits.
 
-use crate::codec::BitsSlice;
+use crate::codec::BitsView;
 
 /// A decoded id node: the empty `0` leaf, the full `1` leaf, or an internal
 /// node tagged with which of its children are present.
@@ -70,8 +70,8 @@ pub(crate) enum IdNode {
 /// cursor from the source per pass.
 pub(crate) enum IdReader<'a> {
     At {
-        bits: &'a BitsSlice,
-        pos: usize,
+        bits: BitsView<'a>,
+        pos: u64,
     },
     /// A synthetic empty `0` leaf (see the type doc); reads as [`IdNode::Empty`]
     /// and never advances.
@@ -81,7 +81,7 @@ pub(crate) enum IdReader<'a> {
 impl<'a> IdReader<'a> {
     /// A reader at the root of `bits`. Empty bits are the anonymous `0` id, so
     /// they read as the synthetic [`Empty`](IdReader::Empty) leaf.
-    pub(crate) fn root(bits: &'a BitsSlice) -> Self {
+    pub(crate) fn root(bits: BitsView<'a>) -> Self {
         if bits.is_empty() {
             IdReader::Empty
         } else {
@@ -91,16 +91,16 @@ impl<'a> IdReader<'a> {
 
     /// A reader at an explicit bit offset, for resuming a scan at a recorded
     /// subtree position (see `split`'s `build_split`).
-    pub(crate) fn at(bits: &'a BitsSlice, pos: usize) -> Self {
+    pub(crate) fn at(bits: BitsView<'a>, pos: u64) -> Self {
         IdReader::At { bits, pos }
     }
 
     /// Decode the 2-bit tag at `pos`: `(left_present, right_present)`. Neither
     /// present is the terminal (`Full`); otherwise an internal node.
     #[inline]
-    fn tag(bits: &BitsSlice, pos: usize) -> IdNode {
-        let left = bits[pos];
-        let right = bits[pos + 1];
+    fn tag(bits: BitsView<'_>, pos: u64) -> IdNode {
+        let left = bits.bit(pos);
+        let right = bits.bit(pos + 1);
         if !left && !right {
             IdNode::Full
         } else {
@@ -116,7 +116,7 @@ impl<'a> IdReader<'a> {
             IdReader::Empty => IdNode::Empty,
             IdReader::At { bits, pos } => {
                 crate::codec::scan::record_bits(2); // one 2-bit tag scanned
-                let node = Self::tag(bits, *pos);
+                let node = Self::tag(*bits, *pos);
                 *pos += 2;
                 node
             }
@@ -134,7 +134,7 @@ impl<'a> IdReader<'a> {
             IdReader::Empty => IdNode::Empty,
             IdReader::At { bits, pos } => {
                 crate::codec::scan::record_bits(2); // one 2-bit tag scanned
-                Self::tag(bits, *pos)
+                Self::tag(*bits, *pos)
             }
         }
     }
@@ -149,7 +149,7 @@ impl<'a> IdReader<'a> {
                 // One 2-bit tag scanned per skip step. Children present =
                 // the two tag bits; the tag is 2 bits wide.
                 crate::codec::scan::record_bits(2);
-                let children = usize::from(bits[at]) + usize::from(bits[at + 1]);
+                let children = u64::from(bits.bit(at)) + u64::from(bits.bit(at + 1));
                 (children, at + 2)
             });
         }
@@ -174,16 +174,16 @@ impl<'a> IdReader<'a> {
     ///
     /// Used for `sum`/`diff` capacity hints, where an anonymous (`0`) operand
     /// is a synthetic [`Empty`](IdReader::Empty) contributing zero bits.
-    pub(crate) fn bits(&self) -> &'a BitsSlice {
+    pub(crate) fn bits(&self) -> BitsView<'a> {
         match self {
-            IdReader::At { bits, .. } => bits,
-            IdReader::Empty => BitsSlice::empty(),
+            IdReader::At { bits, .. } => *bits,
+            IdReader::Empty => BitsView::empty(),
         }
     }
 
     /// This reader's bit offset, for copying a subtree's verbatim bit range or
     /// recording a branch position. Not called on a synthetic reader.
-    pub(crate) fn pos(&self) -> usize {
+    pub(crate) fn pos(&self) -> u64 {
         match self {
             IdReader::At { pos, .. } => *pos,
             IdReader::Empty => {
@@ -207,10 +207,7 @@ impl<'a> IdReader<'a> {
 /// The single shared spelling of this scan: [`IdReader::skip`] runs it on the
 /// packed id encoding, and the skyline `grow` walks run it to skip event
 /// subtrees (one topology flag plus one skipped payload code per node).
-pub(crate) fn skip_subtree(
-    mut at: usize,
-    mut header: impl FnMut(usize) -> (usize, usize),
-) -> usize {
+pub(crate) fn skip_subtree(mut at: u64, mut header: impl FnMut(u64) -> (u64, u64)) -> u64 {
     let mut pending: i64 = 1;
     while pending > 0 {
         let (children, next) = header(at);

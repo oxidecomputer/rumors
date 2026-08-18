@@ -1,4 +1,4 @@
-use crate::codec::{BitStack, BitsMut, BitsSlice, PackedBuilder, PopStack};
+use crate::codec::{BitStack, BitsMut, BitsView, PackedBuilder, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -91,7 +91,7 @@ impl IdBuilder {
         src.skip();
         // The peek and the skip above record their own reads; the splice
         // records the write.
-        self.out.splice(&src.bits()[start..src.pos()]);
+        self.out.splice(src.bits(), start, src.pos());
         if is_terminal {
             Built::Terminal
         } else {
@@ -99,11 +99,12 @@ impl IdBuilder {
         }
     }
 
-    /// Append a complete already-normal subtree's bits verbatim (the splice
-    /// records the write), for a spliced child whose kind the caller reports to
-    /// [`close_node`](Self::close_node) itself.
-    pub(super) fn splice(&mut self, src: &BitsSlice) {
-        self.out.splice(src);
+    /// Append an already-normal subtree's bits — the range `start..end` of
+    /// `src` — verbatim (the splice records the write), for a spliced child
+    /// whose kind the caller reports to [`close_node`](Self::close_node)
+    /// itself.
+    pub(super) fn splice(&mut self, src: BitsView<'_>, start: u64, end: u64) {
+        self.out.splice(src, start, end);
     }
 
     /// Normalize and close the node opened at `node` from what its two children
@@ -243,7 +244,7 @@ impl IdSkylineBuilder {
     /// by plateau would close as (its root has a child that is neither
     /// both-empty nor both-terminal), so the ancestors' presence patches and
     /// collapses are unchanged.
-    pub(super) fn subtree(&mut self, depth: usize, src: &BitsSlice) {
+    pub(super) fn subtree(&mut self, depth: usize, src: BitsView<'_>, start: u64, end: u64) {
         debug_assert!(
             self.root.is_none(),
             "a subtree arrived after the final plateau: the tiling is complete"
@@ -253,7 +254,7 @@ impl IdSkylineBuilder {
             "a subtree depth above its forced flip level: the input is not one preorder tiling"
         );
         debug_assert!(
-            src[0] || src[1],
+            src.bit(start) || src.bit(start + 1),
             "a spliced block is an internal subtree, never a lone terminal"
         );
         // Open an ancestor per level entered, exactly as a leaf would.
@@ -262,7 +263,7 @@ impl IdSkylineBuilder {
             self.tags.push(at);
             self.path.push(false);
         }
-        self.out.splice(src);
+        self.out.splice(src, start, end);
         self.close_up(Built::Node);
     }
 

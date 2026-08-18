@@ -342,7 +342,7 @@ fn total_cmp(a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {
     if crate::codec::canonical_eq(a.version.view(), b.version.view()) {
         return Ordering::Equal;
     }
-    skyline::query::rank_cmp(a.version.view(), b.version.view())
+    skyline::query::rank_cmp(a.version.view().live(), b.version.view().live())
         .then_with(|| a.version.as_bytes().cmp(b.version.as_bytes()))
 }
 

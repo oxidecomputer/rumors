@@ -64,16 +64,15 @@ pub(super) fn trailing_bytes(bytes: &[u8]) -> Vec<u8> {
 /// Iterative over the packed form, outside any measurement; the last node of a
 /// preorder event stream is always a leaf (an internal node's children would
 /// follow it).
-fn last_leaf_flag_pos(v: &Version) -> usize {
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
-    let mut pos = 0usize;
+fn last_leaf_flag_pos(v: &Version) -> u64 {
+    let bits = v.as_bits();
+    let mut pos = 0u64;
     let mut pending = 1usize;
-    let mut last = 0usize;
+    let mut last = 0u64;
     while pending > 0 {
         pending -= 1;
         let flag = pos;
-        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
+        let internal = !bits.bit(pos); // skyline flag: 0 internal, 1 leaf
         pos += 1;
         if internal {
             pending += 2;
@@ -93,13 +92,12 @@ fn last_leaf_flag_pos(v: &Version) -> usize {
 /// validator can only judge at that pair's close, the stream's last position.
 /// The maximally-deferred [`NotCanonical`](crate::error::Decode) defect.
 pub(super) fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
+    let bits = v.as_bits();
     let leaf = last_leaf_flag_pos(v);
-    let mut out = codec::BitsMut::with_capacity(bits.len() + 4);
-    out.extend_from_bitslice(&bits[..leaf]);
+    let mut out = codec::BitsMut::with_capacity(bits.len() as usize + 4);
+    codec::extend_from_view(&mut out, bits, 0, leaf);
     out.push(false); // the old leaf's position becomes an internal node
-    out.extend_from_bitslice(&bits[leaf..]); // left child: the old leaf verbatim
+    codec::extend_from_view(&mut out, bits, leaf, bits.len()); // left child: the old leaf verbatim
     out.push(true); // right child: a leaf equal to its sibling
     codec::encode_int(&mut out, &Base::from(0u32)); // zero delta
     codec::seal_padding(&mut out);
@@ -116,11 +114,11 @@ pub(super) fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
     let bits = p.as_bits();
     let end = bits.len();
     assert!(
-        !bits[end - 2] && !bits[end - 1],
+        !bits.bit(end - 2) && !bits.bit(end - 1),
         "a preorder id stream ends in a terminal tag"
     );
-    let mut out = codec::BitsMut::with_capacity(end + 4);
-    out.extend_from_bitslice(&bits[..end - 2]);
+    let mut out = codec::BitsMut::with_capacity(end as usize + 4);
+    codec::extend_from_view(&mut out, bits, 0, end - 2);
     out.push(true); // the last terminal becomes a node with both children
     out.push(true);
     for _ in 0..2 {

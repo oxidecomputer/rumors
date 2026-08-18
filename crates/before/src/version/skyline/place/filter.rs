@@ -52,7 +52,7 @@ use core::cmp::Ordering;
 use suanpan::Accumulator;
 
 use crate::causally::Coverage;
-use crate::codec::{BitsSlice, Int};
+use crate::codec::{BitsView, Int};
 
 use super::super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::super::signed::Sign;
@@ -159,8 +159,8 @@ struct BoundSide<'a> {
 /// exactly: the violations the walk structurally notices panic, the rest sweep
 /// silently with an unspecified verdict.
 pub(crate) fn admits<'a>(
-    probe: &'a BitsSlice,
-    bounds: impl IntoIterator<Item = (&'a BitsSlice, Demand)>,
+    probe: BitsView<'a>,
+    bounds: impl IntoIterator<Item = (BitsView<'a>, Demand)>,
 ) -> bool {
     let mut bounds = bounds.into_iter().peekable();
     if bounds.peek().is_none() {
@@ -322,9 +322,9 @@ struct SpanSide<'a> {
 ///
 /// The canonical-stream contract of [`admits`], on all operands.
 pub(crate) fn coverage<'a>(
-    lo: &'a BitsSlice,
-    hi: &'a BitsSlice,
-    bounds: impl IntoIterator<Item = (&'a BitsSlice, Demand)>,
+    lo: BitsView<'a>,
+    hi: BitsView<'a>,
+    bounds: impl IntoIterator<Item = (BitsView<'a>, Demand)>,
 ) -> Coverage {
     let mut bounds = bounds.into_iter().peekable();
     if bounds.peek().is_none() {

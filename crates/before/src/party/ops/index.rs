@@ -32,7 +32,7 @@
 //! and it exists *only* because the fold repeats the test against one fixed
 //! side; single-shot predicates stay on the cursor walk, which needs no table.
 
-use crate::codec::BitsSlice;
+use crate::codec::BitsView;
 use crate::idbits::{IdNode, IdReader};
 
 /// A random-access view of one packed id operand: the operand's bits plus a
@@ -44,7 +44,7 @@ use crate::idbits::{IdNode, IdReader};
 /// indexed operand — strictly smaller than the operand itself.
 pub(crate) struct IdIndex<'a> {
     /// The indexed operand's packed preorder tag stream.
-    bits: &'a BitsSlice,
+    bits: BitsView<'a>,
     /// `rights[i]` is the right child's bit position for the `i`-th
     /// both-present node in preorder. Only both-present nodes need an entry: a
     /// right-only node's child follows its tag directly, and a left child
@@ -69,16 +69,16 @@ impl<'a> IdIndex<'a> {
     /// child's) — threading the frames' entry slots through the not-yet-filled
     /// table itself, so the only transient state beyond the table is one `bool`
     /// per open frame.
-    pub(crate) fn build(bits: &'a BitsSlice) -> IdIndex<'a> {
-        if bits.len() > u32::MAX as usize {
+    pub(crate) fn build(bits: BitsView<'a>) -> IdIndex<'a> {
+        if bits.len() > u64::from(u32::MAX) {
             return IdIndex { bits, rights: None };
         }
         // Pass 1: count. Reads every tag once.
-        crate::codec::scan::record_bits(bits.len());
+        crate::codec::scan::record_bits_u64(bits.len());
         let mut count = 0usize;
-        let mut p = 0;
+        let mut p = 0u64;
         while p < bits.len() {
-            if bits[p] && bits[p + 1] {
+            if bits.bit(p) && bits.bit(p + 1) {
                 count += 1;
             }
             p += 2;
@@ -88,7 +88,7 @@ impl<'a> IdIndex<'a> {
         // next-outer awaiting frame (`u32::MAX` terminates the chain); the real
         // right-child position overwrites the link the moment the left subtree
         // completes.
-        crate::codec::scan::record_bits(bits.len());
+        crate::codec::scan::record_bits_u64(bits.len());
         let mut rights = vec![0u32; count];
         // One bit per open both-present frame, innermost last: `true` while the
         // frame awaits its left subtree's end, `false` while it awaits its
@@ -96,9 +96,9 @@ impl<'a> IdIndex<'a> {
         let mut awaiting_left: Vec<bool> = Vec::new();
         let mut chain_head = u32::MAX;
         let mut next_entry = 0usize;
-        let mut p = 0;
+        let mut p = 0u64;
         while p < bits.len() {
-            let (left, right) = (bits[p], bits[p + 1]);
+            let (left, right) = (bits.bit(p), bits.bit(p + 1));
             p += 2;
             if left && right {
                 rights[next_entry] = chain_head;
@@ -154,7 +154,7 @@ impl<'a> IdIndex<'a> {
     /// to hold [`is_disjoint`](IdIndex::is_disjoint)'s unindexed arm to the
     /// cursor walk's verdict.
     #[cfg(test)]
-    pub(crate) fn build_unindexed(bits: &'a BitsSlice) -> IdIndex<'a> {
+    pub(crate) fn build_unindexed(bits: BitsView<'a>) -> IdIndex<'a> {
         IdIndex { bits, rights: None }
     }
 
@@ -178,7 +178,7 @@ impl<'a> IdIndex<'a> {
         };
         // The current pair's indexed side: the bit position of its present
         // node, or `None` for an absent (empty) region.
-        let mut node: Option<usize> = (!self.bits.is_empty()).then_some(0);
+        let mut node: Option<u64> = (!self.bits.is_empty()).then_some(0);
         // The table index of the first entry at or after the current node — the
         // node's own entry whenever it is both-present.
         let mut entry = 0usize;
@@ -186,7 +186,7 @@ impl<'a> IdIndex<'a> {
         // (`None` = absent child) and its entry bound. `other`'s right children
         // need no bookkeeping — its cursor reaches each one in stream order,
         // exactly as in the cursor walk.
-        let mut pending: Vec<(Option<usize>, usize)> = Vec::new();
+        let mut pending: Vec<(Option<u64>, usize)> = Vec::new();
         loop {
             // One pair per iteration, driven by the input side.
             let b = other.read();
@@ -198,7 +198,7 @@ impl<'a> IdIndex<'a> {
                 }
                 Some(p) => {
                     crate::codec::scan::record_bits(2); // one 2-bit tag read
-                    let (al, ar) = (self.bits[p], self.bits[p + 1]);
+                    let (al, ar) = (self.bits.bit(p), self.bits.bit(p + 1));
                     match b {
                         // Only an empty *stream* reads `Empty` here (an absent
                         // child pair is never visited): vacuously disjoint.
@@ -227,7 +227,7 @@ impl<'a> IdIndex<'a> {
                                 let after_left = entry
                                     + 1
                                     + metered_partition_point(&rights[entry + 1..], target);
-                                (Some(target as usize), after_left)
+                                (Some(u64::from(target)), after_left)
                             } else if ar {
                                 // Right-only: the child follows the tag.
                                 (Some(p + 2), entry)

@@ -127,13 +127,11 @@ impl<'a> Span<'a> {
         //
         // The pair verdict is pronounced last, after the padding check, so a
         // composite defective several ways rejects by its structural genre
-        // first, exactly as decoding the components would.
-        // Both components validate over the raw bytes (never a borrowed bit
-        // view, whose encoding caps below the buffer sizes this door admits
-        // on 32-bit targets); each walk's input is its component's whole
-        // byte range as bits, padding included, judged by its marker check.
+        // first, exactly as decoding the components would. Each component
+        // walk's input is its whole byte range as bits, padding included,
+        // judged by its marker check.
         let (lo_bytes, admission) = {
-            let lo_end = skyline::validate_prefix_bytes(&buf)?;
+            let lo_end = skyline::validate_prefix(codec::BitsView::whole(&buf))?;
             // The meet's padding marker sits in its final byte — which an
             // input cut right after a flush stream lacks. That cut is
             // missing required data (the marker byte, and the whole join
@@ -145,18 +143,15 @@ impl<'a> Span<'a> {
             }
             let lo_bytes =
                 usize::try_from(lo_bytes).expect("the meet's prefix ends within the read buffer");
-            codec::require_marker_padding_bytes(&buf[..lo_bytes], lo_end)?;
-            // The meet re-walks beside the join's parse; its live length is
-            // its own validated end, below `usize` wherever its stream is
-            // storable at all (the adopting container's bit positions are
-            // usize-denominated).
-            let lo_live = usize::try_from(lo_end).expect("a storable meet's bit length fits usize");
+            codec::require_marker_padding(&buf[..lo_bytes], lo_end)?;
+            // The meet re-walks beside the join's parse, viewed at its own
+            // validated live length.
+            let lo = codec::BitsView::new(&buf[..lo_bytes], lo_end);
             let tail = &buf[lo_bytes..];
-            let mut cursor = codec::DsiCursor::over_bytes(tail);
-            let admission =
-                skyline::validate_dominating_bytes(&buf[..lo_bytes], lo_live, &mut cursor)?;
+            let mut cursor = codec::DsiCursor::new(codec::BitsView::whole(tail));
+            let admission = skyline::validate_dominating_from(lo, &mut cursor)?;
             let hi_end = cursor.position_u64();
-            codec::require_marker_padding_bytes(tail, hi_end)?;
+            codec::require_marker_padding(tail, hi_end)?;
             if admission == skyline::Admission::Refuted {
                 return Err(Decode::NotCanonical);
             }

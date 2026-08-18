@@ -451,14 +451,17 @@ fn unindexed_fallback_matches_the_walk_on_constructed_pairs() {
     ];
     for (a, b) in &pairs {
         for (x, y) in [(a, b), (b, a)] {
-            let walk = IdReader::root(x).is_disjoint(IdReader::root(y));
+            let walk = IdReader::root(crate::codec::built_view(x))
+                .is_disjoint(IdReader::root(crate::codec::built_view(y)));
             assert_eq!(
-                IdIndex::build(x).is_disjoint(IdReader::root(y)),
+                IdIndex::build(crate::codec::built_view(x))
+                    .is_disjoint(IdReader::root(crate::codec::built_view(y))),
                 walk,
                 "the built index diverged from the cursor walk"
             );
             assert_eq!(
-                IdIndex::build_unindexed(x).is_disjoint(IdReader::root(y)),
+                IdIndex::build_unindexed(crate::codec::built_view(x))
+                    .is_disjoint(IdReader::root(crate::codec::built_view(y))),
                 walk,
                 "the unindexed fallback diverged from the cursor walk"
             );
@@ -547,7 +550,7 @@ proptest! {
         let fused = IdReader::root(ia.as_bits()).sum_split(IdReader::root(ib.as_bits()));
         let composed = IdReader::root(ia.as_bits())
             .sum(IdReader::root(ib.as_bits()))
-            .map(|union| IdReader::root(&union).split());
+            .map(|union| IdReader::root(crate::codec::built_view(&union)).split());
         prop_assert_eq!(fused, composed);
     }
 }
@@ -569,7 +572,7 @@ fn sum_split_collapsed_union_matches_terminal_split() {
     let union = IdReader::root(keep.as_bits())
         .sum(IdReader::root(give.as_bits()))
         .expect("the seed's halves are disjoint");
-    let composed = IdReader::root(&union).split();
+    let composed = IdReader::root(crate::codec::built_view(&union)).split();
     assert_eq!(fused, composed);
     assert_eq!(Party::from_bits(fused.0), keep, "the keep half is (1, 0)");
     assert_eq!(Party::from_bits(fused.1), give, "the give half is (0, 1)");
@@ -666,10 +669,11 @@ mod sum_split_constructed {
     /// orders (byte equality, `None` arms included).
     fn assert_matches_composition(a: &BitsMut, b: &BitsMut) {
         for (x, y) in [(a, b), (b, a)] {
-            let fused = IdReader::root(x).sum_split(IdReader::root(y));
-            let composed = IdReader::root(x)
-                .sum(IdReader::root(y))
-                .map(|union| IdReader::root(&union).split());
+            let fused = IdReader::root(crate::codec::built_view(x))
+                .sum_split(IdReader::root(crate::codec::built_view(y)));
+            let composed = IdReader::root(crate::codec::built_view(x))
+                .sum(IdReader::root(crate::codec::built_view(y)))
+                .map(|union| IdReader::root(crate::codec::built_view(&union)).split());
             assert_eq!(fused, composed);
         }
     }
@@ -753,12 +757,13 @@ mod sum_split_constructed {
         };
         let compare = |name: &str, a: &BitsMut, b: &BitsMut| -> u64 {
             let fused = scan(&|| {
-                IdReader::root(a).sum_split(IdReader::root(b));
+                IdReader::root(crate::codec::built_view(a))
+                    .sum_split(IdReader::root(crate::codec::built_view(b)));
             });
             let composed = scan(&|| {
-                IdReader::root(a)
-                    .sum(IdReader::root(b))
-                    .map(|u| IdReader::root(&u).split());
+                IdReader::root(crate::codec::built_view(a))
+                    .sum(IdReader::root(crate::codec::built_view(b)))
+                    .map(|u| IdReader::root(crate::codec::built_view(&u)).split());
             });
             assert!(
                 0 < fused && fused <= composed,
@@ -832,7 +837,8 @@ mod diff_constructed {
     /// at oracle-reachable scales (`k <= ORACLE_SCALE_MAX`) also equal to the
     /// recursive oracle's `without`, compared over lowered oracle trees.
     fn assert_diff(a: &BitsMut, b: &BitsMut, expected: &BitsMut, k: usize) {
-        let d = IdReader::root(a).diff(IdReader::root(b));
+        let d = IdReader::root(crate::codec::built_view(a))
+            .diff(IdReader::root(crate::codec::built_view(b)));
         assert_eq!(
             &d, expected,
             "diff diverged from the constructed expectation (k={k})"
@@ -925,7 +931,8 @@ mod diff_constructed {
         const BLOCK_SLACK: u64 = 8;
         let scan = |a: &BitsMut, b: &BitsMut| -> u64 {
             crate::codec::scan::reset();
-            IdReader::root(a).diff(IdReader::root(b));
+            IdReader::root(crate::codec::built_view(a))
+                .diff(IdReader::root(crate::codec::built_view(b)));
             crate::codec::scan::scan_bits()
         };
         for k in [256usize, 4096] {
@@ -1010,7 +1017,7 @@ proptest! {
     ) {
         let a = from_oracle_party(&oa);
         let b = from_oracle_party(&ob);
-        let bit_eq = a.as_bits() == b.as_bits();
+        let bit_eq = a.as_bits().to_bitvec() == b.as_bits().to_bitvec();
         prop_assert_eq!(a == b, bit_eq);
         prop_assert_eq!(b == a, bit_eq);
         if a == b {

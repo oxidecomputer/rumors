@@ -1,4 +1,4 @@
-use crate::codec::{BitsMut, BitsSlice};
+use crate::codec::{extend_from_view, BitsMut, BitsView};
 use crate::idbits::{IdNode, IdReader};
 
 impl IdReader<'_> {
@@ -42,16 +42,17 @@ enum SpineEnd {
 /// copy of already-normal bit ranges, normal by construction (the kept child is
 /// nonempty, so no collapse can arise). Iterative: the spine walk is a loop, so
 /// deep ids cannot overflow.
-fn build_split(bits: &BitsSlice, start: usize) -> (BitsMut, BitsMut) {
+fn build_split(bits: BitsView<'_>, start: u64) -> (BitsMut, BitsMut) {
     let mut pos = start;
     let (prefix_end, kind) = loop {
-        match (bits[pos], bits[pos + 1]) {
+        match (bits.bit(pos), bits.bit(pos + 1)) {
             (false, false) => break (pos, SpineEnd::Terminal), // the `1` leaf
             (true, true) => break (pos, SpineEnd::Branch),     // both-present branch
             _ => pos += 2, // unary: descend the single present child (at pos + 2)
         }
     };
-    let prefix = &bits[start..prefix_end];
+    let prefix = start..prefix_end;
+    let prefix_len = (prefix_end - start) as usize;
 
     match kind {
         SpineEnd::Branch => {
@@ -65,22 +66,22 @@ fn build_split(bits: &BitsSlice, start: usize) -> (BitsMut, BitsMut) {
                 bits.len(),
                 "the branch subtree is the spine's tail",
             );
-            let i1 = &bits[left_child..right_child];
-            let i2 = &bits[right_child..branch_end];
 
             // Each half keeps one child and drops the other, so its length is
             // exact: prefix + the 2-bit retagged branch + the kept child.
-            let mut a = BitsMut::with_capacity(prefix.len() + 2 + i1.len());
-            a.extend_from_bitslice(prefix);
+            let mut a =
+                BitsMut::with_capacity(prefix_len + 2 + (right_child - left_child) as usize);
+            extend_from_view(&mut a, bits, prefix.start, prefix.end);
             a.push(true); // branch → Left-only: keep i1 ...
             a.push(false); // ... drop i2
-            a.extend_from_bitslice(i1);
+            extend_from_view(&mut a, bits, left_child, right_child);
 
-            let mut b = BitsMut::with_capacity(prefix.len() + 2 + i2.len());
-            b.extend_from_bitslice(prefix);
+            let mut b =
+                BitsMut::with_capacity(prefix_len + 2 + (branch_end - right_child) as usize);
+            extend_from_view(&mut b, bits, prefix.start, prefix.end);
             b.push(false); // branch → Right-only: drop i1 ...
             b.push(true); // ... keep i2
-            b.extend_from_bitslice(i2);
+            extend_from_view(&mut b, bits, right_child, branch_end);
 
             (a, b)
         }
@@ -92,15 +93,15 @@ fn build_split(bits: &BitsSlice, start: usize) -> (BitsMut, BitsMut) {
                 bits.len(),
                 "the terminal is the spine's tail",
             );
-            let mut a = BitsMut::with_capacity(prefix.len() + 4);
-            a.extend_from_bitslice(prefix);
+            let mut a = BitsMut::with_capacity(prefix_len + 4);
+            extend_from_view(&mut a, bits, prefix.start, prefix.end);
             a.push(true); // (1, 0): Left-only ...
             a.push(false);
             a.push(false); // ... over a terminal
             a.push(false);
 
-            let mut b = BitsMut::with_capacity(prefix.len() + 4);
-            b.extend_from_bitslice(prefix);
+            let mut b = BitsMut::with_capacity(prefix_len + 4);
+            extend_from_view(&mut b, bits, prefix.start, prefix.end);
             b.push(false); // (0, 1): Right-only ...
             b.push(true);
             b.push(false); // ... over a terminal
@@ -113,7 +114,7 @@ fn build_split(bits: &BitsSlice, start: usize) -> (BitsMut, BitsMut) {
 
 /// The bit position just past the subtree at `pos` (the shared
 /// [`skip`](IdReader::skip) scan), for slicing a branch child's verbatim range.
-fn subtree_end(bits: &BitsSlice, pos: usize) -> usize {
+fn subtree_end(bits: BitsView<'_>, pos: u64) -> u64 {
     let mut r = IdReader::at(bits, pos);
     r.skip();
     r.pos()

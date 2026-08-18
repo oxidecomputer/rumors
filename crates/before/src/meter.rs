@@ -109,14 +109,8 @@ impl Packed {
     }
 
     /// The generator's live bits, borrowed.
-    ///
-    /// A borrowed bit view, sized for the instrument surface: the shape
-    /// generators emit parameter-scale streams far below the view
-    /// encoding's cap (`usize::MAX >> 3` bits), where the byte decode
-    /// doors — which admit larger buffers on 32-bit targets — walk raw
-    /// bytes instead.
-    pub fn as_bits(&self) -> &codec::BitsSlice {
-        &codec::bytes_as_bits(&self.bytes)[..self.bits]
+    pub fn as_bits(&self) -> codec::BitsView<'_> {
+        codec::BitsView::new(&self.bytes, self.bits as u64)
     }
 
     /// Lift an event-shape generator's output into a stored [`Version`](crate::Version),

@@ -33,7 +33,7 @@
 //! empty, a two-shift merge per byte otherwise.
 
 use super::code::SMALL_CODE_BITS;
-use super::{BitsMut, BitsSlice, Code};
+use super::{BitsMut, BitsView, Code};
 
 /// An append-truncate builder over one packed preorder bit stream.
 ///
@@ -44,13 +44,12 @@ pub(crate) struct PackedBuilder {
     ///
     /// `bytes.len() * 8` fits `usize` on every target — the width the
     /// position arithmetic below (`len`, `patch_bit`, `read_bits`,
-    /// `bit_at`) rests on. The bound: every builder's output is a stream
-    /// destined for the build-side buffer, whose borrowed-view encoding
-    /// caps at `usize::MAX >> 3` bits, and the emitters write at most a
-    /// small constant per input node over operands that are themselves
-    /// stored streams under the same cap — so the committed prefix stays
-    /// multiple binary orders of magnitude below any `usize` wrap, even
-    /// on 32-bit targets.
+    /// `bit_at`) rests on. The bound: every finished stream hands over
+    /// through the build buffer, whose own length encoding caps at
+    /// `usize::MAX >> 3` bits, and the emitters write at most a small
+    /// constant per input node — so the committed prefix stays multiple
+    /// binary orders of magnitude below any `usize` wrap, even on 32-bit
+    /// targets.
     bytes: Vec<u8>,
     /// The trailing not-yet-committed bits, value-packed at the low end
     /// (the stream's next bit is the register's most significant live
@@ -114,7 +113,10 @@ impl PackedBuilder {
                 self.append_bits(*bits, u32::from(*len));
             }
             // The splice records its own write.
-            Code::Wide(bits) => self.splice(bits),
+            Code::Wide(bits) => {
+                let src = super::bits::built_view(bits);
+                self.splice(src, 0, src.len());
+            }
         }
     }
 
@@ -163,24 +165,36 @@ impl PackedBuilder {
         }
     }
 
-    /// Append a verbatim bit range copied from an already-normal source.
-    pub(crate) fn splice(&mut self, src: &BitsSlice) {
-        super::scan::record_bits(src.len());
-        // Walk the source up to its backing store's next byte boundary
-        // (at most seven bits), where the byte view takes over.
-        let mut src = src;
-        while !src.is_empty() {
-            if let Some((body, tail)) = super::bits::byte_view(src) {
-                self.append_bytes(body);
-                let rem = (src.len() - body.len() * 8) as u32;
-                if rem > 0 {
-                    let tail = tail.expect("a partial trailing byte backs the trailing bits");
-                    self.append_bits(u64::from(tail >> (8 - rem)), rem);
-                }
-                return;
-            }
-            self.append_bits(u64::from(src[0]), 1);
-            src = &src[1..];
+    /// Append the bit range `start..end` of `src`, copied verbatim from an
+    /// already-normal source.
+    ///
+    /// # Panics
+    ///
+    /// `start..end` must be a range within the view's live length.
+    pub(crate) fn splice(&mut self, src: BitsView<'_>, start: u64, end: u64) {
+        assert!(
+            start <= end && end <= src.len(),
+            "spliced range within the view's live length"
+        );
+        super::scan::record_bits_u64(end - start);
+        let mut pos = start;
+        // Walk the source up to its next byte boundary (at most seven
+        // bits), where the byte copy takes over.
+        while pos < end && !pos.is_multiple_of(8) {
+            self.append_bits(u64::from(src.bit(pos)), 1);
+            pos += 1;
+        }
+        let whole = (end - pos) / 8;
+        if whole > 0 {
+            let at = (pos / 8) as usize;
+            self.append_bytes(&src.bytes()[at..at + whole as usize]);
+            pos += whole * 8;
+        }
+        if pos < end {
+            // Trailing bits (fewer than 8), value-packed from their byte.
+            let rem = (end - pos) as u32;
+            let byte = src.bytes()[(pos / 8) as usize];
+            self.append_bits(u64::from(byte >> (8 - rem)), rem);
         }
     }
 

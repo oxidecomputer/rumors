@@ -9,7 +9,7 @@
 //! its inner node hoards a liftable minimum, so it is not the normal spelling
 //! and is refused.
 
-use crate::codec::{self, Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
+use crate::codec::{self, Base, BitCursor, BitsMut, BitsView, DsiCursor};
 use crate::error::Parse;
 
 use super::signed::{unzigzag_base, zigzag};
@@ -29,7 +29,7 @@ pub(crate) fn leaf(base: u64) -> BitsMut {
 /// children of equal height, which is just the leaf itself) or when the node
 /// hoards a liftable minimum (neither child's minimum leaf height is zero —
 /// normal form stores the shared minimum at the parent).
-pub(crate) fn node(base: u64, left: &BitsSlice, right: &BitsSlice) -> Result<BitsMut, Parse> {
+pub(crate) fn node(base: u64, left: BitsView<'_>, right: BitsView<'_>) -> Result<BitsMut, Parse> {
     let (left_topology, left_heights) = scan(left);
     let (right_topology, right_heights) = scan(right);
 
@@ -78,7 +78,7 @@ pub(crate) fn node(base: u64, left: &BitsSlice, right: &BitsSlice) -> Result<Bit
 
 /// Split a canonical stream into its topology flags (wire convention: `0`
 /// internal, `1` leaf) and absolute leaf heights.
-fn scan(bits: &BitsSlice) -> (BitsMut, Vec<Base>) {
+fn scan(bits: BitsView<'_>) -> (BitsMut, Vec<Base>) {
     let mut cursor = DsiCursor::new(bits);
     let mut topology = BitsMut::new();
     let mut heights: Vec<Base> = Vec::new();

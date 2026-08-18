@@ -1,6 +1,6 @@
 use crate::error::Parse;
 
-use super::{validate_id, BitsMut, BitsSlice};
+use super::{validate_id, BitsMut, BitsView};
 
 /// Whether a normal-form id stream is the anonymous (empty) identity.
 ///
@@ -12,11 +12,11 @@ use super::{validate_id, BitsMut, BitsSlice};
 /// arity vs stream length — never a full re-parse: this helper is on every
 /// decode path's metered hot loop, and asserted work here would make dev builds
 /// meter a different program than the release board of record.
-pub(crate) fn id_is_empty(bits: &BitsSlice) -> bool {
+pub(crate) fn id_is_empty(bits: BitsView<'_>) -> bool {
     debug_assert!(
         bits.is_empty()
             || (bits.len() >= 2
-                && if bits[..2].any() {
+                && if bits.bit(0) || bits.bit(1) {
                     // a root with a present child carries at least one more tag
                     bits.len() >= 4
                 } else {
@@ -40,7 +40,7 @@ pub(crate) fn id_leaf(v: bool) -> BitsMut {
 }
 
 /// Whether `bits` is exactly the terminal tag `00` (the `1` leaf).
-fn id_is_terminal(bits: &BitsSlice) -> bool {
+fn id_is_terminal(bits: &BitsMut) -> bool {
     bits.len() == 2 && !bits[0] && !bits[1]
 }
 
@@ -49,7 +49,7 @@ fn id_is_terminal(bits: &BitsSlice) -> bool {
 /// present.
 ///
 /// Rejects a collapsible `(0, 0)` or `(1, 1)`, then validates the result.
-pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<BitsMut, Parse> {
+pub(crate) fn id_node(l: &BitsMut, r: &BitsMut) -> Result<BitsMut, Parse> {
     if l.is_empty() && r.is_empty() {
         return Err(Parse::NotCanonical); // (0, 0) → 0, not a node
     }
@@ -61,6 +61,6 @@ pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<BitsMut, Parse> {
     b.push(!r.is_empty()); // bit 1 = right present
     b.extend_from_bitslice(l);
     b.extend_from_bitslice(r);
-    validate_id(&b)?;
+    validate_id(super::bits::built_view(&b))?;
     Ok(b)
 }

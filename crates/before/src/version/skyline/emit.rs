@@ -80,7 +80,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitsMut, BitsSlice, Code, Int};
+use crate::codec::{BitsMut, BitsView, Code, Int};
 
 use super::build::SkylineBuilder;
 use super::overlay::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
@@ -126,7 +126,7 @@ fn follow_min(sign: Ordering, current: Side) -> Side {
 /// the walk structurally notices (truncation, malformation) panic; the rest (a
 /// collapsible sibling pair, a delta driving the running height negative) sweep
 /// silently, and the output is then unspecified.
-pub fn join(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
+pub fn join(a: BitsView<'_>, b: BitsView<'_>) -> BitsMut {
     emit(a, b, follow_max)
 }
 
@@ -139,7 +139,7 @@ pub fn join(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
 ///
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output.
-pub fn meet(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
+pub fn meet(a: BitsView<'_>, b: BitsView<'_>) -> BitsMut {
     emit(a, b, follow_min)
 }
 
@@ -187,7 +187,7 @@ pub struct Hull {
 ///
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output triple.
-pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
+pub fn hull(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Hull {
     /// One output of the fused sweep: its side selection (pointwise min or max
     /// — the only point where the two outputs differ), the side it is currently
     /// following, and its builder.
@@ -220,12 +220,12 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
         Emission {
             pick: follow_min,
             side: Side::A,
-            out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
+            out: SkylineBuilder::with_capacity((a_bits.len() + b_bits.len()) as usize),
         },
         Emission {
             pick: follow_max,
             side: Side::A,
-            out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
+            out: SkylineBuilder::with_capacity((a_bits.len() + b_bits.len()) as usize),
         },
     ];
     for emission in &mut outputs {
@@ -276,7 +276,11 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
 /// difference's sign and the current side — the winner by sign, sticky at ties,
 /// and the only point where join and meet differ (see the module doc's
 /// side-switch algebra).
-fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) -> Side) -> BitsMut {
+fn emit(
+    a_bits: BitsView<'_>,
+    b_bits: BitsView<'_>,
+    pick: impl Fn(Ordering, Side) -> Side,
+) -> BitsMut {
     let OpenedPair {
         a: mut cursor_a,
         b: mut cursor_b,
@@ -296,7 +300,7 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
     // arbitrary: at a tie the two first heights are equal, so either side opens
     // the output identically.
     let mut side = pick(diff.sign(), Side::A);
-    let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
+    let mut out = SkylineBuilder::with_capacity((a_bits.len() + b_bits.len()) as usize);
     let first = match side {
         Side::A => &a_first,
         Side::B => &b_first,

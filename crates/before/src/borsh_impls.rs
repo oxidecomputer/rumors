@@ -71,9 +71,7 @@ impl<'a, R: Read> ReaderCursor<'a, R> {
     /// `1000_0000` byte the parse never pulled, and leaving it unread would
     /// hand its bits to the next borsh field. After it, the buffered bytes
     /// are exactly the tree's marker-padded canonical spelling — the at-rest
-    /// storage form, adopted without a copy or a borrowed bit view (whose
-    /// encoding caps below the field sizes this reader admits on 32-bit
-    /// targets).
+    /// storage form, adopted without a copy).
     fn finish(mut self) -> Result<Vec<u8>, Decode> {
         if !self.read_bit()? {
             return Err(Decode::TrailingBits);
@@ -122,7 +120,9 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
         // construction. It fires when earlier refills left enough unconsumed
         // bits buffered; everything else, every reject included, is decided
         // by the per-bit loop below, refilling byte by byte on demand.
-        if let Some((n, next)) = codec::decode_int_window_bytes(&self.bytes, self.position) {
+        if let Some((n, next)) =
+            codec::decode_int_window(codec::BitsView::whole(&self.bytes), self.position)
+        {
             self.position = next;
             return Ok(codec::Int::Small(n));
         }
@@ -281,8 +281,9 @@ impl BorshDeserialize for Span<'static> {
         use crate::version::skyline::Admission;
         let lo = Version::deserialize_reader(reader)?;
         let mut cursor = ReaderCursor::new(reader);
-        let admission = crate::version::skyline::validate_dominating_from(lo.view(), &mut cursor)
-            .map_err(decode_error)?;
+        let admission =
+            crate::version::skyline::validate_dominating_from(lo.view().live(), &mut cursor)
+                .map_err(decode_error)?;
         // The final byte's padding check outranks the pair verdict,
         // exactly as the byte-slice decode orders them.
         let bytes = cursor.finish().map_err(decode_error)?;

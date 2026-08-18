@@ -69,7 +69,7 @@ use core::fmt::Write as _;
 use suanpan::Accumulator;
 
 use crate::codec::text::{parse_base, Cur};
-use crate::codec::{Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
+use crate::codec::{Base, BitCursor, BitsMut, BitsView, DsiCursor};
 use crate::error::Parse;
 
 use super::build::SkylineBuilder;
@@ -227,7 +227,7 @@ impl<T> ParkedStack<T> {
 /// # Panics
 ///
 /// Panics if the stream is not a canonical skyline encoding.
-pub fn render(bits: &BitsSlice) -> String {
+pub fn render(bits: BitsView<'_>) -> String {
     let mut cursor = DsiCursor::new(bits);
 
     // Finalize state. `topology`: per-node internal flags (semantic, not the
@@ -307,7 +307,7 @@ pub fn render(bits: &BitsSlice) -> String {
         }
     };
     assert_eq!(
-        cursor.position(),
+        cursor.position_u64(),
         bits.len(),
         "a canonical skyline stream is exactly one tree"
     );

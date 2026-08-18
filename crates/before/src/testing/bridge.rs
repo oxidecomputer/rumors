@@ -83,7 +83,9 @@ pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
 pub(crate) fn from_oracle_version(t: &oracle::Version) -> Version {
     let mut bits = BitsMut::new();
     emit_ev(&mut bits, t);
-    Version::from_bits(crate::version::skyline::encode_bits(&bits))
+    Version::from_bits(crate::version::skyline::encode_bits(
+        crate::codec::built_view(&bits),
+    ))
 }
 
 /// Build the impl `Clock` mirroring an oracle clock.
@@ -104,9 +106,9 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 // bounded tree (test-only; the impl's own traversals are iterative). Both
 // forms are normalized, so structural `==` ⇔ semantic equality.
 
-fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
-    let left = bits[pos];
-    let right = bits[pos + 1];
+fn read_id(bits: codec::BitsView<'_>, pos: u64) -> (oracle::Party, u64) {
+    let left = bits.bit(pos);
+    let right = bits.bit(pos + 1);
     if !left && !right {
         return (oracle::Party::Leaf(true), pos + 2); // terminal = `1`
     }
@@ -138,12 +140,12 @@ fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
 /// The oracle base is the arbitrary-precision `Base` (matching the impl),
 /// so lowering is lossless for any magnitude: no `u64` truncation point.
 fn read_ev(
-    bits: &codec::BitsSlice,
-    pos: usize,
+    bits: codec::BitsView<'_>,
+    pos: u64,
     prev: &mut Option<codec::Base>,
-) -> (oracle::Version, usize) {
+) -> (oracle::Version, u64) {
     // Skyline topology flag: `0` internal, `1` leaf.
-    let internal = !bits[pos];
+    let internal = !bits.bit(pos);
     if internal {
         let (l, after_l) = descend!(0, read_ev(bits, pos + 1, prev));
         let (r, after_r) = descend!(0, read_ev(bits, after_l, prev));

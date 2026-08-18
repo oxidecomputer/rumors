@@ -1895,7 +1895,7 @@ proptest! {
     ) {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
-        let bit_eq = a.as_bits() == b.as_bits();
+        let bit_eq = a.as_bits().to_bitvec() == b.as_bits().to_bitvec();
         prop_assert_eq!(a == b, bit_eq);
         prop_assert_eq!(b == a, bit_eq);
         if a == b {

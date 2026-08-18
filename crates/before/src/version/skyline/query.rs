@@ -174,7 +174,7 @@ use core::cmp::Ordering;
 
 use suanpan::{Accumulator, UBig};
 
-use crate::codec::{self, Base, BitsMut, BitsSlice, Int};
+use crate::codec::{self, Base, BitsMut, BitsView, Int};
 use crate::Rank;
 
 use self::integral::{int_digits, Integrator, FREEZE_ALLOWANCE_DIGITS};
@@ -198,7 +198,7 @@ use super::walk::LeafWalk;
 ///
 /// Panics if the operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes.
-pub fn rank(bits: &BitsSlice) -> Rank {
+pub fn rank(bits: BitsView<'_>) -> Rank {
     let max_depth = max_depth(bits);
     // Depth counts levels of a stream held in memory, so it always fits the u64
     // rank exponent.
@@ -238,7 +238,7 @@ pub fn rank(bits: &BitsSlice) -> Rank {
 /// # Panics
 ///
 /// Panics on a non-canonical operand, exactly as [`rank`](fn@rank) does.
-pub fn distance(a: &BitsSlice, b: &BitsSlice) -> Rank {
+pub fn distance(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
     // `∫ |D|`: σ is `sign(D)` itself, so the integrand `σ·D` is `|D|`.
     pair_integral(a, b, |sign| match sign {
         Ordering::Greater => 1,
@@ -259,7 +259,7 @@ pub fn distance(a: &BitsSlice, b: &BitsSlice) -> Rank {
 ///
 /// Panics on a non-canonical operand, exactly as [`rank`](fn@rank)
 /// does.
-pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
+pub fn lag(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
     // `∫ (−D)⁺`: σ is `−1` exactly where `D < 0`, so the integrand keeps the
     // history `b` records beyond `a` and nothing else.
     pair_integral(a, b, |sign| match sign {
@@ -283,7 +283,7 @@ pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
 /// # Panics
 ///
 /// Panics on a non-canonical operand, exactly as [`rank`](fn@rank) does.
-pub fn rank_cmp(a: &BitsSlice, b: &BitsSlice) -> Ordering {
+pub fn rank_cmp(a: BitsView<'_>, b: BitsView<'_>) -> Ordering {
     // `∫ D`, signed: σ is constantly `+1`, the total is
     // `rank(a) − rank(b)`, and only its sign is kept.
     pair_fold(a, b, |_| 1).0
@@ -292,8 +292,8 @@ pub fn rank_cmp(a: &BitsSlice, b: &BitsSlice) -> Ordering {
 /// Run the nonnegative pair co-sweep and normalize its raw total into a
 /// [`Rank`]: the distance/lag entry into [`pair_fold`].
 fn pair_integral(
-    a_bits: &BitsSlice,
-    b_bits: &BitsSlice,
+    a_bits: BitsView<'_>,
+    b_bits: BitsView<'_>,
     orientation: impl Fn(Ordering) -> i8,
 ) -> Rank {
     let (sign, total, scale) = pair_fold(a_bits, b_bits, orientation);
@@ -325,8 +325,8 @@ fn pair_integral(
 ///
 /// Panics on a non-canonical operand, exactly as [`rank`](fn@rank) does.
 fn pair_fold(
-    a_bits: &BitsSlice,
-    b_bits: &BitsSlice,
+    a_bits: BitsView<'_>,
+    b_bits: BitsView<'_>,
     orientation: impl Fn(Ordering) -> i8,
 ) -> (Ordering, UBig, u64) {
     // The overlay's scale: elementary intervals nest inside both operands'
@@ -419,7 +419,7 @@ fn pair_fold(
 ///
 /// Panics if the operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes.
-pub fn min_ticks(bits: &BitsSlice) -> Base {
+pub fn min_ticks(bits: BitsView<'_>) -> Base {
     let (mut cursor, first) = LeafCursor::open(bits);
     // The height split: `h = F + L`, with `L` folding every delta and `F`
     // living entirely in the epoch ledger — one drift per freeze, settled
@@ -496,7 +496,7 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
 /// # Panics
 ///
 /// Panics if the skyline operand is not a canonical stream.
-pub fn project(event_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
+pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsMut {
     let id_bits = id.as_bits();
     let (mut event_cursor, first) = LeafCursor::open(event_bits);
     let mut id_cursor = IdLeafCursor::open(id_bits);
@@ -511,7 +511,7 @@ pub fn project(event_bits: &BitsSlice, id: &crate::Party) -> BitsMut {
     // the allocation benchmark to measure against the shipped pre-size; shipped
     // builds always take the pre-sized arm.
     #[cfg(not(before_alloc_ab = "projection_growth"))]
-    let capacity = event_bits.len() + id_bits.len();
+    let capacity = (event_bits.len() + id_bits.len()) as usize;
     #[cfg(before_alloc_ab = "projection_growth")]
     let capacity = 0;
     let mut out = SkylineBuilder::with_capacity(capacity);
@@ -633,7 +633,7 @@ fn absolute_height(height: &mut Accumulator) -> Base {
 /// # Panics
 ///
 /// Panics if the stream is not a canonical skyline encoding.
-fn max_depth(bits: &BitsSlice) -> usize {
+fn max_depth(bits: BitsView<'_>) -> usize {
     let mut cursor = codec::DsiCursor::new(bits);
     let mut deepest = 0usize;
     let mut walk = LeafWalk::new();

@@ -241,7 +241,16 @@ fn continue_verbatim_matches_per_leaf_feeding() {
     spliced.leaf(3, delta(Sign::Positive, 2));
     let (range, first_rel, last_rel, last_len) =
         continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
-    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
+    let range_view = crate::codec::built_view(&range);
+    spliced.continue_verbatim(
+        range_view,
+        0,
+        range_view.len(),
+        2,
+        first_rel,
+        last_rel,
+        last_len,
+    );
     spliced.leaf(1, delta(Sign::Negative, 1));
     assert_eq!(spliced.finish(), per_leaf);
 }
@@ -269,7 +278,16 @@ fn continue_verbatim_reanchors_across_levels() {
         4,
         &[(4, delta(Sign::Positive, 3)), (3, delta(Sign::Negative, 1))],
     );
-    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
+    let range_view = crate::codec::built_view(&range);
+    spliced.continue_verbatim(
+        range_view,
+        0,
+        range_view.len(),
+        2,
+        first_rel,
+        last_rel,
+        last_len,
+    );
     spliced.leaf(1, delta(Sign::Positive, 3));
     assert_eq!(spliced.finish(), per_leaf);
 }
@@ -293,7 +311,16 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
     spliced.leaf(3, delta(Sign::Positive, 2));
     let (range, first_rel, last_rel, last_len) =
         continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
-    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
+    let range_view = crate::codec::built_view(&range);
+    spliced.continue_verbatim(
+        range_view,
+        0,
+        range_view.len(),
+        2,
+        first_rel,
+        last_rel,
+        last_len,
+    );
     spliced.leaf(2, delta(Sign::Positive, 2));
     spliced.leaf(2, delta(Sign::Positive, 0));
     assert_eq!(spliced.finish(), per_leaf);

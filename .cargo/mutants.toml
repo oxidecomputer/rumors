@@ -139,7 +139,7 @@ exclude_re = [
     # Proven equivalent, line-pinned (the match arm's guard shares the
     # operator pattern and is killed): at equal magnitude the cross and
     # shrink paths both land on the positive zero zigzag.
-    "grow\\.rs:457:38: replace < with <= in recode",
+    "grow\\.rs:468:38: replace < with <= in recode",
 
     # --- before::version::skyline::fill / prescan ---
 

@@ -29,7 +29,7 @@ impl IdReader<'_> {
         // Conservative: the disjoint union has at most as many bits as both
         // inputs combined; normalization (collapsing `(v, v)` leaves) only
         // shrinks it. No tighter bound is cheap without doing the sum.
-        let mut out = IdBuilder::with_capacity(self.bits().len() + other.bits().len());
+        let mut out = IdBuilder::with_capacity((self.bits().len() + other.bits().len()) as usize);
         let mut frames = Frames::new();
         // Whether the current pair's side is a present child (read the real
         // cursor) or an absent `0` (stand in a synthetic empty).

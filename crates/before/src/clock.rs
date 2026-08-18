@@ -755,12 +755,10 @@ impl Clock {
         // exhausted input. Both parts then adopt slices of the ONE read buffer
         // as their storage: no per-component copy, and the id is parsed once
         // where handing byte ranges to the component decoders re-parsed it.
-        // Both components validate over the raw bytes (never a borrowed bit
-        // view, whose encoding caps below the buffer sizes this door admits
-        // on 32-bit targets); each walk's input is its component's whole
-        // byte range as bits, padding included, judged by its marker check.
+        // Each walk's input is its component's whole byte range as bits,
+        // padding included, judged by its marker check.
         let id_bytes = {
-            let id_end = codec::parse_id_bytes(&buf)?;
+            let id_end = codec::parse_id(codec::BitsView::whole(&buf), 0)?;
             // The party's padding marker rides in its final byte — which an
             // input cut right after a flush id tree lacks. That cut is
             // missing required data (the marker byte, and the whole version
@@ -772,10 +770,10 @@ impl Clock {
             }
             let id_bytes =
                 usize::try_from(id_bytes).expect("the id prefix ends within the read buffer");
-            codec::require_marker_padding_bytes(&buf[..id_bytes], id_end)?;
+            codec::require_marker_padding(&buf[..id_bytes], id_end)?;
             let tail = &buf[id_bytes..];
-            let v_end = crate::version::skyline::validate_prefix_bytes(tail)?;
-            codec::require_marker_padding_bytes(tail, v_end)?;
+            let v_end = crate::version::skyline::validate_prefix(codec::BitsView::whole(tail))?;
+            codec::require_marker_padding(tail, v_end)?;
             id_bytes
         };
         let buf = bytes::Bytes::from(buf);
@@ -903,7 +901,7 @@ impl FromStr for Clock {
     fn from_str(s: &str) -> Result<Self, Parse> {
         let (id, ev) = codec::parse_clock_str(s)?;
         let version: Version = ev.parse()?;
-        if codec::id_is_empty(&id) {
+        if codec::id_is_empty(codec::built_view(&id)) {
             return Err(Parse::Anonymous);
         }
         Ok(Clock::from_parts(Party::from_bits(id), version))

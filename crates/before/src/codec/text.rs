@@ -79,7 +79,7 @@ pub(crate) fn parse_id_str(s: &str) -> Result<BitsMut, Parse> {
     if cur.peek().is_some() {
         return Err(Parse::Syntax); // trailing junk
     }
-    validate_id(&bits)?;
+    validate_id(super::built_view(&bits))?;
     Ok(bits)
 }
 

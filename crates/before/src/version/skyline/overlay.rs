@@ -89,7 +89,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitStack, BitsSlice, DsiCursor, Int, SliceCursor};
+use crate::codec::{BitCursor, BitStack, BitsView, DsiCursor, Int, SliceCursor};
 
 use super::signed::Sign;
 
@@ -316,7 +316,7 @@ pub(super) struct LeafCursor<'a> {
     path: BitStack,
     /// The stream's live bit length; the cursor reaching it is
     /// exhaustion (the current leaf is the stream's last).
-    len: usize,
+    len: u64,
 }
 
 impl<'a> LeafCursor<'a> {
@@ -330,26 +330,11 @@ impl<'a> LeafCursor<'a> {
     /// notices — truncation, malformation — panic; the rest walk silently with
     /// an unspecified result (the contract of
     /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
-    pub(super) fn open(bits: &'a BitsSlice) -> (Self, Int) {
+    pub(super) fn open(bits: BitsView<'a>) -> (Self, Int) {
         let mut this = LeafCursor {
             cursor: DsiCursor::new(bits),
             path: BitStack::new(),
             len: bits.len(),
-        };
-        let first = this.descend();
-        (this, first)
-    }
-
-    /// [`open`](Self::open) over raw stream bytes and a live bit length.
-    ///
-    /// The byte decode door's form, for canonical streams past the borrowed
-    /// bit view's encoding cap (64 MiB and up on a 32-bit target). Same
-    /// contract, canonicality trust included.
-    pub(super) fn open_bytes(bytes: &'a [u8], live: usize) -> (Self, Int) {
-        let mut this = LeafCursor {
-            cursor: DsiCursor::over_bytes_live(bytes, live),
-            path: BitStack::new(),
-            len: live,
         };
         let first = this.descend();
         (this, first)
@@ -430,7 +415,7 @@ impl PlateauCursor for LeafCursor<'_> {
     /// Whether the current leaf is the stream's last (its plateau ends at the
     /// unit interval's right edge).
     fn done(&self) -> bool {
-        self.cursor.position() == self.len
+        self.cursor.position_u64() == self.len
     }
 
     /// Advance past the current leaf to the next: the flip level's depth for
@@ -507,7 +492,7 @@ impl<'a> IdLeafCursor<'a> {
     /// walked tree) walk silently with unspecified ownership readings (the
     /// mask-operand contract of [`causal_cmp`](super::masked::causal_cmp),
     /// stated once there).
-    pub(super) fn open(bits: &'a BitsSlice) -> Self {
+    pub(super) fn open(bits: BitsView<'a>) -> Self {
         let mut this = IdLeafCursor {
             cursor: SliceCursor::new(bits, 0),
             path: BitStack::new(),
@@ -705,7 +690,7 @@ impl<'a> OpenedPair<'a> {
     /// # Panics
     ///
     /// Panics if either stream is not a canonical skyline encoding.
-    pub(super) fn open(a_bits: &'a BitsSlice, b_bits: &'a BitsSlice) -> OpenedPair<'a> {
+    pub(super) fn open(a_bits: BitsView<'a>, b_bits: BitsView<'a>) -> OpenedPair<'a> {
         let (a, a_first) = LeafCursor::open(a_bits);
         let (b, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();

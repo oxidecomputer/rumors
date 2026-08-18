@@ -21,15 +21,14 @@ use super::ceilings::MACHINE_WORD_MAGNITUDE_BITS;
 /// does (a plateau-heavy stream legitimately reads near zero). Iterative over
 /// the packed form, outside any measurement.
 pub(super) fn stored_nonzero_deltas(v: &Version) -> u64 {
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
-    let mut pos = 0usize;
+    let bits = v.as_bits();
+    let mut pos = 0u64;
     let mut pending = 1usize;
     let mut first = true;
     let mut nonzero = 0u64;
     while pending > 0 {
         pending -= 1;
-        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
+        let internal = !bits.bit(pos); // skyline flag: 0 internal, 1 leaf
         pos += 1;
         if internal {
             pending += 2;
@@ -56,14 +55,13 @@ pub(super) fn stored_nonzero_deltas(v: &Version) -> u64 {
 /// that read the stored form as-is. Iterative over the packed form, outside any
 /// measurement.
 pub(super) fn mandatory_limbs_stream(v: &Version) -> u64 {
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
-    let mut pos = 0usize;
+    let bits = v.as_bits();
+    let mut pos = 0u64;
     let mut pending = 1usize;
     let mut limbs = 0u64;
     while pending > 0 {
         pending -= 1;
-        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
+        let internal = !bits.bit(pos); // skyline flag: 0 internal, 1 leaf
         pos += 1;
         if internal {
             pending += 2;
@@ -89,15 +87,14 @@ pub(super) fn mandatory_limbs_stream(v: &Version) -> u64 {
 /// packed bytes grow only by the unit delta codes over a fixed wide intercept.
 /// Iterative over the packed form, outside any measurement.
 pub(super) fn value_content_bytes(v: &Version) -> usize {
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
-    let mut pos = 0usize;
+    let bits = v.as_bits();
+    let mut pos = 0u64;
     let mut pending = 1usize;
     let mut last: Option<Base> = None;
     let mut content = 0u64;
     while pending > 0 {
         pending -= 1;
-        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
+        let internal = !bits.bit(pos); // skyline flag: 0 internal, 1 leaf
         pos += 1;
         if internal {
             pending += 2;
@@ -157,16 +154,15 @@ pub(super) fn mandatory_limbs_version(v: &Version) -> u64 {
 /// (absolute leaf heights, bottom-up subtree floors, per-node relative bases),
 /// entirely outside any measurement.
 pub(super) fn stored_bases(v: &Version) -> Vec<Base> {
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
+    let bits = v.as_bits();
     // Pass 1: topology flags and absolute leaf heights.
-    let mut pos = 0usize;
+    let mut pos = 0u64;
     let mut topology: Vec<bool> = Vec::new();
     let mut heights: Vec<Base> = Vec::new();
     let mut pending = 1usize;
     while pending > 0 {
         pending -= 1;
-        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
+        let internal = !bits.bit(pos); // skyline flag: 0 internal, 1 leaf
         pos += 1;
         topology.push(internal);
         if internal {
@@ -265,13 +261,13 @@ pub(super) fn radix_units_party(p: &Party) -> u64 {
     if bits.is_empty() {
         return 1; // the empty id renders one `0` token
     }
-    let mut pos = 0usize;
+    let mut pos = 0u64;
     let mut pending = 1u64;
     let mut units = 0u64;
     while pending > 0 {
         pending -= 1;
-        let left = bits[pos];
-        let right = bits[pos + 1];
+        let left = bits.bit(pos);
+        let right = bits.bit(pos + 1);
         pos += 2;
         if !left && !right {
             units += 1; // a terminal renders `1`

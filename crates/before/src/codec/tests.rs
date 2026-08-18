@@ -13,8 +13,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::{
-    bytes_as_bits, decode_int, decode_int_from, encode_int, Base, BitCursor, BitsMut, BitsSlice,
-    DsiCursor, SliceCursor,
+    decode_int, decode_int_from, encode_int, Base, BitsMut, BitsView, DsiCursor, SliceCursor,
 };
 use crate::oracle;
 use crate::span::Span;
@@ -38,9 +37,9 @@ proptest! {
         let n = Base::from(n);
         let mut bits = BitsMut::new();
         encode_int(&mut bits, &n);
-        let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+        let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
         prop_assert_eq!(decoded, n);
-        prop_assert_eq!(pos, bits.len());
+        prop_assert_eq!(pos, bits.len() as u64);
     }
 }
 
@@ -56,9 +55,9 @@ proptest! {
         }
         let mut bits = BitsMut::new();
         encode_int(&mut bits, &n);
-        let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+        let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
         prop_assert_eq!(decoded, n);
-        prop_assert_eq!(pos, bits.len());
+        prop_assert_eq!(pos, bits.len() as u64);
     }
 }
 
@@ -90,10 +89,10 @@ fn gamma_roundtrip_just_above_u64_max() {
     let n = Base::from(u64::MAX) + Base::from(1u8);
     let mut bits = BitsMut::new();
     encode_int(&mut bits, &n);
-    let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+    let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
     assert_eq!(decoded, n);
     assert_eq!(decoded.to_string(), "18446744073709551616");
-    assert_eq!(pos, bits.len());
+    assert_eq!(pos, bits.len() as u64);
 }
 
 /// `decode_int` never panics and reports `Truncated` when the code runs off the
@@ -101,9 +100,15 @@ fn gamma_roundtrip_just_above_u64_max() {
 #[test]
 fn gamma_truncated() {
     let empty = BitsMut::new();
-    assert!(matches!(decode_int(&empty, 0), Err(Decode::Truncated)));
+    assert!(matches!(
+        decode_int(crate::codec::built_view(&empty), 0),
+        Err(Decode::Truncated)
+    ));
     let zeros: BitsMut = bitvec![u8, Msb0; 0, 0, 0, 0, 0];
-    assert!(matches!(decode_int(&zeros, 0), Err(Decode::Truncated)));
+    assert!(matches!(
+        decode_int(crate::codec::built_view(&zeros), 0),
+        Err(Decode::Truncated)
+    ));
 }
 
 // ───────────────────────── frozen storage (Bits) ─────────────────────────
@@ -124,7 +129,7 @@ fn freeze_canonicalizes_storage() {
     assert_eq!(frozen.len(), 3);
     assert_eq!(frozen.as_raw_slice(), &[0b1111_0000]);
     assert!(super::padding_is_canonical(&frozen));
-    assert_eq!(&*frozen, &buf[..]);
+    assert_eq!(frozen.live().to_bitvec(), buf);
 }
 
 /// The marker padding makes stored bytes injective on streams: a stream
@@ -226,14 +231,14 @@ fn encode_int_bitwise(out: &mut BitsMut, n: &Base) {
 
 /// The per-bit reference `skip_int`, the skip-side differential oracle: counts
 /// the unary prefix, then steps over the mantissa bit by bit.
-fn skip_int_bitwise(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
-    let mut k = 0usize;
+fn skip_int_bitwise(bits: BitsView<'_>, pos: u64) -> Result<u64, Decode> {
+    let mut k = 0u64;
     loop {
         let idx = pos + k;
         if idx >= bits.len() {
             return Err(Decode::Truncated);
         }
-        if bits[idx] {
+        if bits.bit(idx) {
             break;
         }
         k += 1;
@@ -248,14 +253,14 @@ fn skip_int_bitwise(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
 
 /// Assert `decode_int` (windowed) agrees with the pure bit loop at `pos`: same
 /// accept/reject, same error variant, same value, same end position.
-fn assert_decode_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), TestCaseError> {
+fn assert_decode_matches_bit_loop(bits: BitsView<'_>, pos: u64) -> Result<(), TestCaseError> {
     let subject = decode_int(bits, pos);
     let mut cursor = SliceCursor::new(bits, pos);
     let oracle = decode_int_from(&mut cursor);
     match (subject, oracle) {
         (Ok((value, end)), Ok(oracle_value)) => {
             prop_assert_eq!(value, oracle_value);
-            prop_assert_eq!(end, cursor.position());
+            prop_assert_eq!(end, cursor.position_u64());
         }
         (Err(s), Err(o)) => {
             prop_assert_eq!(std::mem::discriminant(&s), std::mem::discriminant(&o));
@@ -271,10 +276,10 @@ fn assert_decode_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), Te
 /// Runs inside the cursor's stated domain — a byte-aligned slice origin and
 /// `pos` at or inside the live length; every production skip site satisfies
 /// both (stored streams, positions from the same cursor).
-fn assert_skip_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), TestCaseError> {
+fn assert_skip_matches_bit_loop(bits: BitsView<'_>, pos: u64) -> Result<(), TestCaseError> {
     let mut cursor = DsiCursor::new_at(bits, pos);
     match (cursor.skip_int(), skip_int_bitwise(bits, pos)) {
-        (Ok(()), Ok(o)) => prop_assert_eq!(cursor.position(), o),
+        (Ok(()), Ok(o)) => prop_assert_eq!(cursor.position_u64(), o),
         (Err(_), Err(o)) => {
             prop_assert!(
                 matches!(o, Decode::Truncated),
@@ -356,9 +361,10 @@ proptest! {
         prop_assert_eq!(&word, &bit);
 
         // Word-decode of the word-encode round-trips value and position.
-        let (decoded, end) = decode_int(&word, pos).expect("well-formed");
+        let (decoded, end) =
+            decode_int(crate::codec::built_view(&word), pos as u64).expect("well-formed");
         prop_assert_eq!(decoded, value);
-        prop_assert_eq!(end, word.len());
+        prop_assert_eq!(end, word.len() as u64);
     }
 }
 
@@ -375,23 +381,18 @@ proptest! {
         (bits, pos) in arb_gamma_stream(),
         extra in 0usize..3,
     ) {
-        assert_decode_matches_bit_loop(&bits, pos)?;
-        assert_skip_matches_bit_loop(&bits, pos)?;
+        let view = crate::codec::built_view(&bits);
+        let pos = pos as u64;
+        let extra = extra as u64;
+        assert_decode_matches_bit_loop(view, pos)?;
+        assert_skip_matches_bit_loop(view, pos)?;
 
         // The end of the stream, just before it, and past it (the skip cursor's
         // domain ends at the live length; `decode_int` alone covers the
         // past-the-end positions).
-        assert_decode_matches_bit_loop(&bits, bits.len().saturating_sub(extra))?;
-        assert_skip_matches_bit_loop(&bits, bits.len().saturating_sub(extra))?;
-        assert_decode_matches_bit_loop(&bits, bits.len() + extra)?;
-
-        // A slice whose origin is mid-byte in its backing store: the window
-        // declines and only the per-bit loop runs. The skip cursor's domain
-        // excludes such slices (stored streams are byte-aligned), so the decode
-        // pair alone covers them.
-        if !bits.is_empty() {
-            assert_decode_matches_bit_loop(&bits[1..], pos.saturating_sub(1))?;
-        }
+        assert_decode_matches_bit_loop(view, view.len().saturating_sub(extra))?;
+        assert_skip_matches_bit_loop(view, view.len().saturating_sub(extra))?;
+        assert_decode_matches_bit_loop(view, view.len() + extra)?;
     }
 }
 
@@ -408,7 +409,8 @@ proptest! {
         bytes in proptest::collection::vec(any::<u8>(), 0..12),
         pos in 0usize..104,
     ) {
-        let bits = bytes_as_bits(&bytes);
+        let bits = crate::codec::BitsView::whole(&bytes);
+        let pos = pos as u64;
         assert_decode_matches_bit_loop(bits, pos)?;
         assert_skip_matches_bit_loop(bits, pos.min(bits.len()))?;
     }
@@ -430,10 +432,16 @@ fn gamma_window_edge() {
     let mut bits = BitsMut::new();
     encode_int(&mut bits, &Base::from(n));
     assert_eq!(bits.len(), 63);
-    assert_eq!(decode_int_window(&bits, 0), Some((n, 63)));
+    assert_eq!(
+        decode_int_window(crate::codec::built_view(&bits), 0),
+        Some((n, 63))
+    );
 
     // The same code cut one bit short: nothing provable, decline.
-    assert_eq!(decode_int_window(&bits[..62], 0), None);
+    assert_eq!(
+        decode_int_window(crate::codec::BitsView::new(bits.as_raw_slice(), 62), 0),
+        None
+    );
 
     // k = 32: a 65-bit code straddles the window edge — decline, and the full
     // decoder still reads it through the loop.
@@ -441,10 +449,10 @@ fn gamma_window_edge() {
     let mut bits = BitsMut::new();
     encode_int(&mut bits, &Base::from(n));
     assert_eq!(bits.len(), 65);
-    assert_eq!(decode_int_window(&bits, 0), None);
-    let (decoded, end) = decode_int(&bits, 0).expect("well-formed");
+    assert_eq!(decode_int_window(crate::codec::built_view(&bits), 0), None);
+    let (decoded, end) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
     assert_eq!(decoded, Base::from(n));
-    assert_eq!(end, 65);
+    assert_eq!(end, 65u64);
 
     // Junk after a short code must not leak into its mantissa.
     let mut bits = BitsMut::new();
@@ -453,12 +461,15 @@ fn gamma_window_edge() {
     for _ in 0..64 {
         bits.push(true);
     }
-    assert_eq!(decode_int_window(&bits, 0), Some((5, code_len)));
+    assert_eq!(
+        decode_int_window(crate::codec::built_view(&bits), 0),
+        Some((5, code_len as u64))
+    );
 }
 
-/// The window decoder never guesses at unprovable input: a slice whose origin
-/// is mid-byte, a position at or past the stream end, and an all-zeros
-/// (truncated) stream all decline to the bit loop.
+/// The window decoder never guesses at unprovable input: a position at or
+/// past the stream end and an all-zeros (truncated) stream both decline to
+/// the bit loop.
 #[test]
 fn gamma_window_declines_conservatively() {
     use super::gamma::decode_int_window;
@@ -467,18 +478,20 @@ fn gamma_window_declines_conservatively() {
     bits.push(false);
     bits.push(true);
 
-    // Mid-byte slice origin: no byte view, decline — but the same bit addressed
-    // as (whole slice, pos) has one, and the fast path fires.
-    assert_eq!(decode_int_window(&bits[1..], 0), None);
-    assert_eq!(decode_int_window(&bits, 1), Some((0, 2)));
+    // A mid-stream position addressed as (whole view, pos) proves its code
+    // and the fast path fires.
+    assert_eq!(
+        decode_int_window(crate::codec::built_view(&bits), 1),
+        Some((0, 2))
+    );
 
     // At and past the end of the stream.
-    assert_eq!(decode_int_window(&bits, 2), None);
-    assert_eq!(decode_int_window(&bits, 7), None);
+    assert_eq!(decode_int_window(crate::codec::built_view(&bits), 2), None);
+    assert_eq!(decode_int_window(crate::codec::built_view(&bits), 7), None);
 
     // All zeros: no terminating 1 in the stream (bit loop: `Truncated`).
     let zeros = BitsMut::repeat(false, 70);
-    assert_eq!(decode_int_window(&zeros, 0), None);
+    assert_eq!(decode_int_window(crate::codec::built_view(&zeros), 0), None);
 }
 
 /// A gamma code wide enough to spill machine-word decoding round-trips exactly
@@ -490,9 +503,9 @@ fn gamma_roundtrip_wide_value() {
     let n = (Base::from(1u8) << 1000u32) + 12345u64;
     let mut bits = BitsMut::new();
     encode_int(&mut bits, &n);
-    let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+    let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
     assert_eq!(decoded, n);
-    assert_eq!(pos, bits.len());
+    assert_eq!(pos, bits.len() as u64);
 }
 
 /// A stream that ends anywhere inside a wide mantissa is `Truncated`: the
@@ -506,16 +519,16 @@ fn gamma_truncated_inside_wide_mantissa() {
     // Cuts inside the unary prefix, at the leading mantissa 1, just after it,
     // at byte-scale offsets into the mantissa, and one bit short.
     for cut in [1, 500, 1001, 1002, 1009, 1500, bits.len() - 1] {
-        let truncated = &bits[..cut];
+        let truncated = crate::codec::BitsView::new(bits.as_raw_slice(), cut as u64);
         assert!(
             matches!(decode_int(truncated, 0), Err(Decode::Truncated)),
             "cut at bit {cut} must report Truncated",
         );
     }
     // The full code still decodes: the cuts, not the value, are the failure.
-    let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+    let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
     assert_eq!(decoded, n);
-    assert_eq!(pos, bits.len());
+    assert_eq!(pos, bits.len() as u64);
 }
 
 // ──────────────────── metered Base equality and hashing ────────────────────
@@ -1250,7 +1263,7 @@ proptest! {
 
         // The marker sits at the live bit length; zeros fill the rest of
         // the final byte.
-        let used = party.as_bits().len();
+        let used = party.as_bits().len() as usize;
         let total = valid.len() * 8;
 
         // Clearing the marker leaves the padding without its delimiter.
@@ -1547,7 +1560,7 @@ fn ref_parse_id_str(s: &str) -> Result<BitsMut, crate::error::Parse> {
     if cur.peek().is_some() {
         return Err(crate::error::Parse::Syntax);
     }
-    super::validate_id(&bits)?;
+    super::validate_id(crate::codec::built_view(&bits))?;
     Ok(bits)
 }
 

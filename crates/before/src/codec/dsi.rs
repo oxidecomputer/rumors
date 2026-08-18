@@ -8,7 +8,7 @@
 //! [`read_unary`](DsiCursor::read_unary) (a `leading_zeros` over a buffered
 //! window) and whole payload codes in `O(1)` word operations. The accept/reject
 //! boundary lives in this wrapper, not the library: `position`/`len` bound
-//! every read against the slice's live bit length, so the reader's zero padding
+//! every read against the view's live bit length, so the reader's zero padding
 //! past the live bits is never surfaced as data.
 //!
 //! Values are read through the in-house wide arm, never `dsi-bitstream`'s own
@@ -39,9 +39,9 @@ use dsi_bitstream::traits::{BitRead, WordRead, BE};
 use crate::error::Decode;
 
 use super::cursor::Truncated;
-use super::{Base, BitCursor, BitsSlice, Int};
+use super::{Base, BitCursor, BitsView, Int};
 
-/// A word-parallel sequential cursor over an existing packed bit slice.
+/// A word-parallel sequential cursor over an existing packed bit view.
 ///
 /// The skyline walks' reader: [`read_bit`](BitCursor::read_bit) for interleaved
 /// single flags, [`read_unary`](BitCursor::read_unary) for topology runs,
@@ -56,25 +56,24 @@ pub(crate) struct DsiCursor<'a> {
     /// `u64`, not `usize`: the byte decode doors walk a whole input buffer
     /// as bits, and `8 · bytes.len()` can exceed a 32-bit `usize` (a 600
     /// MiB buffer holds 2^32+ bit positions) while remaining exactly
-    /// representable here. Slice-backed walks never leave `usize` range —
-    /// the borrowed view's own encoding bounds them.
+    /// representable here. Stored-stream walks never leave `usize` range —
+    /// the storage doors bound a stream's live length below it.
     position: u64,
     /// The stream's live bit length, in the same `u64` denomination.
     len: u64,
 }
 
 impl<'a> DsiCursor<'a> {
-    /// Open a cursor at bit 0 of a stored stream.
+    /// Open a cursor at bit 0 of a stream's view.
     ///
-    /// # Panics
-    ///
-    /// Panics if the slice does not start on a byte boundary of its backing
-    /// store; every stored `Version` stream does.
-    pub(crate) fn new(bits: &'a BitsSlice) -> Self {
+    /// A stored stream's live view and a byte decode door's whole padded
+    /// buffer enter identically: padding bits are data to a door's walk,
+    /// and the door's marker check afterwards judges the remainder.
+    pub(crate) fn new(bits: BitsView<'a>) -> Self {
         DsiCursor::new_at(bits, 0)
     }
 
-    /// Open a cursor at bit `pos` of a stored stream.
+    /// Open a cursor at bit `pos` of a stream's view.
     ///
     /// `O(1)`: the word source starts at `pos`'s byte and the cursor discards
     /// the at most 7 leading bits before `pos` unrecorded (the walk never
@@ -82,65 +81,12 @@ impl<'a> DsiCursor<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if `pos` lies past the stream's end, or if the slice does not
-    /// start on a byte boundary of its backing store; every stored
-    /// `Version` stream does.
-    pub(crate) fn new_at(bits: &'a BitsSlice, pos: usize) -> Self {
+    /// Panics if `pos` lies past the view's live length.
+    pub(crate) fn new_at(bits: BitsView<'a>, pos: u64) -> Self {
         assert!(pos <= bits.len(), "cursor opened past the stream's end");
-        let Some((body, tail)) = super::byte_view(bits) else {
-            unreachable!("stored streams start on a byte boundary")
-        };
-        Self::from_parts(body, tail, bits.len() as u64, pos)
-    }
-
-    /// Open a cursor over the whole bit view of raw stream bytes — all
-    /// `8 · bytes.len()` of them, padding included.
-    ///
-    /// The byte decode doors' entry, which must walk buffers whose borrowed
-    /// bit view the `bitvec` encoding cannot represent (64 MiB and up on a
-    /// 32-bit target).
-    ///
-    /// The door semantics are exactly the slice walk's over a whole padded
-    /// buffer: padding bits are data to the walk, and the door's marker
-    /// check afterwards judges the remainder.
-    pub(crate) fn over_bytes(bytes: &'a [u8]) -> Self {
-        Self::from_parts(bytes, None, bytes.len() as u64 * 8, 0)
-    }
-
-    /// Open a cursor over the first `live` bits of raw stream bytes: the
-    /// byte decode doors' form of a validated-prefix walk (the span door
-    /// re-walks the meet it just validated), for buffers past the borrowed
-    /// view's encoding cap.
-    ///
-    /// The partial tail byte's dead bits are masked to zero, exactly as the
-    /// borrowed view's domain masks them: the reader's phantom bits past
-    /// the live length must read zero so an apparent unary run can only
-    /// lengthen past `len` (and reject there), never terminate early.
-    ///
-    /// # Panics
-    ///
-    /// `live` must be at most `8 · bytes.len()`.
-    pub(crate) fn over_bytes_live(bytes: &'a [u8], live: usize) -> Self {
-        assert!(
-            live as u64 <= bytes.len() as u64 * 8,
-            "live bits within the buffer"
-        );
-        let (body, tail) = if live.is_multiple_of(8) {
-            (&bytes[..live / 8], None)
-        } else {
-            (
-                &bytes[..live / 8],
-                Some(bytes[live / 8] & !(0xFF >> (live % 8))),
-            )
-        };
-        Self::from_parts(body, tail, live as u64, 0)
-    }
-
-    /// The one constructor body: a word source over `(body, tail)` starting
-    /// at `pos`, bounded by `len` live bits.
-    fn from_parts(body: &'a [u8], tail: Option<u8>, len: u64, pos: usize) -> Self {
-        let mut reader = BufBitReader::new(ByteWords::new(body, tail, pos / 8));
-        let skip = pos % 8;
+        let (body, tail) = bits.body_tail();
+        let mut reader = BufBitReader::new(ByteWords::new(body, tail, (pos / 8) as usize));
+        let skip = (pos % 8) as usize;
         if skip != 0 {
             reader
                 .skip_bits(skip)
@@ -148,8 +94,8 @@ impl<'a> DsiCursor<'a> {
         }
         DsiCursor {
             reader,
-            position: pos as u64,
-            len,
+            position: pos,
+            len: bits.len(),
         }
     }
 
@@ -245,10 +191,10 @@ impl BitCursor for DsiCursor<'_> {
     }
 
     fn position(&self) -> usize {
-        // Exact for every walk that reads positions through the trait:
-        // slice-backed cursors are bounded by the borrowed view (below
-        // usize bits by its encoding), and the byte decode doors read
-        // their end positions through `position_u64` instead. A byte-door
+        // Exact for every walk that reads positions through the trait: a
+        // stored stream's live length fits `usize` on every target (the
+        // storage doors bound it), and the byte decode doors read their
+        // end positions through `position_u64` instead. A byte-door
         // walk parking past usize (its truncation reject on a buffer past
         // the storable bound) is never followed by a trait position read.
         usize::try_from(self.position).expect("a walked position fits usize")

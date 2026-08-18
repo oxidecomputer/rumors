@@ -11,15 +11,16 @@
 
 use wasm32_pins_harness::{call0, call1, call2, Outcome, Trap};
 
-/// The largest buffer byte count whose whole-stream borrowed bit view is
-/// constructible on wasm32: `bitvec`'s view length caps at `usize::MAX >> 3`
-/// = 2^29 - 1 bits, so 67108863 bytes.
+/// The largest buffer byte count whose whole-buffer bit count stays below
+/// 2^29: one byte under the 32-bit bit-vector length encoding's cap
+/// (`usize::MAX >> 3` bits), so 67108863 bytes.
 ///
-/// The walk surface — comparisons, joins, the composite doors' rank
-/// re-derivation and dominance re-walk — reads stored streams through that
-/// borrowed view, so this is every walk pin's lower adjacency witness; the
-/// byte doors themselves admit streams up to 512 MiB.
-const VIEW_CAP_BYTES: u64 = 67_108_863;
+/// The walk surface reads stored streams through the crate-owned view and is
+/// exact at every storable size; the emitters' build buffer is the one
+/// surface still bounded by this encoding, so the walk pins straddle the
+/// boundary (below, at, and past it) to hold the read side clean of it, and
+/// the emitting pins meet it on their output side.
+const BUILD_CAP_BYTES: u64 = 67_108_863;
 
 /// Liveness: a small valid version decodes on wasm32 with the exact bit
 /// length, round-trips, and rejects mutilations with typed errors.
@@ -31,15 +32,15 @@ fn version_small_roundtrips_and_rejects_typed() {
     assert_eq!(call0("pin_version_small"), Outcome::Value(0));
 }
 
-/// The largest input whose whole-buffer bit view still fits `bitvec`'s
-/// borrowed-view length cap on wasm32 decodes with its exact bit length.
+/// The largest input whose whole-buffer bit count stays below the 32-bit
+/// bit-vector length encoding's cap decodes with its exact bit length.
 ///
 /// The cap is `usize::MAX >> 3` = 2^29 - 1 bits, so 67108863 bytes: the
 /// boundary's lower adjacency witness, so a failure at the sizes just
-/// above is attributable to the cap, never to general large-input
+/// above is attributable to the boundary, never to general large-input
 /// handling.
 #[test]
-fn version_decode_below_view_cap() {
+fn version_decode_below_build_cap() {
     assert_eq!(
         call1("pin_version_decode", 67_108_863),
         Outcome::Value(8 * 67_108_863 - 8),
@@ -49,13 +50,11 @@ fn version_decode_below_view_cap() {
 /// A valid 64 MiB (67108864-byte) version encoding decodes correctly on
 /// wasm32, returning its exact live bit length.
 ///
-/// The size is exactly 2^29 bits: a whole-buffer borrowed bit view of it
-/// is unconstructible — `bitvec`'s span encoding silently produces an
-/// EMPTY view here, whose walk would reject a valid input as `Truncated`
-/// with no alarm — so this pin holds the doors to their byte-backed walk,
-/// on which no such view exists.
+/// The size is exactly 2^29 bits: the first size past the 32-bit
+/// bit-vector length encoding, so this pin holds the doors to a walk on
+/// which no such encoding binds.
 #[test]
-fn version_decode_at_view_cap() {
+fn version_decode_at_build_cap() {
     assert_eq!(
         call1("pin_version_decode", 67_108_864),
         Outcome::Value(8 * 67_108_864 - 8),
@@ -65,13 +64,12 @@ fn version_decode_at_view_cap() {
 /// A valid 67108865-byte version encoding decodes correctly on wasm32,
 /// returning its exact live bit length.
 ///
-/// One byte past the borrowed view's silent-empty boundary, this is the
-/// first size whose view construction `bitvec`'s element-count guard
-/// refuses by panic. Together with the pin one byte below, this holds the
-/// doors clear of both failure genres the borrowed-view cap produces (the
-/// silent empty view, then the panic).
+/// One byte past the length-encoding boundary's silent-wrap size; together
+/// with the pin one byte below, this holds the doors clear of both failure
+/// genres a 2^29-bit length encoding produces (a silently empty view, then
+/// an element-count guard panic).
 #[test]
-fn version_decode_past_view_cap() {
+fn version_decode_past_build_cap() {
     assert_eq!(
         call1("pin_version_decode", 67_108_865),
         Outcome::Value(8 * 67_108_865 - 8),
@@ -185,219 +183,251 @@ fn rank_decode_past_backend_bit_capacity_traps() {
 
 /// A valid composite key — the rank stream, then the version whose rank it
 /// is — decodes through the byte door `Ranked::decode` at the largest
-/// version size whose whole-stream bit view is constructible on wasm32.
+/// version size below the build buffer's length-encoding boundary.
 ///
 /// The door re-derives the version's rank to verify the key, and that fold
-/// walks the version through its borrowed view: this is the composite
-/// door's lower adjacency witness, one byte below the view cap.
+/// walks the version through the crate-owned view: the lower adjacency
+/// witness of the boundary straddle the two pins above it complete.
 #[test]
-fn ranked_decode_below_view_cap() {
+fn ranked_decode_below_build_cap() {
     assert_eq!(
-        call1("pin_ranked_decode", VIEW_CAP_BYTES),
+        call1("pin_ranked_decode", BUILD_CAP_BYTES),
         Outcome::Value(0)
     );
 }
 
-/// PINNED AS FOUND: a valid composite key whose version component is
-/// 67108864 bytes traps in the byte door `Ranked::decode` on wasm32
-/// instead of decoding.
+/// A valid composite key whose version component is 67108864 bytes —
+/// exactly 2^29 bits — decodes through the byte door `Ranked::decode` on
+/// wasm32.
 ///
-/// The component is exactly 2^29 bits: the first size past the borrowed
-/// view's encoding.
-/// The rank and version components both parse (the version door's own walk
-/// is byte-backed and admits streams to 512 MiB); the door then re-derives
-/// the version's rank through its borrowed bit view, which is
-/// unconstructible at this size, and the walk panics. Unconditional 32-bit
-/// correctness requires every storable key to decode; the cure flips this
-/// pin to the correct-value assertion.
+/// The door's rank re-derivation walks the version through the crate-owned
+/// view, whose `u64` live length is exact at every storable size, so the
+/// composite door admits every storable key: the boundary straddle's
+/// middle witness, beside `ranked_decode_below_build_cap`.
 #[test]
-fn ranked_decode_at_view_cap_traps() {
+fn ranked_decode_at_build_cap() {
     assert_eq!(
-        call1("pin_ranked_decode", VIEW_CAP_BYTES + 1),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        call1("pin_ranked_decode", BUILD_CAP_BYTES + 1),
+        Outcome::Value(0),
     );
 }
 
-/// PINNED AS FOUND: a valid composite key whose version component is
-/// 67108865 bytes traps in `Ranked::decode` on wasm32 instead of decoding.
-///
-/// One byte past the view-cap boundary, the view construction fails by the
-/// element-count guard rather than the length encoding. Together with the
-/// pin one byte below, this holds both failure genres of the borrowed-view
-/// cap to the same committed baseline the cure must move.
+/// A valid composite key whose version component is 67108865 bytes decodes
+/// through `Ranked::decode` on wasm32: the boundary straddle's upper
+/// witness.
 #[test]
-fn ranked_decode_past_view_cap_traps() {
+fn ranked_decode_past_build_cap() {
     assert_eq!(
-        call1("pin_ranked_decode", VIEW_CAP_BYTES + 2),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        call1("pin_ranked_decode", BUILD_CAP_BYTES + 2),
+        Outcome::Value(0),
     );
+}
+
+/// A valid composite key decodes through the byte door `Ranked::decode`
+/// with a 256 MiB version component, checking the decoded version's bytes
+/// round-trip.
+///
+/// The upward exactness spot-check on the composite door's rank
+/// re-derivation: the fold's numerator (~128 MiB of value bits) sits well
+/// inside the big-integer backend's 32-bit capacity, so the whole key is
+/// priced by its own size, hundreds of megabytes into the storable range.
+#[test]
+fn ranked_decode_deep_in_storable_range() {
+    assert_eq!(call1("pin_ranked_decode", 268_435_456), Outcome::Value(0),);
 }
 
 /// A valid composite key decodes through the borsh door
-/// `Ranked::deserialize_reader` at the largest version size whose
-/// whole-stream bit view is constructible on wasm32, consuming exactly its
-/// own bytes.
+/// `Ranked::deserialize_reader` at the largest version size below the
+/// build buffer's length-encoding boundary, consuming exactly its own
+/// bytes.
 ///
 /// The streaming door runs the same rank re-derivation as the byte door:
-/// this is its lower adjacency witness.
+/// the boundary straddle's lower witness.
 #[test]
-fn ranked_borsh_below_view_cap() {
-    assert_eq!(call1("pin_ranked_borsh", VIEW_CAP_BYTES), Outcome::Value(0));
-}
-
-/// PINNED AS FOUND: a valid composite key whose version component is
-/// 67108864 bytes — exactly 2^29 bits — traps in the borsh door
-/// `Ranked::deserialize_reader` on wasm32 instead of deserializing.
-///
-/// The streaming reader parses both components byte-backed; the door's
-/// rank re-derivation then walks the version through its borrowed bit
-/// view, unconstructible at this size. The cure flips this pin to the
-/// correct-value assertion.
-#[test]
-fn ranked_borsh_at_view_cap_traps() {
+fn ranked_borsh_below_build_cap() {
     assert_eq!(
-        call1("pin_ranked_borsh", VIEW_CAP_BYTES + 1),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        call1("pin_ranked_borsh", BUILD_CAP_BYTES),
+        Outcome::Value(0)
     );
 }
 
-/// PINNED AS FOUND: a valid composite key whose version component is
-/// 67108865 bytes — the view cap's element-count-guard genre — traps in
-/// the borsh door `Ranked::deserialize_reader` on wasm32.
+/// A valid composite key whose version component is 67108864 bytes —
+/// exactly 2^29 bits — deserializes through the borsh door
+/// `Ranked::deserialize_reader` on wasm32, consuming exactly its own
+/// bytes.
 ///
-/// The second genre's committed baseline beside the pin one byte below.
+/// The streaming reader parses both components byte-backed and the rank
+/// re-derivation walks the version through the crate-owned view: the
+/// boundary straddle's middle witness.
 #[test]
-fn ranked_borsh_past_view_cap_traps() {
+fn ranked_borsh_at_build_cap() {
     assert_eq!(
-        call1("pin_ranked_borsh", VIEW_CAP_BYTES + 2),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        call1("pin_ranked_borsh", BUILD_CAP_BYTES + 1),
+        Outcome::Value(0),
     );
+}
+
+/// A valid composite key whose version component is 67108865 bytes
+/// deserializes through the borsh door on wasm32: the boundary straddle's
+/// upper witness.
+#[test]
+fn ranked_borsh_past_build_cap() {
+    assert_eq!(
+        call1("pin_ranked_borsh", BUILD_CAP_BYTES + 2),
+        Outcome::Value(0),
+    );
+}
+
+/// A valid composite key deserializes through the borsh door with a
+/// 128 MiB version component: the streaming door's upward exactness
+/// spot-check, deep in the storable range.
+#[test]
+fn ranked_borsh_deep_in_storable_range() {
+    assert_eq!(call1("pin_ranked_borsh", 134_217_728), Outcome::Value(0),);
 }
 
 /// A valid coincident span — two byte-equal version streams — decodes
 /// through the borsh door `Span::deserialize_reader` at the largest `lo`
-/// size whose whole-stream bit view is constructible on wasm32.
+/// size below the build buffer's length-encoding boundary.
 ///
 /// The door consumes exactly its own bytes.
-/// It validates the second stream against `lo`'s borrowed view in
-/// one fused admission walk: this is that walk's lower adjacency witness.
-/// (The byte door `Span::decode` runs the same admission on raw bytes and
-/// is exact to 512 MiB per component; only the streaming door reads
-/// through the view.)
+/// It validates the second stream against `lo`'s view in one fused
+/// admission walk: the boundary straddle's lower witness. (The byte door
+/// `Span::decode` runs the same admission and is exact to 512 MiB per
+/// component.)
 #[test]
-fn span_borsh_below_view_cap() {
-    assert_eq!(call1("pin_span_borsh", VIEW_CAP_BYTES), Outcome::Value(0));
+fn span_borsh_below_build_cap() {
+    assert_eq!(call1("pin_span_borsh", BUILD_CAP_BYTES), Outcome::Value(0));
 }
 
-/// PINNED AS FOUND: a valid coincident span whose `lo` component is
-/// 67108864 bytes — exactly 2^29 bits — traps in the borsh door
-/// `Span::deserialize_reader` on wasm32 instead of deserializing.
+/// A valid coincident span whose `lo` component is 67108864 bytes —
+/// exactly 2^29 bits — deserializes through the borsh door
+/// `Span::deserialize_reader` on wasm32, consuming exactly its own bytes.
 ///
-/// `lo` itself parses byte-backed; the door then opens `lo`'s borrowed bit
-/// view for the dominance re-walk, unconstructible at this size. The byte
-/// door decodes this same span exactly, so the boundary is the streaming
-/// door's view, not the value. The cure flips this pin to the
-/// correct-value assertion.
+/// The dominance re-walk reads `lo` through the crate-owned view, exact at
+/// every storable size: the boundary straddle's middle witness.
 #[test]
-fn span_borsh_at_view_cap_traps() {
+fn span_borsh_at_build_cap() {
     assert_eq!(
-        call1("pin_span_borsh", VIEW_CAP_BYTES + 1),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        call1("pin_span_borsh", BUILD_CAP_BYTES + 1),
+        Outcome::Value(0),
     );
 }
 
-/// PINNED AS FOUND: a valid coincident span whose `lo` component is
-/// 67108865 bytes — the view cap's element-count-guard genre — traps in
-/// the borsh door `Span::deserialize_reader` on wasm32.
-///
-/// The second genre's committed baseline beside the pin one byte below.
+/// A valid coincident span whose `lo` component is 67108865 bytes
+/// deserializes through the borsh door on wasm32: the boundary straddle's
+/// upper witness.
 #[test]
-fn span_borsh_past_view_cap_traps() {
+fn span_borsh_past_build_cap() {
     assert_eq!(
-        call1("pin_span_borsh", VIEW_CAP_BYTES + 2),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        call1("pin_span_borsh", BUILD_CAP_BYTES + 2),
+        Outcome::Value(0),
     );
+}
+
+/// A valid coincident span deserializes through the borsh door with
+/// 128 MiB components: the admission walk's upward exactness spot-check,
+/// a quarter-gigabyte composite deep in the storable range.
+#[test]
+fn span_borsh_deep_in_storable_range() {
+    assert_eq!(call1("pin_span_borsh", 134_217_728), Outcome::Value(0),);
 }
 
 /// Causal comparison decides a valid stored pair exactly at the largest
-/// operand size whose whole-stream bit view is constructible on wasm32:
-/// the taller lone leaf reads strictly greater both ways around.
+/// operand size below the build buffer's length-encoding boundary: the
+/// taller lone leaf reads strictly greater both ways around.
 ///
-/// The comparison-class walk's lower adjacency witness: ordering reads
-/// each operand through its borrowed view, with no decode door in front.
+/// The comparison-class walk's boundary straddle, lower witness: ordering
+/// reads each operand through the crate-owned view, with no decode door in
+/// front.
 #[test]
-fn version_cmp_below_view_cap() {
-    assert_eq!(call1("pin_version_cmp", VIEW_CAP_BYTES), Outcome::Value(0));
+fn version_cmp_below_build_cap() {
+    assert_eq!(call1("pin_version_cmp", BUILD_CAP_BYTES), Outcome::Value(0));
 }
 
-/// PINNED AS FOUND: causally comparing a valid stored 67108864-byte
-/// version — exactly 2^29 bits, the first size past the borrowed view's
-/// encoding — traps on wasm32 instead of ordering.
+/// Causal comparison decides a valid stored pair exactly at 67108864
+/// bytes — exactly 2^29 bits — on wasm32: the taller lone leaf reads
+/// strictly greater both ways around.
 ///
-/// The byte doors admit and store this value exactly (its decode is pinned
-/// green above), so the boundary is the walk surface's borrowed view, not
-/// the value: a stored version this size cannot be compared at all.
-/// Unconditional 32-bit correctness requires ordering to be exact at every
-/// storable size; the cure flips this pin to the correct-value assertion.
+/// The crate-owned view carries a `u64` live length, so the comparison
+/// sweep is exact at every storable size: the boundary straddle's middle
+/// witness, beside `version_cmp_below_build_cap`.
 #[test]
-fn version_cmp_at_view_cap_traps() {
+fn version_cmp_at_build_cap() {
     assert_eq!(
-        call1("pin_version_cmp", VIEW_CAP_BYTES + 1),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        call1("pin_version_cmp", BUILD_CAP_BYTES + 1),
+        Outcome::Value(0),
     );
 }
 
-/// PINNED AS FOUND: causally comparing a valid stored 67108865-byte
-/// version — the view cap's element-count-guard genre — traps on wasm32.
-///
-/// The second genre's committed baseline beside the pin one byte below.
+/// Causal comparison decides a valid stored 67108865-byte pair exactly on
+/// wasm32: the boundary straddle's upper witness.
 #[test]
-fn version_cmp_past_view_cap_traps() {
+fn version_cmp_past_build_cap() {
     assert_eq!(
-        call1("pin_version_cmp", VIEW_CAP_BYTES + 2),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        call1("pin_version_cmp", BUILD_CAP_BYTES + 2),
+        Outcome::Value(0),
     );
 }
 
-/// Join emits a covered pair exactly at the largest operand size whose
-/// whole-stream bit view is constructible on wasm32: the taller lone leaf
-/// joined with a short one reproduces the taller, byte for byte.
+/// Causal comparison decides a valid stored pair exactly at 512 MiB — the
+/// largest storable stream on a 32-bit target — both ways around.
+///
+/// The comparison class's upward exactness spot-check at the storage
+/// bound itself: the operand's live length (2^32 - 8 bits) is within one
+/// marker byte of `usize::MAX`, so this also exercises the view's `u64`
+/// length arithmetic at the very top of the storable range.
+#[test]
+fn version_cmp_at_storage_bound() {
+    assert_eq!(call1("pin_version_cmp", 536_870_912), Outcome::Value(0),);
+}
+
+/// Join emits a covered pair exactly at the largest operand size below the
+/// build buffer's length-encoding boundary: the taller lone leaf joined
+/// with a short one reproduces the taller, byte for byte.
 ///
 /// The join-class walk's lower adjacency witness — and its emission
 /// rebuilds the full-size output, so the pin also witnesses the build
 /// buffer just below its own cap.
 #[test]
-fn version_join_below_view_cap() {
+fn version_join_below_build_cap() {
     assert_eq!(
-        call1("pin_version_join_covering", VIEW_CAP_BYTES),
+        call1("pin_version_join_covering", BUILD_CAP_BYTES),
         Outcome::Value(0),
     );
 }
 
 /// PINNED AS FOUND: joining a valid stored 67108864-byte version —
-/// exactly 2^29 bits — with a small one traps on wasm32 instead of
-/// emitting the covered result.
+/// exactly 2^29 bits — with a small one it covers traps on wasm32 instead
+/// of emitting the covered result.
 ///
-/// The join walks both operands through their borrowed views before its
-/// merge emission; the big operand's view is unconstructible at this
-/// size. The cure flips this pin to the correct-value assertion.
+/// The walk itself is exact at this size (the comparison pins beside this
+/// one decide the same operands both ways around); the trap is the
+/// emission's output side: the covered join reproduces the big operand, a
+/// finished stream whose element-rounded bit count exceeds the build
+/// buffer's `usize::MAX >> 3`-bit length encoding at the freeze seam —
+/// the same boundary `version_join_emit_at_build_cap_traps` pins from its
+/// two-operand family. The cure is the crate-owned build buffer, which
+/// flips this pin to the correct-value assertion.
 #[test]
-fn version_join_at_view_cap_traps() {
+fn version_join_at_build_cap_traps() {
     assert_eq!(
-        call1("pin_version_join_covering", VIEW_CAP_BYTES + 1),
+        call1("pin_version_join_covering", BUILD_CAP_BYTES + 1),
         Outcome::Trapped(Trap::UnreachableCodeReached),
     );
 }
 
-/// PINNED AS FOUND: joining a valid stored 67108865-byte version — the
-/// view cap's element-count-guard genre — with a small one traps on
-/// wasm32.
+/// PINNED AS FOUND: joining a valid stored 67108865-byte version with a
+/// small one it covers traps on wasm32.
 ///
-/// The second genre's committed baseline beside the pin one byte below.
+/// The output boundary's second witness, one byte further: the covered
+/// output's live bit count itself exceeds the build buffer's length
+/// encoding. The cure is the crate-owned build buffer, beside
+/// `version_join_at_build_cap_traps`.
 #[test]
-fn version_join_past_view_cap_traps() {
+fn version_join_past_build_cap_traps() {
     assert_eq!(
-        call1("pin_version_join_covering", VIEW_CAP_BYTES + 2),
+        call1("pin_version_join_covering", BUILD_CAP_BYTES + 2),
         Outcome::Trapped(Trap::UnreachableCodeReached),
     );
 }
@@ -407,12 +437,11 @@ fn version_join_past_view_cap_traps() {
 ///
 /// That is one bit under the 67108863 whole output bytes the finished
 /// stream's bit-vector adoption can represent, from two operands each
-/// comfortably under the walk surface's per-operand bound. The operands
-/// are complementary two-leaf skylines (~50 MB and ~42 MB) whose join
-/// concatenates: the output outgrows both inputs, so this witnesses the
-/// emitter's output-side boundary from below, independent of any
-/// per-operand cap. The returned observation is the output's exact live
-/// bit length.
+/// comfortably under 64 MiB. The operands are complementary two-leaf
+/// skylines (~50 MB and ~42 MB) whose join concatenates: the output
+/// outgrows both inputs, so this witnesses the emitter's output-side
+/// boundary from below, independent of any operand size. The returned
+/// observation is the output's exact live bit length.
 #[test]
 fn version_join_emit_below_build_cap() {
     assert_eq!(

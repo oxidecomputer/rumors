@@ -72,7 +72,7 @@
 use core::cmp::Ordering;
 use core::ops::ControlFlow;
 
-use crate::codec::BitsSlice;
+use crate::codec::BitsView;
 
 use super::overlay::{advance_diff, OpenedPair, PlateauCursor};
 
@@ -91,13 +91,13 @@ use super::overlay::{advance_diff, OpenedPair, PlateauCursor};
 /// the walk structurally notices (truncation, malformation) panic; the rest (a
 /// collapsible sibling pair, a delta driving the running height negative) sweep
 /// silently, and the verdict is then unspecified.
-pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
+pub fn causal_cmp(a: BitsView<'_>, b: BitsView<'_>) -> Option<Ordering> {
     // Clone identity decides reflexivity without a walk: one shared stored
     // buffer read through two views is bit-for-bit one stream (`Version::clone`
     // is a refcount bump), and a version compares `Equal` to itself — the
     // `order_reflexive` law in `crate::laws`. Equal streams in distinct buffers
     // still take the sweep below.
-    if crate::codec::slice_ptr_eq(a, b) {
+    if a.ptr_eq(&b) {
         return Some(Ordering::Equal);
     }
     // At exhaustion every surviving combination is a verdict.
@@ -119,7 +119,7 @@ pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
 /// Test- and meter-only: production equality is the stored forms' byte equality
 /// (canonical uniqueness makes them the same test).
 #[cfg(any(test, feature = "meter"))]
-pub fn eq(a: &BitsSlice, b: &BitsSlice) -> bool {
+pub fn eq(a: BitsView<'_>, b: BitsView<'_>) -> bool {
     // Surviving to exhaustion is equality: `eq_exit` breaks on any refutation
     // before the exhaustion check runs, so reaching the finish arm IS the
     // verdict. The assertion keeps that control-flow argument loud: an exit or
@@ -149,7 +149,7 @@ pub fn eq(a: &BitsSlice, b: &BitsSlice) -> bool {
 /// Test- and meter-only: production concurrency checks go through
 /// [`Version::concurrent`](crate::Version::concurrent) over the same sweep.
 #[cfg(any(test, feature = "meter"))]
-pub fn concurrent(a: &BitsSlice, b: &BitsSlice) -> bool {
+pub fn concurrent(a: BitsView<'_>, b: BitsView<'_>) -> bool {
     causal_cmp(a, b).is_none()
 }
 
@@ -167,7 +167,7 @@ pub fn concurrent(a: &BitsSlice, b: &BitsSlice) -> bool {
 /// Test- and meter-only: production ordering goes through the `PartialOrd`
 /// surface over [`causal_cmp`].
 #[cfg(any(test, feature = "meter"))]
-pub fn le(a: &BitsSlice, b: &BitsSlice) -> bool {
+pub fn le(a: BitsView<'_>, b: BitsView<'_>) -> bool {
     sweep(
         a,
         b,
@@ -261,8 +261,8 @@ pub(super) fn eq_exit(directions: Directions) -> ControlFlow<bool> {
 /// be stale at an early exit: only the fully-swept directions `finish` maps
 /// at exhaustion are all decided.
 fn sweep<V>(
-    a_bits: &BitsSlice,
-    b_bits: &BitsSlice,
+    a_bits: BitsView<'_>,
+    b_bits: BitsView<'_>,
     exit: impl Fn(Directions) -> ControlFlow<V>,
     finish: impl FnOnce(Directions) -> V,
 ) -> V {
