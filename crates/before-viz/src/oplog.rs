@@ -293,8 +293,37 @@ pub fn encode(log: &[Op]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
-/// Decode a fragment back into a log. Errs on malformed input.
+/// The most ops a log may carry: the op budget.
+///
+/// A log is caller input (any shared link carries one as a fragment), and
+/// every accepted op costs a replay: arena nodes whose notation strings
+/// grow with fork depth (a chain of forks makes total arena memory
+/// quadratic in op count), and the front-end's per-tree-level work is
+/// bounded by the same count, since each op deepens a tree by at most one
+/// level. A teaching figure needs at most a few dozen ops, so 512 is an
+/// order of magnitude of headroom. [`decode`] enforces the budget as early
+/// rejection on the wire; the engine owns the same budget at replay, so
+/// every entry is covered.
+pub const MAX_OPS: usize = 512;
+
+/// The longest fragment any log within the op budget can encode, pinned by
+/// arithmetic so [`decode`] can reject longer strings before doing base64
+/// work proportional to attacker-chosen length.
+///
+/// Derivation: an op encodes to at most 21 bytes (one tag byte plus two
+/// operands, each a LEB128 varint of at most 10 bytes for a 64-bit
+/// `usize`), and unpadded base64 spends 4 chars per 3 bytes, rounded up.
+pub const MAX_FRAGMENT_CHARS: usize = (MAX_OPS * 21 * 4).div_ceil(3);
+
+/// Decode a fragment back into a log. Errs on malformed input or a log
+/// past the op budget ([`MAX_OPS`]), the latter before any op is
+/// materialized.
 pub fn decode(fragment: &str) -> Result<Vec<Op>, String> {
+    if fragment.len() > MAX_FRAGMENT_CHARS {
+        return Err(format!(
+            "cannot encode a log within the {MAX_OPS}-op budget"
+        ));
+    }
     if fragment.is_empty() {
         return Ok(Vec::new());
     }
@@ -304,6 +333,9 @@ pub fn decode(fragment: &str) -> Result<Vec<Op>, String> {
     let mut log = Vec::new();
     let mut pos = 0;
     while pos < bytes.len() {
+        if log.len() == MAX_OPS {
+            return Err(format!("more than {MAX_OPS} ops"));
+        }
         let tag = bytes[pos];
         pos += 1;
         match tag {
