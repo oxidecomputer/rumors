@@ -81,7 +81,7 @@ exclude_re = [
     # and the propagate-seam bands price its clearance line — so it
     # carries no exclusion (the header's deliberately-absent roster).
     "watermark\\.rs.*: replace \\+ with - in MinWeb<P>::propagate",
-    "watermark\\.rs:774:43: replace >= with < in MinWeb<P>::propagate",
+    "watermark\\.rs:787:43: replace >= with < in MinWeb<P>::propagate",
 
     # Performance genre: the undercut decision's scale probes read
     # domination at a floor index; a shifted floor changes which side of
