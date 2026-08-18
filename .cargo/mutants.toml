@@ -116,10 +116,12 @@ exclude_re = [
     # record's overflow checks), so none of those carries an exclusion.
     "watermark\\.rs:790:43: replace >= with < in MinWeb<P>::propagate",
 
-    # Performance genre: the undercut decision's scale probes read
-    # domination at a floor index; a shifted floor changes which side of
-    # the fast/total split answers, not the answer, verified
-    # value-equivalent under mutation with all meters lit.
+    # Performance genre, both floor sites, either replacement: the
+    # undercut decision's scale probes read domination at a floor index,
+    # and each leg (`-` to `+`, `-` to `/`) only shifts that floor — a
+    # shifted floor changes which side of the fast/total split answers,
+    # not the answer, verified value-equivalent under mutation with all
+    # meters lit.
     "watermark\\.rs.*: replace - with (\\+|/) in MinWeb<P>::decide_undercut_through_latent",
 
     # Performance genre: an unarmed range's gap is re-based on arming, so
@@ -156,13 +158,15 @@ exclude_re = [
     # leaf-scale ranges alike and no honest band can separate it. The
     # tick_site_hole envelope prices the block fold itself (net-only, no
     # streamed extremum); this entry covers only which side of the depth
-    # boundary answers.
+    # boundary answers — every leg of the alternation (`<=`, `==`, `>`)
+    # only re-draws that boundary, so the argument covers each uniformly.
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::skip_collapse",
 
     # Performance genre: both sides of the max scan's routing boundary
     # fold the identical net movement and extremum per leaf, so the
     # reroute is touch-neutral on deep and leaf-scale ranges alike and no
-    # honest band can separate it.
+    # honest band can separate it — every leg of the alternation (`<=`,
+    # `==`, `>`) only re-draws the boundary, covered uniformly.
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::max_range",
 
     # --- before::version::skyline::query::integral ---
