@@ -381,3 +381,62 @@ proptest! {
         );
     }
 }
+
+proptest! {
+    // Population scale is this property's sampling axis: each case runs a
+    // fleet an order of magnitude past the cycle schedules above, paying
+    // two wire sessions per peer, so the case count is pared to keep the
+    // suite inside its runtime budget while the schedule within each case
+    // stays fully random (provider choice, retirement order, absorber
+    // choice).
+    #![proptest_config(ProptestConfig::with_cases(32))]
+
+    /// Terminal collapse at fleet scale: a fully retired population's last
+    /// survivor holds exactly [`Party::seed`]'s whole interval.
+    ///
+    /// Bootstrap a population of up to a hundred peers, each newcomer off
+    /// a randomly chosen live provider, then retire peers into one another
+    /// in random order until one remains. Every donated fork and absorbed
+    /// identity renormalizes back to the baseline, so lifecycle churn at
+    /// population scale neither loses nor fragments identity.
+    #[test]
+    fn fleet_scale_retirement_collapses_to_seed_party(
+        (providers, retirements) in (2usize..=100).prop_flat_map(|n| (
+            proptest::collection::vec(any::<usize>(), n - 1),
+            proptest::collection::vec((any::<usize>(), any::<usize>()), n - 1),
+        )),
+    ) {
+        // Grow the fleet one bootstrap at a time through `apply`, which
+        // resolves provider indices modulo the live fleet: any random
+        // topology (chain, fan, or mixture) is reachable. Each newcomer
+        // originates once (`Bootstrap` pushes it at the fleet's end), so
+        // retirements move content, not just identity.
+        let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
+        for (i, &provider) in providers.iter().enumerate() {
+            apply(&mut fleet, Op::Bootstrap { provider });
+            let newest = fleet.len() - 1;
+            apply(
+                &mut fleet,
+                Op::Send {
+                    peer: newest,
+                    value: i as u64,
+                },
+            );
+        }
+
+        // Retire until one peer holds everything: retiree and absorber both
+        // random, distinct by construction. `apply`'s two-peer guard never
+        // skips here: this schedule runs exactly fleet-size-minus-one
+        // retirements, so every one executes with at least two peers live.
+        for &(retiree, off) in &retirements {
+            apply(&mut fleet, Op::Retire { retiree, off });
+        }
+
+        let survivor = alias(&fleet[0]);
+        prop_assert!(
+            survivor == Party::seed(),
+            "after the whole fleet retires into one node, its party must be \
+             exactly the seed's whole interval, got {survivor:?}"
+        );
+    }
+}

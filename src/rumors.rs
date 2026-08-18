@@ -135,7 +135,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// Returns a [`Batch`] that commits when dropped: a bare
     /// `rumors.send(message);` commits at the end of the statement, and
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit.
+    /// accumulates them into one commit. A batch dropped by async
+    /// cancellation commits its queued prefix, so never hold one across an
+    /// `.await` in a cancellable task ([`Batch`] states the drop semantics).
     ///
     /// `send` does not return the message's [`Key`]. Keys come back through
     /// observation: the observers and [`Snapshot`] attach every message to
@@ -172,7 +174,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// Returns a [`Batch`] that commits when dropped: a bare
     /// `rumors.redact(key);` commits at the end of the statement, and chaining
     /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit.
+    /// accumulates them into one commit. A batch dropped by async
+    /// cancellation commits its queued prefix, so never hold one across an
+    /// `.await` in a cancellable task ([`Batch`] states the drop semantics).
     ///
     /// # Deletion is honored
     ///
@@ -206,9 +210,15 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         self.peer.redact(key)
     }
 
-    /// Start an empty [`Batch`], for committing several changes as one
-    /// atomic unit: observers and concurrent gossip sessions see either
-    /// none of the batch or all of it, never a prefix.
+    /// Start an empty [`Batch`], for applying several changes in one
+    /// commit: observers and concurrent gossip sessions see all of them
+    /// land at once, in at most one observer wakeup.
+    ///
+    /// A batch is a performance optimization, not an atomicity guarantee:
+    /// it coalesces its actions into one tree traversal and one commit,
+    /// but, outside of a panic, whatever the batch holds when it drops is
+    /// committed automatically. Do not rely on batch atomicity for
+    /// correctness, *especially* in the presence of async cancellation.
     ///
     /// # Examples
     ///
@@ -220,7 +230,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///     .batch()
     ///     .send("a".to_string())
     ///     .send("b".to_string());
-    /// // The batch committed, atomically, when the statement ended.
+    /// // The batch committed, as one commit, when the statement ended.
     /// assert_eq!(rumors.snapshot().len(), 2);
     /// ```
     pub fn batch(&self) -> Batch<'_, T>

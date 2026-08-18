@@ -108,7 +108,7 @@
 //! ```
 //!
 //! A bare `send` statement commits right there, as the statement ends;
-//! chaining several changes into one atomic commit is
+//! chaining several changes into one commit is
 //! [`Batch`](crate::Batch)'s job. Notice that the snapshot yields a key
 //! and a version alongside each message — we ignore them for now, and the
 //! key returns in step 6.

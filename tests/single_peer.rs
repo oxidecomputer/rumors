@@ -13,6 +13,8 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{Key, Peer, Rumors, Version, causally};
 
+use crate::common::wire::block_on;
+
 /// Commit `values` to `peer` as one batch, returning the `(Key, Version)`
 /// pairs it minted (recovered as the live leaves above the pre-commit
 /// frontier).
@@ -161,9 +163,9 @@ impl borsh::BorshSerialize for Explosive {
 
 /// A batch interrupted by a panic between its sends commits nothing.
 ///
-/// [`rumors::Rumors::batch`] promises observers and concurrent gossip
-/// sessions see "either none of the batch or all of it, never a prefix",
-/// and a batch the caller never finished building is not "all of it".
+/// [`Batch`](rumors::Batch) documents that a batch dropped by a panic's
+/// unwind commits nothing: the caller never finished building it, so
+/// nothing it holds may publish.
 ///
 /// `Batch::send` panics when a value fails to serialize (its documented
 /// panic), and the unwind drops the half-built batch. `Batch`'s `Drop`
@@ -190,6 +192,49 @@ fn a_panicked_batch_commits_nothing() {
     assert_eq!(
         rumors.snapshot().len(),
         0,
-        "a batch interrupted by a panic must commit nothing: never a prefix"
+        "a batch interrupted by a panic must commit nothing: an unwound \
+         batch aborts"
+    );
+}
+
+/// Pins the drop semantics [`Batch`](rumors::Batch) documents for async
+/// cancellation: a batch dropped mid-await commits its queued prefix.
+///
+/// Dropping the future holding a batch across an await runs no unwind, so
+/// the drop is indistinguishable from an ordinary end-of-statement commit
+/// and publishes the prefix queued before the cancellation point. This is
+/// the documented hazard behind the rule that a batch must not be held
+/// across an `.await` in a cancellable task: a batch is a performance
+/// optimization, and all-or-nothing delivery bundles into one
+/// application-level message instead.
+#[test]
+fn a_cancelled_batch_commits_its_prefix() {
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    // The select needs no runtime facilities, so the closed-future driver
+    // suffices: the whole select completes on its first poll.
+    block_on(async {
+        let work = async {
+            let mut batch = rumors.batch();
+            batch.send(1);
+            // The cancellation point: parked mid-build, holding the batch.
+            std::future::pending::<()>().await;
+            batch.send(2);
+        };
+        // A biased select polls `work` first (queuing the prefix, then
+        // parking) and completes on the ready branch, dropping `work` (and
+        // the batch it holds) mid-await.
+        tokio::select! {
+            biased;
+            _ = work => unreachable!("the parked future never completes"),
+            _ = std::future::ready(()) => {}
+        }
+    });
+
+    // The documented behavior, exactly: the prefix committed as a batch
+    // of one; the send queued after the cancellation point never ran.
+    assert_eq!(
+        rumors.snapshot().len(),
+        1,
+        "cancellation drop-commits the prefix queued before the await"
     );
 }

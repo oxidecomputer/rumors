@@ -64,6 +64,13 @@ pub fn join<T>(
 where
     T: Send + Sync,
 {
+    // Test-only unwind source for the panic-atomicity pin: the merge walk
+    // is the fallible region of `Tree::join`'s commit section, and its
+    // entry burns the first fuse step (each branch-level step below burns
+    // one more).
+    #[cfg(test)]
+    crate::tree::panic_injection::fire_if_armed();
+
     Join::join(a, b, a_version, b_version, changed)
 }
 
@@ -99,6 +106,12 @@ where
     where
         T: Send + Sync,
     {
+        // Test-only unwind source, continued: every branch-level merge step
+        // burns one fuse step, so a fuse armed past the entry unwinds only
+        // after earlier steps completed real merge work.
+        #[cfg(test)]
+        crate::tree::panic_injection::fire_if_armed();
+
         match (a, b) {
             (None, None) => None,
             // Asymmetric cases: a subtree one side holds and the other lacks.
