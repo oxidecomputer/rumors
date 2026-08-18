@@ -2,17 +2,16 @@
 //!
 //! A [`Bookmark`] is application-supplied persistent storage for *who* a
 //! [`Peer`](crate::Peer) is and how far it has advanced, so a peer that crashed
-//! can recover its identity instead of leaking it. You supply raw byte
-//! storage; the crate owns the format, decides when to load and store, and
-//! keeps the record in step with the live identity. The storage carries two
-//! obligations the crate cannot check for you — commit atomically, and never
-//! roll back to an earlier committed frame — whose statements and
-//! consequences live on [`Bookmark`] ([`store`](Bookmark::store)'s contract
-//! and the trait's *Rollback* section).
+//! can recover its identity instead of leaking it.
+
+//! You supply raw byte storage; the crate owns the format, decides when to load
+//! and store, and keeps the record in step with the live identity. The storage
+//! carries two obligations the crate cannot check for you: commit atomically, and
+//! never roll back to an earlier committed frame.
 //!
-//! The default [`NoBookmark`] persists nothing: a peer that never retires simply
-//! strands its identity, which costs a few bits of timestamp width but corrupts
-//! nothing (see the crate docs on membership as custody).
+//! The default [`NoBookmark`] persists nothing: a peer that crashes simply
+//! strands its identity, which costs a few bits of [`Version`] size but corrupts
+//! nothing.
 
 use std::collections::BTreeMap;
 use std::pin::Pin;
@@ -68,66 +67,44 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining).
 /// The prior incarnation's identity is then reclaimed out of the record at
 /// the outset of the first subsequent session whose *starting* frontier
-/// causally dominates everything that incarnation had observed when it last
-/// recorded itself — the fold runs when a session opens, against the
-/// frontier as it stands then, so the session that first *delivers* the
-/// missing history does not itself reclaim; the next one does. (One
-/// exception folds mid-session: absorbing a retiring peer re-runs the fold
-/// after the absorption commits, so the retiree's identity is durable
-/// before the session ends.)
-///
-/// Domination of everything *observed* is a deliberately stronger gate than
-/// identity linearity needs (that would require only the incarnation's own
-/// writes), bought as resilience against storage that serves stale frames:
-/// see *Rollback* below. Its price is that an identity whose recorded
-/// observations include events the network has permanently lost — every
-/// replica that held them crashed before persisting or propagating — is
-/// **never reclaimed**: it stays in the record indefinitely, an accepted
-/// identity-space cost that, like any stranded identity, spends a few bits
-/// of timestamp width and corrupts nothing.
+/// causally dominates everything that incarnation had itself sent when it last
+/// recorded itself.
 ///
 /// # Rollback
 ///
 /// The stored record **must never regress**: a [`load`](Bookmark::load) must
 /// never serve bytes older than the last [`store`](Bookmark::store) that
-/// committed. The crate performs no rollback detection anywhere — this is a
-/// decision, not uniformly an impossibility. Across a restart, detection is
-/// impossible in principle: the bookmark is the peer's *only* durable state,
-/// so a loaded frame has nothing to be compared against. Within one process
-/// a partial witness could exist, but a guarantee that covers only some
-/// windows invites relying on it; the crate instead assigns the entire
-/// rollback class to the implementor as one obligation, exactly like the
-/// atomic replacement documented on [`store`](Bookmark::store).
+/// committed. The crate performs no rollback detection anywhere. Across a
+/// restart, detection is impossible in principle: the bookmark is the peer's
+/// *only* durable state, so a loaded frame has nothing to be compared against.
 ///
 /// The consequence of violation is silent causality corruption, not an error:
 /// a rolled-back record understates how far the recorded identity advanced,
-/// so the reclamation above frees it *too early*, and the revived peer
-/// re-mints causal coordinates the network already durably holds. Sessions
-/// keep completing normally throughout. Replicas that hold distinct messages
-/// under one recycled coordinate can no longer tell them apart — redacting
-/// either then destroys the other network-wide — which is the
-/// deletion-honoring corruption this crate otherwise rules out.
+/// so it is reclaimed *too early*, and the revived peer reuses causal coordinates
+/// the network already durably holds. Sessions keep completing normally throughout.
+/// Replicas that hold distinct messages under one recycled coordinate can no longer
+/// tell them apart, which leads to arbitrary corruption.
 ///
-/// Every unreclaimed incarnation
-/// stays in the record, so under repeated restarts the bookmark can in
-/// principle grow arbitrarily large; in practice that takes an extremely
-/// large amount of network churn.
+/// Every unreclaimed incarnation stays in the record, so under repeated restarts
+/// the bookmark can in principle grow arbitrarily large; in practice that takes an
+/// extremely large amount of network churn.
 ///
 /// The record is partitioned by universe: it keeps every identity from
 /// every [`Network`] it has seen, each filed under its
 /// originating universe. Loading a bookmark whose record belongs to a
 /// different universe is not an error: the foreign identities simply lie
 /// dormant, unusable unless and until the peer joins that universe again,
-/// and joining ever more universes accumulates an ever bigger bookmark.
+/// and joining ever more universes accumulates an ever bigger bookmark
+/// (bounded by a generous 64 MiB maximum size).
 ///
 /// # One bookmark per peer, handled linearly
 ///
 /// A bookmark is the durable identity of a *single* peer across *its own*
-/// restarts. Sharing one between distinct, concurrently-live peers is the one
-/// misuse that turns this tool against itself: reclamation folds back every
-/// stored identity the live party has caught up to, so a shared bookmark can
-/// hand the same identity to two live parties at once. A bookmark, like the
-/// identity it records, **must be persisted atomically and never duplicated**.
+/// restarts. Sharing one between distinct, concurrently-live peers turns this tool
+/// against itself: reclamation folds back every stored identity the live party has
+/// caught up to, so a shared bookmark can hand the same identity to two live parties
+/// at once. A bookmark, like the identity it records, **must be persisted atomically
+/// and never duplicated**.
 pub trait Bookmark: BookmarkError {
     /// The byte source [`load`](Self::load) hands back.
     type Reader: AsyncRead + Unpin + Send;
@@ -140,16 +117,13 @@ pub trait Bookmark: BookmarkError {
     /// once the crate validates the frame.
     ///
     /// The crate reads at most one byte past [`BOOKMARK_MAX_BYTES`] from the
-    /// returned reader — the extra byte is what distinguishes a frame at the
-    /// ceiling from one over it — before validating anything: an over-ceiling
+    /// returned reader before validating anything: an over-ceiling
     /// byte source, whether a corrupt or foreign file or a reader that never
-    /// ends, is refused as [`FormatError::Oversized`] rather than buffered
-    /// without bound. Every record the crate itself stores reloads under this
-    /// cap *by construction*: the write side refuses an over-ceiling frame
-    /// before [`store`](Self::store) ever sees it, and a realistic record
-    /// sits far below the ceiling besides (measured: the
-    /// `a_heavily_forked_record_sits_far_under_the_ceiling` pin holds a
-    /// heavily forked record three orders of magnitude under).
+    /// ends, is refused as [`FormatError::Oversized`].
+    ///
+    /// Every record the crate itself stores is validated under this
+    /// cap: the write side refuses an over-ceiling frame
+    /// before [`store`](Self::store) ever sees it.
     fn load(&self) -> impl Future<Output = Result<Option<Self::Reader>, Self::Error>> + Send;
 
     /// Atomically replace the stored record.
@@ -159,14 +133,15 @@ pub trait Bookmark: BookmarkError {
     /// `write` returns `Ok`** and must report an error rather than leave a
     /// partial frame where the next [`load`](Self::load) could read it.
     ///
-    /// Atomicity here is a safety obligation the crate cannot check, not
-    /// storage hygiene: a torn or reordered store whose next `load` yields
-    /// *valid but stale* bytes is a rollback (see the trait's *Rollback*
-    /// section), and its consequence is silent causality corruption — after a
+    /// Atomicity here is a safety obligation the crate cannot check:
+    /// a torn or reordered store whose next `load` yields
+    /// *valid but stale* bytes is a dangeous rollback (see the trait's *Rollback*
+    /// section), and its consequence is silent causality corruption. After a
     /// crash, the peer reclaims its identity below a frontier it already
     /// transmitted and re-issues causal coordinates the network durably
-    /// holds, exactly the failure the bookmark exists to prevent. A frame
-    /// that loads as garbage, by contrast, is caught and surfaces as a
+    /// holds.
+    ///
+    /// A frame that loads as garbage, by contrast, is caught and surfaces as a
     /// [`FormatError`].
     fn store<F>(&self, write: F) -> impl Future<Output = Result<(), Self::Error>> + Send
     where
