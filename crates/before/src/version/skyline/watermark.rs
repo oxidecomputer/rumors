@@ -485,7 +485,13 @@ impl<P> MinWeb<P> {
     fn decide_undercut_through_latent(&mut self) -> bool {
         let gap_floor = self.gap.digit_count() - 1;
         let latent = self.latent.as_mut().expect("the caller saw a live latent");
-        // Collapse for an honest top before the domination reads.
+        // Collapse for an honest top before the domination reads: a sign
+        // read folds any cancelling prefix down, so a domination floor
+        // derived from digit_count immediately after one decides where the
+        // stale count's floor would refuse — suanpan's witness
+        // `sign_collapse_tightens_the_top_and_arms_domination`. Both floors
+        // here rest on that clause: gap's sign was read by the caller, the
+        // latent's is read now.
         let _sign = latent.sign();
         debug_assert_eq!(_sign, Ordering::Greater, "the latent is strictly positive");
         if latent.sign_dominates_at(gap_floor).1 {
@@ -743,8 +749,18 @@ impl<P> MinWeb<P> {
                     payload,
                 }) => {
                     // The width guards skip domination reads a top index could
-                    // never decide (`sign_dominates_at` needs two digits of
-                    // clearance), so a comparable-scale hop pays no extra read.
+                    // never decide: in the digit engine, a `sign_dominates_at`
+                    // read one digit short of two digits of clearance never
+                    // certifies (suanpan's witness
+                    // `domination_decision_index_is_tight_at_floor_plus_two`),
+                    // while at the clearance line a decided certificate exists
+                    // and covers extreme redundant operands (suanpan's
+                    // `decided_domination_covers_extreme_accumulator_operands`)
+                    // — so the guards forfeit no decision the digit fold could
+                    // make, and a comparable-scale hop pays no extra read. A
+                    // register-held side can certify with less clearance; that
+                    // forfeited certificate only reroutes the hop onto the
+                    // comparable fold below.
                     // Tops are honest: a pushed difference had its sign read at
                     // push, and the residue collapses under its own reads here.
                     // Both sides are strictly positive, so a decided domination
