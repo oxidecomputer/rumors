@@ -119,7 +119,7 @@ over the operands' elementary intervals (`sweep.rs` module doc).
 - Below the fold seam: `codec::DsiCursor`/`SliceCursor`/gamma (the read
   vocabulary), `codec::PackedBuilder` (the append-truncate move set),
   `suanpan::Accumulator` (the arithmetic every fold's state rides —
-  the cliff-immunity and amortized sign reads live there, one seam
+  the cliff-freedom and amortized sign reads live there, one seam
   below anything this survey moves).
 
 ## 2. The floor: what is already unified

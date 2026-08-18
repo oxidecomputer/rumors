@@ -74,7 +74,7 @@
 //! are linear in the streams' bits. Transient state is one path bit per open
 //! ancestor per cursor plus the client's accumulators: a deep operand costs its
 //! *bits*, never stack frames. The pair algebra's arithmetic rides the
-//! cliff-immune [`Accumulator`]: a machine-word delta costs amortized O(1)
+//! cliff-free [`Accumulator`]: a machine-word delta costs amortized O(1)
 //! digit touches, a wide delta O(its own limbs) — *priced by* the code the
 //! input spent to express it. That phrase is the cost convention every skyline
 //! walk's claims are stated in: work is *priced by* (paid by) a quantity when

@@ -27,7 +27,7 @@
 //!   a whole number of delays past the runtime's epoch, so the figure
 //!   lands on the delay lattice: dividing by `delay` reads serialized
 //!   one-way hops exactly. [`DelayedWire::round_trip_virtual`] reports
-//!   this component alone; it is the load-immune measurement the window
+//!   this component alone; it is the load-independent measurement the window
 //!   suites (`tests/window_knee.rs` and siblings) pin their bounds on.
 //! - the *wall* component: real CPU time spent computing — both peers
 //!   serialized on one thread, the same convention as the zero-latency
@@ -449,7 +449,7 @@ impl DelayedWire {
     }
 
     /// Reconcile one pair, returning the handles and the session's wire
-    /// cost alone: the virtual component, exact and load-immune.
+    /// cost alone: the virtual component, exact and load-independent.
     ///
     /// This is the measurement to assert on: a deterministic function of
     /// the session shape, landing on the delay lattice, unmoved by
@@ -459,7 +459,7 @@ impl DelayedWire {
     ///
     /// On a [`new_wall_clock`](Self::new_wall_clock) wire, where the
     /// virtual clock tracks the real one and the component is wall time
-    /// in disguise: load-immunity is the figure's contract, so a wire
+    /// in disguise: load-independence is the figure's contract, so a wire
     /// that cannot honor it must refuse loudly.
     // Used only by the window measurement suites; the module is
     // `#[path]`-included by several targets, each seeing its own copy's
@@ -507,7 +507,7 @@ impl DelayedWire {
 ///
 /// Reconciles the pair over a fresh paused-clock wire with the given
 /// per-stream `capacity` and one-way `delay`, and reads the virtual wire
-/// cost as serialized one-way hops: deterministic and load-immune (see
+/// cost as serialized one-way hops: deterministic and load-independent (see
 /// the [module docs](self) for the argument).
 // Used only by the window measurement suites; the module is
 // `#[path]`-included by several targets, each seeing its own copy's

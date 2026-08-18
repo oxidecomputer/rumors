@@ -82,7 +82,7 @@ pub(crate) enum Demand {
 }
 
 /// One (probe, bound) pair's running comparison: the difference `height_probe −
-/// height_bound` on the cliff-immune accumulator, and the pair's surviving
+/// height_bound` on the cliff-free accumulator, and the pair's surviving
 /// directions.
 ///
 /// Settlement — a pair whose verdict contribution is fixed mid-walk — is the

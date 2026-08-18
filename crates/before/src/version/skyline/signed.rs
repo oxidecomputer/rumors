@@ -189,7 +189,7 @@ pub(super) fn unzigzag_base(code: Base) -> (Sign, Base) {
 ///
 /// The one home of the sign-magnitude fold every height walk applies — the
 /// exchange move between this module's sign-magnitude currency (the zigzag
-/// maps above) and the cliff-immune [`Accumulator`].
+/// maps above) and the cliff-free [`Accumulator`].
 pub(super) fn fold_signed(acc: &mut Accumulator, sign: Sign, magnitude: &Base) {
     match sign {
         Sign::Negative => acc.sub_magnitude(magnitude),

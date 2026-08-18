@@ -212,7 +212,7 @@ fn arity_draw_is_uniform_over_every_count() {
 /// one that costs `O(n · log k)`; the per-sample draw puts the arity
 /// axis inside each column, where the spread and the reference slopes
 /// can price it. Fuel is deterministic wasm instruction metering, so
-/// the comparison is exact at the committed seed and load-immune.
+/// the comparison is exact at the committed seed and load-independent.
 #[test]
 fn fold_rows_expose_the_arity_axis_in_fuel() {
     let plan = Plan {

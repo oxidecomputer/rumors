@@ -44,7 +44,7 @@
 //!
 //! No absolute height is materialized anywhere but the output stream's first
 //! leaf (whose code is that absolute, so the read is priced by the write). The
-//! walk carries the last consumed input height on one cliff-immune
+//! walk carries the last consumed input height on one cliff-free
 //! [`Accumulator`], and every range minimum the shortcut arms can ask for lives
 //! in one shared anchor web — the `watermark` module's web: `h − A` for an
 //! anchor at or above the innermost open range's minimum (the excess parked in

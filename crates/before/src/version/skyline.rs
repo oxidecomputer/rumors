@@ -233,7 +233,7 @@ pub fn encode(version: &Version) -> BitsMut {
 ///
 /// Enforces the module doc's canonical form in one forward pass: minimal
 /// topology and stream exactness on ~2 bits of stack per open ancestor, and
-/// leaf-height nonnegativity on the cliff-immune accumulator. Every error is
+/// leaf-height nonnegativity on the cliff-free accumulator. Every error is
 /// [`Decode::Truncated`] (the stream ended mid-tree or mid-integer),
 /// [`Decode::TrailingBits`] (live bits remain after the tree), or
 /// [`Decode::NotCanonical`] (collapsible sibling leaves, or a delta driving the

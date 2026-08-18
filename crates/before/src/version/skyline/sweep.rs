@@ -12,7 +12,7 @@
 //! elementary interval has `a`'s height above `b`'s, `b <= a` iff none has the
 //! reverse, equal iff both hold, concurrent iff neither. The sweep maintains
 //! **one** running signed difference `D = height_a − height_b` on the
-//! cliff-immune [`Accumulator`](suanpan::Accumulator), folds `sign(D)` once per
+//! cliff-free [`Accumulator`](suanpan::Accumulator), folds `sign(D)` once per
 //! elementary interval into the two surviving [`Directions`], and advances
 //! whichever cursor's plateau ends first (the law's rule). Nothing recurses,
 //! and no synthetic zero subtree is ever walked when one side bottoms out

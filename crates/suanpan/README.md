@@ -2,7 +2,7 @@
 
 <!-- cargo-rdme start -->
 
-Cliff-immune signed accumulators: redundant balanced signed digits with no
+*Cliff-free* signed accumulators: redundant balanced signed digits with no
 carry cliffs anywhere — machine-word deltas and sign reads amortized O(1),
 wide deltas amortized O(operand limbs), on every input sequence.
 

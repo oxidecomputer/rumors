@@ -275,7 +275,7 @@ mod envelope {
     pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); // iterative id walks
     pub const ID_WITHOUT: Envelope      = envelope(   521_110,        0,             0, 0); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
     pub const DECODE_CLIFF: Envelope = envelope(4_052, 0, 88, 52); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
-    pub const CMP_CLIFF: Envelope = envelope(1_330, 0, 88, 52); // the cliff-immune sweep (two accumulators, opened once) over the Bytes-backed at-rest form
+    pub const CMP_CLIFF: Envelope = envelope(1_330, 0, 88, 52); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
     pub const JOIN_CLIFF: Envelope = envelope(5_362, 0, 308, 184); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
     // Skyline validator rows: the validator's transient is the
     // open-ancestor bit stack plus reallocation growth — bits per level,
@@ -286,7 +286,7 @@ mod envelope {
     // a re-read the others cannot. Decode is validate plus the wrap, so
     // each shape's scan reading equals its validate row's.
     pub const SKYLINE_VALIDATE_DENSE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_VALIDATE_CLIFF: SweepEnvelope = sweep_envelope(1_770, 0, 88, 17_923, 52); // the cliff-immune accumulator: amortized O(1) per delta
+    pub const SKYLINE_VALIDATE_CLIFF: SweepEnvelope = sweep_envelope(1_770, 0, 88, 17_923, 52); // the cliff-free accumulator: amortized O(1) per delta
     pub const SKYLINE_VALIDATE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(1_520, 0, 29_509, 1_000_480, 17_705); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
     pub const SKYLINE_VALIDATE_HUGELEAF: SweepEnvelope   = sweep_envelope(    80_980,        0,         2_443, 312_503, 1_465); // one wide decode and one wide accumulator load, both linear in the code's width
     pub const SKYLINE_VALIDATE_ALT_SPINE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // per-level state stays two bits however the descent direction flips
@@ -1400,7 +1400,7 @@ fn rank_sum_mixed_envelope() {
 // The skyline validator and decoder over the adversarial event families,
 // with the stream transcoded outside measurement. The validator rows pin
 // the validator's transient — ~2 bits of open-ancestor stack per
-// level plus the cliff-immune accumulator — denominated against skyline
+// level plus the cliff-free accumulator — denominated against skyline
 // input bytes; the decoder rows add the transcode back to the packed
 // form, whose materialized heights and floors are priced by that packed
 // output (on the comb it is quadratically larger than the skyline input,
@@ -1578,7 +1578,7 @@ fn skyline_decode_alt_spine_envelope() {
 // ─── skyline comparison sweep scenarios ─────────────────────────────────────
 //
 // The comparison sweep over skyline streams: one merge of the two leaf
-// sequences on two path-bit stacks and one cliff-immune accumulator, no
+// sequences on two path-bit stacks and one cliff-free accumulator, no
 // recursion anywhere. Streams are transcoded outside measurement. Each
 // family scenario compares the shape against the empty version — the
 // shallow-operand shape, where the whole deep side is consumed
@@ -1652,7 +1652,7 @@ mod sweep_env {
     pub const SKYLINE_CMP_DENSE: SweepEnvelope = sweep_envelope(30_720, 0, 0, 468_760, 0); // path-bit stacks and one accumulator; word-valued payloads keep the limb column at zero
     pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(51_200, 0, 0, 937_515, 0); // aligned ties in lockstep to full depth: both streams' bits scanned whole
     pub const SKYLINE_CMP_BIGROOT: SweepEnvelope = sweep_envelope(39_540, 0, 783, 137_514, 469); // the wide first height absorbed once, paid by its own code
-    pub const SKYLINE_CMP_CLIFF: SweepEnvelope = sweep_envelope(1_330, 0, 88, 17_925, 52); // the cliff-immune accumulator: amortized O(1) per crossing (the shared emission-sweep step holds each consumed delta; OpenedPair states the opening move once)
+    pub const SKYLINE_CMP_CLIFF: SweepEnvelope = sweep_envelope(1_330, 0, 88, 17_925, 52); // the cliff-free accumulator: amortized O(1) per crossing (the shared emission-sweep step holds each consumed delta; OpenedPair states the opening move once)
     // SKYLINE_CMP_WIDE_TOOTH's deliberately thin heap margin is a
     // change-detector on the backend's and the accumulator's allocation
     // policies: the committed Cargo.lock (dashu-int 0.5.0 exact) is what
@@ -2153,7 +2153,7 @@ mod text_env {
     pub const SKYLINE_PARSE_DENSE: SweepEnvelope = sweep_envelope(4_041_052, 0, 625_007, 468_758, 375_003); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
     pub const SKYLINE_PARSE_BIGROOT: SweepEnvelope = sweep_envelope(377_944, 0, 51_574, 137_512, 30_944); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
     pub const SKYLINE_PARSE_HUGELEAF: SweepEnvelope  = sweep_envelope(   152_480,        0,     4_887,   312_503, 2_931); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
-    pub const SKYLINE_PARSE_CLIFF: SweepEnvelope = sweep_envelope(344_152, 0, 56_475, 17_923, 33_885); // every tooth's base enters and leaves the cliff-immune accumulator paid by its own digit run; the scan column is the build pass's own
+    pub const SKYLINE_PARSE_CLIFF: SweepEnvelope = sweep_envelope(344_152, 0, 56_475, 17_923, 33_885); // every tooth's base enters and leaves the cliff-free accumulator paid by its own digit run; the scan column is the build pass's own
 }
 
 /// Rendering the dense spine's skyline stays within its envelope.
@@ -2296,7 +2296,7 @@ fn skyline_parse_hugeleaf_envelope() {
 
 /// Parsing the boundary comb's text stays within its envelope.
 ///
-/// Every tooth's wide base enters and leaves the cliff-immune accumulator
+/// Every tooth's wide base enters and leaves the cliff-free accumulator
 /// paid by its own digit run, so the `2^k` carry boundary costs amortized
 /// O(1) digit touches per crossing.
 #[test]
@@ -2316,10 +2316,10 @@ fn skyline_parse_cliff_envelope() {
     );
 }
 
-// ─── skyline cliff-immunity flatness ────────────────────────────────────────
+// ─── skyline cliff-freedom flatness ─────────────────────────────────────────
 //
 // The cross-scale witness that the validator's nonnegativity state is
-// cliff-immune on the boundary comb: per-delta accumulator digit touches
+// cliff-free on the boundary comb: per-delta accumulator digit touches
 // and per-input-byte limb work both stay flat (×1.25) across a size
 // doubling of `k = n`. A plain big-integer running height roughly doubles
 // its per-unit cost per doubling here (the `meter/tier2` plain-sweep pin),
@@ -2406,7 +2406,7 @@ mod skyline_flatness {
 
     /// The validator's per-delta accumulator touches and per-byte limb
     /// work stay flat across a `k = n` doubling of the boundary comb: the
-    /// nonnegativity check is cliff-immune, achieved rather than promised.
+    /// nonnegativity check is cliff-free, achieved rather than promised.
     ///
     /// Each run also carries the one-touch-per-delta liveness floor (in
     /// [`comb_run`]), so flatness is asserted over a meter proven live.
@@ -2472,7 +2472,7 @@ mod skyline_flatness {
     ///
     /// The running difference crosses the `2^k` carry boundary at every
     /// delta and each crossing stays amortized O(1) — the comparison-side
-    /// cliff-immunity witness.
+    /// cliff-freedom witness.
     ///
     /// Each run also carries the one-touch-per-delta liveness floor (in
     /// [`comb_cmp_run`]), so flatness is asserted over a meter proven
@@ -2539,7 +2539,7 @@ mod skyline_flatness {
     ///
     /// The running difference crosses the `2^k` carry boundary at every
     /// delta and each crossing stays amortized O(1) — the emission-side
-    /// cliff-immunity witness, the merge counterpart of the comparison
+    /// cliff-freedom witness, the merge counterpart of the comparison
     /// pin above (join, meet, `recv`, `sync`, and the fold operators all
     /// ride this emitter). Each run also carries the one-touch-per-delta
     /// liveness floor (in [`comb_join_run`]), so flatness is asserted
@@ -2602,7 +2602,7 @@ mod skyline_flatness {
 
     /// The text parse's per-text-byte accumulator touches stay flat
     /// across a `k = n` doubling of the boundary comb's rendered text:
-    /// the path-sum accumulator is cliff-immune on the crate's canonical
+    /// the path-sum accumulator is cliff-free on the crate's canonical
     /// untrusted-input surface.
     ///
     /// The parse extracts each leaf's delta from the running path-sum
@@ -6429,7 +6429,7 @@ fn id_fork_envelope() {
 
 // ─── accumulator stream scenarios ───────────────────────────────────────────
 //
-// The digit-touch cost of the cliff-immune accumulator on the adversarial
+// The digit-touch cost of the cliff-free accumulator on the adversarial
 // families' delta streams, with the sign read after every delta (the read
 // the sweeps depend on), plus the read-heavy stream where the sign folds
 // outnumber the writes. Each scenario runs at a base scale and its

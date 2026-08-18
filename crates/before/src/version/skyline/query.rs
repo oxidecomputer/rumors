@@ -4,7 +4,7 @@
 //! Every fold here is a linear functional or a masking of the version's step
 //! function, so each rides the same machinery as the comparison sweep — one
 //! forward pass of its leaf cursors with the running height state on the
-//! carry-cliff-immune [`Accumulator`] (amortized O(1) digit touches where a
+//! carry-cliff-free [`Accumulator`] (amortized O(1) digit touches where a
 //! plain big integer pays each full carry) — plus the piece its own question
 //! needs:
 //!

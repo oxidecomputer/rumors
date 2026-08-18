@@ -346,7 +346,7 @@ first leaf's value as `gamma(v₁)`, every later leaf as
 Canonical iff the topology is minimal — the right sibling's delta
 is zero exactly when sibling leaves are equal, so the validator
 needs ~2 bits/level for minimality plus leaf-value nonnegativity
-on the cliff-immune accumulator (a plain big-integer running value
+on the cliff-free accumulator (a plain big-integer running value
 is Θ(W²) on the boundary comb [measured — the `meter/tier2`
 plain-sweep pin]). Byte-equality remains `Eq`/`Hash`. All
 operations are single forward passes over packed streams; depth
@@ -377,7 +377,7 @@ content.** Delta coding lets Θ(nk) bits of absolute value content
 ride behind Θ(n + k) wire bits (the boundary comb; current/Tier 2
 size ratio unbounded). Consequences, all shipped: every
 running-value sweep — strict decode included — runs on the
-cliff-immune balanced signed-digit accumulator (amortized O(1) per
+cliff-free balanced signed-digit accumulator (amortized O(1) per
 small delta at every width; the two-zone alternative is REFUTED,
 §12); the linear functionals (`rank`/`distance`/`lag`/
 `min_ticks`/`max`) use delta algebra (telescoped
@@ -878,7 +878,7 @@ the commits the entries name.
   settled by construction).** Q1: the ledger settle's
   dense-suffix charge is reachable through the public API and
   quadratic — DS(p, d) (a gap spine of isolated,
-  compaction-immune digits, then the re-arm schedule) read local
+  incompressible digits, then the re-arm schedule) read local
   exponent ~2.0 through public rank; rank's unqualified `O(|v|)`
   was a wrong committed claim; red pins landed, claims re-stated,
   the module doc, public claims, and committed instruments
