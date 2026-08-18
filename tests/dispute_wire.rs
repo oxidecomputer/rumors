@@ -32,7 +32,7 @@ use std::task::{Context, Poll};
 use borsh::{BorshDeserialize, BorshSerialize};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::link::{Connector, Link, LinkParts, MemoryLink};
+use rumors::link::{Connector, Done, Link, LinkParts, MemoryLink};
 use rumors::testing::{dispute_overhead_bytes, envelope_and_wire_bytes};
 use rumors::{Peer, Rumors};
 use tokio::io::AsyncWrite;
@@ -123,11 +123,15 @@ struct CountingConnector<C> {
 impl<C: Connector> Connector for CountingConnector<C> {
     type Tx = CountingWrite<C::Tx>;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
-        Ok(CountingWrite {
-            inner: self.inner.connect().await?,
-            written: self.written.clone(),
-        })
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
+        let (inner, _) = self.inner.connect().await?;
+        Ok((
+            CountingWrite {
+                inner,
+                written: self.written.clone(),
+            },
+            Done::discard(),
+        ))
     }
 }
 

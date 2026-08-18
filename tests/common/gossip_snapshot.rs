@@ -42,7 +42,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::link::{Connector, Link, LinkParts, MemoryAcceptor, MemoryConnector};
+use rumors::link::{Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector};
 use rumors::{
     Rumors,
     testing::{LinkCapture, render_v2_capture},
@@ -155,11 +155,11 @@ pub struct CaptureConnector {
 impl Connector for CaptureConnector {
     type Tx = CaptureWrite;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
-        let tx = self.inner.connect().await?;
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
+        let (tx, _) = self.inner.connect().await?;
         let buffer = StreamBuf::default();
         self.streams.lock().unwrap().push(buffer.clone());
-        Ok(CaptureWrite { inner: tx, buffer })
+        Ok((CaptureWrite { inner: tx, buffer }, Done::discard()))
     }
 }
 

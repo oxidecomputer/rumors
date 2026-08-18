@@ -231,7 +231,8 @@ fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() 
     // A reporter that needed the supply: publishes SupplyClosed at stream
     // granularity, then parks. Spawned first so it publishes in the same
     // wave the consequence resolves.
-    let (claim_send, claim_receive) = oneshot::channel::<DuplexStream>();
+    let (claim_send, claim_receive) =
+        oneshot::channel::<(DuplexStream, crate::link::Done<DuplexStream>)>();
     drop(claim_send);
     let mut receiver: StreamReceiver<DuplexStream, ()> = StreamReceiver::new(
         claim_receive,
@@ -296,7 +297,8 @@ fn published_stream_error_preempts_a_parked_protocol() {
     // A receiver whose claim sender is already gone: its first poll reports
     // `SupplyClosed` to the error route and parks, never resolving — the
     // pump driving it is the parked reporter the select must not wait for.
-    let (claim_send, claim_receive) = oneshot::channel::<DuplexStream>();
+    let (claim_send, claim_receive) =
+        oneshot::channel::<(DuplexStream, crate::link::Done<DuplexStream>)>();
     drop(claim_send);
     let mut receiver: StreamReceiver<DuplexStream, ()> = StreamReceiver::new(
         claim_receive,

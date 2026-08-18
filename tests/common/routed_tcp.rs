@@ -6,10 +6,13 @@
 //! the OS floor. Socket policy stops here: the adapter above sees only
 //! byte streams.
 
+use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use rumors::link::routed::{Dial, Listen};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
 /// Listener backlog: a full session complement of simultaneous stream
@@ -37,6 +40,48 @@ impl Dial for TcpDial {
                 socket.connect(*addr).await
             }
         }
+    }
+}
+
+/// A TCP dialer pooling recycled connections per peer, so completed
+/// streams ride recycled connections instead of fresh dials.
+#[derive(Clone, Default)]
+pub struct PoolingTcpDial {
+    pool: Arc<Mutex<HashMap<SocketAddr, Vec<TcpStream>>>>,
+}
+
+impl Dial for PoolingTcpDial {
+    type Addr = SocketAddr;
+    type Conn = TcpStream;
+
+    async fn dial(&self, addr: &SocketAddr) -> io::Result<TcpStream> {
+        let pooled = self
+            .pool
+            .lock()
+            .expect("pool lock")
+            .get_mut(addr)
+            .and_then(Vec::pop);
+        match pooled {
+            Some(conn) => Ok(conn),
+            None => TcpStream::connect(*addr).await,
+        }
+    }
+
+    fn recycle(&self, peer: &SocketAddr, mut conn: TcpStream) {
+        // Pooled only once the router's ready byte arrives, read off
+        // the dialing path.
+        let pool = Arc::clone(&self.pool);
+        let peer = *peer;
+        tokio::spawn(async move {
+            let mut ready = [0u8; 1];
+            if conn.read_exact(&mut ready).await.is_ok() {
+                pool.lock()
+                    .expect("pool lock")
+                    .entry(peer)
+                    .or_default()
+                    .push(conn);
+            }
+        });
     }
 }
 

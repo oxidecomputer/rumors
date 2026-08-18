@@ -48,12 +48,12 @@ fn connect_delivers_an_ordered_half_closing_stream() {
     let (a, mut b) = memory();
     run_to_quiescence(async {
         let send = async {
-            let mut tx = a.connector.connect().await.unwrap();
+            let (mut tx, _) = a.connector.connect().await.unwrap();
             tx.write_all(b"hello").await.unwrap();
             drop(tx);
         };
         let receive = async {
-            let mut rx = b.acceptor.accept().await.unwrap();
+            let (mut rx, _) = b.acceptor.accept().await.unwrap();
             let mut bytes = Vec::new();
             rx.read_to_end(&mut bytes).await.unwrap();
             assert_eq!(bytes, b"hello");
@@ -70,18 +70,18 @@ fn a_stalled_stream_does_not_couple_its_siblings() {
     let (a, mut b) = memory_with_capacity(4);
     run_to_quiescence(async {
         let send = async {
-            let mut stalled = a.connector.connect().await.unwrap();
+            let (mut stalled, _) = a.connector.connect().await.unwrap();
             // Fill the stalled stream's bounded buffer to its brim; its
             // reader never drains it, so more writes would block.
             stalled.write_all(&[0u8; 4]).await.unwrap();
-            let mut live = a.connector.connect().await.unwrap();
+            let (mut live, _) = a.connector.connect().await.unwrap();
             live.write_all(b"live").await.unwrap();
             drop(live);
             stalled
         };
         let receive = async {
             let _stalled = b.acceptor.accept().await.unwrap();
-            let mut rx = b.acceptor.accept().await.unwrap();
+            let (mut rx, _) = b.acceptor.accept().await.unwrap();
             let mut bytes = Vec::new();
             rx.read_to_end(&mut bytes).await.unwrap();
             assert_eq!(bytes, b"live");
@@ -98,12 +98,12 @@ fn stream_writes_block_on_their_own_reader() {
     let (a, mut b) = memory_with_capacity(2);
     run_to_quiescence(async {
         let send = async {
-            let mut tx = a.connector.connect().await.unwrap();
+            let (mut tx, _) = a.connector.connect().await.unwrap();
             tx.write_all(b"abcdef").await.unwrap();
             drop(tx);
         };
         let receive = async {
-            let mut rx = b.acceptor.accept().await.unwrap();
+            let (mut rx, _) = b.acceptor.accept().await.unwrap();
             let mut bytes = Vec::new();
             rx.read_to_end(&mut bytes).await.unwrap();
             assert_eq!(bytes, b"abcdef");

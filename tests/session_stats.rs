@@ -19,7 +19,7 @@ use std::task::{Context, Poll};
 
 use futures::StreamExt;
 use proptest::prelude::*;
-use rumors::link::{Connector, Link, LinkParts, MemoryLink};
+use rumors::link::{Connector, Done, Link, LinkParts, MemoryLink};
 use rumors::{Gossiped, Led, Peer, Rumors, SessionStats};
 use tokio::io::AsyncWrite;
 
@@ -195,12 +195,16 @@ struct CountingConnector<C> {
 impl<C: Connector> Connector for CountingConnector<C> {
     type Tx = CountingWrite<C::Tx>;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         self.opens.fetch_add(1, Ordering::Relaxed);
-        Ok(CountingWrite {
-            inner: self.inner.connect().await?,
-            written: self.written.clone(),
-        })
+        let (inner, _) = self.inner.connect().await?;
+        Ok((
+            CountingWrite {
+                inner,
+                written: self.written.clone(),
+            },
+            Done::discard(),
+        ))
     }
 }
 

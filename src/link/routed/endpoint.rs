@@ -45,8 +45,14 @@ pub struct Config {
     /// The bound is hygiene against connections that stall inside
     /// their connect header (the router has no clock, so it evicts by
     /// count, oldest first); wall-clock deadlines belong in the
-    /// caller's [`Listen`] wrapper. Anything past the burst of
-    /// simultaneous dials the deployment expects is enough.
+    /// caller's [`Listen`] wrapper. Connections recovered from
+    /// completed streams wait here for their next header too, so a
+    /// deployment whose [`Dial`] pools connections sizes this past its
+    /// pooled idle count plus the burst of simultaneous dials it
+    /// expects. Eviction of an idle recovered connection is silent: no
+    /// invalidation reaches the dialer's pool, and the next stream
+    /// drawn on the dead entry fails, or hangs to the caller's session
+    /// timeout. Size generously.
     pub pending_headers: usize,
 }
 
@@ -148,9 +154,11 @@ impl<D: Dial> Clone for Endpoint<D> {
 struct Inner<D: Dial> {
     table: Table<D::Conn>,
     dial: D,
-    /// The endpoint's advertised name, pre-encoded (validated at
-    /// construction) for the `LINK` headers this endpoint writes.
-    advertised: Vec<u8>,
+    /// The endpoint's advertised name, as given at construction.
+    local_addr: D::Addr,
+    /// The advertised name, pre-encoded (validated at construction) for
+    /// the `LINK` headers this endpoint writes.
+    encoded: Vec<u8>,
 }
 
 impl<D: Dial> Endpoint<D> {
@@ -209,11 +217,18 @@ impl<D: Dial> Endpoint<D> {
             inner: Arc::new(Inner {
                 table: table.clone(),
                 dial: dial.clone(),
-                advertised: encoded,
+                local_addr: advertised,
+                encoded,
             }),
         };
         let router = router::drive(listen, dial, table, arrivals, config.pending_headers);
         Ok((endpoint, Incoming { links: incoming }, router))
+    }
+
+    /// The name peers dial this endpoint at: `advertised`, as given at
+    /// construction.
+    pub fn local_addr(&self) -> &D::Addr {
+        &self.inner.local_addr
     }
 
     /// Establish one link to the peer reachable at `peer`.
@@ -241,7 +256,7 @@ impl<D: Dial> Endpoint<D> {
         // find the token routable.
         let (token, registration, streams) = router::register(&self.inner.table);
         let mut conn = self.inner.dial.dial(&peer).await?;
-        conn.write_all(&header::link_header(&token, &self.inner.advertised))
+        conn.write_all(&header::link_header(&token, &self.inner.encoded))
             .await?;
         let mut ack = [0; 1];
         match conn.read_exact(&mut ack).await {

@@ -63,7 +63,7 @@ use std::task::{Context, Poll};
 use futures::future::{Either, join, join_all, select};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::link::{Acceptor, Connector, Link, LinkParts, STREAM_COUNT};
+use crate::link::{Acceptor, Connector, Done, Link, LinkParts, STREAM_COUNT};
 use crate::{Peer, Rumors};
 
 /// Bytes used to probe stream delivery without assuming any capacity.
@@ -322,11 +322,13 @@ fn duplex_fill(tag: u8) -> Vec<u8> {
     (0..CONTROL_DUPLEX_FILL).map(|i| (i as u8) ^ tag).collect()
 }
 
-/// An opened stream delivers its exact bytes to the peer's acceptor, and the
-/// writer's drop surfaces as end-of-stream after the final byte.
+/// An opened stream delivers its exact bytes to the peer's acceptor,
+/// ended either way the contract allows.
 ///
-/// Probed in both directions: each side's connector against the other
-/// side's acceptor.
+/// A dropped stream's abort surfaces as end-of-stream after the final
+/// byte. A completed stream leaves the acceptor's next streams still
+/// arriving. Probed in both directions: each side's connector against
+/// the other side's acceptor.
 pub async fn check_streams<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     a: Link<CRa, CWa, Ca, Aa>,
     b: Link<CRb, CWb, Cb, Ab>,
@@ -344,34 +346,77 @@ pub async fn check_streams<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     let mut b = b.into_parts();
     probe_stream(&a.connector, &mut b.acceptor).await;
     probe_stream(&b.connector, &mut a.acceptor).await;
+    probe_completed_streams(&a.connector, &mut b.acceptor).await;
+    probe_completed_streams(&b.connector, &mut a.acceptor).await;
 }
 
-/// One direction of [`check_streams`]: a single stream, delivered exactly.
+/// One direction of [`check_streams`]: a single stream, delivered exactly
+/// and ended by the abort (the halves dropped, their handles unused).
 async fn probe_stream<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
     let send = async {
-        let mut tx = connector
+        let (mut tx, done) = connector
             .connect()
             .await
             .expect("contract: connect succeeds while the peer link lives");
         tx.write_all(PROBE).await.expect("contract: stream write");
         tx.flush().await.expect("contract: stream flush");
-        drop(tx);
+        drop((tx, done));
     };
     let receive = async {
-        let mut rx = acceptor
+        let (mut rx, done) = acceptor
             .accept()
             .await
             .expect("contract: an opened stream is accepted");
         let mut bytes = Vec::new();
         rx.read_to_end(&mut bytes)
             .await
-            .expect("contract: half-close surfaces as end-of-stream");
+            .expect("contract: an abort surfaces as end-of-stream");
         assert_eq!(
             bytes, PROBE,
             "contract: a stream delivers its exact bytes in order",
         );
+        drop((rx, done));
     };
     join(send, receive).await;
+}
+
+/// The completion leg of [`check_streams`]: two consecutive streams,
+/// each ended by completing the write half at its final byte.
+///
+/// The receiver reads exactly the probe and completes its half there,
+/// never probing for end-of-stream: the contract's completion clause
+/// leaves what follows the data transport-defined (nothing at all, on
+/// an instantiation that recovers the connection). The second stream
+/// proves the supply survives the first one's completion, wherever its
+/// connection went.
+async fn probe_completed_streams<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
+    for _ in 0..2 {
+        let send = async {
+            let (mut tx, done) = connector
+                .connect()
+                .await
+                .expect("contract: connect succeeds while the peer link lives");
+            tx.write_all(PROBE).await.expect("contract: stream write");
+            tx.flush().await.expect("contract: stream flush");
+            done.complete(tx);
+        };
+        let receive = async {
+            let (mut rx, done) = acceptor
+                .accept()
+                .await
+                .expect("contract: an opened stream is accepted");
+            let mut bytes = vec![0u8; PROBE.len()];
+            rx.read_exact(&mut bytes)
+                .await
+                .expect("contract: a completed stream delivers its bytes");
+            assert_eq!(
+                bytes, PROBE,
+                "contract: a stream delivers its exact bytes in order",
+            );
+            done.complete(rx);
+        };
+        join(send, receive).await;
+    }
 }
 
 /// Streams are independent: a stream whose receiver never drains blocks
@@ -421,7 +466,7 @@ async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: 
     let send = async {
         // The stalled stream: tagged so the receiver can hold it unread
         // wherever it lands in arrival order.
-        let mut stalled = connector
+        let (mut stalled, _) = connector
             .connect()
             .await
             .expect("contract: connect succeeds");
@@ -460,7 +505,7 @@ async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         // writing to one stream may block only on that stream's receiver.
         let live = async {
             for _ in 1..STREAM_COUNT {
-                let mut tx = connector.connect().await.expect("contract: connect");
+                let (mut tx, _) = connector.connect().await.expect("contract: connect");
                 tx.write_all(&[LIVE_TAG])
                     .await
                     .expect("contract: stream write");
@@ -482,7 +527,7 @@ async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         let mut stalled = None;
         let mut live_seen = 0usize;
         for _ in 0..STREAM_COUNT {
-            let mut rx = acceptor
+            let (mut rx, _) = acceptor
                 .accept()
                 .await
                 .expect("contract: later streams are accepted beside a stalled one");
@@ -544,7 +589,7 @@ async fn probe_independence_pooled<C: Connector, A: Acceptor>(connector: &C, acc
         // unread wherever it lands in arrival order.
         let mut stalled = Vec::with_capacity(STALLED_COMPLEMENT);
         for _ in 0..STALLED_COMPLEMENT {
-            let mut tx = connector
+            let (mut tx, _) = connector
                 .connect()
                 .await
                 .expect("contract: connect succeeds");
@@ -571,7 +616,7 @@ async fn probe_independence_pooled<C: Connector, A: Acceptor>(connector: &C, acc
         }));
         // The one live stream must flow beside the pressured complement.
         let live = async {
-            let mut tx = connector.connect().await.expect("contract: connect");
+            let (mut tx, _) = connector.connect().await.expect("contract: connect");
             tx.write_all(&[LIVE_TAG])
                 .await
                 .expect("contract: stream write");
@@ -594,7 +639,7 @@ async fn probe_independence_pooled<C: Connector, A: Acceptor>(connector: &C, acc
         let mut held = Vec::with_capacity(STALLED_COMPLEMENT);
         let mut live_seen = 0usize;
         for _ in 0..STREAM_COUNT {
-            let mut rx = acceptor
+            let (mut rx, _) = acceptor
                 .accept()
                 .await
                 .expect("contract: later streams are accepted beside stalled ones");
@@ -693,7 +738,7 @@ async fn probe_concurrency<C: Connector, A: Acceptor>(connector: &C, acceptor: &
         // a capped or open-serializing supply hangs right here.
         let mut held = Vec::with_capacity(STREAM_COUNT);
         for index in 0..STREAM_COUNT {
-            let mut tx = connector
+            let (mut tx, _) = connector
                 .connect()
                 .await
                 .expect("contract: a full complement of opens succeeds");
@@ -721,7 +766,7 @@ async fn probe_concurrency<C: Connector, A: Acceptor>(connector: &C, acceptor: &
         let mut held: Vec<Option<A::Rx>> =
             std::iter::repeat_with(|| None).take(STREAM_COUNT).collect();
         for _ in 0..STREAM_COUNT {
-            let mut rx = acceptor
+            let (mut rx, _) = acceptor
                 .accept()
                 .await
                 .expect("contract: accept succeeds while the peer link lives");
@@ -821,7 +866,8 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         // would deadlock the probe itself.
         let mut streams = Vec::with_capacity(CANCELLED_DELIVERIES);
         for _ in 0..CANCELLED_DELIVERIES {
-            streams.push(connector.connect().await.expect("contract: connect"));
+            let (tx, _) = connector.connect().await.expect("contract: connect");
+            streams.push(tx);
         }
         let _ = connected.send(());
         // The writes run concurrently: the receiver drains streams in
@@ -853,7 +899,7 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         // sender does not imply local acceptability (an RTT may separate
         // them), so the poll-drop cycles below start only once a delivery
         // has genuinely surfaced on this side.
-        let first = acceptor
+        let (first, _) = acceptor
             .accept()
             .await
             .expect("contract: accept succeeds while the peer link lives");
@@ -877,7 +923,8 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
             .await;
             match polled_once {
                 Some(rx) => {
-                    drain(rx.expect("contract: accept succeeds while the peer link lives")).await;
+                    let (rx, _) = rx.expect("contract: accept succeeds while the peer link lives");
+                    drain(rx).await;
                     delivered += 1;
                 }
                 None => {
@@ -892,7 +939,7 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         // Every delivery must now surface from real accepts, however many
         // waits were dropped above.
         while delivered < CANCELLED_DELIVERIES {
-            let rx = acceptor
+            let (rx, _) = acceptor
                 .accept()
                 .await
                 .expect("contract: a delivery in flight across a dropped accept still arrives");
@@ -926,10 +973,10 @@ impl<C: Clone> Clone for CountingConnector<C> {
 impl<C: Connector> Connector for CountingConnector<C> {
     type Tx = C::Tx;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
-        let tx = self.inner.connect().await?;
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
+        let pair = self.inner.connect().await?;
         self.opened.fetch_add(1, Ordering::Relaxed);
-        Ok(tx)
+        Ok(pair)
     }
 }
 

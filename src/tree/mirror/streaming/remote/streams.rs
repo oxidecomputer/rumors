@@ -47,7 +47,7 @@ use tokio::{
     sync::{mpsc, oneshot},
 };
 
-use crate::link::{Acceptor, Connector};
+use crate::link::{Acceptor, Connector, Done};
 use crate::tree::mirror::streaming::stats::{CountedRead, CountedWrite, Recorder};
 use crate::tree::mirror::streaming::tasks::cancelled;
 
@@ -126,7 +126,7 @@ pub struct StreamSender<C: Connector, T> {
 
 enum SendState<Tx> {
     Unopened,
-    Open(FrameWrite<CountedWrite<Tx>>),
+    Open(FrameWrite<CountedWrite<Tx>>, Done<Tx>),
 }
 
 impl<C: Connector, T> StreamSender<C, T> {
@@ -161,13 +161,23 @@ impl<C: Connector, T> StreamSender<C, T> {
 
     /// End this logical stream after all of its replies, if it ever opened.
     ///
-    /// Dropping the transport half afterward is the transport-level
-    /// half-close; the explicit end control before it distinguishes a
-    /// completed stream from one truncated mid-reply.
+    /// The explicit end control distinguishes a completed stream from one
+    /// truncated mid-reply. The transport half is handed to its [`Done`]
+    /// right behind it, resting at the frame boundary; failure paths drop
+    /// the half instead, the contract's abort.
     pub async fn finish(mut self) -> Result<(), SendError> {
         match self.state {
             SendState::Unopened => Ok(()),
-            SendState::Open(_) => self.write(Frame::End(End::Stream)).await,
+            SendState::Open(..) => {
+                self.write(Frame::End(End::Stream)).await?;
+                let SendState::Open(write, done) =
+                    std::mem::replace(&mut self.state, SendState::Unopened)
+                else {
+                    unreachable!("the open state was just written through");
+                };
+                done.complete(write.into_inner().into_inner());
+                Ok(())
+            }
         }
     }
 
@@ -175,9 +185,9 @@ impl<C: Connector, T> StreamSender<C, T> {
     async fn write(&mut self, frame: Frame<T>) -> Result<(), SendError> {
         let stream = self.stream;
         let write = match &mut self.state {
-            SendState::Open(write) => write,
+            SendState::Open(write, _) => write,
             state @ SendState::Unopened => {
-                let mut tx =
+                let (mut tx, done) =
                     self.connector
                         .connect()
                         .await
@@ -191,11 +201,11 @@ impl<C: Connector, T> StreamSender<C, T> {
                         origin: Origin::stream(self.speaker, stream),
                         source,
                     })?;
-                *state = SendState::Open(FrameWrite::new(
-                    self.speaker,
-                    CountedWrite::new(tx, self.stats.clone()),
-                ));
-                let SendState::Open(write) = state else {
+                *state = SendState::Open(
+                    FrameWrite::new(self.speaker, CountedWrite::new(tx, self.stats.clone())),
+                    done,
+                );
+                let SendState::Open(write, _) = state else {
                     unreachable!("the open state was just stored");
                 };
                 write
@@ -254,9 +264,6 @@ pub enum StreamError {
     /// The transport stream ended before its explicit end control.
     #[error("{origin}: transport stream ended before its end control")]
     Truncated { origin: Origin },
-    /// The peer sent more frames after ending its logical stream.
-    #[error("{origin}: peer sent a frame after ending the logical stream")]
-    AfterEnd { origin: Origin },
     /// The stream supply failed before an awaited stream was delivered.
     ///
     /// `source` carries the supply's own transport failure when the session
@@ -287,7 +294,7 @@ pub struct StreamReceiver<Rx, T> {
 }
 
 struct ReceiverStart<Rx> {
-    claim: oneshot::Receiver<Rx>,
+    claim: oneshot::Receiver<(Rx, Done<Rx>)>,
     /// The remote role whose direction this stream carries.
     speaker: Speaker,
     stream: Stream,
@@ -309,7 +316,7 @@ where
 {
     /// Bind one incoming logical stream to its claim slot.
     pub fn new(
-        claim: oneshot::Receiver<Rx>,
+        claim: oneshot::Receiver<(Rx, Done<Rx>)>,
         speaker: Speaker,
         stream: Stream,
         budget: RunBudget,
@@ -390,7 +397,7 @@ where
 /// Every failure path publishes to the session error route and parks: the
 /// consumer never observes a truncated stream as a clean end.
 fn read_frames<Rx, T>(
-    claim: oneshot::Receiver<Rx>,
+    claim: oneshot::Receiver<(Rx, Done<Rx>)>,
     speaker: Speaker,
     stream: Stream,
     budget: RunBudget,
@@ -402,7 +409,7 @@ where
     T: BorshDeserialize + Send + Sync + 'static,
 {
     stream! {
-        let Ok(rx) = claim.await else {
+        let Ok((rx, done)) = claim.await else {
             // The claim slot is gone: the link's stream supply failed before
             // the peer's stream for this level arrived. This is the one
             // consumer that provably needed it, so the report comes from
@@ -443,26 +450,19 @@ where
             };
             if matches!(frame, Frame::End(End::Stream)) {
                 // The lifecycle control is consumed here; the consumer sees
-                // only complete replies followed by a clean end. The sender
-                // half-closes immediately after this control, so requiring
-                // end-of-stream costs no waiting against an honest peer and
-                // catches one that keeps talking past its own end.
-                match read.frame::<T>().await {
-                    Ok(None) => break,
-                    Ok(Some(_)) => {
-                        route.report(StreamError::AfterEnd {
-                            origin: Origin::stream(speaker, stream),
-                        });
-                        cancelled().await
-                    }
-                    Err(error) => {
-                        route.report(StreamError::Decode(error));
-                        cancelled().await
-                    }
-                }
+                // only complete replies followed by a clean end.
+                break;
             }
             yield frame;
         }
+        // The end control is exactly where the data ends, so the transport
+        // half rests at the link contract's clean boundary: hand it back
+        // there, never reading past it. The hand-back is a framing
+        // judgment, not a protocol one: a stream the consumer goes on to
+        // rule invalid has still completed here. Every failure path above
+        // parks instead, dropping the half at teardown, which is the
+        // contract's abort.
+        done.complete(read.into_inner().into_inner());
     }
 }
 
@@ -572,17 +572,17 @@ pub fn error_route() -> (ErrorRoute, FirstStreamError) {
 
 /// The claim slots the accept driver delivers incoming streams into.
 pub struct ClaimSlots<Rx> {
-    slots: [Option<oneshot::Sender<Rx>>; STREAM_COUNT],
+    slots: [Option<oneshot::Sender<(Rx, Done<Rx>)>>; STREAM_COUNT],
 }
 
 /// The claim receivers the session's typed states take streams from.
 pub struct Claims<Rx> {
-    slots: [Option<oneshot::Receiver<Rx>>; STREAM_COUNT],
+    slots: [Option<oneshot::Receiver<(Rx, Done<Rx>)>>; STREAM_COUNT],
 }
 
 impl<Rx> Claims<Rx> {
     /// Take the sole claim for `stream`.
-    pub fn take(&mut self, stream: Stream) -> oneshot::Receiver<Rx> {
+    pub fn take(&mut self, stream: Stream) -> oneshot::Receiver<(Rx, Done<Rx>)> {
         self.slots[usize::from(stream.index())]
             .take()
             .expect("each incoming logical stream is claimed exactly once")
@@ -684,7 +684,7 @@ impl<A: Acceptor> AcceptDriver<A> {
     /// driver serves belongs to the same peer, so there is no bystander to
     /// protect with a concurrent label read.
     async fn accept_one(&mut self) -> Result<(), AcceptFate> {
-        let mut rx = self
+        let (mut rx, done) = self
             .acceptor
             .accept()
             .await
@@ -712,7 +712,7 @@ impl<A: Acceptor> AcceptDriver<A> {
                 .ok_or(AcceptError::Duplicate {
                     origin: Origin::stream(self.speaker, stream),
                 })?;
-        slot.send(rx).map_err(|_| {
+        slot.send((rx, done)).map_err(|_| {
             // The claim's consumer already finished without asking anything
             // at this level, so whatever this stream carries was never
             // asked for.

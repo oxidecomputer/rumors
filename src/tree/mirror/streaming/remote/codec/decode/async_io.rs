@@ -42,6 +42,13 @@ impl<R> FrameRead<R> {
             read,
         }
     }
+
+    /// Recover the transport half. The reader buffers nothing (every
+    /// read is exact), so between frames the half rests exactly at a
+    /// frame boundary.
+    pub fn into_inner(self) -> R {
+        self.read
+    }
 }
 
 impl<R: AsyncRead + Unpin> FrameRead<R> {

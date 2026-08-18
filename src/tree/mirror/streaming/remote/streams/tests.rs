@@ -224,7 +224,7 @@ async fn raw_labeled(
     connector: &crate::link::MemoryConnector,
     stream: Stream,
 ) -> FrameWrite<tokio::io::DuplexStream> {
-    let mut tx = connector.connect().await.expect("stream opens");
+    let (mut tx, _) = connector.connect().await.expect("stream opens");
     tx.write_all(&label(EPOCH, stream))
         .await
         .expect("label writes");
@@ -365,44 +365,6 @@ fn truncated_stream_is_reported_not_ended() {
     );
 }
 
-/// A frame arriving after the explicit end control is reported as
-/// `AfterEnd`: a peer that keeps talking past its own end is caught.
-///
-/// After `End(Stream)` the receiver requires transport end-of-stream
-/// before ending cleanly: the double-checked stream end, so trailing
-/// frames are a reportable protocol violation, never silently dropped.
-#[test]
-fn frames_after_the_end_control_are_reported() {
-    let (a, mut b) = memory();
-    let stream = Stream::new(5).expect("stream 5 exists");
-    let error = run_to_quiescence(async {
-        let send = async {
-            // An honest `StreamSender` half-closes right after its end
-            // control, so the frame beyond it comes from the raw writer.
-            let mut write = raw_labeled(&a.connector, stream).await;
-            write
-                .frame(&(stream, Frame::<Unit>::End(End::Stream)))
-                .await
-                .expect("the end control writes");
-            write
-                .frame(&(stream, Frame::<Unit>::End(End::Reply)))
-                .await
-                .expect("the frame beyond the end writes");
-        };
-        let receive = first_reported_error(&mut b.acceptor, stream, &[]);
-        join(send, receive).await.1.0
-    })
-    .expect("after-end detection resolves");
-    // Pinned in full, origin included, like the truncation test above.
-    assert!(
-        matches!(
-            error,
-            StreamError::AfterEnd { origin } if origin == Origin::stream(Speaker::Initiator, stream)
-        ),
-        "unexpected stream error: {error:?}",
-    );
-}
-
 /// A second transport stream bearing an already-delivered label is
 /// rejected by the accept driver as `Duplicate`.
 ///
@@ -451,7 +413,7 @@ fn accept_driver_rejects_unknown_stream_index() {
     let (a, mut b) = memory();
     run_to_quiescence(async {
         let send = async {
-            let mut tx = a.connector.connect().await.expect("stream opens");
+            let (mut tx, _) = a.connector.connect().await.expect("stream opens");
             // One past the last logical stream: no claim slot can exist.
             tx.write_all(&[EPOCH, Stream::COUNT])
                 .await

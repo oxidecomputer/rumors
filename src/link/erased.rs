@@ -16,27 +16,94 @@
 //! yields.
 
 use std::io;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use futures::future::BoxFuture;
-use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use super::{Acceptor, Connector};
+use super::{Acceptor, Connector, Done};
+
+/// A half boxed together with its [`Done`], so completion has the
+/// concrete types.
+struct Bundle<H> {
+    half: H,
+    done: Done<H>,
+}
+
+impl<H: AsyncWrite + Unpin> AsyncWrite for Bundle<H> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.half).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.half).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.half).poll_shutdown(cx)
+    }
+}
+
+impl<H: AsyncRead + Unpin> AsyncRead for Bundle<H> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.half).poll_read(cx, buf)
+    }
+}
+
+/// An erased outgoing half, completable through the box.
+pub(crate) trait TxDyn: AsyncWrite + Unpin + Send {
+    /// Release the bundled half at its stream's clean end.
+    fn complete(self: Box<Self>);
+}
+
+impl<H: AsyncWrite + Unpin + Send> TxDyn for Bundle<H> {
+    fn complete(self: Box<Self>) {
+        let Bundle { half, done } = *self;
+        done.complete(half);
+    }
+}
+
+/// An erased incoming half, completable through the box.
+pub(crate) trait RxDyn: AsyncRead + Unpin + Send {
+    /// Release the bundled half at its stream's clean end.
+    fn complete(self: Box<Self>);
+}
+
+impl<H: AsyncRead + Unpin + Send> RxDyn for Bundle<H> {
+    fn complete(self: Box<Self>) {
+        let Bundle { half, done } = *self;
+        done.complete(half);
+    }
+}
 
 /// An owned outgoing stream half with its concrete type erased.
-pub(crate) type DynTx = Box<dyn AsyncWrite + Unpin + Send>;
+pub(crate) type DynTx = Box<dyn TxDyn>;
 
 /// An owned incoming stream half with its concrete type erased.
-pub(crate) type DynRx = Box<dyn AsyncRead + Unpin + Send>;
+pub(crate) type DynRx = Box<dyn RxDyn>;
 
 /// Object-safe [`Connector`], for erasure behind an [`Arc`].
 trait ConnectDyn: Send + Sync {
-    fn connect_dyn(&self) -> BoxFuture<'_, io::Result<DynTx>>;
+    fn connect_dyn(&self) -> BoxFuture<'_, io::Result<(DynTx, Done<DynTx>)>>;
 }
 
 impl<C: Connector> ConnectDyn for C {
-    fn connect_dyn(&self) -> BoxFuture<'_, io::Result<DynTx>> {
-        Box::pin(async { self.connect().await.map(|tx| Box::new(tx) as DynTx) })
+    fn connect_dyn(&self) -> BoxFuture<'_, io::Result<(DynTx, Done<DynTx>)>> {
+        Box::pin(async {
+            let (half, done) = self.connect().await?;
+            let erased: DynTx = Box::new(Bundle { half, done });
+            Ok((erased, Done::new(TxDyn::complete)))
+        })
     }
 }
 
@@ -57,19 +124,23 @@ impl DynConnector {
 impl Connector for DynConnector {
     type Tx = DynTx;
 
-    async fn connect(&self) -> io::Result<Self::Tx> {
+    async fn connect(&self) -> io::Result<(DynTx, Done<DynTx>)> {
         self.0.connect_dyn().await
     }
 }
 
 /// Object-safe [`Acceptor`], for erasure behind a `&mut` borrow.
 pub(crate) trait AcceptDyn: Send {
-    fn accept_dyn(&mut self) -> BoxFuture<'_, io::Result<DynRx>>;
+    fn accept_dyn(&mut self) -> BoxFuture<'_, io::Result<(DynRx, Done<DynRx>)>>;
 }
 
 impl<A: Acceptor> AcceptDyn for A {
-    fn accept_dyn(&mut self) -> BoxFuture<'_, io::Result<DynRx>> {
-        Box::pin(async { self.accept().await.map(|rx| Box::new(rx) as DynRx) })
+    fn accept_dyn(&mut self) -> BoxFuture<'_, io::Result<(DynRx, Done<DynRx>)>> {
+        Box::pin(async {
+            let (half, done) = self.accept().await?;
+            let erased: DynRx = Box::new(Bundle { half, done });
+            Ok((erased, Done::new(RxDyn::complete)))
+        })
     }
 }
 
@@ -83,7 +154,7 @@ pub(crate) type DynAcceptor<'a> = &'a mut (dyn AcceptDyn + 'a);
 impl<'a, 'd> Acceptor for &'a mut (dyn AcceptDyn + 'd) {
     type Rx = DynRx;
 
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         // Dispatch through the object explicitly: plain method syntax would
         // resolve to the blanket `AcceptDyn` impl for `&mut dyn AcceptDyn`
         // (this very impl's `Acceptor`), recursing instead of erasing.
