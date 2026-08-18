@@ -462,10 +462,11 @@ impl<T> Tree<T> {
         I: IntoIterator<Item = (Key, Version, M)>,
     {
         // Materialize the caller's action stream before the commit section
-        // begins: draining this iterator is the only place caller code runs
-        // (`act`'s version ticks and key derivations ride the same chain),
-        // so every caller-reachable panic surfaces here, while `self` is
-        // still untouched. The traversal's root-level radix sort would
+        // begins: a panicking caller iterator (`act`'s version ticks and key
+        // derivations ride the same chain) then surfaces before any traversal
+        // work is spent. This is an ordering nicety, not the atomicity
+        // mechanism — the commit section below defends against every unwind,
+        // this one included. The traversal's root-level radix sort would
         // materialize the stream anyway; collecting up front costs one Vec
         // the radix sort immediately consumes.
         let actions: Vec<_> = reactions
@@ -488,28 +489,39 @@ impl<T> Tree<T> {
         // and no version was joined, so the tree — hash and ceiling both —
         // is exactly what it was.
         //
-        // Panic atomicity: with the caller's stream drained above, no
-        // caller-reachable unwind can originate past this point, so the walk
-        // takes the root and owns it uniquely (structural ops are plain
-        // moves, never `Arc::make_mut` copies). The observer still
-        // accumulates the ceiling in a local, and root and ceiling are
-        // assigned together at the commit point below: what this rules out
-        // is an unwind publishing an emptied root under a live ceiling, the
-        // byte-for-byte shape of "everything was redacted".
-        // `act_unwind_leaves_tree_byte_identical` pins the entry unwind; the
-        // only panic sources left mid-walk are contract violations
-        // (programmer error, panicking `Message<T>` destructors included),
-        // which the take-and-move walk does not defend against.
+        // Panic atomicity: nothing of `self` mutates until the commit point
+        // below, whatever the unwind's origin — a user type's destructor or
+        // our own bug. Unwind sources survive inside this walk: the leaf
+        // level drops causally-skipped action messages and batch-internal
+        // displaced inserts mid-walk, and on the wire-apply path those
+        // messages are freshly deserialized, so the drop is the last handle
+        // and runs `T`'s destructor. The walk is therefore handed an O(1)
+        // structural clone of our root (nodes are Arc-shared; the walk
+        // copies on write where they stay shared) while the pre-image stays
+        // in place, and the observer accumulates the ceiling into a local.
+        // What this rules out is an unwind publishing an emptied root under
+        // a live ceiling, the byte-for-byte shape of "everything was
+        // redacted". `act_unwind_leaves_tree_byte_identical` pins the entry
+        // unwind, `act_destructor_unwind_leaves_tree_byte_identical` pins
+        // the real mid-walk destructor source, and
+        // `act_mid_walk_unwind_leaves_tree_byte_identical` pins an arbitrary
+        // internal unwind via the injected fuse.
         let mut changed = false;
         let mut new_ceiling = self.root.ceiling.clone();
-        let new_root = traverse::act(self.root.root.take(), actions, |v: &Version| {
+        let new_root = traverse::act(self.root.root.clone(), actions, |v: &Version| {
             new_ceiling |= v;
             changed = true;
         });
 
-        // The commit point: the walk returned without unwinding.
-        self.root.root = new_root;
+        // The commit point: the walk returned without unwinding. Both fields
+        // are assigned before the pre-image drops, because that drop runs
+        // user code — everything the batch displaced becomes uniquely held
+        // here, so its cascading `T` destructors run now, and a panicking
+        // destructor must find the tree already consistent. The defense is
+        // nothing subtler than statement order: replace, assign, then drop.
+        let pre_image = std::mem::replace(&mut self.root.root, new_root);
         self.root.ceiling = new_ceiling;
+        drop(pre_image);
         changed
     }
 
@@ -546,18 +558,20 @@ impl<T> Tree<T> {
         } = other.root;
 
         // Panic atomicity, to the same end as `react`'s commit section:
-        // nothing of `self` mutates until the commit point below assigns
-        // root and ceiling together. Unlike `react`, unwind sources survive
-        // inside this walk (deletion honoring drops leaves, running `T`
-        // destructors), so the pre-image retention is load-bearing: the
-        // walk is handed an O(1) structural clone of our root (nodes are
-        // Arc-shared; the walk copies on write where they stay shared)
-        // while the pre-image stays in place, and the merged ceiling is
-        // computed into a local first, because folding in place would
-        // stake unwind atomicity on the fold's internal ordering, which no
-        // contract states. `join_unwind_leaves_tree_byte_identical` pins
-        // the atomicity with an unwind injected mid-walk, after
-        // copy-on-write work has begun.
+        // nothing of `self` mutates until the commit point below, whatever
+        // the unwind's origin. Unwind sources survive inside this walk
+        // (deletion honoring and the duplicate-leaf arm drop the incoming
+        // tree's uniquely-held leaves, running `T` destructors), so the
+        // pre-image retention is load-bearing: the walk is handed an O(1)
+        // structural clone of our root (nodes are Arc-shared; the walk
+        // copies on write where they stay shared) while the pre-image stays
+        // in place, and the merged ceiling is computed into a local first,
+        // because folding in place would stake unwind atomicity on the
+        // fold's internal ordering, which no contract states.
+        // `join_unwind_leaves_tree_byte_identical` pins the atomicity with
+        // an unwind injected mid-walk, after copy-on-write work has begun;
+        // `join_destructor_unwind_leaves_tree_byte_identical` pins the real
+        // mid-walk destructor source.
         let our_root = self.root.root.clone();
         let mut changed = false;
         let merged = traverse::join(
@@ -570,9 +584,15 @@ impl<T> Tree<T> {
         let new_ceiling = &self.root.ceiling | their_version;
 
         // The commit point: the walk and the ceiling fold both completed
-        // without unwinding.
+        // without unwinding. Both fields are assigned before the pre-image
+        // drops, because that drop runs user code — everything deletion
+        // honoring removed from our side becomes uniquely held here, so its
+        // cascading `T` destructors run now, and a panicking destructor
+        // must find the tree already consistent. The defense is nothing
+        // subtler than statement order: replace, assign, then drop.
+        let pre_image = std::mem::replace(&mut self.root.root, merged);
         self.root.ceiling = new_ceiling;
-        self.root.root = merged;
+        drop(pre_image);
         changed
     }
 }
@@ -613,16 +633,18 @@ pub(crate) mod meter {
     }
 }
 
-/// Test-only panic injection for `Tree::join`'s commit critical section.
+/// Test-only panic injection for the commit critical sections of
+/// `Tree::join` and `Tree::react`.
 ///
-/// The join unwind pin in [`crate::tree::tests`] arms this to make the
-/// merge walk unwind mid-commit. [`traverse::join`] burns one fuse step at
-/// the walk's entry and one per branch-level merge step, so a fuse armed
-/// at `n` unwinds only after `n` earlier fire points ran: deep enough to
-/// land after copy-on-write work has begun. (`Tree::act` needs no hook:
-/// its only caller-reachable unwind source is the action stream, drained
-/// before its commit section begins, and its pin panics from the stream
-/// itself.)
+/// The fuse-based unwind pins in [`crate::tree::tests`] arm this to make
+/// the merge and apply walks unwind mid-commit. [`traverse::join`] and
+/// [`traverse::act`] each burn one fuse step at the walk's entry and one
+/// per branch-level step, so a fuse armed at `n` unwinds only after `n`
+/// earlier fire points ran: deep enough to land after copy-on-write work
+/// has begun. The fuse stands in for an arbitrary internal bug and proves
+/// the defense total; the destructor-source pins beside the fuse pins
+/// prove the one *caller*-reachable unwind source (a panicking `T`
+/// destructor on a mid-walk last-handle drop) is real.
 ///
 /// Thread-local for the same reason as [`meter`]: every commit critical
 /// section runs synchronously on its caller's thread, so a test arms and

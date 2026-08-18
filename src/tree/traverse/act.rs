@@ -33,6 +33,13 @@ where
     F: FnMut(&Version),
     I: IntoIterator<Item = (Path, Version, Action<T>)>,
 {
+    // Test-only unwind source for the panic-atomicity pins: this walk is
+    // the fallible region of `Tree::react`'s commit section, and its entry
+    // burns the first fuse step (each branch-level step below burns one
+    // more).
+    #[cfg(test)]
+    crate::tree::panic_injection::fire_if_armed();
+
     Act::act(node, actions, &mut on_action)
 }
 
@@ -69,6 +76,12 @@ where
         F: FnMut(&Version),
         I: IntoIterator<Item = (Path<Self>, Version, Action<T>)>,
     {
+        // Test-only unwind source, continued: every branch-level apply step
+        // burns one fuse step, so a fuse armed past the entry unwinds only
+        // after earlier steps completed real apply work.
+        #[cfg(test)]
+        crate::tree::panic_injection::fire_if_armed();
+
         // Group the paths by their first element. Each group is consumed (and
         // its tail of the path collected) before the recursion below runs, so
         // the lazy `ChunkBy` borrow never overlaps it.

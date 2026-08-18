@@ -1455,17 +1455,18 @@ mod span_door_traffic {
     }
 }
 
-/// `Tree::act`'s only caller-reachable unwind, a panic from the actions
-/// stream, leaves the tree byte-identical.
+/// `Tree::act` is panic-atomic against a caller's action stream panicking
+/// mid-drain: root hash and causal ceiling both come through unchanged.
 ///
 /// The stream is drained before the commit section begins, so this unwind
-/// fires at the entry: root hash and causal ceiling must both come through
-/// unchanged. No mid-walk companion pin exists because no caller-reachable
-/// unwind source survives inside the walk; `Tree::react`'s commit-section
-/// comment states that structure. The hazard the invariant rules out is an
-/// emptied root published under a live ceiling: byte-for-byte the shape of
-/// "everything was redacted", which a subsequent gossip session would
-/// honor by deleting every peer's holdings.
+/// fires at the entry; the companion pins beside this one cover the
+/// mid-walk unwind sources
+/// (`act_destructor_unwind_leaves_tree_byte_identical` for the real
+/// destructor source, `act_mid_walk_unwind_leaves_tree_byte_identical`
+/// for an arbitrary injected one). The hazard the invariant rules out is
+/// an emptied root published under a live ceiling: byte-for-byte the
+/// shape of "everything was redacted", which a subsequent gossip session
+/// would honor by deleting every peer's holdings.
 #[test]
 fn act_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<Bytes> = Tree::new();
@@ -1550,6 +1551,205 @@ fn join_unwind_leaves_tree_byte_identical() {
     // The contained panic published nothing: root hash and ceiling are
     // byte-identical to the pre-call state, and their frontier was not
     // partially joined.
+    assert!(!ours.is_empty(), "the unwind publishes no emptied root");
+    assert_eq!(ours.hash(), hash_before, "the root hash is unchanged");
+    assert_eq!(
+        ours.latest(),
+        &ceiling_before,
+        "the ceiling is unchanged: no partial advance escapes the unwind"
+    );
+}
+
+/// A test payload whose destructor panics while armed.
+///
+/// [`Message<T>`] clones share one `Arc<T>`, so `T`'s destructor runs only
+/// when the *last* handle drops: arming the flag turns that drop —
+/// wherever the tree performs it — into the commit sections' one
+/// caller-reachable mid-walk unwind source. Construction and serialization
+/// stay safe; only the drop is booby-trapped, and it holds fire while
+/// another panic is already unwinding (a second panic mid-unwind aborts
+/// the process instead of failing the test).
+#[derive(Debug, borsh::BorshSerialize)]
+struct DropBomb {
+    armed: bool,
+}
+
+/// The message the armed destructor panics with; the destructor-source
+/// pins match on it to prove the unwind originated in the destructor.
+const DROP_BOMB_MESSAGE: &str = "armed payload destructor panicked";
+
+impl Drop for DropBomb {
+    fn drop(&mut self) {
+        if self.armed && !std::thread::panicking() {
+            panic!("{DROP_BOMB_MESSAGE}");
+        }
+    }
+}
+
+/// The panic payload's message when it is a formatted string, as every
+/// panic the unwind pins catch is.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
+    payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+}
+
+/// `Tree::act`'s commit section is panic-atomic under an arbitrary
+/// internal unwind injected mid-walk, after real apply work has begun.
+///
+/// The unwind is injected via `panic_injection`, with the fuse armed deep
+/// enough that the deepest possible first descent (entry + root frame +
+/// 31 branch levels = 33 fire points) has completed before it burns down:
+/// the first action's leaf has been applied and reassembly work is in
+/// flight (the unwind occurring at all proves the walk reached that
+/// depth: the fuse is the test's only panic source). Root hash and causal
+/// ceiling must both come through unchanged. Together with the
+/// destructor-source pin beside it, this proves the defense total: a
+/// panic of any origin inside the walk publishes nothing.
+#[test]
+fn act_mid_walk_unwind_leaves_tree_byte_identical() {
+    let mut tree: Tree<Bytes> = Tree::new();
+    tree.act(
+        &party_of("A"),
+        [b"held-1" as &[u8], b"held-2", b"held-3"].map(|b| insert_action(Bytes::from_static(b))),
+    );
+    let hash_before = tree.hash();
+    let ceiling_before = tree.latest().clone();
+    assert!(!tree.is_empty());
+
+    // Fuse step 0 is the walk's entry, step 1 the root-level frame; each
+    // branch level entered below the root burns one more (leaf paths are
+    // 32 bytes, so the deepest descent to a first leaf is 33 fire points).
+    // Arming at 40 therefore lands the unwind after the first leaf's apply
+    // completed, however the three fresh paths happen to group by radix.
+    let _fuse = super::panic_injection::arm(40);
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tree.act(
+            &party_of("A"),
+            [b"new-1" as &[u8], b"new-2", b"new-3"].map(|b| insert_action(Bytes::from_static(b))),
+        );
+    }));
+    assert!(
+        unwound.is_err(),
+        "the fuse must burn down mid-walk and unwind out"
+    );
+
+    // The contained panic published nothing: root hash and ceiling are
+    // byte-identical to the pre-call state.
+    assert!(!tree.is_empty(), "the unwind publishes no emptied root");
+    assert_eq!(tree.hash(), hash_before, "the root hash is unchanged");
+    assert_eq!(
+        tree.latest(),
+        &ceiling_before,
+        "the ceiling is unchanged: no partial advance escapes the unwind"
+    );
+}
+
+/// `Tree::act`'s commit section is panic-atomic against its real mid-walk
+/// unwind source: a `T` destructor panicking as the walk's causal skip
+/// drops an action message's last handle.
+///
+/// The tree holds a leaf at party A's version 2; a versioned insert at
+/// the same key carries the causally-prior version 1, so the leaf level
+/// skips it and drops the action's message mid-walk — and that message is
+/// the payload's last handle, exactly the wire-apply shape, where every
+/// incoming message is freshly deserialized. The caught panic must be the
+/// destructor's own (proving the pin exercises the real source, not an
+/// incidental panic), and root hash and causal ceiling must both come
+/// through byte-identical: the emptied-root-under-live-ceiling shape that
+/// gossip would replicate never publishes.
+#[test]
+fn act_destructor_unwind_leaves_tree_byte_identical() {
+    let mut tree: Tree<DropBomb> = Tree::new();
+    let existing = Message::new(DropBomb { armed: false });
+    let key: Key = Path::for_leaf(&version_for("A", 2), existing.bytes()).into();
+    tree.react([(key, version_for("A", 2), existing)]);
+
+    let hash_before = tree.hash();
+    let ceiling_before = tree.latest().clone();
+    assert!(!tree.is_empty());
+
+    // The causally-prior insert: version 1 targets the leaf holding
+    // version 2, so the walk's skip path drops the armed message — its
+    // last handle — mid-walk.
+    let bomb = Message::new(DropBomb { armed: true });
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tree.react([(key, version_for("A", 1), bomb)]);
+    }));
+    let payload = unwound.expect_err("the armed destructor must unwind out of the apply walk");
+    assert_eq!(
+        panic_message(payload.as_ref()),
+        Some(DROP_BOMB_MESSAGE),
+        "the unwind must originate in the payload's destructor"
+    );
+
+    // The contained panic published nothing: root hash and ceiling are
+    // byte-identical to the pre-call state.
+    assert!(!tree.is_empty(), "the unwind publishes no emptied root");
+    assert_eq!(tree.hash(), hash_before, "the root hash is unchanged");
+    assert_eq!(
+        tree.latest(),
+        &ceiling_before,
+        "the ceiling is unchanged: no partial advance escapes the unwind"
+    );
+}
+
+/// `Tree::join`'s commit section is panic-atomic against its real mid-walk
+/// unwind source: a `T` destructor panicking as deletion honoring drops an
+/// incoming leaf's last handle.
+///
+/// The counterparty forked before our redaction, so it still holds the
+/// redacted leaf — uniquely, once our forget released our handles — and
+/// the leaf's version sits inside our ceiling, so the merge walk's
+/// deletion-honoring filter drops it mid-walk, running the payload's
+/// panicking destructor. The caught panic must be that destructor's own
+/// (proving the pin exercises the real source, not an incidental panic),
+/// and root hash and causal ceiling must both come through byte-identical:
+/// the emptied-root-under-live-ceiling shape that gossip would replicate
+/// never publishes.
+#[test]
+fn join_destructor_unwind_leaves_tree_byte_identical() {
+    // Our history: a keeper leaf, then the bomb, then a redaction of the
+    // bomb — the ceiling advances past the bomb's version while the
+    // content no longer holds it.
+    let mut ours: Tree<DropBomb> = Tree::new();
+    ours.act(
+        &party_of("A"),
+        [Action::Insert(Message::new(DropBomb { armed: false }))],
+    );
+    let bomb = Message::new(DropBomb { armed: true });
+    // The key `act` derives for the bomb's insert (the second action on
+    // this tree ticks party A to 2), computed up front so the redaction
+    // below can name it.
+    let bomb_key: Key = Path::for_leaf(&version_for("A", 2), bomb.bytes()).into();
+    ours.act(&party_of("A"), [Action::Insert(bomb)]);
+
+    // The counterparty forks while the bomb is live: the clone shares our
+    // nodes (no `T` code runs), and after our forget below releases our
+    // handles, the counterparty holds the bomb's only ones.
+    let theirs = ours.clone();
+    ours.act(&party_of("A"), [Action::Forget(bomb_key)]);
+
+    let hash_before = ours.hash();
+    let ceiling_before = ours.latest().clone();
+    assert!(!ours.is_empty());
+
+    // The bomb's version (A at 2) sits inside our post-forget ceiling
+    // (A at 3) and we lack its content, so deletion honoring drops the
+    // incoming leaf mid-walk: the last handle, the armed destructor.
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ours.join(theirs);
+    }));
+    let payload = unwound.expect_err("the armed destructor must unwind out of the merge walk");
+    assert_eq!(
+        panic_message(payload.as_ref()),
+        Some(DROP_BOMB_MESSAGE),
+        "the unwind must originate in the payload's destructor"
+    );
+
+    // The contained panic published nothing: root hash and ceiling are
+    // byte-identical to the pre-call state.
     assert!(!ours.is_empty(), "the unwind publishes no emptied root");
     assert_eq!(ours.hash(), hash_before, "the root hash is unchanged");
     assert_eq!(
