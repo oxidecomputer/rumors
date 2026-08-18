@@ -475,7 +475,7 @@ pub(super) fn charge_digits(
             // densified image.
             let mut product = factor.clone();
             product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
-            if sign.is_negative() == (digit < 0) {
+            if sign.is_negative() == digit.is_negative() {
                 total.add_magnitude_shl(&product, 32 * index);
             } else {
                 total.sub_magnitude_shl(&product, 32 * index);
@@ -498,7 +498,7 @@ pub(super) fn charge_digits(
                 "window digits are nonzero and balanced"
             );
             let offset = usize::try_from(index - floor_index).expect("inside the cluster span") * 4;
-            let (image, live) = &mut parts[usize::from(digit < 0)];
+            let (image, live) = &mut parts[usize::from(digit.is_negative())];
             image[offset..offset + 4].copy_from_slice(&(digit.unsigned_abs() as u32).to_le_bytes());
             *live = true;
         }

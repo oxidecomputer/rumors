@@ -58,10 +58,6 @@ exclude_re = [
     # direction has an empty discriminating class.
     "accumulator\\.rs.*: replace >>= with <<= in Accumulator::read_magnitude",
 
-    # Proven equivalent: at value 0 the digit loop never runs, so the sign
-    # flag the boundary feeds is unread.
-    "accumulator\\.rs.*: replace < with <= in Accumulator::deposit_value",
-
     # Performance genre, owner-declared benign fast path: the identity
     # guard routes cost and representation only (the comment at the site
     # carries the argument), and no honest meter band can price a zero
@@ -140,11 +136,6 @@ exclude_re = [
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::max_range",
 
     # --- before::version::skyline::query::integral ---
-
-    # Proven equivalent: window digit counts are nonzero by construction,
-    # so the strictness of the comparisons against them never
-    # discriminates (both `<` sites in the function).
-    "integral\\.rs.*: replace < with (<=|==|>) in charge_digits",
 
     # Performance genre: the boundary and freeze triggers tune engagement
     # thresholds inside the deliberate cost allowance; the verdicts and

@@ -5,10 +5,6 @@
       "listed": 2,
       "suppressed": 2
     },
-    "accumulator\\.rs.*: replace < with <= in Accumulator::deposit_value": {
-      "listed": 1,
-      "suppressed": 1
-    },
     "accumulator\\.rs.*: replace \\|\\| with && in Accumulator::shl": {
       "listed": 1,
       "suppressed": 1
@@ -40,10 +36,6 @@
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::max_range": {
       "listed": 3,
       "suppressed": 3
-    },
-    "integral\\.rs.*: replace < with (<=|==|>) in charge_digits": {
-      "listed": 6,
-      "suppressed": 6
     },
     "integral\\.rs.*: replace > with (==|<|>=) in Integrator::boundary": {
       "listed": 3,
