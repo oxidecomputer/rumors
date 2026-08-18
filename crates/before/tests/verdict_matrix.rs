@@ -2,7 +2,7 @@
 //! causal-relation question, cross-checked against its siblings over one
 //! roster-derived adversarial operand pool.
 //!
-//! # The goal (which wins over any mechanism below)
+//! # The goal
 //!
 //! A verdict bug on an adversarial path in any production answerer of the
 //! causal-relation question must separate from its siblings on one shared
