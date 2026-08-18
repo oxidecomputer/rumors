@@ -5,6 +5,10 @@
 # rewriting is needed. Only the minimal runtime set is published — not node_modules,
 # not the TypeScript sources, not the wasm-pack glue that esbuild already inlined.
 #
+# Actions are pinned to full commit SHAs with the source ref in a trailing
+# comment (tools/workflowlint enforces the shape; .github/dependabot.yml
+# carries the bump procedure).
+#
 # One-time setup: repo Settings > Pages > Build and deployment > Source = "GitHub Actions".
 name: Deploy before-viz to Pages
 
@@ -17,29 +21,35 @@ on:
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 # Allow one concurrent deployment; don't cancel an in-progress one mid-publish.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
+  # Permissions are per-job, least-privilege: the build job runs the most
+  # third-party code (npm postinstalls, wasm tooling) and holds only checkout
+  # rights, so nothing it executes can reach a deploy credential; the
+  # pages/id-token pair lives in the deploy job alone, which runs no
+  # third-party code beyond the pinned deploy action.
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
+      # The same SHA-pinned install path ci.yml uses, so both workflows
+      # share one provenance story for wasm-pack.
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        with:
+          tool: wasm-pack
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
           cache: npm
@@ -61,16 +71,19 @@ jobs:
           cp dist/app.js "$dest/dist/"
           cp pkg/before_viz_bg.wasm "$dest/pkg/"
 
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: _site
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
