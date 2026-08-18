@@ -41,10 +41,6 @@
       "listed": 1,
       "suppressed": 1
     },
-    "prescan\\.rs:320:26: replace > with >= in PreScan<'a, 'm>::record": {
-      "listed": 1,
-      "suppressed": 1
-    },
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::skip_collapse": {
       "listed": 3,
       "suppressed": 3
@@ -70,6 +66,10 @@
       "suppressed": 3
     },
     "integral\\.rs.*: replace \\+ with \\* in Integrator::settle_armings": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "prescan\\.rs:337:26: replace > with >= in PreScan<'a, 'm>::record": {
       "listed": 1,
       "suppressed": 1
     }
