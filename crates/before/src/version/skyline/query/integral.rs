@@ -865,6 +865,9 @@ impl Integrator {
         self.frozen = true;
         #[cfg(test)]
         FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
+        // Segment pricing first, with the segment mass untouched by any
+        // sign read (see settle_segment: a collapsing sign read could
+        // lower the scaled read's shift).
         self.settle_segment();
         if self.parked.digit_count() > base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS {
             self.promote();
@@ -889,6 +892,11 @@ impl Integrator {
     /// ([`banked_window`](Self::banked_window)) — one watermark read serving
     /// both consumers, priced by the segment's depth variation.
     fn settle_segment(&mut self) {
+        // The segment mass is priced with no prior sign read: sign queries
+        // count as writers to the accumulator's write watermark, so a
+        // collapsing sign read can lower the returned shift and surrender
+        // part of the never-written-prefix skip this pricing rests on —
+        // suanpan's witness `collapsing_sign_read_lowers_the_scaled_read_shift`.
         let (segment_sign, segment_magnitude, segment_shift) =
             self.segment_mass.sign_magnitude_shl();
         debug_assert_ne!(
@@ -934,6 +942,10 @@ impl Integrator {
         if parked_magnitude == UBig::ZERO {
             return;
         }
+        // No sign read precedes this scaled read either, for the reason
+        // stated at settle_segment: a collapsing sign read could lower the
+        // shift and surrender the never-written-prefix skip (suanpan's
+        // `collapsing_sign_read_lowers_the_scaled_read_shift`).
         let (segment_sign, segment_magnitude, segment_shift) =
             self.segment_mass.sign_magnitude_shl();
         debug_assert_ne!(

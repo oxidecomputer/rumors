@@ -3102,6 +3102,11 @@ mod skyline_flatness {
 
     /// The plunge residue's digit count at the guards' minimal decidable
     /// clearance: three-digit boundaries plus the two-digit certificate.
+    ///
+    /// The closed forms rest on every hop deciding without a descent: a
+    /// decision-bound top (the seam shapes' top digit 5) decides two digit
+    /// indexes below itself on its first touch — suanpan's witness
+    /// `decision_bound_top_decides_on_the_first_touch`.
     const SEAM_CLEARANCE: usize = 5;
 
     /// The clearance band's second point: the same hops decided with five

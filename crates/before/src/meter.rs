@@ -2685,7 +2685,8 @@ fn seam_rung() -> Base {
 /// The top digit of 5 makes every domination read a closed form: the sign
 /// fold's running partial reaches the decision bound (magnitude 3) at the top
 /// digit itself, so `sign_dominates_at` decides — or honestly refuses — on
-/// the digit-index clearance alone, with no descent.
+/// the digit-index clearance alone, with no descent, in one digit touch
+/// (suanpan's witness `decision_bound_top_decides_on_the_first_touch`).
 fn seam_wide(w: usize) -> Base {
     pow2(32 * (w - 1) + 2) + pow2(32 * (w - 1))
 }
